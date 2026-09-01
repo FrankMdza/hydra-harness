@@ -33,3 +33,16 @@ That makes process supervision a settled mechanism and live rendering a separate
 **Process exit is the authoritative end of a run.** Claude always writes exactly one `result` frame, Gemini usually does, Cursor only on success, Hermes never. So the lifecycle hangs off `wait()`, which is consistent with ticket 02's finding that Hydra owns the pty and is therefore the parent.
 
 Exit codes are useless as a common signal. Gemini has nine meaningful ones, Claude two, Cursor three, Hermes two, and Hermes returns 0 even when the agent turn failed. A shared status has to be derived per provider, and for Hermes it can only ever say "completed" or "crashed", never "the agent failed".
+
+## What ticket 11 settled, and what it leaves here
+
+Two of this ticket's questions are now answered elsewhere. Children are spawned **detached** and run **unwatched**, with permissions answered from a policy rather than by a human, so "does a delegated child get a visible pane" is settled as no. Nothing escalates to a person by default.
+
+What that hands back to this ticket is the reaping problem, which is now the bigger half of it:
+
+- `hydra status` reconciling live pids against open run files, and what it does with a run file whose process is gone
+- Cleaning up worktrees left behind by children that crashed, and who decides a branch is abandoned
+- What the concurrency cap does when it is hit: queue, refuse, or block
+- How you observe an unwatched child while it runs, given the run file is the only channel and D5 forbids inventing a second one
+
+The launch path itself is simpler than it was. Ticket 02 put Hydra on the pty as the parent, ticket 11 made every child detached, and ticket 01 made process exit the authoritative end of a run. So launch and teardown are ordinary process work, and the interesting questions left are all about what happens to the wreckage.
