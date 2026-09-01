@@ -37,7 +37,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - **D11** Spec both Ouroboros rungs, ship rung one. Rung one edits skills, prompts and config. Rung two edits Hydra's own source behind a sandbox, a test gate and a diff quorum.
 - **D12** Training is out of scope. Lossless export to SFT and DPO formats stays a constraint on the record.
 - **D13** Hydra is standalone. Hermes is worth copying, not depending on.
-- **D14** Hermes is a fourth routable provider, which brings xAI and Nous along for free.
+- **D14** Hermes is a fourth routable provider. Corrected by ticket 08: it brings neither xAI nor Nous, because neither account exists and xAI is out of scope by choice. What it actually contributes is a Copilot token lifted from the `gh` CLI.
 - **D15** Hydra gets its own curator, built on Hermes' guardrail rules rather than Hermes' code.
 
 ## Decisions so far
@@ -52,6 +52,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [07 - Rust TUI against Textual](issues/07-tui-framework-cost.md): Textual wins on streaming markdown and the diff viewer, where ratatui costs 2 to 3 weeks of hand-built work. Live pane attach is the one thing that could put a third channel between the two systems, which is now ticket 09's problem.
 - [01 - Provider headless modes](issues/01-provider-headless-survey.md): drive ACP rather than print mode, because print mode leaves only five fields common to all four. Gemini's OAuth path is dead on this machine, which opens ticket 18. Ten named gaps become the record's optional fields, and Hydra must own run ids, timestamps and delegation lineage itself.
 - [09 - The run record schema](issues/09-run-record-schema.md): one file per run, envelope plus verbatim raw frame, eleven normalized event types derived at read time. Usage carries a `usage_source`, so Cursor is `estimated` from a model-aware tokenizer rather than a fake zero. Redaction happens at export, which graduated ticket 19.
+- [08 - Account and tier inventory](issues/08-account-inventory.md): one account per provider, so ticket 12 builds no rotation. Anthropic has no API key and no credit, and ticket 04 already ruled out carrying the subscription upstream, so it is agent-CLI only. The raw-model plane is one Google AI Studio key and one borrowed Copilot token. D14 corrected above.
 
 ## Not yet specified
 
@@ -59,7 +60,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - **Langfuse.** Optional viewer that tails `~/hydra/runs/`, never the source of truth. Revisit once there are enough records to be worth browsing.
 - **MCP server config across providers.** Each provider has its own MCP config file. Whether Hydra unifies them, injects into them, or leaves them alone is unclear until the skill injection strategy closes.
 - **Cost and budget accounting across pooled accounts.** Hermes tracks credential exhaustion; whether Hydra needs its own view of spend depends on how the raw-model plane ends up structured.
-- **Antigravity as the Google provider.** `agy` is the only Google surface pairing the Gemini Pro subscription with an agent, but it emits nothing structured. Concrete trigger to revisit: if `agy` grows an `--output-format` flag, ticket 18 reopens immediately.
+- **Antigravity as the Google provider.** `agy` is the only Google surface pairing the Gemini Pro subscription with an agent, but it emits nothing structured. Ticket 08 rechecked at version 1.0.10: still `--print` only, no `--output-format`, and nobody has logged in yet. Concrete trigger to revisit: if `agy` grows an `--output-format` flag, ticket 18 reopens immediately.
 - **Multi-machine use.** Whether run records, skills and auth follow you to another machine.
 
 ## Out of scope
