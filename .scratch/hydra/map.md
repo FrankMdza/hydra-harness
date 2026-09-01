@@ -33,7 +33,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - **D7** The CLI is the real interface, MCP is a face over it. `hydra run --provider <p> --task "..." --parent <session-id>` returns JSON on stdout; a thin MCP wrapper gives Claude Code a typed `delegate` tool over the same path.
 - **D8** The router core is Rust. A self-edit that does not compile never reaches review.
 - **D9** One canonical `~/hydra/skills/`, symlinked into the Claude and Cursor locations, plugin-wrapped for Gemini. Corrected by ticket 03: the Cursor target is `~/.cursor/skills/`, not `~/.cursor/skills-cursor`, which is Cursor's own managed cache.
-- **D10** Run records are plain JSONL on disk under `~/hydra/runs/`, one file per session, and they are the source of truth. Nothing needs to be running for the harness to work.
+- **D10** Run records are plain JSONL on disk under `~/hydra/runs/`, and they are the source of truth. Nothing needs to be running for the harness to work. Clarified by ticket 09: one file per **run**, named by a UUIDv7, with a session being a tree of runs linked by `parent_run_id`.
 - **D11** Spec both Ouroboros rungs, ship rung one. Rung one edits skills, prompts and config. Rung two edits Hydra's own source behind a sandbox, a test gate and a diff quorum.
 - **D12** Training is out of scope. Lossless export to SFT and DPO formats stays a constraint on the record.
 - **D13** Hydra is standalone. Hermes is worth copying, not depending on.
@@ -51,12 +51,12 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [05 - Hermes curator rules](issues/05-hermes-curator-rules.md): fifteen rules with their reasons, plus two Hermes bugs not to copy. Its model is told archiving is recoverable while the tool it calls runs `shutil.rmtree`, so the lesson is that a guarantee written in a prompt is not a guarantee.
 - [07 - Rust TUI against Textual](issues/07-tui-framework-cost.md): Textual wins on streaming markdown and the diff viewer, where ratatui costs 2 to 3 weeks of hand-built work. Live pane attach is the one thing that could put a third channel between the two systems, which is now ticket 09's problem.
 - [01 - Provider headless modes](issues/01-provider-headless-survey.md): drive ACP rather than print mode, because print mode leaves only five fields common to all four. Gemini's OAuth path is dead on this machine, which opens ticket 18. Ten named gaps become the record's optional fields, and Hydra must own run ids, timestamps and delegation lineage itself.
+- [09 - The run record schema](issues/09-run-record-schema.md): one file per run, envelope plus verbatim raw frame, eleven normalized event types derived at read time. Usage carries a `usage_source`, so Cursor is `estimated` from a model-aware tokenizer rather than a fake zero. Redaction happens at export, which graduated ticket 19.
 
 ## Not yet specified
 
 - **The TUI.** Deferred by D3. Ticket 07 settled the framework: Textual, so the TUI is a separate Python process reading `~/hydra/runs/` while the core stays Rust. The interface itself, widget set, diff viewer, session switcher, stays unspecified during this map. `textual-diff-view` from Toad is the starting point when it is built.
 - **Langfuse.** Optional viewer that tails `~/hydra/runs/`, never the source of truth. Revisit once there are enough records to be worth browsing.
-- **The SFT and DPO exporter.** D12 keeps the constraint in scope and the tool out. The shape of the exporter waits until the record schema closes.
 - **MCP server config across providers.** Each provider has its own MCP config file. Whether Hydra unifies them, injects into them, or leaves them alone is unclear until the skill injection strategy closes.
 - **Cost and budget accounting across pooled accounts.** Hermes tracks credential exhaustion; whether Hydra needs its own view of spend depends on how the raw-model plane ends up structured.
 - **Antigravity as the Google provider.** `agy` is the only Google surface pairing the Gemini Pro subscription with an agent, but it emits nothing structured. Concrete trigger to revisit: if `agy` grows an `--output-format` flag, ticket 18 reopens immediately.
