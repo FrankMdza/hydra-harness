@@ -25,3 +25,18 @@ Scenario to test against: Ouroboros rewrites a skill mid-session while three pro
 - **One `SKILL.md` serves all four providers unchanged**, carrying only `name` and `description`. No frontmatter field forces a generated wrapper, so injection can stay a symlink farm.
 - **Two gaps have to close before this ticket can specify injection.** Claude Code follows symlinked skill directories, documented and proven live. Hermes does, from its glob semantics. Whether Cursor and Gemini follow symlinks is unconfirmed, because ticket 03 was read-only against live config. If either does not, that provider needs a copy step and the propagation question changes with it.
 - **Gemini's plugin path is a version detail, not a contract.** `~/.gemini/config/plugins/` already diverges from every public doc and carries a `.migrated` marker.
+
+## What the symlink test found
+
+Both gaps above are closed, and the answers are not symmetrical.
+
+- **Gemini follows a symlinked skill directory** and ignores a symlinked `SKILL.md` inside a real
+  one, silently. So injection links directories, never files. Its personal path is
+  `~/.gemini/skills/<name>/SKILL.md` with no plugin wrapper, which makes D9's "plugin-wrapped for
+  Gemini" wrong at 0.42.0.
+- **Cursor has no skills concept** at the installed 2025.10.02 build. It reads `.mdc` rules found by
+  walking up from the project root. So the ticket's injection question forks for Cursor: convert to
+  `.mdc`, or leave Cursor out of the shared store until it is updated.
+
+Detail, method and the two things still unverified in
+[research/10-symlink-resolution.md](../research/10-symlink-resolution.md).

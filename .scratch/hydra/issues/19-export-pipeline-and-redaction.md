@@ -18,3 +18,14 @@ Settle:
 - **Deduplication**, if the corpus turns out repetitive enough to need it
 
 D12 keeps model training out of scope. This ticket produces the files a training run would consume, and stops there.
+
+## What the format survey found
+
+Formats, shapes and sources in
+[research/19-export-formats-and-redaction.md](../research/19-export-formats-and-redaction.md).
+
+The formats disagree precisely on tool traffic, which is most of an agent trajectory, so the choice
+of SFT shape is not cosmetic. OpenAI's preference format is single-turn and text only, while TRL's
+takes full message lists with tool support, which is what decides whether SFT and DPO can come from
+one pass. Neither gitleaks nor trufflehog rewrites content, so Hydra writes the redactor whatever it
+wraps.

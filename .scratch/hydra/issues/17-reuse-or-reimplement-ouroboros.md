@@ -21,3 +21,17 @@ Settle:
 Weigh it against what the ticket 05 findings established: a guarantee written in a prompt is not a guarantee. Reusing code you have not read is the same failure mode one level up.
 
 Whatever this decides, ticket 15 designs against it.
+
+## What the code survey found
+
+Read of the tree at `main`, tip `e9dfb359` dated 2026-08-30, in
+[research/17-ouroboros-reuse.md](../research/17-ouroboros-reuse.md).
+
+Two things it corrects. The 63.5% block rate is not in the code and is not computed by it, so it is
+a number from the paper's Table 4 about one deployment rather than a property of the software. And
+`config.py:208` ships `OUROBOROS_REVIEW_ENFORCEMENT: "advisory"`, so review does not block by
+default at all. Ticket 06's union veto and responsiveness quorum both hold, with file and line.
+
+The scale and the cadence are the other half of the decision: 608,552 lines of Python with the
+review panel alone at 32,650, and 1,324 commits in eight weeks, accelerating, 61% of them authored
+by Ouroboros itself.
