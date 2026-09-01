@@ -32,3 +32,23 @@ The inventory removes a component and dissolves the scenario above.
 **On the first question, the answer looks like yes.** Each vendor CLI already owns its login and keeps it somewhere Hydra has no reason to touch: Claude Code and Cursor in the macOS Keychain, Google either in `agy` or in `GEMINI_API_KEY`. Hydra launching the CLI and letting it authenticate itself satisfies D6 by writing no code, which this ticket asked to be stated out loud.
 
 Full inventory in [research/08-account-inventory.md](../research/08-account-inventory.md).
+
+## What ticket 18 found
+
+**Google leaves the raw plane.** The Google provider is `agy` on the Google AI Pro subscription,
+which authenticates itself by browser OAuth and needs no key. The raw-model plane keeps the AI
+Studio key only as a cold fallback, so it now holds one unused Google key and one borrowed Copilot
+token. Do not build a plane around that.
+
+**D16 is the new constraint here.** The Cloud project behind `GEMINI_API_KEY` has billing enabled,
+so Hydra never spends on it without asking. That turns "where do the keys live" into a smaller
+question than this ticket assumed: the key already lives in the environment, and what matters is
+the gate in front of it rather than the storage under it.
+
+**The first question is answered, with a correction to how.** Each vendor CLI owns its own login,
+as ticket 08 said. The correction is that `~/.gemini/settings.json` proves Hydra cannot be entirely
+hands-off: `selectedAuthType: oauth-personal` was pinned there, so `gemini` ignored a working
+`GEMINI_API_KEY` and failed with `IneligibleTierError` for reasons that had nothing to do with the
+key. If Hydra ever promotes the fallback, it has to set the auth type per run. `GEMINI_CLI_HOME`
+points the CLI at a different config root, which is how to do that without touching the user's own
+`~/.gemini/`.

@@ -58,3 +58,17 @@ That field earns its place on Hermes, where status can only ever be `completed` 
 **The MCP face is narrow: `delegate(provider, task, files?, policy?)`.** No `--shared-tree`, no timeout override, no depth. Those three are how a delegation escapes its worktree, outlives its budget or spawns a tree, and they belong in config as a human decision rather than a per-call choice a model makes unattended. The CLI keeps the full surface.
 
 **Not decided here, and left to the harness spec:** how the four incompatible tool-call representations map onto one shape. Ticket 09 already noted this is adapter work, and keeping the raw frame makes getting it wrong recoverable.
+
+## Amended by ticket 18
+
+**`agy` joins Cursor in the category that cannot be asked.** This ticket's answer has Hydra
+answering permission prompts from a policy and writing a `permission_decision` event with decider
+`policy`. That is not possible for `agy` at 1.1.23. Its stream-json input accepts exactly one
+message shape, `{"event":"user","message":{"content":"..."}}`, and anything else comes back as
+`warning: ignoring unsupported stream input message event`, `permission_response` included.
+Permission refusals surface as tool errors after the fact, never as answerable requests.
+
+So `agy` gets `--dangerously-skip-permissions` only under a fully permissive policy, and under any
+narrower policy it can be delegated read-only work. Same shape as Cursor's `--force`, and the
+worktree is again what makes it survivable. Two of four providers now sit in this category, which
+is worth weighing before the policy engine gets built for the other two.

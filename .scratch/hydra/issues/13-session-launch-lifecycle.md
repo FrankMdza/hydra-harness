@@ -46,3 +46,22 @@ What that hands back to this ticket is the reaping problem, which is now the big
 - How you observe an unwatched child while it runs, given the run file is the only channel and D5 forbids inventing a second one
 
 The launch path itself is simpler than it was. Ticket 02 put Hydra on the pty as the parent, ticket 11 made every child detached, and ticket 01 made process exit the authoritative end of a run. So launch and teardown are ordinary process work, and the interesting questions left are all about what happens to the wreckage.
+
+## What ticket 18 found
+
+**Launch flags that are not optional.** `gemini` refuses to run headless in an untrusted directory
+and needs `--skip-trust` or `GEMINI_CLI_TRUST_WORKSPACE=true`. `agy` takes its prompt attached to
+the flag, `-p=<prompt>`, because a bare `-p` swallows the next argument as the prompt and silently
+drops the real one.
+
+**Session identity is solved for Google.** `agy` mints a `conversation_id` in its `init` event and
+`--conversation <id>` resumes it, so the provider's own session concept is stable and addressable.
+
+**Relative paths do not land in the launch cwd.** With `--dangerously-skip-permissions`, a probe
+that wrote `probe.txt` put it in `~/.gemini/antigravity-cli/scratch/`, not the directory Hydra
+launched from. Any assumption that the child writes where the parent stands is wrong for `agy`.
+
+**Permission mode is a launch decision, not a runtime one.** `agy` print mode reports
+`permission_mode: request-review` and auto-denies acting tools mid-run, reporting the refusal as a
+tool `ERROR`. Reading tools still work. There is no way to answer a prompt once the process is
+running, so the mode has to be chosen at spawn.
