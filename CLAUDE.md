@@ -1,7 +1,8 @@
 # Hydra
 
-Hydra is a router over four agent CLIs (`claude`, `cursor-agent`, `agy`, `hermes`), plus
-Ouroboros, a self-improvement loop that reads what the router records. The router core is Rust.
+Hydra is a router over three agent CLIs (`claude`, `cursor-agent`, `agy`), plus Ouroboros, a
+self-improvement loop that reads what the router records. The router core is Rust. `hermes` was a
+fourth until ticket 22 unrouted it; its guardrail rules are still copied, its binary is not launched.
 
 There is no application code yet. This repo currently holds a design in progress.
 

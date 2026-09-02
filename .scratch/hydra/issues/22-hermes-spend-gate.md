@@ -1,7 +1,7 @@
 # 22 - Where D16's gate sits for hermes
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 21
 
 ## Question
@@ -53,3 +53,62 @@ Settle:
 
 This is the first case where a provider's own state can defeat a harness-level control, so the
 answer sets the precedent for any provider that behaves the same way later.
+
+## Answer
+
+**Hermes is not routable in v1, and D14 is amended.** The gate this ticket was opened to design does
+not get built, because the provider it would gate is not launched.
+
+### Why it goes
+
+D14 made hermes a fourth routable provider on the strength of the accounts it would bring. Every
+part of that has since failed:
+
+- Ticket 08 found neither the xAI nor the Nous account exists
+- Ticket 12 found the Copilot token exchange has never succeeded, and the failure is swallowed
+- This ticket found the rest is junk: a 1-character `access_token` on the `gemini` pool entry, an
+  empty `GOOGLE_API_KEY` in `~/.hermes/.env`, and Spotify as the only entry under `providers`
+
+So hermes holds nothing that works, and it is the only provider Hydra cannot gate through the
+environment, because `~/.hermes/.env` loads with `override=True` and beats anything Hydra passes.
+
+D13 already says Hermes is worth copying rather than depending on, and D15 takes its guardrail rules
+rather than its code. What this project gets from Hermes is ticket 05's fifteen rules. It does not
+need to launch the binary to have them.
+
+Three providers that work beat four where one is theatre.
+
+### The rule this sets, which outlives the decision
+
+**A provider Hydra cannot gate is either given a config root Hydra owns, or not routed.** There is
+no third branch where Hydra launches it and records that the gate did not apply. That would make
+D16 a preference.
+
+`HERMES_HOME` is what the first branch looks like in practice. It redirects both `auth.json`
+(`hermes_cli/auth.py:803`) and `.env` (`hermes_constants.py:387`), so the mechanism exists and is
+specced if hermes ever comes back with a working credential. It comes off ticket 21's never-pass
+list for that reason.
+
+**Hydra still never writes into a vendor's own config.** Redirecting a provider's config root is not
+the same as editing the user's, and ticket 12's rule holds unchanged.
+
+### What the record carries
+
+`auth.gated`, a boolean, beside the three fields ticket 12 added. On a provider Hydra fully controls
+it is always true, so it costs nothing to carry. If Q2's rule holds, `false` is unreachable in v1,
+which makes a `false` appearing in the corpus later a signal that something about the provider set
+changed. Ticket 09 owns the schema; this is input to it.
+
+### Knock-on effects
+
+**The raw-model plane is now emptier than ticket 12 left it.** Its two entries were the gated Gemini
+fallback and the Copilot token lifted from `gh`. The Copilot token only ever reached Hydra through
+hermes, so with hermes unrouted it has no consumer at all. In v1 the raw plane is one gated Gemini
+fallback and nothing else.
+
+**Ticket 09's schema rules survive without hermes.** "The schema must not require a terminator
+event" was justified by Hermes writing none, but `cursor-agent` writes one only on success, so the
+rule stands on its own.
+
+**Ticket 21's hermes measurements stay useful.** They are the evidence for this decision, and they
+are what the spec cites if the provider is ever reconsidered.

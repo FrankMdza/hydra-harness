@@ -104,3 +104,15 @@ empty a moment earlier.
 **Only the owning process appends to a run file.** Death is derived by a reader, never written by a
 bystander. Harvest does not break this, because Hydra owns the file throughout and the child never
 touches it.
+
+## Amended by ticket 22
+
+**`auth.gated` joins the auth fields.** A boolean beside `auth.mechanism`, `auth.source` and
+`auth.allow_billed`. It is true on any provider Hydra fully controls, so it costs nothing in v1
+where every routed provider qualifies. It exists so a run that was actually gated is
+distinguishable from one where Hydra could not enforce the gate, rather than something a reader
+infers from which provider ran.
+
+**Hermes leaves the provider set, and the schema does not change for it.** "The schema must not
+require a terminator event" was justified by Hermes writing none, but `cursor-agent` writes one only
+on success, so the rule stands without it.
