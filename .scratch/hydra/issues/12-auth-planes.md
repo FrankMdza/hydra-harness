@@ -153,10 +153,27 @@ detached child cannot complete a browser login.
 Flow shapes, checked 2026-09-02. `gemini` 0.42.0 uses a loopback redirect. Its 84-chunk bundle
 carries `oauth2callback`, `http://localhost` and `createServer`, with zero `device_code` and zero
 `user_code`, so the browser hands the code to a server the CLI runs itself and nothing is pasted
-through the terminal. `agy` is a Mach-O binary carrying both shapes, 6 hits on `http://localhost`
-against 3 on `device_code` and 1 on `user_code`, and which path it takes is unconfirmed. The teeing
-suspension covers it either way, so this is worth confirming while implementing rather than as a
-map ticket.
+through the terminal.
+
+`agy` never asks for a pasted code either, settled the same day. Its `device_code` and `user_code`
+strings belong to `google3/third_party/golang/oauth2/oauth2.(*Config).DeviceAuth`, Google's vendored
+copy of `golang.org/x/oauth2`. That package ships device-flow support unconditionally and Go links
+whole packages, so the symbols say nothing about what `agy` calls. The nearby strings
+`endpoint missing DeviceAuthURL` and `oauth2: cannot auth device: %v` are that library's own error
+text. No loopback callback URL literal is in the binary either.
+
+What `agy` does instead is better than this ticket assumed. It carries a first-class
+`AuthResult_HeadlessAuthRequired` state, with `GetHeadlessAuthRequired` and a `HeadlessAuthWriter`
+beside it, so a login it cannot complete becomes a typed result rather than an improvised terminal
+prompt. Interactive login prints `Open in your browser: %s`, which sends a URL out and takes nothing
+back through the pty. On this machine the credential is already cached: `server_oauth.go:192` logged
+`applyAuthResult: email=<address>, authMethod=consumer` 250ms after process start on 2026-09-01,
+with no browser involved.
+
+So Hydra does not sniff for a paste prompt on Google. It reads `HeadlessAuthRequired`, which is
+exactly the signal the pre-flight check and the auth-failure outcome need. The teeing suspension
+stays as the generic net for the other three providers, where nothing equivalent is confirmed. The
+remediation string for Google is to run `agy` once interactively and follow its prompts.
 
 ### What the record carries about auth
 
