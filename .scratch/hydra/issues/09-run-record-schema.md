@@ -87,3 +87,20 @@ nothing else, so a field called `plane` would be a synonym for mechanism. Carry 
 
 Ticket 12 also needs a terminal outcome for auth failure that is distinct from task failure, so
 Ouroboros never reads an expired token as a lesson. Ticket 14 owns the signature taxonomy.
+
+## Amended by ticket 13
+
+**The opening envelope carries the pid and the process start time.** Liveness is derived by checking
+whether a process matching both still exists. The start time is not optional, because macOS recycles
+pids. This is what lets `hydra status` tell a running run from an abandoned one without a sidecar or
+a lockfile, which keeps the record the only source of truth under D10.
+
+**A record needs to say where its body came from.** Interactive runs are recorded by harvesting the
+vendor's own transcript at exit rather than by streaming, so the schema wants provenance beside
+`usage_source`: a live stream and a post-hoc harvest are not the same evidence. A harvested record
+also arrives all at once at the end, so anything reading records has to cope with a body that was
+empty a moment earlier.
+
+**Only the owning process appends to a run file.** Death is derived by a reader, never written by a
+bystander. Harvest does not break this, because Hydra owns the file throughout and the child never
+touches it.

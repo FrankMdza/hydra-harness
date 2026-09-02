@@ -84,3 +84,13 @@ plane does not ship in v1. No inherited secret, because Hydra builds each child'
 an allowlist. No browser login, because children spawn detached and a detached process cannot
 complete OAuth. A child that hits an auth wall fails fast with a remediation string naming the
 provider and the command the human should run.
+
+## Amended by ticket 13
+
+**The concurrency cap refuses rather than queues or blocks.** It returns a typed error naming what
+is in flight and its run ids, so the caller decides. Queueing needs a live scheduler, which D10
+rules out, and blocking parks the orchestrator that delegation exists to protect.
+
+**Reaping a crashed child never destroys its work.** `hydra reap` is typed by a human, and it
+commits a worktree's uncommitted changes to the child's own branch before removing the worktree.
+Abandonment is derived from the run record's pid and start time, not from a timeout.

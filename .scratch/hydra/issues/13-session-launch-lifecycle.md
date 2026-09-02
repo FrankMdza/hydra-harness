@@ -1,7 +1,7 @@
 # 13 - Session launch and pane lifecycle
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: 02, 11
 
 ## Question
@@ -65,3 +65,102 @@ launched from. Any assumption that the child writes where the parent stands is w
 `permission_mode: request-review` and auto-denies acting tools mid-run, reporting the refusal as a
 tool `ERROR`. Reading tools still work. There is no way to answer a prompt once the process is
 running, so the mode has to be chosen at spawn.
+
+## Answer
+
+**Hydra owns the pty, every run file is self-describing, and nothing cleans up without being told
+to.** The launch path was already mostly settled by tickets 02, 01, 11 and 18. What this ticket
+adds is the wreckage handling, plus one collision nobody had noticed between D3 and ticket 01.
+
+### The collision, and the split it forces
+
+D3 says no custom TUI in v1 and the vendor CLIs keep their own. Ticket 01 says drive ACP, because
+print mode leaves only five fields common to all four providers. Both cannot hold in one process.
+ACP makes the CLI a server and the client draws the interface, so a CLI in ACP mode has no TUI to
+keep, and `stream-json` print mode is the same story.
+
+So interactive and recorded are two launch modes, not one. An interactive run lets the vendor own
+the terminal and records thin. A delegated or scripted run goes through ACP or print mode and
+records in full. D4's correction already named this axis, the recorded path against the interactive
+path, so the concept is not new, only its consequence.
+
+The consequence is that Ouroboros learns from run records, and thin records teach it nothing.
+
+### Harvest closes the gap
+
+Every provider already writes its own transcript. `claude` keeps append-only `.jsonl` under
+`~/.claude/projects/<slug>/`, and it writes them live: the file for a running session grows during
+the session, confirmed 2026-09-02 against this repo's own session. `agy` keeps
+`conversation_summaries.db` and a `brain` directory under `~/.gemini/antigravity-cli/`.
+`cursor-agent` keeps per-chat directories under `~/.cursor/chats`.
+
+When an interactive run exits, Hydra converts the vendor's transcript into the run record. That
+keeps the run record as the single contract D5 requires, and an interactive session is recorded
+late rather than not at all.
+
+**Harvest at exit is the contract. Live tailing is a per-provider optimisation.** Only `claude` is
+confirmed to write an append-only log during the run, so only `claude` interactive runs can stream.
+A contract three providers cannot meet is not a contract. The spec states the streaming answer per
+provider rather than promising one it breaks three times in four.
+
+**Harvest is idempotent and any process can do it.** The run envelope names the provider and its
+session id, so harvest is a pure function of two files on disk and does not care who runs it or
+when. `hydra status` finds a dead run with an unharvested body and completes it. This is what
+closes the scenario at the bottom of this ticket, and it keeps D10 true down to the recorder itself.
+
+### Liveness is derived, never announced
+
+The pid and the process start time go in the run file's opening envelope, which Hydra writes at
+launch anyway. A run is alive when a process matching both still exists. The start time is not
+optional, because macOS recycles pids and a bare pid can point at something unrelated.
+
+No sidecar, no lockfile, no second source of truth to contradict D10. And the rule that falls out
+of it: **nothing appends to a run file except the process that owns it.** Death is a conclusion a
+reader draws, never an event a bystander writes. Harvest does not break this, because Hydra owns
+the run file throughout and the child never touches it.
+
+### Session identity
+
+Hydra mints the run id, ticket 09 already fixed it as UUIDv7, and records the provider's own session
+id beside it as a field. `agy` gives a `conversation_id`, `claude` has its own, and `hydra resume
+<run-id>` reads that field and hands the provider its own resume flag. Hydra never reconstructs
+conversation state itself.
+
+A resumed run gets a fresh run id linked to the old one, so one file per run survives intact. Where
+a provider has no resume concept, resume fails loudly instead of starting a fresh conversation
+dressed up as a continuation.
+
+### Watching, capping, reaping
+
+**Observation is read-only.** Children run detached and unwatched per ticket 11, and D5 forbids a
+second channel, so `hydra logs <run-id> --follow` tailing the run file is the only view. No attach,
+no input, no answering a permission prompt from outside. Ticket 11 made permissions policy-driven
+and ticket 18 found `agy` cannot be asked anything mid-run, so this is the only coherent shape
+rather than a compromise.
+
+**The concurrency cap refuses.** It returns a typed error naming what is in flight and its run ids.
+Queueing needs a scheduler and a live process to drain it, which D10 rules out. Blocking parks the
+orchestrator, and ticket 11 says delegation exists to save its context. Refusing lets the caller
+decide, and an agent can act on the error instead of hanging.
+
+**Nothing is cleaned up automatically.** `hydra prune` and `hydra reap` are commands you type.
+Prune moves run files rather than deleting them, unless a flag says otherwise, because D12 keeps
+lossless export as a standing constraint and anything deleted is training data destroyed. Reap
+never removes a worktree with uncommitted changes: it commits them to the child's own branch first.
+Ouroboros cannot call either at either rung.
+
+This is ticket 05's lesson turned on our own tooling. Hermes told its model that archiving was
+recoverable while the tool underneath called `shutil.rmtree`, so a guarantee written in a prompt is
+not a guarantee.
+
+### The scenario
+
+You close the Ghostty window on a session with two children mid-flight. Hydra dies. The children
+are detached, so they keep running and keep writing their own run files. The interactive session's
+run file holds an envelope with a pid nothing matches any more, and the vendor transcript sits on
+disk unharvested.
+
+The next `hydra status` reconciles all three. It derives the parent as dead, harvests its body from
+the vendor transcript, and reports the two children as alive by matching pid and start time. If
+they later die badly, their worktrees show up as abandoned and wait for a `hydra reap` you type.
+Nothing was lost and nothing needed to be running.

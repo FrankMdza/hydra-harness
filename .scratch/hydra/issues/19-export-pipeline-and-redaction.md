@@ -54,3 +54,10 @@ path by which any of this leaves the laptop, which is what makes redaction here 
 `api_key_env_vars`, and `CURSOR_AUTH_TOKEN`, `CURSOR_API_KEY`, `AGY_ADC_AUTH`, `JETSKI_OAUTH_TOKEN`
 and `GOOGLE_APPLICATION_CREDENTIALS` all carry credentials. Full per-provider lists in
 [research/21-provider-env-requirements.md](../research/21-provider-env-requirements.md).
+
+## What ticket 13 added
+
+**Harvested records bring a second source of untrusted content.** Interactive runs are recorded by
+converting the vendor's own transcript, so whatever an agent read during an interactive session
+enters the record through a path that never passed the write-time filter. Redaction here has to
+cover harvested bodies, not only streamed frames.

@@ -64,3 +64,14 @@ string that names the provider and the command to re-authenticate.
 
 The signature taxonomy is this ticket's to own. The failure-signals research names truncation, rate
 limit and quota classes and no auth class at all, so that slot is empty and needs filling here.
+
+## What ticket 13 added
+
+**Some records arrive late and in a different shape.** Interactive runs cannot stream, because a
+vendor CLI keeping its own TUI cannot also speak ACP. They are harvested from the vendor's own
+transcript when the run exits, and for `agy` and `cursor-agent` that transcript is a sqlite database
+or a chat directory rather than an append-only log. So rung one reads a corpus of mixed provenance,
+and a run that looks empty may simply not have been harvested yet.
+
+**Ouroboros cannot call `hydra prune` or `hydra reap` at either rung.** Cleanup stays a human
+command, so nothing the loop does can destroy the evidence it learns from.
