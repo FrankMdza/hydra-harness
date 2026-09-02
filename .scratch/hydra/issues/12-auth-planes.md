@@ -1,7 +1,7 @@
 # 12 - The two auth planes, and where secrets live
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 04, 08, 18
 
 ## Question
@@ -76,3 +76,131 @@ Method and detail in [research/12-auth-evidence.md](../research/12-auth-evidence
   plaintext and expired.
 - **One provider secret lives in the environment**, `GEMINI_API_KEY`, exported from `~/.zshrc`.
   Every other provider reads a store. That is the raw input for what a delegated child receives.
+
+## Answer
+
+**Hydra runs on subscription OAuth and holds no provider credential.** Every vendor CLI owns its
+own login in the macOS Keychain. Hydra launches the CLI and stays out of the way, which satisfies
+D6 by writing no code. The only secret Hydra ever handles is `GEMINI_API_KEY`, and only on a run
+where a human typed `--allow-billed`.
+
+The ticket asked six questions. Three died on the evidence from tickets 08 and 18 and the
+2026-09-01 evidence pass. The three that survived produced seven decisions.
+
+### The raw-model plane does not ship in v1
+
+D4 is amended. Nothing on that plane has ever run: ticket 18 moved Google off it, and the Copilot
+half never completed its token exchange, so `request_count` is 0 across the pool. Building LiteLLM,
+virtual keys and a credential store around that is speccing fiction.
+
+v1 ships the agent-CLI plane only. The raw plane is one gated path, `GEMINI_API_KEY` handed to
+`gemini`, and nothing else. The harness spec names it as an extension point and builds none of it.
+Ticket 04's virtual-key finding is not discarded; it is the design for the day the plane gets built.
+
+### Children get an allowlisted environment
+
+`GEMINI_API_KEY` is exported on line 1 of `~/.zshrc`, so today every child Hydra spawns inherits it
+silently. That makes D6 false in practice while nobody notices.
+
+Hydra builds each child's environment from an allowlist: `PATH`, `HOME`, `TERM`, `LANG`, plus
+whatever a given provider genuinely needs. No secret arrives by inheritance. The raw plane injects
+the key deliberately, per run, after approval. This is the only place D6 requires real code.
+
+### `--allow-billed`, typed per run, never inherited
+
+D16 needed a mechanism. A blocking prompt trains you to hit yes and a config toggle stays on for
+months, so it is a flag in argv. An agent that did not have it in its argv cannot reach the money
+path, and the flag lands in the run record as an argument, so the record shows why a run was
+allowed to spend.
+
+Delegation cannot set it and cannot pass it down. Ticket 11's policy has no authority over this
+flag, and a child needing the billed path hits the auth wall below like any other. Ticket 11 caps
+depth at 2, so without this rule an agent two levels away from the human could spend. The record
+can never show a spend nobody authorised.
+
+### The write-time filter strips what Hydra injected
+
+Ticket 09 filters "the ones visible in its auth config" at write time. Hydra has no auth config, so
+that list would be empty and the promise hollow.
+
+The list is instead the values Hydra injected for that run: `GEMINI_API_KEY` on an approved run,
+nothing otherwise. Hydra knows the value at injection time, so it strips that exact string from
+frames as it writes them. That is a guarantee it can keep.
+
+The leak this closes has nothing to do with where the key is stored. An agent runs `env` or reads
+`~/.zshrc`, the provider streams that output back as a frame, and ticket 09 writes frames verbatim.
+Hydra never stored the key and it lands on disk anyway. Broad scanning for anything key-shaped is
+best-effort by nature and belongs to ticket 19 at export, not to a write-time guarantee.
+
+### Auth failure is its own run outcome, and it says what to do
+
+An expired token is not a task failure. Ouroboros rung one must never evolve a skill because a
+login lapsed. The run ends on a distinct terminal outcome carrying a remediation string that names
+the provider and the command to run. Hydra refreshes nothing, since the CLI owns its own login.
+
+Ticket 14's failure-signals research names truncation, rate limit and quota classes and no auth
+class at all, so the taxonomy slot is empty. Ticket 14 owns the signatures; this is 12's input.
+
+### Auth never happens inside a run
+
+Three layers. Pre-flight before launch, and refuse to start a provider that is not logged in. A run
+that hits the wall anyway fails fast with the remediation string. And if a provider ever asks for a
+pasted code, Hydra suspends teeing, hands the bare pty to the human, and resumes teeing after.
+
+This is structural rather than a policy choice: ticket 11 spawns delegated children detached, and a
+detached child cannot complete a browser login.
+
+Flow shapes, checked 2026-09-02. `gemini` 0.42.0 uses a loopback redirect. Its 84-chunk bundle
+carries `oauth2callback`, `http://localhost` and `createServer`, with zero `device_code` and zero
+`user_code`, so the browser hands the code to a server the CLI runs itself and nothing is pasted
+through the terminal. `agy` is a Mach-O binary carrying both shapes, 6 hits on `http://localhost`
+against 3 on `device_code` and 1 on `user_code`, and which path it takes is unconfirmed. The teeing
+suspension covers it either way, so this is worth confirming while implementing rather than as a
+map ticket.
+
+### What the record carries about auth
+
+Drop `plane` as a field name. D4's correction says a plane names the auth mechanism and nothing
+else, so a field called `plane` is a second word for mechanism, and with one plane shipping it
+carries no information.
+
+- `auth.mechanism`: `subscription-oauth` or `api-key`
+- `auth.source`: `keychain`, `env` or `none`
+- `auth.allow_billed`: whether the flag was present
+
+Never on the record, in any form: the injected value, a prefix of it, or its length. "Plane"
+survives in the spec prose, where it is useful for talking about D4's two halves, and never becomes
+a field. Ticket 09 owns the schema, so this is input to it rather than a schema edit made here.
+
+### The sub-questions this ticket listed
+
+**Does Hydra touch the vendor OAuth tokens?** No, with one exception. Every provider authenticates
+itself and Hydra reads none of their stores. The exception is ticket 18's finding that
+`~/.gemini/settings.json` pins `selectedAuthType`, so if the fallback is ever promoted Hydra sets
+the auth type per run through `GEMINI_CLI_HOME` rather than editing the user's own `~/.gemini/`.
+
+**Where the raw keys live.** One of them, in the environment. v1 builds no store.
+
+**Multi-account routing.** Dissolved by ticket 08. One account per provider, nothing to route.
+
+**What a delegated child receives.** Nothing. No virtual key, because no plane. No inherited
+secret, because of the allowlist. No `--allow-billed`, because it is not inheritable. No browser
+login, because it is detached.
+
+**Token expiry mid-session.** Covered above.
+
+**What lands in the record.** Covered above.
+
+**The scenario.** Dropped, per ticket 08. It was built on a misread of `hermes auth list`.
+
+### Out of scope, and one thing that is not a Hydra problem
+
+The three plaintext exposures stay out of scope for this map. The harness spec gets one line naming
+it a non-goal: Hydra reads none of those files.
+
+Separately, and not as map work, `~/.hermes/auth.json` holds a repo-scoped GitHub token in
+plaintext. Worth rotating on its own account.
+
+Checked 2026-09-02: `~/hydra` has no git remote, and a scan of the working tree and all eight
+commits for Google, Anthropic and GitHub token shapes returned nothing. There is no exposure to
+purge.

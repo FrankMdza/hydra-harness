@@ -29,3 +29,17 @@ of SFT shape is not cosmetic. OpenAI's preference format is single-turn and text
 takes full message lists with tool support, which is what decides whether SFT and DPO can come from
 one pass. Neither gitleaks nor trufflehog rewrites content, so Hydra writes the redactor whatever it
 wraps.
+
+## What ticket 12 settled
+
+**Write-time filtering covers only what Hydra injected.** That is `GEMINI_API_KEY` on a run carrying
+`--allow-billed`, and nothing otherwise. Hydra can promise to strip a value it handed over and
+nothing more, so every other secret that lands in a raw frame is this ticket's problem.
+
+**Pattern scanning belongs here, as best-effort.** Known shapes worth sweeping: `AIza` for Google,
+`sk-ant-` for Anthropic, `gh[pousr]_` for GitHub, `ya29.` for Google OAuth access tokens. Frames are
+stored verbatim, so an agent that ran `env` or read a dotfile has put real credentials on disk.
+
+**One machine-local fact for the threat model.** `~/hydra` has no git remote and never has, and the
+three plaintext credential files found on this machine live outside the repo. Export is the only
+path by which any of this leaves the laptop, which is what makes redaction here worth its cost.

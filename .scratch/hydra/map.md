@@ -27,9 +27,9 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - **D1** The destination is three documents, not running code.
 - **D2** One repo at `~/hydra` holds the harness and Ouroboros, because they share a contract.
 - **D3** Thin router first. No custom TUI in v1; the vendor CLIs keep their own.
-- **D4** Two auth planes, named separately. Agent-CLI plane: subprocess, per-provider OAuth, subscription pricing. Raw-model plane: LiteLLM, API keys, one OpenAI-shaped endpoint. Interactive work defaults to the agent-CLI plane. Corrected by ticket 18: plane names the auth mechanism and nothing else. Pricing and interactivity are a second axis, the recorded path against the interactive path, and it cuts across both planes. Google proved they come apart, since `agy` is an agent CLI on a subscription and `gemini` is an agent CLI billing per token on a key.
+- **D4** Two auth planes, named separately. Agent-CLI plane: subprocess, per-provider OAuth, subscription pricing. Raw-model plane: LiteLLM, API keys, one OpenAI-shaped endpoint. Interactive work defaults to the agent-CLI plane. Corrected by ticket 18: plane names the auth mechanism and nothing else. Pricing and interactivity are a second axis, the recorded path against the interactive path, and it cuts across both planes. Google proved they come apart, since `agy` is an agent CLI on a subscription and `gemini` is an agent CLI billing per token on a key. Amended by ticket 12: v1 ships the agent-CLI plane only. The raw-model plane is one gated path, `GEMINI_API_KEY` to `gemini` behind `--allow-billed`, and the spec names LiteLLM as an extension point it does not build. Nothing on that plane has ever made a successful call.
 - **D5** The two systems converge on exactly two things: the run record and the skill store. Nothing else crosses.
-- **D6** Agents never hold provider secrets. They ask the harness. Inherited from the HephaestusLab V3 rule.
+- **D6** Agents never hold provider secrets. They ask the harness. Inherited from the HephaestusLab V3 rule. Made true in code by ticket 12: Hydra builds each child's environment from an allowlist, because `GEMINI_API_KEY` is exported in `~/.zshrc` and every child inherited it by default.
 - **D7** The CLI is the real interface, MCP is a face over it. `hydra run --provider <p> --task "..." --parent <session-id>` returns JSON on stdout; a thin MCP wrapper gives Claude Code a typed `delegate` tool over the same path.
 - **D8** The router core is Rust. A self-edit that does not compile never reaches review.
 - **D9** One canonical `~/hydra/skills/`, symlinked into the Claude and Cursor locations, plugin-wrapped for Gemini. Corrected by ticket 03: the Cursor target is `~/.cursor/skills/`, not `~/.cursor/skills-cursor`, which is Cursor's own managed cache.
@@ -39,7 +39,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - **D13** Hydra is standalone. Hermes is worth copying, not depending on.
 - **D14** Hermes is a fourth routable provider. Corrected by ticket 08: it brings neither xAI nor Nous, because neither account exists and xAI is out of scope by choice. What it actually contributes is a Copilot token lifted from the `gh` CLI.
 - **D15** Hydra gets its own curator, built on Hermes' guardrail rules rather than Hermes' code.
-- **D16** Hydra never spends on a billed API key without asking. The AI Studio project behind `GEMINI_API_KEY` has billing enabled, so the raw-model plane is opt-in per run rather than a silent fallback. Settled by ticket 18.
+- **D16** Hydra never spends on a billed API key without asking. The AI Studio project behind `GEMINI_API_KEY` has billing enabled, so the raw-model plane is opt-in per run rather than a silent fallback. Settled by ticket 18. Ticket 12 gives it a mechanism: an `--allow-billed` flag typed per run, never inheritable, and the delegation policy cannot set it.
 
 ## Decisions so far
 
@@ -56,14 +56,14 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [11 - The delegation contract](issues/11-delegation-contract.md): children spawn detached with blocking as a view over them, one git worktree each, permissions from a policy rather than a human, depth capped at 2. Results stay small on purpose, because delegation exists to save the orchestrator's context. Cursor cannot be delegated tool work under any policy narrower than fully permissive.
 - [08 - Account and tier inventory](issues/08-account-inventory.md): one account per provider, so ticket 12 builds no rotation. Anthropic has no API key and no credit, and ticket 04 already ruled out carrying the subscription upstream, so it is agent-CLI only. The raw-model plane is one Google AI Studio key and one borrowed Copilot token. D14 corrected above.
 - [18 - Which binary is the Google provider?](issues/18-google-provider-target.md): `agy` 1.1.23 grew `--output-format stream-json` during this session, so Google is Antigravity on the subscription with per-step token counts, and `gemini` on the key drops to a cold fallback nobody runs without approval. `agy` cannot be asked for permission, which puts it in Cursor's category.
+- [12 - The two auth planes, and where secrets live](issues/12-auth-planes.md): Hydra holds no provider credential, so D6 costs no code beyond an environment allowlist that stops children inheriting `GEMINI_API_KEY`. The raw-model plane does not ship in v1 and the one billed path needs a human to type `--allow-billed`. Auth failure is its own run outcome, and auth never happens inside a run.
 
 ## Not yet specified
 
 - **The TUI.** Deferred by D3. Ticket 07 settled the framework: Textual, so the TUI is a separate Python process reading `~/hydra/runs/` while the core stays Rust. The interface itself, widget set, diff viewer, session switcher, stays unspecified during this map. `textual-diff-view` from Toad is the starting point when it is built.
 - **Langfuse.** Optional viewer that tails `~/hydra/runs/`, never the source of truth. Revisit once there are enough records to be worth browsing.
 - **MCP server config across providers.** Each provider has its own MCP config file. Whether Hydra unifies them, injects into them, or leaves them alone is unclear until the skill injection strategy closes.
-- **Cost and budget accounting across pooled accounts.** Hermes tracks credential exhaustion; whether Hydra needs its own view of spend depends on how the raw-model plane ends up structured.
-- **Multi-machine use.** Whether run records, skills and auth follow you to another machine.
+- **Multi-machine use.** Whether run records and skills follow you to another machine. Ticket 12 settled the auth half: it does not. Every credential is in this machine's Keychain or its environment, so you log in again per machine.
 
 ## Out of scope
 

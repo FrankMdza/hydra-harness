@@ -68,3 +68,22 @@ That last decision needs somewhere to live, so the export pipeline graduated out
 **Termination.** Process exit is the authoritative end of a run. The `result` frame is optional enrichment, because Cursor writes one only on success and Hermes writes none at all. The schema must not require a terminator event.
 
 **Still open, and deliberately downstream:** mapping four incompatible tool-call representations onto one `tool_call` shape. That is adapter work for the harness spec, not a schema decision, and the raw frame means getting it wrong is recoverable.
+
+## Amended by ticket 12
+
+Two changes to the auth side of the schema.
+
+**The write-time credential filter has a defined input set.** This ticket said Hydra filters "the
+ones visible in its auth config" at write time. Hydra owns no auth config, so that set would be
+empty. It is instead the values Hydra injected into the child's environment for that run, which in
+v1 means `GEMINI_API_KEY` on a run carrying `--allow-billed` and nothing at all otherwise. Hydra
+knows the value at injection time and strips that exact string from frames as it writes them.
+Anything broader stays best-effort and belongs to ticket 19 at export.
+
+**Auth fields, and no `plane` field.** D4's correction says a plane names the auth mechanism and
+nothing else, so a field called `plane` would be a synonym for mechanism. Carry `auth.mechanism`
+(`subscription-oauth` or `api-key`), `auth.source` (`keychain`, `env` or `none`) and
+`auth.allow_billed`. Never carry the injected value, a prefix of it, or its length.
+
+Ticket 12 also needs a terminal outcome for auth failure that is distinct from task failure, so
+Ouroboros never reads an expired token as a lesson. Ticket 14 owns the signature taxonomy.

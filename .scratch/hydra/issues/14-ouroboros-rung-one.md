@@ -55,3 +55,12 @@ Provider-against-signal table and method in
   the record contract.
 - **For ticket 16's seam check:** ticket 11 puts `exit_code`, `status`, `status_source` and `error`
   in the JSON `hydra run` returns, and ticket 09 puts none of them in the run file.
+
+## What ticket 12 settled
+
+**Auth failure is a terminal outcome distinct from task failure, and rung one must never learn from
+it.** A skill does not need evolving because a token expired. The run ends carrying a remediation
+string that names the provider and the command to re-authenticate.
+
+The signature taxonomy is this ticket's to own. The failure-signals research names truncation, rate
+limit and quota classes and no auth class at all, so that slot is empty and needs filling here.

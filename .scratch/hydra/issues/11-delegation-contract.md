@@ -72,3 +72,15 @@ So `agy` gets `--dangerously-skip-permissions` only under a fully permissive pol
 narrower policy it can be delegated read-only work. Same shape as Cursor's `--force`, and the
 worktree is again what makes it survivable. Two of four providers now sit in this category, which
 is worth weighing before the policy engine gets built for the other two.
+
+## Amended by ticket 12
+
+**`--allow-billed` is outside the delegation policy.** The flag that unlocks the one billed path is
+typed by a human per run. The policy cannot set it, and a parent carrying it does not pass it to a
+child. Depth is capped at 2, so without this an agent two levels from the human could spend money.
+
+**A delegated child receives no credential of any kind.** No virtual key, because the raw-model
+plane does not ship in v1. No inherited secret, because Hydra builds each child's environment from
+an allowlist. No browser login, because children spawn detached and a detached process cannot
+complete OAuth. A child that hits an auth wall fails fast with a remediation string naming the
+provider and the command the human should run.
