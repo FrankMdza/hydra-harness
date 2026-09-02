@@ -52,3 +52,27 @@ hands-off: `selectedAuthType: oauth-personal` was pinned there, so `gemini` igno
 key. If Hydra ever promotes the fallback, it has to set the auth type per run. `GEMINI_CLI_HOME`
 points the CLI at a different config root, which is how to do that without touching the user's own
 `~/.gemini/`.
+
+## What the evidence pass found, 2026-09-01
+
+Method and detail in [research/12-auth-evidence.md](../research/12-auth-evidence.md), 776 lines.
+
+- **The Copilot token has never made a call.** It is two tokens, not one: a raw GitHub OAuth token
+  from `gh auth token`, then an exchange at `copilot_internal/v2/token` for a short-lived Copilot
+  API token. That exchange has never succeeded here. `get_copilot_api_token()` swallows the failure
+  and returns the raw GitHub token, so nothing downstream notices. `request_count` is 0 and every
+  `last_error_*` is null.
+- **So the raw-model plane holds nothing that has ever run.** Ticket 18 took Google off it, leaving
+  a cold fallback nobody starts without approval, and the Copilot half is unexercised. Whether D4's
+  raw-model plane exists in v1 is the question this ticket now has to answer, and it is bigger than
+  the one the ticket was written to ask.
+- **Every vendor CLI owns its own login, confirmed.** Keychain services: `Claude Code-credentials`,
+  `Cursor Safe Storage`, `cursor-access-token`, `cursor-refresh-token`, `gh:github.com`, and
+  `gemini` with account `antigravity` for `agy`. `agy` has no auth subcommand at all. Hydra
+  satisfying D6 by writing no code is evidence now, not a guess.
+- **Three plaintext exposures on this machine.** `~/.hermes/auth.json` holds the raw GitHub token in
+  plaintext with repo scope. `gemini-credentials.json` is AES-256-GCM keyed by scrypt over hostname
+  and username, so anyone who can read the file can derive the key. `~/.gemini/oauth_creds.json` is
+  plaintext and expired.
+- **One provider secret lives in the environment**, `GEMINI_API_KEY`, exported from `~/.zshrc`.
+  Every other provider reads a store. That is the raw input for what a delegated child receives.

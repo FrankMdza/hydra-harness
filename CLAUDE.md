@@ -1,6 +1,6 @@
 # Hydra
 
-Hydra is a router over four agent CLIs (`claude`, `cursor-agent`, `gemini`, `hermes`), plus
+Hydra is a router over four agent CLIs (`claude`, `cursor-agent`, `agy`, `hermes`), plus
 Ouroboros, a self-improvement loop that reads what the router records. The router core is Rust.
 
 There is no application code yet. This repo currently holds a design in progress.
@@ -17,7 +17,7 @@ Add a ticket number to work a specific one, for example `.scratch/hydra/map.md 1
 take the first ticket on the frontier.
 
 Read `.scratch/hydra/map.md` first, always. It carries the destination, the settled decisions
-(D1 to D15, which are constraints rather than open questions), an index of every closed ticket,
+(D1 to D16, which are constraints rather than open questions), an index of every closed ticket,
 the fog, and what is out of scope.
 
 ## Layout
