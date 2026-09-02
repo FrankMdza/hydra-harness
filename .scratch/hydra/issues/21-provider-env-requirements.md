@@ -93,6 +93,16 @@ editor nobody is watching.
 ### What this could not decide
 
 Research decides nothing, and one finding needs a decision. The allowlist cannot gate spend on
-hermes: with a completely empty environment it still resolves the billed AI Studio key from
-`~/.hermes/auth.json`, and `~/.hermes/.env` loads with `override=True` and beats anything Hydra
-passes. D16 has no mechanism for that provider. Ticket 22 owns it.
+hermes, because `~/.hermes/.env` loads with `override=True` at `hermes_cli/env_loader.py:214` and
+beats anything Hydra passes in. D16 has no mechanism for that provider. Ticket 22 owns it.
+
+**Corrected 2026-09-02.** The first version of this section said hermes resolves the billed AI
+Studio key from `~/.hermes/auth.json`. It does not. The `gemini` entry in `credential_pool` carries
+a 1-character `access_token`, ticket 08's junk manual entry, and `GOOGLE_API_KEY` in
+`~/.hermes/.env` is declared with an empty value. Hermes advertises `gemini` auth because one junk
+character passes a truthiness check, not because it holds a key. The override path is real and the
+hole is latent. Nothing can be spent through hermes today.
+
+One more correction to the never-pass list above: `HERMES_HOME` should not be on it. It redirects
+both `auth.json` and `.env`, which makes it the one lever that gates this provider. Ticket 22
+decides whether Hydra sets it.

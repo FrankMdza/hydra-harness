@@ -32,10 +32,21 @@ Nine things. Six sharpen the allowlist, three contradict what the ticket assumed
 
 4. **The allowlist cannot be a spend control for `hermes`.** Driven with a completely empty
    environment, `hermes acp` still advertises `authMethods[0].id = "gemini"`, and
-   `acp_adapter/auth.py:11` only emits that when a credential string actually resolved. Hermes reads
-   the billed AI Studio key out of `~/.hermes/auth.json`, where it persisted a byte-identical copy of
-   `GEMINI_API_KEY` at seed time. Scrubbing the environment changes nothing about what hermes can
-   spend. D16's gate has to sit somewhere else for this provider.
+   `acp_adapter/auth.py:11` only emits that when a credential string actually resolved.
+   `~/.hermes/.env` loads with `override=True` at `hermes_cli/env_loader.py:214`, and its own
+   docstring says it overrides stale shell-exported values, so it beats anything Hydra passes in.
+   D16's gate has to sit somewhere else for this provider.
+
+   > **Corrected 2026-09-02 while working ticket 22.** The override mechanism above is real and
+   > confirmed. The credential claim was not. Hermes holds no usable Google key: the `gemini` entry
+   > in `credential_pool` has a **1-character** `access_token`, which is the junk manual entry
+   > ticket 08 already identified, and `providers` in `auth.json` holds Spotify and nothing else.
+   > `GOOGLE_API_KEY` is declared in `~/.hermes/.env` with an **empty value**. So the advertised
+   > `authMethods[0].id = "gemini"` comes from a truthiness check passing on one junk character.
+   > Advertising an auth method is not the same as being able to spend, and hermes cannot spend
+   > today. The hole is latent, not open. Also, `hermes_cli/config.py:4999` checks `os.environ`
+   > before the `.env` file, so the override only applies on the `cli.py` and `run_agent.py`
+   > entry points that call `load_hermes_dotenv`, not to every read.
 
 5. **The allowlist has to cover two axes beyond secrets.** Code injection: `NODE_OPTIONS=--require
    <file>` executes arbitrary JavaScript inside `cursor-agent`, confirmed by running it.
