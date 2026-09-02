@@ -221,3 +221,26 @@ plaintext. Worth rotating on its own account.
 Checked 2026-09-02: `~/hydra` has no git remote, and a scan of the working tree and all eight
 commits for Google, Anthropic and GitHub token shapes returned nothing. There is no exposure to
 purge.
+
+## Amended by ticket 21
+
+The allowlist this ticket decided is measured now, and three of its assumptions were wrong.
+
+**`PATH`, `HOME`, `TERM`, `LANG` loses the Anthropic login.** `claude` reads its keychain account
+name from `process.env.USER`, so `USER` belongs on the list and `LANG` does not, since none of the
+four providers reads it. The measured list is `HOME`, `USER`, `PATH`, `TERM`, plus `SHELL` and
+`TMPDIR` for `claude`.
+
+**`HOME` cannot be invented.** A wrong `HOME` drops the login keychain out of
+`security list-keychains`, so three of the four providers come up unauthenticated and exit 0. Hydra
+passes the real one or omits it. Any future sandbox that redirects `HOME` logs the user out and
+reports success.
+
+**`GEMINI_API_KEY` was not the dangerous name.** `CURSOR_AUTH_TOKEN` and `CURSOR_API_KEY` are
+write-through, so an inherited value overwrites the user's stored login instead of overriding it for
+one run. The scrub protects a login, not only a secret. It is also an injection boundary:
+`NODE_OPTIONS` and `PYTHONPATH` execute attacker-named code inside `cursor-agent` and hermes.
+
+**The gate does not reach hermes.** This ticket assumed the allowlist was enough to enforce D16.
+Hermes resolves the billed AI Studio key from `~/.hermes/auth.json` under an empty environment, and
+`~/.hermes/.env` overrides anything Hydra passes. Ticket 22 owns where that gate goes.

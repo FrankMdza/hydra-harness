@@ -43,3 +43,14 @@ stored verbatim, so an agent that ran `env` or read a dotfile has put real crede
 **One machine-local fact for the threat model.** `~/hydra` has no git remote and never has, and the
 three plaintext credential files found on this machine live outside the repo. Export is the only
 path by which any of this leaves the laptop, which is what makes redaction here worth its cost.
+
+## What ticket 21 added
+
+**Claude Code already ships the heuristic this ticket needs.** Its subprocess env scrub carries a
+27-substring secret-name test, alongside an MCP env allowlist, gated on
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`. Worth reading before inventing a pattern list from scratch.
+
+**The secret-name surface is wider than ticket 12 knew.** Hermes alone declares 34
+`api_key_env_vars`, and `CURSOR_AUTH_TOKEN`, `CURSOR_API_KEY`, `AGY_ADC_AUTH`, `JETSKI_OAUTH_TOKEN`
+and `GOOGLE_APPLICATION_CREDENTIALS` all carry credentials. Full per-provider lists in
+[research/21-provider-env-requirements.md](../research/21-provider-env-requirements.md).

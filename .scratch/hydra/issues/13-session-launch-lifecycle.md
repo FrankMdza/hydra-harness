@@ -1,7 +1,7 @@
 # 13 - Session launch and pane lifecycle
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 02, 11
 
 ## Question
