@@ -164,3 +164,18 @@ The next `hydra status` reconciles all three. It derives the parent as dead, har
 the vendor transcript, and reports the two children as alive by matching pid and start time. If
 they later die badly, their worktrees show up as abandoned and wait for a `hydra reap` you type.
 Nothing was lost and nothing needed to be running.
+
+
+## Amended by ticket 10, 2026-09-02
+
+**`agy` must be launched with `--add-dir <worktree>`.** It has a workspace concept detached from the
+process working directory, so a directory it is not told about is not its workspace. Ticket 10
+proved it on the skill root: a probe placed in the launch directory was invisible twice, as a real
+directory and as a symlink, and appeared as soon as the directory arrived as `--add-dir`, from an
+unrelated cwd too. This is consistent with ticket 18 finding that
+`--dangerously-skip-permissions` resolved a relative path into `~/.gemini/antigravity-cli/scratch/`
+rather than the launch cwd.
+
+For this ticket that means `cd` into the worktree is not the launch contract for Google, the flag
+is. Anything else Hydra expects `agy` to read out of the run's directory needs the same treatment,
+and ticket 23 checks whether MCP config is one of them.

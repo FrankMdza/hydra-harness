@@ -116,3 +116,64 @@ infers from which provider ran.
 **Hermes leaves the provider set, and the schema does not change for it.** "The schema must not
 require a terminator event" was justified by Hermes writing none, but `cursor-agent` writes one only
 on success, so the rule stands without it.
+
+
+## Amended by ticket 10, 2026-09-02
+
+**Two fields, `skills.store_sha` and `skills.linked`.** The first is the commit the run's skill
+snapshot was checked out at, the second is the names Hydra actually linked for that provider.
+Neither works alone: a skill can declare which providers it applies to, so two providers on one sha
+get different skills, and a name list says nothing about the bytes. Together they reproduce a run's
+skill set exactly.
+
+A skill name collision detected at launch is **a run outcome**, in the shape ticket 12 used for auth
+failure, not a field. Ticket 10 prevents the collisions Hydra could cause at write time, so one
+reaching launch means the user's home directory moved under the store, and it fails the run.
+
+Separately, ticket 14's evidence pass found this ticket's Cursor usage claim has expired. Ticket 25
+settles whether `usage_source: estimated` and the `thinking` sentence still hold.
+
+## Amended by ticket 25, 2026-09-02
+
+Two of this ticket's Cursor facts were true when it was written and are false on `cursor-agent`
+2026.08.31-4057e58. Ticket 14 flagged them; ticket 25 measured them live. Evidence:
+[research/25-cursor-usage-and-thinking.md](../research/25-cursor-usage-and-thinking.md).
+
+**Cursor is `usage_source: provider`, not `estimated`.** "It emits no token counts" no longer holds.
+Cursor puts `usage: {inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}` on its `result`
+frame in both `--output-format json` and `--output-format stream-json`, and the counts track real
+input. There is no per-step usage, only the one aggregate at the end, so Cursor is not `agy`.
+
+**`usage_estimator` keeps a producer and stays in the schema.** Its job shrinks rather than
+disappearing. Cursor's `catch` path writes no `result` frame at all, so every hard failure and every
+kill lands with no counts, and the usage block is appended conditionally even on success. Which
+means `usage_source` on a Cursor run is decided per run, not per provider: `provider` when the result
+frame carried usage, `estimated` when it did not. Treat `usage` as optional on the success path too.
+
+**Store the parts, derive the total.** Cursor's `inputTokens` is already net of cache and clamped at
+zero, `max(inputTokens - cacheReadTokens - cacheWriteTokens, 0)`. Two runs of one identical prompt
+reported 14,629 and 11,557 input tokens, both summing to 16,933 with their cache reads. A warm cache
+can drive the field to 0 on a turn that consumed tens of thousands, so a normalized `input_tokens`
+that copies Cursor's field is wrong. `cacheWriteTokens` also read 0 in all seven captures and never
+moved, which is worth knowing before anything keys a decision on it.
+
+**Normalizing usage across providers needs a convention, named here.** `agy` reports full input with
+cache read beside it; Cursor subtracts. The two overlap on input, output and cache-read only. Cursor
+adds a cache-write count `agy` lacks, and `agy` adds `thinking_tokens` and `total_tokens` that Cursor
+lacks. The normalized `usage` event has to carry the parts and say which convention produced them.
+
+**The `thinking` sentence is wrong and needs rewriting.** Replace "`thinking` populates from Claude
+in print mode and from Gemini and Hermes over ACP, never from Cursor." Cursor emits `thinking/delta`
+frames carrying the reasoning text in `stream-json` with no flag, plus a `thinking/completed` marker
+that carries neither text nor duration. In `json` the same text arrives as
+`result.thinking_blocks[] = {text, duration_ms}`, but only behind `--show-thinking`, which is
+registered with `.hideHelp()` and so is missing from `--help`.
+
+The rewrite should split a distinction this ticket does not currently make. Reasoning **text** and
+reasoning **tokens** are separate capabilities and no provider gives both: `agy` reports
+`thinking_tokens` and no text, Cursor reports text and no count. Cursor's binary does carry a
+`reasoningTokens` field internally and the print-mode writer drops it, so this is a gap that could
+close on any self-update.
+
+Ticket 16 writes the contract from this ticket, so it should read the amended text rather than the
+answer above it.

@@ -1,7 +1,7 @@
 # 10 - Skill store layout and injection
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 03, 05
 
 ## Question
@@ -70,3 +70,235 @@ Appended under `# 2026-09-01, second pass` in
 - **Eight name collisions**, all between `~/.claude/skills` and the mattpocock plugin cache, all
   carrying `disable-model-invocation`, all predating Hydra.
 - D9's "plugin-wrapped for Gemini" is re-confirmed wrong at gemini 0.42.0.
+
+## What the third evidence pass found, 2026-09-02
+
+Gathered live this session, before grilling. No research file: every claim below is one command.
+
+- **`agy` has a skills concept and its own personal root.** Strings in the 1.1.23 binary give
+  `<workspace>/.agents/skills/<name>/` and `~/.gemini/config/skills/<name>/SKILL.md`. Built-ins live
+  in `~/.gemini/antigravity-cli/builtin/skills/` behind a `.checksum`, which is the same managed
+  cache pattern as `~/.cursor/skills-cursor`. There is no `skills` subcommand, the same trap
+  `cursor-agent` set.
+- **`agy` follows a symlinked skill directory.** Probed live: a link at
+  `~/.gemini/config/skills/hydra-symlink-probe` pointing outside the tree was discovered, and the
+  reported `path` is the link path, not the target. Link and probe both removed afterwards;
+  `~/.gemini/config/skills/` did not exist before and does not exist now.
+- **`agy -p "/skills" --output-format json` is a free inventory oracle.** It returns
+  `num_turns: 0` and `total_tokens: 0`, and each entry carries `name`, `description`, `path`,
+  `builtin`, `model_invocable` and an optional `plugin`. Any injection design can be verified against
+  it at zero cost. The changelog says `/usage`, `/quota`, `/credits`, `/model`, `/effort` and
+  `/skills` all answer non-interactively in print mode.
+- **All three routable providers follow symlinked skill directories**, so D9's symlink farm is
+  mechanically sound everywhere. Claude Code from ticket 03, `cursor-agent` from the second pass,
+  `agy` from the probe above.
+- **The injection targets overlap, so there are two of them and not three.** Cursor's user-scope
+  roots include `~/.claude/skills` with the third-party flag on by default, so one farm under
+  `~/.claude/skills` reaches both `claude` and `cursor-agent`. `agy` needs a second at
+  `~/.gemini/config/skills`. `~/.agents/skills` is Cursor-only at user scope: `agy` reads
+  `.agents/skills` at the workspace, never at `homedir()`.
+- **Hydra cannot give a run an isolated skill set.** Every provider reads a user-scope root as well
+  as a project one, and ticket 21 rules out moving `HOME`, since a wrong one silently logs three of
+  four providers out. So the user's personal skills are present in every run whatever this ticket
+  decides, and the only question is whether the store manages them or ignores them.
+- **The store is empty and so are two of the three targets.** `~/hydra/skills/` does not exist.
+  `~/.claude/skills/` holds 11 skills. `~/.cursor/skills/` and `~/.gemini/config/skills/` do not
+  exist.
+- **Two providers dropped out of the question.** Ticket 22 unrouted hermes, so `~/.hermes/skills`
+  is no longer an injection target. Ticket 18 replaced `gemini` with `agy`, so the first and second
+  passes' Gemini findings, including the `~/.gemini/skills/` path and the plugin-wrapper argument,
+  describe a binary v1 does not route.
+- **`agy`'s workspace root needs `--add-dir`, not a cwd.** `<workspace>/.agents/skills/<name>/`
+  loads, symlinked or real, but only when the directory is passed as `--add-dir`. Launching from
+  inside it does nothing: a probe placed there and run from that cwd was invisible, twice, as a real
+  directory and as a link. Passed by flag it appears, and it appears from an unrelated cwd too. This
+  matches ticket 18's finding that `--dangerously-skip-permissions` resolved a relative path into
+  `~/.gemini/antigravity-cli/scratch/` rather than the launch cwd. `agy` has a workspace concept
+  detached from the process working directory, so any run-scope injection for Google is also a
+  launch-flag contract for ticket 13.
+- **A linked worktree has no private `info/exclude`.** Git reads only the shared
+  `$GIT_COMMON_DIR/info/exclude`, tested: a pattern written to `.git/worktrees/<name>/info/exclude`
+  did nothing, and the same pattern in `.git/info/exclude` worked but silenced it in the main
+  working tree too. So the obvious way to hide injected links from the child's `git status` is a
+  write into the user's repo that reaches beyond the run.
+- **A `.gitignore` holding `*` inside the injected directory hides it with no such write.** Tested:
+  `git status` reports nothing, `git add -A` stages nothing, and where the repo already tracks
+  `.claude/skills/`, its own skill stays tracked and visible while only Hydra's link is ignored,
+  because git never ignores a tracked file. `agy` still discovers a linked skill sitting beside that
+  `.gitignore`, and Cursor's `Ur` filter drops any path component starting with a dot, so the file
+  is invisible to discovery as well as to git.
+
+## Answer
+
+**One flat git-versioned store at `~/hydra/skills/`, injected per run into the worktree rather than
+into your home directory, materialised as an immutable snapshot so a running session's bytes cannot
+change underneath it.** D9's symlink farm survives as a mechanism and dies as a location.
+
+### The store
+
+`~/hydra/skills/<name>/SKILL.md`, flat. Nesting buys nothing: all three providers flatten to a name,
+and Hermes was the only one that ever reported a category. Beside each `SKILL.md` sits an optional
+`hydra.toml`, which only Hydra reads.
+
+`SKILL.md` keeps exactly what ticket 03 proved portable, `name` and `description`. Hydra's own
+metadata stays out of it. Cursor's `.mdc` parser is hand-rolled and splits each line on the first
+colon, and Gemini dedupes on the `name` field, so vendor frontmatter parsers here are fragile and
+they change under you. A sidecar cannot be misparsed by a provider that never opens it.
+
+The sidecar carries three fields:
+
+- `origin`, either `human` or `ouroboros`. Records authorship and never changes.
+- `pinned`, a boolean. Yours to set. Blocks every write when true. Defaults to true for
+  `origin = "human"` and false for `origin = "ouroboros"`.
+- `providers`, an allowlist. Absent means every routable provider. A name Hydra does not route,
+  which today means `hermes` or `gemini`, warns at launch and is otherwise ignored, so the store
+  survives the provider set changing again.
+
+`pinned` is deliberately separate from `origin` rather than derived from it. Derived, you could not
+freeze a misbehaving Ouroboros skill without rewriting its authorship. Ticket 05's rule list pairs
+the pin with a patch exemption, and **that exemption is dropped rather than defined.** Hermes needed
+it because pinning was its only brake. Hydra has `git revert` over the store and a proposal path for
+human-owned skills, so a pinned skill that needs a fix gets one from a human or from an unpinning. A
+guarantee with an exception you can argue your way into is the failure ticket 05 is named after.
+
+The store is **its own git repo**, living inside the `~/hydra` working tree and ignored by it. D2
+keeps one repo because the harness and Ouroboros share a contract; the store is data both of them
+write, not code, and mixing skill commits into the same history as rung two's source edits makes the
+rung-two diff quorum harder to reason about. Versioning it is what pays for everything below:
+ticket 05's "snapshot before every mutating pass" costs nothing because every run already left one,
+rollback is `git revert`, and ticket 14's scenario of a skill rewritten worse three weeks running
+becomes a join between git history and run outcomes.
+
+It starts empty. Rung one's first act on any skill is therefore always a create, which is consistent
+with `origin` being the thing that grants edit rights.
+
+### What happens to the skills already on disk
+
+Nothing moves. The 11 skills in `~/.claude/skills` stay where they are, and so do the plugin caches.
+
+This is not generosity, it is the only honest option. **Hydra cannot give a run an isolated skill
+set.** Every provider reads a user-scope root as well as a project one, and ticket 21 rules out
+moving `HOME`, since a wrong one silently logs three of four providers out. So those skills are in
+every run whatever this ticket decides. The real choice was never whether they load, only whether
+the store knows about them.
+
+Hydra scans the user-scope roots into a **read-only index** kept in the store, rebuilt at every
+launch and before every curator pass. Ouroboros can see them, reason about them, and blame them for
+a failure. It cannot write to them. A skill with no sidecar is pinned and unproposable by definition,
+because Hydra does not own the file.
+
+### Injection
+
+**Recorded runs only.** An interactive run in a directory Hydra does not own gets no injection, and
+the spec says so out loud rather than leaving it implied. Ticket 13 already found that interactive
+runs record thin and are harvested at exit; on the skill store they are thin too. An interactive
+session is a human driving with their own skills, and Hydra is a launcher there rather than a
+harness.
+
+For a recorded run, one worktree runs one provider, which is what makes the overlap harmless. Hydra
+creates one directory in the worktree, using that provider's **first-party root only**:
+
+| Provider | Root |
+|---|---|
+| `claude` | `<worktree>/.claude/skills/` |
+| `cursor-agent` | `<worktree>/.cursor/skills/` |
+| `agy` | `<worktree>/.agents/skills/` plus `--add-dir <worktree>` |
+
+Cursor reads `~/.claude/skills` as a first-class user root, so one shared farm would have been
+fewer moving parts. It is rejected because that read is gated on a settings flag which is merely on
+by default, and a default is not a contract.
+
+`agy`'s row carries a launch flag because a directory it is not told about is not its workspace. A
+probe placed in the launch directory was invisible twice, as a real directory and as a symlink;
+passed as `--add-dir` it appeared, and appeared from an unrelated cwd too. **Hydra passing the
+worktree to `agy` is not an optimisation, it is the difference between the skills loading and not.**
+That is a launch-contract change for ticket 13.
+
+Into that directory Hydra drops a `.gitignore` holding `*`, then links in the skills whose
+`providers` field admits this run. The worktree belongs to the user's code repo, so the alternative
+was hiding the links through git's exclude machinery, and that turns out to be a trap: a linked
+worktree has no private `info/exclude`, git reads only the shared one, so hiding the links from the
+child would also hide them in the user's main working tree. The self-ignoring directory needs no
+write outside the directories Hydra created. `git status` reports nothing, `git add -A` stages
+nothing, and where a repo already tracks `.claude/skills/`, its own skill stays tracked and visible,
+because git never ignores a tracked file. Cleanup is `rm -rf` on a path Hydra owns, and a crash
+leaves litter only inside a worktree ticket 11 already throws away.
+
+All three providers follow symlinked skill directories, so the farm itself is sound everywhere:
+Claude Code from ticket 03, `cursor-agent` from the second pass, `agy` from this session's probe.
+
+### Propagation, and the scenario
+
+The links do not point at `~/hydra/skills`. They point into
+`~/hydra/skills-snapshots/<sha>/`, a git worktree of the store checked out at the sha the run pinned.
+
+Without that, versioning the store is decorative. A symlink resolves to the live working tree, so
+Ouroboros editing a file would reach a session already running: Cursor and `agy` cache a skill body
+at discovery, but Claude Code fixes only its metadata at session start, so a skill loaded later in a
+long session reads whatever is on disk then.
+
+Snapshots are **shared per sha and refcounted**, not per run. Ticket 11 caps delegation depth at 2
+and does not cap fan-out, so twenty children on one sha would otherwise mean twenty identical
+checkouts. Sharing also makes the guarantee structural instead of coincidental: two runs on the same
+sha see identical bytes because they are looking at the same bytes. A snapshot is collectable when no
+live run references it, and liveness is already a pid plus a process start time from ticket 13.
+
+**If the store is dirty at launch, Hydra commits it before pinning**, with authorship in the commit
+trailer so ticket 14 can still separate a human's edits from Ouroboros'. Launching from HEAD and
+ignoring the working tree would mean editing a skill, running, and watching nothing happen, which is
+the worst failure this design can produce and would happen on day one. Refusing to launch punishes
+an edit that has nothing to do with the run. Committing is the only option where the sha in the run
+record is always true.
+
+So the ticket's scenario, Ouroboros rewriting a skill mid-session while three CLIs run: **nobody sees
+it, and the question of whether that is acceptable dissolves.** Each session is linked into an
+immutable snapshot at its own sha. The rewrite lands as a commit and reaches the next run. The
+provider-by-provider caching table from the second pass stops mattering, because it only described
+what happens when the bytes can change, and now they cannot.
+
+### Collisions
+
+The second pass found eight, all between `~/.claude/skills` and the mattpocock plugin cache, all
+predating Hydra. Recording them at launch was the first answer and it was wrong, because it accepted
+as unavoidable something Hydra can prevent.
+
+Two checks, at two different times:
+
+- **At write.** The curator refuses to create or rename a store skill to a name the index already
+  holds. Hydra knows every taken name, because the index exists for exactly this. No collision Hydra
+  causes can reach a run.
+- **At launch.** Hydra compares the store against the index and against the repo's own project-scope
+  skills, and a hit **fails the run**, as its own outcome in ticket 12's shape rather than a field
+  buried in the record.
+
+Failing looks harsh until you notice what the write check did to the odds. A launch-time collision no
+longer means Hydra was careless, it means the world moved under the store: you added a skill, or a
+plugin did. That should be loud, it should never fire, and the fix is one rename.
+
+### What the run record carries
+
+`skills.store_sha`, the commit the snapshot was checked out at, and `skills.linked`, the names
+actually linked for that provider. Neither is sufficient alone. The sha does not determine the skill
+set, because `providers` means two providers on one sha get different skills; the name list does not
+determine the bytes. Together they reproduce a run's skill set exactly. Ticket 09 owns the schema;
+this is input to it.
+
+The index sha stays out. It describes the user's home directory rather than the run, and the only
+thing it would explain is now a run outcome.
+
+### Enforcement
+
+Every limit above lives at the curator's tool-dispatch layer, which refuses any write path outside
+the store, and none of it lives in a prompt. That is ticket 05's lesson applied rather than restated:
+Hermes told its model that archiving was recoverable while the tool it called ran `shutil.rmtree`.
+
+### What this changes elsewhere
+
+- **D9 is wrong on both halves** and is amended on the map. Injection is per-run into the worktree,
+  not a farm in the vendor locations, and Google needs no plugin wrapper.
+- **Ticket 13** gains `--add-dir <worktree>` as a launch requirement for `agy`.
+- **Ticket 09** gains `skills.store_sha` and `skills.linked`.
+- **The MCP fog patch** was waiting on this ticket and can now be specified. Graduated as ticket 23.
+- **The verification gaps this design creates rather than closes** are ticket 24, which builds the
+  injection shape and watches all three providers load it, and ticket 25, which settles the Cursor
+  usage fact ticket 09 rests on.
