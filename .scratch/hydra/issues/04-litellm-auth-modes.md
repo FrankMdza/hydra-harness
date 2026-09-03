@@ -30,3 +30,11 @@ So the wall between the two planes is a terms limit, not a technical one, which 
 D4 stands, now with evidence. Subscriptions stay in the agent-CLI plane. LiteLLM handles API keys and IAM only.
 
 Detail: [research/04-litellm-auth-modes.md](../research/04-litellm-auth-modes.md)
+
+## The open question this left is closed, ticket 15, 2026-09-03
+
+This ticket asked where rung two's judges run, given that nothing carries a Claude subscription
+through LiteLLM. **They run on the agent-CLI plane**, one judge per routable provider, each a
+`hydra run`. Closed by subtraction rather than by preference: ticket 08 found no Anthropic API key
+and no credit, ticket 12 kept the raw-model plane out of v1, and judges on the raw plane would bill
+the one Google AI Studio key per review at a rate where rejected proposals still pay.

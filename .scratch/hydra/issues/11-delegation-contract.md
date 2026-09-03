@@ -132,3 +132,28 @@ with no gate.
 
 Detail and probe transcripts in
 [research/26-hook-level-action-gate.md](../research/26-hook-level-action-gate.md).
+
+## Amended by ticket 27, 2026-09-03
+
+**"Allowed tools, denied tools, deny by default" becomes a named capability allowlist.** The
+`denied` list goes, because with deny-by-default it can only subtract from the allow list and a
+policy where two rules can disagree is a bug with a schema. Argument conditions live inside an allow
+entry instead. Entries name capabilities rather than provider tool names, since ticket 24 and ticket
+23 both found the three providers share no vocabulary, and Hydra owns the mapping table. A tool name
+the table does not recognize is denied and recorded.
+
+**`policy?` on the MCP face takes a name, not a list.** This ticket made the argument optional and a
+model fills it in. Five names ship: `judge`, `curate`, `read-only`, `standard`, `permissive`. A name
+is something a human wrote once; a list is security composed at call time by the least accountable
+party in the chain.
+
+**The depth cap has a blind spot this ticket did not see.** It counts spawns through `hydra run`, and
+all three providers can spawn a subagent inside a run that never reaches Hydra, gets no run id and
+writes no run file. Every policy but `permissive` denies in-process subagent spawns, which makes the
+cap mean what it says and keeps D10's record complete. A delegated Claude child loses `Task`.
+
+**A delegated child inherits the human's MCP servers.** Ticket 23 probed it: user-scope servers
+appear in a headless child's tool list and their processes run, on all three providers, and only
+`claude` can scope them off per run. The gate blocks every call, so this is exposure rather than
+execution, but a policy claiming "this child sees no MCP" would be claiming something Hydra cannot
+deliver on two of three.

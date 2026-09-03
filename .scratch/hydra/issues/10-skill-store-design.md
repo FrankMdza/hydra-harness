@@ -356,3 +356,17 @@ change to a branch in the store and a human merges it, whoever wrote the skill o
 The sidecar fields are unchanged and `origin` still grants the right. What changes is the default:
 the right is not exercised until a graduation condition is met, and the count is picked from the
 corpus rather than now. Everything else here stands.
+
+## Amended by ticket 23, 2026-09-03
+
+**The self-ignoring directory trick does not cover MCP.** This ticket's injection shape hides each
+first-party root from git with a `.gitignore` holding `*`. `.cursor/mcp.json` and
+`.agents/mcp_config.json` sit inside such a root and are covered. Claude's `.mcp.json` sits at the
+worktree root and cannot be, so `git status` shows it and `git add -A` stages it into the child's
+branch. Ticket 29 decides whether Claude's config goes there at all.
+
+**Symlink behaviour is per loader, not per provider.** Ticket 26 found `cursor-agent` silently
+refuses a symlinked hook config. Ticket 23 found the same binary follows a symlinked MCP config,
+absolute or relative, confirmed in a paid run. So this ticket's symlink injection survives for
+skills and for MCP, and ticket 26's "real files, never links" stays scoped to hook config rather
+than becoming a general rule.

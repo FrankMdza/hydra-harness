@@ -188,3 +188,35 @@ user already had, so injection changes what the model sees of skills Hydra never
 `agy` and `claude` both expose their resolved listing for free, so this costs nothing on two of
 three providers. Cursor needs a paid run or a read of its own session store, so decide there whether
 the field is optional or harvested.
+
+## Amended by ticket 15, 2026-09-03
+
+**A review run records who reviewed it, and that cannot be reconstructed later.** Rung two's judges
+are three `hydra run` calls on the agent-CLI plane, so a judge's identity is a provider version plus
+whatever model that subscription served that day. Neither is pinnable: `agy` moved four times in the
+life of this map. Per judge, record the provider version and the model the provider reported.
+
+Without it, "which model approved the commit that broke this" has no answer a month later, which
+defeats the auditability half of ticket 17's apply-path decision.
+
+## Amended by ticket 19, 2026-09-03
+
+**The envelope gains a secret-detection flag, and it is the one stored derived field.** A prefix
+sweep for `AIza`, `sk-ant-`, `ghp_`, `ya29.` and PEM headers runs on the write path and again at
+harvest, setting a flag on the envelope while leaving the frame verbatim. Nothing is rewritten, so
+never-discard is untouched and the write-time credential filter keeps ticket 12's boundary of
+Hydra's own injected values.
+
+This contradicts "normalization is a library function at read time, never a stored field" and the
+exception is deliberate. A rescan reproduces the flag, so it is a cache rather than a fact, and what
+it buys cannot be had at read time: a live credential sitting in `runs/` becomes visible the day it
+lands rather than at the first export. It also covers ticket 13's harvested bodies, which never pass
+the write path at all.
+
+**Redaction at export is now specified**, closing the decision this ticket deferred. Ticket 19 scopes
+before it scrubs: a run exports only if every path in its subtree sits inside a declared allowlist,
+and redaction then covers four classes that have a fixed shape. One consequence lands back here.
+Extracting "every path this run touched" runs through the tool-call adapter this ticket left open, so
+a run holding any tool call the adapter returns `unclassified` for is not exportable. Getting that
+adapter wrong is still recoverable because the raw frame survives, but until it is right the corpus
+is smaller rather than leakier.

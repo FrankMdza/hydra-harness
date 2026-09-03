@@ -1,7 +1,7 @@
 # 23 - MCP config across providers, against the ticket 10 shape
 
 Type: research
-Status: open
+Status: resolved
 
 ## Question
 
@@ -67,3 +67,68 @@ Whoever resumes should read ticket 24's partial results first. Its precedence fi
 this ticket was written and they change what to look for: the three providers resolve a name
 collision in three different ways, and they do not even agree on which string is a skill's identity.
 Expect MCP server names to have the same problem and test for it directly.
+
+## Answer, 2026-09-03
+
+Findings with every command in
+[research/23-mcp-config-injection.md](../research/23-mcp-config-injection.md), 744 lines, probed
+live against `claude` 2.1.257, `cursor-agent` 2026.09.02-c22c1a3 and `agy` 1.1.25.
+
+**MCP rides ticket 10's shape on all three, and each wants a different launch flag.** A
+worktree-scoped config is read by every provider, verified with a spawn-logging probe server rather
+than a listing, so these are connections. `claude` needs cwd to be the worktree and ignores
+`--add-dir`. `cursor-agent` takes cwd or `--workspace` and also ignores `--add-dir`. `agy` requires
+`--add-dir <worktree>` and cwd alone loads nothing, reproducing ticket 10's rule exactly. The probe
+also found a third `agy` path its own embedded documentation does not name,
+`<worktree>/.agents/mcp_config.json`.
+
+**Symlinks are followed on all three**, absolute and relative, into a snapshot directory, confirmed
+in a paid Cursor run. Worth flagging beside ticket 26: Cursor follows a symlinked MCP config while
+refusing a symlinked hook config. Two loaders, two rules, so "write real files" is a hook rule and
+not a general one. A dangling link is silence and exit 0.
+
+**One canonical document can generate all three, and cannot be all three.** The stdio server body is
+byte-identical across the providers, loaded unchanged in each. File name, directory and the remote
+key all differ (`type`+`url`, `url`, `serverUrl`), and `agy` refuses `command` and `serverUrl`
+together.
+
+**Collision behaviour splits three ways, and `claude` is the only surface on this map that reports
+one.** A project server wins and `claude mcp list` prints a diagnostic naming both endpoints, free.
+`agy` collapses duplicates silently. Cursor is the hazard: an unapproved project entry does not
+shadow the human's same-named server, it fails to replace it, so the listing says "not loaded (needs
+approval)" while the human's server process starts.
+
+**Claude's approval gate does not apply in print mode.** `claude mcp list` reports pending approval
+and `claude -p` connects anyway. The settings that do approve are user-scope only, never the
+worktree's `.claude/settings.json`.
+
+### The delegation hole is real, and it is exposure rather than execution
+
+Probed directly on `claude` against a copy of `~/.claude.json`: a user-scope server appears in a
+headless child's tool list inside an isolated worktree, and its process runs. Cursor and `agy`
+follow from their loaders with nothing left to probe, and neither has a per-run off switch. Only
+`claude` can scope MCP off per run, through `--strict-mcp-config`, `--restricted` (which drops all
+MCP despite the help text saying otherwise) or `disabledMcpjsonServers` in `--settings`, and all
+three kill the server process rather than only hiding the tool.
+
+Ticket 26's gate blocks the calls on all three, so a child cannot use an inherited server. What
+Hydra cannot prevent on two of three is the server starting and its tools reaching the model's
+context. Ticket 11 says a child's permissions come from a policy, and a policy that cannot say "this
+child sees no MCP" is not saying what that sentence claims. Ticket 27 owns what to do about it.
+
+### Two places ticket 10's shape does not survive
+
+`.mcp.json` sits at the worktree root and cannot self-ignore the way ticket 10's skill roots do, so
+`git status` shows it and `git add -A` stages it. `.cursor/mcp.json` and `.agents/mcp_config.json`
+both can. And approving a Cursor server writes state outside any path Hydra created, which is D9's
+rule broken by the vendor rather than by us.
+
+### Recommendation, taken
+
+Split, as the findings recommend. The mechanics fold into the harness spec as written. Ticket 29
+takes the two choices that are genuinely about MCP config. The third, whether a delegated child gets
+MCP at all, belongs to ticket 11 and is being decided in ticket 27, which is in flight.
+
+**Cost.** `claude` free, using a `deferred_tools_delta` transcript oracle the agent built for it.
+`cursor-agent` one paid run. `agy` four paid turns, 60,383 tokens on `gemini-3.8-flash-low`, and it
+is the only provider with no free route to its resolved MCP set.

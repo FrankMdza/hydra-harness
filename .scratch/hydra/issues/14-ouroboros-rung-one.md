@@ -241,3 +241,29 @@ silence is not consent.
 - **Ticket 05** has four rules amended, listed above.
 - **Ticket 15** is unblocked and inherits a rung one that proposes rather than lands, plus a
   thrashing detector it can rely on.
+
+## Amended by ticket 19, 2026-09-03
+
+**A third protected config.** This ticket named the delegation policy and the environment allowlist
+as the config rung one may never write, on the grounds that a loop able to widen its own permissions
+walks around every gate on this map. Ticket 19 adds the export allowlist, the file deciding which
+repos a run may have touched and still be exportable. It is the only one of the three whose failure
+mode is data leaving the laptop rather than a bad action taken on it, so it is the one where a
+widening would be hardest to notice.
+
+**The curator exclusion now has a second consumer.** This ticket excluded curator-parented runs from
+the corpus the curator reads. Ticket 19 excludes them from the training corpus too, for the same
+reason, so the rule is worth stating once in the Ouroboros spec rather than twice.
+
+## Amended by ticket 27, 2026-09-03
+
+**The config rule gains a run-time half.** Barring rung one from config was a restriction on its
+write surface, enforced by what the curator is allowed to touch. Ticket 27's gate now enforces it
+against every run rather than only the curator's: the hook denies writes to the policy directory and
+to the generated gate script under every named policy, `permissive` included. The curator runs under
+a policy called `curate` that reads the corpus and writes only inside the skill store.
+
+**A gated run is its own outcome and teaches this ticket nothing.** All three providers exit 0 and
+report success when the gate refuses everything, which is this ticket's fifth failure class again.
+The `gated` outcome exists so the curator does not rewrite a skill because a tool was denied. Same
+shape as the auth rule already here: a run that failed on too narrow a policy is a policy bug.
