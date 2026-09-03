@@ -34,3 +34,15 @@ Two more corrections. The three-way apply belongs to subagent patch integration,
 The number our document omitted is the most useful one: a 63.5% recent review block rate. Two of every three self-edits get rejected. Any design that assumes self-edits usually land is wrong.
 
 Detail: [research/06-ouroboros-paper-verification.md](../research/06-ouroboros-paper-verification.md)
+
+## Amended by ticket 17, 2026-09-03
+
+**The 63.5% block rate is not a property of the software.** Ticket 17's code survey found it is
+nowhere in the source and is not computed by it, so it comes from the paper's Table 4 and describes
+one deployment. Stop quoting it as a design constraint.
+
+Related, and pointing the same way: `config.py:208` ships
+`OUROBOROS_REVIEW_ENFORCEMENT: "advisory"`. After 1,324 commits the reference implementation
+defaults to review not blocking at all. The union veto and the responsiveness quorum this ticket
+recorded both hold, with file and line. What does not hold is the framing of the gate as something
+that routinely blocks.

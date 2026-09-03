@@ -75,3 +75,22 @@ and a run that looks empty may simply not have been harvested yet.
 
 **Ouroboros cannot call `hydra prune` or `hydra reap` at either rung.** Cleanup stays a human
 command, so nothing the loop does can destroy the evidence it learns from.
+
+## What ticket 17 hands you, 2026-09-03
+
+Two rules cross the rung boundary, and they do so because they are ticket 05's finding rather than
+ticket 17's. Both apply to the curator, because a curator is a gate.
+
+- **A model never sets what blocks.** Where a curator decision has severity, Hydra sets the ceiling
+  and the model reports under it.
+- **A model's silence is not consent.** A response that does not parse into the expected shape is
+  its own outcome, and it fails closed. In the reference implementation `[]` inside refusal prose
+  entered a quorum as an approval, which is the concrete version of this.
+
+Nothing else from ticket 17 belongs here. Worktrees, the drift proof, protected paths and the quorum
+are rung two's.
+
+**A watch condition for this ticket to design for.** Rung two ships with no obligation ledger and no
+memory across retries, on the grounds that being argued down over many rounds is a problem you only
+get once there are rounds. Thrashing appearing in the run records is the signal that the ledger
+needs building, so whatever failure signals this ticket settles should be able to see it.

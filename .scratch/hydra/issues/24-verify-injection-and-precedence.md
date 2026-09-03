@@ -1,7 +1,7 @@
 # 24 - Verify ticket 10's injection shape, and map skill precedence
 
 Type: research
-Status: open
+Status: claimed
 
 ## Question
 
