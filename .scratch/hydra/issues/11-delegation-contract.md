@@ -94,3 +94,41 @@ rules out, and blocking parks the orchestrator that delegation exists to protect
 **Reaping a crashed child never destroys its work.** `hydra reap` is typed by a human, and it
 commits a worktree's uncommitted changes to the child's own branch before removing the worktree.
 Abandonment is derived from the run record's pid and start time, not from a timeout.
+
+## Amended by ticket 26, 2026-09-03
+
+**"Cursor cannot be delegated tool work under any policy narrower than fully permissive" is too
+strong, and so is ticket 18's amendment putting `agy` in the same category.** Both were right about
+the permission-prompt surface and both missed the hook surface, which does not ask and can refuse.
+
+**What changed.** All three routable providers can hard-block a tool call from a config file Hydra
+writes per run. Probed on 2026-09-03: `claude` denies under `--permission-mode bypassPermissions`,
+`agy` denies with the model otherwise unconstrained, `cursor-agent` rejects in print mode with
+`--force` passed. The gate covers shell, file writes, file reads, MCP calls and subagent spawns. So
+this ticket's sentence should now read: **Cursor and `agy` cannot be *asked*, and both can be
+*gated*.** Under a narrower policy they get the permissive flag plus a hook config that enforces the
+policy, rather than being cut down to read-only work.
+
+**What still stands.** Everything about the prompt channel. Cursor has no permission channel in
+print mode and no ACP. `agy`'s stream-json input still accepts one message shape and ignores
+`permission_response`. Nothing escalates to a human mid-run on either, and this ticket's reason for
+that, a blocked child stalls the delegation and nobody is watching that pane, is unchanged. A hook
+denial is a decision Hydra made before the run started, not a question it answered during one.
+
+**What this costs the policy engine.** `permission_decision` gains a decider of `hook` alongside
+`policy`, and it must be derived from the event stream: all three providers exit 0 and report
+success on a run where the gate refused every action. It also has to emit up to three config
+shapes. Cursor reads Claude Code's hook format and translates it, so one `.claude/settings.json`
+written into the worktree gates both `claude` and `cursor-agent`, while `agy` needs its own
+`.agents/hooks.json`. The three disagree on failure: `agy` fails closed, `claude` fails open on a
+response in a dialect it does not recognize, and Cursor's Claude-conversion path sets
+`failClosed:false`.
+
+**Two spawn-time rules this adds.** The hook config must be a real file, never a symlink, because
+`cursor-agent` refuses a symlinked project config silently and runs the command anyway, which
+collides with D9. And it must be rewritten at every spawn: each provider snapshots the config at
+process start, so mid-run tamper fails, but a worktree reused after a child edited the file starts
+with no gate.
+
+Detail and probe transcripts in
+[research/26-hook-level-action-gate.md](../research/26-hook-level-action-gate.md).

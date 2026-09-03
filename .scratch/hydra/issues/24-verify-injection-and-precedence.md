@@ -1,7 +1,7 @@
 # 24 - Verify ticket 10's injection shape, and map skill precedence
 
 Type: research
-Status: claimed
+Status: resolved
 
 ## Question
 
@@ -119,3 +119,79 @@ provider while catching it on another.
 
 `claude` one run, 11,326 cache-creation plus 8,149 cache-read plus 280 output. `cursor-agent` three
 runs, roughly 25,000 input across them. `agy` free, two runs, zero tokens both times.
+
+## Answer
+
+Detail, method, every command and what each run cost in
+[research/24-verify-injection-and-precedence.md](../research/24-verify-injection-and-precedence.md).
+
+Builds under test: `claude 2.1.257`, unchanged since the salvaged evidence.
+`cursor-agent 2026.09.02-c22c1a3` and `agy 1.1.24`, both moved. Everything below was re-run against
+the current binaries, so nothing here rests on a superseded build.
+
+### Part one: the shape works, again
+
+`git status` in the linked worktree reports nothing and `git add -A` stages nothing, with three
+injected roots each holding a `.gitignore` of `*` and eight symlinks into a store snapshot. The
+user repo's own tracked `.claude/skills/t24b-repo-own` stays visible and stays listed. All three
+providers loaded skills out of it. Q14 stands.
+
+### Part two: precedence, settled
+
+| | `claude` | `cursor-agent` | `agy` |
+|---|---|---|---|
+| identity compared | directory name | full path, there is no name field | frontmatter `name` |
+| user vs project | user wins, project dropped | neither, both listed | project wins, user dropped |
+| two roots, one scope | one root only | `.cursor/skills` wins | one root only |
+| two dirs, same frontmatter `name` | both listed | both listed | alphabetically first wins |
+| loser reported | no | no | no |
+
+Every drop is silent and every probe exited 0.
+
+The salvaged claim that Cursor "does not dedupe at all" was too strong. It collapses a duplicate
+across roots at the same scope, preferring `.cursor/skills`, and keeps a duplicate across scopes.
+Everything else salvaged held.
+
+### The empty-description lead is real, and it is bigger than Cursor
+
+A description containing the two characters `: ` breaks the skill on two of three providers.
+`agy` drops the skill from its listing entirely. Cursor keeps it and emits
+`<agent_skill fullPath="..." />`, a path with no description. `claude` is unaffected. The cause is
+the YAML rule that an unquoted scalar may not contain `: `, so the frontmatter block fails to parse
+and each provider falls back differently. Nothing warns.
+
+This is already happening. `~/.claude/skills/handoff-frank`, installed on 31 August, has
+`to resume: when they say` in its description and has been reaching every Cursor session on this
+machine with no description at all.
+
+### A second injection hazard nobody was looking for
+
+Claude Code fits its whole skill listing into a character budget that scales with the model, and
+renders whatever does not fit as a bare name with no description. Same worktree, same model, one
+run with Hydra's nine links and one without: 7,987 characters against 7,991, and the bare count
+went from 8 to 14. Three of the six newly stripped entries were the user's own plugin skills.
+
+**Injecting skills into a Claude Code run silently strips descriptions from skills the user already
+had.** So `skills.store_sha` plus `skills.linked` does not reproduce what a run's model saw.
+
+### `~/.grok/skills` and `~/.codex/skills`
+
+Real, at both scopes, for `cursor-agent` only. Probes in `~/.grok/skills`, `~/.codex/skills` and
+`~/.agents/skills` all appeared in a Cursor listing; `agy` saw none of them. Hydra's user-scope
+index has to scan both, and a Cursor run also inherits any `.codex/skills` or `.grok/skills` the
+user's repo carries.
+
+### Where Hydra can read the outcome
+
+No provider reports a collision, but all three expose the resolved listing, and two for free.
+`agy -p "/skills" --output-format json --add-dir <worktree>` costs nothing. `claude -p "x" --model
+bogus-model-xyz` is rejected before the API call and still writes a `skill_listing` attachment
+carrying `skillCount` and a `names` array to the session transcript, which is a free names oracle
+for Claude Code. Cursor needs a paid run and then yields the richest answer, the full
+`<available_skills>` block, out of `~/.cursor/chats/<hash>/<session>/store.db`.
+
+That makes the launch-time check better than string comparison: link the farm, ask the provider
+what it resolved, diff against `skills.linked`. A linked name the provider does not list is a
+collision, whichever way it went.
+
+Ticket 10 amended under `## Amended by ticket 24, 2026-09-03`.

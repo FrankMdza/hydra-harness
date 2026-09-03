@@ -104,3 +104,43 @@ number is a blocker. Both belong in any cost model built later.
   ticket 11's policy answerer becomes buildable for Google.
 - Google restores Code Assist eligibility for individuals on the `gemini` CLI. The subscription
   returns to `gemini` and the fallback question reopens.
+
+## Amended by ticket 26, 2026-09-03
+
+**"`agy` cannot be asked for permission" stands. "`agy` cannot be gated" was never said here, and
+would be wrong.** This ticket measured the permission-prompt surface and got it right: at 1.1.24
+`agy` still reports `permission_mode: request-review` in `init`, still auto-denies acting tools
+mid-run, and still surfaces the refusal as a tool `ERROR` rather than an answerable request. Ticket
+26 re-observed all three.
+
+What ticket 26 adds is a second surface this ticket did not test.
+
+**A `PreToolUse` hook in `<worktree>/.agents/hooks.json` hard-blocks a tool call before it runs**,
+with a `reason` string that travels verbatim into the tool error and the run's final text. Probed:
+`"tool call denied by pre-tool hook: t26 gate: blocked by Hydra policy"`. The hook config is read
+once at process start, so a child cannot rewrite it out from under itself mid-run. `agy` fails
+closed, and a hook that exits non-zero denies every tool in the run.
+
+**`agy` also has a declarative permission policy this ticket did not find.** `permissions.allow` in
+`settings.json`, honored in headless runs, with three scopes that `agy -p "/permissions"` lists for
+free. When a tool needs a permission headless mode cannot prompt for, `agy` soft-denies and prints
+the exact allow-rule on stderr that would have permitted it. So "auto-denies mid-run" is the default
+behavior of an unconfigured policy, not the absence of one.
+
+The consequence for ticket 11's delegation contract: `agy` under a narrower policy is no longer
+limited to read-only work. It is gateable at the tool level, per run, from a file Hydra writes into
+the worktree.
+
+Two operational corrections. The hook file is invisible unless the worktree also arrives as
+`--add-dir`, which is this map's third instance of that rule. And the real transcript path a hook
+reports is `~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript_full.jsonl`,
+under the user's home rather than in the workspace, which ticket 13's harvest path should take from
+the run rather than construct.
+
+Detail in [research/26-hook-level-action-gate.md](../research/26-hook-level-action-gate.md).
+
+### One watch condition retired
+
+"`agy` gains a permission-response input event" is no longer the only route to gating Google. The
+hook surface already gets there. Keep the watch, because an answerable request would still let a
+human decide mid-run, but it is no longer what blocks ticket 11.

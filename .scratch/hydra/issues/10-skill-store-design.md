@@ -302,3 +302,57 @@ Hermes told its model that archiving was recoverable while the tool it called ra
 - **The verification gaps this design creates rather than closes** are ticket 24, which builds the
   injection shape and watches all three providers load it, and ticket 25, which settles the Cursor
   usage fact ticket 09 rests on.
+
+## Amended by ticket 24, 2026-09-03
+
+Built the injection shape against `claude 2.1.257`, `cursor-agent 2026.09.02` and `agy 1.1.24` and
+watched all three load it. Evidence in
+[research/24-verify-injection-and-precedence.md](../research/24-verify-injection-and-precedence.md).
+The answer above stands and is not edited. Four things it gets wrong or leaves out.
+
+**Q10's identity sentence is wrong.** It says the collision check must "compare the same thing the
+provider compares". There is no such thing. `claude` keys on the directory name, `agy` keys on the
+frontmatter `name`, and one probe directory named `t24b-dirname-only` declaring
+`name: t24b-frontmatter-name` is a different skill to each of them. Cursor compares neither: its
+listing has no name field at all, only a full path and a description, so its identity is the path
+with a root preference layered on. What the check must compare instead: **both the directory name
+and the frontmatter name, against every scope and every root that provider reads, and then the
+provider's own resolved listing diffed against `skills.linked`.** A name Hydra linked that the
+provider does not list is a collision, whichever side won. Two of the three listings are free, so
+asking is cheaper than modelling.
+
+**A description containing `: ` breaks the skill on two of three providers, silently.** An unquoted
+YAML scalar may not contain a colon followed by a space, so the frontmatter fails to parse. `agy`
+drops the skill from its listing. Cursor keeps it and emits a path with an empty description.
+`claude` is fine. The store needs a write-time validator that runs a real YAML load over the
+frontmatter, not a regex, and this is a stricter rule than "it looks like valid frontmatter".
+`~/.claude/skills/handoff-frank` fails it today and has been reaching Cursor with no description
+since 31 August.
+
+**Injection strips descriptions from the user's existing skills on `claude`.** Claude Code fits the
+whole listing into a character budget that scales with the model and renders the overflow as bare
+names. One run with Hydra's nine links and one without, same model and worktree: 7,987 characters
+against 7,991, bare entries 14 against 8. Three of the six newly stripped were the user's own plugin
+skills, and nothing warned. So `skills.store_sha` plus `skills.linked` does not reproduce what a
+run's model saw, and the injection is not as free of side effects as the answer above assumes.
+
+**The Cursor collision surface is two roots wider than the answer accounts for.** `cursor-agent`
+reads `.codex/skills` and `.grok/skills` at project scope and at `homedir()`, both now fired live.
+Neither exists on this machine today and either appears the day the matching CLI is installed. The
+user-scope index has to scan both, and a Cursor run inherits any `.codex/skills` or `.grok/skills`
+the user's repo carries, which Hydra never wrote and does not check.
+
+Two claims in the answer survive intact. Q14's shape works end to end: `git status` clean,
+`git add -A` staging nothing, the repo's own tracked project skill still visible beside the ignored
+links. And failing the run on a launch-time collision is right, because the three providers resolve
+one in three incompatible directions, so no rule about who wins could be written into the spec.
+
+## Narrowed by ticket 14, 2026-09-03
+
+**`origin = "ouroboros"` is not editable in place in v1.** This answer made an Ouroboros-authored
+skill writable without a human seeing it. Ticket 14 closes that for now: rung one commits every
+change to a branch in the store and a human merges it, whoever wrote the skill originally.
+
+The sidecar fields are unchanged and `origin` still grants the right. What changes is the default:
+the right is not exercised until a graduation condition is met, and the count is picked from the
+corpus rather than now. Everything else here stands.

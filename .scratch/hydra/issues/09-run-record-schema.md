@@ -177,3 +177,14 @@ close on any self-update.
 
 Ticket 16 writes the contract from this ticket, so it should read the amended text rather than the
 answer above it.
+
+## Amended by ticket 14, 2026-09-03
+
+**Record the resolved skill listing the provider reported**, beside `skills.store_sha` and
+`skills.linked`. Ticket 24 proved those two do not reproduce what a run's model saw: Claude Code
+fits its listing into a character budget and silently strips descriptions, including from skills the
+user already had, so injection changes what the model sees of skills Hydra never touched.
+
+`agy` and `claude` both expose their resolved listing for free, so this costs nothing on two of
+three providers. Cursor needs a paid run or a read of its own session store, so decide there whether
+the field is optional or harvested.

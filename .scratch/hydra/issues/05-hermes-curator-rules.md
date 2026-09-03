@@ -34,3 +34,21 @@ So for anything the reviewer consolidates or prunes, per-skill recovery does not
 The lesson for D15 is sharper than the rule list. A guarantee written in a prompt is not a guarantee. Hydra enforces its curator's limits in code or not at all.
 
 Detail: [research/05-hermes-curator-rules.md](../research/05-hermes-curator-rules.md)
+
+## Amended by ticket 14, 2026-09-03
+
+Eleven of the fifteen rules apply to Hydra's curator verbatim. Four change:
+
+- **The pin's patch exemption is dropped**, by ticket 17, on the grounds that a guarantee with an
+  exception you can argue into is not one.
+- **A failed snapshot blocks rather than warns.** Ticket 10's store is a git repo, so a failed
+  snapshot means git failed, which is not a condition to proceed through.
+- **Deferring the first-ever run by a full interval is moot.** Ticket 14's curator is invoked rather
+  than scheduled, so there is no interval.
+- **Archive versus delete changes character.** Ticket 13 forbids Ouroboros calling prune or reap, and
+  a git store makes any deletion a recoverable commit, so this ticket's headline finding, the
+  `shutil.rmtree` behind a prompt promising recoverability, cannot happen here. `absorbed_into` and
+  validating a merge target survive as commit-message discipline rather than as safety.
+
+The rule ticket 14 singles out to keep loudest is that deterministic transitions run before the model
+pass and independently of it.

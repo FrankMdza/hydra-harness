@@ -63,3 +63,16 @@ The mechanical pieces are small and the research file has them with line counts:
 registry, the 45-line drift proof, protected-path matching, `adaptive_quorum`, the union veto. Read
 [research/17-ouroboros-reuse.md](../research/17-ouroboros-reuse.md) section 6 before budgeting any
 of it, and read its list of what is genuinely hard before assuming the rest is easy.
+
+**How much checklist work, with a number.** Ticket 17's survey counted roughly 7 of the 29 items as
+project-independent: `secrets_check`, `code_quality`, `security_issues`, `tests_affected`,
+`cross_platform`, `self_consistency`, `changelog_accuracy`. The other 22 name Ouroboros files,
+Ouroboros invariants or Ouroboros subsystems. So the shape and the severity machinery carry over and
+**22 items have to be written from scratch**.
+
+One trap to fix rather than copy, found in their gate. The reviewer's `item` field is free text and
+is never validated against the checklist, so a model returning an invented item name with
+`severity: "critical"` blocks the commit even where the checklist says that item cannot block. Under
+ticket 17's severity ceiling an unrecognised item has no ceiling to sit under, so decide what an
+unknown item name does. Rejecting the response as a reviewer failure is the option consistent with
+this ticket's other answers.
