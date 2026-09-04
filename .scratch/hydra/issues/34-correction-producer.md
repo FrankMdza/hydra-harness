@@ -83,3 +83,18 @@ rejection on any provider, so the conjunction above has zero observed instances.
 from the binary's own source and verified mechanically on auto-denies. Staging one from a script
 cannot close it, because a script produces `entrypoint: sdk-cli`, the case the rule filters out.
 Closing it needs four minutes at a keyboard, which is ticket 35.
+
+## Corrected by ticket 35 (2026-09-04)
+
+The claim above that `userFeedback` carries the human's typed redirection, and that a denial with it
+set is "the richest form of the event the contract could hope for", is **false as measured**. Ticket
+35 ran the human case on `claude` 2.1.261 and `userFeedback` was empty on all three rejections.
+
+What the binary says is that `userFeedback` is gated on the ask path. That the ask path fills it was
+my inference, not the code's claim, and no record on this machine ever supported it. The human's
+words land as an ordinary user turn further down the `parentUuid` chain instead, so step 4 of the
+harvest rule is a chain walk rather than a field read. Ticket 35 carries the corrected rule.
+
+Everything else here stands, and is now measured rather than derived: the two-condition human test,
+the `sourceToolAssistantUUID` recovery, the forward walk to a same-tool replacement, and the
+rejected-`Edit` shape this ticket had marked as assumed.
