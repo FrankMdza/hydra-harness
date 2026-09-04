@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34
 
 ## Question
 
@@ -203,3 +203,101 @@ v1, which the producer column has to say out loud.
 nothing reads the policy signal that gated runs carry, and there is no stall detector. Both are on
 the map as fog. Neither breaks a seam, because D5 constrains what Ouroboros reads and says nothing
 about fields the harness writes with no reader.
+
+## Progress: document two written, 2026-09-04
+
+**`docs/run-record-contract.md` exists, 976 lines.** Two of three. Versions re-read at the top of
+the session and unchanged from the harness spec's: `claude` 2.1.257, `cursor-agent`
+2026.09.02-c22c1a3, `agy` 1.1.26.
+
+Remaining order: `docs/ouroboros-spec.md`, then the seam check alone.
+
+**Tickets 33 and 34 are now blockers and the Ouroboros document does not wait on either.** They are
+both about the record contract and both feed the seam check, which is what this ticket's `Blocked
+by` list is really guarding at this point. A session that wants to write document three can take
+this ticket past them; a session running the seam check cannot.
+
+### What the contract covers
+
+Sections 1 to 17: the file and the append discipline, the envelope, `run_start` with everything
+Hydra knows at launch, `run_end`, the ten event types with the producer column, the outcome enum,
+usage, lineage, stored against derived, streamed against harvested, never-discard, what is
+deliberately not recorded, versioning, the D12 export test as a field-by-field mapping, and what
+`hydra run` returns. Section 18 holds what it could not close.
+
+### Two probes, and one of them contradicts a closed ticket
+
+Two small paid `agy` runs on 1.1.26, 14,304 and 6,577 input tokens.
+
+**Ticket 25's two-usage-conventions finding is wrong.** It recorded `agy` reporting full input with
+cache read beside it and `cursor-agent` subtracting, and ticket 09 carried that into the schema as a
+convention field the normalized `usage` event had to hold. A resumed `agy` conversation reports
+input 6,577 with cache read 8,128 and `total_tokens` 6,770, which is input plus output and excludes
+cache read entirely. **`agy` subtracts too, and so does `claude`**, whose observed `input_tokens: 2`
+beside `cache_creation_input_tokens: 10558` settles it. All three share one convention, so the
+`usage_convention` field is struck and the reconstruction rule is stated instead. Ticket 25's claim
+was made on a sample where `agy` reported `cache_read_tokens: 0`, which cannot distinguish the two
+readings.
+
+**`agy`'s `result` usage is per conversation, not per run.** The resumed run's `result` frame carried
+input 20,881, output 384 and thinking 336, which are the sums across both runs. Hydra mints a fresh
+run id per resume, so taking usage from `result` would double-count the first run in any corpus that
+sums. Per-run usage comes from the `step_update` frames. No closed ticket saw this.
+
+**Ticket 32's `message_delta` call stands, on better evidence.** `agy`'s `step_update` carries a
+field named `text_delta`, which looks like a producer for a type ticket 32 declared dark. It is not:
+a prompt asking for ten numbers one per line returned the whole ten-line body in one `ACTIVE`
+frame's `text_delta`, followed by a `DONE` frame carrying the trailing newline. Buffered flush
+wearing a streaming name, the same shape `cursor-agent` has without `--stream-partial-output`. The
+contract states it, because the field name invites the opposite reading.
+
+### Four things decided here rather than ticketed
+
+**`denied` is dropped and `gated` stands**, closing section 19.2 of the harness spec. Two labels for
+one state is a bug with a schema, and `denied` also read as a per-tool-call fact, which is
+`permission_decision`'s job.
+
+**`outcome_source` loses `provider` and gains `refusal`.** No routable provider produces a run-level
+status worth reading: `cursor-agent`'s `result.subtype` is only ever `success` in shipped code, `agy`
+reports `SUCCESS` on a fully denied run, and `claude` reports `success` on a 429. So `provider` has
+no producer, and ticket 32's rule against types nobody writes applies to enum values too. `refusal`
+replaces it for the four outcomes Hydra decides itself rather than reads.
+
+**`permission_decision`, `correction` and the run's outcome are all derived, not stored.** The draft
+had the first two as stored Hydra lines while also deriving them, which contradicts ticket 09's
+read-time rule. Only `run_start` and `run_end` carry facts no frame holds. The sharpest case is the
+outcome: it is the field a reader most wants stored, and storing it would freeze today's
+classification into a corpus meant to be read for years. Section 6's `refusal` field is the narrow
+exception, because Hydra refusing a launch is a fact rather than a reading.
+
+**Ownership of a run file transfers on proof of death.** Ticket 13 says nothing appends except the
+owning process and also says `hydra status` completes an abandoned run's harvest. Read literally the
+first forbids the second. The rule is at most one writer at a time, and a process may take the file
+only after the liveness test says the recorded pid is gone. The child never touches it under any
+reading.
+
+### Two seams this session could not check and did not fake
+
+Both belong to the fourth session, and both now have the instrument they need.
+
+**The producer column is built** (section 7.2), so "every field Ouroboros reads is one the harness
+writes" is a table lookup rather than a re-read of thirty tickets.
+
+**The D12 mapping is written field by field** (section 16.1), including the four things that
+deliberately do not cross. It fails today in exactly one place, section 16.3: `preference.jsonl` has
+one source and ticket 34 is whether that source exists.
+
+### What the Ouroboros session inherits
+
+**The outcome table's rung-one column is in the contract** (section 8) and the Ouroboros spec should
+reference it rather than restate it. The column says what rung one learns from and never what Hydra
+keeps.
+
+**The gate-leak check is free and belongs in the Ouroboros spec's list of things worth reading**
+(section 7.7). Every tool call is evaluated against the run's own policy at read time, so a call the
+provider allowed and the policy denies is a gate that leaked, and `claude`'s
+`subagent_stats.spawned` above zero under a policy denying subagents is the same signal directly.
+
+**Ticket 15's checklist counts are still wrong** and this ticket's earlier note stands: the heading
+says 29, the tables hold 30, and 20 of 23 carry `critical` against a stated 15 of 22. Recount before
+lifting them.

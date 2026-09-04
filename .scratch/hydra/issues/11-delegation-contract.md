@@ -194,3 +194,24 @@ a model makes unattended. `model` joins them for the same reason. `agy` serves C
 releases behind what `claude --model opus` resolves to, so a `model` argument is the lever that lets
 an unattended orchestrator send real work to an older generation to dodge a limit it noticed. The CLI
 keeps the full surface, which is this ticket's own split.
+
+## Amended by ticket 16, 2026-09-04
+
+**`denied` leaves the status enum and `gated` replaces it.** This ticket's five values were
+`completed`, `failed`, `timed_out`, `denied` and `crashed`; ticket 27 later minted `gated` for the
+same situation. The record contract owns the enum and settles it at nine values with `gated` and no
+`denied`. Two labels for one state is a bug with a schema, and `denied` also read as a per-tool-call
+fact, which is `permission_decision`'s job.
+
+**`status_source` loses `provider` and gains `refusal`.** This ticket gave it `provider`, `derived`
+and `unknown`, and `provider` earned its place against hermes. No routable provider produces a
+run-level status worth reading: `cursor-agent`'s `result.subtype` is only ever `success` in shipped
+code, `agy` reports `SUCCESS` on a fully denied run, and `claude` reports `success` on a 429. The
+value has no producer. `refusal` replaces it, for the outcomes Hydra decides itself rather than
+reads. `unknown` survives, because the adapter's `unclassified` gives it a new producer.
+
+**The returned JSON is a projection of the record.** This ticket put `exit_code`, `status`,
+`status_source` and `error` in the JSON and ticket 09 put none of them in the file, which under D10
+meant the JSON carried facts the source of truth did not have. They are on `run_end` now, and the
+JSON adds exactly one thing that is not in the record, the diff stat, which is computed from git at
+return time.

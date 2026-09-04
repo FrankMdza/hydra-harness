@@ -12,12 +12,17 @@ Three documents, implementable and hand-offable without further discovery:
 
 No production code while this map is open. Throwaway prototypes are fine.
 
-**Written so far:** `docs/harness-spec.md`, 2026-09-04, ticket 16. The other two are unwritten.
+**Written so far:** `docs/harness-spec.md` and `docs/run-record-contract.md`, both 2026-09-04,
+ticket 16. `docs/ouroboros-spec.md` is unwritten.
 
 Ticket 16 takes one document per session rather than the whole ticket, because three documents at
 this map's fidelity do not fit one session and the seam check should not be run by the session that
 wrote the last document. Order: harness spec, then the run-record contract, then Ouroboros, then a
 fourth session for the seam alone. The harness spec goes first because the other two reference it.
+
+Tickets 33 and 34 came out of the contract session and now block ticket 16. **Neither blocks the
+Ouroboros document**; both feed the seam check, which is what ticket 16's blocker list is guarding
+at this point.
 
 ## Notes
 
@@ -97,6 +102,13 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - **Multi-machine use.** Whether run records and skills follow you to another machine. Ticket 12 settled the auth half: it does not. Every credential is in this machine's Keychain or its environment, so you log in again per machine.
 - **A second corpus from Ouroboros verdicts.** Ticket 19 admitted exactly one preference source, a human correcting a tool call in an interactive run. Rung one's merged-or-dropped proposals and rung two's panel verdicts carry the same kind of signal in a different shape, a diff plus a verdict rather than a trajectory plus a turn, so ticket 19 recorded them and left them out of its format. Whether they become a second corpus, and in what shape, waits until rung two has produced verdicts worth looking at.
 - **Who reads the policy signal.** Rung one is barred from learning from gated runs, auth failures, MCP shortfalls and rate limits, and all of them are recorded in full. Ticket 27 already names a use for one class: a run that failed on too narrow a policy is a policy bug rather than a skill bug. Nothing reads that in v1. Breaks no seam, since D5 requires every field Ouroboros reads to be one the harness writes and not the converse. Same shape as the second-corpus patch: a signal worth keeping before anyone knows what reads it.
+- **What a resumed run's usage is scoped to on `claude` and `cursor-agent`.** Ticket 16 measured
+  `agy` reporting a whole conversation's tokens on a resumed run's `result` frame, so a run's own
+  counts come from its step frames there. The other two report usage only on `result` and neither has
+  been resumed under measurement. Nothing in v1 resumes a run except a human typing `hydra resume`,
+  and usage crosses nowhere into export, so the only exposure today is a wrong figure in what
+  `hydra run` returns.
+
 - **A stall detector.** Liveness is a pid plus a process start time, so a run that is alive and emitting nothing looks exactly like a run working hard, and ticket 14's five failure classes have no entry for it. Message deltas are the cheap heartbeat and ticket 32 turns them off for reasons that hold on their own. `agy` keeps one by accident through `step_update` with `state: ACTIVE`, so the signal exists on one provider of three. Ticket 14's rule applies: Hydra has run zero times and a timeout invented now is a guess.
 - **Enforcing export eligibility during a run.** Ticket 19's allowlist is audited from the record at export time. Ticket 26 proved all three providers hard-block a tool call from a config Hydra writes per run, but whether a block can be scoped to a path argument on all three is unmeasured. If it can, eligibility stops being an audit and becomes a property the run cannot violate.
 

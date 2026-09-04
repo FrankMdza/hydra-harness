@@ -93,3 +93,22 @@ wall clock. Cursor reports no cost field, so there is no dollar figure.
 `cursor-agent` self-updated to `2026.09.02-c22c1a3` within the hour after this ticket closed. Every
 measurement above is against `2026.08.31-4057e58`. Nothing here is known to have changed, and
 nothing here has been rechecked.
+
+## Corrected by ticket 16, 2026-09-04
+
+**"`agy` reports full input with cache read beside it while Cursor subtracts" is wrong.** Both
+subtract, and so does `claude`. The claim was made against an `agy` sample reporting
+`cache_read_tokens: 0`, which cannot distinguish the two readings.
+
+Measured on `agy` 1.1.26, 2026-09-04. A fresh run: input 14,304, output 191, cache read 0, total
+14,495. Resuming that conversation, on the step frame: input 6,577, output 193, cache read 8,128,
+total 6,770. `total_tokens` is input plus output and excludes cache read, and 6,577 plus 8,128
+reconstructs a second-turn prompt of the right size.
+
+`claude` settles the same way from a frame already in research 20: `input_tokens: 2` beside
+`cache_creation_input_tokens: 10558`, which no real prompt produces under a full-input reading.
+
+The consequence is that the two-convention split this ticket handed ticket 09 does not exist. The
+record contract carries one reconstruction rule instead of a convention field. Everything else here
+holds: `usage_source: provider` decided per run, `usage_estimator` keeping a narrower job, storing
+the parts rather than the single field, and the reasoning text against reasoning tokens split.

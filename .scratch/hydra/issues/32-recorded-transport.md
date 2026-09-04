@@ -216,3 +216,22 @@ patch, which is the same shape.
 - **Ticket 27**: gains `subagent_stats` as a check on its own denial.
 - **Ticket 16**: section 6.7's `<transport>` placeholder resolves, section 19.1 closes, and the
   producer column becomes the seam check's main instrument.
+
+## Confirmed by ticket 16, 2026-09-04
+
+**`message_delta` is dark on all three, and `agy` nearly says otherwise.** Its `step_update` frames
+carry a field named `text_delta`, which reads like a producer for the type this ticket declared has
+none. Measured on 1.1.26: a prompt asking for the numbers one to ten, one per line, returned the
+whole ten-line body in a single `ACTIVE` frame's `text_delta`, followed by a `DONE` frame whose
+`text_delta` was the trailing newline. A buffered flush wearing a streaming name, the same shape
+`cursor-agent` has without `--stream-partial-output`.
+
+So this ticket's call stands and its producer column reads more carefully than "none in v1": `agy`
+ships no flag that would light the type either, where the other two do. The record contract states
+the flush explicitly, because the field name invites the opposite reading and a normalizer that
+treats each `text_delta` as a partial token would be building on one sample of two chunks that
+happened to split at a newline.
+
+**One thing this ticket did not carry that the contract needed.** `agy`'s per-step usage is what a
+run's own token counts come from, because `result.usage` on a resumed conversation covers every turn
+in the conversation rather than that run. See the amendment on ticket 09.

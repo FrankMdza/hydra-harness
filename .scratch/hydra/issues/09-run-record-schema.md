@@ -328,3 +328,41 @@ name the hook and carry its `exit_code`, `outcome` and stdout. They corroborate 
 rather than replacing it, since two of three providers cannot produce them. They also bring the
 user's own hook stdout into every recorded `claude` record, which is a content source ticket 19's
 redaction classes were not written against.
+
+## Amended by ticket 16, 2026-09-04
+
+`docs/run-record-contract.md` is written from this ticket. Five things in the answer above and its
+amendments did not survive the writing.
+
+**There is no `usage_convention` field, because there is only one convention.** The amendment from
+ticket 25 has the normalized `usage` event carrying which of two conventions produced its counts.
+Measured on `agy` 1.1.26: a resumed conversation reported input 6,577 with cache read 8,128 and
+`total_tokens` 6,770, which is input plus output and excludes cache read. `agy` reports input net of
+cache, the same as `cursor-agent`, and `claude` does too. One reconstruction rule,
+`raw_input = input + cache_read + cache_write`, over whichever fields a provider reports.
+
+**`agy`'s `result.usage` is scoped to the conversation, not the run.** The resumed run's `result`
+carried input 20,881, output 384 and thinking 336, exactly the sums across both runs. A resumed run
+gets a fresh run id under ticket 13, so reading usage from `result` double-counts. Per-run usage
+comes from the `step_update` frames, and the record keeps both.
+
+**`permission_decision` and `correction` are derived, not stored.** Ticket 30 said Hydra sets the
+decider rather than parsing it, which reads as a stored field, and it cannot be one: calling back
+into `hydra` per tool call is ruled out, the gate script cannot append to the run file, and the spawn
+directory is reaped. The decision is a function of the policy in `run_start` and the call in `raw`,
+so it derives at read time from two things already on disk, which is this ticket's own rule. Same for
+`correction`: harvest stores the vendor's frames verbatim and the event derives from them.
+
+**The run's outcome is derived too, and `run_end` carries a `refusal` field instead.** Storing an
+outcome would freeze today's classification into a corpus meant to be read for years, which is the
+argument for keeping raw applied to the one field a reader most wants stored. The exception is the
+four outcomes Hydra decides itself rather than reads, a refused spawn, a skill collision, an MCP
+check and an auth pre-flight; `refusal` names the check and the derivation reads it.
+
+**Ownership transfers on proof of death.** "Only the owning process appends" and ticket 13's
+`hydra status` completing an abandoned harvest cannot both be read literally. At most one writer at a
+time, and a process may take the file only after the liveness test says the recorded pid is gone.
+
+Two gaps this ticket left are now tickets. Ticket 33: `usage_source: estimated` picks a tokenizer by
+model family and `cursor-agent` reports `model` as `Auto`, so the selector may not exist. Ticket 34:
+`correction` has one producer and nobody has verified it exists in any vendor transcript.
