@@ -301,3 +301,50 @@ provider allowed and the policy denies is a gate that leaked, and `claude`'s
 **Ticket 15's checklist counts are still wrong** and this ticket's earlier note stands: the heading
 says 29, the tables hold 30, and 20 of 23 carry `critical` against a stated 15 of 22. Recount before
 lifting them.
+
+## Section 7.9 needs rewriting before the seam check (from tickets 34 and 35, 2026-09-04)
+
+`correction` was the last type whose producer was unestablished. It now has one, measured rather
+than assumed, and section 7.9 as written predates all of it. Fix 7.9 before the seam check runs,
+or the check validates a paragraph we already know is wrong.
+
+Four changes, in order of how wrong the current text is.
+
+**The auto-deny claim is too pessimistic and should be cut.** 7.9 says `claude` "labels a headless
+auto-deny `user-rejected` exactly as it labels a real one". It does not. Ticket 34 read the mapping
+out of the binary and ticket 35 measured it: a rule denial writes `permission-rule`, an auto-mode
+denial writes `automode-blocked`, and a run with `--permission-prompts none` writes `permission-rule`
+at `entrypoint: sdk-cli`. The paragraph's conclusion still holds, since policy denials stay out of
+preference export, but its stated reason is false and the real separator is better than a mode check.
+
+**Name the separator.** `toolDenialKind == "user-rejected"` **and** `entrypoint == "cli"`. Both
+conditions, not either. `user-rejected` alone means the ask path answered, and under `sdk-cli` the
+answerer is code: ticket 34's corpus holds three such records, all written by ticket 30's own
+harness. 7.9's "interactive plus `user-rejected` is a person" is the right idea with the mechanism
+left unnamed.
+
+**Carry the harvest rule.** Rejected content comes from following `sourceToolAssistantUUID` to the
+assistant record and matching the `tool_use` block whose `id` equals the denial's
+`tool_result.tool_use_id`, which held on 35 of 35 auto-denials and 3 of 3 human ones. Chosen content
+comes from walking children by `parentUuid` to the first assistant record holding a `tool_use`, and a
+pair is emitted only when the tool name matches. A rejected `Edit` needs no special handling, since
+the diff is `old_string` and `new_string` in the ordinary input.
+
+**The human's words are the weak part, and 7.9 should say so.** They are not in a field.
+`userFeedback` exists, is gated on the ask path, and was empty on all three human rejections. The
+text lands as an ordinary user turn further down the same chain, so it is read by walking to the
+first `user` record whose `message.content` is a plain string rather than a list of blocks. Nothing
+marks that turn as a redirection rather than an unrelated new instruction, so a human who rejects a
+call and then changes the subject produces a record indistinguishable from a correction. That is a
+caveat the contract carries, not a problem it solves.
+
+One thing for section 13's sweep rather than 7.9: a denial also emits a `user` record holding
+`[Request interrupted by user for tool use]`. A denial contains an interrupt marker, so anything
+counting interrupts by that string double-counts every rejection.
+
+Detail in [research/34-correction-producer.md](../research/34-correction-producer.md) and
+[research/35-human-rejection-shape.md](../research/35-human-rejection-shape.md). Two real pairs exist
+on disk under `~/.claude/projects/-private-tmp-hydra-t35/`, and `.scratch/hydra/verify35.py` prints
+the five checks against any transcript from the last N minutes.
+
+Ticket 33 also lands on section 7.8 and section 9, and its answer says what.
