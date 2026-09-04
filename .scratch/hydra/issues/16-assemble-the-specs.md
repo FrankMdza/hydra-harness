@@ -65,5 +65,20 @@ two documents.
 
 **One seam to check specifically.** Ticket 28 promises that a run's actions are bounded by its own
 policy, and that promise rests on ticket 30's measurement that a hook cannot grant on any provider.
-Ticket 31 may change which hooks run at all on `claude`. The harness spec states the promise once and
+Ticket 31 settles which of the user's settings run at all on `claude`. The harness spec states the promise once and
 the command line that makes it true.
+
+## What ticket 31 hands this ticket, 2026-09-03
+
+**The floor's initial patterns.** Ticket 31 puts argument conditions on the `shell` capability
+covering the destructive git forms, `aws configure` and `sso`, and Slack webhooks. The exact patterns
+are spec work here. Write them knowing the floor is documented as catchable by spelling, so the
+harness spec must not imply coverage it does not have.
+
+**The exact `claude` command line.** Hydra composes with the user's settings, so `--restricted`
+appears for `judge` alone and `--setting-sources project` appears nowhere. Say why the second was
+measured and rejected, or a later reader finds it in ticket 30 and assumes it was an oversight.
+
+**One pattern to name once.** A flag typed per run, never inheritable, unsettable by the delegation
+policy. D16's `--allow-billed` and ticket 31's floor escape are both instances, so the spec describes
+the shape and then refers to it.

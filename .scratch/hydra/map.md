@@ -22,6 +22,8 @@ No production code while this map is open. Throwaway prototypes are fine.
 
 **Vocabulary.** A run's **instructions** are the three things Hydra wrote at spawn: the task string, the policy and hook config, and the skills linked at the pinned sha. Everything a run reads after its process starts is **data**. Ticket 28 settled this and the test is authorship rather than timing. Do not call these channels, since D5 uses that word for the two crossings between the harness and Ouroboros.
 
+**Per-run human flags.** Some limits lift only when a human types a flag on that run. The flag is never inheritable and the delegation policy cannot set it. D16's `--allow-billed` and ticket 31's floor escape are the two instances, so the spec names the shape once rather than restating it.
+
 ### Settled while charting
 
 Constraints for every ticket below. Reopening one of these is a scope change, not a ticket.
@@ -75,6 +77,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 
 - [28 - Instruction provenance: whose instructions a run obeys](issues/28-instruction-provenance.md): a run's **instructions** are the three things Hydra wrote at spawn, the task string, the policy and hook config, and the skills at the pinned sha; everything read after the process starts is **data**, and the test is authorship rather than timing. Authority is per run, so a delegated child's task is authoritative for that child and a child's policy may never be wider than its parent's, measured as capability set containment. The rule text rides a preamble on the task string rather than an injected skill, it is Hydra's fourth protected config, and it is advice, because the gate is the only thing on this map that refuses anything.
 - [30 - When two hooks answer, does deny win?](issues/30-hook-precedence-deny-vs-allow.md): deny wins on all three and a hook cannot grant at all, so the user's hooks can only tighten Hydra's floor and ticket 27 stands unchanged. It also found a cheaper isolation flag on `claude` than `--restricted`, which opened ticket 31, and that the reason text a provider reports does not identify which gate fired, which ticket 09 now handles with a field Hydra sets.
+- [31 - Does Hydra load the user's settings on `claude`?](issues/31-claude-hook-isolation-flag.md): yes, it composes, and ticket 27's stated reason was not the real one. Hydra's policies bound where a run acts and the user's 418 lines of guards bound what a shell command means, so dropping them removes protection Hydra has never specced. A pattern floor on the `shell` capability ships on all three providers and under every policy, because the guards reach `claude` and `cursor-agent` and nothing reaches `agy`. `--restricted` narrows to `judge` and `--setting-sources project` is measured and unused.
 
 ## Not yet specified
 

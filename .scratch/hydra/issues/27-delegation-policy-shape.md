@@ -301,3 +301,27 @@ incomparable pair is refused rather than resolved. A `standard` parent therefore
 
 A spawn refused this way still writes a run record, with outcome `gated` and no child process behind
 it, so an attempted escalation is countable rather than invisible.
+
+## Amended by ticket 31, 2026-09-03
+
+**Composition stands, and for a better reason than this answer gave.** This answer kept the user's
+hooks partly because the only isolation it knew, `--restricted`, also strips Bash. Ticket 30 found
+`--setting-sources project`, which isolates without that cost, and composition still wins. Hydra's
+policies bound where a run acts, the user's guards bound what a shell command means, and only the
+second stops a `git push --force` that `standard` otherwise permits.
+
+**A pattern floor joins the policy set.** Argument conditions on the `shell` capability, in the
+`write_file(<target>)` shape this answer already allows, covering the destructive git forms, `aws
+configure` and `sso`, and Slack webhooks. It lives as one file in the policy directory rather than a
+field repeated across five policies, so it inherits the protection the set already has and the
+protected config count stays at four. It applies on all three providers and under every policy
+including `permissive`, because the user's own guards cover `claude` and `cursor-agent` whatever
+Hydra does, so an exemption would empty the floor on `agy` alone. A human lifts it per run with a
+flag in D16's shape.
+
+It is a floor and not a gate. A deny list fails toward silent permission, which is why this answer
+refused one for tools, and saying so out loud is the price of covering `agy` at all.
+
+**`--restricted` narrows to `judge`.** Stripping Bash and dropping MCP is the point for a policy that
+allows nothing and a cost everywhere else, so every other policy launches with `--settings`.
+`--setting-sources project` is measured and deliberately unused.
