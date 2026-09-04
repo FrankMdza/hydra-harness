@@ -112,3 +112,21 @@ The consequence is that the two-convention split this ticket handed ticket 09 do
 record contract carries one reconstruction rule instead of a convention field. Everything else here
 holds: `usage_source: provider` decided per run, `usage_estimator` keeping a narrower job, storing
 the parts rather than the single field, and the reasoning text against reasoning tokens split.
+
+## Amended by ticket 33 (2026-09-04)
+
+This ticket recorded `model: "Auto"` and listed a pinned model as unmeasured. Ticket 33 measured
+both on the same build, `2026.09.02-c22c1a3`, and two things here need narrowing.
+
+`model` reports the **selection's display name**, not the model that served the run. The default on
+this machine now reports `Composer 2.5` rather than `Auto`, and no version changed: the account's
+model selection did. So this ticket's reading and ticket 33's are both correct about different
+config, and neither is a fact about the binary.
+
+The resolved model id is recoverable after all, from the chat store at
+`providerOptions.cursor.modelName`, which this ticket had no reason to look at. The Auto run resolved
+to `cursor-grok-4.5-high`.
+
+The open question this ticket left, whether a run can end with no counts, is now answered and
+reproducible: pinning any premium model on this Pro account is refused before a model runs, writing
+`system/init` and no `result` frame, until the cycle resets on 2026-09-29.
