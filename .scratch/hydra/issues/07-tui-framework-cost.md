@@ -35,3 +35,18 @@ The source document's `parllama` citation does not hold. Its own help file and s
 On coupling, the seam is clean for history and leaky for live panes. Tailing JSONL and shelling out to `hydra run` matches D7 and D10 exactly. But "a pane survives its subprocess dying" implies live attach, and live attach needs a channel that static JSONL does not provide. Inventing one would be a third thing crossing between the two systems, which D5 forbids. That is a design constraint on the run record, not a blocker, and it belongs to ticket 09.
 
 Detail: [research/07-tui-framework-cost.md](../research/07-tui-framework-cost.md)
+
+## Narrowed by ticket 32, 2026-09-04
+
+**Half of this ticket's case has lapsed, and the answer does not change.** Textual won on two
+requirements, streaming markdown and the diff viewer, and `MarkdownStream` was named as the API built
+for exactly the first.
+
+Ticket 32 turns the partial-message flags off on recorded runs, and ticket 13 already had interactive
+runs harvested at exit rather than streamed. So **nothing in v1 streams token by token on any path**,
+and `MarkdownStream` has nothing to buffer. The diff viewer carries the framework choice on its own,
+which is enough, since that is where ratatui cost 2 to 3 weeks of hand-built work.
+
+The flags are off with a reason rather than by neglect, and this ticket's requirement is one of the
+three reasons to turn them back on. Whoever builds the TUI decides that, and it is a flag flip on
+`claude` and `cursor-agent` rather than a design change.

@@ -275,3 +275,21 @@ allowlist, the export allowlist, ticket 28's instruction preamble, or ticket 29'
 document. The document is the file that decides which MCP servers a run gets, and an MCP server
 definition is a command Hydra spawns, so a loop able to edit it runs arbitrary code inside every
 future run. That is this ticket's own argument for the first two, unchanged.
+
+## Amended by ticket 32, 2026-09-04
+
+**A sixth failure class is named and not built: the stalled run.** This ticket's five all derive from
+something the record holds. A run that is alive and emitting nothing holds nothing, and ticket 13's
+liveness test is a pid plus a process start time, so a wedged run and a busy run look identical.
+
+Message deltas are the cheap heartbeat and ticket 32 turns them off, for reasons that hold
+independently of this. `agy` keeps one by accident, emitting `step_update` with `state: ACTIVE` and
+shipping no flag to stop it, so the signal exists on exactly one of three providers today. The class
+is left unbuilt on this ticket's own principle: Hydra has run zero times, and a timeout invented now
+is a guess with a decimal point on it.
+
+**The outcomes rung one ignores are not signal-free.** This ticket bars learning from auth failures,
+and tickets 27, 29 and 20 added gate refusals, MCP shortfalls and rate limits. All of them are still
+recorded in full, and ticket 27 already names a use for one: a run that failed on too narrow a policy
+is a policy bug rather than a skill bug. Nothing reads that in v1. It goes to the fog rather than to
+this ticket, because rung one is the wrong reader for it by this ticket's own argument.

@@ -345,3 +345,23 @@ gives each server an admission field keyed on a policy name, the way this ticket
 takes a name rather than a list. The policy stays a capability allowlist and gains nothing; the
 admission lives in the document and points at it. A launch where the policy admits a server the
 combination cannot deliver fails rather than proceeding short.
+
+## Amended by ticket 32, 2026-09-04
+
+**`claude` counts in-process subagents natively, and this answer's denial stands.** Its result frame
+carries `subagent_stats` with `spawned`, `max_depth`, `spawned_by_subagents` and a `refused`
+breakdown by `depth_limit`, `concurrency_limit` and `budget`, plus `permission_denials[]`.
+
+That does not soften the argument for denying them. This answer denied in-process subagents because
+their *work* has no run record on the trajectory Ouroboros learns from, and a count is not a
+trajectory. What the fields buy is enforcement rather than permission: **`subagent_stats.spawned`
+above zero on a run under a policy that denies spawning means the gate leaked**, and that is a bug
+nobody would otherwise see, because all three providers exit 0 reporting success either way. It also
+gives `claude` a direct answer for the depth-cap blind spot this answer had to reason about
+indirectly.
+
+**The gate's own firings are visible on `claude`.** Recorded runs pass `--include-hook-events`, which
+emits `hook_started` and `hook_response` frames naming the hook with its `exit_code` and `outcome`.
+This is corroboration for ticket 30's decider field rather than a replacement, since neither of the
+other two providers can produce it, and a record whose shape depends on the provider is what that
+field exists to prevent.

@@ -159,3 +159,18 @@ ids, up from eleven at 1.1.23. The Gemini ids advanced a generation, 3.7 to 3.8,
 Claude ids sat still at 4.6. So the Google side is not tracking Anthropic's releases at the same
 cadence, and any claim about the size of the generation gap wants `agy models` re-run before it is
 trusted.
+
+## Amended by ticket 32, 2026-09-04
+
+**This ticket's permission-response watch is folded into a broader one.** It read "`agy` gains a
+permission-response input event", filed when ACP was still the assumed route to answerable
+permissions. Ticket 32 struck ACP and replaced both watches with one named by capability: **a
+routable provider gains a channel that can answer a permission request mid-run.**
+
+A watch on the protocol would have missed `agy` shipping the input event, and a watch on the
+capability catches that and an ACP arrival alike. This ticket's own reasoning is why: it retired ACP
+for Google on the grounds that print mode already carried more, so the protocol was never the thing
+that mattered.
+
+The second watch condition here, Google restoring Code Assist eligibility for individuals on the
+`gemini` CLI, is untouched.

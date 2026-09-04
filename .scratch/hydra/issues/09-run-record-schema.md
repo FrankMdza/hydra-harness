@@ -293,3 +293,38 @@ ticket 27 used for a gated run. The trap is that a rate-limited `claude` run rep
 files an exhausted run as a clean one. That is ticket 14's fifth failure class arriving on a fourth
 provider surface. It is neither a clean run nor a task failure: the run did no work through no fault
 of the task, and rung one must not learn from it as if it had.
+
+## Amended by ticket 32, 2026-09-04
+
+**Ten event types, not eleven. `permission_request` is dropped.** It populated from ACP and from
+Claude's `can_use_tool`. No routable provider speaks ACP, and every recorded run launches with the
+permissive flag plus the gate, so the decision is made before the process starts and nothing ever
+asks Hydra for permission during a run. `permission_decision` still populates, from the gate, with
+the decider field ticket 30 added. This ticket's own rule is why it goes: the list stays small on
+purpose, growing it later is cheap because raw frames survive, and an event type nobody writes is a
+contract that lies to whoever builds from it.
+
+**The contract carries a producer column per event type.** `message_delta` is dark in v1 for the same
+reason `permission_request` was, since both partial-output flags are off, and it keeps its slot on a
+distinction that only works if it is written down: no provider *can* produce a permission request any
+more, while two providers ship a flag that would light message deltas tomorrow. So each type names
+its producers, and `message_delta` reads "none in v1, lit by `--include-partial-messages` on `claude`
+or `--stream-partial-output` on `cursor-agent`". Without the column the honest call was nine types.
+
+The column pays for itself past that one row. `thinking` has three answers by provider, `agy`
+reporting a token count with no text and Cursor the reverse. `usage` has two conventions that overlap
+on input, output and cache-read only. And it is the instrument ticket 16's seam check needs, since
+"every field Ouroboros reads is one the harness actually writes" becomes a table lookup rather than a
+re-read of thirty tickets.
+
+**Two `claude` fields to carry, both already on the result frame.** `permission_denials[]`, and a
+`subagent_stats` block with `spawned`, `max_depth`, `spawned_by_subagents` and a `refused` breakdown
+by `depth_limit`, `concurrency_limit` and `budget`. They do not reopen ticket 27's denial of
+in-process subagents, because a count is not a trajectory, and they make that denial checkable:
+`subagent_stats.spawned` above zero under a policy that denies spawning means the gate leaked.
+
+**`--include-hook-events` frames reach the record on `claude`.** `hook_started` and `hook_response`
+name the hook and carry its `exit_code`, `outcome` and stdout. They corroborate the decider field
+rather than replacing it, since two of three providers cannot produce them. They also bring the
+user's own hook stdout into every recorded `claude` record, which is a content source ticket 19's
+redaction classes were not written against.

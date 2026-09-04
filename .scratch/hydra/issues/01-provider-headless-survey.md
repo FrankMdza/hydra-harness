@@ -31,3 +31,21 @@ The survey is complete for all four providers plus Antigravity. Read the finding
 Three things Hydra must own rather than read back: its own run id (Hermes cannot be told one and does not print the one it used), its own per-line timestamps (only Gemini stamps every frame), and delegation lineage recorded by the parent at spawn (only Claude and Hermes carry native parent links, and Cursor has none).
 
 Detail: [research/01-provider-headless-survey.md](../research/01-provider-headless-survey.md)
+
+## Superseded by ticket 32, 2026-09-04
+
+**"Drive ACP, not print mode" no longer applies to anything Hydra routes.** The recommendation was
+right for the four-provider set it was measured against and every ACP speaker in that set has since
+left it. `gemini` dropped to a cold fallback (ticket 18) and `hermes` stopped being routable (ticket
+22). Those were the two this ticket named, `gemini --acp` and `hermes acp`.
+
+**This ticket never claimed `claude` had ACP**, and ticket 32 was filed on a misreading that said it
+did. The capability table above lists Claude's bidirectional stdin as `--input-format stream-json`,
+not ACP, and the sentence "reasoning is Claude-only on the default path, three of four if Hydra
+drives ACP" counts Claude on print mode plus Gemini and Hermes on ACP. `cursor-agent` was named the
+permanent laggard here and still has none. Confirmed on `claude` 2.1.257: zero matches for `acp` in
+`--help`, no ACP subcommand.
+
+So every recorded run is print mode with `--output-format stream-json`, and ACP is struck rather than
+kept as an extension point. Everything else this ticket settled stands, including the three things
+Hydra must own rather than read back and the ten named gaps.
