@@ -355,3 +355,15 @@ rather than blocked by it, which is the treatment this ticket already gives prot
 all. This ticket's case, that a panel member needs no tools because the diff arrives in the prompt
 and one JSON answer comes back, turned out to be the test that shaped the policy set: the narrowest
 policy the gate will ever express is one word rather than an enumeration of everything to forbid.
+
+## Amended by ticket 28, 2026-09-03
+
+**An eighth protected path**, the instruction preamble's config file. Ticket 28 puts the text of
+Hydra's instructions-and-data rule in a human-authored config rather than in an injected skill, which
+makes it Hydra's fourth protected config beside the delegation policy set, the environment allowlist
+and the export allowlist. Same case-insensitive matching as the other seven, for the reason this list
+already carries.
+
+**A mismatch worth fixing in one place.** Ticket 27 counts three protected configs. This list holds
+seven paths and ticket 19's export allowlist is not among them, and both tickets closed on the same
+day. Ticket 16 reconciles the two rather than each document restating its own.

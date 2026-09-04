@@ -268,3 +268,36 @@ change rather than a paragraph, so ticket 30 measures it and blocks ticket 16.
   of what any model believes about the text.
 - **Ticket 29** has its third question answered here rather than there.
 - **Ticket 16** takes the policy engine into the harness spec, and waits on ticket 30.
+
+## Confirmed by ticket 30, 2026-09-03
+
+**The unverified fact holds.** A deny beats an allow on all three providers, and the stronger result
+is that a hook cannot grant at all, so the user's hooks can only tighten Hydra's floor. This answer
+stands as written. `--restricted` does not become mandatory, ticket 22's rule is not triggered, and
+the routable set stays at three.
+
+Two details to fold in. `agy` names one action `write_to_file` as a step and `write_file` as a
+permission rule, so the capability table needs both. And Cursor accepts Claude's response dialect on
+`preToolUse`, so the shared script answers in two shapes rather than three, though passing the
+dialect explicitly stays right for `agy` and for claude's fail-open.
+
+**A cheaper isolation option appeared that this answer did not have.** `--setting-sources project`
+drops the user's hooks on `claude` while keeping all 25 tools, `bypassPermissions` and Hydra's own
+`--settings` hooks. This answer chose composition partly because `--restricted` also strips Bash.
+Whether Hydra takes the cheaper flag is ticket 31.
+
+## Extended by ticket 28, 2026-09-03
+
+**A child's policy may never be wider than its parent's.** This answer settled that the caller passes
+a policy name rather than a list. It did not say who may pass which name, and the MCP face's caller
+is a model, so a poisoned parent can name `permissive`. Ticket 11's depth cap bounds recursion, not
+escalation.
+
+**Wider means capability set containment** over the five named allowlists, which needs nothing new
+since they are already capability sets. The five are a partial order rather than a chain, because
+`curate` writes to the store and not to a worktree while `standard` is the reverse, so an
+incomparable pair is refused rather than resolved. A `standard` parent therefore cannot delegate a
+`curate` child, and a curator pass starts at depth 0 from a human.
+
+A spawn refused this way still writes a run record, with outcome `gated` and no child process behind
+it, so an attempted escalation is countable rather than invisible.

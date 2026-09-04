@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30
+Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 31
 
 ## Question
 
@@ -49,3 +49,21 @@ export contract this ticket has to check D12 against. Ticket 20 decides how a ru
 subscription paid for it, which is a record field. Ticket 29 decides where Claude's MCP config goes,
 which the harness spec has to state. Ticket 30 can invert ticket 27's composition decision, which
 would change the harness spec rather than a paragraph of it.
+
+## What tickets 28 and 30 hand this ticket, 2026-09-03
+
+**A paragraph for `~/hydra/CLAUDE.md`.** Ticket 28 found three populations rather than two: a
+recorded run Hydra launches, an interactive run it launches, and an agent working on this repo. Only
+the first is gated. The third's home is `~/hydra/CLAUDE.md`, which is not one of the three documents,
+so nothing else places it. The wording must not let a reader assume the third population is gated on
+the strength of sharing the first's phrasing.
+
+**Two protected lists to reconcile.** Ticket 27 counts three protected configs, ticket 15's
+protected-path list holds seven paths, and ticket 19's export allowlist is in the first and not the
+second. Ticket 28's preamble config takes them to four and eight. Fix it once, here, rather than in
+two documents.
+
+**One seam to check specifically.** Ticket 28 promises that a run's actions are bounded by its own
+policy, and that promise rests on ticket 30's measurement that a hook cannot grant on any provider.
+Ticket 31 may change which hooks run at all on `claude`. The harness spec states the promise once and
+the command line that makes it true.

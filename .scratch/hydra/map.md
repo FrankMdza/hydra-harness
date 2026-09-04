@@ -20,6 +20,8 @@ No production code while this map is open. Throwaway prototypes are fine.
 
 **Source material.** `~/Downloads/Harness CLI Unificado para Cursor, Gemini y Claude.md` is the originating research doc. Treat it as a starting point, not as settled: its model naming is stale in places and several of its claims are unverified here.
 
+**Vocabulary.** A run's **instructions** are the three things Hydra wrote at spawn: the task string, the policy and hook config, and the skills linked at the pinned sha. Everything a run reads after its process starts is **data**. Ticket 28 settled this and the test is authorship rather than timing. Do not call these channels, since D5 uses that word for the two crossings between the harness and Ouroboros.
+
 ### Settled while charting
 
 Constraints for every ticket below. Reopening one of these is a scope change, not a ticket.
@@ -70,6 +72,9 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [19 - The export pipeline and redaction](issues/19-export-pipeline-and-redaction.md): scoping beats scrubbing, because the largest class in a trajectory is file contents and nothing redacts those. A run exports only if every path in its whole subtree sits inside a declared allowlist, which is Hydra's third protected config. Redaction then covers four classes that have a fixed shape, no model pass, and a hit on the verification scan aborts the entire export.
 - [23 - MCP config across providers, against the ticket 10 shape](issues/23-mcp-config-injection.md): MCP rides ticket 10's shape on all three, each wanting a different launch flag, and one canonical document can generate the three files without being any of them. Cursor follows a symlinked MCP config while refusing a symlinked hook config, so "real files, never links" is a hook rule and not a general one. A delegated child inherits the human's user-scope servers on all three and only `claude` can scope them off per run.
 - [27 - The shape of the delegation policy, now that every provider can be gated](issues/27-delegation-policy-shape.md): five named capability allowlists, deny by default, compiled per run into one script that lives outside the worktree it guards so a child cannot rewrite its own gate. The user's hooks compose with Hydra's because isolation is available on one provider of three, which ticket 30 is measuring. A gated run gets its own outcome, since all three exit 0 reporting success when the gate refused everything.
+
+- [28 - Instruction provenance: whose instructions a run obeys](issues/28-instruction-provenance.md): a run's **instructions** are the three things Hydra wrote at spawn, the task string, the policy and hook config, and the skills at the pinned sha; everything read after the process starts is **data**, and the test is authorship rather than timing. Authority is per run, so a delegated child's task is authoritative for that child and a child's policy may never be wider than its parent's, measured as capability set containment. The rule text rides a preamble on the task string rather than an injected skill, it is Hydra's fourth protected config, and it is advice, because the gate is the only thing on this map that refuses anything.
+- [30 - When two hooks answer, does deny win?](issues/30-hook-precedence-deny-vs-allow.md): deny wins on all three and a hook cannot grant at all, so the user's hooks can only tighten Hydra's floor and ticket 27 stands unchanged. It also found a cheaper isolation flag on `claude` than `--restricted`, which opened ticket 31, and that the reason text a provider reports does not identify which gate fired, which ticket 09 now handles with a field Hydra sets.
 
 ## Not yet specified
 

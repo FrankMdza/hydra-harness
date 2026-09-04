@@ -157,3 +157,16 @@ appear in a headless child's tool list and their processes run, on all three pro
 `claude` can scope them off per run. The gate blocks every call, so this is exposure rather than
 execution, but a policy claiming "this child sees no MCP" would be claiming something Hydra cannot
 deliver on two of three.
+
+## Amended by ticket 28, 2026-09-03
+
+**Monotonic narrowing on the policy name.** Ticket 27 turned this ticket's `policy?` argument into a
+name from a fixed set of five. Ticket 28 adds that the name a caller passes may never be wider than
+the caller's own policy, measured as capability set containment, with incomparable pairs refused.
+The MCP face's caller is a model, so without this a poisoned parent names `permissive`, and the depth
+cap does nothing about it because the cap bounds recursion rather than escalation.
+
+**A child's result is marked on the way back.** `hydra run` keeps the child's text as a plain string
+field in its JSON, and the MCP face renders it inside a boundary whose delimiter is randomised per
+call, picked after the child has returned so the child cannot close its own envelope. Results already
+stay small on purpose under this ticket; this says what wraps them.

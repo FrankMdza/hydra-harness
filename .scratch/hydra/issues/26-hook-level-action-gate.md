@@ -131,3 +131,23 @@ list Hydra authors once and injects everywhere, or a per-run allowlist the calle
 the same hook script must answer in three dialects and fails open on `claude` if it gets one
 wrong?**
 
+
+## Corrected by ticket 30, 2026-09-03
+
+Two claims in this answer are wrong or too broad. Re-measured against `claude` 2.1.257,
+`cursor-agent` 2026.09.02-c22c1a3 and `agy` 1.1.25, detail in
+[research/30-hook-precedence-deny-vs-allow.md](../research/30-hook-precedence-deny-vs-allow.md).
+
+**The Cursor team hook file is not workspace-scoped.** It is
+`~/.cursor/managed/active-team-hooks/hooks.json`, built from `homedir()` in `4274.index.js`. Of the
+seven locations this ticket found, only three sit inside a directory Hydra creates, which matters
+because ticket 27's composition decision leans on which of them Hydra can write.
+
+**"`ask` and `force_ask` collapse to deny" is the permission layer, not the hook.** That holds under
+`request-review`. With `--dangerously-skip-permissions` an `ask` resolved to allow and the command
+ran, while a deny still beat it. So a hook's usable decisions stay `allow` and `deny` for the reason
+this ticket gave, and the collapse is not a property of hooks in general.
+
+**One claim here can now be stated more strongly.** This ticket found a `PreToolUse` deny beats
+`bypassPermissions` on `claude`. Ticket 30 found the converse fails everywhere: a hook cannot grant
+on any of the three. A hook is a veto and never a key.

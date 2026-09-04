@@ -220,3 +220,22 @@ Extracting "every path this run touched" runs through the tool-call adapter this
 a run holding any tool call the adapter returns `unclassified` for is not exportable. Getting that
 adapter wrong is still recoverable because the raw frame survives, but until it is right the corpus
 is smaller rather than leakier.
+
+## Amended by tickets 28 and 30, 2026-09-03
+
+**A refused spawn writes a run record.** Ticket 28 bars a child from being spawned under a policy
+wider than its parent's. No child process starts, so without a record the attempt is invisible, and
+under D10 anything not in a run record did not happen. Write the file with outcome `gated` in ticket
+27's shape, carrying the requested policy and the parent's, and no child body.
+
+**`permission_decision` gains a decider field Hydra sets.** This schema derives the decision from the
+event stream, and ticket 30 found the stream's reason text does not identify which gate fired. On
+`agy` the first deny short-circuits, so Hydra's hook may never run and the reason belongs to the
+user's. On Cursor every hook's message is concatenated, and one probe reached the model as
+`Rejected: t30 CUR-PROJ says allow`, quoting the hook that allowed. Hydra knows which config it
+wrote, so it sets the field rather than parsing for it.
+
+**Nothing new for instruction provenance.** Ticket 28 asked whether a run should record the
+provenance of what it acted on. The raw frame already carries it, the preamble sits in the recorded
+task string verbatim so it needs no hash, and the marker Hydra wraps a child's result in is in the
+frame too.
