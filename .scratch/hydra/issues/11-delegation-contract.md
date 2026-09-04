@@ -170,3 +170,27 @@ cap does nothing about it because the cap bounds recursion rather than escalatio
 field in its JSON, and the MCP face renders it inside a boundary whose delimiter is randomised per
 call, picked after the child has returned so the child cannot close its own envelope. Results already
 stay small on purpose under this ticket; this says what wraps them.
+
+## Amended by ticket 29, 2026-09-03
+
+**Cleanup reaps a spawn directory as well as a worktree.** Ticket 29 puts everything Hydra generates
+at launch in `~/hydra/spawn/<run-id>/`, a sibling of `runs/`: the `--mcp-config` file for `claude`,
+the `CURSOR_DATA_DIR` root for Cursor, and ticket 27's compiled gate script. It dies with the
+worktree, which is why ticket 09 gained fields rather than the record pointing at files.
+
+**`--shared-tree` costs MCP on Cursor.** A shared tree is one Hydra did not create, so it gets no
+`CURSOR_DATA_DIR` redirect, and rather than writing an approval into `~/.cursor/projects/` Hydra
+injects no MCP config there at all. That is ticket 22's rule applied one level down. The run still
+happens with the human's own servers. If the run's policy admits a server, the launch fails instead,
+because ticket 29 governs the shortfall rather than recording it.
+
+## Amended by ticket 20, 2026-09-04
+
+**`model` stays off the delegate face.** The MCP face remains `delegate(provider, task, files?,
+policy?)`, and the model comes from the policy and Hydra's config. This ticket kept `--shared-tree`,
+the timeout override and depth off that face because they are how a delegation escapes its worktree,
+outlives its budget or spawns a tree, and called them a human decision rather than a per-call choice
+a model makes unattended. `model` joins them for the same reason. `agy` serves Claude Opus 4.6, three
+releases behind what `claude --model opus` resolves to, so a `model` argument is the lever that lets
+an unattended orchestrator send real work to an older generation to dodge a limit it noticed. The CLI
+keeps the full surface, which is this ticket's own split.

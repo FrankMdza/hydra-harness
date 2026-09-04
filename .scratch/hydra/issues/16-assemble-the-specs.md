@@ -82,3 +82,26 @@ measured and rejected, or a later reader finds it in ticket 30 and assumes it wa
 **One pattern to name once.** A flag typed per run, never inheritable, unsettable by the delegation
 policy. D16's `--allow-billed` and ticket 31's floor escape are both instances, so the spec describes
 the shape and then refers to it.
+
+## Amended by ticket 29, 2026-09-03
+
+**The two lists to reconcile are now five configs and nine paths.** Ticket 28 took them to four and
+eight, ticket 29's canonical MCP document takes them to five and nine, and ticket 15's list still
+does not carry ticket 19's export allowlist. Fix it once here, as this ticket already says.
+
+**The generated per-run gate script has a path.** Ticket 27 wrote it outside the worktree it guards
+and named no directory. Ticket 29 gives it one, `~/hydra/spawn/<run-id>/`, shared with the
+`--mcp-config` file for `claude` and the `CURSOR_DATA_DIR` root for Cursor, and reaped with the
+worktree by ticket 11's cleanup. The harness spec needs one table of what Hydra writes per run and
+where, because the answer is now three places: the worktree, the skills snapshot, and the spawn
+directory.
+
+**One asymmetry to state on purpose.** Claude's MCP config goes on the command line while its skills
+are injected into the worktree, so a reader who expects the two to match will go looking for a bug.
+The spec says why, which is that `--strict-mcp-config` makes a run's server set an argument Hydra
+wrote rather than the state of five directories at spawn time.
+
+**A second seam to check.** Ticket 29's launch check compares the servers a run's policy admits
+against the servers the launch can deliver. The policy set lives in the harness spec and the
+admission field lives in the MCP document, so the promise that a run never comes up short silently is
+made in one document and kept in another.

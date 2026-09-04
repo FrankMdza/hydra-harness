@@ -132,3 +132,28 @@ MCP at all, belongs to ticket 11 and is being decided in ticket 27, which is in 
 **Cost.** `claude` free, using a `deferred_tools_delta` transcript oracle the agent built for it.
 `cursor-agent` one paid run. `agy` four paid turns, 60,383 tokens on `gemini-3.8-flash-low`, and it
 is the only provider with no free route to its resolved MCP set.
+
+## Corrected by ticket 29, 2026-09-03
+
+**Cursor's approval write is not outside a path Hydra owns.** This ticket concluded that approving an
+injected server writes `~/.cursor/projects/<slug>/mcp-approvals.json` and called it D9 broken by the
+vendor. There is a lever it missed. `cursor-config/dist/paths.js` resolves two roots separately:
+`projects/<slug>/` hangs off `CURSOR_DATA_DIR`, while `cli-config.json` with its `authInfo` and
+`chats/` hang off `CURSOR_CONFIG_DIR`. Setting `CURSOR_DATA_DIR` moves the approval state into a path
+Hydra owns and leaves the login and ticket 13's harvest source where they are. Probed live on the
+same build this ticket used, with the user's 41 directories in `~/.cursor/projects/` unchanged
+throughout. `mcp-disabled.json` redirects with it, so **Cursor gains a per-run off switch for
+inherited user-scope servers**, which this ticket said only `claude` had.
+
+Two mechanics for whoever writes the launch: `mcp enable` resolves the project from cwd and ignores
+`--workspace`, while `mcp list` honours it.
+
+**Claude's MCP config does not ride this ticket's shape.** Ticket 29 put it on the command line,
+`--mcp-config` plus `--strict-mcp-config` on recorded runs and without the strict flag interactively,
+so the git problem this ticket found never arises and the ancestor merge stops existing rather than
+being defended against. The shape survives unchanged for Cursor and `agy`.
+
+**`agy` has no config-root lever.** Checked because the Cursor one existed: the binary carries
+`AGY_CLI_*` display flags, `AGY_ADC_AUTH`, `ANTIGRAVITY_*` editor and sidecar variables and
+`GEMINI_API_KEY`, and nothing that resolves a config or data directory. Every path is hardcoded under
+`~/.gemini/`, so `HOME` is the only lever and ticket 21 already ruled it out.

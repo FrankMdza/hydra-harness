@@ -367,3 +367,47 @@ already carries.
 **A mismatch worth fixing in one place.** Ticket 27 counts three protected configs. This list holds
 seven paths and ticket 19's export allowlist is not among them, and both tickets closed on the same
 day. Ticket 16 reconciles the two rather than each document restating its own.
+
+## Amended by ticket 29, 2026-09-03
+
+**A ninth protected path**, the canonical MCP document. A rung-two patch touching it is refused
+before review rather than blocked by it, which is the treatment this list already gives protected
+paths. An MCP server definition is a command Hydra spawns, so a loop that can edit that document can
+run arbitrary code inside every future run, which is D11's argument for striking config from rung
+one's write surface applied to a file D11 did not know about. It is also Hydra's fifth protected
+config, beside the delegation policy set, the environment allowlist, the export allowlist and ticket
+28's instruction preamble.
+
+**The mismatch ticket 16 has to reconcile moves to five and nine.** This list held eight paths and
+ticket 27 counted three configs; ticket 28 took them to eight and four, and this ticket takes them to
+nine and five. The generated per-run gate script, already on this list, now has a path:
+`~/hydra/spawn/<run-id>/`.
+
+## Amended by ticket 20, 2026-09-04
+
+**"Model diversity comes from provider diversity, which is the only kind three subscriptions buy" is
+false as written.** `agy --model claude-opus-4-6-thinking` serves Claude Opus 4.6 on the Google
+subscription, so one subscription does buy a second model vendor. The sentence should say that the
+panel takes its independence from provider diversity, which is a different and stronger claim than
+the one about model vendors.
+
+**The panel does not substitute a judge, and this ticket's own reasoning is why.** Ticket 20 looked
+hard at routing a limited `claude` judge onto `agy` with a Claude id, because `judge` is the one
+policy where the harness gap cannot bite: it allows nothing at all, the diff arrives in the prompt
+and one JSON answer comes back. It fails on the panel rather than on the model. Substituting produces
+`agy` running Claude 4.6, `cursor-agent`, and `agy` running Gemini, which is two judges on one
+binary, one login, one quota and one system-prompt harness, each paying `agy`'s 16,338-token floor.
+If the Google subscription is the limited one, two judges die together and the panel sits at one
+responder. That is a gate degrading quietly, which this ticket names as the one property a gate must
+not have.
+
+**A rate-limited judge aborts the review**, in the shape this ticket already gives auth failure: a
+remediation string naming the provider and what fixes it, and rung two waits. The reasoning
+transfers unchanged, since nothing was landing unattended anyway.
+
+**One early abort, which is an optimisation rather than a decision.** Before starting a review, rung
+two may read the last `claude` run's `rate_limit_event` status from the run records and abort rather
+than spending the other two judges' quota on a review that cannot reach quorum. It fires on the
+vendor's own `allowed` / `allowed_warning` / `rejected` enum, never on a threshold Hydra sets, since
+ticket 14 ruled those out and ticket 20's research caught `utilization` moving backwards. A reading
+whose `resetsAt` has passed is stale and says nothing.

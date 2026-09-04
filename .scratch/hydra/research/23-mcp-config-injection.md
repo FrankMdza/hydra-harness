@@ -1,5 +1,12 @@
 # 23 - MCP config across providers, against the ticket 10 shape
 
+> **Corrected by ticket 29, 2026-09-03.** Two claims below are wrong. Cursor's approval state is
+> *not* stuck outside a path Hydra owns: `CURSOR_DATA_DIR` moves `projects/<slug>/`, holding
+> `mcp-approvals.json` and `mcp-disabled.json`, while `CURSOR_CONFIG_DIR` keeps `cli-config.json`
+> and `chats/`, so the redirect costs neither the login nor ticket 13's harvest source. That also
+> makes `mcp disable` per-run, so Cursor *can* scope a server off per run and Q6's "only one of the
+> three" is now two of three. Probed live on the same build. Everything else here stands.
+
 Written 2026-09-03. Every claim below is a command whose output is quoted or summarised in place.
 Where something comes from reading a binary rather than running one, the text says so. The partial
 progress recorded on the ticket was narration only, so nothing here rests on it; its one substantive

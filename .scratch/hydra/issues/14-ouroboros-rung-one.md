@@ -267,3 +267,11 @@ a policy called `curate` that reads the corpus and writes only inside the skill 
 report success when the gate refuses everything, which is this ticket's fifth failure class again.
 The `gated` outcome exists so the curator does not rewrite a skill because a tool was denied. Same
 shape as the auth rule already here: a run that failed on too narrow a policy is a policy bug.
+
+## Amended by ticket 29, 2026-09-03
+
+**A fifth protected config.** Rung one may never write the delegation policy, the environment
+allowlist, the export allowlist, ticket 28's instruction preamble, or ticket 29's canonical MCP
+document. The document is the file that decides which MCP servers a run gets, and an MCP server
+definition is a command Hydra spawns, so a loop able to edit it runs arbitrary code inside every
+future run. That is this ticket's own argument for the first two, unchanged.

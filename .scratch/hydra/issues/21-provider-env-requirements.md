@@ -106,3 +106,21 @@ hole is latent. Nothing can be spent through hermes today.
 One more correction to the never-pass list above: `HERMES_HOME` should not be on it. It redirects
 both `auth.json` and `.env`, which makes it the one lever that gates this provider. Ticket 22
 decides whether Hydra sets it.
+
+## Amended by ticket 29, 2026-09-03
+
+**The allowlist governs inheritance, and Hydra now sets variables too.** This ticket measured what a
+child needs to inherit and settled on `HOME`, `USER`, `PATH`, `TERM`, plus `SHELL` and `TMPDIR` for
+`claude`. Ticket 29 adds a second category the allowlist does not name: a variable Hydra sets on a
+child for its own purposes. `CURSOR_DATA_DIR` is the first, pointed at `~/hydra/spawn/<run-id>/` so
+Cursor's MCP approval state lands in a path Hydra owns rather than in `~/.cursor/projects/`. The two
+categories want different rules, since an inherited variable is a leak to be stopped and a Hydra-set
+one is a lever to be used, and the harness spec should name both rather than letting a reader assume
+the allowlist is the whole environment story.
+
+**`CURSOR_CONFIG_DIR` is a second lever, deliberately not pulled.** It moves `cli-config.json`, which
+holds `authInfo`, and `chats/`, which ticket 13 harvests. Setting it would log the provider out and
+move the transcript, which is this ticket's `HOME` finding in a narrower form.
+
+**`agy` has no such lever.** Its paths are hardcoded under `~/.gemini/`, so `HOME` remains the only
+one and this ticket's finding stands: a wrong `HOME` logs it out.

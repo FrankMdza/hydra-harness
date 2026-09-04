@@ -325,3 +325,23 @@ refused one for tools, and saying so out loud is the price of covering `agy` at 
 **`--restricted` narrows to `judge`.** Stripping Bash and dropping MCP is the point for a policy that
 allows nothing and a cost everywhere else, so every other policy launches with `--settings`.
 `--setting-sources project` is measured and deliberately unused.
+
+## Amended by ticket 29, 2026-09-03
+
+**The gate script has a path now.** This ticket put it outside the worktree it guards and named no
+directory. It lives in `~/hydra/spawn/<run-id>/`, a sibling of `runs/`, beside the two MCP artifacts
+ticket 29 placed there. The directory is reaped with the worktree by ticket 11's cleanup.
+
+**The MCP residue narrows to `agy`.** This ticket recorded that a delegated child sees inherited
+user-scope servers on all three providers, that the gate blocks the calls, and that only `claude`
+could scope them off per run. Two of the three can now. On `claude`, `--strict-mcp-config` means the
+inherited servers never start. On `cursor-agent`, `CURSOR_DATA_DIR` makes `mcp disable` per run, so
+Hydra can turn an inherited server off for one run without touching the user's home. `agy` keeps the
+residue, and it is the provider where the note about tool descriptions reaching the model's context
+still applies.
+
+**Which servers a run gets is derived from the policy name.** Ticket 29's canonical MCP document
+gives each server an admission field keyed on a policy name, the way this ticket's `policy?` argument
+takes a name rather than a list. The policy stays a capability allowlist and gains nothing; the
+admission lives in the document and points at it. A launch where the policy admits a server the
+combination cannot deliver fails rather than proceeding short.

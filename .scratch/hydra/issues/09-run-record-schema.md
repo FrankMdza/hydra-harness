@@ -239,3 +239,57 @@ wrote, so it sets the field rather than parsing for it.
 provenance of what it acted on. The raw frame already carries it, the preamble sits in the recorded
 task string verbatim so it needs no hash, and the marker Hydra wraps a child's result in is in the
 frame too.
+
+## Amended by ticket 29, 2026-09-03
+
+**Three MCP fields, in the shape this schema already uses for skills.** The skill set is reproduced
+by a sha plus a name list because neither works alone. MCP has the same problem and one more: what a
+run asked for and what it got can differ. So a record carries the **injected** set, what Hydra wrote,
+the **resolved** set, what the provider reported, and the canonical MCP document's **sha**. The two
+sets are identical on a recorded `claude` run, where `--strict-mcp-config` makes them so by
+construction, and can differ on an interactive `claude` run and on `agy`, which has no per-run off
+switch. The sha is there for the reason the skill sha is: a server name says what was asked for and
+not what command it named, and an MCP server definition is a command Hydra spawns.
+
+This is not optional bookkeeping. Ticket 29 reaps the spawn directory with the worktree, so the
+artifacts are gone by the time anyone reads the record, and D10 says the record is the source of
+truth. A record that cannot answer which servers a run got is missing a field rather than pointing at
+a file.
+
+**One outcome for an MCP refusal**, in the shape ticket 12 used for auth failure and this schema
+already uses for a skill name collision. Two checks can produce it: a launch check comparing the
+servers the run's policy admits against the servers the launch can deliver, and a Cursor pre-flight
+listing that finds an injected server not ready. They differ in when Hydra noticed rather than in
+what went wrong, and the signal rung one needs is that the run never got its servers. Which check
+refused is a field Hydra sets, the same treatment `permission_decision` got from ticket 30. The
+outcome stays distinct from `gated`, so rung one never reads an MCP misconfiguration as a policy
+refusal.
+
+## Amended by ticket 20, 2026-09-04
+
+**One field naming which subscription paid, set by Hydra at spawn.** `agy` serves Claude Opus 4.6 on
+the Google subscription, so `provider` stops answering which vendor's model replied and the two
+questions come apart for the first time. The field is authored rather than parsed, for the reason
+this schema already makes Hydra own run ids, timestamps and delegation lineage: `claude` answers the
+question three ways, through `apiKeySource`, `modelUsage[*].provider` and the presence of
+`rate_limit_event` at all, and `agy` answers it nowhere on the stream. Only Hydra can answer it
+identically on all three providers.
+
+One field, not two. The model's vendor stays derivable from the model id, since every id on all three
+providers names its vendor in the first token, so a vendor field would be a second exception to this
+schema's no-stored-derived-fields rule bought for nothing. A plane field cannot do the job either:
+D4 says the plane names the auth mechanism, and both surfaces here are the agent-CLI plane.
+
+**The rate-limit reading is recorded and drives no routing.** `rate_limit_event` carries
+`rateLimitType`, a `status` of `allowed`, `allowed_warning` or `rejected`, a `resetsAt` epoch and a
+`utilization` fraction per window, and it appears on every `claude` turn at normal utilization.
+Ticket 20 records it and acts on it in exactly one place, an early abort inside rung two. Nothing
+routes on it, so nothing depends on `utilization`, which ticket 20's research caught moving
+backwards.
+
+**A rate-limited run is its own terminal outcome**, in the shape ticket 12 used for auth failure and
+ticket 27 used for a gated run. The trap is that a rate-limited `claude` run reports `subtype:
+"success"` with `is_error: true` and `api_error_status: 429`, so a recorder keying off `subtype`
+files an exhausted run as a clean one. That is ticket 14's fifth failure class arriving on a fourth
+provider surface. It is neither a clean run nor a task failure: the run did no work through no fault
+of the task, and rung one must not learn from it as if it had.

@@ -144,3 +144,18 @@ Detail in [research/26-hook-level-action-gate.md](../research/26-hook-level-acti
 "`agy` gains a permission-response input event" is no longer the only route to gating Google. The
 hook surface already gets there. Keep the watch, because an answerable request would still let a
 human decide mid-run, but it is no longer what blocks ticket 11.
+
+## Amended by ticket 20, 2026-09-04
+
+**The Claude ids are a model choice inside this provider, not a fourth route.** `agy` lists
+`claude-opus-4-6-thinking` and `claude-sonnet-4-6` alongside its Gemini ids, addressable through
+`--model` on the Google subscription. Ticket 20 settled that this is `hydra run --provider agy
+--model <id>` and nothing new in the router, because every provider-specific fact on this map is a
+property of the binary rather than the model: the hook format, the MCP path, `--add-dir`, the
+environment allowlist, and this ticket's own permission finding.
+
+**The model list moves under you, and not evenly.** Re-read on 1.1.25 on 2026-09-04 it holds fourteen
+ids, up from eleven at 1.1.23. The Gemini ids advanced a generation, 3.7 to 3.8, in three days. Both
+Claude ids sat still at 4.6. So the Google side is not tracking Anthropic's releases at the same
+cadence, and any claim about the size of the generation gap wants `agy models` re-run before it is
+trusted.

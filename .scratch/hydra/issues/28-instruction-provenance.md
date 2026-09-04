@@ -260,3 +260,10 @@ the spec lives in.
   this ticket: ticket 27 counts three protected configs, while ticket 15's protected-path list holds
   seven entries and does not include the export allowlist. The preamble takes the configs to four and
   the paths to eight, so the two lists want reconciling in one place rather than in two documents.
+
+## Amended by ticket 29, 2026-09-03
+
+**The preamble is the fourth protected config of five.** Ticket 29's canonical MCP document is the
+fifth, on the same argument this ticket used: it is human-authored, a run reads it, and nothing a
+run does may write it. Nothing here changes, and ticket 16's reconciliation now runs to five configs
+and nine protected paths.

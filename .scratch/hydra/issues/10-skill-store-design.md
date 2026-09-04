@@ -370,3 +370,18 @@ refuses a symlinked hook config. Ticket 23 found the same binary follows a symli
 absolute or relative, confirmed in a paid run. So this ticket's symlink injection survives for
 skills and for MCP, and ticket 26's "real files, never links" stays scoped to hook config rather
 than becoming a general rule.
+
+## Amended by ticket 29, 2026-09-03
+
+**`claude` leaves this shape for MCP, and only for MCP.** Its MCP config goes on the command line,
+`--mcp-config <file in the run's spawn directory>` plus `--strict-mcp-config` on recorded runs and
+without the strict flag interactively. So the git problem ticket 23 found never arises: no
+`.mcp.json` appears at the worktree root, `git status` stays clean, and the ancestor merge stops
+existing rather than being defended against by choosing where worktrees go. Skill injection is
+untouched, and MCP still rides this shape on `cursor-agent` and `agy`.
+
+**Hydra now writes in three places per run**, and this ticket's rule still holds in all three: the
+worktree it created, the immutable snapshot at `~/hydra/skills-snapshots/<sha>/`, and a new spawn
+directory at `~/hydra/spawn/<run-id>/` holding what Hydra generated at launch. Ticket 29 kept the
+rule true on Cursor, where ticket 23 thought the vendor had broken it, by redirecting
+`CURSOR_DATA_DIR` into that spawn directory.

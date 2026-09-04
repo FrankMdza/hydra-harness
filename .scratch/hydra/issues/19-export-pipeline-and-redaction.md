@@ -255,3 +255,10 @@ identified by what produced it, which is why the manifest pins versions rather t
 - **Ticket 09** gains the envelope flag from the write-time sweep, with its exception to the
   no-stored-derived-fields rule written down.
 - **Ticket 16** takes the export contract from here. `hydra export` belongs in the harness spec.
+
+## Amended by ticket 29, 2026-09-03
+
+**The count moved to five.** Ticket 28 added the instruction preamble and ticket 29 added the
+canonical MCP document, so the export allowlist is the third of five protected configs rather than
+the third of three. Nothing here changes: it is still the only one whose failure is data leaving the
+laptop, and it is still a protected path on ticket 15's list, which now holds nine.

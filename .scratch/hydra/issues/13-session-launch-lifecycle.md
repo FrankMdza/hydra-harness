@@ -179,3 +179,21 @@ rather than the launch cwd.
 For this ticket that means `cd` into the worktree is not the launch contract for Google, the flag
 is. Anything else Hydra expects `agy` to read out of the run's directory needs the same treatment,
 and ticket 23 checks whether MCP config is one of them.
+
+## Amended by ticket 29, 2026-09-03
+
+**The two launch modes get different MCP on `claude`.** A recorded run is launched with
+`--mcp-config` plus `--strict-mcp-config`, so its server set is exactly what Hydra passed. An
+interactive run gets `--mcp-config` without the strict flag, so the human's own servers survive and
+Hydra's are added. This is D3's split showing up in one more place: the exact set is worth having
+where the record depends on it, and stripping a human's MCP servers out of a session they are sitting
+in front of is the harness overriding them in the mode D3 hands to the vendor.
+
+**Harvest is unaffected by the Cursor redirect.** `CURSOR_DATA_DIR` moves `projects/<slug>/` and
+leaves `chats/` under `CURSOR_CONFIG_DIR`, which Hydra does not set, so the transcript this ticket
+harvests stays where it is.
+
+**A launch can now be refused before any process starts.** Ticket 29's launch check compares the
+servers the run's policy admits against the servers the launch can deliver. On Cursor a free
+`mcp list` runs after the approvals and before the spawn, in both launch modes, and an injected
+server that is not ready fails the run. Interactively it fails before the TUI opens.
