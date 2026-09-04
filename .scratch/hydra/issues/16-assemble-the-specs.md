@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 31
+Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
 
 ## Question
 
@@ -105,3 +105,101 @@ wrote rather than the state of five directories at spawn time.
 against the servers the launch can deliver. The policy set lives in the harness spec and the
 admission field lives in the MCP document, so the promise that a run never comes up short silently is
 made in one document and kept in another.
+
+## Progress: document one written, 2026-09-04
+
+**`docs/harness-spec.md` exists, 1,192 lines.** One of the three. Written in a session that took this
+ticket one document at a time rather than whole, because three documents at the fidelity this map has
+been working at do not fit one session and the seam check should not be run by the session that wrote
+the last document.
+
+Order for the remaining sessions: `docs/run-record-contract.md`, then `docs/ouroboros-spec.md`, then
+the seam check alone.
+
+### What the harness spec covers
+
+Sections 1 to 18 are the settled material: the routable set and the version drift rule, the two
+launch modes, ticket 28's three populations, the per-run write table, the launch sequence with the
+environment allowlist and the Hydra-set variables as separate categories, skills, MCP, the gate, the
+exact command lines, the policy engine with the pattern floor's initial patterns spelled out,
+instructions and data, `hydra run` and the delegate face, lifecycle and harvest, auth, the outcome
+table, the tool-call adapter, `hydra export`, the reconciled protected lists, the per-run human flag
+pattern, the command surface, and the non-goals.
+
+Section 19 holds what it could not close.
+
+### One gap, filed as ticket 32
+
+**The recorded transport is undecided.** Ticket 01's "drive ACP, not print mode" rested on a
+four-provider set: `gemini` and `hermes` were two of the four and both left the routable set,
+ticket 18 retired ACP for Google, and `cursor-agent` never had it. ACP now covers `claude` alone and
+no ticket says whether Hydra builds a client for one provider. Section 6.7 carries a `<transport>`
+placeholder in the `claude` command lines until ticket 32 closes. This ticket now lists 32 as a
+blocker.
+
+### Three things decided here rather than ticketed
+
+**The protected paths are eleven, not nine.** Every ticket that states a number says nine. The items
+those tickets name come to eleven: the running count was carried from seven through ticket 28's
+preamble and ticket 29's MCP document without ever folding in ticket 19's export allowlist or either
+of ticket 27's two additions. The correction is arithmetic rather than a decision. Ticket 15 is
+amended and `docs/harness-spec.md` section 15.2 carries the reconciled table. The configs are five,
+which was right.
+
+**"Protected" was carrying two mechanisms under one word.** Ticket 15's is refusal at admission for a
+rung-two patch. Ticket 27's is a run-time hook deny on every run. The policy directory and the
+generated gate script sit on both under the same word, so section 15.2's table has a column for each.
+The generated gate script is listed under protest: it is written per run into
+`~/hydra/spawn/<run-id>/` and reaped with the worktree, so no rung-two patch can reach it, and what a
+patch can reach is the code that generates it, which is a separate entry. Its run-time denial is real
+and is why it stays listed.
+
+**Three spawn-directory artifacts had no filenames.** No closed ticket names any of them. The spec
+uses `settings.json`, `mcp.json` and `gate`, and puts Cursor's data root in a `cursor-data/`
+subdirectory rather than at the top of the spawn directory. That subdirectory is a refinement of
+ticket 29 and is flagged in section 19.2: under ticket 29's literal reading the vendor writes
+`projects/<slug>/` into the same directory that holds the gate script, which weakens "the script
+lives where nothing else writes" even though the gate's own rule still denies writes to the script
+path.
+
+### Two things for the record-contract session
+
+**`denied` against `gated`.** Ticket 11's status enum carries `denied`; ticket 27 later minted a
+`gated` run outcome for the same situation. The harness spec's outcome table lists `gated` and drops
+`denied`, which is the reading that makes the taxonomy non-overlapping, but the enum belongs to the
+record contract and should be settled there rather than inherited from a sibling document.
+
+**Read ticket 09's amendments rather than its answer.** Ticket 25 falsified two of ticket 09's Cursor
+facts in the answer text itself: Cursor is `usage_source: provider` rather than `estimated`, decided
+per run rather than per provider, and the `thinking` sentence is wrong in both directions. Ticket 09
+says this itself.
+
+### One thing for the Ouroboros session
+
+**Ticket 15's checklist counts do not match what ticket 15 lists.** Its heading says 29 items and the
+tables hold 30. It says "Hydra's own, 22 items" and the four tables hold 23 rows. It says "Fifteen of
+the 22 are critical" and 20 of the 23 carry `critical`, with only three advisory
+(`export_losslessness`, `provider_claim_dated`, `spec_matches_code`). This ticket's own note above
+says "The 29 review checklist items are done", so the wrong number walks into
+`docs/ouroboros-spec.md` unless someone recounts. Ticket 15 is amended with the corrected counts.
+
+## What ticket 32 hands this ticket, 2026-09-04
+
+**The transport hole is closed and section 6.7 is written.** Every recorded run is print mode with
+`--output-format stream-json`, because no routable provider speaks ACP. The `<transport>` placeholder
+is gone, `--verbose` turned out to be mandatory, and four `claude` flags no ticket had considered are
+decided: `--include-hook-events` on, `--forward-subagent-text` on, `--include-partial-messages` off,
+`--input-format stream-json` specced and unbuilt.
+
+**The producer column is this ticket's main instrument.** Ticket 32 puts a producer column on every
+event type in the record contract, so the first seam check, "every field Ouroboros reads is one the
+harness actually writes", becomes a table lookup rather than a re-read of thirty tickets. Build that
+column while writing `docs/run-record-contract.md` rather than deriving it during the seam pass.
+
+**The event list is ten, not eleven.** `permission_request` is dropped and `message_delta` is dark in
+v1, which the producer column has to say out loud.
+
+**Two open items were added to the harness spec rather than ticketed**, sections 19.4 and 19.5:
+nothing reads the policy signal that gated runs carry, and there is no stall detector. Both are on
+the map as fog. Neither breaks a seam, because D5 constrains what Ouroboros reads and says nothing
+about fields the harness writes with no reader.

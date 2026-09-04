@@ -61,3 +61,14 @@ skips it.
 - Grilling tickets need the human. Never answer your own questions on one.
 - The originating research document, `~/Downloads/Harness CLI Unificado para Cursor, Gemini y
   Claude.md`, is a starting point and not a source. Several of its claims turned out wrong.
+
+## Nothing here is enforced
+
+Hydra's gate applies to runs Hydra launches, not to you. You are an agent working on Hydra's own
+source, which is the one population the harness does not gate: no compiled policy, no hook config,
+no injected skills, no preamble. Ticket 28 found three populations rather than two, and this is the
+third.
+
+The five protected configs in `docs/harness-spec.md` section 15.1 are protected against Hydra's own
+runs. This file is what stands in their place for you. Treat them as read-only, and if a change
+genuinely needs one of them, say so and let a human make it.

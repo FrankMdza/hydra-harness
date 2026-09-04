@@ -411,3 +411,61 @@ than spending the other two judges' quota on a review that cannot reach quorum. 
 vendor's own `allowed` / `allowed_warning` / `rejected` enum, never on a threshold Hydra sets, since
 ticket 14 ruled those out and ticket 20's research caught `utilization` moving backwards. A reading
 whose `resetsAt` has passed is stale and says nothing.
+
+## Corrected by ticket 16, 2026-09-04
+
+Two counts in this ticket are wrong against what this ticket itself lists. Neither is a decision
+changing, both are arithmetic, and both were about to walk into a document.
+
+### The protected paths are eleven, not nine
+
+The list above holds seven bullets. Four amendments then added five more entries: ticket 19's export
+allowlist, ticket 27's delegation policy directory and generated per-run gate script, ticket 28's
+instruction preamble and ticket 29's canonical MCP document. Deduplicating ticket 27's policy
+directory against `the delegation policy from ticket 11`, which is one artifact under two names,
+leaves **eleven**.
+
+**The running count skipped three of them.** Ticket 28 counted seven and made it eight, ticket 29
+made it nine. Neither folded in ticket 19's export allowlist or either of ticket 27's two additions,
+even though all three were already appended to this file. The sentence at the end of this ticket
+saying "This list held eight paths and ticket 28 took them to eight" cannot be true of a ticket that
+added one, and it is the same slip a third time.
+
+Ticket 16's note that "ticket 15's list still does not carry ticket 19's export allowlist" is true of
+the seven bullets and false of this document, which carries it under `## Amended by ticket 19`. The
+fix was a merge of the amendment sections into the list rather than a rediscovery.
+
+The reconciled table lives in `docs/harness-spec.md` section 15.2. The protected configs are five,
+which was right.
+
+### The word "protected" was carrying two mechanisms
+
+This ticket's protected path is refused at admission, before a rung-two review. Ticket 27's protected
+path is denied at run time by the gate, on every run and under every policy. The delegation policy
+directory and the generated gate script sit on both lists under the same word. Section 15.2's table
+splits them into two columns, because a spec that merges the lists has to say which mechanism each
+entry gets.
+
+**The generated per-run gate script is a poor fit for an admission list and stays on it anyway.** It
+is written per run into `~/hydra/spawn/<run-id>/` and reaped with the worktree, so no rung-two patch
+can touch it in any ordinary sense. What a patch can touch is the code that generates it, which is
+`the hook-config writer from ticket 26`, a separate entry that is easy to collapse this one into by
+mistake. It stays listed because its run-time denial is real and load-bearing.
+
+### The checklist is 30 items, not 29
+
+Counted against the tables in this ticket:
+
+| Stated | Actual |
+|---|---|
+| `### The checklist: 29 items` | 30 rows |
+| "Hydra's own, 22 items" | 23 rows |
+| "Fifteen of the 22 are critical" | 20 of the 23 |
+
+The seven carried rows are 4 critical and 3 advisory. Hydra's own 23 are 20 critical and 3 advisory,
+the advisory three being `export_losslessness`, `provider_claim_dated` and `spec_matches_code`.
+
+This matters beyond tidiness because ticket 16 says to lift these items into
+`docs/ouroboros-spec.md` rather than rewriting them, and ticket 16's own note repeats "the 29 review
+checklist items". Whoever writes that document should count the rows rather than trust either
+heading.
