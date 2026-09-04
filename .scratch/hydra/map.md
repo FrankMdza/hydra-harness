@@ -20,9 +20,10 @@ this map's fidelity do not fit one session and the seam check should not be run 
 wrote the last document. Order: harness spec, then the run-record contract, then Ouroboros, then a
 fourth session for the seam alone. The harness spec goes first because the other two reference it.
 
-Tickets 33 and 34 came out of the contract session and now block ticket 16. **Neither blocks the
-Ouroboros document**; both feed the seam check, which is what ticket 16's blocker list is guarding
-at this point.
+Tickets 33 and 34 came out of the contract session and now block ticket 16. Ticket 34 is resolved
+and opened ticket 35, which blocks 16 too and needs a human at a keyboard for four minutes. **None of
+the three blocks the Ouroboros document**; all feed the seam check, which is what ticket 16's blocker
+list is guarding at this point.
 
 ## Notes
 
@@ -95,6 +96,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 
 - [32 - Which transport a recorded run uses](issues/32-recorded-transport.md): print mode with `--output-format stream-json` everywhere, because no routable provider speaks ACP and the two that did left the set. ACP is struck rather than kept as an extension point, one capability-named watch replaces two, `--verbose` turns out to be mandatory, `permission_request` drops the event list to ten, and `message_delta` keeps its slot only because the contract gains a producer column, which is then the seam check's main instrument.
 
+- [34 - Does any vendor transcript record a correction as a pair?](issues/34-correction-producer.md): one producer of three, `claude`, and the discriminator is a conjunction rather than a field, since `user-rejected` means the ask path answered and under `sdk-cli` the answerer is code. Cursor pairs but cannot tell a human from a hook, and `agy` drops the denial record and leaves a gap in `step_index`. The traversal is verified 35 times on exactly the population ticket 19 forbids exporting, and the human case has zero instances, which is ticket 35.
+
 ## Not yet specified
 
 - **The TUI.** Deferred by D3. Ticket 07 settled the framework: Textual, so the TUI is a separate Python process reading `~/hydra/runs/` while the core stays Rust. The interface itself, widget set, diff viewer, session switcher, stays unspecified during this map. `textual-diff-view` from Toad is the starting point when it is built. Ticket 13 gave it a second job: a TUI is what would make ACP the interactive path, which would end the thin-record split and make every run fully recorded as it happens.
@@ -110,6 +113,15 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
   `hydra run` returns.
 
 - **A stall detector.** Liveness is a pid plus a process start time, so a run that is alive and emitting nothing looks exactly like a run working hard, and ticket 14's five failure classes have no entry for it. Message deltas are the cheap heartbeat and ticket 32 turns them off for reasons that hold on their own. `agy` keeps one by accident through `step_update` with `state: ACTIVE`, so the signal exists on one provider of three. Ticket 14's rule applies: Hydra has run zero times and a timeout invented now is a guess.
+- **What ticket 13's harvest can actually read.** Ticket 34 went looking for corrections and found
+  two problems that belong to harvest rather than to the correction event. Cursor stores chats in two
+  formats, plain JSON in older ones and protobuf plus a `blobEncryptionKey` in newer ones, with
+  ordering carried by a root blob's hash list rather than by file order. And `agy` omits steps from
+  its own `transcript_full.jsonl`, proven by a `step_index` that jumps 1 to 3 across a denied call.
+  Ticket 13 made harvest idempotent and never asked what it can parse. Sharpening this needs a
+  reading of harvest against both, which is more than one patch of fog and may be more than one
+  ticket.
+
 - **Enforcing export eligibility during a run.** Ticket 19's allowlist is audited from the record at export time. Ticket 26 proved all three providers hard-block a tool call from a config Hydra writes per run, but whether a block can be scoped to a path argument on all three is unmeasured. If it can, eligibility stops being an audit and becomes a property the run cannot violate.
 
 ## Out of scope

@@ -1,7 +1,7 @@
 # 34 - Does any vendor transcript record a correction as a pair?
 
 Type: research
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -43,3 +43,43 @@ Then answer the question the contract cannot:
   preference signal Hydra has, and it is currently fog.
 
 Output: `research/34-correction-producer.md`.
+
+## Answer
+
+**One provider of three produces the pair: `claude`.** Findings and evidence in
+[research/34-correction-producer.md](../research/34-correction-producer.md), measured 2026-09-04 on
+`claude` 2.1.257, `cursor-agent` 2026.09.02-c22c1a3, `agy` 1.1.26.
+
+`correction` keeps its producer and stays on the list, so the event count stays at ten and
+`preference.jsonl` keeps a source. But section 7.1's column carries one provider rather than three,
+and the two gaps have named reasons rather than being left blank.
+
+**The harvest rule on `claude`.** A denial writes a `user` record carrying `toolDenialKind`,
+`userFeedback` and `sourceToolAssistantUUID`. Rejected content comes from following
+`sourceToolAssistantUUID` and matching the `tool_use` block whose `id` equals the denial's
+`tool_result.tool_use_id`, which succeeded on 35 of 35 denials in the corpus. Chosen content comes
+from walking children by `parentUuid` to the first assistant `tool_use`, and a pair is emitted only
+when the tool name matches. The human's words, when they typed any, are in `userFeedback`.
+
+**The discriminator is a conjunction, not a field.** The binary maps `behavior === "ask"` to
+`toolDenialKind: "user-rejected"`, so that value means the ask path answered, not that a person did.
+Under `entrypoint: sdk-cli` the answerer is a permission callback, which is code, and all three
+`user-rejected` records in the corpus are exactly that: ticket 30's own harness. The human test is
+`toolDenialKind == "user-rejected"` **and** `entrypoint == "cli"`. A harvester trusting the field
+name alone labels a scripted deny as human preference.
+
+**The other two.** `cursor-agent` pairs fine by `toolCallId` but puts the whole refusal in a prose
+`result` string with no denial field anywhere, so a human and a hook are separable only by whether
+the gate happened to write prose. `agy` is worse: it drops the denial record from
+`transcript_full.jsonl` entirely, leaving a `step_index` discontinuity and the model's own narration
+as the only evidence, and its `tool_calls` carry no id to pair on.
+
+**What ticket 19 already forbids.** Every pair measured here is a policy or automode denial, which
+ticket 19 ruled out of preference export in writing. So the traversal is verified 35 times on data
+the contract may not export, and the exportable population is empty so far.
+
+**The gap, and it is the whole point of the ticket.** The corpus holds no human interactive
+rejection on any provider, so the conjunction above has zero observed instances. The rule is derived
+from the binary's own source and verified mechanically on auto-denies. Staging one from a script
+cannot close it, because a script produces `entrypoint: sdk-cli`, the case the rule filters out.
+Closing it needs four minutes at a keyboard, which is ticket 35.
