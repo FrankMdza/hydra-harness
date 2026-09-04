@@ -1,7 +1,7 @@
 # 35 - Confirm the human rejection shape on `claude`, at a keyboard
 
 Type: task
-Status: open
+Status: claimed
 Blocked by:
 
 ## Question
@@ -35,10 +35,17 @@ Then read the new file under `~/.claude/projects/<slug>/` and check four things:
 - `userFeedback` holds the typed words
 - the `parentUuid` walk reaches a replacement `tool_use` with the same tool name
 
-`pair.py` in
-`/private/tmp/claude-501/-Users-USER/63edcca5-a9f3-4f9c-ba02-4bf0272e02c9/scratchpad/t34/` prints
-all four from a transcript path. It is in a scratch directory and will be reaped, so copy it into
-the repo if this ticket outlives the machine's temp.
+`.scratch/hydra/verify35.py` checks all four and prints PASS or FAIL per line. It scans every
+transcript touched in the last two hours, so it needs no path:
+
+```
+python3 .scratch/hydra/verify35.py        # or pass a window in minutes
+```
+
+It filters on `entrypoint == "cli"`, so a rejection from a script cannot satisfy it by accident.
+
+A probe directory is set up at `/private/tmp/hydra-t35/`, holding `edit-me.txt` with three lines,
+for the rejected-`Edit` half.
 
 ## Why it blocks ticket 16
 
