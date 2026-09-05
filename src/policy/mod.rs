@@ -6,10 +6,15 @@
 //! output is a file, and `hydra::run::write_spawn_config` is what puts it in
 //! front of a running `claude`.
 //!
+//! The same compiler has a second reader. [`replay`] runs a finished run's
+//! policy again over the calls the record kept, which is how contract 7.7
+//! derives `permission_decision` without a second implementation of the rules.
+//!
 //! The policy directory is protected config #1 (15.1) and [`PolicySet::sha`] is
 //! what every run record carries as `policy_sha`, so an edit under `policies/`
 //! is visible in every record written after it.
 
+pub mod replay;
 pub mod table;
 
 use std::collections::BTreeMap;

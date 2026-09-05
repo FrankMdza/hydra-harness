@@ -218,22 +218,76 @@ human flag "lands in the run record as an argument, so the record shows why a ru
 allowed to do the thing", and `--allow-billed` has `auth.allow_billed` for exactly that.
 The floor flag has no field, and contract 5.1 names none, so adding one is a contract
 change rather than a line of code. Until it lands, a floor-lifted run is
-indistinguishable in the record from one that was never offered the lift, and 7.7's
-re-derivation of a permission decision from `policy` and `policy_sha` gets the wrong
-answer on any run where a human typed it.
-
-**Nothing derives `permission_decision` yet.** The gate's answers are in the record and
-no reader turns them into the contract's event type. Contract 7.7 derives it by
-re-evaluating the run's own policy, and re-evaluation is the normalizer's job, which is
-ticket 03. What a record carries today is the raw evidence: `hook_started` and
-`hook_response` frames naming `PreToolUse:<tool>` and carrying the gate's verdict
-verbatim, the reason string on the tool result with `is_error: true`, and an entry in
-`result.permission_denials[]` with its `tool_use_id`. The gate-leak check waits on the
-same ticket.
+indistinguishable in the record from one that was never offered the lift, and the
+normalizer has to pass `floor_lifted: false` because there is no field to read. So a
+shell call that a human lifted the floor for re-derives to a `hydra/floor` deny it never
+got, and the same call then reports a gate leak, because nothing refused it. Ticket 03
+left the gap where it found it: inventing a field is a contract change.
 
 Everything else in contract sections 2 to 6 is met, and `tests/record_contract.rs`
 checks it rather than asserting it. That test also walks every record under
 `~/hydra/runs/` on this machine and fails if any of them drifted.
+
+## Reading a record back
+
+**One provider.** `src/normalize/` turns a stored `claude` run into contract 7's events.
+`read_file` takes a path and the policy set; `read_with` takes text and a layout, which
+is how the tests ask a real question about a synthetic run without touching `~/hydra`.
+Nothing is written, which contract 11 requires and `tests/normalize.rs` checks by
+comparing every byte under `runs/` before and after a walk.
+
+**Eight of the ten types have a producer.** `message`, `thinking`, `tool_call`,
+`tool_result`, `permission_decision` and `usage`, plus the two stored Hydra lines.
+`message_delta` needs `--include-partial-messages` and 7.4 keeps it off in v1.
+`correction` comes from an interactive harvest and this build launches no interactive
+runs. Both types are in the enum, because a type the reader cannot name is a type nobody
+knows is missing.
+
+**`permission_decision` runs the run's own policy again**, compiled into the same gate
+script 7.5 writes and asked about each recorded call. Two costs, both accepted: a
+`/usr/bin/python3` process per tool call, and that interpreter is now a read-time
+dependency as well as a run-time one. A second implementation of the rules in Rust was
+the alternative and it is the wrong trade. The gate decides with the seven path denials,
+the scope resolution, the `mcp__` prefix rule and a floor that tokenizes shell with
+`shlex`, and a Rust copy that answered `allow` where the gate answered `deny` would
+report a gate leak that never happened.
+
+**`decider` reads the `hydra/` prefix and nothing else.** Every reason the gate writes
+starts with the stable code ticket 01 added, so a `PreToolUse` deny whose reason carries
+no prefix belongs to somebody else, which on this machine means the user's own guards.
+7.7 forbids parsing reason *text* for attribution and this is not that: the prefix is a
+code Hydra writes, the prose after it is what 7.7 is about.
+
+**A hook frame carries no `tool_use_id`, so the corroboration is joined by tool name and
+order.** `hook_name` reads `PreToolUse:<Tool>` and the frame lands between the `tool_use`
+block and its result. Ticket 02's run fired four `PreToolUse:Bash` responses for one
+call, one Hydra's and three with an empty `output`, so filtering on a parseable
+`permissionDecision` picks Hydra's out. Two calls to one tool inside a single assistant
+frame would be joined in hook order, which is an assumption and not a measurement. It
+reaches only the disagreement check, never the decision, which comes from the
+re-evaluation.
+
+**`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
+that read a policy live in `src/policy/gate.py`. A record can therefore re-evaluate
+against gate code that changed while its sha matched, and what reports that is a
+disagreement rather than a stale policy. All nine records on this machine re-evaluate to
+the verdict their gate gave, including the two shell calls ticket 06's measurement left,
+and `tests/normalize.rs` asserts it per call rather than in aggregate.
+
+**Findings are not events.** An event says what happened; a finding says two sources
+disagree or that the derivation could not do its job. Six of them: a gate leak, subagents
+spawned under a policy that denies them, a disagreement between the derivation and the
+gate's recorded answer, a tool name the capability table does not know, a `policy_sha`
+that is not today's, and a bare limit for anything else. Two `Limit` producers matter. A file with
+no `run_start` reads exactly like a pre-gate run, since both carry a null policy and no
+decisions, so the derivation says which one it is looking at. And a record that stops
+between a `tool_use` block and its result leaves a call whose fate nothing recorded, so a
+policy that denies it reports a limit rather than a leak: "the file ends here" is not
+evidence that the call went through. Ticket 14's abandoned-run class is exactly that
+shape. 7.1's table check reads the
+`system`/`init` frame, which lists every tool at no cost; `claude` 2.1.261 offered
+exactly the twenty-five names `table.rs` holds, so the check is quiet today and a rename
+breaks the first record written after it.
 
 ## What the command line does not carry
 
@@ -404,7 +458,11 @@ Out of scope for this slice, and each one has a document that already says what 
   Ctrl-C leaves an orphan child, a record with no `run_end`, an abandoned worktree and
   now an abandoned spawn directory, which is exactly ticket 14's abandoned-run class
   arriving early.
-- The normalizer, the ten event types, and outcome derivation. Contract 7 and 8.
+- Outcome derivation. Contract 8, and ticket 04. The normalizer reads a `claude` run
+  now; nothing turns one into an outcome, and `hydra run` still returns the short
+  answer below.
+- The `cursor-agent` and `agy` adapters, tickets 09 and 10, and harvest, 12. Contract
+  7.2's other two columns and 7.2.1's transcript vocabulary have no reader.
 - Interactive runs and harvest. 5.6, 12.
 - Every command but `run`. Notably `hydra reap`, so worktrees and spawn directories
   accumulate. Section 5 says the two are reaped together. Removing one by hand takes

@@ -46,3 +46,30 @@ field.
 
 **Provider claims expire without a version moving.** Ticket 33 found this binary
 reporting a different `model` because the account's model selection changed.
+
+## What ticket 03 left you, added 2026-09-05
+
+**The seam is `normalize::read_with(text, policies, layout)`, and it dispatches on
+nothing today.** `src/normalize/mod.rs` holds the ten types and calls
+`claude::normalize` directly, because one provider is routed. Your column needs a
+`cursor.rs` beside it and a branch on the envelope's `provider`, which every line carries
+(contract 4). The types themselves should not need to change: `ToolCall::call_id` is a
+`String`, which is what lets you mint the pairing 7.6 says you have to mint, and
+`ResultStatus::Unclassified` is already the answer for a result you cannot label.
+
+**`usage` on your provider will exercise the branch `claude` never does.** `UsageSource`
+has `Unavailable` wired and reached: a run with no `result` frame gets a `Usage` event
+with `source: unavailable` and no counts rather than zeroes. 7.8 says your `catch` path
+is exactly that shape, and the code for it is written.
+
+**`permission_decision` is derived by `src/policy/replay.rs`, which is per provider in
+one place.** It sends the gate `Dialect::Claude` and a `claude`-shaped `PreToolUse`
+payload. Re-evaluating a `cursor-agent` call means passing your dialect and mapping your
+frame onto the payload the gate reads, which is `tool_name`, `tool_input` and `cwd`.
+Nothing else in the file is provider-specific.
+
+**Do not try to attribute a refusal from your reason text.** The `claude` adapter tells
+Hydra's gate from the user's guards by the `hydra/` prefix on the reason, and 7.7 already
+records that your provider concatenates every hook's message, so that prefix can arrive
+inside another hook's prose. On this provider the honest answer may be that `decider` is
+underivable, which is a finding rather than a guess.

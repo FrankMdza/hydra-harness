@@ -43,3 +43,29 @@ inherit. Ticket 26 probed the hook gate on 1.1.24 and ticket 30 re-measured on 1
 `error.type: TOOL_ERROR`, and both messages contain the word "permission".** The adapter
 returns `unclassified` here rather than guessing. Guessing produces a curator that
 rewrites a skill because a file was missing.
+
+## What ticket 03 left you, added 2026-09-05
+
+**The seam is `normalize::read_with(text, policies, layout)`, and it dispatches on
+nothing today.** `src/normalize/mod.rs` holds the ten types and calls
+`claude::normalize` directly, because one provider is routed. Your column needs an
+`agy.rs` beside it and a branch on the envelope's `provider`, which every line carries
+(contract 4).
+
+**Two fields on the types exist for you.** `Message::block` is documented as the
+`step_index` your concatenation runs over, and `Counts::cache_write_tokens` and
+`Counts::thinking_tokens` are `Option` because your provider reports one and not the
+other. `Counts::total_tokens()` deliberately does not match your own `total_tokens`, and
+the reason is in its doc comment: yours excludes cache read, so copying it would make a
+warm-cache run look cheap.
+
+**`usage` is one event per run and you have per-step counts.** 9.2 says a run's usage is
+the sum of its own `step_update` frames and that `result.usage` is recorded and not used
+for it. The `claude` adapter emits its single `Usage` event when it reaches the `result`
+frame; yours has to sum first and emit once, and the `seq` field on `Usage` is an
+`Option<u64>` that will not name a single frame honestly. Say so in the outcome rather
+than pointing it at the last step.
+
+**`ResultStatus::Unclassified` is written and reached.** 7.6's warning about your
+`TOOL_ERROR` is already the code's behaviour, and the `claude` adapter reaches the same
+value from a different direction: a successful `Write` with no `is_error` field.

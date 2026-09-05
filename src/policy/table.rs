@@ -87,6 +87,27 @@ pub const CLAUDE: &[Tool] = &[
 /// The `tool_input` field carrying the shell command, per provider.
 pub const CLAUDE_COMMAND_FIELD: &str = "command";
 
+/// What capability a `claude` tool name answers to, or `None` when the table
+/// does not know the name.
+///
+/// The gate script has this function too, compiled from [`CLAUDE`], and the two
+/// must agree: the gate uses it to decide and the normalizer uses it to fill
+/// `tool_call.capability` (contract 7.6) and to run 7.1's table check against
+/// the `system`/`init` frame. `None` is the answer 7.1 wants a reader to act on,
+/// because a provider that renamed a tool should break loudly.
+///
+/// `mcp__` is a prefix rather than a name, so it is matched before the table,
+/// exactly as `capability_of` does in `gate.py`.
+pub fn claude_capability(tool: &str) -> Option<Capability> {
+    if tool.starts_with("mcp__") {
+        return Some(Capability::McpCall);
+    }
+    CLAUDE
+        .iter()
+        .find(|entry| entry.name == tool)
+        .map(|entry| entry.capability)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,7 +1,7 @@
 # 03 - Normalize a `claude` run into the ten event types
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 02
 
 ## Goal
@@ -90,3 +90,83 @@ quoting the hook that allowed.
 
 **A run that a gate denied still exits 0 and still reports `subtype: success`.** Ticket
 04 derives the outcome, and this is the shape it will meet.
+
+## Outcome
+
+`src/normalize/` reads a stored `claude` run into contract 7's events, `read_file` from a
+path and `read_with` from text against a layout the caller names. Nothing is written.
+`tests/normalize.rs` has 22 tests: synthetic records for the frame shapes and the two
+findings this machine has never produced, and four that walk the nine records under
+`~/hydra/runs/`.
+
+**Eight of the ten types have a producer, and the two dark ones are dark for the reasons
+the contract gives.** `message_delta` needs `--include-partial-messages` (7.4) and
+`correction` needs an interactive harvest (7.9). Both are in the enum with a doc comment
+saying so, because a type the reader cannot name is a type nobody knows is missing.
+
+**`permission_decision` re-runs the run's own policy through the real gate script**
+rather than through a second implementation of the rules in Rust. `src/policy/replay.rs`
+compiles the policy once per run and feeds the gate one payload per call on stdin, with
+`-c` so nothing is written to disk. The trade is in `IMPLEMENTATION.md`: a
+`/usr/bin/python3` process per tool call, and that interpreter is now a read-time
+dependency. A Rust copy of the seven path denials, the scope resolution and a floor that
+tokenizes shell with `shlex` would drift the day either side is edited, and a copy that
+said `allow` where the gate said `deny` would report a gate leak that never happened.
+
+**`decider` reads the `hydra/` prefix and never the prose after it.** Every reason the
+gate writes carries the code ticket 01 made stable, so a `PreToolUse` deny with no prefix
+is somebody else's. That is what makes `external` derivable at all, and it is not the
+thing 7.7 forbids: the prefix is a code Hydra writes, the reason text is what the Cursor
+probe in 6.6 was about.
+
+**What the nine records answer, checked per call rather than in aggregate.** Three
+pre-gate runs produce no `permission_decision` at all, which is 7.2.1 and 5.6. Six gated
+runs produce exactly one per call. The three `read-only` `Write` calls re-derive to
+`deny` under `hydra/capability`, and ticket 06's two `Bash` calls split: the one naming
+`~/hydra/runs` re-derives to `deny` under `hydra/protected-path`, the one writing inside
+its own worktree to `allow`. No record reports a gate leak, a subagent leak or a
+disagreement.
+
+**What the ticket assumed that turned out false.**
+
+- **`is_error` is not always present on a `claude` tool result.** The `standard` run's
+  successful `Write` came back with the field absent, so the adapter answers
+  `unclassified` there. 7.6 forbids reading an absent field as success, and this is the
+  first measured case of it on this provider rather than on `agy`.
+- **A hook frame carries no `tool_use_id`**, so corroboration is joined by tool name and
+  order off `hook_name`. Ticket 02's run fired four `PreToolUse:Bash` responses for one
+  call, three of them with an empty `output`, so filtering on a parseable
+  `permissionDecision` picks Hydra's out. Two calls to one tool inside a single assistant
+  frame would be joined in hook order, which is an assumption. It reaches only the
+  disagreement check, never the decision.
+- **`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
+  live in `src/policy/gate.py`. A record can re-evaluate against gate code that changed
+  while its sha matched, and a disagreement is what reports that, not `StalePolicy`. The
+  nine records happen to be clean, so the skew is latent rather than observed.
+- **The floor-escape gap now has a reader.** The normalizer has to pass
+  `floor_lifted: false`, so a run where a human typed `--allow-floor-escape` re-derives
+  to a `hydra/floor` deny it never got, and then reports a gate leak on top. Inventing a
+  field is a contract change, so the gap stayed where ticket 02 left it.
+
+**`Run::result` keeps the terminator frame verbatim, and it is not a normalized
+field.** 8.5 names three `claude` fields that stay in `raw` and two of them,
+`permission_denials` and `subagent_stats`, live on that frame; the leak checks read them
+there. Contract 8's outcome derivation reads three more off the same frame, so keeping it
+is what stops ticket 04 re-opening the file. The third of 8.5's fields,
+`rate_limit_event`, is its own frame type with no reader until rung two's early abort, so
+nothing keeps it.
+
+**7.1's run-time table check is done and quiet.** It reads the `system`/`init` frame,
+which lists every tool at no cost. `claude` 2.1.261 offered exactly the twenty-five names
+`table.rs` holds, so a rename now breaks the first record written after it.
+
+**Findings are not events**, and there are six: `GateLeak`, `SubagentLeak`,
+`Disagreement`, `UnknownTool`, `StalePolicy` and a bare `Limit` for anything the
+derivation could not do. `Limit` has three producers: a policy or a gate that would not
+answer, a file with no `run_start`, which otherwise reads exactly like a pre-gate run
+because both carry a null policy and no decisions, and a call the record stops after. That
+last one was going to be a false gate leak. A run Hydra was killed during can end between
+a `tool_use` block and its result, and a policy that denies that call has no evidence
+either way, so the finding says unknown. The decision still follows the policy. None of the ten event types derives `Serialize`, so a caller who
+wants to put one in a file has to say so out loud first, which is contract 11's rule
+expressed in the type system.
