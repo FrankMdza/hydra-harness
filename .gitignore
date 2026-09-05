@@ -1,3 +1,7 @@
 target/
 runs/
+worktrees/
+spawn/
+skills/
+skills-snapshots/
 .DS_Store
