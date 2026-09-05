@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::Value;
 
 use super::{
@@ -48,6 +48,35 @@ struct HookAnswer {
     from_hydra: bool,
     taken: bool,
 }
+
+/// The stretch of a run in which a hook answer can belong to one tool call.
+///
+/// It opens at the call's own frame and closes at the next call that came later,
+/// which is the bound the join was missing: without it, the first of two `Bash`
+/// calls takes a refusal the guard wrote about the second, and both decisions
+/// come out wrong. Two calls in a single assistant frame share a `seq` and
+/// therefore share a window, and the `taken` flag is what keeps them from
+/// claiming the same answer.
+#[derive(Clone, Copy)]
+struct Window {
+    after: u64,
+    before: u64,
+}
+
+impl Window {
+    fn holds(&self, seq: u64) -> bool {
+        seq > self.after && seq < self.before
+    }
+}
+
+/// The `result.usage` keys section 9 maps. An object with none of them says
+/// nothing, whatever else it holds.
+const COUNT_FIELDS: [&str; 4] = [
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+];
 
 /// A refusal the record shows, as against one the policy implies.
 struct Refusal {
@@ -83,9 +112,18 @@ pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
         if line.trim().is_empty() {
             continue;
         }
-        let envelope: Value = serde_json::from_str(line)
-            .with_context(|| format!("line {} is not a JSON object", index + 1))?;
-        walk.line(&envelope);
+        // A torn line costs its own frames and nothing else. `record/mod.rs`
+        // writes and syncs per line, so a run Hydra was killed during can leave
+        // half a line at the tail, and contract 6 calls that an abandoned run
+        // rather than a corrupt file. Failing the whole read would hand a corpus
+        // walk nothing at all for a file that is intact up to its last line.
+        match serde_json::from_str::<Value>(line) {
+            Ok(envelope) => walk.line(&envelope),
+            Err(err) => walk.findings.push(Finding::Limit(format!(
+                "line {} did not parse, so whatever it carried is unread: {err}",
+                index + 1
+            ))),
+        }
     }
     walk.close();
     walk.finish(policies, layout)
@@ -328,7 +366,19 @@ impl Walk {
     /// The policy directory moved since the run, so every decision below answers
     /// for a policy the run never saw.
     fn check_policy_sha(&mut self, policies: &PolicySet) {
-        let (Some(_), Some(recorded)) = (&self.policy, &self.policy_sha) else {
+        let Some(name) = &self.policy else {
+            return;
+        };
+        let Some(recorded) = &self.policy_sha else {
+            // 5.1 writes the two together, so this is a record from somewhere
+            // else. The decisions below are still derived, and nothing in them
+            // would otherwise say they were never checked against the policy the
+            // run actually had.
+            self.findings.push(Finding::Limit(format!(
+                "the record names policy {name} and carries no policy_sha, so every \
+                 decision below answers for today's policies/ rather than for the \
+                 directory the run was launched from"
+            )));
             return;
         };
         if recorded != policies.sha() {
@@ -388,12 +438,11 @@ impl Walk {
     ///
     /// Absent, never empty, on a run with no policy: there is nothing to
     /// re-evaluate and `external` would presume a policy that could have allowed.
-    fn decide(
-        &mut self,
-        policies: &PolicySet,
-        layout: &Layout,
-    ) -> HashMap<String, PermissionDecision> {
-        let mut decisions = HashMap::new();
+    fn decide(&mut self, policies: &PolicySet, layout: &Layout) -> Vec<Option<PermissionDecision>> {
+        // One slot per call, in call order, because `call_id` is the provider's
+        // to supply and a block without one would collide with every other
+        // block without one.
+        let mut decisions: Vec<Option<PermissionDecision>> = Vec::new();
         let Some(name) = self.policy.clone() else {
             return decisions;
         };
@@ -445,18 +494,52 @@ impl Walk {
         };
 
         let results = self.results_by_call();
-        for (seq, call_id, tool, arguments) in calls {
+        let seqs: Vec<u64> = calls.iter().map(|call| call.0).collect();
+        for (index, (seq, call_id, tool, arguments)) in calls.into_iter().enumerate() {
+            let window = Window {
+                after: seq,
+                before: seqs[index + 1..]
+                    .iter()
+                    .copied()
+                    .find(|later| *later > seq)
+                    .unwrap_or(u64::MAX),
+            };
+            if call_id.is_empty() {
+                // Nothing to join a result or a hook answer to. The policy still
+                // answers for the call, so the decision is derived and this says
+                // what it could not be checked against.
+                self.findings.push(Finding::Limit(format!(
+                    "a {tool} call at seq {seq} carries no tool_use_id, so no result \
+                     and no hook answer can be joined to it"
+                )));
+            }
             let verdict = match replay.decide(&tool, &arguments, &cwd) {
                 Ok(verdict) => verdict,
                 Err(err) => {
                     self.findings.push(Finding::Limit(format!(
                         "the gate would not answer for {call_id} ({tool}): {err:#}"
                     )));
+                    decisions.push(None);
                     continue;
                 }
             };
-            let gate_said = self.take_gate_answer(seq, &tool);
-            let refusal = self.refusal(&call_id, seq, &tool, results.get(&call_id));
+            let gate_said = self.take_gate_answer(window, &tool);
+            let refusal = self.refusal(&call_id, window, &tool, results.get(&call_id));
+
+            // 6.6: a hook that fails to start fails open on this provider, and
+            // `--include-hook-events` is on for every recorded run, so a call
+            // with no gate answer and no refusal in Hydra's own voice is a call
+            // the gate never spoke about.
+            let hydra_spoke = gate_said.is_some()
+                || refusal
+                    .as_ref()
+                    .is_some_and(|refusal| refusal.by == Decider::HydraPolicy);
+            if !hydra_spoke {
+                self.findings.push(Finding::Ungated {
+                    call_id: call_id.clone(),
+                    tool: tool.clone(),
+                });
+            }
 
             if let Some((decision, reason)) = &gate_said
                 && *decision != verdict_decision(verdict.allowed)
@@ -525,7 +608,7 @@ impl Walk {
                     },
                 }
             };
-            decisions.insert(call_id, derived);
+            decisions.push(Some(derived));
         }
         decisions
     }
@@ -536,7 +619,7 @@ impl Walk {
         self.events
             .iter()
             .filter_map(|event| match event {
-                Event::ToolResult(result) => Some((
+                Event::ToolResult(result) if !result.call_id.is_empty() => Some((
                     result.call_id.clone(),
                     (result.status, result.output.clone()),
                 )),
@@ -551,11 +634,10 @@ impl Walk {
     /// calls to one tool in a single assistant frame are answered in the order
     /// the hooks ran, and if that ever stops holding the disagreement check is
     /// what reports it.
-    fn take_gate_answer(&mut self, after: u64, tool: &str) -> Option<(Decision, String)> {
-        let answer = self
-            .hooks
-            .iter_mut()
-            .find(|hook| !hook.taken && hook.from_hydra && hook.tool == tool && hook.seq > after)?;
+    fn take_gate_answer(&mut self, window: Window, tool: &str) -> Option<(Decision, String)> {
+        let answer = self.hooks.iter_mut().find(|hook| {
+            !hook.taken && hook.from_hydra && hook.tool == tool && window.holds(hook.seq)
+        })?;
         answer.taken = true;
         Some((answer.decision, answer.reason.clone()))
     }
@@ -565,13 +647,13 @@ impl Walk {
     /// This looks for a deny rather than for the next answer of any kind. A hook
     /// outside Hydra that allowed decides nothing, and consuming its slot would
     /// push a real deny onto the following call.
-    fn take_external_deny(&mut self, after: u64, tool: &str) -> Option<String> {
+    fn take_external_deny(&mut self, window: Window, tool: &str) -> Option<String> {
         let answer = self.hooks.iter_mut().find(|hook| {
             !hook.taken
                 && !hook.from_hydra
                 && hook.decision == Decision::Deny
                 && hook.tool == tool
-                && hook.seq > after
+                && window.holds(hook.seq)
         })?;
         answer.taken = true;
         Some(answer.reason.clone())
@@ -582,7 +664,7 @@ impl Walk {
     fn refusal(
         &mut self,
         call_id: &str,
-        seq: u64,
+        window: Window,
         tool: &str,
         result: Option<&(ResultStatus, String)>,
     ) -> Option<Refusal> {
@@ -597,7 +679,7 @@ impl Walk {
         // A hook outside Hydra that denied. Hydra's own answer is taken
         // separately, because it is the corroboration rather than a second
         // decider.
-        if let Some(reason) = self.take_external_deny(seq, tool) {
+        if let Some(reason) = self.take_external_deny(window, tool) {
             return Some(Refusal {
                 by: Decider::External,
                 reason,
@@ -650,18 +732,18 @@ fn verdict_decision(allowed: bool) -> Decision {
 
 /// Each decision goes in behind the call it answers, so the event list still
 /// reads in the order the run happened.
-fn splice(events: Vec<Event>, mut decisions: HashMap<String, PermissionDecision>) -> Vec<Event> {
+fn splice(events: Vec<Event>, decisions: Vec<Option<PermissionDecision>>) -> Vec<Event> {
     if decisions.is_empty() {
         return events;
     }
     let mut spliced = Vec::with_capacity(events.len() + decisions.len());
+    // Position rather than `call_id`, because `decide` built one slot per call
+    // in this order and an id is the provider's to supply.
+    let mut derived = decisions.into_iter();
     for event in events {
-        let decision = match &event {
-            Event::ToolCall(call) => decisions.remove(&call.call_id),
-            _ => None,
-        };
+        let is_call = matches!(event, Event::ToolCall(_));
         spliced.push(event);
-        if let Some(decision) = decision {
+        if is_call && let Some(Some(decision)) = derived.next() {
             spliced.push(Event::PermissionDecision(decision));
         }
     }
@@ -682,7 +764,10 @@ fn result_output(content: Option<&Value>) -> String {
                 None => block.to_string(),
             })
             .collect::<Vec<_>>()
-            .join(""),
+            // The provider laid these out as separate blocks, and running them
+            // together would put the seam inside a word for every reader
+            // downstream, the outcome derivation of contract 8 included.
+            .join("\n"),
         Some(other) => other.to_string(),
     }
 }
@@ -693,7 +778,19 @@ fn result_output(content: Option<&Value>) -> String {
 /// which is the whole point of 7.8: a null and a provider reporting zero are the
 /// same value and mean opposite things.
 fn usage_of(seq: u64, result: &Value) -> Usage {
-    let Some(usage) = result.get("usage").filter(|usage| usage.is_object()) else {
+    // An object with none of section 9's counts in it is the same as no object:
+    // reading it as zeroes is 7.8's null-against-zero confusion arriving through
+    // the other door, since a reader could not tell "the provider said zero" from
+    // "the provider said nothing this maps".
+    let counted = result
+        .get("usage")
+        .filter(|usage| usage.is_object())
+        .filter(|usage| {
+            COUNT_FIELDS
+                .iter()
+                .any(|field| usage.get(field).and_then(Value::as_u64).is_some())
+        });
+    let Some(usage) = counted else {
         return Usage {
             seq: None,
             source: UsageSource::Unavailable,

@@ -160,13 +160,51 @@ nothing keeps it.
 which lists every tool at no cost. `claude` 2.1.261 offered exactly the twenty-five names
 `table.rs` holds, so a rename now breaks the first record written after it.
 
-**Findings are not events**, and there are six: `GateLeak`, `SubagentLeak`,
-`Disagreement`, `UnknownTool`, `StalePolicy` and a bare `Limit` for anything the
-derivation could not do. `Limit` has three producers: a policy or a gate that would not
-answer, a file with no `run_start`, which otherwise reads exactly like a pre-gate run
-because both carry a null policy and no decisions, and a call the record stops after. That
-last one was going to be a false gate leak. A run Hydra was killed during can end between
-a `tool_use` block and its result, and a policy that denies that call has no evidence
-either way, so the finding says unknown. The decision still follows the policy. None of the ten event types derives `Serialize`, so a caller who
-wants to put one in a file has to say so out loud first, which is contract 11's rule
-expressed in the type system.
+## What the code review changed, added 2026-09-05
+
+Eight findings, all real, all fixed with a test each. Two were correctness bugs on shapes
+the records already have.
+
+**The hook join had no upper bound, so one call could absorb another's refusal.** The
+join runs on tool name and order because the frame carries no `tool_use_id`, and it
+searched forward without stopping. A `standard` run with two `Bash` calls where the user's
+guard denies only the second gave call one `deny`/`external` carrying call two's reason,
+and call two an `allow`. Both decisions wrong, effectively swapped. The window now closes
+at the next call that came later, and
+`an_external_deny_belongs_to_the_call_it_answered` fails without it. The same bound
+covers the gate answer, where the symptom was a fabricated disagreement.
+
+**`Finding::Ungated` was declared and never constructed.** It is wired now, and the check
+is honest on this build because `src/provider/claude.rs` passes `--include-hook-events`
+on every recorded run: a call with no gate answer and no refusal in Hydra's own voice is
+the fail-open case 6.6 measured. All six gated records carry a gate answer for every call,
+so the corpus test asserts the finding stays quiet.
+
+**A torn line no longer fails the whole record.** The writer syncs per line, so a killed
+run can leave half a line at the tail, and contract 6 calls that an abandoned run rather
+than a corrupt file. The reader disagreed and returned `Err` for the file. It now costs
+its own frames and a `Limit`.
+
+**Four smaller ones.** A `usage` object holding none of section 9's counts reported
+zeroes from `source: provider`; it says `unavailable` now. A record naming a policy with
+no `policy_sha` derived a full set of decisions and said nothing about answering for
+today's `policies/`; it emits a `Limit`. Decisions were keyed by `call_id`, so two blocks
+with no id collided and one call lost its decision; they are spliced positionally now.
+And two text blocks in one tool result were concatenated with no separator, which put the
+seam inside a word for every reader downstream.
+
+**Findings are not events**, and there are seven: `GateLeak`, `SubagentLeak`,
+`Disagreement`, `Ungated`, `UnknownTool`, `StalePolicy` and a bare `Limit` for anything
+the derivation could not do.
+
+`Limit` has five producers. A policy or a gate that would not answer. A file with no
+`run_start`, which otherwise reads exactly like a pre-gate run, because both carry a null
+policy and no decisions. A line that would not parse. A record that names a policy and
+carries no `policy_sha`. And a call the record stops after, which was going to be a false
+gate leak: a run Hydra was killed during can end between a `tool_use` block and its
+result, and a policy that denies that call has no evidence either way, so the finding says
+unknown and the decision still follows the policy.
+
+None of the ten event types derives `Serialize`, so a caller who wants to put one in a
+file has to say so out loud first. That is contract 11's rule expressed in the type
+system.

@@ -236,6 +236,11 @@ is how the tests ask a real question about a synthetic run without touching `~/h
 Nothing is written, which contract 11 requires and `tests/normalize.rs` checks by
 comparing every byte under `runs/` before and after a walk.
 
+**`usage` says `unavailable` for an object it cannot read, not zero.** A `result` frame
+with no `usage`, and one whose `usage` holds none of section 9's four count fields, both
+produce `source: unavailable` with no counts. Zeroes there would be 7.8's
+null-against-zero confusion arriving through the other door.
+
 **Eight of the ten types have a producer.** `message`, `thinking`, `tool_call`,
 `tool_result`, `permission_decision` and `usage`, plus the two stored Hydra lines.
 `message_delta` needs `--include-partial-messages` and 7.4 keeps it off in v1.
@@ -259,13 +264,16 @@ no prefix belongs to somebody else, which on this machine means the user's own g
 code Hydra writes, the prose after it is what 7.7 is about.
 
 **A hook frame carries no `tool_use_id`, so the corroboration is joined by tool name and
-order.** `hook_name` reads `PreToolUse:<Tool>` and the frame lands between the `tool_use`
-block and its result. Ticket 02's run fired four `PreToolUse:Bash` responses for one
-call, one Hydra's and three with an empty `output`, so filtering on a parseable
-`permissionDecision` picks Hydra's out. Two calls to one tool inside a single assistant
-frame would be joined in hook order, which is an assumption and not a measurement. It
-reaches only the disagreement check, never the decision, which comes from the
-re-evaluation.
+order, inside a window.** `hook_name` reads `PreToolUse:<Tool>` and the frame lands
+between the `tool_use` block and its result. Ticket 02's run fired four `PreToolUse:Bash`
+responses for one call, one Hydra's and three with an empty `output`, so filtering on a
+parseable `permissionDecision` picks Hydra's out. **The window closes at the next call
+that came later**, and that bound is load-bearing rather than tidy: without it the first
+of two `Bash` calls takes the refusal a guard wrote about the second, and both decisions
+come out wrong, one denied for somebody else's reason and one allowed. Two calls inside a
+single assistant frame share a `seq` and so share a window, and they are handed answers
+in hook order, which is an assumption and not a measurement. That last part reaches only
+the disagreement check, never the decision.
 
 **`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
 that read a policy live in `src/policy/gate.py`. A record can therefore re-evaluate
@@ -275,16 +283,24 @@ the verdict their gate gave, including the two shell calls ticket 06's measureme
 and `tests/normalize.rs` asserts it per call rather than in aggregate.
 
 **Findings are not events.** An event says what happened; a finding says two sources
-disagree or that the derivation could not do its job. Six of them: a gate leak, subagents
-spawned under a policy that denies them, a disagreement between the derivation and the
-gate's recorded answer, a tool name the capability table does not know, a `policy_sha`
-that is not today's, and a bare limit for anything else. Two `Limit` producers matter. A file with
+disagree or that the derivation could not do its job. Seven of them: a gate leak,
+subagents spawned under a policy that denies them, a disagreement between the derivation
+and the gate's recorded answer, a gated call the gate never answered, a tool name the
+capability table does not know, a `policy_sha` that is not today's, and a bare limit for
+anything else. The fourth is the fail-open case 6.6 measured: a hook that will not start
+lets the call through on this provider, `--include-hook-events` is on for every recorded
+run, so a call with no gate answer and no refusal in Hydra's own voice is one that reached
+the model with nothing in front of it. Four things produce a `Limit` and two of them matter most. A file with
 no `run_start` reads exactly like a pre-gate run, since both carry a null policy and no
 decisions, so the derivation says which one it is looking at. And a record that stops
 between a `tool_use` block and its result leaves a call whose fate nothing recorded, so a
 policy that denies it reports a limit rather than a leak: "the file ends here" is not
 evidence that the call went through. Ticket 14's abandoned-run class is exactly that
-shape. 7.1's table check reads the
+shape, and so is the tail of a killed run: the writer syncs per line, so a torn last line
+costs its own frames and a limit rather than the whole read. The other two are a record
+that names a policy and carries no `policy_sha`, whose decisions then answer for today's
+`policies/` rather than the run's, and a `tool_use` block with no id, which nothing can
+join a result or a hook answer to. The decision still follows the policy in both. 7.1's table check reads the
 `system`/`init` frame, which lists every tool at no cost; `claude` 2.1.261 offered
 exactly the twenty-five names `table.rs` holds, so the check is quiet today and a rename
 breaks the first record written after it.

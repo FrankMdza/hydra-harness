@@ -741,7 +741,7 @@ fn the_recorded_write_denial_derives_to_a_deny_under_capability() {
 }
 
 #[test]
-fn no_record_on_this_machine_reports_a_gate_leak() {
+fn no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent() {
     let policies = policies();
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
@@ -751,7 +751,12 @@ fn no_record_on_this_machine_reports_a_gate_leak() {
             .filter(|finding| {
                 matches!(
                     finding,
-                    Finding::GateLeak { .. } | Finding::SubagentLeak { .. }
+                    Finding::GateLeak { .. }
+                        | Finding::SubagentLeak { .. }
+                        // Every gated call on this machine has a gate answer in
+                        // the stream, which is what makes the fail-open check
+                        // worth having rather than noise.
+                        | Finding::Ungated { .. }
                 )
             })
             .collect();
@@ -929,4 +934,193 @@ fn the_terminator_frame_is_kept_verbatim_for_the_readers_that_need_it() {
     assert_eq!(result["is_error"], true);
     assert_eq!(result["api_error_status"], 429);
     assert_eq!(result["permission_denials"][0]["tool_use_id"], "toolu_01");
+}
+
+#[test]
+fn an_external_deny_belongs_to_the_call_it_answered() {
+    // The join has no `tool_use_id` to work with, so it runs on tool name and
+    // order. Without an upper bound the first of two `Bash` calls takes the deny
+    // the guard wrote about the second, and both decisions come out wrong: call
+    // one reads `deny`/`external` carrying call two's reason, and call two reads
+    // `allow`. Conditional guards that fire on one command and not another are
+    // the normal case, so this is the shape that bound exists for.
+    let sandbox = Sandbox::new("two-calls");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use("toolu_01", "Bash", json!({"command": "echo one"}));
+    record.hook_response(
+        "Bash",
+        "allow",
+        "hydra/allow: policy standard allows shell.",
+    );
+    record.tool_result("toolu_01", "one", false);
+    record.tool_use("toolu_02", "Bash", json!({"command": "echo two"}));
+    record.hook_response(
+        "Bash",
+        "allow",
+        "hydra/allow: policy standard allows shell.",
+    );
+    record.hook_response("Bash", "deny", "Rejected: t30 CUR-PROJ says no second echo");
+    record.tool_result(
+        "toolu_02",
+        "Rejected: t30 CUR-PROJ says no second echo",
+        true,
+    );
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 2);
+
+    assert_eq!(decisions[0].call_id, "toolu_01");
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+
+    assert_eq!(decisions[1].call_id, "toolu_02");
+    assert_eq!(decisions[1].decision, Decision::Deny);
+    assert_eq!(decisions[1].decider, Decider::External);
+    assert_eq!(
+        decisions[1].reason,
+        "Rejected: t30 CUR-PROJ says no second echo"
+    );
+}
+
+#[test]
+fn a_gated_call_the_gate_never_answered_is_a_finding() {
+    // 6.6 measured a hook that fails to start failing open on this provider, and
+    // `--include-hook-events` is on for every recorded run, so a call with no
+    // gate answer and no refusal in Hydra's own voice is a call that reached the
+    // model with nothing in front of it.
+    let sandbox = Sandbox::new("ungated");
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    )
+    .tool_use("toolu_01", "Bash", json!({"command": "echo HELLO"}))
+    .tool_result("toolu_01", "HELLO", false)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        run.findings.contains(&Finding::Ungated {
+            call_id: "toolu_01".into(),
+            tool: "Bash".into()
+        }),
+        "{:?}",
+        run.findings
+    );
+    // The policy still answers for the call.
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+}
+
+#[test]
+fn a_torn_line_costs_its_own_frames_and_nothing_else() {
+    // The writer syncs per line, so a killed run can leave half a line at the
+    // tail. Contract 6 calls that an abandoned run rather than a corrupt file.
+    let sandbox = Sandbox::new("torn");
+    let mut record = Record::opened(&sandbox.worktree(), None, None);
+    record.assistant(json!([{"type": "text", "text": "this line is whole"}]));
+    let mut text = record.lines.join("\n");
+    text.push_str("\n{\"run_id\":\"x\",\"seq\":9,\"raw\":{\"type\":\"assis");
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.messages().count(), 1);
+    assert!(
+        run.findings.iter().any(
+            |finding| matches!(finding, Finding::Limit(said) if said.contains("did not parse"))
+        ),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_usage_object_with_no_counts_in_it_is_unavailable_rather_than_zero() {
+    let sandbox = Sandbox::new("empty-usage");
+    let text = Record::opened(&sandbox.worktree(), None, None)
+        .result(json!({"usage": {"service_tier": "standard"}}))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let usage = run.usage().expect("7.8, never a bare null");
+    // Counts of zero would be indistinguishable from a provider reporting zero.
+    assert_eq!(usage.source, UsageSource::Unavailable);
+    assert_eq!(usage.counts, None);
+}
+
+#[test]
+fn a_policy_with_no_sha_is_a_record_nothing_can_vouch_for() {
+    let sandbox = Sandbox::new("no-sha");
+    let text = Record::opened(&sandbox.worktree(), Some("read-only"), None)
+        .assistant(json!([{"type": "text", "text": "done"}]))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Limit(said) if said.contains("policy_sha"))),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn two_text_blocks_in_one_result_stay_two_blocks() {
+    let sandbox = Sandbox::new("blocks");
+    let text = Record::opened(&sandbox.worktree(), None, None)
+        .raw(json!({
+            "type": "user",
+            "message": {"role": "user", "content": [{
+                "type": "tool_result",
+                "tool_use_id": "toolu_01",
+                "is_error": false,
+                "content": [
+                    {"type": "text", "text": "first block"},
+                    {"type": "text", "text": "second block"},
+                ],
+            }]},
+        }))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let results: Vec<_> = run.tool_results().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].output, "first block\nsecond block");
+}
+
+#[test]
+fn a_call_with_no_id_still_gets_a_decision_and_says_what_it_lost() {
+    // `call_id` is the provider's to supply. Two blocks without one used to key
+    // the same empty string, so the second decision overwrote the first and one
+    // call ended up with none.
+    let sandbox = Sandbox::new("no-id");
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some(policies().sha()),
+    )
+    .assistant(json!([{"type": "tool_use", "name": "Read", "input": {"file_path": "/etc/hosts"}}]))
+    .assistant(json!([{"type": "tool_use", "name": "Read", "input": {"file_path": "/etc/passwd"}}]))
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    // One decision per call, which is 7.7's invariant, positionally rather than
+    // by a key two calls share.
+    assert_eq!(run.permission_decisions().count(), 2);
+    assert_eq!(
+        run.findings
+            .iter()
+            .filter(
+                |finding| matches!(finding, Finding::Limit(said) if said.contains("tool_use_id"))
+            )
+            .count(),
+        2
+    );
 }
