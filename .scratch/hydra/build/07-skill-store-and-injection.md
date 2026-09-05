@@ -44,3 +44,14 @@ without it.
 name, `agy` on the frontmatter `name`, and Cursor's listing has no name field at all.
 One probe directory named one thing and declaring another is a different skill to each
 of them.
+
+## What ticket 01 left you, added 2026-09-05
+
+**`curate`'s write scope is `~/hydra/skills/` literally**, which is what harness spec
+7.2 says. `docs/ouroboros-spec.md` 3.6 has the curator working in its own git worktree
+of the store instead, and 9.1 flags that as a refinement to confirm rather than assume.
+Beside it: 3.7 has the curator commit to `ouroboros/curate/<run-id>` in the store's
+repo, and `curate` grants no `shell`, so either the supervisor commits or the policy
+needs something it does not have. Ticket 01 did not decide it. If this ticket settles
+where the store's worktree lives, the `skill_store` scope in `src/policy/mod.rs` moves
+with it.

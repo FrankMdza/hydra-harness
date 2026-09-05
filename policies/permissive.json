@@ -1,0 +1,13 @@
+{
+  "name": "permissive",
+  "allows": "everything, and the only policy that may spawn in-process subagents",
+  "allow": [
+    { "capability": "file_read", "scope": "anywhere" },
+    { "capability": "file_write", "scope": "anywhere" },
+    { "capability": "shell" },
+    { "capability": "network_read" },
+    { "capability": "mcp_call" },
+    { "capability": "subagent_spawn" },
+    { "capability": "provider_native" }
+  ]
+}

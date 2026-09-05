@@ -44,3 +44,19 @@ between the two is a finding, not noise.
 
 **Nothing upgrades an `unclassified` result to `ok`.** All three providers close a
 failed run reporting success, so a label read off the terminator is a lie.
+
+## What ticket 01 left you, added 2026-09-05
+
+**The gate's refusal reasons carry a stable machine-readable prefix.** Every one starts
+`hydra/<code>`: `protected-path`, `capability`, `out-of-scope`, `floor`, `unknown-tool`,
+`no-path`, `no-tool-name`, `bad-payload`, and `hydra/allow` when the call goes through.
+The reason arrives verbatim as the tool result with `is_error: true`, so a
+`permission_decision` event can key on the prefix instead of parsing prose. If you need
+a code that does not exist, add it in `src/policy/gate.py` and tell ticket 02.
+
+**7.1's run-time table check is yours.** `src/policy/table.rs` holds `claude` 2.1.261's
+twenty-five tools, measured 2026-09-05, and nothing compares it against what the
+provider actually offered. The `system`/`init` frame lists every name at no cost, which
+is the check 7.1 asks for: a name the table does not know is denied and recorded, so a
+self-update that renames a tool breaks the next run loudly. Today the table is a
+same-day measurement that ages silently.

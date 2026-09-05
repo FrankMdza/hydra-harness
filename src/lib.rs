@@ -8,6 +8,7 @@
 pub mod cli;
 pub mod env;
 pub mod paths;
+pub mod policy;
 pub mod procinfo;
 pub mod provider;
 pub mod pty;

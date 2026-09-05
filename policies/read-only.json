@@ -1,0 +1,7 @@
+{
+  "name": "read-only",
+  "allows": "reads inside the worktree, no shell, no writes",
+  "allow": [
+    { "capability": "file_read", "scope": "worktree" }
+  ]
+}

@@ -3,8 +3,10 @@
 `docs/` is the design, finished and checked. This file is the gap between it and the
 code, kept current by whoever narrows the gap.
 
-Read it before trusting a run record written by this binary. **The first slice is
-not spec-complete, and three of its records' fields say so.**
+Read it before trusting a run record written by this binary. **No record this binary
+has written was gated, and three of its fields say so.** Build ticket 01 compiled the
+policy set and the gate; ticket 02 is what passes one to a running provider, and until
+it lands every record still carries a null policy.
 
 Provider versions this slice was built and measured against, read 2026-09-05:
 
@@ -30,18 +32,100 @@ child exits. It prints JSON on stdout.
 error that says the slice routes one provider rather than that the provider is
 unknown.
 
+## The policy set and the gate, compiled but not yet passed
+
+Build ticket 01. `policies/` holds the five policies of harness spec 7.2 and the pattern
+floor of 7.4, `src/policy/` loads and hashes them, and `hydra::policy::write_gate`
+compiles a policy name into the script of 7.5. **Nothing launches it.** No provider is
+spawned with `--settings`, so a run record's `policy` is still null and the departures
+below are unchanged. `tests/gate.rs` feeds the compiled script synthetic hook payloads
+and asserts its answers, 23 of them.
+
+**The script is Python, and its shebang is `/usr/bin/python3` rather than
+`/usr/bin/env python3`.** The language is what 7.5's ticket expected: the gate needs
+JSON and path matching, macOS ships an interpreter, and the user's own 418 lines of
+`PreToolUse` guards are already Python. The absolute path is the part worth stating.
+`env` resolves through the child's PATH, the child's PATH is inherited, and on `claude`
+a hook that fails to start fails **open** (6.6). A PATH lookup is the one dependency
+this script cannot afford. `/usr/bin/python3` is 3.9.6 on this machine, read 2026-09-05.
+
+**The suite runs the gate on that interpreter and not on the shell's.** `python3` on
+this shell's PATH is Homebrew's 3.14.7. Testing it would leave the interpreter that
+actually runs the gate unmeasured, which is the drift the build plan's second note
+warns about, one layer down from the providers.
+
+**`policy_sha` is a sha256 over every `.json` in `policies/`, in name order, each file's
+name and body framed by its length.** `README.md` is left out: it is prose about the
+policies rather than one of them, and a wording fix should not move a value every run
+record carries. The framing is what stops two directories colliding by concatenation.
+
+**Nineteen of `claude`'s twenty-five tools answer to no capability the five policies
+speak in.** 7.1 denies a tool name the table does not recognise, so a table covering
+only the six capabilities of the coverage matrix would deny nineteen tools under
+`permissive`, which is supposed to allow everything. They map to one capability,
+`provider_native`, granted by `permissive` alone. One row rather than nineteen invented
+categories, and 7.1's drift check still fires on a twenty-sixth name. Splitting it is a
+design decision and this build did not make it.
+
+**`standard` therefore denies `ToolSearch` and `Skill`.** That follows from the
+paragraph above and it is a real capability loss on ordinary coding runs, in the
+direction 7.1 chose on purpose: an allowlist fails toward a run that cannot do its job,
+which someone notices. Ticket 02's first gated run is where it gets noticed, and the
+fix, if the records ask for one, is a policy file edit rather than code.
+
+**The four protected configs that are not files yet are denied by path anyway.** 7.5
+denies writes to seven paths under every policy. Two exist: `policies/` and
+`~/hydra/runs/`. The generated gate script is written per spawn. The other four are
+named at `config/env-allowlist.json`, `config/export-allowlist.json`,
+`config/preamble.md` and `config/mcp.md`, and **none of those files exists**. The
+environment allowlist is still Rust code in `src/env.rs`, which 15.2 protects at
+admission rather than at run time, so the config the table means has no file. Denying a
+write to a path that holds nothing is the same denial it will be the day the file lands,
+which is why the names went in now rather than being added later and forgotten.
+
+**Hydra finds its own policy directory through `CARGO_MANIFEST_DIR`, so the binary
+only works from its source tree.** `PolicySet::discover()` and the four `config/` paths
+are compiled against the manifest directory, which is right for a binary run out of
+`target/debug` and wrong for an installed one: a copied `hydra` would compile gates
+against a `policies/` that is not where it thinks. Nothing has needed an installed
+binary yet, and the answer is not obvious, since the policy directory is protected
+config #1 and a run must not be able to point Hydra at a different one. Naming it here
+rather than leaving it as a doc comment in `src/policy/mod.rs`.
+
+**A path is compared after resolving the longest ancestor that exists.** Plain
+`canonicalize` fails outright on a path whose file has not been created, and the gate
+script is exactly that at compile time. The first version fell back to the unresolved
+path, which left `/var/folders/...` on one side and `/private/var/folders/...` on the
+other, so **the gate script was writable under `permissive`** until `tests/gate.rs`
+caught it. Any protected path sitting under a symlinked directory had the same hole.
+The gate script resolves the same way at fire time, with `realpath`, and both sides
+lowercase because 15.2 matches case-insensitively.
+
+**The floor refuses rather than evaluates, and the refusal is coarse.** 7.4 says a
+pattern must refuse a subcommand arriving from a shell substitution. Which segment a
+substitution feeds is not decidable without running it, so a command carrying `$(`,
+`${` or a backtick **and** naming git, aws or Slack anywhere in it is refused whole.
+`echo $(date) && git status` is refused. That is a false positive on purpose, and
+`--allow-floor-escape` is the human's way past it.
+
+**`git push` with no arguments is not checked against the protected branches.** The
+floor cannot know the current branch from argv. It is the failure mode 7.4 names out
+loud, written down here so nobody reads the passing tests as coverage.
+
 ## The three departures from the record contract
 
-**`policy` and `policy_sha` are null on a recorded run.** This is the big one. The
-gate does not exist, so nothing is in force, and null is the true answer rather than
-a missing value. Contract 5.6 already gives a null policy a defined reach, for the
+**`policy` and `policy_sha` are null on a recorded run.** This is the big one. A gate
+compiles now, and no run is launched with one, so nothing is in force and null is the
+true answer rather than a missing value. Writing a `policy` on a record whose child
+never saw a hook would be the worse kind of wrong: a field that claims a bound the run
+did not have. Contract 5.6 already gives a null policy a defined reach, for the
 interactive run: `permission_decision` has no producer, because 7.7 derives it by
 re-evaluating the run's own policy, and the gate-leak check goes with it. Every one
 of those consequences holds here for the same reason. What differs from 5.6 is that
 `launch_mode` reads `recorded`, so a reader cannot tell these records apart by launch
 mode. **`hydra_version` is the field that tells them apart**, which is the job
 contract 15 already gives `provider_version` for provider drift. Any `0.1.x` record
-was written before the gate existed.
+was written before a gate was passed to a provider.
 
 **`skills` and `mcp` are absent, not null.** Nothing is injected, so which sha the run
 pinned is not a question with a missing answer. Contract 5.5 set the rule and 5.6
@@ -147,8 +231,11 @@ null `usage` reads as a measurement of zero, so the JSON carries a
 
 Out of scope for this slice, and each one has a document that already says what it is:
 
-- The gate. Harness spec 6.6 and 7. Nothing is compiled, nothing is passed, and the
-  three consequences above follow.
+- The gate, on a run. Harness spec 6.6. The policy set, the capability table and the
+  compiler are built (ticket 01) and nothing passes their output to a provider: no
+  `--settings`, no hook config, no `--permission-mode bypassPermissions`, so the three
+  consequences above still follow. Ticket 02 is the wiring, and it is the first thing
+  that will find out whether a compiled deny holds on a real run.
 - Skill injection and the store. 6.4.
 - MCP injection and the Cursor pre-flight. 6.5.
 - The spawn directory. It holds a gate script, an MCP config and Cursor's data root,

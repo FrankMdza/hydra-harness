@@ -1,0 +1,48 @@
+{
+  "note": "Harness spec 7.4. A floor and never a gate. It is a deny list in the one place 7.1 permits one, and it inherits that shape's failure mode: silent permission on the spelling nobody wrote down. On `claude` and `cursor-agent` the user's own guards catch what this misses. On `agy` nothing does. Do not read this file as coverage.",
+
+  "applies_under_every_policy": true,
+  "lifted_by": "--allow-floor-escape, harness spec 16, typed by a human on the run",
+
+  "substitution_markers": ["$(", "${", "`"],
+
+  "git": {
+    "consume_before_subcommand": ["-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"],
+    "push_forbidden_flags": [
+      "--force",
+      "-f",
+      "--force-with-lease",
+      "--force-if-includes",
+      "--all",
+      "--mirror"
+    ],
+    "protected_branches": [
+      "main",
+      "master",
+      "develop",
+      "trunk",
+      "release",
+      "production"
+    ],
+    "protected_branch_prefixes": ["release/", "hotfix/"],
+    "forbidden": [
+      { "argv": ["branch", "-D"], "why": "deletes a branch with no merge check" },
+      { "argv": ["update-ref"], "why": "moves a ref with no reflog discipline" },
+      { "argv": ["reflog", "expire"], "why": "destroys the recovery path for everything above" },
+      { "argv": ["reset", "--hard"], "why": "discards the working tree" }
+    ],
+    "clean_requires_force_with": ["-d", "-x"],
+    "symbolic_ref_write_form": "two non-flag arguments, `git symbolic-ref HEAD refs/heads/x`; the one-argument read form is allowed"
+  },
+
+  "aws": {
+    "forbidden_subcommands": [["configure"], ["sso"]],
+    "s3_forbidden_operations": ["cp", "mv", "rm", "sync", "rb"]
+  },
+
+  "slack": {
+    "forbidden_hosts": ["hooks.slack.com"],
+    "forbidden_method_prefixes": ["chat."],
+    "forbidden_methods": ["files.upload", "conversations.create"]
+  }
+}

@@ -9,8 +9,8 @@ closed on 2026-09-05 with 38 of 38 tickets resolved and all four seam checks pas
 a first slice of Rust that implements one command against that design.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
-design and the code. The slice is deliberately not spec-complete: it compiles no gate, so its run
-records carry a null policy, and that file says what else follows from it.
+design and the code. The code is deliberately not spec-complete: a gate compiles but no run is
+launched with one, so records still carry a null policy, and that file says what else follows.
 
 The three documents are the design. `docs/harness-spec.md` is how Hydra launches, feeds and records
 the providers; `docs/run-record-contract.md` is the format it writes and Ouroboros reads;
@@ -58,12 +58,16 @@ document and there should not be one.
 
 - `src/`, the binary. `run.rs` is the launch sequence and the place to start reading; `record/` is
   the run record and the validator the tests drive; `env.rs` is the allowlist; `pty.rs` owns the
-  child's pty; `provider/claude.rs` holds every fact that is true of that binary and not of a model.
+  child's pty; `provider/claude.rs` holds every fact that is true of that binary and not of a model;
+  `policy/` loads the policy set, owns the capability table, and compiles the gate script.
+- `policies/`, the five policies of harness spec 7.2 and the pattern floor of 7.4. Protected config
+  #1, and `policy_sha` on every run record is its sha. `policies/README.md` is the format.
 - `IMPLEMENTATION.md`, what is built, what is not, and every departure from the design with its
   reason. Amend it in the same change that narrows the gap.
-- `tests/`, three files. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, four files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
-  `worktree.rs` covers the seeding.
+  `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
+  hook payloads, launching nothing.
 - `.scratch/hydra/build/plan.md`, the build index, and `build/NN-slug.md`, one build ticket each.
 - `.scratch/hydra/map.md`, the closed design map. One load gives you the whole design at low
   resolution.

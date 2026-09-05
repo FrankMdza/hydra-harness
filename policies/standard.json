@@ -1,0 +1,10 @@
+{
+  "name": "standard",
+  "allows": "reads, writes, shell and network reads inside the worktree",
+  "allow": [
+    { "capability": "file_read", "scope": "worktree" },
+    { "capability": "file_write", "scope": "worktree" },
+    { "capability": "shell" },
+    { "capability": "network_read" }
+  ]
+}

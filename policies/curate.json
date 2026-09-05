@@ -1,0 +1,9 @@
+{
+  "name": "curate",
+  "allows": "reads the corpus, writes only inside the skill store",
+  "allow": [
+    { "capability": "file_read", "scope": "corpus" },
+    { "capability": "file_read", "scope": "skill_store" },
+    { "capability": "file_write", "scope": "skill_store" }
+  ]
+}
