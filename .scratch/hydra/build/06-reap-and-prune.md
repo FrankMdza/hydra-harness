@@ -24,8 +24,8 @@ slice left behind.
   branch, then removes the worktree and the run's spawn directory together.
 - `hydra prune` moves run files out of `runs/` and deletes only behind a flag.
 - Neither is callable from a run.
-- The six worktrees under `~/hydra/worktrees/` and their `hydra/<run-id>` branches are
-  gone, reaped by the command rather than by hand.
+- The seven worktrees under `~/hydra/worktrees/` and their `hydra/<run-id>` branches
+  are gone, reaped by the command rather than by hand.
 
 ## Watch for
 
@@ -40,9 +40,11 @@ were needed to interpret a run, the record would not be the source of truth.
 
 ## What ticket 02 left you, added 2026-09-05
 
-**There are six worktrees now, not three.** Ticket 02's measurement added three, and
-each of those also left a `~/hydra/spawn/<run-id>/` behind. Section 5 says the spawn
-directory is reaped with the worktree, so reap removes both or it has not finished.
+**There are seven worktrees now, not three, and only four spawn directories.** Ticket
+02's measurement added three and the shell fix that followed added a fourth. The first
+slice's three predate the spawn directory entirely, so reap has to cope with a worktree
+whose `~/hydra/spawn/<run-id>/` was never created rather than assuming the pair. Section
+5 says the two are reaped together, so reap removes both or it has not finished.
 
 **`~/hydra/spawn/` exists and `Layout` already names every path you need**:
 `spawns()`, `spawn(run_id)`, `gate_script(run_id)` and `settings_file(run_id)`.
