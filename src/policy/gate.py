@@ -128,6 +128,55 @@ def target_path(tool, tool_input, cwd):
     return resolve(raw, cwd)
 
 
+def protected_path_named_by(command, cwd):
+    """The first protected path a shell command names, or None.
+
+    **`shell` carries no path for the gate to read**, so the deny list of 7.5
+    cannot be applied to it the way it is applied to `Write`. Without this, a
+    policy that grants `shell` grants a write to the policy directory, to the run
+    corpus and to the gate script itself, by redirect, under every policy that
+    allows shell at all. That last one composes into a full bypass: an emptied
+    script exits 0 and prints nothing, and 6.6 measured `claude` failing open on
+    a response in a shape it does not recognise.
+
+    So a command that names one of the seven is refused whole, reads included.
+    Which token of a command is a redirect target is not decidable without
+    running it, and neither is which is an argument to a writing binary, so the
+    refusal is coarse in the same direction 7.4's floor is coarse. Reading the
+    corpus is what `curate` scopes `file_read` to, and that path goes through the
+    file tools, which carry a path the gate can check.
+
+    **A path a substitution builds is not caught**, and neither is one assembled
+    from a variable. That is the failure mode 7.4 names out loud for the floor:
+    silent permission on the spelling nobody wrote down. This is a floor for the
+    same reason and with the same limit, and `IMPLEMENTATION.md` says so rather
+    than letting a passing test read as coverage.
+    """
+    try:
+        segments = split_segments(command)
+    except ValueError:
+        # An unparseable command. The floor refuses it on its own, and guessing
+        # at a path inside one would be the evaluation 7.4 rules out.
+        return None
+    for argv in segments:
+        for token in argv:
+            if not token:
+                continue
+            # `--output=/path` hides a path behind a flag, so read the tail of
+            # any option that carries one rather than skipping the whole token.
+            if token.startswith("-"):
+                if "=" not in token:
+                    continue
+                token = token.split("=", 1)[1]
+                if not token:
+                    continue
+            candidate = resolve(os.path.expanduser(token), cwd)
+            for protected in HYDRA_CONFIG["deny_write_paths"]:
+                if inside(candidate, protected):
+                    return protected
+    return None
+
+
 # --------------------------------------------------------------------------
 # The pattern floor, harness spec 7.4
 # --------------------------------------------------------------------------
@@ -365,6 +414,19 @@ def evaluate(payload):
                 return False, (
                     "hydra/protected-path: {} writes under {}, denied under every "
                     "policy by harness spec 7.5.".format(tool, protected)
+                )
+
+    # The same seven, reached through the capability that carries no path.
+    if capability == "shell":
+        raw_command = tool_input.get(HYDRA_CONFIG["command_field"], "")
+        if isinstance(raw_command, str) and raw_command:
+            protected = protected_path_named_by(raw_command, cwd)
+            if protected is not None:
+                return False, (
+                    "hydra/protected-path: the command names {}, denied under "
+                    "every policy by harness spec 7.5. A shell command carries no "
+                    "path for the gate to check, so one that names a protected "
+                    "path is refused whole.".format(protected)
                 )
 
     allowed_scopes = scopes_for(capability)

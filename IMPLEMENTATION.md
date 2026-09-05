@@ -12,56 +12,52 @@ directory it came from.
 at, and three gated records were written under `0.1.0` during ticket 02's own
 measurement, before the version moved to `0.2.0`. A null `policy` is the test that holds.
 
-## The open hole: shell walks past every path denial
+## What the gate does about `shell`, and what it still does not
 
-**Found by ticket 02's code review, on 2026-09-05, and not closed.** Read this before
-running anything under `standard` or `permissive`.
+Harness spec 7.5 states seven path denials as delivered outright: "a hook sees the path
+and refuses the write before it reaches disk". The gate delivers that for tools that
+carry a path in their arguments. `Bash` carries none, `shell` is unscoped in every
+policy that grants it, and no argv match can decide what a shell command will write.
 
-Harness spec 7.5 states the seven path denials as delivered outright: "a hook sees the
-path and refuses the write before it reaches disk". The gate delivers that for tools
-that carry a path in their arguments. `Bash` does not carry one. `shell` is unscoped in
-every policy that grants it, `src/policy/gate.py` consults the deny list only when the
-capability is `file_write`, and no argv match can decide what a shell command will
-write. So under `standard`:
+**Ticket 02's code review found all seven reachable by redirect**, including the run's
+own gate script, which is 7.5's induction base case. That one composed into a full
+bypass: the script is `0o700` and owned by the uid the child runs as, an emptied script
+exits 0 and prints nothing, and 6.6 measured `claude` failing open on a response in a
+shape it does not recognise. Two `Bash` calls under `standard` ended the gate for the
+rest of the run. `--permission-mode bypassPermissions` is what had removed the layer
+previously refusing those calls, so the flag and the hole arrived in the same change.
 
-```
-Write  file_path=~/hydra/policies/standard.json   ->  hydra/protected-path, denied
-Bash   echo pwned > ~/hydra/policies/standard.json ->  hydra/allow: policy standard allows shell
-```
+**A shell command that names one of the seven is now refused whole.** Every token of
+every segment is expanded, resolved and compared against the deny list, the tail of a
+`--flag=/path` option included. Measured on run
+`01a07340-67a3-7c41-8c69-8d1e28bb58a7`, `standard`, on a real `claude`: a `Bash` append
+to `~/hydra/runs/` was refused with `hydra/protected-path: the command names
+/users/user/hydra/runs`, the reason reached the model, no file was created, and a
+second `Bash` call writing inside the worktree in the same run was allowed and landed.
 
-Both verified against the gate script from a real run. The same holds for
-`~/hydra/runs/`, which 7.5 protects because a loop that learns from the corpus must not
-be able to edit the corpus, and for the run's own gate script, which is 7.5's induction
-base case.
+**The refusal is coarse and reads are refused too.** Which token is a redirect target is
+not decidable without running the command, and neither is which is an argument to a
+writing binary, so `cat ~/hydra/runs/r.jsonl` is refused under `curate` as well. That is
+a false positive in the same direction 7.4's floor already takes. The precise access is
+the file tools, which carry a path: `curate` scopes `file_read` to the corpus and reads
+it that way.
 
-**The base case is the serious one, because it composes into a full bypass.** The script
-is `0o700` and owned by the user the child runs as, its directory is one `ls
-~/hydra/spawn/` away, and an emptied script exits 0 and prints nothing. 6.6 measured
-that `claude` fails **open** on a response in a shape it does not recognise. So two
-`Bash` calls under `standard` turn the gate off for the rest of the run.
+**What is still open: a path the command never spells.** `echo x > $HOME/hydra/runs/r`
+walks past, and so does one assembled from a variable. Spelling it inside a substitution
+does not help an attacker, because the token is still there and still caught, but a
+path the shell builds is not, and catching it means evaluating the command, which 7.4
+rules out. This is a floor with 7.4's own failure mode, silent permission on the
+spelling nobody wrote down, and it is not a gate.
 
-**Ticket 02 is what made this live.** Before it, no `--settings` and no
-`--permission-mode`, so `claude`'s own default mode refused every unapproved `Bash` call
-with nobody present to approve one. `bypassPermissions` took that layer away and put the
-gate in its place, and the gate does not cover this. The flag and the hole arrived in
-the same change.
+**Closing the residual needs a mechanism that does not read argv.** The options all
+trade something the design has argued about, so it is a decision for the map rather than
+a patch: denying `shell` its unscoped grant rewrites 7.2's `standard`; running the child
+under a second uid or a sandbox is nowhere in the spec; and moving the gate's logic into
+the hook config, which all three providers snapshot at process start, would close the
+base case by construction but departs from 7.5's named artifact.
 
-**Nothing else catches it.** 7.4's pattern floor covers destructive git, `aws configure`
-and `sso`, and Slack webhooks. It says of itself that it is "a floor and never a gate"
-and that its failure mode is silent permission on the spelling nobody wrote down. The
-user's own `PreToolUse` guards compose into every `claude` child, and they guard git,
-aws and Slack rather than paths under `~/hydra`.
-
-**Closing it is a design decision rather than an implementation.** Every option trades
-something the design has already argued about: denying `shell` its unscoped grant
-rewrites 7.2's `standard`; matching paths in argv is the floor's own failure mode, which
-7.4 rejects as coverage; moving the script somewhere the child cannot write needs a
-second uid or a sandbox, which is nowhere in the spec. 7.5 already concedes the shape of
-the problem when it says the gate does not stop a run invoking `hydra` itself. This one
-is larger, because it reaches protected config #1 and the corpus.
-
-`tests/gate.rs::shell_walks_past_the_protected_path_denials` pins the current behaviour
-so that closing it breaks a test on purpose.
+`tests/gate.rs` carries four tests over this: the denial, its coarseness, the residual
+pinned so that closing it breaks a test on purpose, and ordinary shell left alone.
 
 Provider versions this slice was built and measured against, read 2026-09-05:
 

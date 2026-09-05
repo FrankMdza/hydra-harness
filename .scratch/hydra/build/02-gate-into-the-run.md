@@ -146,9 +146,14 @@ own gate script, and an emptied gate script makes `claude` fail open, so two `Ba
 calls under `standard` end the gate for the rest of the run. `bypassPermissions`, which
 this ticket put on the command line, is what removed the layer that had been refusing
 those calls. `IMPLEMENTATION.md` opens with the finding and
-`tests/gate.rs::shell_walks_past_the_protected_path_denials` pins it. **Closing it is a
-decision rather than an implementation**, so by this repo's fourth closing rule it goes
-to the map rather than into this commit.
+`tests/gate.rs::shell_walks_past_the_protected_path_denials` pinned it.
+
+**Closed in the commit after this ticket's own**, on the human's call. A shell command
+naming any of the seven is now refused whole, measured on run
+`01a07340-67a3-7c41-8c69-8d1e28bb58a7`. What remains is a path the command never spells,
+built from a variable, which is 7.4's own failure mode and which needs a mechanism that
+does not read argv. That part is still a decision and still belongs on the map.
+`IMPLEMENTATION.md` carries both halves.
 
 **Smaller spec findings, all recorded rather than fixed.** `--allow-floor-escape` is not
 on the run record, and harness spec 16 says a per-run human flag lands there; the field

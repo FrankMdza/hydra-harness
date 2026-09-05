@@ -619,37 +619,88 @@ fn the_written_script_is_executable_and_runs_on_its_own_shebang() {
 }
 
 #[test]
-fn shell_walks_past_the_protected_path_denials() {
-    // **This test pins a hole open on purpose.** 7.5 states the seven denials as
-    // delivered outright: "a hook sees the path and refuses the write before it
-    // reaches disk". The script delivers that for the tools that carry a path,
-    // and `Bash` is not one of them: `shell` is unscoped, the deny list is
-    // consulted only for `file_write`, and no argv match can decide what a shell
-    // command will write. So a policy that grants `shell` grants a write to the
-    // policy directory and to the corpus, by redirect.
-    //
-    // 7.4 says the floor is "a floor and never a gate" and covers destructive
-    // git, aws and Slack rather than protected paths, so nothing else catches it.
-    // Ticket 02 made it live by putting `--permission-mode bypassPermissions` on
-    // the command line, which took away the provider's own refusal.
-    //
-    // The day this is closed, this test fails and whoever closed it rewrites it.
-    // `IMPLEMENTATION.md` carries the finding and the reasoning.
+fn shell_is_refused_when_it_names_a_protected_path() {
+    // 7.5 states the seven denials as delivered outright: "a hook sees the path
+    // and refuses the write before it reaches disk". `Bash` carries no path, so
+    // until this landed the deny list was consulted for `file_write` alone and
+    // every one of the seven was reachable by redirect under any policy granting
+    // shell. The gate script's own denial is 7.5's induction base case, and an
+    // emptied script makes `claude` fail open (6.6), so that one composed into a
+    // full bypass in two tool calls.
     let gate = Gate::new("standard");
     let record = gate.runs.join("r.jsonl");
 
     assert!(
         gate.write_to(&record).denied_for("hydra/protected-path"),
-        "the path-carrying tool is refused, which is the half that works"
+        "the path-carrying tool was always refused"
     );
     assert!(
         gate.shell(&format!("echo pwned > {}", record.display()))
-            .allowed,
-        "if this now denies, the hole is closed and the comment above is stale"
+            .denied_for("hydra/protected-path"),
+        "the corpus is what a loop learns from and must not be able to edit"
     );
     assert!(
         gate.shell(&format!("cat /dev/null > {}", gate.script.display()))
-            .allowed,
-        "the gate script's own denial, 7.5's base case, has the same hole"
+            .denied_for("hydra/protected-path"),
+        "7.5's base case: the run must not be able to empty its own gate"
+    );
+    assert!(
+        gate.shell(&format!("rm -rf {}", gate.runs.display()))
+            .denied_for("hydra/protected-path"),
+        "a naming rule has to catch the verb it never enumerated"
+    );
+    assert!(
+        gate.shell(&format!("tee --output={}/r.jsonl", gate.runs.display()))
+            .denied_for("hydra/protected-path"),
+        "a path behind a flag is still a path"
+    );
+}
+
+#[test]
+fn the_shell_refusal_is_coarse_on_purpose() {
+    // Which token is a redirect target is not decidable without running the
+    // command, and neither is which is an argument to a writing binary. So a
+    // read that names a protected path is refused too. That is a false positive
+    // in the same direction 7.4's floor already takes, and the precise access is
+    // the file tools, which carry a path: `curate` scopes `file_read` to the
+    // corpus and reads it that way.
+    let gate = Gate::new("curate");
+    assert!(
+        gate.shell(&format!("cat {}/r.jsonl", gate.runs.display()))
+            .denied_for("hydra/protected-path")
+    );
+}
+
+#[test]
+fn a_protected_path_built_by_substitution_still_walks_past() {
+    // **This pins what is still open.** 7.4 names the failure mode for the floor
+    // and it is the same one here: silent permission on the spelling nobody
+    // wrote down. A path the command assembles rather than spells is not caught,
+    // because catching it means evaluating the command, which is the thing 7.4
+    // rules out. Closing this needs a mechanism that does not read argv at all.
+    //
+    // The day it is closed, this test fails and whoever closed it rewrites it.
+    // Spelling it inside a substitution is still spelling it, and that is
+    // caught. What is not is a path the command never writes down.
+    let gate = Gate::new("standard");
+    assert!(
+        gate.shell(&format!("echo x > $(echo {})/r.jsonl", gate.runs.display()))
+            .denied_for("hydra/protected-path"),
+        "a path spelled inside a substitution is still spelled"
+    );
+    assert!(
+        gate.shell("echo pwned > $HOME/hydra/runs/r.jsonl").allowed,
+        "if this now denies, the residual is closed and the comment is stale"
+    );
+}
+
+#[test]
+fn ordinary_shell_is_left_alone() {
+    let gate = Gate::new("standard");
+    assert!(gate.shell("cargo test --all").allowed);
+    assert!(gate.shell("ls -la && git status").allowed);
+    assert!(
+        gate.shell("grep -rn TODO src/").allowed,
+        "a relative path inside the worktree is not a protected path"
     );
 }
