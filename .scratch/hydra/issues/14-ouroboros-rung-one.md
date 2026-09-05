@@ -293,3 +293,20 @@ and tickets 27, 29 and 20 added gate refusals, MCP shortfalls and rate limits. A
 recorded in full, and ticket 27 already names a use for one: a run that failed on too narrow a policy
 is a policy bug rather than a skill bug. Nothing reads that in v1. It goes to the fog rather than to
 this ticket, because rung one is the wrong reader for it by this ticket's own argument.
+
+## Amended by ticket 16, 2026-09-04, writing `docs/ouroboros-spec.md`
+
+**The curator writes into its own git worktree of the skill store, never into `~/hydra/skills/`.**
+No closed ticket says this and two force it: ticket 10 pins a run's store at a sha and links into an
+immutable snapshot, and it commits a dirty store before pinning. A curator writing into the live
+working tree would collide with the next launch's commit and would make the sha in that run's record
+a race. Its commits land on `ouroboros/curate/<run-id>` in the store's own repo, which is the branch
+this ticket's "commits to a branch in the store" already asked for, now with a name and a checkout
+that is not shared with anything.
+
+Flagged in the spec's section 9.2 as a refinement to confirm rather than a decision inherited from a
+ticket. Ticket 10 is the other document it touches.
+
+**One sentence here is now false.** "Three of four providers report failure at the tool level and
+success at the run level" is three of three, since hermes left the routable set. The finding is
+unchanged and the fifth failure class still rests on it.

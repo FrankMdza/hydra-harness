@@ -44,8 +44,20 @@ crossings.
 **One file per run**, `~/hydra/runs/<run-id>.jsonl`, run id a UUIDv7 so the directory sorts by
 time and a run's start is recoverable from its name.
 
-A **run** is one provider process Hydra launched, or one it refused to launch (section 8.3). A
-**session** is a tree of runs linked by `parent_run_id`, reconstructed at read time and stored
+A **run** is a unit of recorded work Hydra owns, and there are two kinds.
+
+A **provider run** is one provider process Hydra launched, or one it refused to launch (section
+8.3). A **harness run** is work Hydra did itself, which today means one `hydra evolve` pass and
+nothing else (section 5.5). `provider: null` is what tells them apart, and a reader checks it before
+looking for anything a provider would have written.
+
+**A harness run exists because it has children.** That is the test, and it is narrow on purpose:
+`hydra export`, `hydra reap` and `hydra prune` all decide things and none of them writes a record,
+because none of them spawns a run that would otherwise have no parent. A second population inside
+`runs/` is a filter every corpus query has to learn, so it is bought once, for something that could
+not be had another way.
+
+A **session** is a tree of runs linked by `parent_run_id`, reconstructed at read time and stored
 nowhere. This is the clarification ticket 09 made to D10 rather than a reversal of it: D10 said one
 file, and the question D10 did not answer was one file per what.
 
@@ -74,6 +86,12 @@ has to do with them.
 **A provider line** wraps one provider frame verbatim, in a `raw` field. Nothing is discarded, no
 field is dropped, and no value is rewritten, with the single exception in section 13. The normalized
 events in section 7 are derived from `raw` at read time by a library function, never stored.
+
+**On a harvested run the wrapped thing is a transcript record rather than a stream frame**, and the
+rule is the same: one record per line, verbatim, in `raw`. The vocabulary is the vendor's own and is
+wider than the stream's, so some records normalize to none of the ten types and are kept anyway
+(7.2.1). A reader must not assume `raw` holds a shape from section 7.2's table without first reading
+`run_end.body_source`.
 
 **A Hydra line** carries an event body Hydra authored and has no `raw` field. There are exactly two,
 the opening and the closing of a run, and they exist because a launcher knows things no provider
@@ -108,8 +126,8 @@ Six fields on every line, plus one exception.
 | `parent_run_id` | UUIDv7 or null | written by the parent at spawn, never read back from the child |
 | `seq` | integer | monotonic from 0 within the file, gapless |
 | `ts` | RFC 3339, UTC, millisecond | when Hydra read the line, not when the provider wrote it |
-| `provider` | `claude`, `cursor-agent` or `agy` | the binary, never the model's vendor |
-| `model` | string | the model id as the provider reported it, or as Hydra passed it when the provider reports none |
+| `provider` | `claude`, `cursor-agent`, `agy`, or null | the binary, never the model's vendor. Null on a harness run, section 5.5 |
+| `model` | string | what the provider reported, or what Hydra passed when it reports none. A display name rather than an id on `cursor-agent`, see section 9.3 |
 | `secret_flag` | array or null | section 13 |
 
 **`ts` is Hydra's clock and the provider's own stamp stays inside `raw`.** The two differ by pipe
@@ -139,7 +157,8 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 |---|---|
 | `schema_version` | integer, the contract version this file was written under (section 15) |
 | `hydra_version` | the binary that wrote it |
-| `launch_mode` | `recorded` or `interactive` |
+| `command` | the Hydra command that minted this run id: `run`, `evolve`, `resume` or `curate` |
+| `launch_mode` | `recorded` or `interactive`, null on a harness run |
 | `provider_version` | the string the binary printed, read at launch |
 | `provider_session_id` | the provider's own id, sometimes late and sometimes absent |
 | `task` | the full task string as passed, preamble included |
@@ -148,6 +167,15 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `cwd` | the directory the child was launched in |
 | `worktree` | path and branch name, or null under `--shared-tree` |
 | `depth` | integer, 0 for a run a human started |
+
+**`command` names what created the run, and it earns its place on the harness run.** On a provider
+run it is nearly redundant, because the provider and the task string already describe the row. On a
+harness run there is no provider and no task, so it is the only field that says what happened, and
+without it an evolve pass is identifiable only by the fingerprint of having three judge children,
+which stops being true the moment a pass dies before spawning them. A curator run reads
+`command: curate` even though a curate pass gets no record of its own, so the asymmetry in section
+5.5 is visible in the data rather than only in a document. The four values are the four commands that
+mint a run id today, and the field grows when a fifth does.
 
 **Hydra mints the run id and the provider gets told or not.** `claude` accepts `--session-id`
 before launch, `agy` mints a `conversation_id` in its `init` event, `cursor-agent` needs a
@@ -267,6 +295,92 @@ for nothing.
 worse than absent, because it pulls an address into the record that export would then have to scrub,
 and Hydra would have chosen to put it there.
 
+### 5.5 The harness run
+
+One producer today: a `hydra evolve` pass. The pass spawns a proposer and three judges, and it
+decides three things after the proposer's run file is closed, so those decisions have nowhere to go
+unless the pass is a run.
+
+**A harness run's file is two lines.** `run_start`, `run_end`, and nothing between. There is no
+provider process to stream, so section 3's provider line never appears, and section 3's "exactly two
+Hydra lines" holds without an exception.
+
+| Field | On a harness run |
+|---|---|
+| `command`, `cwd`, `depth`, `pid`, `process_start_time`, `schema_version`, `hydra_version` | filled |
+| `provider`, `provider_version`, `model`, `provider_session_id`, `launch_mode`, `task`, `policy`, `policy_sha`, `worktree` | null |
+| `skills`, `mcp`, `auth`, `env_allowlist` | **absent**, not null |
+| `subscription` | null; nothing was spent by the pass itself |
+
+**Seven fields of twenty-six are filled, and that number belongs in the contract rather than in a
+reader's discovery.** It is the strongest argument anyone will ever make for reversing this decision,
+so it should be in front of whoever makes it. What bought it: the proposer and the judges need a
+parent that exists. Without one they are four unrelated runs at depth 0, and a human who hits Ctrl-C
+on `hydra evolve` leaves detached children that nothing can group. The alternatives were parenting
+the judges to the proposer, which claims the proposer spawned its own reviewers, and a pass file
+outside `runs/`, which gives the harness a second source of truth.
+
+**The groups are absent rather than null, and the scalars are null.** A null `skills.store_sha`
+invites a reader to ask which sha the pass pinned. An absent `skills` object says the question does
+not apply. Section 8.3's refused spawn set the precedent when it said "no provider fields" rather
+than listing them.
+
+**`pid` is the Hydra process the human invoked**, which is the one place a harness run stretches a
+field's meaning rather than emptying it. Section 5.2's liveness test still works and answers a
+slightly different question: whether the pass is still running, rather than whether a child is. That
+stretch is what the record was bought for, so it is not a cost paid reluctantly. A pass killed with
+Ctrl-C is a dead pid with no `run_end`, and `hydra status` is its reader.
+
+**No policy, because nothing gates a harness run.** The gate applies to runs Hydra launches, and a
+pass is Hydra. Its children each carry their own policy and `policy_sha` as usual, and monotonic
+narrowing bounds them against the human at depth 0 rather than against the pass.
+
+**`hydra curate` gets no harness run**, and the line is worth stating because a reader will notice
+that one Ouroboros command has a pass record and the other does not. The curator's only post-run
+supervisor action is committing work the run already did, and a commit is self-describing. A pass's
+verdict is a new fact about a run that has ended, and nothing else holds it. If a curate pass ever
+grows a step the supervisor decides, it gets a record then, by the same test.
+
+### 5.6 The interactive run
+
+The third shape, and the contract owed it a table. It is a provider run like any other, so
+`provider` is set and section 5.5's kind check does not catch it. What differs is that the harness
+spec's sections 3 and 4 give an interactive run no gate, no skill injection and no preamble, which
+empties three groups of fields that read as unconditional above.
+
+| Field | On an interactive run |
+|---|---|
+| `provider`, `provider_version`, `model`, `provider_session_id`, `task`, `cwd`, `depth`, `pid`, `process_start_time`, `command`, `schema_version`, `hydra_version` | filled |
+| `launch_mode` | `interactive` |
+| `env_allowlist`, `auth`, `subscription` | filled; Hydra still builds the environment and still checks the login |
+| `policy`, `policy_sha` | **null**; no gate is compiled, so no policy is in force |
+| `worktree` | **null**; worktrees are per recorded run (harness spec 6.3) |
+| `skills` | **absent**, not null |
+| `mcp` | present on `claude`, **absent** on the other two; see below |
+| `run_end.body_source` | `harvest`, always (section 12) |
+
+**Null policy is a fact about the run rather than a missing value, and it is the field with the
+furthest reach.** Section 7.7 derives `permission_decision` by re-evaluating the run's policy against
+each call, so on an interactive run there is nothing to derive and the type is absent (7.2.1). The
+gate-leak check in 7.7 goes with it, since a leak is defined as the policy denying what the provider
+allowed. What still runs on an interactive `claude` or `cursor-agent` session is the user's own hooks,
+which are the human's and were never Hydra's to record a decision about.
+
+**`skills` is absent and `policy` is null, deliberately inconsistent.** Section 5.5 set the rule and
+it applies here: a null `skills.store_sha` invites a reader to ask which sha the run pinned, and no
+sha was pinned because nothing was injected, so the question does not apply. A null `policy` is
+different. The run really did have a policy question and the answer really is none, which is worth
+recording rather than eliding, because a reader comparing an interactive run against a recorded one
+is usually asking exactly that.
+
+**MCP splits by where the config lives, which is ticket 29's asymmetry arriving somewhere new.**
+`claude` takes its config on the command line, so an interactive run gets one and the field is
+filled, without `--strict-mcp-config` so the human's own servers survive. `cursor-agent` and `agy`
+read a file inside the worktree, and there is no worktree, so nothing is injected and the group is
+absent. That leaves the harness spec's fatal Cursor pre-flight with nothing to check on an
+interactive run, which is flagged in that document's section 19.6 rather than resolved here, because
+it is a launch question and not a record one.
+
 ## 6. `run_end`
 
 The last line of a run file, a Hydra line, and **it is not guaranteed to exist**.
@@ -277,7 +391,7 @@ The last line of a run file, a Hydra line, and **it is not guaranteed to exist**
 | `error` | text Hydra captured that is not on the stream, or null |
 | `refusal` | the Hydra-side check that refused, or null (see below) |
 | `remediation` | the string that tells a human what to fix, or null |
-| `body_source` | `stream` or `harvest` (section 12) |
+| `body_source` | `stream` or `harvest` (section 12), null on a harness run, which has no body |
 | `ended_at` | RFC 3339 |
 
 **`outcome` is not stored here.** It is derived at read time from this line and the stream, like
@@ -339,6 +453,11 @@ the harness actually writes. With this column that is a table lookup.
 
 ### 7.2 The table
 
+**This table describes a recorded run.** Every cell below names a stream-json frame, and an
+interactive run has no stream: section 12 converts the vendor's own transcript into the record after
+the process exits, and that transcript is a different vocabulary. Section 5.6 gives the interactive
+run's field presence and 7.2.1 says which rows change.
+
 | Type | Kind | `claude` 2.1.257 | `cursor-agent` 2026.09.02 | `agy` 1.1.26 |
 |---|---|---|---|---|
 | `run_start` | Hydra | always | always | always |
@@ -350,7 +469,38 @@ the harness actually writes. With this column that is a table lookup.
 | `tool_result` | derived | `tool_result` blocks on `user` frames, joined on `tool_use_id` | inside the `tool_call` object on `subtype: completed` | `step_update`, `step_type: tool`, `state` `DONE` or `ERROR` |
 | `permission_decision` | derived | one per `tool_call`, from `policy` and the call | same | same |
 | `usage` | derived | `result.usage` | `result.usage`, when present | every `step_update` at `DONE`; `result` is per conversation, section 9.2 |
-| `correction` | derived | interactive harvest only | interactive harvest only | interactive harvest only |
+| `correction` | derived | interactive harvest only, section 7.9 | **none**, no denial field to separate a human from a hook | **none**, the denial record is dropped from the transcript |
+
+### 7.2.1 What changes on a harvested run
+
+Two kinds of change, and only the first one alters whether a type has a producer at all.
+
+**Two rows flip.** `correction` exists only here, on `claude`, per section 7.9. `permission_decision`
+exists only on a recorded run and is absent from a harvested one, because section 7.7 derives it by
+re-evaluating the run's own policy and an interactive run has no policy to re-evaluate (section 5.6).
+So the two types most often quoted as a matched pair, a decision and a correction, never appear in
+the same run.
+
+**Every other derived row keeps its type and changes its source.** A harvested body comes from the
+vendor's transcript, so the frame shapes in the table above do not appear in it. On `claude`,
+measured on 2.1.261: `message` and `tool_call` and `tool_result` come from the `user` and `assistant`
+records section 7.9 already walks, and **`usage` rides `message.usage` on the assistant records
+rather than a `result` frame**, which is a producer the table above would have you conclude does not
+exist. `thinking` is unconfirmed rather than absent: the two transcripts measured held no thinking
+block, on runs short enough that this is no evidence either way.
+
+**`cursor-agent` and `agy` harvest is unmeasured and the contract does not guess.** Cursor writes
+chats in two formats, the newer one carrying protobuf and a `blobEncryptionKey`, and `agy` omits
+steps from its own `transcript_full.jsonl`. Until someone reads harvest against both, a harvested run
+on those two providers has no producer column, and a reader must treat a missing type as unknown
+rather than as absent.
+
+**A transcript carries record types no stream has.** The `claude` transcript holds `mode`,
+`permission-mode`, `attachment`, `file-history-snapshot`, `ai-title`, `last-prompt`, `bridge-session`
+and `atis-latch` records alongside `user`, `assistant` and `system`. Section 13 keeps them verbatim
+like everything else, and none of them normalizes to one of the ten types. `attachment` is the one
+with consequences, because it is run content that entered through no tool call, which section 16.2
+handles.
 
 ### 7.3 `message`, and the `agy` field that is not a delta
 
@@ -446,8 +596,15 @@ tried, so a silently corrected trajectory would teach the curator that the agent
 
 ### 7.7 `permission_decision`
 
-One per `tool_call`, derived, carrying `call_id`, `decision` of `allow` or `deny`, `decider` and
-`reason`.
+One per `tool_call` **on a recorded run**, derived, carrying `call_id`, `decision` of `allow` or
+`deny`, `decider` and `reason`.
+
+**Absent on an interactive run.** The derivation below needs a policy and section 5.6 says there is
+none, so the type has no producer there. Not null, not `external`, and not a decision attributed to
+the user's hooks: `external` means the run's policy would have allowed and something outside denied,
+which presumes a policy exists to have allowed. A reader wanting to know what the human's own guards
+did on an interactive session reads the hook frames in `raw`, which section 7.7's corroboration table
+already describes.
 
 **The decider is derived from the run's own policy, never from the provider's reason text.** Hydra
 re-evaluates the policy recorded in `run_start` against the call recorded in the stream. That is the
@@ -506,7 +663,27 @@ measurement in a training set.
 is `provider` most of the time. But its print-mode `catch` prints to stderr and exits 1 without
 writing a `result` frame at all, which is every hard failure and every kill by design, and its
 emitter appends the block conditionally even on success. So `usage` is optional on the success path
-too, and a run that ends with no counts falls to `estimated`.
+too.
+
+**A `cursor-agent` run that ends with no counts is `unavailable`, not `estimated`.** The estimator
+was specified as a model-aware tokenizer over the text the record keeps, and the premise under it
+fails: summing every text, result and reasoning string in a run's chat store against the provider's
+own input count gives 2.11 and 1.93 characters per token, against roughly 4 for prose and 3 for
+structured text, with under 2.7 KB of unread blobs to explain the gap. **Cursor counts about twice
+what the transcript keeps**, most likely tool schemas that nothing records, so an estimate over
+recoverable text is low by half and no tokenizer choice closes that. `estimated` would be a rough
+number wearing a measurement's clothes, which is the exact thing the never-a-bare-null rule exists to
+prevent. `unavailable` says the true thing.
+
+`estimated` and `usage_estimator` stay in the enum, because `usage` is a per-run decision and a
+future producer may earn the value. Nothing in v1 produces it. If it comes back on this provider,
+`usage_estimator` carries the resolved `modelName` from section 9.3 and records that it covers
+recoverable text only.
+
+**`model` and `usage` fail independently on `cursor-agent`, so neither implies the other.** Pinning a
+premium model on this account is refused before a model runs: exit 1, `system/init` and `user`
+written, no `result` frame and no usage, with `model` present throughout. That is the `catch` path,
+triggered.
 
 **`agy` reports usage twice and the two agree only on a first turn.** Once on the step's `DONE`
 frame and once on `result`. On a resumed conversation the `result` figure covers every turn in the
@@ -518,16 +695,64 @@ Derived from harvested frames, carrying the `seq` of the `tool_call` or `tool_re
 the rejected content, and the chosen content. The vendor transcript entries it comes from are stored
 verbatim like any other frame, so the sweep in section 13 reads them and never-discard covers them.
 
-**One producer in v1: a human correcting a tool call in an interactive run, recovered at harvest.**
-The pair has to sit inside the same trajectory for preference-pair export to work, and a sidecar
-file would be a second thing to keep in sync for no gain.
+**One producer: a human correcting a tool call in an interactive `claude` run, recovered at
+harvest.** One provider of three, measured rather than assumed. The pair has to sit inside the same
+trajectory for preference-pair export to work, and a sidecar file would be a second thing to keep in
+sync for no gain.
 
-**A policy denial is not a correction, and this is written down rather than left to judgement.**
-`claude` labels a headless auto-deny `user-rejected` exactly as it labels a real one. In a recorded
-run there is no human to reject anything, so `user-rejected` there is Hydra's own policy answering,
+The other two cannot produce it. `cursor-agent` pairs fine on `toolCallId` and then puts the whole
+refusal in a prose `result` string with no denial field anywhere, so a human and a hook are
+separable only by whether the gate happened to write prose. `agy` drops the denial record from
+`transcript_full.jsonl` entirely, leaving a `step_index` discontinuity and the model's own narration
+as the only evidence, and its `tool_calls` carry no id to pair on.
+
+**The human test is a conjunction, not a field.** `toolDenialKind == "user-rejected"` **and**
+`entrypoint == "cli"`. Both conditions. The binary maps `behavior === "ask"` to `user-rejected`, so
+that value means the ask path answered rather than that a person did, and under `sdk-cli` the
+answerer is a permission callback, which is code. A harvester trusting the field name alone labels a
+scripted deny as human preference.
+
+**A policy denial is not a correction, and this is written down rather than left to judgement.** In a
+recorded run there is no human to reject anything, so a denial there is Hydra's own policy answering,
 and training on it teaches a model to obey a config that changes. A pair recorded today would be
-wrong the day the policy widens. Interactive plus `user-rejected` is a person; recorded plus
-`user-rejected` is the gate, and Hydra knows which mode it launched.
+wrong the day the policy widens.
+
+The mode check is the rule and the denial kinds corroborate it rather than replacing it, because they
+are per-provider where the mode is Hydra's own. On `claude` 2.1.261 a rule denial writes
+`permission-rule`, an auto-mode denial writes `automode-blocked`, and a run with
+`--permission-prompts none` writes `permission-rule` at `entrypoint: sdk-cli`. So the earlier claim
+that `claude` labels a headless auto-deny exactly as it labels a real one is false, and the
+conjunction above is the better separator anyway.
+
+**The harvest rule:**
+
+1. A denial writes a `user` record carrying `toolDenialKind`, `entrypoint` and
+   `sourceToolAssistantUUID`.
+2. Rejected content comes from following `sourceToolAssistantUUID` to the assistant record and
+   matching the `tool_use` block whose `id` equals the denial's `tool_result.tool_use_id`. This step
+   held on 35 of 35 auto-denials and 3 of 3 human ones.
+3. Chosen content comes from walking children by `parentUuid` to the first assistant record holding a
+   `tool_use`, and a pair is emitted only when the tool name matches. Both human rejections that ran
+   to a replacement reached one; the third was abandoned rather than redirected, which is a run that
+   produces no pair rather than a rule that failed.
+4. The human's words, if any, come from walking to the first `user` record whose `message.content` is
+   a plain string rather than a list of blocks.
+
+A rejected `Edit` needs no special handling. The diff is `old_string` and `new_string` in the
+ordinary tool input.
+
+**Step 4 is the weak one and the contract carries the caveat rather than hiding it.** `userFeedback`
+exists, is gated on the ask path, and was empty on all three human rejections measured on 2.1.261.
+The words land as an ordinary user turn further down the same chain, and nothing marks that turn as a
+redirection rather than an unrelated new instruction. **A human who rejects a call and then changes
+the subject produces a record indistinguishable from a correction.** An exporter may emit the pair
+without the words; it may not invent the link.
+
+Two operational facts fall out of the same measurement. A denial also emits a `user` record holding
+`[Request interrupted by user for tool use]`, so anything counting interrupts by that string
+double-counts every rejection, which section 13's sweep has to know. And 2.1.261 dropped the
+reject-with-feedback option from the prompt entirely: refusing is now a bare `4. No`, so the typed
+redirection is a thing a human does next rather than a thing the prompt asks for.
 
 Rung one's merged-or-dropped proposals and rung two's panel verdicts carry preference signal in a
 different shape, a diff plus a verdict rather than a trajectory plus a turn. They are recorded as
@@ -566,6 +791,9 @@ auto-denied. `cursor-agent` returned `is_error: false` with one tool rejected an
 **A rate-limited `claude` run reports `subtype: "success"` with `is_error: true` and
 `api_error_status: 429`.** A recorder keying off `subtype` files an exhausted run as a clean one.
 This is the single nastiest shape in the contract, because it is the one that looks correct.
+
+**The rung-one column above applies to provider runs.** Rung one skips harness runs as a kind rather
+than by outcome, and section 8.6 says why.
 
 ### 8.1 `denied` against `gated`, settled
 
@@ -611,7 +839,33 @@ The `run_start` carries the requested policy and the parent's beside it, `pid` a
 the attempt is invisible, and under D10 anything not in a run record did not happen. Attempted
 escalation is exactly the signal the corpus should carry.
 
-### 8.4 Provider-specific fields stay in `raw`
+### 8.4 A harness run's outcome describes the pass, not the patch
+
+The rung-two pass is the one row where "did it work" has two readings, and picking the wrong one puts
+a successful gate in the corpus as a failure.
+
+**The outcome describes the pass.** A pass that refused a patch on a protected path did its job, so
+it is `completed`. So is a pass whose panel blocked, and a pass whose admission gate caught a build
+failure. `failed` means the pass itself broke: git would not make a worktree, or a branch could not
+be written. `auth_failed` and `rate_limited` already mean a run never got to try, and a judge that
+cannot run aborts the review, so they carry over unchanged. `gated` never applies, because nothing
+gates a harness run.
+
+**So the patch's fate is not an outcome**, and it is not in the record at all. The verdict, the
+critical findings and the compiler output all sit in the commit message on the branch the pass
+produced, which section 14 lists as deliberately not recorded and says why.
+
+The alternative reading, where an admission failure ends the pass `failed`, is what an earlier ticket
+said and it does not survive contact with section 8's own purpose. That enum is long because a
+provider reports success on a run that did no work. Filing a pass that worked perfectly as a failure
+is the same mistake pointed the other way, and rung one would eventually read it as one.
+
+**Outcome derivation on a harness run reads one line.** `run_end` present means `completed` unless it
+names a Hydra-side failure; `run_end` absent with a dead pid is an abandoned pass, which is
+`hydra status`'s problem rather than the curator's (section 8.6). `outcome_source` is `derived` in
+both cases.
+
+### 8.5 Provider-specific fields stay in `raw`
 
 Three `claude` fields have readers and none of them becomes a normalized field, because a normalized
 field that exists on one provider is a shape that changes with the provider, which is what the whole
@@ -628,6 +882,29 @@ utilization, and rung two reads the last run's `status` to abort early rather th
 judges' quota on a review that cannot reach quorum. Nothing routes on it. Nothing should key on
 `utilization`, which was caught moving backwards, 0.24 to 0.05 on `seven_day` against an unchanged
 `resetsAt`. `resetsAt` gives any reading a free staleness test.
+
+### 8.6 Who reads a harness run
+
+**Rung one skips the kind.** It learns from what agents tried, and a pass tried nothing: it spawned
+four children and made a decision. The rule keys on `provider: null` rather than on an outcome, which
+is one line and needs no new column.
+
+One case decides that. A pass killed with Ctrl-C is a dead pid with no `run_end`, which is exactly
+rung one's abandoned-run class, so leaving harness runs in the corpus would turn every interrupted
+evolve into a failure signal about nothing. `hydra status` is the reader for a dead pass, since it
+already reconciles dead pids against live children.
+
+**The pass's children are ordinary provider runs and stay in the corpus.** The proposer's trajectory
+is an agent editing Rust and is learnable material like any other, and a judge run is a real run that
+happens to have been asked for JSON.
+
+**Export skips harness runs too**, as a fourth exclusion beside the three in section 16.2, and this
+one keys on kind rather than on outcome: a trajectory with no messages produces an empty line.
+
+**Judge runs export like any other run**, with no rule of their own. The diff in a judge's prompt is
+Hydra's own source, so the export allowlist already decides whether it may leave, and a rule
+excluding judges by role would be the first time export judged a run by what it was for rather than
+by where it touched.
 
 ## 9. Usage, and the two traps in it
 
@@ -699,6 +976,29 @@ resumed by anything in v1 except a human typing `hydra resume`, and both report 
 `result`, so on those two the question has no cheap answer and no current reader. It is on the map
 as fog rather than assumed either way.
 
+### 9.3 `model` is a display name on `cursor-agent`, and the id is in the chat store
+
+The envelope's `model` is what the provider reported. On `cursor-agent` that is the selection's
+display name rather than an id, and the two are not the same thing.
+
+Measured on 2026.09.02-c22c1a3, 2026-09-04, across four runs. Under `--model auto` the field reads
+`Auto` and the served model appears in no frame. Pinned, it reports a name that matches neither the
+id nor the `--list-models` label: `claude-sonnet-5-thinking-high` is listed as `Claude Sonnet 5 1M
+Thinking` and reported as `Claude Sonnet 5 300K High`. Three names and no published mapping between
+them. The leading vendor word is the only thing a display name reliably gives, and `Auto` does not
+give that.
+
+**The field tracks configuration rather than the binary, so a claim about it expires without a
+version moving.** The `Auto` reading recorded in an earlier ticket now reads `Composer 2.5` on the
+same build, because the account's selection changed. Any provider claim written against this field
+carries the date and what the config said, not only what the binary was.
+
+**The resolved id is recoverable, at `providerOptions.cursor.modelName` in the chat store**, per
+assistant message, in the directory named by the run's `session_id`. An Auto probe resolved to
+`cursor-grok-4.5-high`, a model `--list-models` does not offer. Reading it costs a second source at
+harvest, in the two store formats section 12 has to cope with anyway, and nothing in v1 needs it: the
+estimator that would have consumed it is `unavailable` per section 7.8.
+
 ## 10. Lineage, and what a tree answers
 
 `parent_run_id` builds the tree and three questions fall out of it that nothing else answers.
@@ -710,12 +1010,20 @@ makes the cap mean what it says.
 
 **A retry loop** is a shape in the tree rather than a field, which is why nothing records one.
 
-**Who reviewed a patch** is a tree of three judge runs under one parent. Rung two's judges are three
-`hydra run` calls, so a judge's identity is a provider version plus whatever model that subscription
-served that day, and neither is pinnable: `agy` moved four times in the life of this design. Section
-5.1 already puts `provider_version` and `model` on every `run_start`, so the requirement is met by
-the ordinary record rather than by anything review-specific. Without it, "which model approved the
-commit that broke this" has no answer a month later.
+**Who reviewed a patch** is a tree of three judge runs and a proposer under one harness run, which is
+the pass (section 5.5). Rung two's judges are three `hydra run` calls, so a judge's identity is a
+provider version plus whatever model that subscription served that day, and neither is pinnable:
+`agy` moved four times in the life of this design. Section 5.1 already puts `provider_version` and
+`model` on every `run_start`, so the requirement is met by the ordinary record rather than by
+anything review-specific. Without it, "which model approved the commit that broke this" has no answer
+a month later.
+
+**The pass's children sit at depth 1**, which leaves the proposer one level of delegation under the
+cap of 2 rather than two. That is accepted rather than worked around: a proposer needing two levels
+to write a patch is doing something worth noticing, and the cap is a configurable number someone
+raises with a reason. Exempting a harness run from the depth count was the alternative, and it would
+make depth mean "distance to a run a human started" on one row and "distance to a provider run" on
+another.
 
 **Runs whose parent is the curator are excluded from two corpora**, the one the curator reads and
 the one export produces, for the same reason both times. That is a rule the Ouroboros spec owns; the
@@ -811,6 +1119,7 @@ by path before it scrubs by pattern.
 | A heartbeat, a liveness event, a death event | liveness is derived from `pid` and `process_start_time` by a reader |
 | A run's own outcome, before it has one | there is no `status: running` field; a run with no `run_end` and a live pid is running |
 | A stored session tree | rebuilt from `parent_run_id` at read time |
+| A rung-two verdict, its findings, or the admission gate's compiler output | they are on the branch the pass produced, and a second copy in the record could disagree with the first, on the artifact this design calls the source of truth |
 | In-process subagent work as its own run | it gets no run id and writes no file, which is why every policy but `permissive` denies it |
 
 **The last row is the one with a cost.** An in-process subagent is work with no record at all, on the
@@ -854,6 +1163,7 @@ Two files from one traversal, in TRL's format and the explicit-prompt preference
 | Record | `sft.jsonl` | `preference.jsonl` |
 |---|---|---|
 | `message` | a message, `role` and `content` | part of `prompt` |
+| `message_delta` | nothing, and it has no producer in v1 (section 7.4) | nothing |
 | `thinking` text | the `thinking` key, where the provider gave text | part of `prompt` |
 | `tool_call` | assistant message `tool_calls`, arguments as a dict | part of `prompt` |
 | `tool_result` | a `tool` message joined on `tool_call_id`, truncation marker inside the string | part of `prompt` |
@@ -898,6 +1208,27 @@ invisible.
 summary of work done in another worktree. Without the subtree check, delegation walks content out of
 an excluded workspace and into the corpus.
 
+**And nothing entered the run except through a tool call.** A harvested `claude` transcript carries
+`attachment` records, which is where a pasted or dragged file lands, and content that arrived that
+way has no `tool_call` for the adapter to read a path out of. The path check therefore cannot see it,
+and the allowlist that section 14 says carries the whole weight of export never gets asked about it.
+
+**So a run holding a record type the path extractor cannot resolve is not exportable**, exactly as a
+run holding an `unclassified` tool call is not. This is the same rule pointed at a second source, and
+it is the same trade: the corpus gets smaller rather than leakier, and the record keeps everything
+either way, because never-discard is a write-time rule and this is an export-time one. Filtering the
+vendor's record types at harvest was the alternative and it is worse twice over. It would put the
+first real hole in section 13, and an `attachment` is run content rather than vendor bookkeeping, so
+dropping it would lose the thing the model actually read.
+
+The practical effect lands on interactive `claude` runs, which are also the only source of
+`preference.jsonl` (16.3). A session where the human pasted a file exports nothing until an extractor
+exists for that record type. That is a real cost on a small corpus and it is the right side to be
+wrong on, since the alternative is a path the allowlist cannot see.
+
+**Its own kind**, because a harness run has no messages and would export as an empty line
+(section 8.6).
+
 **Its own outcome**, because three exclusions key on it: `auth_failed` runs, in which no task
 happened; runs with no `run_end`, whose trajectory has no ending; and runs whose parent is the
 curator. Everything else exports with its outcome attached, retry loops included. The exporter
@@ -905,13 +1236,21 @@ judges validity and never quality, because two of three self-edit proposals are 
 system this design borrows from, so a corpus of successes would describe a state Hydra rarely
 occupies.
 
-### 16.3 Where the test currently fails
+### 16.3 Where the test is thin
 
-**`preference.jsonl` has one source and that source is unverified.** `correction` populates only
-from a human correcting a tool call in an interactive run, recovered at harvest, and nobody has
-established that any of the three vendor transcripts records the rejected and chosen contents in a
-form that survives conversion. If none does, the preference half of D12 has no producer and section
-7.9 should lose its slot by section 7.1's own rule. This is filed rather than hedged, as ticket 34.
+**`preference.jsonl` has one source and it is now measured.** `correction` populates from a human
+correcting a tool call in an interactive `claude` run, recovered at harvest by the rule in section
+7.9. Two real pairs exist on this machine, produced at a keyboard on 2.1.261. The preference half of
+D12 has a producer and section 7.9 keeps its slot.
+
+**What is thin is the corpus, not the mechanism.** One provider of three produces the event, so the
+preference file draws on interactive `claude` runs and nothing else, and every pair measured before
+those two was a policy or auto-mode denial, which section 7.9 rules out of export in writing. Expect
+this file to be small for a long time.
+
+**And the human's words are recovered by a chain walk rather than a field**, per section 7.9 step 4,
+so a pair may cross with its rejected and chosen contents and no accompanying text. That is the
+lossless rule working as intended: a slot left empty rather than filled with something invented.
 
 ## 17. What `hydra run` returns
 
@@ -938,17 +1277,25 @@ parent's frames, so the record shows the wrapping rather than only the text.
 
 Each of these is a ticket rather than a paragraph.
 
-### 18.1 The Cursor estimator has nothing to key on
+### 18.1 A `cursor-agent` run with no counts has no number at all
 
-`usage_source: estimated` was specified as a model-aware tokenizer picked by model family, on the
-grounds that `cursor-agent` reports `model` on its `system/init` frame. It reports the display name
-`Auto`, not an id, so the family the estimator is supposed to select on may not be knowable from the
-record at all. Every `cursor-agent` run that fails hard lands here, because its print-mode `catch`
-writes no `result` frame. Filed as ticket 33.
+Settled as far as this contract can settle it: the estimator is struck and those runs are
+`unavailable` (section 7.8), because Cursor counts about twice what its own transcript keeps and no
+tokenizer choice closes that gap.
 
-### 18.2 `correction` has an unverified producer
+What stays open is whether anyone wants a number there badly enough to get it from somewhere else.
+The only ground truth is computed over an input Hydra cannot see, so the honest options are a
+provider that starts reporting on the failure path, or nothing.
 
-Section 16.3. Filed as ticket 34.
+### 18.2 `correction` draws on one provider of three
+
+Settled that it has a producer (sections 7.9 and 16.3), measured at a keyboard on `claude` 2.1.261.
+
+What stays open is the size of the corpus and the strength of step 4. The words come from a chain
+walk that cannot tell a redirection from a change of subject, and 2.1.261 removed the
+reject-with-feedback prompt option that would have made them a field. If a later build gives the
+denial record a text field that is actually populated, step 4 becomes a field read and the caveat
+goes away.
 
 ### 18.3 What a resumed run's usage is scoped to on two providers
 

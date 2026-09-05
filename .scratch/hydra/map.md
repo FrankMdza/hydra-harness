@@ -12,28 +12,38 @@ Three documents, implementable and hand-offable without further discovery:
 
 No production code while this map is open. Throwaway prototypes are fine.
 
-**Written so far:** `docs/harness-spec.md` and `docs/run-record-contract.md`, both 2026-09-04,
-ticket 16. `docs/ouroboros-spec.md` is unwritten.
+**Reached, 2026-09-05.** `docs/harness-spec.md` (1,356 lines), `docs/run-record-contract.md` (1,323)
+and `docs/ouroboros-spec.md` (904). All three written under ticket 16, one document per session with
+the seam check alone in a fourth, then tickets 37 and 38 closing what that check found.
 
-Ticket 16 takes one document per session rather than the whole ticket, because three documents at
-this map's fidelity do not fit one session and the seam check should not be run by the session that
-wrote the last document. Order: harness spec, then the run-record contract, then Ouroboros, then a
-fourth session for the seam alone. The harness spec goes first because the other two reference it.
+**All four seam checks pass.** D5 holds, nothing crosses but the run record and the skill store. The
+D12 export test holds. Every field Ouroboros reads is one the harness writes, on both launch modes
+now that the producer column says which population it describes. And the harness claims no guarantee
+Ouroboros does not rely on, which is the check that broke and took two tickets to fix.
 
-Tickets 33 and 34 came out of the contract session and now block ticket 16. Ticket 34 is resolved
-and opened ticket 35, which blocks 16 too and needs a human at a keyboard for four minutes. **None of
-the three blocks the Ouroboros document**; all feed the seam check, which is what ticket 16's blocker
-list is guarding at this point.
+**What the seam check was worth.** Two of the four broke. The gate turned out to be carrying four
+guarantees nobody had written down, so a `permissive` run could write into `~/hydra/runs/` and edit
+four of the five protected configs while both documents read as if it could not. And the producer
+column, built as the seam check's own instrument, described recorded runs only, which left the one
+launch mode that produces preference pairs with no specification at all. Neither was findable from
+inside a single document, which is the argument for having run the check as its own session.
+
+Nine contradictions between documents were fixed along the way, each carrying a decision another
+document had already made. Two of them were counts stated wrong in a document that opens by
+complaining about counts stated wrong.
+
+**No production code was written while this map was open** (D1), and none is written now. The three
+documents are the destination and someone who was in none of these sessions can build from them.
 
 ## Notes
 
-**Domain.** Hydra is a router, not an agent. One command picks a provider, injects the shared skills, launches that provider's own CLI as a child process on a pty it owns, and tees its structured output to a trajectory log. Ticket 02 settled that Hydra is the parent process rather than a client of a terminal; ticket 01 settled that it should speak ACP to the providers that have it. Three routable providers in v1: `claude` (2.1.261), `cursor-agent` (2026.09.02-c22c1a3), `agy` (1.1.26). `hermes` (0.14.0) was the fourth until ticket 22 unrouted it. Versions observed 2026-09-04 11:40; `agy` had already moved again since the earlier reading that day. **Two of the three self-update without asking. `agy` alone has moved five times in four days, and the drift has invalidated a finding three times**: `cursor-agent` went 2025.10.02 to 2026.08.31 on 09-01 and killed ticket 03's Cursor finding, then 2026.08.31 to 2026.09.02 on 09-02, superseding the build ticket 25 measured; `agy` went 1.0.10 to 1.1.23 mid-ticket-18, to 1.1.24 on 09-02, to 1.1.25 on 09-03 during ticket 15, then to 1.1.26 on 09-04 during ticket 16. `claude` broke its run of holding still and went 2.1.257 to 2.1.261 on 09-04 between tickets 34 and 35, which is why ticket 34 read one binary and ticket 35 exercised another. Ticket 26 probed the hook gate on 1.1.24 and ticket 30 re-measured it on 1.1.25; `--add-dir` and `--output-format stream-json` were re-checked on 1.1.26 and both survive. All three have now moved under this map, so none of them holds still. Re-read every version at the top of a session, and date every provider-specific claim you write. **Version is not the only thing that drifts.** Ticket 33 found `cursor-agent` reporting a different `model` on the build ticket 25 measured, because the account's model selection changed, so a provider claim can expire without a version moving. Record what the config said, not only what the binary was. Ticket 18 replaced `gemini` (0.42.0) with `agy` as the Google provider; `gemini` stays specced as a cold fallback on an API key. A session can delegate to another provider mid-flight, so a Claude Code session acting as orchestrator can hand a small task to cursor-agent and get a structured result back.
+**Domain.** Hydra is a router, not an agent. One command picks a provider, injects the shared skills, launches that provider's own CLI as a child process on a pty it owns, and tees its structured output to a trajectory log. Ticket 02 settled that Hydra is the parent process rather than a client of a terminal; ticket 01 settled that it should speak ACP to the providers that have it. Three routable providers in v1: `claude` (2.1.261), `cursor-agent` (2026.09.02-c22c1a3), `agy` (1.1.26). `hermes` (0.14.0) was the fourth until ticket 22 unrouted it. Versions observed 2026-09-04 11:40; `agy` had already moved again since the earlier reading that day. **Two of the three self-update without asking. `agy` alone has moved through four versions in four days, and the drift has invalidated a finding three times**: `cursor-agent` went 2025.10.02 to 2026.08.31 on 09-01 and killed ticket 03's Cursor finding, then 2026.08.31 to 2026.09.02 on 09-02, superseding the build ticket 25 measured; `agy` went 1.0.10 to 1.1.23 mid-ticket-18, to 1.1.24 on 09-02, to 1.1.25 on 09-03 during ticket 15, then to 1.1.26 on 09-04 during ticket 16. `claude` broke its run of holding still and went 2.1.257 to 2.1.261 on 09-04 between tickets 34 and 35, which is why ticket 34 read one binary and ticket 35 exercised another. Ticket 26 probed the hook gate on 1.1.24 and ticket 30 re-measured it on 1.1.25; `--add-dir` and `--output-format stream-json` were re-checked on 1.1.26 and both survive. All three have now moved under this map, so none of them holds still. Re-read every version at the top of a session, and date every provider-specific claim you write. **Version is not the only thing that drifts.** Ticket 33 found `cursor-agent` reporting a different `model` on the build ticket 25 measured, because the account's model selection changed, so a provider claim can expire without a version moving. Record what the config said, not only what the binary was. Ticket 18 replaced `gemini` (0.42.0) with `agy` as the Google provider; `gemini` stays specced as a cold fallback on an API key. A session can delegate to another provider mid-flight, so a Claude Code session acting as orchestrator can hand a small task to cursor-agent and get a structured result back.
 
 **Skills each session should call.** `mattpocock-skills:grilling` and `mattpocock-skills:domain-modeling` by default. `mattpocock-skills:research` for research tickets, `mattpocock-skills:prototype` for prototype tickets. All prose follows `~/.claude/skills/unslop/SKILL.md`.
 
 **Source material.** `~/Downloads/Harness CLI Unificado para Cursor, Gemini y Claude.md` is the originating research doc. Treat it as a starting point, not as settled: its model naming is stale in places and several of its claims are unverified here.
 
-**Vocabulary.** A run's **instructions** are the three things Hydra wrote at spawn: the task string, the policy and hook config, and the skills linked at the pinned sha. Everything a run reads after its process starts is **data**. Ticket 28 settled this and the test is authorship rather than timing. Do not call these channels, since D5 uses that word for the two crossings between the harness and Ouroboros.
+**Vocabulary.** A **run** is a unit of recorded work Hydra owns, in two kinds: a **provider run**, which is one provider process Hydra launched or refused to launch, and a **harness run**, which is work Hydra did itself. Ticket 36 widened the word; `provider: null` tells them apart and today the only harness run is a `hydra evolve` pass. A run's **instructions** are the three things Hydra wrote at spawn: the task string, the policy and hook config, and the skills linked at the pinned sha. Everything a run reads after its process starts is **data**. Ticket 28 settled this and the test is authorship rather than timing. Do not call these channels, since D5 uses that word for the two crossings between the harness and Ouroboros.
 
 **Reading code is not measuring.** Ticket 34 verified a traversal 35 times against real records and verified one field by reading a ternary that gated it. The traversal held and the field turned out to be empty every time a human used it, which ticket 35 found only by putting a person at a keyboard. A field's presence in a conditional says the branch exists, not that anything writes it. Where a finding rests on reading a binary, say so in the ticket, and treat it as a hypothesis until a record shows it.
 
@@ -102,7 +112,15 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 
 - [35 - Confirm the human rejection shape on `claude`, at a keyboard](issues/35-confirm-human-rejection-shape.md): the producer is real and two human preference pairs now exist, the first on this machine. Three of four checks pass, the rejected-`Edit` shape holds, and `userFeedback` is empty on all three, so ticket 34's richest field was an inference off a ternary rather than an observation. The words survive as an ordinary user turn, so step 4 becomes a chain walk that cannot tell a redirection from a change of subject. A denial also carries an interrupt marker, and .261 has dropped the reject-with-feedback option from the prompt entirely.
 
+- [36 - What shape is a run record with no provider?](issues/36-pass-record-shape.md): a run is now a unit of recorded work Hydra owns, in two kinds, because a rung-two pass needs a record and its children need a parent that exists. Seven fields of twenty-six are filled, the record gains `command`, a pass's outcome describes the pass rather than the patch, and rung one and export both skip the kind.
+
 - [33 - What the Cursor usage estimator keys on, when `model` says "Auto"](issues/33-cursor-estimator-model-family.md): the resolved id is recoverable, from the chat store at `providerOptions.cursor.modelName` rather than from any frame, and the Auto probe resolved to a model `--list-models` does not offer. `model` is the selection's display name and ticket 25's `Auto` reading expired on config rather than on a version. The estimator's premise is what fails: Cursor counts about twice what the transcript keeps, so `estimated` looks unearned and `unavailable` says the true thing.
+
+- [16 - Assemble the three documents and check the seam](issues/16-assemble-the-specs.md): the three documents exist and the seam is checked. D5 and the D12 export test hold; the other two checks broke and are tickets 37 and 38. Six contradictions between documents fixed here, each carrying a decision another document had already made, the sharpest being a contract section that lost its heading and a harness spec naming a field the contract renamed. The producer column did its job and turned a thirty-ticket re-read into a lookup.
+
+- [37 - Which gate denials hold under `permissive`?](issues/37-permissive-gate-denials.md): both documents move and the five claims split by mechanism. The gate's universal denial set becomes seven paths, adding `~/hydra/runs/` and the four configs that were protected against a rung-two patch and nothing else. The three `hydra` subcommands stop being a gate claim, because a binary reached through `shell` is an argv match with the pattern floor's failure mode, so `evidence_is_read_only` is what holds them and is now load-bearing. Protected paths go to twelve, and Cursor's gate gains `beforeReadFile`, since reads are a capability and `preToolUse` does not cover them.
+
+- [38 - What does a record look like on an interactive run?](issues/38-interactive-run-record-shape.md): the contract specifies three shapes now, and the producer column says it describes recorded runs. `correction` and `permission_decision` can never appear in one run, which nothing had noticed. A probe found `usage` surviving harvest on `message.usage`, a producer the table would have denied. The finding the ticket did not start with: a transcript carries eight record types no stream has, and `attachment` is run content that entered through no tool call, so export's path extraction never sees it and a run holding one is not exportable.
 
 ## Not yet specified
 
@@ -129,6 +147,40 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
   about a Cursor run now depends on which of the two formats that run happened to write. Sharpening
   this needs a reading of harvest against both, which is more than one patch of fog and may be more
   than one ticket.
+
+  Ticket 38 gave it two more jobs and filled the `claude` column of both. The contract's section
+  7.2.1 has no producer for a harvested `cursor-agent` or `agy` run, so a reader there must treat a
+  missing event type as unknown rather than as absent, which is a worse position than any recorded
+  run is in. And a `claude` transcript turned out to carry eight record types no stream has, one of
+  which is run content that entered through no tool call and now blocks export. Whether the other
+  two vendors' stores carry an equivalent is unasked, and it decides how much of the interactive
+  corpus is exportable at all.
+
+- **The curator's own worktree of the skill store.** `docs/ouroboros-spec.md` section 9.1. The
+  curator writes into a git worktree of the store rather than into `~/hydra/skills/` itself, because a
+  run pins the store at a sha and a dirty store is committed before pinning, so a curator writing into
+  the live working tree collides with the next launch's commit. No closed ticket says this; it follows
+  from two that do. The open detail is where that worktree lives, and the spawn directory is reaped
+  with the run, which is fine for a checkout and irrelevant to the branch. Sharp enough to confirm
+  rather than decide, so it waits for someone building rung one rather than for a session of its own.
+
+- **Rung two's build details.** `docs/ouroboros-spec.md` section 9 holds four open items and three of
+  them are these, which nothing else on this map covers. Whether the proposer needs a sixth
+  delegation policy, or runs as `standard`. How a review prompt is fitted when a diff is large, which
+  the reference implementation answers with a fit note, a path manifest fallback and a binary-file
+  representation, having budgeted 920K tokens per reviewer. And tolerant parsing of a reviewer's
+  response, which is the thirty lines nobody writes until a refusal is read as a pass. The first is
+  sharp enough to ticket today and the other two are build work for a rung that ships later, so the
+  patch waits for someone to decide whether the document is hand-offable without them.
+
+- **What an interactive run gets from the launch sequence.** `docs/harness-spec.md` section 19.6,
+  opened by ticket 38 and not covered elsewhere. An interactive run gets no worktree, and two of the
+  three providers read their injected MCP config out of one, so on those two an interactive run gets
+  no injected servers. Two loose ends follow. The fatal Cursor MCP pre-flight checks that every
+  injected server is ready, and with none injected it is a promise about an empty set. And
+  `CURSOR_DATA_DIR` points into the run's spawn directory, which is reaped with a worktree that an
+  interactive run does not have. Neither breaks anything today, and both are the kind of thing a
+  builder hits in the first hour and settles by guessing.
 
 - **Enforcing export eligibility during a run.** Ticket 19's allowlist is audited from the record at export time. Ticket 26 proved all three providers hard-block a tool call from a config Hydra writes per run, but whether a block can be scoped to a path argument on all three is unmeasured. If it can, eligibility stops being an audit and becomes a property the run cannot violate.
 

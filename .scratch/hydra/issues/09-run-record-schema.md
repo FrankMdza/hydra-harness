@@ -366,3 +366,13 @@ time, and a process may take the file only after the liveness test says the reco
 Two gaps this ticket left are now tickets. Ticket 33: `usage_source: estimated` picks a tokenizer by
 model family and `cursor-agent` reports `model` as `Auto`, so the selector may not exist. Ticket 34:
 `correction` has one producer and nobody has verified it exists in any vendor transcript.
+
+## Amended by ticket 36, 2026-09-04
+
+**A new `run_start` field, `command`**, naming the Hydra command that minted the run id: `run`,
+`evolve`, `resume` or `curate`. Nothing in the schema said which command created a run, and on a
+harness run, where there is no provider and no task string, it is the whole identity.
+
+**And a second kind of run.** A harness run has `provider: null`, seven filled fields of
+twenty-six, absent `skills`, `mcp`, `auth` and `env_allowlist` objects, and a body of `run_start` and
+`run_end` with nothing between. The contract's section 5.5 holds it.

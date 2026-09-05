@@ -10,7 +10,7 @@ Provider versions this document was written against, read 2026-09-04:
 
 | Provider | Version | Read |
 |---|---|---|
-| `claude` | 2.1.257 | 2026-09-04, unchanged since 2026-09-01 |
+| `claude` | 2.1.257 | 2026-09-04 morning. It moved to 2.1.261 the same afternoon, so every `claude` claim below was measured on .257 |
 | `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-04, unchanged since 2026-09-02 |
 | `agy` | 1.1.26 | 2026-09-04 |
 
@@ -122,6 +122,15 @@ what keeps it true on Cursor, where approving an injected MCP server would other
 spawn artifact is needed to interpret a run record, the record is not the source of truth and is
 missing a field. The record therefore answers "which servers did this run get" and "what did the
 gate refuse" on its own.
+
+**A `hydra evolve` pass writes only the last row.** The record contract's section 2 splits a run into
+two kinds, and the second one is work Hydra did itself rather than a provider process it launched.
+The pass spawns a proposer and three judges, each of which is an ordinary provider run with the three
+other rows above; the pass itself launches nothing, so it gets no worktree, no skills snapshot and no
+spawn directory. Its file is `run_start`, `run_end` and nothing between, and `provider: null` is what
+a reader checks to tell the two kinds apart. The contract's section 5.5 owns the field-by-field
+shape. `hydra curate` gets no pass record, because the curator is an ordinary recorded run and its
+supervisor decides nothing after the run ends.
 
 ## 6. The launch sequence
 
@@ -392,6 +401,15 @@ The permission gate is a `PreToolUse` hook, written per spawn, from a config Hyd
 the run's policy. It is not the permission layer under another name: a denial holds on `claude`
 under `--permission-mode bypassPermissions`, on `agy` with the model otherwise unconstrained, and on
 `cursor-agent` in print mode with `--force` passed.
+
+**On Cursor the gate registers `beforeReadFile` as well, and the reason is that reads are a
+capability.** `read-only` and `standard` both scope reads to the worktree, and rung two's proposer is
+kept out of `~/.claude`, `~/.cursor`, `~/.agents` and `~/hydra/runs/` by the same mechanism. Cursor
+defines twenty-one hook events and six of them can return a permission decision, so `preToolUse`
+alone leaves the file-read path ungated on that provider (ticket 26). `claude` and `agy` route reads
+through `PreToolUse` like every other tool, so one event covers them. A hook blocks a file write
+before it reaches disk on all three, probed on Cursor with the path and the content in hand and no
+file afterwards, which is what makes section 7.5's path denials deliverable rather than aspirational.
 
 | Provider | Config path | Delivered by | On a broken hook |
 |---|---|---|---|
@@ -710,10 +728,35 @@ original script, which is what denies the write that would have replaced it. The
 `judge`, `read-only` and `standard`, and breaks for `permissive` and `curate`, which write outside
 their worktree. Those two need the base case below.
 
-**The gate denies writes to the delegation policy directory and to the generated script under every
-policy, `permissive` and `curate` included.** That is the single place `permissive` stops being
-permissive, and it earns the exception twice: without it a child under `permissive` can rewrite the
-policy constraining its siblings, and the induction above has no base case.
+**The gate denies writes to seven paths under every policy, `permissive` and `curate` included:** the
+five protected configs of section 15.1, the generated gate script, and everything under
+`~/hydra/runs/`. That is where `permissive` stops being permissive, and each of the three groups earns
+it differently.
+
+The **delegation policy directory** and the **generated script** earn it twice over: without them a
+child under `permissive` can rewrite the policy constraining its siblings, and the induction above
+has no base case.
+
+The **other four configs** earn it because admission refusal alone protects them against a rung-two
+patch and against nothing else. The environment allowlist, the export allowlist, the instruction
+preamble and the canonical MCP document are read by every run and writable by a `permissive` one, and
+each has a failure mode section 15.1 already names. An MCP server definition is a command Hydra
+spawns, so a run that edits that document runs code of its choosing inside every future run.
+
+**`~/hydra/runs/` earns it because the record is the evidence.** A loop that learns from the corpus
+must not be able to edit the corpus, and D10 makes the record the source of truth for everything else
+besides. This denial is a path block like the six above it, so the gate delivers it outright: a hook
+sees the path and refuses the write before it reaches disk, measured on all three providers
+(ticket 26).
+
+**What the gate does not do is stop a run invoking `hydra` itself.** `hydra export`, `hydra prune`
+and `hydra reap` are a binary reached through `shell`, so any rule against them is an argv match with
+the pattern floor's failure mode in section 7.4: silent permission on the spelling nobody wrote down.
+`./target/debug/hydra export` walks past it. So the spec does not claim the gate keeps Ouroboros away
+from those three. What keeps them away is that no Ouroboros code path calls them, which is a property
+of Hydra's own source rather than of a run, and `docs/ouroboros-spec.md`'s `evidence_is_read_only`
+checklist item is what holds it true under a self-edit. Naming the right mechanism matters more here
+than having two: a floor stated as a guarantee is the Hermes failure in miniature.
 
 **Calling back into `hydra` per tool call is ruled out.** The small reason is a subprocess on every
 call inside Cursor's 60 second hook budget. The large one is that a gate depending on the parent
@@ -790,8 +833,8 @@ while it was running. Marking is advice too. What Hydra guarantees is that the m
 policy. It promises nothing about what a model can be convinced of. The worked example: a delegated
 `cursor-agent` child returns a result asking the orchestrator to grant write access to
 `~/hydra/skills`. It is refused because the gate denies writes to the store under every policy but
-`curate`, and to the policy directory and the generated script under every policy without exception.
-The layer that stops it is the one that never read the text.
+`curate`, and to the seven paths in section 7.5 under every policy without exception. The layer that
+stops it is the one that never read the text.
 
 ## 9. `hydra run` and the delegate face
 
@@ -813,16 +856,21 @@ return inline where they are easiest to reason about and long ones become someth
 Concurrency comes free from the orchestrator's own parallel tool calls, so Hydra needs no scheduler,
 only a cap on live children.
 
-**The result stays small.** `run_id`, `status`, the final assistant text, the worktree branch, a
-diff stat, `usage` with its `usage_source`, and the run file path. Nothing else. The reasoning
-matters more than the field list: delegation exists to keep a child's trajectory out of the
-orchestrator's context, so a result that returns the whole trajectory defeats the feature it
-implements. Ask for more explicitly with `hydra show <run-id> --events`.
+**The result stays small.** `run_id`, `outcome`, `outcome_source`, `exit_code`, `error`, the final
+assistant text, the worktree branch, a diff stat, `usage` with its `usage_source`, and the run file
+path. Nothing else. The reasoning matters more than the field list: delegation exists to keep a
+child's trajectory out of the orchestrator's context, so a result that returns the whole trajectory
+defeats the feature it implements. Ask for more explicitly with `hydra show <run-id> --events`.
 
-**Status is derived and says how confident it is.** Alongside the status enum, the raw `exit_code`,
-an `error` string, and a `status_source` of `provider`, `derived` or `unknown`. Exit codes are
-useless as a common signal: `claude` has two meaningful ones, `cursor-agent` three, `gemini` nine. A
-shared status is derived per provider.
+**The result is a projection of the record, and the contract owns the names.** Ticket 11 called
+these two fields `status` and `status_source`; the record contract's sections 8 and 8.2 name them
+`outcome` and `outcome_source`, and one design does not get two names for one field. The contract
+also drops `status_source`'s `provider` value, because no routable provider produces a run-level
+status worth reading, and replaces it with `refusal` for the four outcomes Hydra decides itself. Exit
+codes are useless as a common signal, which is why the outcome is derived rather than read: `claude`
+has two meaningful ones, `cursor-agent` three, `gemini` nine.
+
+The diff stat is the one returned field with no record equivalent, computed from git at return time.
 
 **The MCP face is narrow: `delegate(provider, task, files?, policy?)`.** No `--shared-tree`, no
 timeout override, no depth, no `model`. Those four are how a delegation escapes its worktree,
@@ -992,6 +1040,14 @@ writing it with no reader is allowed and deliberate.
 policy refusal. Two checks produce it and they differ only in when Hydra noticed, so which one fired
 is a field Hydra sets rather than a second outcome.
 
+**That table describes a provider run.** A `hydra evolve` pass takes its outcome from the same enum
+and reads two of the rows differently, because a pass and the patch it judged are two different
+things to succeed at. A pass that refused a patch on a protected path, or whose panel blocked, or
+whose admission gate caught a build failure, is `completed`: the pass did its job. `failed` means the
+pass itself broke, git or the worktree. `gated` never applies, because nothing gates a harness run.
+Filing a gate that worked as a failure would put it in the corpus as a lesson, which is the mistake
+this table exists to prevent, pointed the other way. The contract's section 8.4 owns this.
+
 ## 13. The tool-call adapter
 
 Mapping the providers' incompatible tool-call representations onto one shape is the harness's job,
@@ -1071,6 +1127,12 @@ Human-authored, read by a run, and writable by nothing a run does. Rung one cann
 because its write surface is the skill store alone. A rung-two patch touching one is refused before
 review rather than blocked by it.
 
+**All five are also denied at run time under every policy**, per section 7.5. The two mechanisms
+answer different questions and neither substitutes for the other: admission refusal stops a proposed
+patch, and the gate stops a running child. A config protected only at admission is protected against
+rung two and against nothing else, which is what the seam check found and section 15.2's table now
+records.
+
 | # | Config | Failure mode if written |
 |---|---|---|
 | 1 | The delegation policy set, including the pattern floor file | a loop widens its own permissions and walks around every gate |
@@ -1082,12 +1144,16 @@ review rather than blocked by it.
 **The pattern floor is protected by inheritance, not by its own entry.** It is a sixth file and it
 lives in the delegation policy directory precisely so the count stays at five.
 
-### 15.2 The protected paths: eleven, not nine
+### 15.2 The protected paths: twelve
 
 Every ticket that states a number says nine. **The items those tickets actually name come to
 eleven.** The running count was carried from seven through the preamble and the MCP document without
-folding in the export allowlist or either of the two additions the delegation policy work made. The
-correction is arithmetic rather than a new decision.
+folding in the export allowlist or either of the two additions the delegation policy work made. That
+correction was arithmetic rather than a new decision.
+
+**The twelfth is a decision, and the seam check made it.** The run records directory was a run-time
+denial the Ouroboros spec relied on and no document listed, so it is a new row rather than a
+recount.
 
 Matched case-insensitively, because `write_file(path="bible.md")` on macOS writes `BIBLE.md` and an
 exact-case membership test misses it.
@@ -1096,19 +1162,27 @@ exact-case membership test misses it.
 |---|---|---|---|---|
 | 1 | the review module: quorum arithmetic, the severity table, the checklist loader, `ApprovedPatch` | code | yes | no |
 | 2 | the protected-path list itself | code | yes | no |
-| 3 | the environment allowlist | config | yes | no |
+| 3 | the environment allowlist | config | yes | **yes, under every policy** |
 | 4 | the hook-config writer | code | yes | no |
 | 5 | the delegation policy directory | config | yes | **yes, under every policy** |
 | 6 | the run-record writer | code | yes | no |
 | 7 | the admission gate | code | yes | no |
-| 8 | the export allowlist | config | yes | no |
+| 8 | the export allowlist | config | yes | **yes, under every policy** |
 | 9 | the generated per-run gate script | generated | not applicable | **yes, under every policy** |
-| 10 | the instruction preamble | config | yes | no |
-| 11 | the canonical MCP document | config | yes | no |
+| 10 | the instruction preamble | config | yes | **yes, under every policy** |
+| 11 | the canonical MCP document | config | yes | **yes, under every policy** |
+| 12 | the run records directory, `~/hydra/runs/` | data | not applicable | **yes, under every policy** |
+
+**Entry 12 arrived from the seam check and is the one row that is not source.** The other eleven are
+things a rung-two patch could propose changing. A patch cannot propose changing the corpus, so its
+admission column is not applicable, and it is listed here because the run-time denial is what
+`docs/ouroboros-spec.md` relies on when it says a loop that learns from the evidence cannot edit the
+evidence. Before the seam check that reliance had no entry on either side.
 
 **"Protected" was carrying two mechanisms under one word**, which is why the table has two columns.
 Admission refusal is a rung-two check on a proposed patch. Run-time denial is the gate refusing a
-tool call. Entries 5 and 9 get both; everything else gets the first only.
+tool call. The five config rows get both, entries 9 and 12 get run-time only, and the five code rows
+get admission only. Section 7.5 states the run-time set as one list and says why each group is on it.
 
 **Entry 9 is on the list under protest, and the spec says so.** The gate script is generated per run
 into `~/hydra/spawn/<run-id>/` and reaped with the worktree, so no rung-two patch can touch it in
@@ -1168,11 +1242,18 @@ wanted.
 | `hydra reap [<run-id>]` | commits a worktree's uncommitted changes to the child's branch, then removes the worktree and the spawn directory |
 | `hydra prune` | moves run files out of `runs/`. Deletes only behind a flag |
 | `hydra curate` | invokes Ouroboros rung one as an ordinary recorded run under the `curate` policy |
+| `hydra evolve` | runs one rung-two pass: a proposer, the admission gate, a panel of three, a branch |
 | `hydra export` | section 14 |
 | `hydra usage recount` | re-derives token counts from stored text with a better tokenizer |
 
 `hydra reap`, `hydra prune` and `hydra export` are typed by a human and reachable from no run at
-either Ouroboros rung.
+either Ouroboros rung. `hydra curate` and `hydra evolve` are typed by a human too, and
+`docs/ouroboros-spec.md` says what they do.
+
+**`hydra usage recount` has no work to do in v1**, because no run produces `usage_source:
+estimated`: the one provider that would have is `unavailable` instead, for the reason in the
+contract's section 7.8. The command stays in the surface because the record keeps the text the
+recount would read, so the day a provider earns an estimate the tool already exists.
 
 ## 18. Non-goals and extension points
 
@@ -1221,12 +1302,13 @@ else writes" as a structural argument even though the gate's own rule still deni
 script path. The subdirectory keeps the two concerns apart at no cost. It should be confirmed rather
 than assumed.
 
-### 19.2 `denied` against `gated`
+### 19.2 `denied` against `gated`, closed
 
-Ticket 11's status enum carries `denied`. Ticket 27 later minted a `gated` run outcome for the same
-situation. Section 12 lists `gated` and drops `denied`, which is the reading that makes the taxonomy
-non-overlapping, but the record contract owns the enum and should settle it rather than inheriting
-this document's choice.
+Settled by the record contract's section 8.1, which owns the enum: `denied` is dropped and `gated`
+stands. Two labels for one state is a bug with a schema, and `denied` also read as a per-tool-call
+fact, which is `permission_decision`'s job. Section 12 above was already right and now has a reason
+rather than a preference. Kept here as a closed entry so a reader who finds `denied` in ticket 11
+knows it was decided rather than dropped by accident.
 
 ### 19.3 Three unverified `agy` facts
 
@@ -1256,3 +1338,19 @@ every other reason and closes this door on two providers. `agy` keeps a heartbea
 emitting `step_update` with `state: ACTIVE` and shipping no flag to stop it. So the detector, when
 someone wants it, is either a flag flip on `claude` and `cursor-agent` or a per-provider signal that
 exists on exactly one of the three today.
+
+### 19.6 What an interactive run gets from sections 6.5 and 6.6
+
+An interactive run gets no worktree (6.3), and two of the three providers read their injected MCP
+config out of the worktree (6.5). So on `cursor-agent` and `agy` an interactive run has nowhere to
+put one and gets no injected servers, while `claude` gets its config on the command line and does.
+The record contract's section 5.6 records that split as it stands.
+
+Two consequences want a decision rather than a note. The fatal Cursor pre-flight in 6.5 checks that
+every injected server is ready, and with no injected servers on an interactive run it has nothing to
+check, so "fatal interactively too" is currently a promise about an empty set. And `CURSOR_DATA_DIR`
+points into the run's spawn directory, which exists per run and is reaped with a worktree that an
+interactive run does not have.
+
+Neither breaks anything today. Both are the kind of thing a builder hits in the first hour and
+resolves by guessing, which is the reason to write it down.

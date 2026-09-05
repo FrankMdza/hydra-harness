@@ -234,3 +234,27 @@ about diff review. Both are about not trusting model output at a gate, and the c
 - **Ticket 26** was opened out of this ticket's last round. The apply-path type stops at Hydra's own
   code, and a child provider's actions need a different mechanism.
 - **Ticket 06's 63.5%** should stop being quoted as a property of the software.
+
+## Amended by ticket 16, 2026-09-04, writing `docs/ouroboros-spec.md`
+
+**"The apply records the verdict it consumed into the run record" cannot be built as written.** Rung
+two's panel runs after the proposer's process has exited, and `run_end` is written when `wait()`
+returns, so there is no open run file to append a verdict to. In v1 nothing lands anyway: the apply
+path produces a branch rather than a commit on `main`.
+
+The requirement behind the sentence survives intact, and it is the one this ticket actually argues
+for, that unreachable and auditable are different properties. The verdict block goes in the branch's
+commit message, naming the pass run id, the proposer run id and the three judge run ids. A commit
+message is also the one place a later patch cannot edit, which the tree is not. "Which review
+approved the commit that broke this" is answered by walking the merge commit's parent to
+`ouroboros/<run-id>` and reading three run records.
+
+**The critical-threshold rule is taken as this ticket recommended**, close to verbatim with the MIT
+notice and the clone sha, in `docs/ouroboros-spec.md` section 5.1. The 29 items are not taken. Hydra
+writes 23 of its own, and with the 7 carried the checklist is 30 rather than 29.
+
+## Amended by ticket 36, 2026-09-04
+
+The verdict's home is settled: the branch commit message, naming the pass run id, the proposer run id
+and the three judge run ids. Ticket 36 adds a record for the pass itself, so the audit walk is git
+plus five run records rather than git plus four.

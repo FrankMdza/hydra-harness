@@ -215,3 +215,14 @@ reads. `unknown` survives, because the adapter's `unclassified` gives it a new p
 meant the JSON carried facts the source of truth did not have. They are on `run_end` now, and the
 JSON adds exactly one thing that is not in the record, the diff stat, which is computed from git at
 return time.
+
+## Amended by ticket 36, 2026-09-04
+
+**Rung two's proposer and judges sit at depth 1, not 0.** A `hydra evolve` pass is now a run of its
+own, a harness run, and the four children hang off it. So the cap at 2 leaves the proposer one level
+of delegation rather than two.
+
+Accepted rather than worked around: a proposer needing two levels to write a patch is doing something
+worth noticing, and the cap is configurable. Exempting a harness run from the depth count was the
+alternative, and it would make depth mean "distance to a run a human started" on one row and
+"distance to a provider run" on another.

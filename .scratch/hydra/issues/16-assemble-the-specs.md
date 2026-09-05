@@ -1,8 +1,8 @@
 # 16 - Assemble the three documents and check the seam
 
 Type: task
-Status: open
-Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35
+Status: resolved
+Blocked by: 09, 10, 11, 12, 13, 14, 15, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36
 
 ## Question
 
@@ -348,3 +348,219 @@ on disk under `~/.claude/projects/-private-tmp-hydra-t35/`, and `.scratch/hydra/
 the five checks against any transcript from the last N minutes.
 
 Ticket 33 also lands on section 7.8 and section 9, and its answer says what.
+
+## Progress: document three written, 2026-09-04
+
+**`docs/ouroboros-spec.md` exists, 868 lines.** Three of three. Versions re-read at the top of the
+session: `claude` **2.1.261**, up from the 2.1.257 both sibling documents were written against and
+measured on, `cursor-agent` 2026.09.02-c22c1a3, `agy` 1.1.26. All three documents now say which
+build their claims were measured on.
+
+Remaining: the seam check, on its own, as this ticket has planned since the harness spec.
+
+### What the Ouroboros document covers
+
+Sections 1 to 8 are the settled material: what both rungs share, the three rules about not trusting a
+model, what neither rung may ever do, the reference implementation read at a sha; rung one's five
+failure classes, the classification honesty rule, the write surface, the fifteen curator rules with
+their four amendments, and the outcomes it never learns from; rung two's pass shape, authority
+boundary, sandbox, protected-path refusal, admission gate, panel, veto, branches, the missing
+obligation ledger; the 30 checklist items; the seam table of what Ouroboros reads; what it writes;
+and the five graduation conditions. Section 9 holds what it could not close.
+
+### One gap, filed as ticket 36
+
+**A rung-two pass has facts that no run record can hold.** The protected-path refusal, the admission
+gate output and the panel verdict are all decided after the proposer's run file was closed, and
+`run_end` is written when `wait()` returns. So the pass needs a record of its own, at depth 0, with
+the proposer and the three judges as its children. That record has no provider, and the contract has
+no shape for one. Ticket 36 settles it and now blocks this ticket, because the seam check is the
+wrong place to find two documents disagreeing about what a run is.
+
+The two alternatives were considered and are worse. Parenting the judges to the proposer claims the
+proposer spawned its own reviewers. A pass file outside `runs/` gives the harness a second source of
+truth, which is what D10 exists to prevent.
+
+### Three things decided here rather than ticketed
+
+**The verdict lives in the branch commit message, not in the run record.** Ticket 17 said the apply
+records the verdict it consumed into the run record. It cannot: the panel runs after the proposer's
+run file is closed. The commit message on `ouroboros/<run-id>` names the pass, proposer and three
+judge run ids, so the audit walk is git plus four records, and a commit message is the one place a
+later patch cannot edit. Ticket 17's actual requirement, that unreachable and auditable are different
+properties, is met.
+
+**The curator writes into its own git worktree of the store**, not into `~/hydra/skills/`. No closed
+ticket says this and two force it: a run pins the store at a sha, and a dirty store is committed
+before pinning, so a curator writing into the live working tree collides with the next launch's
+commit. Flagged in the Ouroboros spec's section 9.2 as a refinement to confirm.
+
+**The checklist is 30 items, 24 critical and 6 advisory**, counted from the rows rather than from any
+heading. Four items are amended against what the sibling documents settled after ticket 15 wrote
+them: `record_source_fields` said `status_source`, which the contract renamed to `outcome_source`;
+`record_append_only` forbade a second writer, which as written forbids the harvest the contract
+requires; `hook_dialect_coverage` said three dialects, and the gate script answers in two; and
+`billed_spend_gate` was widened from `--allow-billed` to the per-run human flag pattern, which now
+has two instances.
+
+### Sibling-document edits this session made
+
+The seam check should run against text nobody already knows to be wrong, so the four stale passages
+this ticket had flagged are fixed rather than left for the seam session.
+
+- **Contract section 7.9 rewritten** from tickets 34 and 35. The auto-deny claim is cut, the
+  conjunction `toolDenialKind == "user-rejected"` and `entrypoint == "cli"` is named, the four-step
+  harvest rule is carried, and step 4 is stated as a chain walk that cannot tell a redirection from a
+  change of subject. The interrupt-marker double-count goes to section 13's sweep.
+- **Contract section 7.2's `correction` row** now says one producer, with a named reason per provider
+  for the other two, rather than "interactive harvest only" three times.
+- **Contract sections 7.8, 9.3, 16.3, 18.1 and 18.2** land ticket 33 and close two open questions.
+  The Cursor estimator is struck: those runs are `unavailable`, because Cursor counts about twice
+  what its transcript keeps. Section 9.3 is new and holds the display-name finding and the chat-store
+  id. Section 16.3 stops saying the preference source is unverified.
+- **Harness spec section 17** gains `hydra evolve`, which no document named, and a note that
+  `hydra usage recount` has no work in v1 now that nothing produces `estimated`.
+- **Harness spec version table** stops claiming `claude` 2.1.257 is current.
+
+### What the seam session inherits
+
+**The instruments are built.** The contract's producer column (section 7.2) and the Ouroboros spec's
+section 6 are the two halves of "every field Ouroboros reads is one the harness writes", so that
+check is a table join rather than a re-read.
+
+**Three checks are unrun**: the second direction, whether every guarantee the harness claims is one
+Ouroboros relies on and no more; D5, whether anything crosses but the run record and the skill store;
+and the D12 export test end to end, which the contract's section 16 wrote field by field and section
+16.3 no longer reports as failing.
+
+**One thing to check first.** Ticket 36's answer may move the pass record, and both the Ouroboros
+spec's section 4.10 and the contract's section 8.3 change with it.
+
+## Ticket 36 is resolved, 2026-09-04
+
+The gap the Ouroboros session filed is closed and its answer is already in the documents, so the
+seam check has nothing to wait on.
+
+**What changed under this ticket while resolving 36.** The contract's section 2 widens "run" to two
+kinds, section 4 admits a null `provider`, section 5.1 gains a `command` field on every run, section
+5.5 is new and holds the harness run, section 6 nulls `body_source`, section 8.4 is new on the pass
+outcome, the old 8.4 became 8.5, section 8.6 is new on who reads a harness run, section 10 names the
+pass as the judges' parent and states the depth cost, section 14 records that a verdict is
+deliberately absent, and section 16.2 gains the kind exclusion. The Ouroboros spec's sections 4.5,
+4.9 and 4.10 are rewritten and its open question 9.1 is deleted rather than answered in place, so its
+section 9 is now four items.
+
+**One earlier note in this ticket is now wrong.** The Progress note for document three says
+`run_end.refusal` names the protected-path check and `run_end.error` carries the compiler output.
+Ticket 36 moved both to the branch commit message, since they are results about the patch rather than
+about the pass.
+
+**The seam check's three unrun checks are unchanged**, and the first one is now cheaper: the
+contract's producer column and the Ouroboros spec's section 6 are both current.
+
+## Answer: the seam check, 2026-09-04
+
+Versions re-read at the top of the session and unchanged from the Ouroboros session: `claude`
+2.1.261, `cursor-agent` 2026.09.02-c22c1a3, `agy` 1.1.26. Nothing drifted, so every measurement in
+the three documents stands as written for the first time in this map's life.
+
+All four checks ran against all three documents, 3,341 lines. **Two seams hold, two broke.** Six
+mechanical contradictions were fixed here and two gaps became tickets 37 and 38.
+
+### Check 1: every field Ouroboros reads is one the harness writes
+
+**Passes on the recorded population, and the instrument covers only that population.**
+
+The table join works. Sixteen reader rows in the Ouroboros spec's section 6, every one of them
+resolving to a producer in the contract's section 7.2 or a `run_start` field in section 5. Rung two's
+rows are clean: `provider_version` and `model` on each judge, `rate_limit_event` correctly scoped to
+`claude` alone, `run_end.remediation` real, `parent_run_id` against the pass. The producer column
+did what ticket 32 built it for and turned a thirty-ticket re-read into a lookup.
+
+Two things it surfaced. `skills.resolved` is optional on `cursor-agent` and the reader side listed it
+flat, now fixed. And the column resolves provider but never launch mode, which is ticket 38.
+
+One citation is loose rather than wrong: section 6 cites contract section 17 for "what each judge
+said", and 17 is the `hydra run` return JSON rather than a record field. The record holds it as
+`message` events. Both are legitimate for a supervisor inside the same binary, so this is a wrong
+pointer in the seam instrument rather than a crossing. Left as is, because ticket 38 rewrites the
+surrounding rows anyway.
+
+### Check 2: every guarantee the harness claims is one Ouroboros relies on, and no more
+
+**Broke, in the direction that matters.** Ouroboros relies on four run-time guarantees the harness
+spec does not make, and it is ticket 37.
+
+The Ouroboros spec's section 2.2 says the gate blocks `hydra prune`, `hydra reap`, `hydra export` and
+every write under `~/hydra/runs/` on every run under every policy, `permissive` included, and that
+the five protected configs are denied at run time as well as refused at admission. The harness spec's
+section 7.5 names one universal exception, the policy directory and the gate script, and calls it
+"the single place `permissive` stops being permissive". Section 15.2's reconciled table gives the
+other nine protected paths "Denied at run time: no", and `~/hydra/runs/` is not in the table at all.
+
+Neither document is internally wrong. The harness spec asserts the same three conclusions in sections
+10, 14 and 17 and names no mechanism for any of them, so a builder implementing 15.2's table ships a
+gate that permits all three. That is the shape of gap this check exists to find, and it is the reason
+the check was worth running as its own session.
+
+The second direction, guarantees the harness claims that nobody relies on, came back clean. Nothing
+in the harness spec promises Ouroboros something it does not read.
+
+### Check 3: nothing crosses but the run record and the skill store (D5)
+
+**Holds.** Every candidate resolved to one of the two or to neither.
+
+The branch and its commit message are Ouroboros writing and a human reading, not a harness crossing.
+The read-only brief is the supervisor reading records and putting text in a prompt. The `hydra run`
+JSON is one binary calling itself, per D8. Rung one's thrashing signal joins the outcomes to the skill
+store's git history, which is crossing number two by name. `no_new_crossing` and `no_daemon` are both
+on the checklist with the right ceiling.
+
+### Check 4: the record survives the export test in D12 without loss
+
+**Holds, with one omission fixed.** Section 16.1's mapping covers nine of the ten event types and
+skipped `message_delta`, which reads as an oversight in a table that lists `permission_decision`,
+`usage` and the two Hydra lines as crossing to nothing. Added as a row naming its absent producer,
+because a losslessness test that silently omits a slot is the thing section 7.1 forbids.
+
+The five exclusions reconcile across the three documents: `auth_failed`, no `run_end`, curator-
+parented, harness runs by kind, and any run holding an `unclassified` tool call. `usage` crossing
+nowhere is what makes 7.8's provenance guarantee hold by construction, and 16.3 no longer reports a
+missing producer now that tickets 34 and 35 measured one.
+
+### Six things fixed here rather than ticketed
+
+Each carries a decision another document had already made, so these are the edits that session missed
+rather than new choices.
+
+- **The contract had no `## 6.` heading.** `run_end` sat under section 5.5 with no heading of its own
+  while eleven cross-references pointed at "section 6". Ticket 36 inserted 5.5 above it and the
+  heading went with it.
+- **The harness spec's section 9 carried `status` and `status_source`.** The contract renamed both to
+  `outcome` and `outcome_source` and dropped the `provider` value for having no producer. The harness
+  spec is where a builder reads the delegate face, so it named a field the contract does not have and
+  a value the contract struck.
+- **The harness spec never mentioned the harness run.** Ticket 36's answer landed in the contract and
+  the Ouroboros spec and not here, so the document that owns "what Hydra writes per run" did not know
+  about a record kind Hydra writes. Section 5 gains the pass row and section 12 gains the outcome
+  reading.
+- **`message_delta` is now in the D12 mapping**, per check 4.
+- **`skills.resolved` is marked optional on `cursor-agent`** in the Ouroboros spec's reader table.
+- The `hydra run` result list in harness section 9 now matches the contract's section 17 field for
+  field, including the diff stat's status as the one returned value with no record equivalent.
+
+### One thing observed and left alone
+
+`env_allowlist_intact` names `PYTHONPATH`, which appears nowhere in the harness spec. It entered
+through D6 alongside `NODE_OPTIONS` as an injection vector on `cursor-agent` and hermes, and hermes
+left the routable set. The allowlist is positive, so the variable never reaches a child either way,
+and the item is about the allowlist being widened rather than about that variable. Harmless, and
+noted so a later reader does not file it as drift.
+
+### Where the destination stands
+
+Three documents exist and the seam has been checked end to end. **They are not yet buildable from,
+and the reason is two named questions rather than a fog.** Ticket 37 decides which document moves on
+the `permissive` gate denials, and ticket 38 gives the interactive run a field-presence table and the
+producer column its second dimension. Neither is large. Both need the human, because one changes what
+`permissive` means and the other changes what the seam instrument covers.

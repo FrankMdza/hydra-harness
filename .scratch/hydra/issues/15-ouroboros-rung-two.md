@@ -469,3 +469,47 @@ This matters beyond tidiness because ticket 16 says to lift these items into
 `docs/ouroboros-spec.md` rather than rewriting them, and ticket 16's own note repeats "the 29 review
 checklist items". Whoever writes that document should count the rows rather than trust either
 heading.
+
+## Amended by ticket 16, 2026-09-04, writing `docs/ouroboros-spec.md`
+
+**Four checklist items are amended against what the sibling documents settled after this ticket
+closed.** The items are lifted into the spec in their corrected form; the reasons are here so a
+reader comparing the two does not read the differences as drift.
+
+- `record_source_fields` named `status_source`. The contract calls it `outcome_source` and dropped
+  its `provider` value, because no routable provider produces a run-level status worth reading.
+- `record_append_only` forbade "a second writer to a run file". Read literally that forbids the
+  harvest that completes an abandoned interactive run. The contract's rule is at most one writer at a
+  time, with ownership transferring only after the liveness test says the recorded pid is gone.
+- `hook_dialect_coverage` said three dialects. Cursor accepts Claude's response dialect on
+  `preToolUse`, so the gate script answers in two shapes rather than three. The item also gains the
+  dialect-is-an-argument rule, since `claude` fails open on a shape it does not recognise.
+- `billed_spend_gate` was `--allow-billed` alone. The harness spec names the per-run human flag
+  pattern once and there are two instances, so the item follows the pattern.
+
+**Where the verdict lives, against this ticket's assumption.** "A blocked patch still gets a branch"
+survives and grows a third and fourth case: an admission failure and a protected-path refusal also
+land on `ouroboros/blocked/<run-id>`, so every pass ends with exactly one branch. Ticket 17's "the
+apply records the verdict it consumed into the run record" does not survive as written, because the
+panel runs after the proposer's run file is closed. The verdict block goes in the branch commit
+message, naming the pass, proposer and three judge run ids.
+
+**This ticket's pass has no home in the record**, which is ticket 36. The judges being "a tree of
+three judge runs under one parent" needs a parent that exists, and the pass is it.
+
+**One sentence here is now false and the correction is in the spec.** "Three of four providers close
+a run reporting success" applies to three of three, since hermes left the routable set.
+
+## Amended by ticket 36, 2026-09-04
+
+**"Admission failure is not a review outcome. The run ends `failed` carrying the compiler output"
+does not survive.** The pass ends `completed`, because the gate did its job, and a pass's outcome
+describes the pass rather than the patch. The compiler output goes in the branch commit message
+beside the verdict, since both are results about the patch.
+
+The sentence's intent survives whole: an admission failure spends no review budget and is not a
+verdict. Only the outcome word and the location of the output change.
+
+**A pass has a record now**, a harness run at depth 0 with the proposer and the three judges as its
+children, so "which review approved this" is a tree walk. The proposer and the judges therefore sit
+at depth 1 rather than 0.
