@@ -1,7 +1,8 @@
 //! The command surface.
 //!
 //! Harness spec 17 lists eleven commands. This slice ships the first one, and adds
-//! none of its own.
+//! none of its own. Section 9 gives `hydra run` eight optional flags and three are
+//! here. The five that are not each belong to a ticket that is not built.
 
 use clap::{Parser, Subcommand};
 
@@ -27,5 +28,15 @@ pub enum Command {
         /// A model inside the provider. Never chosen on your behalf.
         #[arg(long)]
         model: Option<String>,
+
+        /// One of the five policies. `standard` is reads, writes, shell and
+        /// network reads inside the worktree.
+        #[arg(long, default_value = "standard")]
+        policy: String,
+
+        /// Lift the pattern floor for this run, harness spec 16. A human types
+        /// this on one run; no policy can set it and no delegation inherits it.
+        #[arg(long)]
+        allow_floor_escape: bool,
     },
 }

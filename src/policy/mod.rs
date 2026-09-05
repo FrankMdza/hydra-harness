@@ -2,8 +2,9 @@
 //!
 //! Five named allowlists in `policies/`, a pattern floor beside them, a
 //! capability table per provider, and a compiler that turns a policy name into
-//! the gate script of 7.5. No provider is launched from here: the compiler's
-//! output is a file, and ticket 02 is what feeds it to a running `claude`.
+//! the gate script of 7.5. No provider is launched from here. The compiler's
+//! output is a file, and `hydra::run::write_spawn_config` is what puts it in
+//! front of a running `claude`.
 //!
 //! The policy directory is protected config #1 (15.1) and [`PolicySet::sha`] is
 //! what every run record carries as `policy_sha`, so an edit under `policies/`
@@ -325,13 +326,13 @@ pub struct Spawn<'a> {
 /// 7.5's seven, in the order the spec lists them: the five protected configs of
 /// 15.1, the generated gate script, and everything under `~/hydra/runs/`.
 ///
-/// **Four of the five configs are paths rather than files today.** The
-/// environment allowlist is still Rust code in `src/env.rs`, and the export
-/// allowlist, the instruction preamble and the canonical MCP document belong to
-/// tickets this build has not reached. Denying a write to a path that holds no
-/// file is the same denial it will be the day the file lands, so the names are
-/// here now rather than added later and forgotten. `IMPLEMENTATION.md` records
-/// the gap.
+/// **Three of the five configs are paths rather than files today.** Ticket 02
+/// wrote `config/preamble.md`. The environment allowlist is still Rust code in
+/// `src/env.rs`, and the export allowlist and the canonical MCP document belong
+/// to tickets this build has not reached. Denying a write to a path that holds
+/// no file is the same denial it will be the day the file lands, so the names
+/// are here now rather than added later and forgotten. `IMPLEMENTATION.md`
+/// records the gap.
 pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
     let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");
     vec![

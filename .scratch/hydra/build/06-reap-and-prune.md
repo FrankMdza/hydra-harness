@@ -24,8 +24,8 @@ slice left behind.
   branch, then removes the worktree and the run's spawn directory together.
 - `hydra prune` moves run files out of `runs/` and deletes only behind a flag.
 - Neither is callable from a run.
-- The three worktrees under `~/hydra/worktrees/` and their `hydra/<run-id>` branches
-  are gone, reaped by the command rather than by hand.
+- The six worktrees under `~/hydra/worktrees/` and their `hydra/<run-id>` branches are
+  gone, reaped by the command rather than by hand.
 
 ## Watch for
 
@@ -37,3 +37,21 @@ rather than documented.
 **Reaping a worktree makes its record's `worktree.path` point at nothing.** That is the
 intended end state and contract 5.3 already leans on it: if reading a spawn artifact
 were needed to interpret a run, the record would not be the source of truth.
+
+## What ticket 02 left you, added 2026-09-05
+
+**There are six worktrees now, not three.** Ticket 02's measurement added three, and
+each of those also left a `~/hydra/spawn/<run-id>/` behind. Section 5 says the spawn
+directory is reaped with the worktree, so reap removes both or it has not finished.
+
+**`~/hydra/spawn/` exists and `Layout` already names every path you need**:
+`spawns()`, `spawn(run_id)`, `gate_script(run_id)` and `settings_file(run_id)`.
+
+**Reaping a spawn directory removes a file the gate denies writing to**, and that is
+fine rather than a contradiction. The denial binds the child; reap is a human command
+that no run can reach, which is the same asymmetry harness spec 7.5 relies on when it
+says the gate does not stop a run invoking `hydra` itself.
+
+**The three ticket-02 records are the ones worth keeping.** They are the only evidence
+on this machine that a compiled deny held under `bypassPermissions`, so if you exercise
+`hydra prune` against real files, move them rather than testing the delete flag on them.

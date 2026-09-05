@@ -26,9 +26,9 @@ pub struct RunStart {
     /// Sometimes late and sometimes absent. On `claude` it lands on the `system`
     /// init frame, so a reader takes it from `raw` rather than from here.
     pub provider_session_id: Option<String>,
-    /// The full task string as passed. No preamble rides it in this slice, because
-    /// harness spec 8 has the preamble assert that a run's actions are bounded by a
-    /// policy it cannot widen, and this slice compiles no policy.
+    /// The full task string as passed, preamble included (contract 5.1). Harness
+    /// spec 8's preamble rides here rather than in an injected skill, so the
+    /// record shows exactly what the run was told and the preamble needs no sha.
     pub task: Option<String>,
     pub policy: Option<String>,
     pub policy_sha: Option<String>,

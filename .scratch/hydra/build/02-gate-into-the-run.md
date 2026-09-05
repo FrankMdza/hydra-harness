@@ -1,7 +1,7 @@
 # 02 - Wire the gate into a recorded `claude` run
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 01
 
 ## Goal
@@ -88,3 +88,90 @@ feeds it payloads in the shape ticket 26 measured. When the provider is in the l
 probe that matters is the one `IMPLEMENTATION.md` already records: a write to `probe.txt`
 inside the run's own worktree, refused under `bypassPermissions`, by the gate this time
 rather than by the provider's default mode.
+
+## Outcome
+
+Built, measured on `claude` 2.1.261 on 2026-09-05, and `IMPLEMENTATION.md` carries the
+numbers and the run ids.
+
+**What landed.** `~/hydra/spawn/<run-id>/` holds `gate` at `0o700` and `settings.json`,
+both written fresh per spawn by `hydra::run::write_spawn_config`. `--settings` is on the
+command line and 6.7's two policy shapes are both there: `judge` takes `--restricted`
+and no `--permission-mode`, the other four take `--permission-mode bypassPermissions`.
+`run_start` carries a real `policy` and `policy_sha`. The preamble rides the task string
+and lands in `run_start.task` verbatim. `hydra run` gained `--policy`, defaulting to
+`standard`, and `--allow-floor-escape`.
+
+**The measurement, in the order it was taken.** The flag went on last, as the ticket
+asked. First the same probe with `bypassPermissions` held back, which proved the hook
+was mounted and the `*` matcher matched while the provider's own permission layer was
+still there. Then the flag, and the denial held:
+`hydra/capability: policy read-only does not allow file_write (Write).` reached the
+model verbatim with `is_error: true`, no file was written, and the run closed
+`subtype: success`, exit 0. Then a `standard` run of the same probe, which the gate
+allowed and which wrote the file, because two denials prove only that something says no.
+
+**What the ticket assumed that turned out otherwise.**
+
+- **`standard` did not hit the `ToolSearch` and `Skill` denial.** The ticket expected
+  the first gated `standard` run to notice it. A one-tool probe never reached for
+  either. The capability loss is still there and still real, and it wants a run with
+  ordinary coding shape to surface it. Ticket 03 or 07 will get there first.
+- **`hydra_version` stopped separating gated records from ungated ones.** The first
+  slice's note said any `0.1.x` record predates the gate. Three gated records were
+  written under `0.1.0` during this ticket's own measurement, before the version moved
+  to `0.2.0`. A null `policy` is the test that holds, and `IMPLEMENTATION.md` says so
+  now.
+- **The `PreToolUse` matcher was not settled by any research.** Ticket 26 and ticket 30
+  both probed `claude` with a named matcher, `"Bash"`. The gate needs every tool, `"*"`
+  is documented rather than measured, and a matcher that fails to match fails open on
+  this provider. Measured here instead: the gate fired on `PreToolUse:Write` on all
+  three probes.
+
+**One decision this ticket declined to make.** Nothing checks at launch that the gate
+script actually runs. On `claude` a hook that fails to start fails open, so a broken
+interpreter or a mangled shebang is silent. A launch-time smoke test of the compiled
+script would be an eighth entry in harness spec 6.1's pre-flight list, and 6.1 is a
+closed design decision with seven. That belongs on the map rather than in this commit.
+`IMPLEMENTATION.md` records the risk under rough edges.
+
+## What the code review found, added 2026-09-05
+
+Two axes, standards and spec, both against the finished change.
+
+**The spec axis found a live hole and it is not closed.** `shell` walks past all seven
+of 7.5's path denials, because the deny list is consulted only for `file_write` and
+`Bash` carries no path. That reaches protected config #1, the run corpus, and the run's
+own gate script, and an emptied gate script makes `claude` fail open, so two `Bash`
+calls under `standard` end the gate for the rest of the run. `bypassPermissions`, which
+this ticket put on the command line, is what removed the layer that had been refusing
+those calls. `IMPLEMENTATION.md` opens with the finding and
+`tests/gate.rs::shell_walks_past_the_protected_path_denials` pins it. **Closing it is a
+decision rather than an implementation**, so by this repo's fourth closing rule it goes
+to the map rather than into this commit.
+
+**Smaller spec findings, all recorded rather than fixed.** `--allow-floor-escape` is not
+on the run record, and harness spec 16 says a per-run human flag lands there; the field
+does not exist in contract 5.1, so adding it is a contract change. `~/hydra/spawn/` is
+denied only as this run's own script rather than as a directory, which a detached
+concurrent run would make reachable. Both are in `IMPLEMENTATION.md`.
+
+**Spec findings that were fixed.** The reason given for holding `--strict-mcp-config`
+back was true of `--mcp-config` and not of it: 6.5 says the strict flag stops the human's
+inherited servers starting at all. Measured instead, and all three runs came back
+`mcp_servers: []`, so nothing was inherited on this machine. That is an observation
+rather than the guarantee the flag makes, and `src/provider/claude.rs` now says so. The
+flag count in two headers said nine optional flags with two built; section 9 lists eight
+and three are built. A sentence in `IMPLEMENTATION.md` claimed a no-worktree run "can
+read and shell out and write nowhere", and `standard` scopes reads to the worktree too,
+so it reads nothing either.
+
+**Standards axis.** `cargo fmt` had never been run against the new files and three hunks
+were unformatted. Three comments still spoke of ticket 02 in the future tense, and one
+in `src/policy/mod.rs` still counted four protected configs as fileless after this ticket
+wrote the preamble. `src/record/lines.rs` still said no preamble rides the task string.
+All fixed. Its judgement calls, left alone with reasons: the policy name travels as a
+`&str` where the repo's idiom for a closed set is an enum, `write_spawn_config` takes six
+parameters where `policy::Spawn` is the bundle that already exists, and the temp-root
+scaffolding in `tests/spawn.rs` repeats `tests/gate.rs`. None of the three is worth a
+refactor inside this ticket, and all three are cheap later.

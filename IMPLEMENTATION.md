@@ -3,10 +3,65 @@
 `docs/` is the design, finished and checked. This file is the gap between it and the
 code, kept current by whoever narrows the gap.
 
-Read it before trusting a run record written by this binary. **No record this binary
-has written was gated, and three of its fields say so.** Build ticket 01 compiled the
-policy set and the gate; ticket 02 is what passes one to a running provider, and until
-it lands every record still carries a null policy.
+Read it before trusting a run record written by this binary. **A record whose `policy`
+is null was written before the gate reached a provider.** Ticket 02 wired it, and every
+record written after that carries the policy that was in force and the sha of the
+directory it came from.
+
+**`hydra_version` does not separate the two.** It used to be the field this file pointed
+at, and three gated records were written under `0.1.0` during ticket 02's own
+measurement, before the version moved to `0.2.0`. A null `policy` is the test that holds.
+
+## The open hole: shell walks past every path denial
+
+**Found by ticket 02's code review, on 2026-09-05, and not closed.** Read this before
+running anything under `standard` or `permissive`.
+
+Harness spec 7.5 states the seven path denials as delivered outright: "a hook sees the
+path and refuses the write before it reaches disk". The gate delivers that for tools
+that carry a path in their arguments. `Bash` does not carry one. `shell` is unscoped in
+every policy that grants it, `src/policy/gate.py` consults the deny list only when the
+capability is `file_write`, and no argv match can decide what a shell command will
+write. So under `standard`:
+
+```
+Write  file_path=~/hydra/policies/standard.json   ->  hydra/protected-path, denied
+Bash   echo pwned > ~/hydra/policies/standard.json ->  hydra/allow: policy standard allows shell
+```
+
+Both verified against the gate script from a real run. The same holds for
+`~/hydra/runs/`, which 7.5 protects because a loop that learns from the corpus must not
+be able to edit the corpus, and for the run's own gate script, which is 7.5's induction
+base case.
+
+**The base case is the serious one, because it composes into a full bypass.** The script
+is `0o700` and owned by the user the child runs as, its directory is one `ls
+~/hydra/spawn/` away, and an emptied script exits 0 and prints nothing. 6.6 measured
+that `claude` fails **open** on a response in a shape it does not recognise. So two
+`Bash` calls under `standard` turn the gate off for the rest of the run.
+
+**Ticket 02 is what made this live.** Before it, no `--settings` and no
+`--permission-mode`, so `claude`'s own default mode refused every unapproved `Bash` call
+with nobody present to approve one. `bypassPermissions` took that layer away and put the
+gate in its place, and the gate does not cover this. The flag and the hole arrived in
+the same change.
+
+**Nothing else catches it.** 7.4's pattern floor covers destructive git, `aws configure`
+and `sso`, and Slack webhooks. It says of itself that it is "a floor and never a gate"
+and that its failure mode is silent permission on the spelling nobody wrote down. The
+user's own `PreToolUse` guards compose into every `claude` child, and they guard git,
+aws and Slack rather than paths under `~/hydra`.
+
+**Closing it is a design decision rather than an implementation.** Every option trades
+something the design has already argued about: denying `shell` its unscoped grant
+rewrites 7.2's `standard`; matching paths in argv is the floor's own failure mode, which
+7.4 rejects as coverage; moving the script somewhere the child cannot write needs a
+second uid or a sandbox, which is nowhere in the spec. 7.5 already concedes the shape of
+the problem when it says the gate does not stop a run invoking `hydra` itself. This one
+is larger, because it reaches protected config #1 and the corpus.
+
+`tests/gate.rs::shell_walks_past_the_protected_path_denials` pins the current behaviour
+so that closing it breaks a test on purpose.
 
 Provider versions this slice was built and measured against, read 2026-09-05:
 
@@ -19,27 +74,52 @@ Provider versions this slice was built and measured against, read 2026-09-05:
 ## The one command
 
 ```
-hydra run --provider claude --task "..." [--model <id>]
+hydra run --provider claude --task "..." [--model <id>] [--policy <name>]
+          [--allow-floor-escape]
 ```
 
 It builds the child's environment from the allowlist, reads the provider's version,
-mints a UUIDv7 run id, creates a git worktree and seeds it with the parent's
-uncommitted work, spawns `claude` on a pty it owns, writes `run_start`, tees every
-frame verbatim into `~/hydra/runs/<run-id>.jsonl`, and writes `run_end` when the
-child exits. It prints JSON on stdout.
+loads the policy set and the preamble, mints a UUIDv7 run id, creates a git worktree and
+seeds it with the parent's uncommitted work, compiles the run's gate into
+`~/hydra/spawn/<run-id>/`, spawns `claude` on a pty it owns with `--settings` pointing at
+the hook config, writes `run_start`, tees every frame verbatim into
+`~/hydra/runs/<run-id>.jsonl`, and writes `run_end` when the child exits. It prints JSON
+on stdout.
+
+Section 9 gives `hydra run` eight optional flags and three are here: `--model`,
+`--policy` and `--allow-floor-escape`. The five that are not each belong to a ticket
+that is not built: `--parent` and `--files` to delegation, `--timeout` and
+`--shared-tree` to the detached spawn, `--allow-billed` to the raw-model plane.
 
 `cursor-agent` and `agy` are routable in the design and refused here by name, with an
 error that says the slice routes one provider rather than that the provider is
 unknown.
 
-## The policy set and the gate, compiled but not yet passed
+## The policy set and the gate, on a run
 
-Build ticket 01. `policies/` holds the five policies of harness spec 7.2 and the pattern
-floor of 7.4, `src/policy/` loads and hashes them, and `hydra::policy::write_gate`
-compiles a policy name into the script of 7.5. **Nothing launches it.** No provider is
-spawned with `--settings`, so a run record's `policy` is still null and the departures
-below are unchanged. `tests/gate.rs` feeds the compiled script synthetic hook payloads
-and asserts its answers, 23 of them.
+Tickets 01 and 02. `policies/` holds the five policies of harness spec 7.2 and the
+pattern floor of 7.4, `src/policy/` loads and hashes them, `hydra::policy::write_gate`
+compiles a policy name into the script of 7.5, and every `hydra run` writes one into
+`~/hydra/spawn/<run-id>/` and passes it to `claude` on `--settings`. `tests/gate.rs`
+feeds the compiled script synthetic hook payloads and asserts its answers, 23 of them;
+`tests/spawn.rs` checks that a run writes the script where the run will find it.
+
+**The `PreToolUse` matcher is `*`, and one entry covers every tool.** `claude` routes
+reads through `PreToolUse` like everything else, so one event is enough on this
+provider. Cursor is the one that needs `beforeReadFile` as well, and that is ticket 09.
+The wildcard is documented rather than measured in the research, so ticket 02 measured
+it: the gate fired on `PreToolUse:Write` on all three probes below.
+
+**The hook command carries the dialect and the script path is shell-quoted.** The
+config's `command` is a string a shell runs, and the spawn directory sits under a home
+directory whose name Hydra does not choose. A space in it would split the command and
+run the gate with no `argv[1]`, which denies in two shapes and exits 2. That fails
+closed, but it fails closed on every call of every run, so the quoting is what keeps it
+from being a silent outage.
+
+**No hook `timeout` is set**, so `claude`'s default applies. A hook that fails to answer
+fails open on this provider, and inventing a shorter budget than the default only moves
+the same failure closer.
 
 **The script is Python, and its shebang is `/usr/bin/python3` rather than
 `/usr/bin/env python3`.** The language is what 7.5's ticket expected: the gate needs
@@ -73,20 +153,21 @@ direction 7.1 chose on purpose: an allowlist fails toward a run that cannot do i
 which someone notices. Ticket 02's first gated run is where it gets noticed, and the
 fix, if the records ask for one, is a policy file edit rather than code.
 
-**The four protected configs that are not files yet are denied by path anyway.** 7.5
-denies writes to seven paths under every policy. Two exist: `policies/` and
-`~/hydra/runs/`. The generated gate script is written per spawn. The other four are
-named at `config/env-allowlist.json`, `config/export-allowlist.json`,
-`config/preamble.md` and `config/mcp.md`, and **none of those files exists**. The
-environment allowlist is still Rust code in `src/env.rs`, which 15.2 protects at
-admission rather than at run time, so the config the table means has no file. Denying a
-write to a path that holds nothing is the same denial it will be the day the file lands,
-which is why the names went in now rather than being added later and forgotten.
+**Three protected configs are still paths rather than files.** 7.5 denies writes to
+seven paths under every policy. Four exist now: `policies/`, `~/hydra/runs/`, the
+per-spawn gate script, and `config/preamble.md`, which ticket 02 wrote. The other three
+are named at `config/env-allowlist.json`, `config/export-allowlist.json` and
+`config/mcp.md`, and **none of those files exists**. The environment allowlist is still
+Rust code in `src/env.rs`, which 15.2 protects at admission rather than at run time, so
+the config the table means has no file. Denying a write to a path that holds nothing is
+the same denial it will be the day the file lands, which is why the names went in early
+rather than being added later and forgotten.
 
 **Hydra finds its own policy directory through `CARGO_MANIFEST_DIR`, so the binary
-only works from its source tree.** `PolicySet::discover()` and the four `config/` paths
-are compiled against the manifest directory, which is right for a binary run out of
-`target/debug` and wrong for an installed one: a copied `hydra` would compile gates
+only works from its source tree.** `PolicySet::discover()`, `preamble::path()` and the
+four `config/` paths are compiled against the manifest directory, which is right for a
+binary run out of
+`target/debug` and wrong for an installed one. A copied `hydra` would compile gates
 against a `policies/` that is not where it thinks. Nothing has needed an installed
 binary yet, and the answer is not obvious, since the policy directory is protected
 config #1 and a run must not be able to point Hydra at a different one. Naming it here
@@ -112,29 +193,34 @@ substitution feeds is not decidable without running it, so a command carrying `$
 floor cannot know the current branch from argv. It is the failure mode 7.4 names out
 loud, written down here so nobody reads the passing tests as coverage.
 
-## The three departures from the record contract
-
-**`policy` and `policy_sha` are null on a recorded run.** This is the big one. A gate
-compiles now, and no run is launched with one, so nothing is in force and null is the
-true answer rather than a missing value. Writing a `policy` on a record whose child
-never saw a hook would be the worse kind of wrong: a field that claims a bound the run
-did not have. Contract 5.6 already gives a null policy a defined reach, for the
-interactive run: `permission_decision` has no producer, because 7.7 derives it by
-re-evaluating the run's own policy, and the gate-leak check goes with it. Every one
-of those consequences holds here for the same reason. What differs from 5.6 is that
-`launch_mode` reads `recorded`, so a reader cannot tell these records apart by launch
-mode. **`hydra_version` is the field that tells them apart**, which is the job
-contract 15 already gives `provider_version` for provider drift. Any `0.1.x` record
-was written before a gate was passed to a provider.
+## The one departure from the record contract
 
 **`skills` and `mcp` are absent, not null.** Nothing is injected, so which sha the run
 pinned is not a question with a missing answer. Contract 5.5 set the rule and 5.6
 applied it; this is the third place it applies.
 
-**No preamble rides the task string.** Harness spec 8 has the preamble assert that a
-run's actions are bounded by a policy it cannot widen. There is no policy, so the
-sentence would be false, and a preamble that overclaims is the Hermes failure with
-the roles swapped. `task` is therefore exactly what the caller passed.
+Ticket 02 closed the other two. `policy` and `policy_sha` carry the policy that was in
+force and the sha of the directory it was compiled from, and the preamble rides the task
+string, so `run_start.task` is the preamble followed by a blank line and the caller's
+task verbatim.
+
+**`--allow-floor-escape` is not on the run record.** Harness spec 16 says a per-run
+human flag "lands in the run record as an argument, so the record shows why a run was
+allowed to do the thing", and `--allow-billed` has `auth.allow_billed` for exactly that.
+The floor flag has no field, and contract 5.1 names none, so adding one is a contract
+change rather than a line of code. Until it lands, a floor-lifted run is
+indistinguishable in the record from one that was never offered the lift, and 7.7's
+re-derivation of a permission decision from `policy` and `policy_sha` gets the wrong
+answer on any run where a human typed it.
+
+**Nothing derives `permission_decision` yet.** The gate's answers are in the record and
+no reader turns them into the contract's event type. Contract 7.7 derives it by
+re-evaluating the run's own policy, and re-evaluation is the normalizer's job, which is
+ticket 03. What a record carries today is the raw evidence: `hook_started` and
+`hook_response` frames naming `PreToolUse:<tool>` and carrying the gate's verdict
+verbatim, the reason string on the tool result with `is_error: true`, and an entry in
+`result.permission_denials[]` with its `tool_use_id`. The gate-leak check waits on the
+same ticket.
 
 Everything else in contract sections 2 to 6 is met, and `tests/record_contract.rs`
 checks it rather than asserting it. That test also walks every record under
@@ -142,21 +228,57 @@ checks it rather than asserting it. That test also walks every record under
 
 ## What the command line does not carry
 
-**`--permission-mode bypassPermissions` is not passed.** Harness spec 6.7 justifies
-it in one sentence: a hook deny beats it, so the gate does the refusing. With no
-gate compiled, that sentence has no subject, and the flag would leave a detached
-child with nothing between it and the filesystem. The provider's own default applies
-until the gate lands.
-
-Measured on 2026-09-05, which is worth more than the argument. A run asked to write
-`probe.txt` inside its own worktree got `system/permission_denied`, wrote no file,
-and closed with `subtype: success`, `is_error: false`, `terminal_reason: completed`
-and exit code 0. The refusal works and the terminator lies about it, which is exactly
-what contract section 8 says to expect of all three providers.
+**`--mcp-config` and `--strict-mcp-config` are not passed.** 6.7 puts both on a
+non-`judge` recorded run. MCP injection is ticket 08 and writes the file they point at,
+so passing them now would name a file that does not exist. The record says the same
+thing by leaving `mcp` absent.
 
 **`< /dev/null` is dropped**, and harness spec 6.7 now says why.
 
-## What this slice measured
+`--permission-mode bypassPermissions` is passed, and the section below says what was
+measured before it went on.
+
+## What ticket 02 measured: the gate on a real run
+
+Three probes on `claude` 2.1.261, 2026-09-05, each a run asked to write `probe.txt`
+inside its own worktree with the file tool and to stop if blocked. The records are on
+this machine and the run ids are below.
+
+**A hook deny beats `bypassPermissions`, on this wiring and not only in ticket 26's
+rig.** Run `01a07308-39e3-79c2-8901-ac052723b79a`, policy `read-only`, `permissionMode:
+bypassPermissions` on its own init frame. The gate answered `deny` on
+`PreToolUse:Write`, the reason `hydra/capability: policy read-only does not allow
+file_write (Write).` reached the model verbatim as the tool result with `is_error:
+true`, no file was written, and `result` closed `subtype: success`, `is_error: false`,
+exit 0. **The refusal holds and the terminator lies about it**, which is what contract
+section 8 says to expect of all three providers. `result.permission_denials[]` carries
+the denial with its `tool_use_id`, contract 8.5's corroboration.
+
+**The flag went on after that, not before.** Run
+`01a07307-2693-7ef0-b572-a565ffcc3190` is the same probe with `bypassPermissions` held
+back, and it is what proved the hook was mounted and the `*` matcher matched before the
+provider's own permission layer was taken away. Same denial, same reason, no file. The
+sequencing is the point: a gate that had failed to mount would have been invisible under
+the provider's default mode and wide open the moment the flag went on.
+
+**The gate discriminates rather than blanket-denying.** Run
+`01a07308-a250-7792-9e8b-0d99697c99d9`, policy `standard`, same probe, same flag: the
+gate answered `allow` with `hydra/allow: policy standard allows file_write.` and
+`probe.txt` is on disk in that worktree. Without this run the other two prove only that
+something says no.
+
+**The user's own hooks reach the child, and the record shows it.** Every one of the
+three carries a `UserPromptSubmit` `hook_response` from the user's `~/.claude`
+guards, alongside Hydra's `PreToolUse`. That is 6.6's composition working rather than
+isolation, and it is also 6.6's warning arriving: the record now carries the stdout of
+a script the user edits.
+
+**`standard` did not hit the `ToolSearch` and `Skill` denial.** Ticket 02 expected the
+first gated `standard` run to notice the capability loss below. This probe was one tool
+call long and never reached for either. The loss is still there and still real; it
+wants a run with ordinary coding shape to surface it.
+
+## What the first slice measured
 
 Three findings, all on `claude` 2.1.261 over a pty Hydra owned, 2026-09-05. **All
 three are in the documents now**, so what follows is the short version and the
@@ -191,7 +313,32 @@ these records nothing derives from either, because 7.7 needs a policy. It gets n
 in the producer table for that reason and a paragraph in 7.7 instead, so the next
 reader meets it in the document rather than in a record.
 
-## Choices this slice made that no ticket settled
+## Choices this build made that no ticket settled
+
+**`--policy` defaults to `standard`.** Section 9 makes the flag optional and names no
+default. `standard` is the ordinary coding shape and the only one of the five that fits
+a run a human typed without thinking about policy. The alternative worth naming is
+having no default and refusing without the flag, which is safer on paper and would mean
+every `hydra run` carries a flag whose value is `standard` in almost every case.
+
+**A run with no repo scopes `worktree` at a path nothing creates.** `hydra run` outside
+a git repo has no checkout, and the child runs where Hydra was invoked. Pointing the
+`worktree` scope at that directory would hand the run write access to whatever the human
+happened to be standing in, so it points at `~/hydra/spawn/<run-id>/no-worktree`, which
+nothing creates. Under `standard` that scopes reads to the same missing directory, so
+such a run reads nothing through the file tools either, and shell is what it has left.
+That is the honest reading of D9: Hydra writes only under a path it created, and a run
+with no checkout has none.
+
+**The spawn directory's filenames are `gate` and `settings.json`.** Harness spec 19.1
+leaves the names inside the spawn directory open. `settings.json` comes from 6.6's own
+table; `gate` comes from 7.5's prose. Neither is a ticket's decision.
+
+**The preamble and the caller's task are joined by a blank line and nothing else.**
+Section 8 allows the preamble three assertions and no more, and a marker line saying the
+task follows is a fourth sentence in Hydra's voice. The cost is that a reader of
+`run_start.task` has to know where the preamble ends, and the preamble is a fixed string
+in `config/preamble.md`, so they can.
 
 **Worktrees live at `~/hydra/worktrees/<run-id>/`, on branch `hydra/<run-id>`.** No
 closed ticket names the location, which is the same gap harness spec 19.1 flags for
@@ -231,26 +378,31 @@ null `usage` reads as a measurement of zero, so the JSON carries a
 
 Out of scope for this slice, and each one has a document that already says what it is:
 
-- The gate, on a run. Harness spec 6.6. The policy set, the capability table and the
-  compiler are built (ticket 01) and nothing passes their output to a provider: no
-  `--settings`, no hook config, no `--permission-mode bypassPermissions`, so the three
-  consequences above still follow. Ticket 02 is the wiring, and it is the first thing
-  that will find out whether a compiled deny holds on a real run.
-- Skill injection and the store. 6.4.
-- MCP injection and the Cursor pre-flight. 6.5.
-- The spawn directory. It holds a gate script, an MCP config and Cursor's data root,
-  and this slice writes none of the three, so it creates no directory.
+- Skill injection and the store. 6.4. `~/hydra/skills/` is the `skill_store` scope and
+  nothing creates it, so a `curate` run today is scoped to a directory that is not
+  there. The gate denies rather than resolving elsewhere, which is the safe end of that,
+  and ticket 07 is what makes the scope mean something.
+- MCP injection and the Cursor pre-flight. 6.5. The spawn directory exists now and holds
+  the gate and the hook config; the `mcp.json` beside them and Cursor's `cursor-data/`
+  are ticket 08 and ticket 09.
+- Six of harness spec 6.1's seven pre-flight checks. Auth, depth, policy containment,
+  concurrency, skill collision and both MCP checks all belong to tickets that are not
+  built. What runs before a run id exists today is the environment, the provider version,
+  the policy name and the preamble file.
 - Delegation: `--parent`, depth, monotonic narrowing, the MCP delegate face. 7.3, 9.
 - Detached spawning and the timeout. Section 9 spawns every child detached and makes
   blocking a view over it. Here the run is foreground and `hydra run` dies with it.
-  Ctrl-C leaves an orphan child, a record with no `run_end`, and an abandoned
-  worktree, which is exactly ticket 14's abandoned-run class arriving early.
+  Ctrl-C leaves an orphan child, a record with no `run_end`, an abandoned worktree and
+  now an abandoned spawn directory, which is exactly ticket 14's abandoned-run class
+  arriving early.
 - The normalizer, the ten event types, and outcome derivation. Contract 7 and 8.
 - Interactive runs and harvest. 5.6, 12.
-- Every command but `run`. Notably `hydra reap`, so worktrees accumulate. Remove one
-  by hand with `git worktree remove ~/hydra/worktrees/<run-id>` and
-  `git branch -D hydra/<run-id>`, and read harness spec 10 first, because the specced
-  reap commits uncommitted work to the child's branch before removing anything.
+- Every command but `run`. Notably `hydra reap`, so worktrees and spawn directories
+  accumulate. Section 5 says the two are reaped together. Removing one by hand takes
+  `git worktree remove ~/hydra/worktrees/<run-id>`, `git branch -D hydra/<run-id>` and
+  `rm -rf ~/hydra/spawn/<run-id>`, and read harness spec 10 first, because the specced
+  reap commits uncommitted work to the child's branch before removing anything. Ticket
+  06 builds it.
 - Ouroboros, both rungs.
 
 ## Rough edges worth knowing
@@ -261,3 +413,15 @@ Out of scope for this slice, and each one has a document that already says what 
   `run_end.error`. It has not happened; `claude` writes JSON through Node.
 - **The tee has no line-length cap.** A provider that streams one enormous frame
   would grow the buffer without limit. Frames of 200 KB are tested and fine.
+- **`~/hydra/spawn/` is not denied as a whole, only this run's own script.** 7.5 names
+  "the generated gate script", singular, and `denied_write_paths` follows it literally.
+  A `permissive` run could therefore rewrite a concurrent run's live script, which 7.5
+  says is read fresh on every invocation. Nothing exercises this today, because runs are
+  foreground and one at a time until ticket 05 detaches them. It is latent rather than
+  live, and it is smaller than the shell hole above only because shell already reaches
+  every one of these paths.
+- **A gate that fails to start fails open on `claude`.** 6.6 measured it and nothing
+  here changes it. The shebang is absolute and the script imports nothing outside the
+  standard library, which is what that risk is spent on. Nothing checks at launch that
+  the script runs, and adding such a check would be an eighth entry in 6.1's pre-flight
+  list, which is a design decision rather than an implementation.

@@ -1,0 +1,146 @@
+//! The spawn directory, harness spec 5 and 6.6, without launching a provider.
+//!
+//! `tests/gate.rs` proves the compiled script answers correctly. This file proves
+//! the run writes it where the run will find it, that `--settings` points at a
+//! config naming that script and its dialect, and that both are real files created
+//! fresh per spawn.
+
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use hydra::paths::Layout;
+use hydra::policy::PolicySet;
+use hydra::run::write_spawn_config;
+
+/// A layout per test, because the suite runs in parallel.
+fn layout() -> (Layout, PathBuf) {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "hydra-spawn-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = Layout::at(&root);
+    layout.ensure().unwrap();
+    (layout, root)
+}
+
+fn settings_of(path: &Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn hook_command(settings: &serde_json::Value) -> String {
+    settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let spawn =
+        write_spawn_config(&layout, "r1", &set, "standard", Some(&worktree), false).unwrap();
+
+    assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
+    assert_eq!(spawn.settings, root.join("spawn/r1/settings.json"));
+    assert!(spawn.gate.is_file());
+    assert!(spawn.settings.is_file());
+
+    let command = hook_command(&settings_of(&spawn.settings));
+    assert!(
+        command.contains(spawn.gate.to_str().unwrap()),
+        "--settings must point at the script this spawn wrote, got {command}"
+    );
+    assert!(
+        command.ends_with(" claude"),
+        "the dialect is argv[1] and is never inferred, got {command}"
+    );
+}
+
+#[test]
+fn the_gate_is_executable_and_is_a_real_file() {
+    let (layout, _root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
+
+    // 6.6: real files, never links. `cursor-agent` refuses a symlinked project
+    // config silently and runs the command anyway, so this holds for all three.
+    assert!(
+        !spawn
+            .gate
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(
+        !spawn
+            .settings
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+
+    let mode = spawn.gate.metadata().unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700, "the provider runs the script as a command");
+}
+
+#[test]
+fn every_spawn_gets_its_own_directory() {
+    let (layout, _root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let one = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
+    let two = write_spawn_config(&layout, "r2", &set, "read-only", None, false).unwrap();
+
+    assert_ne!(one.gate, two.gate);
+    let first = std::fs::read_to_string(&one.gate).unwrap();
+    let second = std::fs::read_to_string(&two.gate).unwrap();
+    assert_ne!(
+        first, second,
+        "two policies compiled to the same script, so one of them is not in force"
+    );
+    // The policy name is compiled into the script as JSON inside a Rust string
+    // literal, so it reaches the file escaped.
+    assert!(first.contains(r#"\"policy\":\"standard\""#));
+    assert!(second.contains(r#"\"policy\":\"read-only\""#));
+}
+
+#[test]
+fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
+    let (layout, _root) = layout();
+    let set = PolicySet::discover().unwrap();
+    // 7.5's base case. The script is compiled before it is written, so a
+    // placeholder path here would deny a file nothing ever writes to.
+    let spawn = write_spawn_config(&layout, "r1", &set, "permissive", None, false).unwrap();
+    let text = std::fs::read_to_string(&spawn.gate).unwrap();
+    let resolved = std::fs::canonicalize(&spawn.gate)
+        .unwrap()
+        .to_string_lossy()
+        .to_lowercase();
+    assert!(
+        text.contains(&resolved),
+        "the compiled deny list does not name {resolved}"
+    );
+}
+
+#[test]
+fn a_run_with_no_worktree_scopes_writes_to_a_path_nothing_creates() {
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
+    let text = std::fs::read_to_string(&spawn.gate).unwrap();
+
+    assert!(
+        text.contains("no-worktree"),
+        "with no repo the worktree scope must not fall back to the invocation directory"
+    );
+    assert!(!root.join("spawn/r1/no-worktree").exists());
+}

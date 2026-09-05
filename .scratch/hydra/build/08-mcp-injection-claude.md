@@ -39,3 +39,21 @@ the set and be right.
 
 **A recorded `claude` run cannot reach the human's own user-scope servers at all.** That
 is one of the two accepted costs, not a bug to fix later.
+
+## What ticket 02 left you, added 2026-09-05
+
+**The spawn directory exists and `mcp.json` is the file that is missing from it.**
+`Layout::spawn(run_id)` is the directory, and ticket 02 writes `gate` and
+`settings.json` into it through `hydra::run::write_spawn_config`. That function is where
+the MCP config joins them.
+
+**`--mcp-config` and `--strict-mcp-config` are held back on purpose**, not forgotten.
+`src/provider/claude.rs` has a note saying so, and its `the_mcp_flags_wait_for_ticket_08`
+test fails the moment you add them, which is the reminder to delete the test with the
+same change. Both go on a non-`judge` run only: `--restricted` drops MCP anyway, so the
+`judge` shape stays as it is.
+
+**Protected config #5 has no file yet.** The gate denies writes to `config/mcp.md` under
+every policy and nothing has written it. `config/README.md` is the table, and ticket 02
+wrote `config/preamble.md` next to it as the worked example of what one of these looks
+like once it is real.

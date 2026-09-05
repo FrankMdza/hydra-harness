@@ -1,9 +1,13 @@
 //! The `~/hydra` layout.
 //!
-//! Harness spec section 5 names four places Hydra writes. This slice creates two:
-//! the run file and the worktree. There is no spawn directory, because a spawn
-//! directory holds a gate script, an MCP config and Cursor's data root, and this
-//! slice writes none of the three.
+//! Harness spec section 5 names four places Hydra writes. Three exist here: the
+//! run file, the worktree and the spawn directory. The fourth is
+//! `~/hydra/skills-snapshots/<sha>/`, which needs the skill store (ticket 07).
+//!
+//! **The spawn directory is a sibling of `runs/` and not a subdirectory of it.**
+//! Section 5 is explicit: ticket 13 derives liveness from a run file's opening
+//! envelope and forbids anything but the owning process from appending to it, and
+//! a run that is a directory invites a second writer.
 //!
 //! The worktree location is a choice this slice makes rather than one the design
 //! settled. No closed ticket names it, the same gap harness spec 19.1 flags for
@@ -54,6 +58,39 @@ impl Layout {
         self.worktrees().join(run_id)
     }
 
+    /// `~/hydra/skills/`, the `skill_store` scope. Nothing creates it yet: the
+    /// store is ticket 07. The gate still needs the path, because a policy that
+    /// scopes a write to a store that does not exist must deny rather than
+    /// resolve to something else.
+    pub fn skills(&self) -> PathBuf {
+        self.root.join("skills")
+    }
+
+    pub fn spawns(&self) -> PathBuf {
+        self.root.join("spawn")
+    }
+
+    /// `~/hydra/spawn/<run-id>/`, created per run and reaped with the worktree.
+    pub fn spawn(&self, run_id: &str) -> PathBuf {
+        self.spawns().join(run_id)
+    }
+
+    /// The compiled gate, 7.5. Outside the worktree it guards, which is what
+    /// gives `permissive` and `curate` a base case.
+    pub fn gate_script(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("gate")
+    }
+
+    /// The hook config `--settings` points at, 6.6.
+    ///
+    /// The filename is this build's choice. Harness spec 19.1 leaves the names
+    /// inside the spawn directory open, and 6.6's table writes
+    /// `~/hydra/spawn/<run-id>/settings.json`, so the name comes from the table
+    /// rather than from a ticket.
+    pub fn settings_file(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("settings.json")
+    }
+
     /// Creates the directories this slice writes into. Never the worktree itself,
     /// which `git worktree add` insists on creating.
     pub fn ensure(&self) -> Result<()> {
@@ -61,6 +98,8 @@ impl Layout {
             .with_context(|| format!("creating {}", self.runs().display()))?;
         std::fs::create_dir_all(self.worktrees())
             .with_context(|| format!("creating {}", self.worktrees().display()))?;
+        std::fs::create_dir_all(self.spawns())
+            .with_context(|| format!("creating {}", self.spawns().display()))?;
         Ok(())
     }
 }

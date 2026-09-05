@@ -1,8 +1,10 @@
 //! The gate script, fed synthetic hook payloads on stdin.
 //!
-//! No provider is launched here. Ticket 01 compiles the script and asserts its
-//! answers; ticket 02 is what wires it into a recorded `claude` run and finds
-//! out whether the provider honours them.
+//! No provider is launched here. This file asserts what the compiled script
+//! answers; `tests/spawn.rs` checks that a run writes it where the run will find
+//! it. Ticket 02 measured the rest on a real `claude` run, and
+//! `IMPLEMENTATION.md` carries the numbers: a compiled deny held under
+//! `--permission-mode bypassPermissions`.
 //!
 //! Every payload below is the shape ticket 26 measured coming out of `claude`
 //! 2.1.257: `tool_name`, `tool_input`, `cwd`, and the rest of the envelope the
@@ -613,5 +615,41 @@ fn the_written_script_is_executable_and_runs_on_its_own_shebang() {
     assert_eq!(
         value["hookSpecificOutput"]["permissionDecision"], "deny",
         "judge allows nothing"
+    );
+}
+
+#[test]
+fn shell_walks_past_the_protected_path_denials() {
+    // **This test pins a hole open on purpose.** 7.5 states the seven denials as
+    // delivered outright: "a hook sees the path and refuses the write before it
+    // reaches disk". The script delivers that for the tools that carry a path,
+    // and `Bash` is not one of them: `shell` is unscoped, the deny list is
+    // consulted only for `file_write`, and no argv match can decide what a shell
+    // command will write. So a policy that grants `shell` grants a write to the
+    // policy directory and to the corpus, by redirect.
+    //
+    // 7.4 says the floor is "a floor and never a gate" and covers destructive
+    // git, aws and Slack rather than protected paths, so nothing else catches it.
+    // Ticket 02 made it live by putting `--permission-mode bypassPermissions` on
+    // the command line, which took away the provider's own refusal.
+    //
+    // The day this is closed, this test fails and whoever closed it rewrites it.
+    // `IMPLEMENTATION.md` carries the finding and the reasoning.
+    let gate = Gate::new("standard");
+    let record = gate.runs.join("r.jsonl");
+
+    assert!(
+        gate.write_to(&record).denied_for("hydra/protected-path"),
+        "the path-carrying tool is refused, which is the half that works"
+    );
+    assert!(
+        gate.shell(&format!("echo pwned > {}", record.display()))
+            .allowed,
+        "if this now denies, the hole is closed and the comment above is stale"
+    );
+    assert!(
+        gate.shell(&format!("cat /dev/null > {}", gate.script.display()))
+            .allowed,
+        "the gate script's own denial, 7.5's base case, has the same hole"
     );
 }
