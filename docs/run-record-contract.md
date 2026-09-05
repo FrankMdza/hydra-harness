@@ -8,13 +8,14 @@ This is one of three documents. `docs/harness-spec.md` covers how Hydra launches
 the three provider CLIs. `docs/ouroboros-spec.md` covers both rungs of self-improvement. The three
 are meant to be read together.
 
-Provider versions this document was written against, read 2026-09-04 at 12:38:
+Provider versions this document was written against. Read 2026-09-04 at 12:38, re-read
+2026-09-05 when the first slice was built:
 
 | Provider | Version | Read |
 |---|---|---|
-| `claude` | 2.1.257 | 2026-09-04, unchanged since 2026-09-01 |
-| `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-04, unchanged since 2026-09-02 |
-| `agy` | 1.1.26 | 2026-09-04, unchanged since earlier that day |
+| `claude` | 2.1.261 | 2026-09-05. Written against 2.1.257; a claim below is on .257 unless it says .261 |
+| `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-05, unchanged since 2026-09-02 |
+| `agy` | 1.1.26 | 2026-09-05, unchanged since 2026-09-04 |
 
 Two of the three self-update without asking, and it has invalidated a finding four times. Every
 frame shape below carries the version it was measured on. Re-read all three versions before
@@ -86,6 +87,14 @@ has to do with them.
 **A provider line** wraps one provider frame verbatim, in a `raw` field. Nothing is discarded, no
 field is dropped, and no value is rewritten, with the single exception in section 13. The normalized
 events in section 7 are derived from `raw` at read time by a library function, never stored.
+
+**A line the provider wrote that is not JSON is kept, as a JSON string.** Never-discard has no
+exception for noise, and a line Hydra could not parse is still something the provider wrote. So
+`raw` holds a string rather than an object, which is also how a reader tells the two apart: no
+provider emits a bare string as a frame. `claude` 2.1.261 produces exactly one per print-mode run on
+a pty, a show-cursor escape after the last frame with no trailing newline (harness spec 6.7). This
+costs a reader one type check on `raw` and it is worth paying, because the alternative is a tee that
+decides which of a provider's bytes were worth keeping.
 
 **On a harvested run the wrapped thing is a transcript record rather than a stream frame**, and the
 rule is the same: one record per line, verbatim, in `raw`. The vocabulary is the vendor's own and is
@@ -444,6 +453,14 @@ which is why `permission_request` is not on the list any more: it populated from
 permissive flag plus the gate, so the decision is made before the process starts and nothing asks
 Hydra for permission during a run.
 
+**That last clause is load-bearing, and a run launched without the permissive flag falsifies it.**
+Take the flag off and the provider decides again. Measured on `claude` 2.1.261 on 2026-09-05: a run
+under the provider's own default mode, asked to write a file inside its own worktree, emitted
+`system/permission_denied` carrying `tool_name`, `tool_use_id` and a message, wrote nothing, and
+closed `subtype: success` with `is_error: false` and exit 0. Section 7.7 says what that frame is
+worth and why it still produces no event. It matters here because a harness that ships before its
+gate does exactly this, and the producer column should not read as if the frame does not exist.
+
 It carries the disagreements. `thinking` has three answers by provider, and `usage` is scoped to a
 run on two providers and to a conversation on the third. Those belong in a column beside the type
 rather than in prose a reader has to assemble.
@@ -636,6 +653,18 @@ different strengths worth knowing before anyone leans on it:
 
 **A disagreement between the derived field and `claude`'s hook frames is a finding, not noise.** It
 is the only place in the record where two independent sources answer the same question.
+
+**`system/permission_denied` is a fourth source, and it appears only when the permissive flag is
+absent.** Section 6.7 of the harness spec passes that flag on every recorded run, so under the
+specified command line the provider never refuses anything and this frame never appears. Drop the
+flag and it does: `claude` 2.1.261, 2026-09-05, one frame per refusal carrying `tool_name`,
+`tool_use_id` and a message, plus a matching entry in `result.permission_denials[]` (section 8.5).
+**It still produces no `permission_decision`**, and the reason is the one this section is built on:
+a decision is derived by re-evaluating the run's own policy, and a run launched without the gate has
+no policy to re-evaluate. So the frame sits in `raw` and nothing reads it, which is the same shape
+as an interactive run's hook frames one paragraph up. It is written down because a harness that
+ships before its gate writes records full of it, and a producer column that omitted it would send
+the next reader looking for a bug.
 
 **The re-derivation gives the record a gate-leak check for free.** Every tool call is evaluated
 against the policy at read time, so a call the provider allowed and the policy denies is a gate that

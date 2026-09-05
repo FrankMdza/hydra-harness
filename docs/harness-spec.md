@@ -6,13 +6,14 @@ This is one of three documents. `docs/run-record-contract.md` fixes the format H
 Ouroboros reads. `docs/ouroboros-spec.md` covers both rungs of self-improvement. The three are
 meant to be read together and nothing else crosses between the harness and Ouroboros, per D5.
 
-Provider versions this document was written against, read 2026-09-04:
+Provider versions this document was written against. Read 2026-09-04, re-read 2026-09-05 when
+the first slice was built:
 
 | Provider | Version | Read |
 |---|---|---|
-| `claude` | 2.1.257 | 2026-09-04 morning. It moved to 2.1.261 the same afternoon, so every `claude` claim below was measured on .257 |
-| `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-04, unchanged since 2026-09-02 |
-| `agy` | 1.1.26 | 2026-09-04 |
+| `claude` | 2.1.261 | 2026-09-04 morning read 2.1.257 and it moved the same afternoon, so a `claude` claim below is on .257 unless it says .261. Section 6.7's two 2026-09-05 measurements are on .261 |
+| `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-05, unchanged since 2026-09-02 |
+| `agy` | 1.1.26 | 2026-09-05, unchanged since 2026-09-04 |
 
 **Two of the three self-update without asking, and it has invalidated a finding four times.** `agy`
 alone moved 1.0.10 to 1.1.23 to 1.1.24 to 1.1.25 to 1.1.26 in four days. Every provider-specific
@@ -515,8 +516,7 @@ claude --print \
   --strict-mcp-config \
   --permission-mode bypassPermissions \
   --model <model> \
-  <task string with preamble> \
-  < /dev/null
+  <task string with preamble>
 ```
 
 `bypassPermissions` is safe here because a hook deny beats it, measured, and because a detached
@@ -533,8 +533,7 @@ claude --print \
   --restricted \
   --settings ~/hydra/spawn/<run-id>/settings.json \
   --model <model> \
-  <task string with preamble> \
-  < /dev/null
+  <task string with preamble>
 ```
 
 No `--permission-mode`, which `--restricted` refuses. No `--mcp-config`, which `--restricted` drops
@@ -543,10 +542,22 @@ anyway. No `--forward-subagent-text`, because `judge` allows nothing and spawns 
 **`--verbose` is not optional.** `--print --output-format=stream-json` refuses to start without it:
 `When using --print, --output-format=stream-json requires --verbose`. Measured on 2.1.257.
 
-**`< /dev/null` is not decoration.** Without it `claude` waits three seconds for stdin and writes
-`no stdin data received in 3s, proceeding without it` before starting. A detached child should not
-pay that, and the warning is noise in the record. It comes off the day
-`--input-format stream-json` is used, which section 18 lists as specced and unbuilt.
+**`< /dev/null` came off, because it was a finding about a pipe.** Through a pipe on 2.1.257,
+`claude` waits three seconds for stdin and writes `no stdin data received in 3s, proceeding without
+it` before starting, and the redirect is what stopped a detached child paying for it. Re-measured on
+2.1.261 on 2026-09-05 over a pty Hydra owned: no wait, no warning, 0.83 seconds from spawn to the
+first frame, off the run record's own timestamps. **Hydra always launches through a pty**, because
+ticket 02 made it the parent and it has to be the parent to tee anyway, so the redirect is not
+reachable from where Hydra stands and buys nothing there. The original claim is true of the shape it
+was measured on and does not carry to the shape Hydra launches, which is the difference worth
+keeping rather than the flag.
+
+**The provider writes one thing after its last frame, and it is not a frame.** `claude` 2.1.261
+ends a print-mode run on a pty with a bare `ESC[?25h`, show-cursor, with no trailing newline,
+because stdout is a tty. A tee that assumes every line is a frame either drops it or fails to parse
+it. The record contract's section 3 says what happens to it: it is kept, as a JSON string rather
+than an object. Measured 2026-09-05; expect the same class of thing from the other two and do not
+assume this is the only one.
 
 **`--include-partial-messages` stays off**, and so does `cursor-agent`'s twin
 `--stream-partial-output`. Recorded runs are detached and unwatched, `hydra logs --follow` reads

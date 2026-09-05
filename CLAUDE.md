@@ -24,14 +24,35 @@ index of all 38 closed tickets, what is still fog, and what is out of scope. Rea
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-The map has no open tickets. If new work needs charting rather than building:
+The map has no open tickets and it is closed. **Wayfinder is not how the build continues**: it
+charts decisions, its tickets resolve questions rather than execute slices, and its own instructions
+say the pull to just do the work is the signal you have reached the edge of the map. This map reached
+its destination and handed off. Reopen it only if new work needs a decision rather than an
+implementation:
 
 ```
 /mattpocock-skills:wayfinder .scratch/hydra/map.md
 ```
 
-The map carries the destination, the settled decisions (D1 to D16, which are constraints rather than
-open questions), an index of every closed ticket, the fog, and what is out of scope.
+## The build
+
+`.scratch/hydra/build/plan.md` indexes the build and `.scratch/hydra/build/NN-slug.md` are its
+tickets, same format as the map's, `Type: build`. Start a session like this:
+
+```
+python3 .scratch/hydra/frontier.py build
+```
+
+Take a takeable ticket, set `Status: claimed` in its file **before** doing any work, read the spec
+sections it names, then:
+
+```
+/mattpocock-skills:implement .scratch/hydra/build/NN-slug.md
+```
+
+Nothing else is needed to resume. The tickets carry the context, so a session that has read `docs/`,
+`IMPLEMENTATION.md` and one ticket knows what a session that wrote them knew. There is no handoff
+document and there should not be one.
 
 ## Layout
 
@@ -43,7 +64,9 @@ open questions), an index of every closed ticket, the fog, and what is out of sc
 - `tests/`, three files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding.
-- `.scratch/hydra/map.md`, the map. One load gives you the whole design at low resolution.
+- `.scratch/hydra/build/plan.md`, the build index, and `build/NN-slug.md`, one build ticket each.
+- `.scratch/hydra/map.md`, the closed design map. One load gives you the whole design at low
+  resolution.
 - `.scratch/hydra/issues/NN-slug.md`, one ticket each. `Type:` is `research`, `prototype`,
   `grilling` or `task`. `Status:` is `open`, `claimed` or `resolved`. `Blocked by:` lists ticket
   numbers. A resolved ticket carries its decision under `## Answer`.
@@ -56,16 +79,26 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py
+python3 .scratch/hydra/frontier.py          # the design map, 38 of 38 resolved
+python3 .scratch/hydra/frontier.py build    # the build
 ```
 
-Prints which tickets are takeable now and which are still blocked. It reads 38 of 38 resolved and
-an empty frontier, and it stays useful if the map ever reopens.
-
-If you do open a ticket: claim it by setting `Status: claimed` **before** doing any work, so a
-concurrent session skips it.
+Prints which tickets are takeable now and which are still blocked. Claim one by setting
+`Status: claimed` **before** doing any work, so a concurrent session skips it.
 
 ## Closing a ticket
+
+A build ticket:
+
+1. Set `Status: resolved`, and append under `## Outcome` what was built, what was measured, and
+   anything the ticket assumed that turned out false.
+2. **Amend `IMPLEMENTATION.md` in the same change.** A ticket is not done while that file still
+   claims the gap is open, and it is the file the next session reads to know what is real.
+3. Amend any later ticket the work changed, so the next session starts from the finding.
+4. If the work found a decision rather than an implementation, stop and say so. That is the edge of
+   the design, and it belongs on the map rather than in a commit.
+
+A design ticket on the closed map:
 
 1. Append the decision under `## Answer` in the ticket file, and set `Status: resolved`.
 2. Add one line to `## Decisions so far` in the map: a gist plus a link. Never restate the

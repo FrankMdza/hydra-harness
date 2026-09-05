@@ -32,8 +32,12 @@ Nine contradictions between documents were fixed along the way, each carrying a 
 document had already made. Two of them were counts stated wrong in a document that opens by
 complaining about counts stated wrong.
 
-**No production code was written while this map was open** (D1), and none is written now. The three
-documents are the destination and someone who was in none of these sessions can build from them.
+**No production code was written while this map was open** (D1). The three documents are the
+destination and someone who was in none of these sessions can build from them.
+
+**The build started after this map closed**, and it is charted separately in
+`.scratch/hydra/build/plan.md`, because wayfinder tickets resolve decisions and build tickets execute
+slices. Nothing in that file reopens a decision here.
 
 ## Notes
 

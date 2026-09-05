@@ -70,12 +70,14 @@ and closed with `subtype: success`, `is_error: false`, `terminal_reason: complet
 and exit code 0. The refusal works and the terminator lies about it, which is exactly
 what contract section 8 says to expect of all three providers.
 
-**`< /dev/null` is dropped, and the reason is new.** See the measurements below.
+**`< /dev/null` is dropped**, and harness spec 6.7 now says why.
 
 ## What this slice measured
 
-Three findings, all on `claude` 2.1.261 over a pty Hydra owned, 2026-09-05. Each one
-is a candidate amendment to a document rather than an amendment already made.
+Three findings, all on `claude` 2.1.261 over a pty Hydra owned, 2026-09-05. **All
+three are in the documents now**, so what follows is the short version and the
+document is the source: harness spec 6.7 for the first two, contract 3 for where a
+non-JSON line goes, contract 7.1 and 7.7 for the third.
 
 **`< /dev/null` was a finding about a pipe.** Harness spec 6.7 adds the redirect so
 `claude` does not wait three seconds for stdin and write `no stdin data received in
@@ -92,7 +94,7 @@ Show-cursor, on the way out, because stdout is a tty. Any tee that assumes every
 is a frame will either drop it or fail to parse it. This slice stores it as a JSON
 string in `raw`, because never-discard has no exception for noise, and a
 string-valued `raw` is how a reader tells a line that was not JSON from a frame that
-was. Harness spec 6.7 and contract section 3 both want a sentence about it.
+was.
 
 **`system/permission_denied` is a frame the contract's producer table does not
 name.** Contract 7.2 lists no `claude` frame for a provider-side refusal, because
@@ -101,8 +103,9 @@ the decision is made before the process starts. Take the permissive flag off and
 provider makes decisions again, and it announces them: one `system/permission_denied`
 carrying `tool_name`, `tool_use_id` and a message, plus an entry in
 `result.permission_denials[]`, which contract 8.5 already names as corroboration. On
-these records nothing derives from either, because 7.7 needs a policy. Whoever builds
-the gate should decide whether that frame is worth a row.
+these records nothing derives from either, because 7.7 needs a policy. It gets no row
+in the producer table for that reason and a paragraph in 7.7 instead, so the next
+reader meets it in the document rather than in a record.
 
 ## Choices this slice made that no ticket settled
 

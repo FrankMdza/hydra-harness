@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""Print the wayfinder frontier: which tickets are takeable now, and what blocks the rest."""
+"""Print a frontier: which tickets are takeable now, and what blocks the rest.
+
+Two trackers live under this directory and share one format. With no argument this
+reads the wayfinder map's decision tickets in issues/, which closed at 38 of 38. Pass
+a directory to read another, which today means the build tickets:
+
+    python3 .scratch/hydra/frontier.py build
+"""
 
 import pathlib
 import re
 import sys
 
-ISSUES = pathlib.Path(__file__).parent / "issues"
+HERE = pathlib.Path(__file__).parent
 
 
-def load():
+def load(issues):
     tickets = {}
-    for f in sorted(ISSUES.glob("[0-9][0-9]-*.md")):
+    for f in sorted(issues.glob("[0-9][0-9]-*.md")):
         text = f.read_text()
         num = f.name[:2]
         status = re.search(r"^Status: (\w+)", text, re.M)
@@ -27,9 +34,10 @@ def load():
 
 
 def main():
-    t = load()
+    issues = HERE / (sys.argv[1] if len(sys.argv) > 1 else "issues")
+    t = load(issues)
     if not t:
-        sys.exit(f"no tickets found in {ISSUES}")
+        sys.exit(f"no tickets found in {issues}")
 
     def unblocked(num):
         return all(t.get(b, {}).get("status") == "resolved" for b in t[num]["blocked_by"])
