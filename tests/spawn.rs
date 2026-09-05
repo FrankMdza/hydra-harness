@@ -144,3 +144,80 @@ fn a_run_with_no_worktree_scopes_writes_to_a_path_nothing_creates() {
     );
     assert!(!root.join("spawn/r1/no-worktree").exists());
 }
+
+/// Runs the hook command the config really carries, through a shell, the way the
+/// provider runs it.
+fn ask_through_the_hook(settings: &Path, payload: &str) -> String {
+    let command = hook_command(&settings_of(settings));
+    let mut child = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&command)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write;
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    String::from_utf8(out.stdout).unwrap()
+}
+
+#[test]
+fn the_hook_command_runs_the_gate_and_answers() {
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let spawn =
+        write_spawn_config(&layout, "r1", &set, "read-only", Some(&worktree), false).unwrap();
+
+    let payload = format!(
+        r#"{{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{{"file_path":"{}/x.txt","content":"x"}},"cwd":"{}"}}"#,
+        worktree.display(),
+        worktree.display()
+    );
+    let answer = ask_through_the_hook(&spawn.settings, &payload);
+    assert!(
+        answer.contains("\"deny\"") && answer.contains("hydra/capability"),
+        "read-only should refuse a write through the real hook command, got {answer}"
+    );
+}
+
+#[test]
+fn a_rewritten_gate_fails_closed() {
+    // 7.5's induction base case, and the half of it that does not depend on
+    // reading argv. The provider snapshots the hook config at process start
+    // (6.6), so the sha in the config is fixed before the child runs anything,
+    // while the script is read fresh on every invocation. Emptying the script
+    // used to mean an empty answer, which 6.6 measured `claude` treating as
+    // permission to proceed.
+    let (layout, _root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, "read-only", None, false).unwrap();
+
+    let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi"},"cwd":"/tmp"}"#;
+    assert!(
+        !ask_through_the_hook(&spawn.settings, payload).is_empty(),
+        "the intact gate answers"
+    );
+
+    std::fs::write(&spawn.gate, "").unwrap();
+    let answer = ask_through_the_hook(&spawn.settings, payload);
+    assert!(
+        answer.contains("\"deny\"") && answer.contains("hydra/gate-tampered"),
+        "an emptied gate must deny rather than answer nothing, got {answer:?}"
+    );
+
+    std::fs::remove_file(&spawn.gate).unwrap();
+    let answer = ask_through_the_hook(&spawn.settings, payload);
+    assert!(
+        answer.contains("hydra/gate-tampered"),
+        "a deleted gate is the same case, got {answer:?}"
+    );
+}

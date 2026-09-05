@@ -104,8 +104,8 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
 /// answer fails open here, and inventing a shorter budget than the default only
 /// moves the same failure closer. The script imports nothing outside the standard
 /// library and answers in milliseconds.
-pub fn settings(gate_script: &Path) -> serde_json::Value {
-    let command = format!("{} {}", shell_quote(gate_script), Dialect::Claude.as_str());
+pub fn settings(gate_script: &Path, gate_sha: &str) -> serde_json::Value {
+    let command = gate_command(gate_script, gate_sha);
     serde_json::json!({
         "hooks": {
             "PreToolUse": [
@@ -120,14 +120,66 @@ pub fn settings(gate_script: &Path) -> serde_json::Value {
     })
 }
 
-/// A path as one shell word.
+/// The hook command: check the gate against the sha it was written with, then run
+/// it.
 ///
-/// The hook `command` is a string a shell runs, and the spawn directory sits under
-/// a home directory whose name Hydra does not choose. A space in it would split the
-/// command and run the gate with no dialect, which denies and exits 2 rather than
-/// failing open, but it would deny every call on every run.
-fn shell_quote(path: &Path) -> String {
-    let text = path.display().to_string();
+/// **The script is a file the child can write and the config is not.** All three
+/// providers snapshot their hook configuration at process start (6.6), while 7.5
+/// says the script is "read fresh on every invocation". 7.5 closes that for
+/// `judge`, `read-only` and `standard` by scoping their writes to the worktree,
+/// and gives `permissive` and `curate` a base case by denying writes to the script
+/// under every policy. Ticket 02's review found the base case reachable anyway:
+/// the denial was applied to tools carrying a path and `Bash` carries none, so a
+/// shell redirect emptied the script, and an empty script exits 0 printing nothing,
+/// which 6.6 measured `claude` treating as permission to proceed.
+///
+/// The path check now refuses a command that names the script, and this is the
+/// half that does not depend on reading argv. The sha is computed after the script
+/// is written and travels in the config, which the provider has already snapshotted
+/// by the time the child can run anything. A rewritten or deleted script therefore
+/// fails **closed**, in Hydra's own voice, whatever spelling reached it.
+///
+/// The script still lives where 7.5 puts it. Only the pointer got stricter.
+fn gate_command(gate_script: &Path, gate_sha: &str) -> String {
+    // JSON string literals are Python string literals, so this quotes a path
+    // containing anything a filesystem allows without a second escaping rule.
+    let path = serde_json::to_string(&gate_script.display().to_string())
+        .unwrap_or_else(|_| "\"\"".to_string());
+    let sha = serde_json::to_string(gate_sha).unwrap_or_else(|_| "\"\"".to_string());
+    let source = format!(
+        r#"import hashlib, json, sys
+GATE = {path}
+SHA = {sha}
+try:
+    body = open(GATE, "rb").read()
+except OSError:
+    body = None
+if body is None or hashlib.sha256(body).hexdigest() != SHA:
+    sys.stdout.write(json.dumps({{"hookSpecificOutput": {{
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": "hydra/gate-tampered: the compiled gate is gone or no longer matches the sha this run was launched with, so nothing can be decided and the call is refused."}}}}))
+    sys.exit(0)
+exec(compile(body, GATE, "exec"))
+"#
+    );
+    // `python3 -c <source> claude` puts the dialect at sys.argv[1], which is where
+    // the gate reads it, and leaves `__name__` as `__main__` so its own entry
+    // point still fires under `exec`.
+    format!(
+        "/usr/bin/python3 -c {} {}",
+        shell_quote(&source),
+        Dialect::Claude.as_str()
+    )
+}
+
+/// One shell word.
+///
+/// The hook `command` is a string a shell runs, and it carries both a path under a
+/// home directory Hydra does not name and a block of Python. A space or a quote in
+/// either would split the command and run the gate with no dialect, which denies
+/// and exits 2 rather than failing open, but would deny every call on every run.
+fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
@@ -232,25 +284,43 @@ mod tests {
         assert_eq!(argv.last().unwrap(), "do the thing");
     }
 
-    #[test]
-    fn the_hook_names_the_dialect() {
-        let value = settings(Path::new("/tmp/spawn/r1/gate"));
-        let command = value["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    fn hook_command(gate: &str, sha: &str) -> String {
+        settings(Path::new(gate), sha)["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
             .as_str()
-            .unwrap();
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn the_hook_names_the_dialect_last() {
+        let command = hook_command("/tmp/spawn/r1/gate", "abc123");
         // With no argument the script denies in two shapes and exits 2, which is
         // safe and useless. This is the typo that fails closed loudly.
-        assert_eq!(command, "'/tmp/spawn/r1/gate' claude");
-        assert_eq!(value["hooks"]["PreToolUse"][0]["matcher"], "*");
+        assert!(command.ends_with(" claude"), "got {command}");
+        assert!(command.starts_with("/usr/bin/python3 -c "));
+        assert_eq!(
+            settings(Path::new("/tmp/spawn/r1/gate"), "abc123")["hooks"]["PreToolUse"][0]["matcher"],
+            "*"
+        );
+    }
+
+    #[test]
+    fn the_hook_carries_the_sha_the_gate_was_written_with() {
+        let command = hook_command("/tmp/spawn/r1/gate", "deadbeef");
+        assert!(command.contains("deadbeef"), "got {command}");
+        assert!(command.contains("/tmp/spawn/r1/gate"));
+        assert!(
+            command.contains("hydra/gate-tampered"),
+            "a mismatch has to answer in the dialect, not just exit"
+        );
     }
 
     #[test]
     fn a_home_with_a_quote_in_it_stays_one_shell_word() {
-        let value = settings(Path::new("/Users/o'brien/hydra/spawn/r1/gate"));
-        let command = value["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap();
-        assert_eq!(command, r"'/Users/o'\''brien/hydra/spawn/r1/gate' claude");
+        let command = hook_command("/Users/o'brien/hydra/spawn/r1/gate", "abc");
+        // One `-c` argument, so exactly two closing quotes: the escape and the end.
+        assert!(command.contains(r"'\''"), "got {command}");
+        assert!(command.ends_with("' claude"));
     }
 
     #[test]

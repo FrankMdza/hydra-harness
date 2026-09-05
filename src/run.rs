@@ -286,9 +286,20 @@ pub fn write_spawn_config(
         },
     )?;
 
+    // Read back rather than hashed in memory, so the sha is of the bytes that
+    // reached the disk. The hook config carries it and the provider snapshots the
+    // config at process start, which is what makes a mid-run rewrite of the script
+    // fail closed.
+    let written =
+        std::fs::read(&gate).with_context(|| format!("reading back {}", gate.display()))?;
+    let gate_sha = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&written))
+    };
+
     std::fs::write(
         &settings,
-        serde_json::to_string_pretty(&claude::settings(&gate))?,
+        serde_json::to_string_pretty(&claude::settings(&gate, &gate_sha))?,
     )
     .with_context(|| format!("writing {}", settings.display()))?;
 

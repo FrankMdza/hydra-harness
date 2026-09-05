@@ -97,6 +97,11 @@ impl Gate {
         // macOS ships, so testing the first would leave the second unmeasured.
         let mut command = Command::new(SHEBANG_PYTHON);
         command.arg(&self.script);
+        // The gate expands variables out of the environment it inherits, which
+        // on a real run is the child's. Naming this run's corpus lets a test
+        // write `$HYDRA_PROBE_RUNS/r.jsonl` and mean a path that is really
+        // protected, rather than one that happens not to be.
+        command.env("HYDRA_PROBE_RUNS", &self.runs);
         if let Some(dialect) = dialect {
             command.arg(dialect);
         }
@@ -672,6 +677,34 @@ fn the_shell_refusal_is_coarse_on_purpose() {
 }
 
 #[test]
+fn a_path_a_variable_carries_is_expanded_before_it_is_checked() {
+    // The shell expands `$HOME` and `~`, so a rule that does not is a rule
+    // against one spelling of the same path.
+    let gate = Gate::new("standard");
+    assert!(
+        gate.shell("echo x > $HYDRA_PROBE_RUNS/r.jsonl")
+            .denied_for("hydra/protected-path")
+    );
+    assert!(
+        gate.shell("echo x > ${HYDRA_PROBE_RUNS}/r.jsonl")
+            .denied_for("hydra/protected-path")
+    );
+}
+
+#[test]
+fn an_assignment_is_read_where_it_is_written_down() {
+    // `D=<corpus>; echo x > $D/r.jsonl` sets the variable inside the command, so
+    // the gate's own environment cannot expand `$D`. The assignment itself is a
+    // token though, and its tail is the path, so the write is refused one
+    // segment before it happens.
+    let gate = Gate::new("standard");
+    assert!(
+        gate.shell(&format!("D={}; echo x > $D/r.jsonl", gate.runs.display()))
+            .denied_for("hydra/protected-path")
+    );
+}
+
+#[test]
 fn a_protected_path_built_by_substitution_still_walks_past() {
     // **This pins what is still open.** 7.4 names the failure mode for the floor
     // and it is the same one here: silent permission on the spelling nobody
@@ -688,8 +721,14 @@ fn a_protected_path_built_by_substitution_still_walks_past() {
             .denied_for("hydra/protected-path"),
         "a path spelled inside a substitution is still spelled"
     );
+    // The path is never written down: the variable holds only its parent, so no
+    // token is a protected path and no expansion the gate can do produces one.
     assert!(
-        gate.shell("echo pwned > $HOME/hydra/runs/r.jsonl").allowed,
+        gate.shell(&format!(
+            "P={}; echo x > $P/runs/r.jsonl",
+            gate.root.display()
+        ))
+        .allowed,
         "if this now denies, the residual is closed and the comment is stale"
     );
 }

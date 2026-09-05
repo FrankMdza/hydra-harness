@@ -57,3 +57,8 @@ same change. Both go on a non-`judge` run only: `--restricted` drops MCP anyway,
 every policy and nothing has written it. `config/README.md` is the table, and ticket 02
 wrote `config/preamble.md` next to it as the worked example of what one of these looks
 like once it is real.
+
+**The hook command is no longer just a path.** It is a shell one-liner that checks the
+gate against a sha the config carries and then runs it, so a rewritten script fails
+closed. `claude::gate_command` builds it. Nothing about MCP touches that, but a reader
+expecting `settings.json` to name the script directly will not find it.

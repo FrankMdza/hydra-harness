@@ -160,21 +160,39 @@ def protected_path_named_by(command, cwd):
         return None
     for argv in segments:
         for token in argv:
-            if not token:
-                continue
-            # `--output=/path` hides a path behind a flag, so read the tail of
-            # any option that carries one rather than skipping the whole token.
-            if token.startswith("-"):
-                if "=" not in token:
-                    continue
-                token = token.split("=", 1)[1]
-                if not token:
-                    continue
-            candidate = resolve(os.path.expanduser(token), cwd)
-            for protected in HYDRA_CONFIG["deny_write_paths"]:
-                if inside(candidate, protected):
-                    return protected
+            for candidate in path_candidates(token):
+                resolved = resolve(candidate, cwd)
+                for protected in HYDRA_CONFIG["deny_write_paths"]:
+                    if inside(resolved, protected):
+                        return protected
     return None
+
+
+def path_candidates(token):
+    """Every path a single shell token might be, before resolution.
+
+    Three shapes, because one token is not always one path:
+
+    `--output=/x` hides a path behind a flag and `D=/x` is an assignment whose
+    value the next segment will use, so the tail after the first `=` is read as
+    well as the token itself. That catches the assignment at the point it is
+    written down rather than at the point it is used, which is the only one of
+    the two that appears in argv at all.
+
+    `~` and `$HOME` are expanded, because the shell expands them and a rule that
+    does not is a rule against one spelling. `expandvars` reads the gate's own
+    environment, which is the child's, so it resolves exactly the variables the
+    child's shell would. A variable the command sets itself stays unexpanded and
+    is caught, when it is caught, by the assignment above.
+    """
+    if not token:
+        return
+    seen = set()
+    for part in (token, token.split("=", 1)[1] if "=" in token else None):
+        if not part or part in seen:
+            continue
+        seen.add(part)
+        yield os.path.expandvars(os.path.expanduser(part))
 
 
 # --------------------------------------------------------------------------

@@ -19,45 +19,58 @@ and refuses the write before it reaches disk". The gate delivers that for tools 
 carry a path in their arguments. `Bash` carries none, `shell` is unscoped in every
 policy that grants it, and no argv match can decide what a shell command will write.
 
-**Ticket 02's code review found all seven reachable by redirect**, including the run's
-own gate script, which is 7.5's induction base case. That one composed into a full
-bypass: the script is `0o700` and owned by the uid the child runs as, an emptied script
-exits 0 and prints nothing, and 6.6 measured `claude` failing open on a response in a
-shape it does not recognise. Two `Bash` calls under `standard` ended the gate for the
-rest of the run. `--permission-mode bypassPermissions` is what had removed the layer
-previously refusing those calls, so the flag and the hole arrived in the same change.
+**Ticket 02's code review found all seven reachable by redirect**, the run's own gate
+script included, which is 7.5's induction base case. That one composed into a full
+bypass: an emptied script exits 0 printing nothing, and 6.6 measured `claude` failing
+open on a response in a shape it does not recognise, so two `Bash` calls under
+`standard` ended the gate for the rest of the run. `--permission-mode
+bypassPermissions` had removed the layer previously refusing those calls, so the flag
+and the hole arrived in the same change.
 
-**A shell command that names one of the seven is now refused whole.** Every token of
-every segment is expanded, resolved and compared against the deny list, the tail of a
-`--flag=/path` option included. Measured on run
-`01a07340-67a3-7c41-8c69-8d1e28bb58a7`, `standard`, on a real `claude`: a `Bash` append
-to `~/hydra/runs/` was refused with `hydra/protected-path: the command names
-/users/user/hydra/runs`, the reason reached the model, no file was created, and a
-second `Bash` call writing inside the worktree in the same run was allowed and landed.
+Two mechanisms now stand where none did. They are worth telling apart, because one is a
+floor and one is not.
+
+**A shell command that names one of the seven is refused whole.** Every token of every
+segment is expanded and resolved before the comparison: `~` and the variables the
+child's own environment carries, the tail of a `--flag=/path` option, and the tail of a
+`D=/path` assignment, which is where a variable the command sets itself is written down.
+Measured on run `01a07340-67a3-7c41-8c69-8d1e28bb58a7`, `standard`, on a real `claude`:
+a `Bash` append to `~/hydra/runs/` was refused with `hydra/protected-path`, the reason
+reached the model, no file was created, and a second `Bash` call writing inside the
+worktree in the same run was allowed and landed.
+
+**This one is a floor and it has 7.4's failure mode.** A path the command never writes
+down still walks past. `P=<parent>; echo x > $P/runs/r.jsonl` is the shape: the variable
+holds the parent, no token is a protected path, and no expansion the gate can do
+produces one. Catching it means evaluating the command, which 7.4 rules out.
+`tests/gate.rs` pins it so that closing it breaks a test on purpose.
+
+**The base case does not rest on that floor.** The hook config carries a sha256 of the
+gate script, computed from the bytes that reached the disk, and the command checks it
+before running the script. All three providers snapshot the hook config at process
+start (6.6) while 7.5 has the script read fresh on every invocation, so the sha is fixed
+before the child can run anything and a rewritten or deleted script fails **closed**,
+answering `hydra/gate-tampered` in the provider's own dialect. That holds whatever
+spelling reached the script, which is what makes it a mechanism rather than a floor.
+The script still lives where 7.5 puts it; only the pointer got stricter.
+
+Measured on run `01a07357-58a5-79e2-a25a-3df578a750b4`: `claude` runs the 717 character
+hook command and the gate answers through it. `tests/spawn.rs` empties the script and
+then deletes it, and asserts the refusal both times.
 
 **The refusal is coarse and reads are refused too.** Which token is a redirect target is
 not decidable without running the command, and neither is which is an argument to a
 writing binary, so `cat ~/hydra/runs/r.jsonl` is refused under `curate` as well. That is
-a false positive in the same direction 7.4's floor already takes. The precise access is
-the file tools, which carry a path: `curate` scopes `file_read` to the corpus and reads
-it that way.
+a false positive in the direction 7.4's floor already takes. The precise access is the
+file tools, which carry a path: `curate` scopes `file_read` to the corpus and reads it
+that way.
 
-**What is still open: a path the command never spells.** `echo x > $HOME/hydra/runs/r`
-walks past, and so does one assembled from a variable. Spelling it inside a substitution
-does not help an attacker, because the token is still there and still caught, but a
-path the shell builds is not, and catching it means evaluating the command, which 7.4
-rules out. This is a floor with 7.4's own failure mode, silent permission on the
-spelling nobody wrote down, and it is not a gate.
-
-**Closing the residual needs a mechanism that does not read argv.** The options all
-trade something the design has argued about, so it is a decision for the map rather than
-a patch: denying `shell` its unscoped grant rewrites 7.2's `standard`; running the child
-under a second uid or a sandbox is nowhere in the spec; and moving the gate's logic into
-the hook config, which all three providers snapshot at process start, would close the
-base case by construction but departs from 7.5's named artifact.
-
-`tests/gate.rs` carries four tests over this: the denial, its coarseness, the residual
-pinned so that closing it breaks a test on purpose, and ordinary shell left alone.
+**What is left for the map.** Closing the residual needs a mechanism that does not read
+argv, and each option trades something the design has argued about: denying `shell` its
+unscoped grant rewrites 7.2's `standard`, and running the child under a second uid or a
+sandbox is nowhere in the spec. The base case no longer waits on that answer, so what
+remains at risk is a write to the policy directory or the corpus through a path the
+command assembles.
 
 Provider versions this slice was built and measured against, read 2026-09-05:
 
@@ -416,8 +429,10 @@ Out of scope for this slice, and each one has a document that already says what 
   foreground and one at a time until ticket 05 detaches them. It is latent rather than
   live, and it is smaller than the shell hole above only because shell already reaches
   every one of these paths.
-- **A gate that fails to start fails open on `claude`.** 6.6 measured it and nothing
-  here changes it. The shebang is absolute and the script imports nothing outside the
-  standard library, which is what that risk is spent on. Nothing checks at launch that
-  the script runs, and adding such a check would be an eighth entry in 6.1's pre-flight
-  list, which is a design decision rather than an implementation.
+- **A gate that fails to start still fails open on `claude`.** 6.6 measured it. The
+  shebang is absolute and the script imports nothing outside the standard library,
+  which is what that risk is spent on, and the sha check now catches a script that
+  changed rather than one that will not run. An interpreter that is missing or broken
+  is the case still open, and nothing checks at launch that the script runs. Adding
+  such a check would be an eighth entry in 6.1's pre-flight list, which is a design
+  decision rather than an implementation.
