@@ -254,6 +254,39 @@ fn check_run_start(body: &serde_json::Map<String, Value>, at: &str, say: &mut im
         }
     }
 
+    // Contract 5.3: each of the two injection groups carries a sha and two name
+    // lists, and the reason is the same both times. A sha without names does not
+    // say what was selected and names without a sha do not say what bytes they
+    // resolved to, so a group missing either half is a group that answers half
+    // the question.
+    for (group, fields) in [
+        ("skills", ["store_sha", "linked", "resolved"]),
+        ("mcp", ["doc_sha", "injected", "resolved"]),
+    ] {
+        let Some(Value::Object(inner)) = body.get(group) else {
+            continue;
+        };
+        for field in fields {
+            match inner.get(field) {
+                None => say(format!("{at}: {group} is missing {field}")),
+                // `resolved` is null when the provider could not be asked, which
+                // 5.3 requires a reader to tell apart from an empty listing. The
+                // other two are always answerable.
+                Some(Value::Null) if field != "resolved" => {
+                    say(format!("{at}: {group}.{field} is null"))
+                }
+                Some(Value::Null) => {}
+                Some(value) if field.ends_with("_sha") && !value.is_string() => {
+                    say(format!("{at}: {group}.{field} is not a sha"))
+                }
+                Some(value) if !field.ends_with("_sha") && !value.is_array() => {
+                    say(format!("{at}: {group}.{field} is not a list of names"))
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
     match (body.get("pid"), body.get("process_start_time")) {
         (Some(Value::Null), Some(Value::Null)) => {}
         (Some(pid), Some(start)) if pid.is_u64() && start.is_string() => {}

@@ -1,9 +1,11 @@
-//! The spawn directory, harness spec 5 and 6.6, without launching a provider.
+//! The spawn directory, harness spec 5, 6.5 and 6.6, without launching a provider.
 //!
 //! `tests/gate.rs` proves the compiled script answers correctly. This file proves
 //! the run writes it where the run will find it, that `--settings` points at a
 //! config naming that script and its dialect, and that both are real files created
-//! fresh per spawn.
+//! fresh per spawn. `tests/mcp.rs` is the other half of the directory: what the
+//! canonical document generates into `mcp.json` and what the launch check does
+//! with it.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

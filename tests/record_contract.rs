@@ -239,6 +239,65 @@ fn the_validator_catches_a_null_group_that_should_be_absent() {
     );
 }
 
+/// Line 0 with contract 5.3's `mcp` group on it, as a launch writes it.
+fn with_mcp(group: &str) -> String {
+    format!(
+        "{}\n",
+        start_line(0).replace(
+            r#""worktree":null"#,
+            &format!(r#""worktree":null,"mcp":{group}"#)
+        )
+    )
+}
+
+#[test]
+fn the_validator_takes_the_mcp_group_a_launch_writes() {
+    // Both shapes a recorded `claude` run produces: the servers resolved, and
+    // the provider not asked. 5.3 requires a reader to tell those apart, so the
+    // instrument has to accept both.
+    let resolved = with_mcp(r#"{"doc_sha":"abc","injected":["fs"],"resolved":["fs"]}"#);
+    check(&resolved, None).assert_ok();
+
+    let unanswered = with_mcp(r#"{"doc_sha":"abc","injected":["fs"],"resolved":null}"#);
+    check(&unanswered, None).assert_ok();
+
+    let nothing_admitted = with_mcp(r#"{"doc_sha":"abc","injected":[],"resolved":[]}"#);
+    check(&nothing_admitted, None).assert_ok();
+}
+
+#[test]
+fn the_validator_catches_an_mcp_group_that_answers_half_the_question() {
+    // 5.3: a sha without names does not say what was selected, and names
+    // without a sha do not say what bytes they resolved to.
+    let no_sha = with_mcp(r#"{"injected":["fs"],"resolved":["fs"]}"#);
+    assert!(
+        problems(&no_sha)
+            .iter()
+            .any(|p| p.contains("mcp is missing doc_sha"))
+    );
+
+    let no_names = with_mcp(r#"{"doc_sha":"abc","resolved":null}"#);
+    assert!(
+        problems(&no_names)
+            .iter()
+            .any(|p| p.contains("mcp is missing injected"))
+    );
+
+    let null_sha = with_mcp(r#"{"doc_sha":null,"injected":[],"resolved":null}"#);
+    assert!(
+        problems(&null_sha)
+            .iter()
+            .any(|p| p.contains("mcp.doc_sha is null"))
+    );
+
+    let injected_is_not_a_list = with_mcp(r#"{"doc_sha":"abc","injected":"fs","resolved":null}"#);
+    assert!(
+        problems(&injected_is_not_a_list)
+            .iter()
+            .any(|p| p.contains("mcp.injected is not a list"))
+    );
+}
+
 #[test]
 fn the_validator_catches_a_pid_without_a_start_time() {
     let text = start_line(0).replace(
