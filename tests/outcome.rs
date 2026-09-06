@@ -851,6 +851,29 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
             continue;
         }
 
+        // A run Hydra refused before the spawn has no calls for the per-call rule
+        // to read, and contract 8.2 makes `refusal` the source anyway: `derive`
+        // reads it ahead of anything on the stream. Ticket 07's skill collision
+        // check is what first put one of these in the corpus.
+        if let Some(code) = run.run_end().and_then(|end| end.body["refusal"].as_str()) {
+            assert_eq!(
+                outcome,
+                hydra::record::Refusal::outcome_of(code),
+                "{}: refusal {code}",
+                path.display()
+            );
+            assert!(
+                !outcome.rung_one_learns(),
+                "{}: a refused launch taught no lesson",
+                path.display()
+            );
+            assert_eq!(
+                derive(&run).unwrap().source,
+                hydra::outcome::Source::Refusal
+            );
+            continue;
+        }
+
         let refused = run
             .permission_decisions()
             .filter(|d| d.decision == hydra::normalize::Decision::Deny)

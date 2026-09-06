@@ -73,3 +73,21 @@ Hydra's gate from the user's guards by the `hydra/` prefix on the reason, and 7.
 records that your provider concatenates every hook's message, so that prefix can arrive
 inside another hook's prose. On this provider the honest answer may be that `decider` is
 underivable, which is a finding rather than a guess.
+
+## What ticket 07 left you, added 2026-09-06
+
+**Three provider facts are yours to fill in and they are already methods.**
+`Provider::skill_root` is where Hydra links (`.cursor/skills` for you, and 6.4's table
+says cwd or `--workspace` comes with it), `Provider::user_skill_roots` is which user-scope
+roots the collision check compares against, and `Provider::resolved_skills` is how the
+provider is asked what it resolved. `hydra::skills::index` already scans all seven roots
+of 6.4, yours included, so only the filter is missing.
+
+**Your resolved listing is the paid one.** Ticket 24 put it in
+`~/.cursor/chats/<hash>/<session>/store.db`, largest blob, `content` field, after a real
+run. Contract 5.3 makes the field optional on your provider for exactly that reason, and
+`skills::record` already takes an `Option`, so returning nothing is a supported answer
+rather than a gap. A run refused for a usage limit writes no `store.db` at all.
+
+**Your listing has no name field**, only a path and a description, so the third collision
+test needs a shape of its own. The first two tests compare names and work unchanged.

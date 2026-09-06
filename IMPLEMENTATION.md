@@ -127,6 +127,13 @@ through `shell`, so any rule against it is an argv match with the pattern floor'
 mode. What holds it here is that nothing in `src/` calls `reap::reap` or `prune::prune`
 except `main`.
 
+**Reap also sweeps `~/hydra/skills-snapshots/`, added by ticket 07.** It is harness spec
+5's second row and it has a lifetime of its own: keyed by sha, shared between the runs
+that pinned it, and reaped when no live run references it. The sweep runs whether or not
+a run id was named, because reaping one run does not release a snapshot another still
+holds and reaping none can release several. The section on the skill store below has the
+refcount and the two guards on it.
+
 **Reap's commit-first rule is enforced by git rather than by `src/reap.rs`.** That is the
 whole point of it. `git commit` leaves the checkout clean, and only a clean checkout is
 one `git worktree remove` will take without `--force`, which reap never passes. So a
@@ -305,11 +312,211 @@ substitution feeds is not decidable without running it, so a command carrying `$
 floor cannot know the current branch from argv. It is the failure mode 7.4 names out
 loud, written down here so nobody reads the passing tests as coverage.
 
+## The skill store, the snapshot and what a run is linked
+
+Harness spec 6.4, built by ticket 07 for `claude`. `~/hydra/skills/` is a git repo of
+its own inside the `~/hydra` working tree, ignored by it, created on the first launch
+with an empty root commit so there is always a sha to pin. A dirty store is committed
+before pinning, because launching from `HEAD` and ignoring the working tree would mean
+editing a skill, running, and watching nothing happen.
+
+**The commit trailer names the run that pinned the store, not the one that dirtied it.**
+6.4 asks for authorship in the trailer and Hydra cannot supply the author: a `curate`
+child writes into the store with its own tool calls and is long gone by the time the
+next launch finds the change. `Hydra-Pinned-By: <run-id>` is what Hydra actually knows.
+The committer is `hydra <hydra@localhost>` rather than whatever git identity the machine
+carries, so the commit is attributable to the harness and a machine with no global
+identity can still launch.
+
+**The links point into `~/hydra/skills-snapshots/<sha>/` and never into the store.** The
+snapshot is a detached git worktree of the store at the pinned sha, shared between every
+run on that sha. `tests/skills.rs` proves the thing this is for: a skill edited after the
+pin does not reach the run that pinned it.
+
+**`hydra reap` sweeps snapshots, and which command does that is a choice.** Harness spec
+5 says a snapshot is reaped "when no live run references it" and names no command. Reap
+already removes a run's scratch and is already typed by a human, so it got this too. The
+refcount is the corpus rather than a counter file: `skills::referenced_shas` reads the
+`skills.store_sha` off every live run's line 0, which is the same scan `hydra status`
+uses. Two guards sit on top, and the second is the interesting one. A snapshot younger
+than the launch grace is left alone, the same rule spawn directories get. And a checkout
+younger than the grace whose record has not spoken stands the whole sweep down, because a
+launch reuses an existing snapshot without touching it, so age cannot see that one and
+removing it would leave a running child with dangling links.
+
+**The injected root ignores itself and the test says so against real git.** A
+`.gitignore` holding `*` goes into `<worktree>/.claude/skills/` before the links, and
+`tests/skills.rs` asserts that `git status` reports nothing and `git add -A` stages
+nothing. An existing `.gitignore` is left alone: a repo that tracks its own would see the
+overwrite as a modification to the human's checkout.
+
+**A name the repo already carries is not linked over.** The store's copy is held back
+rather than overwriting a project skill the human's repo tracks, and the collision check
+reports it. `hydra.toml`'s `providers` is how a skill opts out of a provider; an absent
+sidecar admits all of them.
+
+### Asking `claude` what it resolved
+
+`skills.resolved` comes from a free probe: `claude -p x --model
+hydra-skill-preflight-not-a-model --session-id <uuid>` in the checkout. Claude Code
+rejects an unknown model before it calls the API and still writes the session transcript,
+which carries one `attachment` line whose `attachment.type` is `skill_listing`, holding
+`skillCount` and a `names` array. Measured 2026-09-05 on 2.1.263: 1.8s, no API call, no
+tokens.
+
+Three details are load-bearing and each was measured. `--session-id` names the transcript
+file, so the read is a path Hydra can predict rather than the newest file in a directory
+another session may be writing to. Stdin is `/dev/null`, or the binary waits three
+seconds for input that is not coming. And the transcript directory is
+`~/.claude/projects/<slug>/`, where the slug is the checkout's path with every character
+that is not a letter, a digit or a hyphen replaced by a hyphen; that rule was measured by
+running the probe in a directory called `slug.probe_1`.
+
+**Four things about the probe are worth knowing before trusting it.**
+
+Its freeness is a property of 2.1.263 rather than a promise. A build that started
+resolving unknown model names would turn this into a paid call, which is why the model
+name says what it is.
+
+It answers names and not descriptions. On the probe's path every filesystem-discovered
+skill renders as a bare name, so the listing settles identity and precedence, which is
+what the collision check asks, and cannot say whether a description survived.
+
+It runs the human's own `UserPromptSubmit` hooks, because it is an ordinary `claude`
+invocation with the user's settings loaded.
+
+It leaves a transcript in `~/.claude/projects/` that nothing reaps, which is worth
+holding against D9 and then letting go. Hydra never writes there; `claude` does, as it
+already does for every recorded run in the same directory. The probe adds a second file
+per run to a directory ticket 02's runs were already filling.
+
+A probe that cannot answer does not refuse the run. `skills.resolved` goes in as null,
+which contract 5.3 already requires a reader to treat as unanswered rather than as an
+empty listing, and the third of the three collision tests does not run. The other two do,
+and the launcher says so on stderr.
+
+### The write check exists and has no caller
+
+6.4 checks collisions twice: "at write, the curator refuses to create or rename a store
+skill to a name the index already holds, so no collision Hydra causes reaches a run".
+`skills::admit` is that check, and nothing calls it. No code path in this build writes to
+the store: the curator writes through its own gated tool calls, and the step that turns
+those writes into a store commit belongs to rung one. It is written here, with a test,
+for the reason `record::Refusal` was written before any of its four checks existed: one
+home for the rule, so the ticket that acquires the caller does not invent a second one.
+
+The launch check is not a substitute. It fails the whole run, which 6.4 calls harsh and
+justifies by what the write check does to the odds. Until something calls `admit`, every
+badly chosen name costs a refused launch instead of a refused write.
+
+### The three collision tests, and why the cheap two are not redundant
+
+A store skill whose name the checkout already holds is a collision, decided before anyone
+is asked. A linked name the user-scope index holds is a collision. A linked name the
+provider did not list is a collision.
+
+The first test reads both keys, the directory name and the frontmatter name, on both
+scopes. A store skill Hydra could not link at all is a hit whatever holds the name, even
+a directory that is not a skill, because a store skill silently absent from a run is what
+this check exists to prevent. A skill that did link can still clash on a project skill's
+frontmatter name, which the filesystem let through because `claude` keys on the directory
+and `agy` does not.
+
+The middle one looks redundant against the third and is not. Ticket 24 put one name in
+`~/.claude/skills` and in the injected root: the provider listed it once, carrying the
+user-scope copy, and the store's entry was silently absent. The name is in the listing,
+so the diff sees nothing. Only the index comparison catches that one.
+
+The index scans all seven user-scope roots of 6.4, including `~/.codex/skills` and
+`~/.grok/skills`, which do not exist on this machine and appear the day the matching CLI
+is installed. `Provider::user_skill_roots` is the per-provider filter over it, and today
+`claude` reads one of the seven.
+
+**Measured end to end on 2026-09-06.** A store holding `unslop`, a name
+`~/.claude/skills` also holds, refused the launch in 2.3s with `outcome:
+skill_collision`, `outcome_source: refusal`, a null exit code and no child. Contract 8's
+`skill_collision` has a producer now.
+
+### The write-time validator, and a ticket claim that expired
+
+The store's validator parses the frontmatter with a real YAML parser rather than scanning
+for `: `, because a scan is wrong in both directions. Measured on this machine 2026-09-06
+with the validator itself: `writing-fragments` and `writing-shape` both carry `: ` inside
+a **quoted** description and are valid YAML, and `3:1` with no space is valid too. What
+breaks is a bare colon in an unquoted scalar, which is what `agy` drops and Cursor empties.
+
+**Ticket 07 says `~/.claude/skills/handoff-frank` fails this today, and it no longer
+does.** Ticket 24 measured that on 31 August and the file has been edited since; its
+description is 656 characters and parses cleanly. Nothing in `~/.claude/skills` fails the
+YAML rule as of 2026-09-06, so the validator's proof is a fixture rather than a file on
+this machine.
+
+Two rules beyond the file format, both of which the store needs and 6.4 implies. The
+frontmatter `name` must equal the directory name, because `claude` keys on the directory
+and `agy` on the frontmatter and a store entry where they disagree is a different skill to
+each of them. And `disable-model-invocation: true` is refused, because it hides the skill
+from the provider's own listing, which is the answer the launch check reads. Eight of the
+eleven skills in `~/.claude/skills` set it, and none of the eight appears in `claude`'s
+listing.
+
+A store skill the validator refuses is skipped with a line on stderr rather than failing
+the launch. The store is a directory a human and a curator both write to, and one bad
+file in it must not stop every launch on the machine.
+
+### What injection did to the listing, measured
+
+The side effect 6.4 and contract 5.3 both warn about reproduced on this build. One real
+`claude --model haiku` run with two injected links: the listing was 7,950 characters over
+28 entries, and 5 of the 28 rendered as a bare name with no description. **Both injected
+store skills were among the five.** So the model was shown two names it had no reason to
+reach for, and `store_sha` plus `linked` would have claimed otherwise. That is the whole
+argument for `skills.resolved` existing, arriving on the first run that used it.
+
+`resolved` records identity and not description survival, for the reason above: the free
+probe strips every filesystem description, so the field cannot carry what the paid run's
+transcript showed. That is a smaller field than contract 5.3's paragraph implies and it
+is the largest one that costs nothing. The run's own transcript holds the rest and
+nothing reads it.
+
+### A linked skill is unreachable under four of the five policies
+
+This is the edge of the design rather than a gap in the code, and it needs a decision
+rather than an implementation.
+
+Measured on 2026-09-06 with a real run and with that run's own compiled gate. Under
+`standard`, a linked skill is listed to the model, and then:
+
+- `Skill` is a `provider_native` tool, which only `permissive` grants, so the run cannot
+  invoke it. The gate answered `hydra/out-of-scope` and the run derived `gated`. That
+  half was already written down above and now has a second sighting.
+- The link resolves into `~/hydra/skills-snapshots/<sha>/`, outside the checkout, so
+  `file_read` scoped to `worktree` denies reading the `SKILL.md` too. The gate resolves
+  symlinks before comparing, which is deliberate and is what `tests/gate.rs` calls
+  `a_symlink_out_of_the_worktree_does_not_widen_the_scope`.
+
+Both denials are correct against the documents as written. Together they mean injection
+delivers a name and a description into the system prompt and nothing else under `judge`,
+`read-only`, `standard` and `curate`. Under `permissive` it works, because that policy
+grants `provider_native` and `file_read` anywhere.
+
+Nothing here was changed to fix it. 6.4 says the links point into a snapshot and 7.2 says
+the `worktree` scope is the checkout, and no closed ticket connects the two. The store's
+own scope is a second half of the same question: harness spec 7.2 says `curate` writes to
+`~/hydra/skills/` literally, `docs/ouroboros-spec.md` 3.6 has the curator working in its
+own worktree of the store, and 9.1 flags that as a refinement to confirm. Ticket 07 left
+`Scope::SkillStore` pointing at `~/hydra/skills/` unchanged, because moving it is a
+decision for the map.
+
 ## The one departure from the record contract
 
-**`skills` and `mcp` are absent, not null.** Nothing is injected, so which sha the run
-pinned is not a question with a missing answer. Contract 5.5 set the rule and 5.6
-applied it; this is the third place it applies.
+**`mcp` is absent, not null.** Nothing MCP is injected, so which document sha the run
+used is not a question with a missing answer. Contract 5.5 set the rule and 5.6 applied
+it; this is the third place it applies.
+
+**`skills` is present on every run with a checkout and absent on the rest.** Ticket 07
+closed that half: a run in a repo carries `store_sha`, `linked` and `resolved`. A run
+outside a repo gets no worktree, and 6.4 puts injection in the worktree and nowhere
+else, so there is no location to link into and the question does not apply.
 
 Ticket 02 closed the other two. `policy` and `policy_sha` carry the policy that was in
 force and the sha of the directory it was compiled from, and the preamble rides the task
@@ -826,8 +1033,15 @@ a script the user edits.
 
 **`standard` did not hit the `ToolSearch` and `Skill` denial.** Ticket 02 expected the
 first gated `standard` run to notice the capability loss below. This probe was one tool
-call long and never reached for either. The loss is still there and still real; it
-wants a run with ordinary coding shape to surface it.
+call long and never reached for either.
+
+**Ticket 07's first injected run hit it, on 2026-09-06.** Run
+`01a07512-d36e-7651-b8d9-e9e279e5730b`, `standard`, `--model haiku`, two skills linked
+and a task naming one of them. The gate refused `Skill` with `hydra/out-of-scope`, the
+model replied "The policy compiled for this run does not allow the Skill tool", and the
+run derived `gated`. The loss is real and it is now on the record twice. The section on
+the skill store above has the other half, which is that the link resolves outside the
+`worktree` scope so the `SKILL.md` cannot be read either.
 
 ## What the first slice measured
 
@@ -981,30 +1195,45 @@ what the section below measures.
 checks in prose and no closed ticket gives them strings. `record::Refusal` is the
 vocabulary, one code each, in the shape ticket 01 gave the gate's `hydra/` reason prefix
 and for the same reason: the derivation matches on it, and a sentence is not something to
-match on. Nothing writes one yet, so the four tickets that will are free to disagree
-with the spelling before any record carries it.
+match on. One of the four is written now, `skill_collision`, and a record carries it, so
+that spelling is settled and the other three are still free to move.
+
+**`hydra reap` is what removes a skills snapshot.** Harness spec 5 says a snapshot is
+reaped when no live run references it and names no command. Reap is the one already typed
+by a human that already removes a run's scratch.
+
+**The store's pin commit is attributed to `hydra <hydra@localhost>` with the run id in a
+trailer.** 6.4 asks for authorship in the trailer and does not say whose. Hydra cannot
+know which run dirtied the store, so the trailer names the run that turned the working
+tree into a commit.
+
+**The store's validator holds two rules the file format does not.** The frontmatter
+`name` must equal the directory name, and `disable-model-invocation: true` is refused.
+The section on the skill store above gives the reason for each. Both are stricter than
+6.4 says in words and both follow from what it asks the store to do; confirm them rather
+than inherit them.
+
+**The skill probe leaves a transcript under `~/.claude/projects/` per run and nothing
+reaps it.** That is the user's own directory and Hydra writes nothing else in it.
 
 ## Not built
 
 Out of scope for this slice, and each one has a document that already says what it is:
 
-- Skill injection and the store. 6.4. `~/hydra/skills/` is the `skill_store` scope and
-  nothing creates it, so a `curate` run today is scoped to a directory that is not
-  there. The gate denies rather than resolving elsewhere, which is the safe end of that,
-  and ticket 07 is what makes the scope mean something.
 - MCP injection and the Cursor pre-flight. 6.5. The spawn directory exists now and holds
   the gate and the hook config; the `mcp.json` beside them and Cursor's `cursor-data/`
   are ticket 08 and ticket 09.
-- Five of harness spec 6.1's seven pre-flight checks. Auth, depth, policy containment,
-  skill collision and both MCP checks belong to tickets that are not built. What runs
-  before a run id exists today is the environment, the provider version, the policy name,
-  the preamble file and the concurrency cap.
+- Four of harness spec 6.1's seven pre-flight checks. Auth, depth, policy containment and
+  both MCP checks belong to tickets that are not built. What runs before a spawn today is
+  the environment, the provider version, the policy name, the preamble file, the
+  concurrency cap and the skill collision check.
 - Delegation: `--parent`, depth, monotonic narrowing, the MCP delegate face. 7.3, 9.
-- Two of contract 8's nine outcomes have no producer in a record. `skill_collision` and
-  `mcp_unavailable` are launch checks belonging to tickets 07 and 08, and both arrive
-  through `run_end.refusal`, which nothing writes. Both are in the enum, because a value
-  the reader cannot name is one nobody knows is missing. `timed_out` has a producer now
-  and it is the handle rather than the record; the section above argues that reading.
+- One of contract 8's nine outcomes has no producer in a record. `mcp_unavailable` is a
+  launch check belonging to ticket 08 and arrives through `run_end.refusal`, which
+  nothing writes for it. It is in the enum, because a value the reader cannot name is one
+  nobody knows is missing. `skill_collision` has a producer now and it is 6.1's fifth
+  check; `timed_out` has one too and it is the handle rather than the record, which the
+  section above argues.
 - The `cursor-agent` and `agy` adapters, tickets 09 and 10, and harvest, 12. Contract
   7.2's other two columns and 7.2.1's transcript vocabulary have no reader.
 - Interactive runs and harvest. 5.6, 12.
@@ -1014,6 +1243,23 @@ Out of scope for this slice, and each one has a document that already says what 
 
 ## Rough edges worth knowing
 
+- **`~/hydra` is this checkout on the machine this is developed on**, so everything
+  harness spec 5 writes lands inside the source repo and `.gitignore` is what keeps it
+  out of git. Ticket 07 found the trap that comes with it: the patterns were unanchored,
+  so `skills/` matched `src/skills/` at any depth and hid a new source directory from
+  `git status` with no warning. They are anchored to the repo root now. A new directory
+  under `src/` sharing a name with one of Hydra's own is worth a `git status` glance
+  either way.
+- **A record does not carry the paths its scopes resolved to.** `policy` and `policy_sha`
+  pin the rules; `worktree`, `skill_store` and `corpus` are resolved at compile time from
+  `Layout` and go nowhere. Contract 11 re-derives `permission_decision` by running the
+  policy again, so a build that moves where a scope points makes every earlier record
+  re-derive differently, and `policy_sha` does not move because no policy file changed.
+  Seen for real on 2026-09-06: a concurrent branch pointed `skill_store` at a per-run
+  worktree of the store, and its run's ten in-scope reads re-derive on this branch as ten
+  `GateLeak` findings. Nothing is wrong with either build. The record is missing the
+  field that would tell them apart, and that is a decision for the map rather than a fix
+  for a ticket.
 - **A run with no `run_end` is not corrupt.** Contract section 6 says so. Killing the
   detached half mid-run produces one, and nothing completes it: `hydra status` reports it
   as abandoned and stops there, because completing it means harvest and no run on this

@@ -73,6 +73,10 @@ pub struct RunView {
     pub worktree: Option<crate::record::WorktreeRef>,
     pub provider: Option<String>,
     pub policy: Option<String>,
+    /// The store sha this run pinned, contract 5.3. It is the refcount on
+    /// `~/hydra/skills-snapshots/<sha>/`: a snapshot is referenced while a live
+    /// run's record names it, and nothing else counts.
+    pub skills_sha: Option<String>,
 }
 
 impl RunView {
@@ -146,6 +150,14 @@ pub fn read_view(path: &Path) -> Result<RunView> {
         None => (run_id_from_name, None, None, None, None, None, None),
     };
 
+    // Read beside the tuple rather than inside it. It is the one field here that
+    // no other field is derived from, and a nine-way tuple is worse than a second
+    // look at the same value.
+    let skills_sha = start
+        .as_ref()
+        .and_then(|envelope| envelope["hydra"]["skills"]["store_sha"].as_str())
+        .map(str::to_string);
+
     // Contract 5.2's test, both halves. A null pid is a run that never had a
     // process, which is a refused spawn rather than something to go looking for.
     let state = match (ended, pid, process_start_time) {
@@ -164,6 +176,7 @@ pub fn read_view(path: &Path) -> Result<RunView> {
         worktree,
         provider,
         policy,
+        skills_sha,
     })
 }
 
@@ -500,6 +513,7 @@ mod tests {
                 worktree: None,
                 provider: None,
                 policy: None,
+                skills_sha: None,
             })
             .collect();
 
@@ -525,6 +539,7 @@ mod tests {
             worktree: None,
             provider: None,
             policy: None,
+            skills_sha: None,
         }];
         assert!(guard(1, &views).is_ok());
     }

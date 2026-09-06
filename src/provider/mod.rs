@@ -46,6 +46,40 @@ impl Provider {
         }
     }
 
+    /// Where Hydra links this run's skills, relative to the worktree (6.4).
+    ///
+    /// The other two rows of 6.4's table are `.cursor/skills/` and
+    /// `.agents/skills/`, and both come with a launch flag this build does not
+    /// pass, so they arrive with their providers in tickets 09 and 10.
+    pub fn skill_root(self) -> &'static str {
+        match self {
+            Provider::Claude => ".claude/skills",
+        }
+    }
+
+    /// The user-scope roots this provider reads, which the collision check
+    /// compares the store against.
+    ///
+    /// **`claude` reads one and `cursor-agent` reads six**, so this is a
+    /// per-provider list rather than the index's own. Ticket 24 fired probes into
+    /// all of them at both scopes; `crate::skills::index` scans the union and this
+    /// is the filter over it.
+    pub fn user_skill_roots(self, home: &std::path::Path) -> Vec<std::path::PathBuf> {
+        match self {
+            Provider::Claude => vec![home.join(".claude/skills")],
+        }
+    }
+
+    /// What this provider says it resolved, contract 5.3's `skills.resolved`.
+    ///
+    /// Free on `claude` and on `agy`, paid on `cursor-agent`. See
+    /// [`claude::resolved_skills`] for what free costs in wall-clock time.
+    pub fn resolved_skills(self, worktree: &std::path::Path) -> Result<Vec<String>> {
+        match self {
+            Provider::Claude => claude::resolved_skills(worktree),
+        }
+    }
+
     /// Which subscription pays for this binary's runs.
     ///
     /// Hydra authors this at spawn. `agy` serves Claude models on the Google

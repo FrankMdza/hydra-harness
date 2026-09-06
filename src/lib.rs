@@ -3,8 +3,9 @@
 //! It launches one provider, `claude`, on a pty it owns, under a gate it compiled
 //! from the run's policy, and writes a run record per `docs/run-record-contract.md`.
 //! [`normalize`] reads one back into the ten event types of contract 7 and
-//! [`outcome`] turns one into contract 8's outcome and contract 17's JSON. The
-//! skill store, MCP injection and delegation are not built, and
+//! [`outcome`] turns one into contract 8's outcome and contract 17's JSON.
+//! [`skills`] is the store, the per-sha snapshot and what a run gets linked into
+//! its checkout. MCP injection and delegation are not built, and
 //! `IMPLEMENTATION.md` says what that does to the records this binary writes.
 //!
 //! Every child is detached: [`watch`] is the half that owns the pty and the record,
@@ -27,6 +28,7 @@ pub mod pty;
 pub mod reap;
 pub mod record;
 pub mod run;
+pub mod skills;
 pub mod status;
 pub mod watch;
 pub mod worktree;

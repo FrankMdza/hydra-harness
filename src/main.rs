@@ -61,12 +61,25 @@ fn main() -> Result<()> {
                 hydra::run::LAUNCH_BUDGET,
             )?;
             print!("{}", hydra::reap::report(&reaped));
+            // Harness spec 5's second row, on its own lifetime. A snapshot is
+            // shared between the runs that pinned it, so it is swept by sha
+            // whether or not a run id was named: reaping one run does not release
+            // a snapshot another still holds, and reaping none can release
+            // several.
+            let swept = hydra::reap::snapshots(&layout, hydra::run::LAUNCH_BUDGET)?;
+            print!("{}", hydra::reap::snapshot_report(&swept));
             // A sweep that left a live run's checkout alone succeeded. One that
             // could not finish what it started did not, and a script driving the
             // cleanup has to be able to tell those apart from the exit code.
             let failed = hydra::reap::failures(&reaped);
-            if failed > 0 {
-                anyhow::bail!("{failed} of {} could not be reaped", reaped.len());
+            let failed_snapshots = hydra::reap::snapshot_failures(&swept);
+            if failed + failed_snapshots > 0 {
+                anyhow::bail!(
+                    "{failed} of {} run(s) and {failed_snapshots} of {} snapshot(s) \
+                     could not be reaped",
+                    reaped.len(),
+                    hydra::reap::snapshots_acted_on(&swept)
+                );
             }
         }
         Command::Prune {

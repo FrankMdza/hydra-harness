@@ -302,6 +302,164 @@ fn current_branch(path: &Path) -> Result<Option<String>> {
     Ok((name != "HEAD").then_some(name))
 }
 
+/// What the snapshot sweep did to one sha.
+///
+/// **Keyed by a sha and not by a run id**, which is why this is its own type
+/// rather than a fourth [`Reaped`]. Harness spec 5 gives the snapshot a different
+/// lifetime from the other three rows: created per sha, shared between every run
+/// that pinned it, and reaped when no live run references it.
+pub enum SnapshotSweep {
+    Removed {
+        sha: String,
+    },
+    Failed {
+        sha: String,
+        why: String,
+    },
+    /// Nothing was swept at all, and why.
+    Deferred {
+        why: String,
+    },
+}
+
+/// Removes every skills snapshot no live run is pinned to.
+///
+/// **Which command does this is a choice, and harness spec 5 names none.** The
+/// table says a snapshot is reaped "when no live run references it" and stops
+/// there. `hydra reap` is the command that already removes a run's scratch and is
+/// already typed by a human, so it is the one that got this, and
+/// `IMPLEMENTATION.md` records that as a choice rather than a reading.
+///
+/// **The refcount is the corpus.** A snapshot is referenced while a live run's
+/// `run_start` names its sha, which [`crate::skills::referenced_shas`] answers off
+/// the same scan `hydra status` uses. No counter file, so there is nothing to fall
+/// out of step with the runs it counts.
+///
+/// **A launch in flight stands the whole sweep down.** The snapshot for a sha that
+/// already exists is reused untouched, so a launch that is between creating its
+/// checkout and writing line 0 references a snapshot that looks old and is named
+/// by no record yet. Age cannot see that one, and removing it would leave a
+/// running child with dangling links and no warning. A checkout younger than the
+/// grace whose record has not spoken is the same evidence
+/// [`crate::status::abandoned_worktrees`] reads, pointed the other way.
+pub fn snapshots(layout: &Layout, grace: std::time::Duration) -> Result<Vec<SnapshotSweep>> {
+    let dir = layout.snapshots();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+
+    let views = crate::live::scan(layout)?;
+    if let Some(run_id) = launching(layout, &views, grace)? {
+        return Ok(vec![SnapshotSweep::Deferred {
+            why: format!(
+                "run {run_id} is still starting, and a launch reuses a snapshot \
+                 without touching it"
+            ),
+        }]);
+    }
+
+    let referenced = crate::skills::referenced_shas(&views);
+    let mut paths: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    paths.sort();
+
+    let mut swept = Vec::new();
+    for path in paths {
+        let sha = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if referenced.contains(&sha) || crate::status::just_created(&path, grace) {
+            continue;
+        }
+        match crate::skills::remove_snapshot(&layout.skills(), &path) {
+            Ok(()) => swept.push(SnapshotSweep::Removed { sha }),
+            Err(err) => swept.push(SnapshotSweep::Failed {
+                sha,
+                why: format!("{err:#}"),
+            }),
+        }
+    }
+    Ok(swept)
+}
+
+/// The run id of a checkout that exists, has not spoken, and is younger than the
+/// grace. That is a launch between its worktree and its line 0.
+fn launching(
+    layout: &Layout,
+    views: &[RunView],
+    grace: std::time::Duration,
+) -> Result<Option<String>> {
+    let entries = match std::fs::read_dir(layout.worktrees()) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .filter(|path| crate::status::just_created(path, grace))
+        .filter_map(|path| path.file_name().map(|n| n.to_string_lossy().to_string()))
+        .find(|run_id| {
+            !views
+                .iter()
+                .any(|view| view.run_id == *run_id && view.launched())
+        }))
+}
+
+/// What a human reads back from the snapshot sweep. Silence for a snapshot still
+/// in use, because a line per live run's snapshot is noise around the removals.
+pub fn snapshot_report(swept: &[SnapshotSweep]) -> String {
+    let mut out = String::new();
+    for item in swept {
+        match item {
+            SnapshotSweep::Removed { sha } => {
+                out.push_str(&format!("snapshot {} removed\n", short(sha)));
+            }
+            SnapshotSweep::Failed { sha, why } => {
+                out.push_str(&format!("snapshot {} failed: {why}\n", short(sha)));
+            }
+            SnapshotSweep::Deferred { why } => {
+                out.push_str(&format!("snapshots left alone: {why}\n"));
+            }
+        }
+    }
+    out
+}
+
+/// The first twelve characters, counted in characters.
+///
+/// A snapshot's name is a directory read off disk rather than a sha git handed
+/// over, so byte-slicing it panics the day one is not hex.
+fn short(sha: &str) -> String {
+    sha.chars().take(12).collect()
+}
+
+/// How many snapshots were tried and would not go through. The sibling of
+/// [`failures`], which counts the same thing for runs.
+pub fn snapshot_failures(swept: &[SnapshotSweep]) -> usize {
+    swept
+        .iter()
+        .filter(|item| matches!(item, SnapshotSweep::Failed { .. }))
+        .count()
+}
+
+/// How many snapshots the sweep actually acted on. A deferral is the sweep
+/// declining to act, so it belongs in neither half of "n of m".
+pub fn snapshots_acted_on(swept: &[SnapshotSweep]) -> usize {
+    swept
+        .iter()
+        .filter(|item| !matches!(item, SnapshotSweep::Deferred { .. }))
+        .count()
+}
+
 /// Spawn directories with no checkout beside them and no live run behind them.
 fn orphan_spawns(
     layout: &Layout,

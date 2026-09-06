@@ -69,3 +69,21 @@ than pointing it at the last step.
 **`ResultStatus::Unclassified` is written and reached.** 7.6's warning about your
 `TOOL_ERROR` is already the code's behaviour, and the `claude` adapter reaches the same
 value from a different direction: a successful `Write` with no `is_error` field.
+
+## What ticket 07 left you, added 2026-09-06
+
+**Your resolved listing is free and it is one command.** Ticket 24:
+`agy -p "/skills" --output-format json --add-dir <worktree>` returns `num_turns: 0`,
+`total_tokens: 0` and one record per surviving skill. Fill in
+`Provider::resolved_skills`, beside `skill_root` (`.agents/skills`, which needs
+`--add-dir <worktree>` or it is invisible) and `user_skill_roots`
+(`~/.gemini/config/skills` and nothing else).
+
+**You are the provider that keys on the frontmatter `name`**, and the store's validator
+now requires the frontmatter name to equal the directory name, so a store skill has one
+identity for you and for `claude` both. `hydra::skills::index` keys on both anyway,
+because the user's own skills are not held to that rule.
+
+**You collapse two skills declaring one name and `claude` does not**, which ticket 24
+measured. The launch check will see that as a linked name you did not list, which is a
+collision, which is the right answer.

@@ -1,8 +1,13 @@
 target/
-runs/
-worktrees/
-spawn/
-skills/
-skills-snapshots/
+# What Hydra writes under ~/hydra, which on this machine is this checkout. Every
+# one is anchored to the repo root: unanchored, `skills/` matched `src/skills/`
+# at any depth and hid the source directory from git.
+/runs/
+/worktrees/
+/spawn/
+/skills/
+/skills-snapshots/
+/pruned/
+# Where the Claude Code harness puts a subagent's isolated checkout of this repo.
+/.claude/worktrees/
 .DS_Store
-pruned/

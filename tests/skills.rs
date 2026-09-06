@@ -1,0 +1,539 @@
+//! The skill store, the snapshot and per-run injection, harness spec 6.4.
+//!
+//! **Everything here is offline.** The store is git, the snapshot is git, the
+//! links are symlinks, and the collision check's first two tests read
+//! directories. The only part that needs a provider is the third test, which asks
+//! `claude` what it resolved, and that one is measured by hand and written up in
+//! `IMPLEMENTATION.md` rather than driven from here: it launches a binary that
+//! self-updates, and the two halves of it that can be pinned, the project slug and
+//! the transcript shape, are unit tests in `src/provider/claude.rs`.
+//!
+//! **The self-ignoring root is checked against real git and not against a doc
+//! comment.** 6.4's claim is that `git status` reports nothing and `git add -A`
+//! stages nothing, verified by ticket 24 on all three builds. That is the kind of
+//! claim that quietly stops being true, so it is asserted here.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use hydra::paths::Layout;
+use hydra::provider::Provider;
+use hydra::skills::{self, Store};
+use serde_json::{Value, json};
+
+// --- the fixture ---------------------------------------------------------
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// A `~/hydra` the test owns, with a repo beside it to make checkouts from.
+struct Fixture {
+    root: PathBuf,
+    repo: PathBuf,
+    /// Stands in for the home directory the user-scope index scans.
+    home: PathBuf,
+}
+
+impl Fixture {
+    fn new(name: &str) -> Self {
+        let base = std::env::temp_dir().join(format!("hydra-skills-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["config", "user.email", "test@example.invalid"]);
+        git(&repo, &["config", "user.name", "hydra tests"]);
+        std::fs::write(repo.join("committed.txt"), "one\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-qm", "first"]);
+
+        let fixture = Self {
+            root: base.join("hydra"),
+            repo,
+            home: base.join("home"),
+        };
+        fixture.layout().ensure().unwrap();
+        std::fs::create_dir_all(&fixture.home).unwrap();
+        fixture
+    }
+
+    fn layout(&self) -> Layout {
+        Layout::at(&self.root)
+    }
+
+    /// A checkout the way `hydra run` makes one.
+    fn checkout(&self, run_id: &str) -> PathBuf {
+        let layout = self.layout();
+        let dest = layout.worktree(run_id);
+        hydra::worktree::create(
+            &self.repo,
+            &dest,
+            &format!("hydra/{run_id}"),
+            &layout.seed_index(run_id),
+        )
+        .unwrap();
+        dest
+    }
+
+    /// One skill in the store's working tree, uncommitted.
+    fn store_skill(&self, name: &str, description: &str, sidecar: Option<&str>) {
+        let dir = self.layout().skills().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {description}\n---\n\nbody\n"),
+        )
+        .unwrap();
+        if let Some(sidecar) = sidecar {
+            std::fs::write(dir.join("hydra.toml"), sidecar).unwrap();
+        }
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.root.parent().unwrap());
+    }
+}
+
+/// A run file carrying the liveness pair and the sha it pinned.
+fn write_run(layout: &Layout, run_id: &str, pid: Option<u32>, store_sha: Option<&str>) {
+    let start = pid.and_then(|pid| hydra::procinfo::start_time(pid).ok().flatten());
+    let mut line = json!({
+        "run_id": run_id,
+        "parent_run_id": null,
+        "seq": 0,
+        "ts": "2026-09-05T20:51:39.370Z",
+        "provider": "claude",
+        "model": null,
+        "secret_flag": null,
+        "hydra": {
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "stub",
+            "task": "probe",
+            "policy": "standard",
+            "policy_sha": null,
+            "cwd": "/tmp",
+            "worktree": null,
+            "depth": 0,
+            "pid": pid,
+            "process_start_time": start
+                .map(|t| Value::from(t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)))
+                .unwrap_or(Value::Null),
+            "skills": store_sha.map(|sha| json!({
+                "store_sha": sha, "linked": [], "resolved": null
+            })).unwrap_or(Value::Null),
+            "subscription": "none",
+        },
+    })
+    .to_string();
+    line.push('\n');
+    std::fs::write(layout.run_file(run_id), line).unwrap();
+}
+
+const NO_GRACE: std::time::Duration = std::time::Duration::ZERO;
+const RUN_A: &str = "01a07357-58a5-79e2-a25a-3df578a750b4";
+const RUN_B: &str = "01a07357-58a5-79e2-a25a-3df578a750b5";
+
+// --- the store -----------------------------------------------------------
+
+#[test]
+fn the_store_opens_as_a_git_repo_with_a_sha_to_pin() {
+    // A repo with no commits has no sha, so the first run would pin nothing and
+    // `skills.store_sha` would be null on a store that exists.
+    let fixture = Fixture::new("opens");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    assert!(store.dir().join(".git").exists());
+
+    let sha = store.pin(RUN_A).unwrap();
+    assert_eq!(sha.len(), 40, "{sha}");
+}
+
+#[test]
+fn a_dirty_store_is_committed_before_pinning_and_the_trailer_names_the_run() {
+    // 6.4: launching from HEAD and ignoring the working tree would mean editing a
+    // skill, running, and watching nothing happen.
+    let fixture = Fixture::new("dirty");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    let before = store.pin(RUN_A).unwrap();
+
+    fixture.store_skill("alpha", "A probe. Marker ALPHA.", None);
+    let after = store.pin(RUN_B).unwrap();
+
+    assert_ne!(before, after, "the edit has to move the sha");
+    assert!(
+        git(store.dir(), &["status", "--porcelain"])
+            .trim()
+            .is_empty(),
+        "the store is clean once it is pinned"
+    );
+    let message = git(store.dir(), &["log", "-1", "--format=%B"]);
+    assert!(
+        message.contains(&format!("Hydra-Pinned-By: {RUN_B}")),
+        "{message}"
+    );
+    // The sha the run reports is the commit that holds the edit.
+    let listed = git(store.dir(), &["show", "--name-only", "--format=", &after]);
+    assert!(listed.contains("alpha/SKILL.md"), "{listed}");
+}
+
+#[test]
+fn pinning_an_unchanged_store_twice_answers_the_same_sha() {
+    let fixture = Fixture::new("stable");
+    let store = Store::open(&fixture.layout()).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    assert_eq!(store.pin(RUN_A).unwrap(), store.pin(RUN_B).unwrap());
+}
+
+// --- the snapshot --------------------------------------------------------
+
+#[test]
+fn an_edit_after_the_pin_does_not_reach_the_run_that_pinned_it() {
+    // The whole reason the links point at a snapshot. A symlink into the live
+    // store resolves to the working tree, so an edit mid-session would reach a
+    // session already running.
+    let fixture = Fixture::new("frozen");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe. Marker FIRST.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+
+    let worktree = fixture.checkout(RUN_A);
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+    assert_eq!(injected.linked, vec!["alpha".to_string()]);
+
+    fixture.store_skill("alpha", "A probe. Marker SECOND.", None);
+    let seen = std::fs::read_to_string(injected.root.join("alpha/SKILL.md")).unwrap();
+    assert!(seen.contains("Marker FIRST"), "{seen}");
+    assert!(!seen.contains("Marker SECOND"), "{seen}");
+}
+
+#[test]
+fn two_runs_on_one_sha_share_one_snapshot() {
+    // 6.4: snapshots are shared per sha and refcounted, because delegation caps
+    // depth and not fan-out.
+    let fixture = Fixture::new("shared");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+
+    let first = store.snapshot(&layout, &sha).unwrap();
+    let second = store.snapshot(&layout, &sha).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(
+        git(store.dir(), &["worktree", "list"]).lines().count(),
+        2,
+        "the store itself plus one snapshot"
+    );
+}
+
+// --- injection -----------------------------------------------------------
+
+#[test]
+fn the_injected_root_ignores_itself() {
+    // 6.4's claim, against real git rather than against a doc comment.
+    let fixture = Fixture::new("ignores");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    fixture.store_skill("beta", "Another probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+
+    let worktree = fixture.checkout(RUN_A);
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+    assert_eq!(
+        injected.linked,
+        vec!["alpha".to_string(), "beta".to_string()]
+    );
+    assert_eq!(
+        std::fs::read_to_string(injected.root.join(".gitignore")).unwrap(),
+        "*\n"
+    );
+
+    assert_eq!(git(&worktree, &["status", "--porcelain"]).trim(), "");
+    git(&worktree, &["add", "-A"]);
+    assert_eq!(
+        git(&worktree, &["diff", "--cached", "--name-only"]).trim(),
+        "",
+        "git add -A must stage nothing"
+    );
+}
+
+#[test]
+fn the_links_are_links_and_they_point_into_the_snapshot() {
+    let fixture = Fixture::new("links");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+    let link = injected.root.join("alpha");
+    assert!(link.is_symlink());
+    assert_eq!(std::fs::read_link(&link).unwrap(), snapshot.join("alpha"));
+}
+
+#[test]
+fn a_sidecar_that_names_another_provider_is_not_linked() {
+    let fixture = Fixture::new("providers");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill(
+        "only-cursor",
+        "A probe.",
+        Some("providers = [\"cursor-agent\"]\n"),
+    );
+    fixture.store_skill(
+        "both",
+        "A probe.",
+        Some("providers = [\"claude\", \"agy\"]\n"),
+    );
+    fixture.store_skill("no-sidecar", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+    // No sidecar admits every provider: the field is how a skill opts out, not
+    // how it opts in.
+    assert_eq!(
+        injected.linked,
+        vec!["both".to_string(), "no-sidecar".to_string()]
+    );
+}
+
+#[test]
+fn a_skill_the_validator_refuses_is_left_out_rather_than_failing_the_launch() {
+    // The store is a directory a human and a curator both write to. One bad file
+    // in it must not be able to stop every launch on the machine.
+    let fixture = Fixture::new("bad-skill");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("good", "A probe.", None);
+    fixture.store_skill("bad", "A probe. label: value here.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+    assert_eq!(injected.linked, vec!["good".to_string()]);
+}
+
+#[test]
+fn a_name_the_repo_already_carries_is_blocked_rather_than_overwritten() {
+    // The repo's own `.claude/skills/` belongs to the human. Linking over it
+    // would edit their checkout, so the store's copy is held back and the
+    // collision check is what reports it.
+    let fixture = Fixture::new("repo-own");
+    let layout = fixture.layout();
+    let own = fixture.repo.join(".claude/skills/repo-own");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(
+        own.join("SKILL.md"),
+        "---\nname: repo-own\ndescription: The repo's own.\n---\n",
+    )
+    .unwrap();
+    git(&fixture.repo, &["add", "-A"]);
+    git(&fixture.repo, &["commit", "-qm", "a project skill"]);
+
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("repo-own", "The store's copy.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+    assert!(injected.linked.is_empty());
+    assert_eq!(injected.blocked, vec!["repo-own".to_string()]);
+    let kept = std::fs::read_to_string(injected.root.join("repo-own/SKILL.md")).unwrap();
+    assert!(kept.contains("The repo's own"), "{kept}");
+
+    let user = skills::index::Index::user_scope(&fixture.home).unwrap();
+    let project = skills::index::Index::project_scope(&injected.root).unwrap();
+    let hits = skills::collision::check(
+        &injected,
+        Provider::Claude,
+        &fixture.home,
+        &user,
+        &project,
+        None,
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].name, "repo-own");
+}
+
+#[test]
+fn the_record_carries_the_sha_the_names_and_the_listing() {
+    // Contract 5.3: a sha without names does not say what was selected, and names
+    // without a sha do not say what bytes they resolved to.
+    let fixture = Fixture::new("record");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+
+    let recorded = skills::record(
+        &injected,
+        Some(&["alpha".to_string(), "unslop".to_string()]),
+    );
+    assert_eq!(recorded["store_sha"], sha);
+    assert_eq!(recorded["linked"], json!(["alpha"]));
+    assert_eq!(recorded["resolved"], json!(["alpha", "unslop"]));
+
+    // A listing nobody could be asked for is null and never an empty array, which
+    // would claim the model saw no skills at all.
+    assert!(skills::record(&injected, None)["resolved"].is_null());
+}
+
+#[test]
+fn the_write_check_refuses_a_name_the_index_already_holds_and_a_broken_description() {
+    // 6.4's first of the two collision checks, plus the write-time validator.
+    // Nothing calls it yet, for the reason its doc comment gives, so this is what
+    // says the rule is right before the caller arrives.
+    let fixture = Fixture::new("admit");
+    let layout = fixture.layout();
+    let store = layout.skills();
+
+    let user_skill = fixture.home.join(".claude/skills/taken");
+    std::fs::create_dir_all(&user_skill).unwrap();
+    std::fs::write(
+        user_skill.join("SKILL.md"),
+        "---\nname: taken\ndescription: The human's own.\n---\n",
+    )
+    .unwrap();
+    let user = skills::index::Index::user_scope(&fixture.home).unwrap();
+
+    fixture.store_skill("taken", "The store's copy.", None);
+    fixture.store_skill("fine", "A description with no colon in it.", None);
+    fixture.store_skill("broken", "A description with a label: value in it.", None);
+
+    let err = skills::admit(&store, "taken", &user, &fixture.home).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("already holds that name"),
+        "{err:#}"
+    );
+
+    let err = skills::admit(&store, "broken", &user, &fixture.home).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("colon followed by a space"),
+        "{err:#}"
+    );
+
+    skills::admit(&store, "fine", &user, &fixture.home).unwrap();
+}
+
+// --- reaping the snapshot ------------------------------------------------
+
+#[test]
+fn a_snapshot_no_live_run_references_is_swept_and_one_a_live_run_holds_is_not() {
+    // Harness spec 5's second row. The refcount is the corpus: a snapshot is
+    // referenced while a live run's record names its sha.
+    let fixture = Fixture::new("sweep");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+
+    fixture.store_skill("alpha", "A probe.", None);
+    let held = store.pin(RUN_A).unwrap();
+    store.snapshot(&layout, &held).unwrap();
+    fixture.store_skill("beta", "Another probe.", None);
+    let loose = store.pin(RUN_B).unwrap();
+    store.snapshot(&layout, &loose).unwrap();
+
+    // One live run, pinned to the first sha. The second is referenced by nobody.
+    write_run(&layout, RUN_A, Some(std::process::id()), Some(&held));
+    write_run(&layout, RUN_B, None, Some(&loose));
+
+    let swept = hydra::reap::snapshots(&layout, NO_GRACE).unwrap();
+    let removed: Vec<String> = swept
+        .iter()
+        .map(|item| match item {
+            hydra::reap::SnapshotSweep::Removed { sha } => sha.clone(),
+            other => panic!(
+                "{}",
+                hydra::reap::snapshot_report(std::slice::from_ref(other))
+            ),
+        })
+        .collect();
+    assert_eq!(removed, vec![loose.clone()]);
+    assert!(layout.snapshot(&held).exists());
+    assert!(!layout.snapshot(&loose).exists());
+
+    // Removed through git, so the store can check the same sha out again rather
+    // than refusing a path it still thinks it owns.
+    assert!(!git(store.dir(), &["worktree", "list"]).contains(&loose));
+    store.snapshot(&layout, &loose).unwrap();
+}
+
+#[test]
+fn a_launch_in_progress_stands_the_whole_sweep_down() {
+    // A launch reuses an existing snapshot without touching it, so age cannot see
+    // that one and removing it would leave a running child with dangling links.
+    let fixture = Fixture::new("launching");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    store.snapshot(&layout, &sha).unwrap();
+
+    // A checkout with no record at all: `hydra run` makes one before the detached
+    // half writes line 0.
+    fixture.checkout(RUN_B);
+
+    let swept = hydra::reap::snapshots(&layout, std::time::Duration::from_secs(600)).unwrap();
+    assert!(
+        matches!(
+            swept.as_slice(),
+            [hydra::reap::SnapshotSweep::Deferred { .. }]
+        ),
+        "{}",
+        hydra::reap::snapshot_report(&swept)
+    );
+    assert!(layout.snapshot(&sha).exists());
+}
+
+#[test]
+fn a_snapshot_younger_than_the_grace_is_left_alone() {
+    let fixture = Fixture::new("young");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    store.snapshot(&layout, &sha).unwrap();
+
+    let swept = hydra::reap::snapshots(&layout, std::time::Duration::from_secs(600)).unwrap();
+    assert!(swept.is_empty(), "{}", hydra::reap::snapshot_report(&swept));
+    assert!(layout.snapshot(&sha).exists());
+}
+
+#[test]
+fn a_sweep_with_no_snapshots_directory_does_nothing() {
+    let fixture = Fixture::new("empty");
+    let swept = hydra::reap::snapshots(&fixture.layout(), NO_GRACE).unwrap();
+    assert!(swept.is_empty());
+}

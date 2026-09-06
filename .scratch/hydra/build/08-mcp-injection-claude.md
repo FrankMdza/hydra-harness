@@ -62,3 +62,25 @@ like once it is real.
 gate against a sha the config carries and then runs it, so a rewritten script fails
 closed. `claude::gate_command` builds it. Nothing about MCP touches that, but a reader
 expecting `settings.json` to name the script directly will not find it.
+
+## What ticket 07 left you, added 2026-09-06
+
+**A pre-flight that refuses a launch now has a shape to copy.**
+`hydra::run::refuse_for_collision` writes line 0, writes `RunEnd::refused`, reads the
+record back through the normalizer and returns contract 17's projection. Your
+`mcp_unavailable` check is the same three steps with a different code, and 6.1 puts it
+one item after the skill collision check. `run.rs` already runs both halves of that
+sequence in order: skills, then the refusal branch, then `write_spawn_config`.
+
+**The launch already runs one free `claude` process before the spawn.** Ticket 07 asks
+the provider what skills it resolved with `claude -p x --model <unknown> --session-id
+<uuid>` in the checkout, measured at 1.8s on 2.1.263. That probe loads the user's
+settings, so it starts whatever MCP servers they have configured. Nothing on this machine
+has any, so the 1.8s is a floor rather than the number you will see once `--mcp-config`
+exists. If the probe becomes slow, `--strict-mcp-config` on the probe is the obvious
+lever and it changes what the probe measures, so decide it rather than reach for it.
+
+**`skills.resolved` is the pattern `mcp.resolved` should follow.** Contract 5.3 asks both
+groups the same question and ticket 07 answered it for skills by asking the provider and
+storing null when it could not be asked. An empty array would claim the run got nothing,
+which is a different fact.

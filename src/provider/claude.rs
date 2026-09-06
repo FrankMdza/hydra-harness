@@ -183,6 +183,144 @@ fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
+/// The model name the skill probe passes, which no catalog will ever hold.
+///
+/// Claude Code rejects an unknown model before it calls the API, so the probe is
+/// free. That is a measured property of the binary rather than a promise: 2.1.263
+/// prints `[claude-code:unrecognized_model]`, exits without a request, and still
+/// writes the session transcript. A build that started resolving unknown names
+/// would turn this into a paid call, which is why the name says what it is.
+const PROBE_MODEL: &str = "hydra-skill-preflight-not-a-model";
+
+/// What `claude` says it resolved, for contract 5.3's `skills.resolved`.
+///
+/// **The record cannot claim what the model saw without this.** Claude Code fits
+/// its whole skill listing into a character budget and renders the overflow as
+/// bare names, so nine injected links moved bare entries from 8 to 14 and three of
+/// the six newly stripped were the user's own plugin skills, with no warning.
+/// A sha and a list of what Hydra linked do not say that; the provider's own
+/// listing does.
+///
+/// **It is free and it is not instant.** Measured 2026-09-05 on 2.1.263: 1.8s
+/// wall clock, no API call, no tokens. The transcript it leaves behind is the
+/// answer: one `attachment` line whose `attachment.type` is `skill_listing`,
+/// carrying `skillCount` and a `names` array.
+///
+/// Three details are load-bearing. `--session-id` names the transcript, so this
+/// reads a file it can predict rather than the newest one in a directory a
+/// concurrent session may also be writing to. Stdin is `/dev/null`, or the binary
+/// waits three seconds for input that is not coming. And the environment is the
+/// child's own allowlist, because a wrong `HOME` moves both the user-scope skill
+/// root and the transcript, and the probe has to be looking at the same machine
+/// the run will.
+///
+/// **The probe runs the human's own `UserPromptSubmit` hooks**, because it is an
+/// ordinary `claude` invocation with the user's settings. That is the same
+/// exposure a recorded run already has and is worth knowing about here, where
+/// nothing was asked of a model.
+pub fn resolved_skills(worktree: &Path) -> anyhow::Result<Vec<String>> {
+    use anyhow::Context;
+
+    let env = crate::env::ChildEnv::build(crate::provider::Provider::Claude)?;
+    let home = crate::env::real_home()?;
+    let session = uuid::Uuid::now_v7().to_string();
+
+    let out = std::process::Command::new("claude")
+        .args(["-p", "x", "--model", PROBE_MODEL, "--session-id", &session])
+        .current_dir(worktree)
+        .env_clear()
+        .envs(env.vars())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .context("running the skill listing probe")?;
+
+    let transcript = home
+        .join(".claude/projects")
+        .join(project_slug(worktree))
+        .join(format!("{session}.jsonl"));
+
+    // **The exit status says nothing and the output says everything.** The probe
+    // is a run the binary is meant to refuse, so it exits however it likes and a
+    // status check would only encode today's spelling. What matters is whether the
+    // transcript arrived, and when it did not, what the binary said instead: a
+    // lapsed login and a renamed transcript directory both land here and read
+    // identically without it.
+    let text = std::fs::read_to_string(&transcript).with_context(|| {
+        format!(
+            "the skill probe left no transcript at {}. It exited {} and said: {}",
+            transcript.display(),
+            out.status,
+            said(&out).unwrap_or_else(|| "nothing".to_string())
+        )
+    })?;
+
+    skill_listing(&text).context("the probe's transcript carries no skill listing")
+}
+
+/// The first line the probe printed on either stream, for an error message.
+fn said(out: &std::process::Output) -> Option<String> {
+    [&out.stderr, &out.stdout]
+        .into_iter()
+        .flat_map(|stream| {
+            String::from_utf8_lossy(stream)
+                .to_string()
+                .lines()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .find(|line| !line.trim().is_empty())
+}
+
+/// Claude Code's name for a project directory under `~/.claude/projects/`.
+///
+/// Measured on 2.1.263 against three paths, one of them holding a dot and an
+/// underscore: every character that is not a letter, a digit or a hyphen becomes a
+/// hyphen, and the leading `/` becomes the leading hyphen that way too.
+///
+/// A wrong answer here is a missing file rather than a wrong listing, because
+/// [`resolved_skills`] names the transcript with `--session-id` and reads that
+/// exact path.
+fn project_slug(path: &Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// The `names` array off the transcript's `skill_listing` attachment.
+///
+/// **Names and never descriptions.** On the probe's path every
+/// filesystem-discovered skill renders as a bare name, so the listing answers
+/// identity and precedence, which is what the collision check asks, and cannot
+/// answer whether a description survived. A real run renders descriptions for all
+/// of them and is where that question goes if anyone ever asks it.
+fn skill_listing(transcript: &str) -> Option<Vec<String>> {
+    for line in transcript.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value["attachment"]["type"].as_str() != Some("skill_listing") {
+            continue;
+        }
+        return Some(
+            value["attachment"]["names"]
+                .as_array()?
+                .iter()
+                .filter_map(|name| name.as_str().map(str::to_string))
+                .collect(),
+        );
+    }
+    None
+}
+
 /// Reads the model and the session id off a frame.
 ///
 /// Both land on `system`/`init`, and both are on every frame after it. Hydra takes
@@ -336,5 +474,44 @@ mod tests {
     fn an_assistant_frame_teaches_the_envelope_nothing() {
         let observed = observe(r#"{"type":"assistant","message":{"model":"claude-sonnet-5"}}"#);
         assert!(observed.model.is_none());
+    }
+
+    #[test]
+    fn the_project_slug_flattens_everything_that_is_not_a_letter_or_a_digit() {
+        // Measured on 2.1.263 by running the probe in a directory called
+        // `slug.probe_1` and reading the name it created under
+        // `~/.claude/projects/`.
+        assert_eq!(
+            project_slug(Path::new("/tmp/scratch/slug.probe_1")),
+            "-tmp-scratch-slug-probe-1"
+        );
+        assert_eq!(
+            project_slug(Path::new(
+                "/Users/USER/hydra/worktrees/01a07484-1667-7500-b299-2889144b84c1"
+            )),
+            "-Users-USER-hydra-worktrees-01a07484-1667-7500-b299-2889144b84c1"
+        );
+    }
+
+    #[test]
+    fn the_listing_comes_off_the_attachment_line() {
+        let transcript = concat!(
+            "{\"type\":\"user\"}\n",
+            "{\"type\":\"attachment\",\"attachment\":{\"type\":\"agent_listing_delta\"}}\n",
+            "{\"type\":\"attachment\",\"attachment\":{\"type\":\"skill_listing\",\
+             \"skillCount\":2,\"names\":[\"alpha\",\"mattpocock-skills:tdd\"]}}\n",
+            "not json at all\n",
+        );
+        assert_eq!(
+            skill_listing(transcript).unwrap(),
+            vec!["alpha".to_string(), "mattpocock-skills:tdd".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_transcript_with_no_listing_answers_nothing_rather_than_an_empty_list() {
+        // Contract 5.3: a reader must handle the absence rather than treating it
+        // as a listing with nothing in it.
+        assert!(skill_listing("{\"type\":\"user\"}\n").is_none());
     }
 }

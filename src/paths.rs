@@ -1,8 +1,7 @@
 //! The `~/hydra` layout.
 //!
-//! Harness spec section 5 names four places Hydra writes. Three exist here: the
-//! run file, the worktree and the spawn directory. The fourth is
-//! `~/hydra/skills-snapshots/<sha>/`, which needs the skill store (ticket 07).
+//! Harness spec section 5 names four places Hydra writes and all four are here:
+//! the run file, the worktree, the spawn directory and the skills snapshot.
 //! `~/hydra/pruned/` is a fifth that section 5 does not name; [`Layout::pruned`]
 //! says why it is a choice rather than a reading.
 //!
@@ -60,12 +59,27 @@ impl Layout {
         self.worktrees().join(run_id)
     }
 
-    /// `~/hydra/skills/`, the `skill_store` scope. Nothing creates it yet: the
-    /// store is ticket 07. The gate still needs the path, because a policy that
-    /// scopes a write to a store that does not exist must deny rather than
-    /// resolve to something else.
+    /// `~/hydra/skills/`, the `skill_store` scope and the canonical store.
+    ///
+    /// [`crate::skills::Store::open`] creates it as a git repo of its own, living
+    /// inside the `~/hydra` working tree and ignored by it (6.4).
     pub fn skills(&self) -> PathBuf {
         self.root.join("skills")
+    }
+
+    /// `~/hydra/skills-snapshots/`, harness spec 5's second row.
+    pub fn snapshots(&self) -> PathBuf {
+        self.root.join("skills-snapshots")
+    }
+
+    /// One immutable checkout of the store, keyed by the sha a run pinned.
+    ///
+    /// **Keyed by sha rather than by run id**, which is what makes it shared: two
+    /// runs on one sha see identical bytes because they are looking at the same
+    /// bytes. It is reaped when no live run references it, and
+    /// [`crate::skills::referenced_shas`] is how that is asked.
+    pub fn snapshot(&self, sha: &str) -> PathBuf {
+        self.snapshots().join(sha)
     }
 
     pub fn spawns(&self) -> PathBuf {

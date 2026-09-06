@@ -3,13 +3,15 @@
 //! What a launch does, in order: build the child's environment from the allowlist,
 //! read the provider's version, load the policy set and the preamble, refuse if the
 //! concurrency cap is already met, mint a UUIDv7 run id, create a worktree and seed
-//! it, compile the run's gate into its spawn directory, compose the provider's argv
-//! and the whole of line 0, then hand all of it to [`crate::watch`], which spawns
-//! the provider on a pty in a session of its own and owns the record from there.
+//! it, pin the skill store and link a snapshot of it into the checkout, ask the
+//! provider what it resolved and refuse on a collision, compile the run's gate into
+//! its spawn directory, compose the provider's argv and the whole of line 0, then
+//! hand all of it to [`crate::watch`], which spawns the provider on a pty in a
+//! session of its own and owns the record from there.
 //!
 //! What it does not do, and what that costs the record, is in `IMPLEMENTATION.md`.
-//! The short version: nothing is injected, so `skills` and `mcp` are absent rather
-//! than null.
+//! The short version: nothing MCP is injected, so `mcp` is absent rather than null,
+//! and `skills` is absent on a run with no checkout to inject into.
 //!
 //! **This half never touches the run file.** Contract 6 gives a run file one writer
 //! and the detached half is it. `hydra run` tails the file like `hydra logs` does,
@@ -153,6 +155,59 @@ pub fn run(request: Request) -> Result<Call> {
         branch: w.branch.clone(),
     });
 
+    // 6.4: the store is pinned, snapshotted and linked into the checkout before
+    // anything asks the provider a question. A run with no checkout has nowhere to
+    // inject into, so it gets no links and its record leaves `skills` absent
+    // rather than null: the question does not apply.
+    let injected = match &worktree_ref {
+        Some(worktree) => Some(inject_skills(
+            &layout,
+            &run_id,
+            request.provider,
+            std::path::Path::new(&worktree.path),
+        )?),
+        None => None,
+    };
+
+    // Contract 5.1: the task is recorded verbatim, preamble and all.
+    let task = crate::preamble::compose(&preamble, &request.task);
+    let run_file = layout.run_file(&run_id);
+
+    // The whole of line 0 except the two fields that do not exist until a process
+    // does. Composing it here keeps every provider-specific fact on this side of
+    // the fork and leaves the detached half nothing to decide. It is composed
+    // before the collision check, because a refused launch writes the same line 0
+    // a spawned one would and contract 8.3 wants the attempt on disk in full.
+    let start = run_start(
+        &request,
+        &task,
+        policies.sha(),
+        &provider_version,
+        &cwd,
+        worktree_ref.clone(),
+        child_env.names(),
+        injected.as_ref().map(|i| i.record.clone()),
+    );
+    let line_zero = serde_json::to_value(&start)?;
+
+    // 6.1 item 5. A hit fails the run as its own outcome, and the record is the
+    // whole of what the caller gets back.
+    if let Some(injected) = &injected
+        && !injected.collisions.is_empty()
+    {
+        return refuse_for_collision(
+            &run_file,
+            &run_id,
+            request.provider,
+            &line_zero,
+            &injected.collisions,
+            &policies,
+            worktree_ref.as_ref(),
+            seed_tree.as_deref(),
+            &layout,
+        );
+    }
+
     let spawn = write_spawn_config(
         &layout,
         &run_id,
@@ -162,10 +217,6 @@ pub fn run(request: Request) -> Result<Call> {
         request.floor_lifted,
     )?;
 
-    // Contract 5.1: the task is recorded verbatim, preamble and all.
-    let task = crate::preamble::compose(&preamble, &request.task);
-
-    let run_file = layout.run_file(&run_id);
     let argv = claude::argv(&claude::Launch {
         task: &task,
         model: request.model.as_deref(),
@@ -173,20 +224,6 @@ pub fn run(request: Request) -> Result<Call> {
         policy: &request.policy,
     });
 
-    // The whole of line 0 except the two fields that do not exist until a process
-    // does. Composing it here keeps every provider-specific fact on this side of
-    // the fork and leaves the detached half nothing to decide.
-    let start = run_start(
-        &request,
-        &task,
-        policies.sha(),
-        &provider_version,
-        &cwd,
-        worktree_ref.clone(),
-        child_env.names(),
-    );
-
-    let line_zero = serde_json::to_value(&start)?;
     let spec_path = layout.launch_spec(&run_id);
 
     // **A launch that fails here writes the record itself.** Everything from the
@@ -301,6 +338,115 @@ pub fn run(request: Request) -> Result<Call> {
             Ok(Call::Ended(Box::new(result)))
         }
     }
+}
+
+/// What the skills half of the launch produced: the record's object and the
+/// verdict of 6.1's fifth pre-flight check.
+struct InjectedSkills {
+    record: serde_json::Value,
+    collisions: Vec<crate::skills::collision::Collision>,
+}
+
+/// Pins the store, snapshots it, links it into the checkout and asks the provider
+/// what it resolved.
+///
+/// Split out of [`run`] because it is four steps with one failure mode each and
+/// none of them is about launching a process.
+///
+/// **An unanswerable listing does not refuse the run.** The probe is free and it
+/// is still a second process that can fail, and contract 5.3 already requires a
+/// reader to treat an absent `skills.resolved` as unanswered rather than as an
+/// empty listing. The cost is that the third of the three collision tests does not
+/// run, which is said out loud rather than swallowed: the other two still do.
+fn inject_skills(
+    layout: &Layout,
+    run_id: &str,
+    provider: Provider,
+    worktree: &std::path::Path,
+) -> Result<InjectedSkills> {
+    let store = crate::skills::Store::open(layout)?;
+    let store_sha = store.pin(run_id)?;
+    let snapshot = store.snapshot(layout, &store_sha)?;
+    let injected = crate::skills::inject(worktree, provider, &snapshot, &store_sha)?;
+
+    let resolved = match provider.resolved_skills(worktree) {
+        Ok(names) => Some(names),
+        Err(err) => {
+            eprintln!(
+                "hydra: {provider} would not say which skills it resolved, so the \
+                 record cannot: {err:#}"
+            );
+            None
+        }
+    };
+
+    let home = crate::env::real_home()?;
+    let user = crate::skills::index::Index::user_scope(&home)?;
+    let project = crate::skills::index::Index::project_scope(&injected.root)?;
+    let collisions = crate::skills::collision::check(
+        &injected,
+        provider,
+        &home,
+        &user,
+        &project,
+        resolved.as_deref(),
+    );
+
+    Ok(InjectedSkills {
+        record: crate::skills::record(&injected, resolved.as_deref()),
+        collisions,
+    })
+}
+
+/// Writes the record for a launch 6.1's skill collision check refused.
+///
+/// Contract 8.3: no child process starts, so without the record the attempt is
+/// invisible, and under D10 anything not in a run record did not happen. The shape
+/// is `run_start` then `run_end` with a `refusal` on it, which derives
+/// `skill_collision` from `refusal` rather than from anything on a stream.
+///
+/// The checkout, the branch and the links stay where they are. `hydra reap` is
+/// what removes them, the same as for a run that spawned, and a human who wants to
+/// see what collided can look at the directory.
+#[allow(clippy::too_many_arguments)]
+fn refuse_for_collision(
+    run_file: &std::path::Path,
+    run_id: &str,
+    provider: Provider,
+    line_zero: &serde_json::Value,
+    collisions: &[crate::skills::collision::Collision],
+    policies: &crate::policy::PolicySet,
+    worktree: Option<&WorktreeRef>,
+    seed_tree: Option<&str>,
+    layout: &Layout,
+) -> Result<Call> {
+    let remediation = crate::skills::collision::remediation(collisions);
+    eprintln!("hydra: run {run_id} refused");
+    eprintln!("hydra: {remediation}");
+
+    let mut writer =
+        crate::record::Writer::create(run_file, run_id, None, Some(provider.binary()), None)?;
+    writer.hydra_line(line_zero)?;
+    writer.hydra_line(&crate::record::RunEnd::refused(
+        crate::record::Refusal::SkillCollision,
+        remediation,
+    ))?;
+    drop(writer);
+
+    // Read back through the normalizer for the same reason the spawned path does:
+    // contract 17 makes the result a projection of the record, and reading the
+    // file is the only way to keep that true rather than merely intended.
+    //
+    // **A failed read propagates here and does not on the spawned path**, and the
+    // asymmetry is deliberate. There, the record is whole and the run worked, so
+    // reporting a read failure as a failed run would be a lie. Here the run was
+    // refused, the file is two lines Hydra just wrote with no tool call in it for
+    // the gate replay to choke on, and a read that fails is a real fault rather
+    // than a missing projection.
+    let run = crate::normalize::read_file(run_file, policies)?;
+    Ok(Call::Ended(Box::new(result(
+        &run, run_file, worktree, seed_tree, layout,
+    ))))
 }
 
 /// How long a launch waits for its own detached half to write line 0.
@@ -538,6 +684,7 @@ fn run_start(
     cwd: &std::path::Path,
     worktree: Option<WorktreeRef>,
     env_allowlist: Vec<String>,
+    skills: Option<serde_json::Value>,
 ) -> RunStart {
     RunStart {
         kind: "run_start",
@@ -563,9 +710,12 @@ fn run_start(
         depth: 0,
         pid: None,
         process_start_time: None,
-        // Absent rather than null: nothing was injected, so which sha the run pinned
-        // is not a question with a missing answer.
-        skills: None,
+        // Contract 5.3's three fields, or absent on a run with no checkout to
+        // inject into. Absent rather than null: with nowhere to link, which sha
+        // the run pinned is not a question with a missing answer.
+        skills,
+        // Still absent, for the reason above. Nothing MCP is injected until
+        // ticket 08.
         mcp: None,
         auth: Some(Auth {
             // Authored from what Hydra did rather than sniffed. The allowlist passes
