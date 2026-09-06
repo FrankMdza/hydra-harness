@@ -175,7 +175,7 @@ pub fn mcp_config(servers: &[&crate::mcp::Server]) -> serde_json::Value {
 ///
 /// **One `PreToolUse` entry matching every tool.** `claude` routes reads through
 /// `PreToolUse` like every other tool, so one event covers this provider. Cursor
-/// is the one that needs `beforeReadFile` as well, and that is ticket 09.
+/// registers `beforeReadFile` as well, in [`crate::provider::cursor::hooks_config`].
 ///
 /// **The dialect is on the command line and is never inferred.** With no argument
 /// the script denies in two shapes and exits 2. `claude` ignores a response in a

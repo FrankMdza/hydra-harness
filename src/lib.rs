@@ -1,7 +1,8 @@
 //! Hydra: a router over the agent CLIs.
 //!
-//! It launches one provider, `claude`, on a pty it owns, under a gate it compiled
-//! from the run's policy, and writes a run record per `docs/run-record-contract.md`.
+//! It launches two providers, `claude` and `cursor-agent`, on a pty it owns, under
+//! a gate it compiled from the run's policy, and writes a run record per
+//! `docs/run-record-contract.md`.
 //! [`normalize`] reads one back into the ten event types of contract 7 and
 //! [`outcome`] turns one into contract 8's outcome and contract 17's JSON.
 //! [`skills`] is the store, the per-sha snapshot and what a run gets linked into

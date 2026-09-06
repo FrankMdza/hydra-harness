@@ -5,15 +5,18 @@
 //! MCP document, refuse if the concurrency cap is already met, mint a UUIDv7 run id,
 //! create a worktree and seed it, write the run's MCP config, pin the skill store
 //! and link a snapshot of it into the checkout, ask the provider what it resolved
-//! and refuse on a skill collision or an MCP shortfall, compile the run's gate into
-//! its spawn directory, compose the provider's argv and the whole of line 0, then
-//! hand all of it to [`crate::watch`], which spawns the provider on a pty in a
-//! session of its own and owns the record from there.
+//! and refuse on a skill collision or an MCP shortfall, run Cursor's fatal
+//! pre-flight when the provider is `cursor-agent`, compile the run's gate into its
+//! spawn directory, compose the provider's argv and the whole of line 0, then hand
+//! all of it to [`crate::watch`], which spawns the provider on a pty in a session
+//! of its own and owns the record from there.
 //!
 //! What it does not do, and what that costs the record, is in `IMPLEMENTATION.md`.
 //! The short version: `skills` is absent on a run with no checkout to inject into,
-//! and `mcp` is present on every recorded `claude` run, because on this provider
-//! the servers ride the command line rather than the worktree.
+//! `mcp` is present on every recorded `claude` run because on that provider the
+//! servers ride the command line rather than the worktree, and a `cursor-agent`
+//! run needs a checkout of Hydra's own for everything, so it is refused before a
+//! run id exists when there is none.
 //!
 //! **This half never touches the run file.** Contract 6 gives a run file one writer
 //! and the detached half is it. `hydra run` tails the file like `hydra logs` does,

@@ -169,6 +169,48 @@ impl fmt::Display for Provider {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_reads_six_user_scope_roots_and_claude_reads_one() {
+        // 6.4 and ticket 24. `~/.cursor/skills-cursor` holds Cursor's own
+        // skills on this machine, so the collision check on that provider has
+        // twenty-odd names to compare a store against from the first launch.
+        let home = std::path::Path::new("/Users/probe");
+        let cursor = Provider::CursorAgent.user_skill_roots(home);
+        assert_eq!(cursor.len(), 6);
+        for root in [
+            ".claude/skills",
+            ".cursor/skills",
+            ".cursor/skills-cursor",
+            ".agents/skills",
+            ".codex/skills",
+            ".grok/skills",
+        ] {
+            assert!(cursor.contains(&home.join(root)), "{root}");
+        }
+        assert_eq!(
+            Provider::Claude.user_skill_roots(home),
+            vec![home.join(".claude/skills")]
+        );
+        assert_eq!(Provider::CursorAgent.skill_root(), ".cursor/skills");
+    }
+
+    #[test]
+    fn the_two_routed_names_parse_and_the_third_says_which_ticket() {
+        assert_eq!("claude".parse::<Provider>().unwrap(), Provider::Claude);
+        assert_eq!(
+            "cursor-agent".parse::<Provider>().unwrap(),
+            Provider::CursorAgent
+        );
+        let err = "agy".parse::<Provider>().unwrap_err().to_string();
+        assert!(err.contains("not built yet"), "{err}");
+        assert!("hermes".parse::<Provider>().is_err());
+    }
+}
+
 impl FromStr for Provider {
     type Err = anyhow::Error;
 
