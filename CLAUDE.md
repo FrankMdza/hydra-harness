@@ -26,11 +26,12 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map is open again at 38 of 42, and none of the four blocks the build.** It reached its
-destination on 2026-09-05 and closed; build tickets 07 and 12 then hit four things that need a
+**The map is open again at 38 of 43, and none of the five blocks the build.** It reached its
+destination on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a
 decision rather than an implementation, which is the one condition for reopening it. Tickets 39 to
-42 are those, three of them about what a policy scope is and who gets to know. The map's own
-paragraph under `## Destination` says which is which.
+43 are those, three of them about what a policy scope is and who gets to know, one about provider
+drift. The map's own paragraph under `## Destination` says which is which, and 39, 40 and 42 each
+carry a prepared brief a resolving session starts from.
 
 **Wayfinder is still not how the build continues**: it charts decisions, its tickets resolve
 questions rather than execute slices, and its own instructions say the pull to just do the work is

@@ -39,10 +39,11 @@ destination and someone who was in none of these sessions can build from them.
 `.scratch/hydra/build/plan.md`, because wayfinder tickets resolve decisions and build tickets execute
 slices. Nothing in that file reopens a decision here.
 
-**Reopened 2026-09-06 at 38 of 42, by the build rather than by a session of its own.** Build tickets
+**Reopened 2026-09-06 at 38 of 43, by the build rather than by a session of its own.** Build tickets
 07 and 12 hit four things that need a decision rather than an implementation, which is the one
-condition for reopening this map. Both tickets wrote them into `IMPLEMENTATION.md` beside the code
-that hit them and neither decided one. They are tickets 39 to 42 and they are open:
+condition for reopening this map, and ticket 08 then hit a fifth. All three wrote them into
+`IMPLEMENTATION.md` beside the code that hit them and none decided one. They are tickets 39 to 43
+and they are open:
 
 - [39](issues/39-linked-skill-nobody-can-reach.md) A linked skill is unreachable under four of the
   five policies. Injection is built and measured; under everything but `permissive` a skill reaches
@@ -55,9 +56,18 @@ that hit them and neither decided one. They are tickets 39 to 42 and they are op
   Blocked by 40.
 - [42](issues/42-a-record-carries-no-scopes.md) A record pins `policy_sha` and not the paths its
   scopes resolved to, so a build that moves a scope rewrites how every earlier record reads.
+- [43](issues/43-restricted-keeps-mcp-on-judge.md) `--restricted` no longer drops MCP on `claude`
+  2.1.263, so a `judge` run keeps the human's own servers. Provider drift under 6.5 and 6.7, and the
+  fix is one flag on an argv the design writes.
 
-Three of the four are one question seen from different sides: what a scope is, and who gets to know.
-None of them blocks build ticket 08, which is what the frontier will hand the next session.
+Three of the first four are one question seen from different sides: what a scope is, and who gets
+to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
+them blocks build ticket 09 or 10, which is what the frontier will hand the next session.
+
+**Tickets 39, 40 and 42 were prepared on 2026-09-06 without being resolved.** Each carries a
+`## Prepared for the human` section: the claims measured against a compiled gate, the options
+costed in files and lines and tests, and numbered questions only a human can answer. A session
+resolving one starts from that section.
 
 ## Notes
 

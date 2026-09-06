@@ -635,10 +635,13 @@ reached for as a speed lever, which is the decision ticket 07 left open. The cos
 that every admitted server starts twice per launch, once for the probe and once for the
 run.
 
-**A `judge` run's `resolved` is null rather than empty**, and it is the second producer
+**A `judge` run's `resolved` is null rather than empty**, and it is one of three producers
 of that null. The probe is not `--restricted`, so it cannot reproduce what a `judge` run
-resolves, and an empty array there would be a claim rather than a measurement. Contract
-5.3 already requires a reader to tell those apart.
+resolves, and an empty array there would be a claim rather than a measurement. The other
+two are a probe that failed, and a run with no checkout, where the probe never runs because
+it is the same process that answers `skills.resolved` and 6.4 gives that run no worktree to
+ask in. Contract 5.3 already requires a reader to tell all three apart from an empty
+listing.
 
 **A server that connects and offers no tool is invisible to this reading**, since the
 answer is derived from tool names. Nothing on this machine has one, and the run's own
