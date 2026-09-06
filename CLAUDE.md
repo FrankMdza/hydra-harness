@@ -6,8 +6,8 @@ fourth until ticket 22 unrouted it; its guardrail rules are still copied, its bi
 
 This repo holds a finished design, three documents in `docs/`, written from a wayfinder map that
 closed on 2026-09-05 with 38 of 38 tickets resolved and all four seam checks passing. It also holds
-the Rust that implements five of that design's eleven commands: `run`, `status`, `logs`, `reap`
-and `prune`.
+the Rust that implements six of that design's eleven commands: `run`, `status`, `logs`, `reap`,
+`prune` and `curate`.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
 design and the code. The code is deliberately not spec-complete: a gated `claude` run works end to
@@ -66,14 +66,16 @@ document and there should not be one.
   every fact that is true of that binary and not of a model; `policy/` loads the policy set,
   owns the capability table, and compiles the gate script; `skills/` is the store, the per-sha
   snapshot, the read-only index over the user's own skill roots and the collision check;
-  `preamble.rs` composes what the run is told.
+  `preamble.rs` composes what the run is told; `ouroboros/` is rung one, `hydra curate`, and
+  the only place Ouroboros lives, which is what makes "it calls neither cleanup command" a
+  property you can check by reading one directory.
 - `policies/`, the five policies of harness spec 7.2 and the pattern floor of 7.4. Protected config
   #1, and `policy_sha` on every run record is its sha. `policies/README.md` is the format.
 - `config/`, protected configs 2 to 5 of harness spec 15.1. Only `preamble.md` exists;
   `config/README.md` says what the other three are waiting on.
 - `IMPLEMENTATION.md`, what is built, what is not, and every departure from the design with its
   reason. Amend it in the same change that narrows the gap.
-- `tests/`, eleven files. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, twelve files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
   hook payloads, launching nothing; `spawn.rs` checks that a run writes that gate where the run will
@@ -82,7 +84,9 @@ document and there should not be one.
   states by hand; `cleanup.rs` drives `hydra reap` and `hydra prune` against a throwaway repo
   and checks that reap's commit reaches the branch before the checkout goes, and that neither
   command touches a launch in progress; `skills.rs` drives the store, the snapshot, the links and
-  the snapshot sweep against a throwaway repo and launches nothing.
+  the snapshot sweep against a throwaway repo and launches nothing; `curate.rs` builds a corpus a
+  record at a time, checks which runs rung one is told about, and commits a proposal into a
+  throwaway store.
 - `.scratch/hydra/build/plan.md`, the build index, and `build/NN-slug.md`, one build ticket each.
 - `.scratch/hydra/map.md`, the closed design map. One load gives you the whole design at low
   resolution.

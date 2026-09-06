@@ -54,38 +54,100 @@ impl Drop for Sandbox {
     }
 }
 
+/// The envelope and line-0 fields a record varies, defaulted to the recorded
+/// `claude` run the two record-reading suites ask about.
+///
+/// It exists for the corpus suite, which needs a set of records that differ in
+/// exactly the fields rung one's filters key on: the kind (`provider`), the
+/// launch mode beside the policy, the lineage, and the liveness pair.
+pub struct Shape<'a> {
+    pub run_id: &'a str,
+    pub parent_run_id: Option<&'a str>,
+    /// `None` is a harness run, contract 5.5.
+    pub provider: Option<&'a str>,
+    pub launch_mode: &'a str,
+    pub command: &'a str,
+    pub policy: Option<&'a str>,
+    pub policy_sha: Option<&'a str>,
+    /// The liveness pair of contract 5.2. The default is a pid nothing on this
+    /// machine matches, so an unclosed record reads as abandoned.
+    pub pid: Option<u32>,
+    pub process_start_time: Option<String>,
+    pub worktree: Option<&'a Path>,
+}
+
+impl Default for Shape<'_> {
+    fn default() -> Self {
+        Self {
+            run_id: RUN_ID,
+            parent_run_id: None,
+            provider: Some("claude"),
+            launch_mode: "recorded",
+            command: "run",
+            policy: None,
+            policy_sha: None,
+            pid: Some(4242),
+            process_start_time: Some("2026-09-05T20:51:39.369329Z".to_string()),
+            worktree: None,
+        }
+    }
+}
+
 /// One synthetic run file, built a frame at a time.
 pub struct Record {
     seq: u64,
     lines: Vec<String>,
+    run_id: String,
+    parent_run_id: Option<String>,
+    provider: Option<String>,
 }
 
 impl Record {
     /// Opens with a `run_start` under the named policy, `None` for a pre-gate run.
     pub fn opened(worktree: &Path, policy: Option<&str>, policy_sha: Option<&str>) -> Self {
+        Self::shaped(Shape {
+            policy,
+            policy_sha,
+            worktree: Some(worktree),
+            ..Shape::default()
+        })
+    }
+
+    /// The same, with every envelope field the caller's.
+    pub fn shaped(shape: Shape<'_>) -> Self {
         let mut record = Self {
             seq: 0,
             lines: Vec::new(),
+            run_id: shape.run_id.to_string(),
+            parent_run_id: shape.parent_run_id.map(str::to_string),
+            provider: shape.provider.map(str::to_string),
+        };
+        let worktree = match shape.worktree {
+            Some(path) => json!({
+                "path": path.to_string_lossy(),
+                "branch": format!("hydra/{}", shape.run_id),
+            }),
+            None => Value::Null,
         };
         let start = json!({
             "type": "run_start",
             "schema_version": 1,
             "hydra_version": "0.2.0",
-            "command": "run",
-            "launch_mode": "recorded",
+            "command": shape.command,
+            "launch_mode": shape.launch_mode,
             "provider_version": "2.1.261 (Claude Code)",
             "provider_session_id": null,
             "task": "probe",
-            "policy": policy,
-            "policy_sha": policy_sha,
-            "cwd": worktree.to_string_lossy(),
-            "worktree": {
-                "path": worktree.to_string_lossy(),
-                "branch": format!("hydra/{RUN_ID}"),
-            },
+            "policy": shape.policy,
+            "policy_sha": shape.policy_sha,
+            "cwd": shape
+                .worktree
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_else(|| "/tmp".to_string()),
+            "worktree": worktree,
             "depth": 0,
-            "pid": 4242,
-            "process_start_time": "2026-09-05T20:51:39.369329Z",
+            "pid": shape.pid,
+            "process_start_time": shape.process_start_time,
             "subscription": "anthropic",
         });
         record.line("hydra", start);
@@ -94,11 +156,11 @@ impl Record {
 
     pub fn line(&mut self, field: &str, body: Value) {
         let mut envelope = json!({
-            "run_id": RUN_ID,
-            "parent_run_id": null,
+            "run_id": self.run_id,
+            "parent_run_id": self.parent_run_id,
             "seq": self.seq,
             "ts": "2026-09-05T20:51:39.370Z",
-            "provider": "claude",
+            "provider": self.provider,
             "model": null,
             "secret_flag": null,
         });

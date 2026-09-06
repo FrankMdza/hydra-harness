@@ -11,12 +11,16 @@
 //! Every child is detached: [`watch`] is the half that owns the pty and the record,
 //! [`run`] is the half a human talks to, and [`live`] is contract 5.2's liveness
 //! test, which is the only thing that tells the two apart afterwards.
+//!
+//! [`ouroboros`] is the other half of the design and reads what the router wrote.
+//! Rung one is built, as `hydra curate`; rung two is not.
 
 pub mod cli;
 pub mod env;
 pub mod live;
 pub mod logs;
 pub mod normalize;
+pub mod ouroboros;
 pub mod outcome;
 pub mod paths;
 pub mod policy;

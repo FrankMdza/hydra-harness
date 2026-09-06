@@ -24,6 +24,7 @@ fn main() -> Result<()> {
                 policy,
                 floor_lifted: allow_floor_escape,
                 timeout,
+                run_id: None,
             })?;
             // D7: hydra run returns JSON on stdout. Two shapes, because harness
             // spec 9 degrades a blocking call to a handle rather than to a thinner
@@ -81,6 +82,22 @@ fn main() -> Result<()> {
                     hydra::reap::snapshots_acted_on(&swept)
                 );
             }
+        }
+        Command::Curate {
+            model,
+            timeout,
+            dry_run,
+        } => {
+            // Text rather than contract 17's JSON. That projection belongs to
+            // `hydra run` and the delegate face, where a caller has to switch on
+            // it; `hydra curate` is typed by a human like reap and prune are, and
+            // its answer is a branch.
+            let done = hydra::ouroboros::curate::curate(hydra::ouroboros::curate::Pass {
+                model,
+                timeout,
+                dry_run,
+            })?;
+            print!("{}", hydra::ouroboros::curate::report(&done));
         }
         Command::Prune {
             run_id,

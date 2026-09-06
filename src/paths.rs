@@ -2,8 +2,9 @@
 //!
 //! Harness spec section 5 names four places Hydra writes and all four are here:
 //! the run file, the worktree, the spawn directory and the skills snapshot.
-//! `~/hydra/pruned/` is a fifth that section 5 does not name; [`Layout::pruned`]
-//! says why it is a choice rather than a reading.
+//! `~/hydra/pruned/` is a fifth that section 5 does not name and
+//! `~/hydra/skill-worktrees/` is a sixth; [`Layout::pruned`] and
+//! [`Layout::skill_worktrees`] say why each is a choice rather than a reading.
 //!
 //! **The spawn directory is a sibling of `runs/` and not a subdirectory of it.**
 //! Section 5 is explicit: ticket 13 derives liveness from a run file's opening
@@ -80,6 +81,42 @@ impl Layout {
     /// [`crate::skills::referenced_shas`] is how that is asked.
     pub fn snapshot(&self, sha: &str) -> PathBuf {
         self.snapshots().join(sha)
+    }
+
+    /// Where a curator pass checks the skill store out, one directory per run.
+    ///
+    /// **A sixth place, and the design names four.** Ouroboros spec 3.6 gives the
+    /// curator a git worktree of the store rather than the store's own working
+    /// tree, and 9.1 leaves where it lives open. It is a sibling of `worktrees/`
+    /// rather than a file in the spawn directory because `hydra reap` removes that
+    /// directory whole: a pass whose run outlived its call leaves an uncommitted
+    /// proposal here, and work is not something a cleanup command should be able
+    /// to take. Nothing but `hydra curate` creates or removes one.
+    pub fn skill_worktrees(&self) -> PathBuf {
+        self.root.join("skill-worktrees")
+    }
+
+    pub fn skill_worktree(&self, run_id: &str) -> PathBuf {
+        self.skill_worktrees().join(run_id)
+    }
+
+    /// Where one run's `skill_store` scope points.
+    ///
+    /// A curate pass writes into its own checkout of the store (ouroboros spec
+    /// 3.6) and every other run gets the store itself, which no policy but
+    /// `curate` grants anything on.
+    ///
+    /// **It is a function of the run id and the policy name so that a reader can
+    /// recompute it.** Contract 7.7 re-evaluates the run's policy against every
+    /// recorded call, and a scope that lived only in the compiled gate would make
+    /// every curate run read back as a run whose gate leaked on its own writes.
+    /// No field on the record carries a scope, and inventing one is a contract
+    /// change; a rule both sides derive costs nothing and cannot drift.
+    pub fn skill_store_scope(&self, run_id: &str, policy: &str) -> PathBuf {
+        match policy {
+            "curate" => self.skill_worktree(run_id),
+            _ => self.skills(),
+        }
     }
 
     pub fn spawns(&self) -> PathBuf {

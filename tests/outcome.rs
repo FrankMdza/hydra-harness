@@ -833,7 +833,21 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
     let mut gated = 0;
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
-        let outcome = derive(&run).unwrap().outcome;
+        let derived = derive(&run).unwrap();
+        let outcome = derived.outcome;
+
+        // A launch Hydra refused has no stream at all, so the per-call rule below
+        // is about a different question. Contract 8.2 calls that outcome a fact
+        // Hydra wrote rather than a reading, and this loop only checks readings.
+        if derived.source == Source::Refusal {
+            assert!(
+                !outcome.rung_one_learns(),
+                "{}: a refused launch came out {}",
+                path.display(),
+                outcome.as_str()
+            );
+            continue;
+        }
 
         // A provider that refused its own service never reached the gate, so the
         // per-call rule has nothing to say about it.

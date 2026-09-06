@@ -1,13 +1,15 @@
 //! The command surface.
 //!
-//! Harness spec 17 lists eleven commands. Five are here: `run`, `status`, `logs`,
-//! `reap` and `prune`. Section 9 gives `hydra run` eight optional flags and four
-//! are here. The four that are not each belong to a ticket that is not built.
+//! Harness spec 17 lists eleven commands. Six are here: `run`, `status`, `logs`,
+//! `reap`, `prune` and `curate`. Section 9 gives `hydra run` eight optional flags
+//! and four are here. The four that are not each belong to a ticket that is not
+//! built.
 //!
 //! **`reap` and `prune` are typed by a human and reachable from no run.** Nothing
 //! in the library calls either, which is the only mechanism there is: harness spec
 //! 7.5 says the gate cannot keep a run away from a binary reached through `shell`,
-//! so the property lives in Hydra's own source.
+//! so the property lives in Hydra's own source. `curate` is typed by a human too
+//! and is the one command that then launches a run of its own.
 //!
 //! **`watch` is a twelfth command and is not one of the eleven.** It is the
 //! detached half of a launch, `hydra run` is the only thing that types it, and it
@@ -83,6 +85,25 @@ pub enum Command {
         /// a branch holding commits survives the reap.
         #[arg(long)]
         delete_branch: bool,
+    },
+
+    /// Read the corpus and propose skill edits: Ouroboros rung one.
+    ///
+    /// One recorded run under the `curate` policy, whose proposal lands on a
+    /// branch in the skill store that a human merges or does not.
+    Curate {
+        /// A model inside the provider. Never chosen on your behalf.
+        #[arg(long)]
+        model: Option<String>,
+
+        /// How long to wait before degrading to a handle. The run is never
+        /// killed, and a pass that outlives its call commits nothing.
+        #[arg(long, default_value = "10m", value_parser = parse_duration)]
+        timeout: Duration,
+
+        /// Print what the curator would be told and launch nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Move run files out of `runs/`. Deletes only behind a flag.
