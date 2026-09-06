@@ -89,6 +89,7 @@ hydra status [<run-id>]
 hydra logs <run-id> [--follow]
 hydra reap [<run-id>] [--delete-branch]
 hydra prune [<run-id>...] [--delete] [--dry-run]
+hydra curate [--model <id>] [--timeout <dur>] [--dry-run]
 ```
 
 A launch builds the child's environment from the allowlist, reads the provider's
@@ -106,7 +107,7 @@ Section 9 gives `hydra run` eight optional flags and four are here: `--model`,
 to a ticket that is not built: `--parent` and `--files` to delegation, `--shared-tree`
 to a worktree question nothing has asked yet, `--allow-billed` to the raw-model plane.
 
-Harness spec 17 lists eleven commands. Five are built. `hydra watch` is a twelfth and
+Harness spec 17 lists eleven commands. Six are built. `hydra watch` is a twelfth and
 is not one of them: it is the detached half of a launch, `hydra run` is the only thing
 that types it, and `clap` hides it from the help for that reason.
 
@@ -114,6 +115,12 @@ that types it, and `clap` hides it from the help for that reason.
 the run's spawn directory. `hydra prune` moves run files to `~/hydra/pruned/`. Neither
 appends to or removes a run record the other owns, and the section below says what each
 guarantees and how.
+
+`hydra curate` is Ouroboros rung one: it reads the corpus, launches one recorded run
+under the `curate` policy with what it found, and commits what that run proposed onto
+a branch in the skill store that a human merges or does not. `--dry-run` reads the
+corpus and launches nothing, which is the only half that works before ticket 07
+creates the store.
 
 `cursor-agent` and `agy` are routable in the design and refused here by name, with an
 error that says the slice routes one provider rather than that the provider is
@@ -378,12 +385,25 @@ single assistant frame share a `seq` and so share a window, and they are handed 
 in hook order, which is an assumption and not a measurement. That last part reaches only
 the disagreement check, never the decision.
 
+**Two of the three scopes are rebuilt from the layout and the third from the
+record.** `worktree` comes off `run_start`, and `corpus` and `skill_store` are
+Hydra's own directories, which is what makes them recomputable at all. The store
+is the one with a per-run answer: a curate run's writes are scoped to its own
+checkout, and `Layout::skill_store_scope` is the rule both the launch and this
+re-evaluation read, so a curator's record does not come back as a gate that leaked.
+
 **`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
 that read a policy live in `src/policy/gate.py`. A record can therefore re-evaluate
 against gate code that changed while its sha matched, and what reports that is a
 disagreement rather than a stale policy. All nine records on this machine re-evaluate to
 the verdict their gate gave, including the two shell calls ticket 06's measurement left,
 and `tests/normalize.rs` asserts it per call rather than in aggregate.
+
+**`parent_run_id` is lifted off the envelope onto the normalized run.** Contract 4
+puts it there rather than in the body, because the parent writes it at spawn and
+nothing reconciles it against the child. Rung one reads it twice, for the retry
+class and to leave out the runs a curator pass spawned, so a reader that had only
+the body would have neither. It is null on every record this build writes.
 
 **Findings are not events.** An event says what happened; a finding says two sources
 disagree or that the derivation could not do its job. Seven of them: a gate leak,
@@ -864,6 +884,113 @@ these records nothing derives from either, because 7.7 needs a policy. It gets n
 in the producer table for that reason and a paragraph in 7.7 instead, so the next
 reader meets it in the document rather than in a record.
 
+## Ouroboros rung one: `hydra curate`
+
+Ticket 12. `src/ouroboros/` is the whole of it. `corpus.rs` decides which runs the
+curator may learn from, `curate.rs` composes what it is told, launches it as an
+ordinary recorded run under `curate`, and commits whatever that run wrote into its
+checkout of the skill store onto `ouroboros/curate/<run-id>`. `tests/curate.rs`
+drives both halves and launches no provider.
+
+**The corpus is read through the normalizer and never off `raw`.** Contract 11 is
+the reason: an adapter fixed next month reads last month's records correctly
+because nothing was migrated, and a curator that greps the stored frame gets none
+of that. `tests/curate.rs` also checks that a walk changes no byte under `runs/`.
+
+**Three filters, each a field rather than a guess.** A harness run goes on its
+kind, `provider: null`, which is contract 8.6 and is what keeps an interrupted
+`hydra evolve` from reading as an abandoned run: it is a dead pid with no
+`run_end`, which is exactly the shape rung one's first class looks for. Contract
+8's right-hand column goes on `Outcome::rung_one_learns`. A run that is still
+writing is skipped before its file is opened, because the liveness test of 5.2 is
+cheaper than a normalize and the record would look different in a minute.
+
+**A fourth filter is not in the design, and the corpus is what made it
+necessary.** A recorded run with a null policy predates the gate, so contract 7.7
+derives no `permission_decision` for it and a refusal inside it is invisible:
+`01a07218-8817-7581-9ddb-47565e5d5ba7` is one `Write`, refused, derived
+`completed`. **The test is a null policy beside `launch_mode: recorded`, and
+dropping the second half would take the interactive population with it**, since an
+interactive run carries a null policy legitimately (5.6) and is the only source
+rung one's human-rejection class has.
+
+**Skipped is not thrown away and the brief says so.** It carries a count per
+reason, because a curator told only what it may learn from cannot tell an absent
+signal from an absent producer. Two of the five classes have no producer in this
+build at all, human rejection and the retry loop, and the brief names them as
+that rather than printing a zero somebody could read as a measurement.
+
+**The curator writes into a git worktree of the store and never into
+`~/hydra/skills/`** (ouroboros spec 3.6), so the run's `skill_store` scope points
+at the checkout rather than at the store. `hydra::run::Request` gained one field
+for it, `run_id`: the checkout is named after the run, so the id has to exist
+before the gate is compiled, which is the one thing `hydra run` mints for itself
+and this caller cannot.
+
+**Where that scope points is a rule on the layout rather than an argument, and a
+real record is why.** `Layout::skill_store_scope` takes a run id and a policy name
+and answers with the checkout for `curate` and the store for everything else. Both
+sides read it: the launch compiles the gate against it, and contract 7.7's
+read-time re-evaluation rebuilds it. The first version passed the path in at launch
+and left the reader to guess, and the pass measured below came back with ten
+`Finding::GateLeak`, one per file the curator wrote or probed inside its own
+checkout, because the reader was still resolving `skill_store` to `~/hydra/skills/`.
+Nothing on the record carries a scope and inventing a field is a contract change,
+so the fix is a rule both sides derive from the run id. The corpus-wide gate-leak
+check in `tests/normalize.rs` is what caught it, and `tests/curate.rs` now pins the
+round trip.
+
+**The checkout lives at `~/hydra/skill-worktrees/<run-id>/`, which is a sixth
+place and a choice.** Section 9.1 leaves the location open and says the spawn
+directory would do. It will not: `hydra reap` removes that directory whole, and a
+pass whose run outlived its call leaves an uncommitted proposal in the checkout.
+Work is not something a cleanup command should be able to take. Nothing but
+`hydra curate` creates or removes one.
+
+**The commit is the pass's only post-run action, which is why the pass gets no run
+record of its own** (contract 5.5). Its order is git's guarantee rather than a
+sentence here: `git worktree remove` without `--force` refuses a checkout with
+changes in it, so a commit that did not happen stops the removal instead of
+preceding it, exactly as in `hydra reap`. A pass that proposed nothing has its
+branch deleted by `git branch -d`, which refuses any branch holding a commit, so
+the mechanism that tidies an empty pass is the one that cannot touch a real
+proposal.
+
+**The commit message keeps Hydra's facts and the model's words apart.** The
+curator's rule against taking an intent declaration from a summary afterwards
+exists because a model's free text stopped matching what it did. A pass commits
+after the run, so a summary afterwards is all there is; what it can do is label
+the halves, and it does.
+
+**`hydra curate` prints text rather than contract 17's JSON.** That projection
+belongs to `hydra run` and the delegate face, where a caller switches on it. This
+command is typed by a human like reap and prune are, and its answer is a branch.
+
+**A curate run still gets a checkout of whatever repo you typed the command in**,
+because harness spec 6.3 gives every recorded run one and this is an ordinary
+recorded run. Under `curate` nothing may write to it, so it is a checkout the run
+cannot use, and `hydra reap` is what removes it.
+
+**Measured on this machine, 2026-09-06.** Thirteen records: 6 learnable, 7 skipped
+as 3 pre-gate, 3 `gated` and 1 `rate_limited`, and the walk costs 0.55 s end to
+end including process start. One full pass ran against a real `claude`, run
+`01a07513-baa3-7cf0-b20a-ded11ede6a38`: `completed`/`unknown`, 489,440 tokens, and
+it proposed nothing. It read the six records, declined to propose a skill edit for
+the one denied `Bash` call because the brief says a denial is a policy bug, ranked
+the one `unclassified` result without diagnosing from it, and said the store held
+no skill to edit. The empty branch was deleted, which is the shape above working
+rather than a pass that failed.
+
+**One ordering the skill store is about to break.** The checkout is of the store's
+`HEAD`, and 3.6 has a launch commit a dirty store before pinning it. `hydra curate`
+checks out before it launches, so once ticket 07 wires that commit the curator will
+be reading the store as it was before its own launch tidied it. Whoever wires the
+pinning owns the fix, and it is an ordering decision rather than a line of code:
+either the store is committed before the curate checkout, or the curate checkout
+moves after the launch and the gate is compiled against a directory that does not
+exist yet. The pass measured above hit the harmless half of this, an empty `HEAD`
+under a store whose skills were not committed.
+
 ## Choices this build made that no ticket settled
 
 **`--policy` defaults to `standard`.** Section 9 makes the flag optional and names no
@@ -988,10 +1115,12 @@ with the spelling before any record carries it.
 
 Out of scope for this slice, and each one has a document that already says what it is:
 
-- Skill injection and the store. 6.4. `~/hydra/skills/` is the `skill_store` scope and
-  nothing creates it, so a `curate` run today is scoped to a directory that is not
-  there. The gate denies rather than resolving elsewhere, which is the safe end of that,
-  and ticket 07 is what makes the scope mean something.
+- Skill injection and the store. 6.4. Nothing creates `~/hydra/skills/`, so a run
+  under any policy but `curate` is scoped to a store that is not there. The gate
+  denies rather than resolving elsewhere, which is the safe end of that, and ticket
+  07 is what makes the scope mean something. A curate pass is the exception and
+  points the scope at its own checkout of the store, which is why it refuses before
+  it launches when there is no store to check out.
 - MCP injection and the Cursor pre-flight. 6.5. The spawn directory exists now and holds
   the gate and the hook config; the `mcp.json` beside them and Cursor's `cursor-data/`
   are ticket 08 and ticket 09.
@@ -1008,9 +1137,13 @@ Out of scope for this slice, and each one has a document that already says what 
 - The `cursor-agent` and `agy` adapters, tickets 09 and 10, and harvest, 12. Contract
   7.2's other two columns and 7.2.1's transcript vocabulary have no reader.
 - Interactive runs and harvest. 5.6, 12.
-- Six of harness spec 17's eleven commands: `show`, `resume`, `curate`, `evolve`,
-  `export` and `usage recount`.
-- Ouroboros, both rungs.
+- Five of harness spec 17's eleven commands: `show`, `resume`, `evolve`, `export`
+  and `usage recount`.
+- Ouroboros rung two. `hydra evolve`, the protected-path refusal, the admission
+  gate, the panel of three and the `ApprovedPatch` type are all absent, and so is
+  the harness run a pass would write (contract 5.5). Rung one is built and the
+  section above says what it does. The review checklist of ouroboros spec 5 is a
+  document rather than code: nothing reads it, because nothing reviews yet.
 
 ## Rough edges worth knowing
 

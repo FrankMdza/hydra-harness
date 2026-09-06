@@ -60,6 +60,14 @@ pub struct Request {
     /// How long the call waits before it stops watching. Harness spec 9 defaults
     /// it to roughly ten minutes; zero returns the handle without waiting.
     pub timeout: std::time::Duration,
+    /// The run id, when the caller minted it before the launch.
+    ///
+    /// **`hydra run` passes `None` and this function mints one.** `hydra curate`
+    /// is the caller that cannot: it checks the skill store out at a path named
+    /// after the run, and the gate scopes that run's writes to it, so the id has
+    /// to exist before either. Nothing else about the launch changes, and the id
+    /// still reaches the record the same way.
+    pub run_id: Option<String>,
 }
 
 /// What a call gets back: the run, or a way to come back to it.
@@ -131,7 +139,10 @@ pub fn run(request: Request) -> Result<Call> {
     // cannot cancel.
     crate::live::guard(crate::live::LIVE_RUN_CAP, &crate::live::scan(&layout)?)?;
 
-    let run_id = Uuid::now_v7().to_string();
+    let run_id = request
+        .run_id
+        .clone()
+        .unwrap_or_else(|| Uuid::now_v7().to_string());
     let invoked_in = std::env::current_dir().context("reading the working directory")?;
 
     let worktree = match crate::worktree::repo_root(&invoked_in) {
@@ -492,12 +503,20 @@ pub fn write_spawn_config(
     // it created, and a run with no checkout has none.
     let no_worktree = layout.spawn(run_id).join("no-worktree");
 
+    // The store itself on every run but a curate pass, which gets its own
+    // checkout of it: ouroboros spec 3.6 keeps the curator out of
+    // `~/hydra/skills/` because the next launch commits that tree before pinning
+    // it, and two writers to one working tree is the collision. The rule lives on
+    // the layout because contract 7.7's read-time re-evaluation has to reach the
+    // same answer with nothing but the run id and the policy name.
+    let skill_store = layout.skill_store_scope(run_id, policy);
+
     crate::policy::write_gate(
         policies,
         &crate::policy::Spawn {
             policy,
             worktree: worktree.unwrap_or(&no_worktree),
-            skill_store: &layout.skills(),
+            skill_store: &skill_store,
             runs: &layout.runs(),
             gate_script: &gate,
             floor_lifted,

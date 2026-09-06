@@ -351,6 +351,14 @@ pub enum Finding {
 #[derive(Debug, Clone)]
 pub struct Run {
     pub run_id: String,
+    /// The run that spawned this one, contract 10's edge. **Written by the parent
+    /// at spawn and never reconciled against the child** (contract 4), so it is
+    /// the envelope's field rather than anything the run said about itself.
+    /// Always null in this build, because delegation is not built.
+    ///
+    /// Rung one reads it twice: to find a retry loop, and to leave out the runs a
+    /// curator pass spawned, which is how it avoids learning from itself.
+    pub parent_run_id: Option<String>,
     /// `null` on a harness run, which contract 8.6 excludes from the corpus.
     pub provider: Option<String>,
     /// `run_start.policy`. `None` is what makes `permission_decision` absent.

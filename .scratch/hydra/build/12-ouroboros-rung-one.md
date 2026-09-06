@@ -1,7 +1,7 @@
 # 12 - Ouroboros rung one
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 04
 
 ## Goal
@@ -105,3 +105,91 @@ on, for the reason harness spec 7.5 gives.
 
 **Prune with no arguments moves every run that is not live.** A curator pass that shells
 out to `hydra prune` for any reason would take the corpus it learns from with it.
+
+## Outcome
+
+Resolved 2026-09-06. `hydra curate` is built, `src/ouroboros/` holds all of it, and
+`tests/curate.rs` covers both halves without launching a provider.
+
+**What it does.** `corpus.rs` walks `~/hydra/runs/` through `hydra::normalize`,
+splits it into what rung one may learn from and what it may not, and counts the five
+classes. `curate.rs` turns that into the task string, checks the skill store out at
+`~/hydra/skill-worktrees/<run-id>/` on `ouroboros/curate/<run-id>`, launches an
+ordinary recorded run under `curate` through `hydra::run::run`, and commits whatever
+the run left in that checkout onto the branch. A human merges it or does not.
+
+**The filters, all keyed on fields.** Harness runs on `provider: null` (8.6), the
+five never-learn outcomes on `Outcome::rung_one_learns` (contract 8), live runs on
+the pid liveness test before the file is opened, and the curator's own children on
+`parent_run_id`. `hydra::normalize::Run` gained `parent_run_id`, lifted off the
+envelope, because contract 4 puts it there and nothing else could see it.
+
+**A fourth filter the ticket did not ask for, and the corpus is why.** A recorded
+run with a null policy predates the gate, derives `completed` whatever the gate did,
+and one such record here had a `Write` refused with nothing saying so. The test is a
+null policy **beside `launch_mode: recorded`**: an interactive run also carries a
+null policy, legitimately, and it is the only population a human correction can come
+from, so keying on the null alone would drop half the corpus and the whole of class
+two with it. That correction is the ticket's own note from 04 made precise.
+
+**Measured, 2026-09-06.** Thirteen records on this machine: 6 learnable, 7 skipped
+as 3 pre-gate, 3 `gated`, 1 `rate_limited`. The walk costs 0.55 s end to end,
+process start included. One full pass ran against a real `claude`, run
+`01a07513-baa3-7cf0-b20a-ded11ede6a38`: `completed`/`unknown`, 489,440 tokens, and
+it proposed nothing. It declined to propose a skill edit for the one denied `Bash`
+call, ranked the one `unclassified` result without diagnosing from it, and said the
+store held no skill to edit. The empty branch was deleted by `git branch -d`, which
+is the mechanism working rather than a pass that failed.
+
+**The pass above found a bug in the first version of this ticket's own work, and
+the corpus test is what surfaced it.** Contract 7.7 re-evaluates a run's policy at
+read time and rebuilds the scopes rather than reading them off the record, so a
+curate run whose store scope was passed in at launch came back with ten
+`Finding::GateLeak`, one per file the curator wrote or probed inside its own
+checkout. `Layout::skill_store_scope(run_id, policy)` is the fix: one rule, read by
+the launch when it compiles the gate and by the reader when it replays it. No field
+on the record carries a scope and inventing one is a contract change.
+`tests/normalize.rs`'s corpus-wide leak check caught it and `tests/curate.rs` pins
+the round trip now.
+
+**What the ticket assumed that turned out otherwise.**
+
+- **The store arrived mid-ticket.** The plan was to refuse when `~/hydra/skills/` is
+  not there and name ticket 07. That refusal is built and tested, and then ticket 07
+  created the store in the main checkout while this ran, so the pass above went end
+  to end instead. Its checkout was empty because the store's skills were not
+  committed yet, which is the next point.
+- **A curate checkout of the store's `HEAD` races the launch that commits a dirty
+  store.** Ouroboros spec 3.6 has a launch commit the store before pinning it, and
+  this pass checks out before it launches, so once ticket 07 wires that commit the
+  curator reads the store as it was before its own launch tidied it. Whoever wires
+  the pinning owns the fix and it is an ordering decision rather than a line of
+  code: commit the store before the curate checkout, or move the checkout after the
+  launch and compile the gate against a directory that does not exist yet.
+- **Section 9.1's suggestion that the checkout could live in the spawn directory
+  does not hold.** `hydra reap` removes that directory whole, and a pass whose run
+  outlived its call leaves an uncommitted proposal in the checkout. It lives at
+  `~/hydra/skill-worktrees/<run-id>/` instead, a sixth place `IMPLEMENTATION.md`
+  records as this build's choice.
+- **`hydra run` could not mint the run id for this caller.** The checkout the gate
+  scopes to is named after the run, so `Request` gained `run_id`. It is `None` for
+  `hydra run` and nothing else about the launch changed.
+- **Ticket 07's first records broke a corpus test in `tests/outcome.rs`.** It
+  expected every record with no `api_error_status` to be `gated` or `completed`,
+  and a refused launch is neither: contract 8.2 makes that outcome a fact Hydra
+  wrote rather than a reading of a stream. The loop now skips
+  `Source::Refusal` and asserts only that rung one never learns from one. Expect a
+  conflict with 07 there if it fixed the same test its own way.
+
+**The read-only property is a test now.** `evidence_is_read_only` is the only
+mechanism keeping Ouroboros away from `hydra reap`, `hydra prune` and `hydra export`,
+so `tests/curate.rs` reads every file under `src/ouroboros/`, skips comment lines and
+fails on `reap::`, `prune::`, `export::` or a spawn of `hydra`. It was checked against
+a deliberate violation and it caught it.
+
+**Left for later, and each is a producer rather than a gap in this ticket.** Human
+rejection needs an interactive run and harvest (ticket 12 of the design's fog, and
+this build launches none). The retry loop needs delegation, ticket 11. Section 3.8's
+before-and-after measurement is a second pass reading the same counts, which is one
+`hydra curate` after another rather than code. Section 3.11's stall class is left
+unbuilt on the design's own argument.

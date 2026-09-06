@@ -88,6 +88,7 @@ struct Refusal {
 #[derive(Default)]
 struct Walk {
     run_id: String,
+    parent_run_id: Option<String>,
     provider: Option<String>,
     policy: Option<String>,
     policy_sha: Option<String>,
@@ -137,6 +138,9 @@ impl Walk {
         }
         if self.provider.is_none() {
             self.provider = envelope["provider"].as_str().map(str::to_string);
+        }
+        if self.parent_run_id.is_none() {
+            self.parent_run_id = envelope["parent_run_id"].as_str().map(str::to_string);
         }
 
         if let Some(hydra) = envelope.get("hydra") {
@@ -334,6 +338,7 @@ impl Walk {
         let events = splice(self.events, decisions);
         Ok(Run {
             run_id: self.run_id,
+            parent_run_id: self.parent_run_id,
             provider: self.provider,
             policy: self.policy,
             events,
@@ -470,7 +475,12 @@ impl Walk {
             .unwrap_or_else(|| layout.worktree(&self.run_id));
         let worktree = self.worktree.clone().unwrap_or_else(|| cwd.clone());
         let gate_script = layout.gate_script(&self.run_id);
-        let skills = layout.skills();
+        // Not `layout.skills()`. A curate run's writes are scoped to its own
+        // checkout of the store, and the rule is a function of the run id so that
+        // this side can recompute what the gate was compiled with. Without it
+        // every curator's record reads back as a gate that leaked on its own
+        // proposal.
+        let skills = layout.skill_store_scope(&self.run_id, &name);
         let runs = layout.runs();
         let spawn = Spawn {
             policy: &name,
