@@ -47,6 +47,7 @@ it.
 - [10 - Route `agy`](10-route-agy.md)
 - [11 - Delegation and the MCP delegate face](11-delegation.md)
 - [12 - Ouroboros rung one](12-ouroboros-rung-one.md)
+- [13 - `skill_invoke` and the `skill_snapshot` scope](13-skill-invoke-and-snapshot-scope.md)
 
 ## Out of scope
 

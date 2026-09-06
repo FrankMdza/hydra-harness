@@ -187,3 +187,12 @@ worktree of the store and 9.1 flags that as a refinement to confirm. Moving the 
 the same decision as the paragraph above, seen from the write side.
 
 Both belong on the map.
+
+## Corrected by map ticket 39, 2026-09-06
+
+Four sentences in the outcome above are too strong, and the measurement that fixed them is in the
+map ticket. The `Skill` refusal's code is `hydra/capability`, not `hydra/out-of-scope`.
+`provider_native` covers twenty-one tools now, not nineteen. Under `standard` the body was already
+reachable through `Bash cat`, so reading was out of reach under three policies and invoking under
+four. And "under `permissive` it works" is now observed on run `01a07886-a450-7a21-92cf-799b26358a05`
+rather than read off the gate. The decision itself is build ticket 13.

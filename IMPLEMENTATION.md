@@ -528,6 +528,14 @@ own scope is a second half of the same question, and ticket 12 answered it one w
 harness spec 7.2 and `docs/ouroboros-spec.md` 3.6 still answer it two ways. That half is
 map ticket 40.
 
+**Decided by map ticket 39 on 2026-09-06, and not yet built.** A linked skill is meant to be
+invocable and readable. `Skill` becomes its own capability, `skill_invoke`, and the run's snapshot
+becomes a read scope of its own, `skill_snapshot`, resolved from `hydra.skills.store_sha`. One
+`permissive` run, `01a07886-a450-7a21-92cf-799b26358a05`, showed the body arriving on the `Skill`
+call with no read the gate sees and the sibling arriving through `Read` on the link path, which is
+what settled both halves. Build ticket 13 carries the code; until it lands, everything above this
+paragraph still describes the binary.
+
 ## The canonical MCP document, and what a run is handed
 
 Harness spec 6.5, built by ticket 08 for `claude`. `config/mcp.md` is protected config

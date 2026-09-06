@@ -262,6 +262,15 @@ session already running. Snapshots are shared per sha and refcounted, because de
 and not fan-out. Two runs on the same sha see identical bytes because they are looking at the same
 bytes.
 
+**A run may invoke what it was linked and may read it.** `Skill` answers to `skill_invoke`, granted
+by every policy that reads at all, and the run's own snapshot is a read scope of its own,
+`skill_snapshot`, resolved from the sha on the run's record, which is what lets contract 7.7
+re-derive the same answer at read time. A run may write nowhere near it. The provider names the link
+path as the skill's base directory and the gate resolves that link into the snapshot before
+comparing, so a sibling file opened through the link is inside the scope and the same path opened
+for writing is not. Measured on 2026-09-06 under ticket 39: the body arrives on the `Skill` call
+with no read the gate sees, and a sibling arrives through `Read` on the link path.
+
 **If the store is dirty at launch, Hydra commits it before pinning**, with authorship in the commit
 trailer. Launching from HEAD and ignoring the working tree would mean editing a skill, running, and
 watching nothing happen, which would happen on day one. Committing is the only option where the sha
@@ -642,17 +651,27 @@ child may do. The cost is accepted in that direction on purpose.
 Two known table entries a reader would otherwise get wrong: `agy` names one action `write_to_file`
 as a step and `write_file` as a permission rule, so the table needs both.
 
+**`Skill` is its own capability, `skill_invoke`, rather than one of the twenty-one tools that answer
+to `provider_native`.** A run that is linked a skill and cannot invoke it was given a listing entry
+rather than a skill. Ticket 39 measured the delivery on `claude`: an allowed `Skill` call brings the
+body into context with no file read the gate sees, so the capability carries that tier on its own.
+`ToolSearch` stays in `provider_native` until ticket 43 says whether MCP tools arrive deferred.
+
 ### 7.2 The five policies
 
 | Name | What it allows |
 |---|---|
 | `judge` | nothing |
-| `curate` | reads the corpus, writes only inside the skill store |
-| `read-only` | reads inside the worktree, no shell, no writes |
-| `standard` | reads, writes, shell and network reads inside the worktree |
+| `curate` | reads the corpus and its skill snapshot, invokes linked skills, writes only inside the skill store |
+| `read-only` | reads inside the worktree and its skill snapshot, invokes linked skills, no shell, no writes |
+| `standard` | reads, writes, shell and network reads inside the worktree, reads its skill snapshot, invokes linked skills |
 | `permissive` | everything, and the only policy that may spawn in-process subagents |
 
 Five because each is a use case this design already has. A sixth should arrive with a reason.
+
+`skill_invoke` and the `skill_snapshot` scope arrived with ticket 39 on 2026-09-06. Every policy that
+reads at all may invoke a linked skill and read its snapshot. `judge` reads nothing and gets neither,
+and `permissive` has both through `anywhere` and its own grant.
 
 `standard` allows network reads. Denying `WebFetch`, `search_web` and `read_url_content` would make
 a child's inputs fully reconstructable from the record, and it would break ordinary coding work, at
@@ -1270,9 +1289,12 @@ recount would read, so the day a provider earns an estimate the tool already exi
 
 Not built, and named so a reader stops looking:
 
-- **A TUI.** Deferred by D3. When it is built it is a separate Textual process reading
-  `~/hydra/runs/`, and it is what would let the structured transport become the interactive path,
-  ending the thin-record split.
+- **A TUI of Hydra's own.** Ruled out by ticket 44, which amended D3. Herdr is the interactive
+  layer and Hunk is the diff viewer, both third-party, both driven from outside Hydra: a Herdr
+  plugin launches `hydra run` in a pane, a bridge on Herdr's side tails `~/hydra/runs/` and labels
+  the pane from the record, and Hunk opens the run's branch against `diff_stat.base_tree`. Hydra's
+  core knows neither exists, which is D10. Interactive runs still record thin, since a pane buffer
+  is a screen and not a record.
 - **The raw-model plane.** LiteLLM with virtual keys is the design, not the build. One gated
   `gemini` path ships.
 - **Hermes.** Not routable. `HERMES_HOME` is specced as the config-root lever if it ever returns.

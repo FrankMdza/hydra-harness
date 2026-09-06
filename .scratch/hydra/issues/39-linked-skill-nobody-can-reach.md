@@ -1,7 +1,7 @@
 # 39 - A linked skill is unreachable under four of the five policies
 
 Type: grilling
-Status: claimed
+Status: resolved
 
 ## Question
 
@@ -334,3 +334,74 @@ whatever is decided: the reason code, the count of seventeen, the shell route un
 `standard`, and that `permissive` is inferred rather than observed. Build tickets 09 and
 10 build the `cursor-agent` and `agy` capability tables, so a split decided now sets the
 shape for two more tables; decided later, it is three edits instead of one.
+
+## Answer
+
+Resolved 2026-09-06 with the human, three rounds and one measurement, starting from the brief above.
+
+**A linked skill is meant to be usable, and usable means invocable and readable.** The vocabulary
+stands: the skills linked at the pinned sha are one of a run's three instructions, section 8 and
+the preamble keep saying so, and the delivery moves to match. A listing entry was never the point.
+
+### What the measurement said
+
+Run `01a07886-a450-7a21-92cf-799b26358a05`, `claude` 2.1.263, `haiku`, `permissive`, 8 seconds,
+$0.036. One store skill, `hydra-sentinel`, whose body carried one sentinel and told the model to
+open a sibling file carrying a second. Both came back.
+
+- The gate saw two calls and nothing else: `Skill`, allowed as `provider_native`, and `Read`,
+  allowed as `file_read`.
+- The body arrived as a user-turn message after "Launching skill", with no `Read` the gate saw.
+  The provider loads it itself. So a capability for `Skill` delivers the body on its own on
+  `claude`, and no scope is needed for that tier.
+- The provider tells the model the skill's base directory is the link path inside the worktree,
+  not the snapshot. The model asked for the sibling with `Read` on that link path. Under
+  `standard` the same call is refused, because the gate resolves the link into the snapshot before
+  comparing. The file tier needs a scope, and the model reaches for `Read` before `cat`.
+- Section 8's authorship test holds under load: the body enters mid-run and is still an
+  instruction, because Hydra linked it at spawn.
+
+### Decided
+
+1. **`skill_invoke` is a capability of its own.** `Skill` moves to it out of `provider_native`.
+   `read-only`, `standard`, `curate` and `permissive` grant it; `judge` stays empty. `standard` has
+   to have it wherever `read-only` does, or `Policy::contains` stops holding and 7.3 loses a
+   delegation. Granting `provider_native` whole to `standard` was rejected because it brings the
+   other twenty tools, four of which schedule work outside the run with no record.
+2. **`skill_snapshot` is a scope of its own**, resolved per run from the sha the run pinned, on
+   `file_read` for `read-only`, `standard` and `curate`, never on `file_write`. Copying the skill
+   into the worktree was rejected because the copy lands inside `worktree` and `file_write` admits
+   it under `standard`, so a run could edit its own instructions; the brief measured that. Widening
+   `worktree` to follow the injected root's links was rejected because the gate would judge every
+   call on two paths and the symlink rule would carry an exception.
+3. **`curate` is not a special case.** It already reads every store skill through its own checkout;
+   what it lacked was the invoke, and that is one more line in the list above.
+4. **The preamble stands as written.** Its third sentence promised what the gate now delivers.
+5. **`ToolSearch` stays in `provider_native` for now.** If MCP tools arrive deferred in print mode,
+   it moves for the same reason `Skill` did; ticket 43 measures that.
+6. **Build ticket 13 carries the code**, blocked by build ticket 09 because both edit the policy
+   table, and it runs before ticket 40's build, so 40 starts from the `Scope` this adds.
+7. **The human authorized the edit to `policies/`.** Four policy files gain the capability and the
+   scope entries, and `policies/README.md` gains a row; nothing else under `policies/` moves. The
+   authorization is written into build ticket 13. `policy_sha` moves with it, and 13 of the 17
+   records on this machine then read as `StalePolicy` to rung one. Accepted now, while the corpus
+   is probes.
+
+### Corrections to this ticket's own text
+
+The `Skill` refusal is `hydra/capability`, not `hydra/out-of-scope`. `provider_native` covers
+twenty-one tools, not nineteen: seventeen at the brief, plus the four Task tools 2.1.263 added.
+Under `standard` the body was already reachable through `Bash cat`, so reading was out of reach
+under three policies and invoking under four. And "under `permissive` it works" is now observed
+rather than read off the gate.
+
+### Found on the way, not decided here
+
+The user's own `UserPromptSubmit` hook fired inside the run and added text to the model's context,
+where section 8 says a user hook can only subtract. Ticket 46 carries it.
+
+### What moved with this answer
+
+`docs/harness-spec.md` 6.4, 7.1 and 7.2 in the closing commit. `policies/` and its README by build
+ticket 13 under the authorization above. Tickets 40, 42 and 43 each gained a note, build ticket 07's
+outcome gained its corrections, and `IMPLEMENTATION.md`'s section on this points here.

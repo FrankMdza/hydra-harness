@@ -382,3 +382,11 @@ at 42 and here.
 suggestion does not hold becomes a settled decision rather than a build's choice.
 
 **The map:** one line under `## Decisions so far`, and the reopened four become three.
+
+## What ticket 39 left you, added 2026-09-06
+
+**`Scope` gains a fourth arm before you touch it.** Ticket 39 adds `skill_snapshot`, resolved per
+run from `hydra.skills.store_sha`, and build ticket 13 lands it before your build runs, by the
+human's choice. Start from that `Scope`. It is the one scope that is a pure function of a field the
+record already carries, which is the property ticket 42 wants from every scope, so whatever
+`skill_store` resolves to, the reader will ask whether it can be recomputed the same way.

@@ -370,3 +370,10 @@ bullet is about `~/hydra/worktrees/`, `~/hydra/spawn/` and `config/`.
   that pin today's behaviour, and both are where a new guard belongs.
 - **The map** gains one line under `## Decisions so far` and drops 42 from the reopened
   four.
+
+## What ticket 39 left you, added 2026-09-06
+
+**A fourth scope name exists, and it makes your argument easier.** `skill_snapshot` resolves from
+`hydra.skills.store_sha`, which sits on line 0 of every record that linked a skill, so a reader a
+month later recomputes it without being told. It is the first scope with that property. The
+question you settle is whether the other three get it too, or whether the record names its paths.

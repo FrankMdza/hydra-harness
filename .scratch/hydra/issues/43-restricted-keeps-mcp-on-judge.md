@@ -56,3 +56,12 @@ inherits the human's servers". The module comment at the top of `src/provider/cl
 and `claude::mcp_undeliverable`, which answers on the policy name rather than on what the
 flag does, for this reason. Build ticket 08's `## Outcome`. Design ticket 23's `## Answer`
 for the original measurement.
+
+## What ticket 39 left you, added 2026-09-06
+
+**Measure whether MCP tools arrive deferred, while you are measuring this.** Ticket 39 left
+`ToolSearch` in `provider_native`, which only `permissive` grants. In an interactive 2.1.263 session
+the MCP tools load deferred and need `ToolSearch` before they can be called. If print mode does the
+same on a run with `--mcp-config`, an injected server's tools are unreachable under every policy but
+`permissive`, whatever the `init` frame lists, and `ToolSearch` moves to `skill_invoke`'s side for
+the same reason `Skill` did. One run, and look at the `init` frame's `tools` for `mcp__` names.
