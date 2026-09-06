@@ -49,3 +49,42 @@ reaches the provider.
 2026-09-06, and everything the map knows about their APIs comes from reading, which the plan's own
 note says is not measuring. Ticket 45 installs both and probes the claims this answer rests on.
 Build tickets come after it, not before.
+
+## Note from ticket 45
+
+Probed 2026-09-06 on herdr 0.8.2 and hunk 0.21.1, both installed from `homebrew/core`. The shape
+above survives. Three sentences in it do not, and one of the three is a decision this ticket cannot
+make. Full measurements are in [45](45-install-herdr-and-hunk-and-probe.md).
+
+**What held.** A pane command launches `hydra run` and Hydra stays the owner of the provider's pty,
+because `watch.rs` calls `setsid()` and opens the pty inside that new session. `run_start.pid` is
+the provider, the stream is in the record, and the outcome derives. The bridge can label a pane from
+outside it, through `herdr pane report-agent` and `herdr pane report-metadata` or the socket API's
+150 methods. The env allowlist needs no change: all seven `HERDR_*` names Herdr sets are off it,
+confirmed on two records. Hunk opens a run's branch and takes annotations built from a record.
+
+**Wrong: the three labels are not states.** This answer has the bridge labelling the pane `gated`,
+`completed` and `timed out`. Herdr's `--state` takes `idle`, `working`, `blocked` and `unknown`, and
+refuses anything else by name. Hydra's three words go in as a `state_labels` map through
+`report-metadata`, which renames what the pane displays over one of those four. So the bridge makes
+two calls, not one, and someone has to decide which of the four `timed out` sits on.
+
+**Wrong: Herdr has no reading to correct.** This answer says Herdr's own `blocked` is screen-scraped
+and the record knows better. Herdr produces nothing at all for a Hydra run: `agent_status` stayed
+`unknown` for a whole run, and again while a real record's frames, one of them a `permission_denied`,
+were replayed into the pane. Detection wants an agent's interactive UI in the pane, and a Hydra run
+puts Hydra's tail there while the provider's UI lives in another session's pty. The bridge is the
+only source of a pane's state, not a corrector of Herdr's.
+
+**A decision, not a correction: `diff_stat.base_tree` is not in the record.** This answer has Hunk
+opening `hydra/<run-id>` against "the `diff_stat.base_tree` the record carries". No record carries
+it. `diff_stat` is a field on the derived outcome, computed at read time and printed by `hydra run`
+on exit, and `run_start.worktree` holds `{path, branch}` and nothing else. The tree it names is also
+reachable from no ref, since Hydra synthesizes it from the parent's uncommitted work: `git fsck`
+calls it an `unreachable tree`, so a `git gc --prune` deletes the base for every past run.
+
+`hunk show hydra/<run-id>` works anyway and needs only the branch, which the record does carry. What
+it cannot do is separate the run's own edits from the seed, because reap commits both with `git add
+-A` and `base_tree` is the only thing that tells them apart. **Whether Hydra starts writing
+`base_tree` onto the record is the open question**, and it belongs to a human on the map rather than
+to this ticket.
