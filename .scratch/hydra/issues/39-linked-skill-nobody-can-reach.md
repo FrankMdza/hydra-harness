@@ -1,7 +1,7 @@
 # 39 - A linked skill is unreachable under four of the five policies
 
 Type: grilling
-Status: open
+Status: claimed
 
 ## Question
 
