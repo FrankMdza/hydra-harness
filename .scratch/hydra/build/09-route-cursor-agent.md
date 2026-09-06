@@ -1,7 +1,7 @@
 # 09 - Route `cursor-agent`
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 03, 08
 
 ## Goal
