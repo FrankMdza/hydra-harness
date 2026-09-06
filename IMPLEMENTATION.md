@@ -726,10 +726,13 @@ the first for reads is exactly the claim 6.6 declined to rest on.
 
 **The hook's spelling of a tool is not the stream's, and the table holds the hook's.**
 Five names arrived on the hook across the two probes: `Read`, `Shell`, `Write`, `Grep`
-and `Delete`. Twelve more are read off the bundle's hook descriptors, each of which
+and `Delete`. Thirteen more are read off the bundle's hook descriptors, each of which
 builds the `tool_input` the hook sees: `List`, `ReadLints`, `Fetch`, `WriteShellStdin`,
 `task`, `FetchMcpResource`, `ListMcpResources`, `ComputerUse`, `RecordScreen`,
-`askQuestion`, `createPlan`, `generateImage` and `updateTodos`. An MCP tool arrives as
+`askQuestion`, `createPlan`, `generateImage` and `updateTodos`. `WriteShellStdin` is
+`shell` with no command in its input, so the pattern floor cannot see what it feeds a
+background shell, which is 7.4's failure mode on a second spelling and is the reason
+the row says so. An MCP tool arrives as
 `MCP:<tool>`, read off the same bundle and unmeasured because no server is configured
 here. Three spellings are Cursor's own and would otherwise surprise somebody. The
 listing tool arrives as `Grep` carrying `output_mode: files_with_matches`, not as a tool
@@ -740,7 +743,7 @@ check the table against, unlike `claude`, so 7.1's run-time table check has noth
 read on this provider and a name it does not know is caught by the denial that reveals
 it.
 
-**A `Skill` split would land on `Read` here.** Cursor has no `Skill` tool: a linked
+**A `Skill` split would land on `Read` here.** Cursor has no `Skill` tool. A linked
 skill is rendered into the prompt as an `<agent_skill fullPath=...>` element and the
 model reads its `SKILL.md` through the ordinary read tool. So if map ticket 39 splits
 `Skill` out of `provider_native` into a capability of its own, this table has no row to
@@ -807,14 +810,19 @@ writes a coloured tip, `Tip: You can start the Cursor CLI with 'agent' (same as
 'cursor-agent').`, on stderr, which the pty merges into the record. Both are kept as
 strings and normalize to nothing.
 
-**The fatal pre-flight is three free commands and a listing that means something.**
+**The fatal pre-flight is three free commands, and its listing names the servers the run
+will start.**
 6.1 item 7, built as 6.5 writes it: `cursor-agent mcp enable <name>` for each injected
 server, run with cwd inside the worktree because `enable` resolves the project from cwd
 and ignores `--workspace`; `mcp list`; `mcp disable <name>` for every server the listing
 names that Hydra did not inject, which is 6.5's per-run kill switch for the human's
 user-scope servers under the redirect; then `mcp list` again. Any injected server the
 final listing does not report `ready` refuses the run with `mcp_unavailable` and a
-remediation naming the pre-flight and the status each server reported. Measured by hand
+remediation naming the pre-flight and the status each server reported. A disable that
+fails is a line on stderr rather than a refusal, because the gate refuses every call
+to a server Hydra did not inject whatever the policy, so the cost is exposure and not
+execution, and the final listing reports the server `ready` for the record to keep.
+The sequence is pinned by a unit test that drives it without the binary. Measured by hand
 on 2026-09-06 against a worktree naming `tests/fixtures/mcp-probe-server.py` and
 `/bin/echo` under a scratch `CURSOR_DATA_DIR`: both `not loaded (needs approval)` before,
 `hydra-probe: ready` and `broken: Error: Connection failed` after the enables, the
@@ -827,7 +835,7 @@ and recorded `injected: []` beside `resolved: []`.
 **`mcp.resolved` is the pre-flight's listing, free, and `skills.resolved` is null.**
 Ticket 08's note to this ticket said both answers were paid. The MCP half is not: the
 listing after the approvals is the provider reporting what the run will start, so the
-`ready` names are `resolved`. The skill half is: ticket 24 put it in
+`ready` names are `resolved`. The skill half is paid, because ticket 24 put it in
 `~/.cursor/chats/<hash>/<session>/store.db` after a real run, so the launcher says so on
 stderr and writes null, which contract 5.3 makes optional on this provider, and the
 third collision test does not run. The other two do, against six user-scope roots

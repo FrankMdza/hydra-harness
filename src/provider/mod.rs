@@ -80,9 +80,10 @@ impl Provider {
         match self {
             Provider::Claude => vec![home.join(".claude/skills")],
             // Its own two, `claude`'s, and the three vendor roots it reads as
-            // well. `~/.cursor/skills-cursor` holds twenty-odd of Cursor's own
-            // skills on this machine, so the collision check has something to
-            // compare against on this provider from the first launch.
+            // well. `~/.cursor/skills-cursor` held twenty-six of Cursor's own
+            // skills on this machine on 2026-09-06, so the collision check has
+            // something to compare against on this provider from the first
+            // launch.
             Provider::CursorAgent => vec![
                 home.join(".claude/skills"),
                 home.join(".cursor/skills"),
@@ -175,9 +176,10 @@ mod tests {
 
     #[test]
     fn cursor_reads_six_user_scope_roots_and_claude_reads_one() {
-        // 6.4 and ticket 24. `~/.cursor/skills-cursor` holds Cursor's own
-        // skills on this machine, so the collision check on that provider has
-        // twenty-odd names to compare a store against from the first launch.
+        // 6.4 and ticket 24. `~/.cursor/skills-cursor` held twenty-six of
+        // Cursor's own skills on this machine on 2026-09-06, so the collision
+        // check on that provider has names to compare a store against from the
+        // first launch.
         let home = std::path::Path::new("/Users/probe");
         let cursor = Provider::CursorAgent.user_skill_roots(home);
         assert_eq!(cursor.len(), 6);

@@ -24,7 +24,7 @@
 //! own `createToolInput` does. The rebuilt input is what `tool_call.arguments`
 //! carries; the stream's own object survives in `raw`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -200,7 +200,7 @@ struct Walk {
     thinking_blocks: usize,
     /// The calls whose `started` frame was seen, so a `completed` frame for a
     /// call the record never saw start still yields a call.
-    started: HashMap<String, ()>,
+    started: HashSet<String>,
     /// Which oneof case each result came back as, by call id, so a `rejected`
     /// shell command is told from an `error` without re-reading the output.
     cases: HashMap<String, &'static str>,
@@ -377,9 +377,14 @@ impl Walk {
         };
         let inner = &object[&kind];
         let args = inner.get("args").cloned().unwrap_or(Value::Null);
+        let completed = raw["subtype"].as_str() == Some("completed");
 
-        if !self.started.contains_key(&call_id) {
-            self.started.insert(call_id.clone(), ());
+        // A call is taken from its `started` frame, or from a `completed` frame
+        // whose start the record never saw. A frame with no id at all cannot be
+        // matched to anything, so it yields a call on `started`, a result on
+        // `completed`, and a finding in `decide` saying what it lost.
+        let seen = !call_id.is_empty() && !self.started.insert(call_id.clone());
+        if !seen && (!completed || !call_id.is_empty()) {
             let (name, arguments) = match as_hook_call(&kind, &args) {
                 Some(mapped) => mapped,
                 None => (kind.clone(), args.clone()),
@@ -397,7 +402,7 @@ impl Walk {
             }));
         }
 
-        if raw["subtype"].as_str() != Some("completed") {
+        if !completed {
             return;
         }
         let (status, case, output) = classify(inner.get("result"));
@@ -529,6 +534,14 @@ impl Walk {
 
         let results = self.results_by_call();
         for (seq, call_id, tool, arguments) in calls {
+            if call_id.is_empty() {
+                // Nothing to join a result to. The policy still answers for the
+                // call, and this says what it could not be checked against.
+                self.findings.push(Finding::Limit(format!(
+                    "a {tool} call at seq {seq} carries no call id, so no result can be \
+                     joined to it"
+                )));
+            }
             let verdict = match replay.decide(&tool, &arguments, &cwd) {
                 Ok(verdict) => verdict,
                 Err(err) => {
@@ -563,18 +576,29 @@ impl Walk {
                             )));
                         }
                     }
-                    // Something refused, and Hydra's voice is not in the text.
-                    // Hydra's gate fires before any other hook on this provider
-                    // and its message would be in the concatenation, so a
-                    // refusal without it is a gate that never answered. The
-                    // config fails closed here, so the innocent reading is
-                    // narrower than on `claude`: a hook config the loader
+                    // Something else refused. Cursor runs every hook and
+                    // concatenates every message (research 30), so Hydra's
+                    // answer is in the text whenever its hook ran: an `allow`
+                    // there is the gate allowing at run time what the policy
+                    // denies now, which is two sources disagreeing (7.7), and
+                    // no voice at all is a gate that never ran. The config
+                    // fails closed here, so the innocent reading of the second
+                    // is narrower than on `claude`: a hook config the loader
                     // refused, which it does silently for a symlinked one.
                     Some(refusal) if refusal.by == Decider::External => {
-                        self.findings.push(Finding::Ungated {
-                            call_id: call_id.clone(),
-                            tool: tool.clone(),
-                        });
+                        match hydra_voice(&refusal.reason) {
+                            Some(code) => self.findings.push(Finding::Disagreement {
+                                call_id: call_id.clone(),
+                                derived: Decision::Deny,
+                                derived_code: verdict.code().map(str::to_string),
+                                gate_said: Decision::Allow,
+                                gate_code: Some(code.to_string()),
+                            }),
+                            None => self.findings.push(Finding::Ungated {
+                                call_id: call_id.clone(),
+                                tool: tool.clone(),
+                            }),
+                        }
                     }
                     Some(_) => {}
                 }
@@ -743,6 +767,39 @@ fn usage_of(seq: u64, result: &Value) -> Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every `hydra/<code>:` a text carries.
+    fn codes_in(text: &str) -> std::collections::BTreeSet<String> {
+        let mut found = std::collections::BTreeSet::new();
+        let mut rest = text;
+        while let Some(at) = rest.find("hydra/") {
+            let after = &rest[at + "hydra/".len()..];
+            let code: String = after
+                .chars()
+                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                .collect();
+            if !code.is_empty() && after[code.len()..].starts_with(':') {
+                found.insert(code);
+            }
+            rest = after;
+        }
+        found
+    }
+
+    #[test]
+    fn the_known_codes_are_exactly_the_ones_the_gate_and_its_wrapper_write() {
+        // `GATE_CODES` is a hand copy, and a code added to the script without a
+        // row here would make a real refusal read as somebody else's.
+        let mut written = codes_in(include_str!("../policy/gate.py"));
+        written.extend(codes_in(&crate::policy::hook_command(
+            std::path::Path::new("/tmp/gate"),
+            "sha",
+            crate::policy::Dialect::Cursor,
+        )));
+        let known: std::collections::BTreeSet<String> =
+            GATE_CODES.iter().map(|code| code.to_string()).collect();
+        assert_eq!(written, known);
+    }
 
     #[test]
     fn hydras_voice_is_found_behind_cursors_own_prefix_and_nowhere_it_is_not() {

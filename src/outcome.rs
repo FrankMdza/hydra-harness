@@ -249,10 +249,12 @@ fn provider_refused(run: &Run) -> Option<Outcome> {
 /// Hydra owns that sentence is a line of the record (contract 3), so this reads
 /// [`Run::noise`]. Both spellings are the provider's own, measured rather than
 /// guessed: research 33 hit `ActionRequiredError: You've hit your usage limit`
-/// twice on 2026-09-04 by pinning a premium model, and research 21 read
-/// `Authentication required` out of the bundle's three logged-out messages.
-/// The class name and the phrase are keyed on together, so a later sentence
-/// that reuses the class for something else does not file as a limit.
+/// twice on 2026.09.02-c22c1a3 on 2026-09-04 by pinning a premium model, and
+/// research 21 read `Authentication required` out of the three logged-out
+/// messages in the 2026.08.31-4057e58 bundle on 2026-09-01; the phrase is still
+/// in the 2026.09.02-c22c1a3 bundle. The class name and the phrase are keyed on
+/// together, so a later sentence that reuses the class for something else does
+/// not file as a limit.
 ///
 /// **This is a text match, and it is written down as one.** It is here because
 /// the alternative files an exhausted quota as `failed`, which rung one learns

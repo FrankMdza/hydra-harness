@@ -386,12 +386,14 @@ pub struct Run {
     /// Every line the provider wrote that was not JSON, verbatim (contract 3).
     ///
     /// On `claude` that is one show-cursor escape per run and nothing reads it.
-    /// On `cursor-agent` it is the failure path: the provider's `catch` writes
-    /// no frame, prints one sentence to stderr and exits 1, and over a pty that
-    /// sentence lands here. Contract 8's outcome derivation reads it for the
-    /// two refusals that never reach a frame on that provider, a usage limit
-    /// and a lapsed login, so that rung one does not learn a skill lesson from
-    /// an exhausted quota.
+    /// On `cursor-agent` 2026.09.02-c22c1a3 it is a coloured tip before the
+    /// first frame, the same escape after the last, and the failure path: the
+    /// provider's `catch` writes no frame, prints one sentence to stderr and
+    /// exits 1 (research 25, read off the emitter on 2026-09-02 and reproduced
+    /// by research 33 on 2026-09-04), and over a pty that sentence lands here.
+    /// Contract 8's outcome derivation reads it for the two refusals that never
+    /// reach a frame on that provider, a usage limit and a lapsed login, so that
+    /// rung one does not learn a skill lesson from an exhausted quota.
     pub noise: Vec<String>,
 }
 

@@ -71,8 +71,8 @@ document and there should not be one.
   `provider/cursor.rs` hold every fact that is true of one binary and not of a model, and
   `normalize/claude.rs` and `normalize/cursor.rs` read each one's records back; `policy/` loads
   the policy set, owns the capability table per provider, and compiles the gate script;
-  `skills/` is the store, the per-sha
-  snapshot, the read-only index over the user's own skill roots and the collision check;
+  `skills/` is the store, the per-sha snapshot, the read-only index over the user's own skill
+  roots and the collision check;
   `mcp.rs` reads the canonical MCP document and decides what one launch is handed;
   `preamble.rs` composes what the run is told; `ouroboros/` is rung one, `hydra curate`, and
   the only place Ouroboros lives, which is what makes "it calls neither cleanup command" a

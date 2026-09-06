@@ -297,7 +297,7 @@ fn undeliverable(provider: Provider, policy: &str, checkout: Checkout) -> Option
 /// The worktree is seeded from the human's repo (6.3), and a `.cursor/mcp.json`
 /// in it is theirs: writing over it edits their work and `hydra reap` would
 /// commit the edit. [`crate::run`] checks the parent repo for the same file
-/// before a run id exists, so this is the second line.
+/// before a run id exists, and [`cursor::claim`] is the second line.
 pub fn write_config(
     layout: &Layout,
     run_id: &str,
@@ -305,56 +305,23 @@ pub fn write_config(
     servers: &[&Server],
     worktree: Option<&Path>,
 ) -> Result<PathBuf> {
-    let file = match provider {
-        Provider::Claude => layout.mcp_file(run_id),
-        Provider::CursorAgent => {
-            let worktree = worktree.context(
-                "cursor-agent reads its MCP config out of the worktree and this run has none",
-            )?;
-            let file = cursor::mcp_file(worktree);
-            if file.exists() {
-                bail!(
-                    "{} already exists in the checkout, and Hydra will not write over a \
-                     file the human's repo carries",
-                    file.display()
-                );
+    let (file, config) = match provider {
+        Provider::Claude => {
+            let file = layout.mcp_file(run_id);
+            if let Some(parent) = file.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
             }
-            file
+            (file, claude::mcp_config(servers))
         }
-    };
-    if let Some(parent) = file.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
-    }
-    if provider == Provider::CursorAgent {
-        write_cursor_gitignore(worktree.expect("checked above"))?;
-    }
-    let config = match provider {
-        Provider::Claude => claude::mcp_config(servers),
-        Provider::CursorAgent => cursor::mcp_config(servers),
+        Provider::CursorAgent => (
+            cursor::claim(worktree, "MCP config", cursor::mcp_file)?,
+            cursor::mcp_config(servers),
+        ),
     };
     std::fs::write(&file, serde_json::to_string_pretty(&config)?)
         .with_context(|| format!("writing {}", file.display()))?;
     Ok(file)
-}
-
-/// The `.gitignore` beside Cursor's two files, so `git status` stays clean and
-/// `hydra reap` commits nothing Hydra wrote.
-///
-/// **An existing one is left alone**, the same rule the skill root follows: a
-/// repo that tracks its own `.cursor/.gitignore` would see the overwrite as an
-/// edit to the human's checkout. The cost is that Hydra's files then show in
-/// `git status`, which is visible rather than silent.
-pub fn write_cursor_gitignore(worktree: &Path) -> Result<()> {
-    let (path, body) = cursor::gitignore(worktree);
-    if path.exists() {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
-    }
-    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))
 }
 
 /// Contract 5.3's `mcp` group.

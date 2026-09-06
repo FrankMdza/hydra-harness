@@ -16,8 +16,8 @@ use serde_json::json;
 
 mod common;
 use common::{
-    RUN_ID, Record, Sandbox, corpus, cursor_read_blocked, cursor_read_ok, cursor_shell_rejected,
-    cursor_usage, policies, usage_frame,
+    RUN_ID, Record, Sandbox, corpus, cursor_read_blocked, cursor_read_blocked_late, cursor_read_ok,
+    cursor_shell_rejected, cursor_usage, policies, usage_frame,
 };
 
 // --- one frame at a time -------------------------------------------------
@@ -634,32 +634,89 @@ fn a_cursor_run_with_no_result_frame_is_unavailable_never_estimated() {
 
 #[test]
 fn a_cursor_read_the_policy_denies_and_the_hook_refused_is_hydras_deny() {
-    // The read probe of 2026-09-06: a read outside the worktree under
-    // `read-only`, refused, with the gate's own code inside Cursor's reason.
-    let sandbox = Sandbox::new("cursor-deny");
+    // Both shapes a refused read arrives in, measured on 2026-09-06: the real
+    // run's, refused at `preToolUse` with the gate's words in front, and the
+    // probe's, refused at `beforeReadFile` behind Cursor's own prefix.
+    let reason = "hydra/out-of-scope: policy read-only allows file_read inside worktree \
+                  and this call is outside it.";
+    for (name, blocked) in [
+        ("cursor-deny-early", cursor_read_blocked(reason)),
+        ("cursor-deny-late", cursor_read_blocked_late(reason)),
+    ] {
+        let sandbox = Sandbox::new(name);
+        let ws = sandbox.worktree();
+        let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+            .cursor_call("c1", "readToolCall", json!({"path": "/etc/hosts"}), blocked)
+            .cursor_assistant("BLOCKED")
+            .cursor_result("BLOCKED", Some(cursor_usage()))
+            .closed();
+
+        let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+        let decisions: Vec<_> = run.permission_decisions().collect();
+        assert_eq!(decisions.len(), 1, "{name}");
+        assert_eq!(decisions[0].call_id, "c1");
+        assert_eq!(decisions[0].decision, Decision::Deny);
+        assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+        assert!(decisions[0].reason.starts_with("hydra/out-of-scope:"), "{}", decisions[0].reason);
+        assert!(run.findings.is_empty(), "{name}: {:?}", run.findings);
+    }
+}
+
+#[test]
+fn a_cursor_refusal_carrying_hydras_allow_under_a_denying_policy_is_a_disagreement() {
+    // The gate allowed at run time, the user's guard denied, and the policy
+    // denies now. Two sources disagree, and the record says so rather than
+    // filing the call as one the gate never answered.
+    let sandbox = Sandbox::new("cursor-disagree");
     let ws = sandbox.worktree();
     let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
         .cursor_call(
             "c1",
-            "readToolCall",
-            json!({"path": "/etc/hosts"}),
-            cursor_read_blocked(
-                "hydra/out-of-scope: policy read-only allows file_read inside worktree \
-                 and this call is outside it.",
+            "shellToolCall",
+            json!({"command": "git t30probe", "workingDirectory": "", "timeout": 30000}),
+            cursor_shell_rejected(
+                "git t30probe",
+                "hydra/allow: policy standard allows shell.\n\n---\n\nHook blocked with \
+                 message: 'git t30probe' is not a known subcommand.",
             ),
         )
-        .cursor_assistant("BLOCKED")
-        .cursor_result("BLOCKED", Some(cursor_usage()))
         .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     let decisions: Vec<_> = run.permission_decisions().collect();
-    assert_eq!(decisions.len(), 1);
-    assert_eq!(decisions[0].call_id, "c1");
     assert_eq!(decisions[0].decision, Decision::Deny);
     assert_eq!(decisions[0].decider, Decider::HydraPolicy);
-    assert!(decisions[0].reason.starts_with("hydra/out-of-scope:"), "{}", decisions[0].reason);
-    assert!(run.findings.is_empty(), "{:?}", run.findings);
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Disagreement { call_id, gate_said: Decision::Allow, .. } if call_id == "c1"
+        )),
+        "{:?}",
+        run.findings
+    );
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_cursor_frame_with_no_call_id_still_yields_a_call_and_says_what_it_lost() {
+    let sandbox = Sandbox::new("cursor-noid");
+    let ws = sandbox.worktree();
+    let mut record = Record::cursor(&ws, None, None);
+    for _ in 0..2 {
+        record.raw(json!({
+            "type": "tool_call", "subtype": "started",
+            "tool_call": {"readToolCall": {"args": {"path": ws.join("a.txt")}}},
+        }));
+    }
+    let text = record.closed();
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.tool_calls().count(), 2, "two starts are two calls, id or no id");
 }
 
 #[test]

@@ -76,7 +76,7 @@ fn spec_for(layout: &Layout, script: &str) -> PathBuf {
             cwd: PathBuf::from("/tmp"),
             run_file: layout.run_file(RUN_ID),
             model: None,
-            set_env: Default::default(),
+            hydra_env: Default::default(),
             run_start: line_zero(Path::new("/tmp")),
         },
     )
@@ -212,7 +212,7 @@ fn a_binary_that_is_not_there_still_writes_a_record() {
             cwd: PathBuf::from("/tmp"),
             run_file: layout.run_file(RUN_ID),
             model: None,
-            set_env: Default::default(),
+            hydra_env: Default::default(),
             run_start: line_zero(Path::new("/tmp")),
         },
     )

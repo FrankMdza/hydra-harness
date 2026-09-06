@@ -89,6 +89,48 @@ pub fn gitignore(worktree: &Path) -> (PathBuf, &'static str) {
     )
 }
 
+/// The path one of Hydra's two `.cursor/` files will be written to, once the
+/// checkout has been checked for the human's own copy and the ignore file is in
+/// place.
+///
+/// **A file the checkout already holds is refused rather than overwritten.**
+/// The worktree is seeded from the human's repo (6.3), and a `.cursor/hooks.json`
+/// or `.cursor/mcp.json` in it is theirs: writing over it edits their work and
+/// `hydra reap` would commit the edit, and loading theirs instead of Hydra's
+/// launches an ungated run. [`crate::run`] checks the parent repo for both files
+/// before a run id exists; this is the second line, on the checkout itself.
+///
+/// **An existing `.gitignore` is left alone**, the same rule the skill root
+/// follows: a repo that tracks its own would see the overwrite as an edit to the
+/// human's checkout. The cost is that Hydra's files then show in `git status`,
+/// which is visible rather than silent.
+pub fn claim(
+    worktree: Option<&Path>,
+    what: &str,
+    file: impl Fn(&Path) -> PathBuf,
+) -> Result<PathBuf> {
+    let worktree = worktree.with_context(|| {
+        format!("cursor-agent reads its {what} out of the worktree and this run has none")
+    })?;
+    let file = file(worktree);
+    if file.exists() {
+        bail!(
+            "{} already exists in the checkout, and Hydra will not write over a file the \
+             human's repo carries",
+            file.display()
+        );
+    }
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let (ignore, body) = gitignore(worktree);
+    if !ignore.exists() {
+        std::fs::write(&ignore, body).with_context(|| format!("writing {}", ignore.display()))?;
+    }
+    Ok(file)
+}
+
 /// The hook config, 6.6, in Cursor's own format.
 ///
 /// **Two events, one script.** `preToolUse` fires for every tool this build
@@ -215,6 +257,7 @@ pub fn parse_listing(text: &str) -> Vec<Listed> {
 }
 
 /// What the pre-flight found.
+#[derive(Debug)]
 pub struct Preflight {
     /// Every server the listing named, after the approvals and the disables.
     pub listing: Vec<Listed>,
@@ -276,6 +319,13 @@ impl Preflight {
     }
 }
 
+/// What one `cursor-agent mcp <args>` invocation came back with.
+pub struct Answer {
+    pub ok: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 /// The free pre-flight of 6.1 item 7, run with cwd inside the worktree and
 /// `CURSOR_DATA_DIR` in the environment.
 ///
@@ -287,70 +337,72 @@ impl Preflight {
 /// `~/.cursor/` (6.5's per-run kill switch). Then `mcp list` again, which is the
 /// listing the record and the verdict read.
 ///
-/// **Each step spawns the provider's own server processes**, because `mcp list`
-/// connects to report a status. That is the cost of a listing that means
-/// something, and it is why 6.5 gives this pre-flight to Cursor alone.
+/// **Each `mcp list` starts the provider's own server processes**, because the
+/// listing connects to each server to report `ready` or an error, measured
+/// 2026-09-06: a server whose command was `/bin/echo` listed as `Error:
+/// Connection failed`. That is what makes a `ready` entry a server the run will
+/// start rather than a file the run will read, and it is why 6.5 gives this
+/// pre-flight to Cursor alone.
 pub fn preflight(
     worktree: &Path,
     env: &crate::env::ChildEnv,
     injected: &[String],
 ) -> Result<Preflight> {
+    preflight_with(injected, &mut |args| mcp_command(worktree, env, args))
+}
+
+/// The pre-flight over whatever runs `cursor-agent mcp`, so a test can drive the
+/// sequence without the binary.
+pub fn preflight_with(
+    injected: &[String],
+    run: &mut dyn FnMut(&[&str]) -> Result<Answer>,
+) -> Result<Preflight> {
     for name in injected {
-        let out = mcp_command(worktree, env, &["enable", name])?;
-        if !out.status.success() {
+        let answer = run(&["enable", name])?;
+        if !answer.ok {
             bail!(
-                "cursor-agent mcp enable {name} exited {}: {}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr).trim()
+                "cursor-agent mcp enable {name} failed: {}",
+                answer.stderr.trim()
             );
         }
     }
 
-    let first = list(worktree, env)?;
+    let first = list(run)?;
+    let mut disabled_any = false;
     for listed in &first {
         if injected.iter().any(|name| name == &listed.name) {
             continue;
         }
-        let out = mcp_command(worktree, env, &["disable", &listed.name])?;
-        if !out.status.success() {
+        disabled_any = true;
+        let answer = run(&["disable", &listed.name])?;
+        if !answer.ok {
+            // The gate refuses every call to a server Hydra did not inject
+            // whatever the policy, so a disable that failed costs exposure and
+            // not execution (6.5's residue), and the listing below reports the
+            // server as `ready` for the record to keep.
             eprintln!(
-                "hydra: cursor-agent mcp disable {} exited {}: {}",
+                "hydra: cursor-agent mcp disable {} failed, so the human's server stays \
+                 loaded for this run: {}",
                 listed.name,
-                out.status,
-                String::from_utf8_lossy(&out.stderr).trim()
+                answer.stderr.trim()
             );
         }
     }
 
-    let listing = if first
-        .iter()
-        .all(|listed| injected.iter().any(|name| name == &listed.name))
-    {
-        first
-    } else {
-        list(worktree, env)?
-    };
+    let listing = if disabled_any { list(run)? } else { first };
     Ok(Preflight { listing })
 }
 
-fn list(worktree: &Path, env: &crate::env::ChildEnv) -> Result<Vec<Listed>> {
-    let out = mcp_command(worktree, env, &["list"])?;
-    if !out.status.success() {
-        bail!(
-            "cursor-agent mcp list exited {}: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+fn list(run: &mut dyn FnMut(&[&str]) -> Result<Answer>) -> Result<Vec<Listed>> {
+    let answer = run(&["list"])?;
+    if !answer.ok {
+        bail!("cursor-agent mcp list failed: {}", answer.stderr.trim());
     }
-    Ok(parse_listing(&String::from_utf8_lossy(&out.stdout)))
+    Ok(parse_listing(&answer.stdout))
 }
 
-fn mcp_command(
-    worktree: &Path,
-    env: &crate::env::ChildEnv,
-    args: &[&str],
-) -> Result<std::process::Output> {
-    std::process::Command::new("cursor-agent")
+fn mcp_command(worktree: &Path, env: &crate::env::ChildEnv, args: &[&str]) -> Result<Answer> {
+    let out = std::process::Command::new("cursor-agent")
         .arg("mcp")
         .args(args)
         .current_dir(worktree)
@@ -360,7 +412,12 @@ fn mcp_command(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
-        .with_context(|| format!("running cursor-agent mcp {}", args.join(" ")))
+        .with_context(|| format!("running cursor-agent mcp {}", args.join(" ")))?;
+    Ok(Answer {
+        ok: out.status.success(),
+        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+    })
 }
 
 /// What `cursor-agent` says it resolved: nothing that is free.
@@ -564,6 +621,96 @@ mod tests {
 
         assert!(preflight.shortfall(&["fs".to_string()]).is_empty());
         assert!(preflight.shortfall(&[]).is_empty());
+    }
+
+    #[test]
+    fn the_pre_flight_enables_hydras_servers_disables_the_rest_and_lists_again() {
+        // 6.5's sequence, driven without the binary. The human's user-scope
+        // server `human` is in the first listing and not in the injected set,
+        // so it is disabled under the redirect; the second listing is the one
+        // the record and the verdict read.
+        let mut calls: Vec<Vec<String>> = Vec::new();
+        let mut lists = 0;
+        let mut run = |args: &[&str]| -> Result<Answer> {
+            calls.push(args.iter().map(|a| a.to_string()).collect());
+            let stdout = match args {
+                ["list"] => {
+                    lists += 1;
+                    if lists == 1 {
+                        "fs: ready\nhuman: ready\n"
+                    } else {
+                        "fs: ready\nhuman: disabled\n"
+                    }
+                }
+                _ => "",
+            };
+            Ok(Answer {
+                ok: true,
+                stdout: stdout.to_string(),
+                stderr: String::new(),
+            })
+        };
+        let preflight = preflight_with(&["fs".to_string()], &mut run).unwrap();
+        assert_eq!(
+            calls,
+            vec![
+                vec!["enable", "fs"],
+                vec!["list"],
+                vec!["disable", "human"],
+                vec!["list"],
+            ]
+        );
+        assert_eq!(preflight.resolved(), vec!["fs".to_string()]);
+        assert!(preflight.shortfall(&["fs".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn a_listing_with_nothing_to_disable_is_taken_once() {
+        let mut calls = 0;
+        let mut run = |args: &[&str]| -> Result<Answer> {
+            calls += 1;
+            Ok(Answer {
+                ok: true,
+                stdout: if args == ["list"] { "fs: ready\n".into() } else { String::new() },
+                stderr: String::new(),
+            })
+        };
+        let preflight = preflight_with(&["fs".to_string()], &mut run).unwrap();
+        assert_eq!(calls, 2, "one enable, one list");
+        assert_eq!(preflight.resolved(), vec!["fs".to_string()]);
+
+        // An enable that fails is the pre-flight failing, not a server that is
+        // not ready: nothing spawned, and the caller refuses with the error.
+        let mut run = |_: &[&str]| -> Result<Answer> {
+            Ok(Answer {
+                ok: false,
+                stdout: String::new(),
+                stderr: "MCP server 'fs' not found in configuration".into(),
+            })
+        };
+        let err = preflight_with(&["fs".to_string()], &mut run).unwrap_err();
+        assert!(err.to_string().contains("not found in configuration"), "{err:#}");
+    }
+
+    #[test]
+    fn claim_refuses_the_humans_file_and_drops_the_ignore_file_beside_hydras() {
+        let root = std::env::temp_dir().join(format!("hydra-cursor-claim-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let file = claim(Some(&root), "hook config", hooks_file).unwrap();
+        assert_eq!(file, root.join(".cursor/hooks.json"));
+        assert!(!file.exists(), "claim names the path and writes nothing to it");
+        let ignore = std::fs::read_to_string(root.join(".cursor/.gitignore")).unwrap();
+        assert!(ignore.contains("/hooks.json"));
+
+        std::fs::write(&file, "{}").unwrap();
+        let err = claim(Some(&root), "hook config", hooks_file).unwrap_err();
+        assert!(err.to_string().contains("already exists"), "{err:#}");
+
+        let err = claim(None, "MCP config", mcp_file).unwrap_err();
+        assert!(err.to_string().contains("MCP config"), "{err:#}");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

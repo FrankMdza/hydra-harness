@@ -431,9 +431,19 @@ pub fn cursor_read_ok(path: &str, content: &str) -> Value {
     }})
 }
 
-/// A read refused by a hook, as measured on the second probe: an `error`
-/// case whose message carries every hook's words and Cursor's own marker.
+/// A read refused at `preToolUse`, as run `01a07892-459d-7420-904e-91d6a6986159`
+/// recorded it on 2026-09-06: an `error` case whose message is the hook's own
+/// words with Cursor's marker after them and nothing in front.
 pub fn cursor_read_blocked(reason: &str) -> Value {
+    json!({ "error": { "errorMessage": format!(
+        "{reason}\n\nAgent note: Do not suggest workarounds to the blocked tool."
+    )}})
+}
+
+/// The same read refused at `beforeReadFile`, as the second probe measured on
+/// the same build and day: Cursor puts `File read was blocked by a hook: ` in
+/// front and its settings hint between.
+pub fn cursor_read_blocked_late(reason: &str) -> Value {
     json!({ "error": { "errorMessage": format!(
         "File read was blocked by a hook: {reason}\n\nTo view or modify configured \
          hooks, go to Cursor Settings > Hooks.\n\nAgent note: Do not suggest \

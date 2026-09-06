@@ -132,7 +132,8 @@ pub const CURSOR: &[Tool] = &[
     tool("task", Capability::SubagentSpawn),
     tool("FetchMcpResource", Capability::McpCall),
     tool("ListMcpResources", Capability::McpCall),
-    // Cursor's own product surface, granted by `permissive` alone.
+    // Tools that exist only inside Cursor's own product, granted by
+    // `permissive` alone.
     tool("ComputerUse", Capability::ProviderNative),
     tool("RecordScreen", Capability::ProviderNative),
     tool("askQuestion", Capability::ProviderNative),

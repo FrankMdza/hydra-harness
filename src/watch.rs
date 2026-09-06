@@ -56,7 +56,7 @@ pub struct Launch {
     /// carries, and these are paths Hydra computed. `CURSOR_DATA_DIR` is the
     /// one lever pulled today.
     #[serde(default)]
-    pub set_env: std::collections::BTreeMap<String, String>,
+    pub hydra_env: std::collections::BTreeMap<String, String>,
     /// The whole of line 0's body, composed by `hydra run`, with `pid` and
     /// `process_start_time` null. Those two are the only fields this half fills
     /// in, because they do not exist until the process does.
@@ -132,7 +132,7 @@ pub fn watch(spec: &Path) -> Result<()> {
 
     let provider: Provider = launch.provider.parse()?;
     let mut child_env = ChildEnv::build(provider)?;
-    for (name, value) in &launch.set_env {
+    for (name, value) in &launch.hydra_env {
         child_env.set(name, value.clone());
     }
 

@@ -139,15 +139,16 @@ with `preToolUse` and `beforeReadFile` both `failClosed: true`, `.cursor/mcp.jso
 free pre-flight of 6.1 item 7 as `mcp enable` per injected server, `mcp list`, `mcp
 disable` for everything else under the redirect, `mcp list` again, refusing the run with
 `mcp_unavailable` when an injected server is not `ready`. `src/policy/table.rs`: a
-second capability table, five names measured off the hook and twelve read off the
+second capability table, five names measured off the hook and thirteen read off the
 bundle, `MCP:` as the MCP prefix. `src/policy/gate.py`: a `cursor` dialect that answers
 in Cursor's own shape, maps a `beforeReadFile` payload onto `Read`, and refuses to be
 asked in a dialect other than the one it was compiled for. `src/normalize/cursor.rs`:
 the second column of contract 7.2, dispatched on the envelope's provider. `outcome.rs`:
 no terminator is `failed` on this provider, two stderr sentences derive `rate_limited`
 and `auth_failed`, and a signal death now reaches `run_end.error` on both providers.
-Twenty-nine new tests across `gate.rs`, `spawn.rs`, `mcp.rs`, `normalize.rs`,
-`outcome.rs` and the unit tests, none of which launches the provider.
+Thirty new tests across `gate.rs`, `spawn.rs`, `mcp.rs`, `normalize.rs` and
+`outcome.rs`, and twenty-six unit tests under `src/`, none of which launches the
+provider.
 
 **Measured.** Two paid probes outside Hydra to learn the hook's spellings and what a
 `beforeReadFile` deny looks like on the stream, then two recorded `hydra run`s on
@@ -160,8 +161,8 @@ the contract checker and the corpus walks. The pre-flight listing was measured b
 against a working and a broken server under a scratch data directory, and `hydra reap`
 took the first run's spawn directory, socket file and all.
 
-**Done when, item by item.** A recorded run writes a record that passes the checker:
-met, twice. Reads are gated: met, and the mechanism is measured on both events. The
+**Done when, item by item.** A recorded run writes a record that passes the checker,
+met twice. Reads are gated, met, and the mechanism is measured on both events. The
 pre-flight fails the run when the listing does not report an injected server ready:
 built, driven by `tests/mcp.rs` from the measured listing shape, and measured by hand
 with the free commands, but not through `hydra run`, because `config/mcp.md` admits no

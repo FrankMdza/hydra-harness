@@ -170,14 +170,14 @@ pub fn run(request: Request) -> Result<Call> {
     // line 0 is composed so the name lands in `env_allowlist`, and it travels to
     // the detached half by value, because it is a path Hydra computed and not a
     // secret the launcher inherited.
-    let mut set_env = std::collections::BTreeMap::new();
+    let mut hydra_env = std::collections::BTreeMap::new();
     if request.provider == Provider::CursorAgent {
         let data_dir = layout.cursor_data_dir(&run_id);
         std::fs::create_dir_all(&data_dir)
             .with_context(|| format!("creating {}", data_dir.display()))?;
         let value = data_dir.display().to_string();
         child_env.set("CURSOR_DATA_DIR", value.clone());
-        set_env.insert("CURSOR_DATA_DIR".to_string(), value);
+        hydra_env.insert("CURSOR_DATA_DIR".to_string(), value);
     }
 
     let worktree = match &repo {
@@ -243,14 +243,65 @@ pub fn run(request: Request) -> Result<Call> {
         None => None,
     };
 
-    // 6.1 item 7, the pre-flight Cursor alone gets. It runs here, after the
-    // approvals it makes and before line 0, because its listing is the
-    // provider's own report of what the run will start and that is what
-    // contract 5.3's `mcp.resolved` is on this provider. Its verdict is read
-    // after items 5 and 6 below, in 6.1's order. A pre-flight that could not run
-    // at all is the same refusal with the error as its remediation: nothing
-    // spawned, and the record says why.
+    // Contract 5.1: the task is recorded verbatim, preamble and all.
+    let task = crate::preamble::compose(&preamble, &request.task);
+    let run_file = layout.run_file(&run_id);
     let injected_names = mcp_plan.injected_names();
+
+    // The whole of line 0 except the two fields that do not exist until a process
+    // does, as a function of the one field the pre-flight below decides.
+    // Composing it here keeps every provider-specific fact on this side of the
+    // fork and leaves the detached half nothing to decide, and a refused launch
+    // writes the same line 0 a spawned one would, because contract 8.3 wants the
+    // attempt on disk in full.
+    let line_zero = |mcp_resolved: Option<&[String]>| -> Result<serde_json::Value> {
+        let start = run_start(
+            &request,
+            &task,
+            policies.sha(),
+            &provider_version,
+            &cwd,
+            worktree_ref.clone(),
+            child_env.names(),
+            injected.as_ref().map(|i| i.record.clone()),
+            Some(crate::mcp::record(
+                &mcp_document.sha,
+                &injected_names,
+                mcp_resolved,
+            )),
+        );
+        Ok(serde_json::to_value(&start)?)
+    };
+
+    // 6.1 item 5. A hit fails the run as its own outcome, and the record is the
+    // whole of what the caller gets back. It is read before the pre-flight below
+    // approves anything, so a launch refused here has started no server process,
+    // and on `cursor-agent` its record says nobody asked about servers, which is
+    // the true answer.
+    if let Some(injected) = &injected
+        && !injected.collisions.is_empty()
+    {
+        let remediation = crate::skills::collision::remediation(&injected.collisions);
+        return refuse(
+            &run_file,
+            &run_id,
+            request.provider,
+            &line_zero(injected.mcp_resolved.as_deref())?,
+            crate::record::Refusal::SkillCollision,
+            remediation,
+            &policies,
+            worktree_ref.as_ref(),
+            seed_tree.as_deref(),
+            &layout,
+        );
+    }
+
+    // 6.1 item 7, the pre-flight Cursor alone gets, run here because its listing
+    // is the provider's own report of what the run will start, which is what
+    // contract 5.3's `mcp.resolved` is on this provider, and line 0 carries it.
+    // Its verdict is read after item 6 below, in 6.1's order. A pre-flight that
+    // could not run at all is the same refusal with the error as its remediation:
+    // nothing spawned, and the record says why.
     let preflight = match (request.provider, &worktree_ref, mcp_plan.undeliverable) {
         (Provider::CursorAgent, Some(worktree), None) => {
             match cursor::preflight(std::path::Path::new(&worktree.path), &child_env, &injected_names) {
@@ -270,53 +321,7 @@ pub fn run(request: Request) -> Result<Call> {
             .as_ref()
             .and_then(|injected| injected.mcp_resolved.clone()),
     };
-    let mcp_record = crate::mcp::record(
-        &mcp_document.sha,
-        &injected_names,
-        mcp_resolved.as_deref(),
-    );
-
-    // Contract 5.1: the task is recorded verbatim, preamble and all.
-    let task = crate::preamble::compose(&preamble, &request.task);
-    let run_file = layout.run_file(&run_id);
-
-    // The whole of line 0 except the two fields that do not exist until a process
-    // does. Composing it here keeps every provider-specific fact on this side of
-    // the fork and leaves the detached half nothing to decide. It is composed
-    // before the collision check, because a refused launch writes the same line 0
-    // a spawned one would and contract 8.3 wants the attempt on disk in full.
-    let start = run_start(
-        &request,
-        &task,
-        policies.sha(),
-        &provider_version,
-        &cwd,
-        worktree_ref.clone(),
-        child_env.names(),
-        injected.as_ref().map(|i| i.record.clone()),
-        Some(mcp_record),
-    );
-    let line_zero = serde_json::to_value(&start)?;
-
-    // 6.1 item 5. A hit fails the run as its own outcome, and the record is the
-    // whole of what the caller gets back.
-    if let Some(injected) = &injected
-        && !injected.collisions.is_empty()
-    {
-        let remediation = crate::skills::collision::remediation(&injected.collisions);
-        return refuse(
-            &run_file,
-            &run_id,
-            request.provider,
-            &line_zero,
-            crate::record::Refusal::SkillCollision,
-            remediation,
-            &policies,
-            worktree_ref.as_ref(),
-            seed_tree.as_deref(),
-            &layout,
-        );
-    }
+    let line_zero = line_zero(mcp_resolved.as_deref())?;
 
     // 6.1 item 6, one item after it. A run whose policy admits a server this
     // launch cannot deliver is refused rather than launched short, which is
@@ -388,7 +393,7 @@ pub fn run(request: Request) -> Result<Call> {
             policy: &request.policy,
             mcp: mcp_file.as_deref(),
         }),
-        // Nothing provider-specific rides the argv: the hook config, the MCP
+        // Nothing provider-specific rides the argv. The hook config, the MCP
         // config and the skill links are all read from cwd, and the data
         // directory is in the environment.
         Provider::CursorAgent => cursor::argv(&cursor::Launch {
@@ -416,7 +421,7 @@ pub fn run(request: Request) -> Result<Call> {
             cwd,
             run_file: run_file.clone(),
             model: request.model.clone(),
-            set_env,
+            hydra_env,
             run_start: line_zero.clone(),
         },
     )
@@ -868,20 +873,7 @@ pub fn write_spawn_config(
     let gate = layout.gate_script(run_id);
     let hook_config = match provider {
         Provider::Claude => layout.settings_file(run_id),
-        Provider::CursorAgent => {
-            let worktree = worktree.context(
-                "cursor-agent reads its hook config out of the worktree and this run has none",
-            )?;
-            let file = cursor::hooks_file(worktree);
-            if file.exists() {
-                anyhow::bail!(
-                    "{} already exists in the checkout, and Hydra will not write over a \
-                     file the human's repo carries",
-                    file.display()
-                );
-            }
-            file
-        }
+        Provider::CursorAgent => cursor::claim(worktree, "hook config", cursor::hooks_file)?,
     };
 
     // With no repo there is no worktree, and the child runs where Hydra was
@@ -927,18 +919,8 @@ pub fn write_spawn_config(
 
     let config = match provider {
         Provider::Claude => claude::settings(&gate, &gate_sha),
-        Provider::CursorAgent => {
-            // The file sits beside `mcp.json` in a directory the human's repo
-            // may track, so the ignore file that keeps `git status` clean is
-            // written here as well as by the MCP half, whichever comes first.
-            crate::mcp::write_cursor_gitignore(worktree.expect("checked above"))?;
-            cursor::hooks_config(&gate, &gate_sha)
-        }
+        Provider::CursorAgent => cursor::hooks_config(&gate, &gate_sha),
     };
-    if let Some(parent) = hook_config.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
-    }
     std::fs::write(&hook_config, serde_json::to_string_pretty(&config)?)
         .with_context(|| format!("writing {}", hook_config.display()))?;
 

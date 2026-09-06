@@ -54,8 +54,10 @@ def respond(dialect, allowed, reason):
     translation, so the nested shape there would be an invalid response. One
     shape per provider is the rule that survives both events: `permission`
     plus `user_message`, which research 30's rig answered in and Cursor obeyed
-    on 2026.09.02-c22c1a3. `agent_message` carries the same text so the model
-    reads the reason too, which is what `claude` does with its own field.
+    on 2026.09.02-c22c1a3, and which a `beforeReadFile` deny was measured
+    obeying on the same build on 2026-09-06. `agent_message` carries the same
+    text so the model reads the reason too, which is what `claude` does with
+    its own field.
 
     An explicit allow is emitted rather than silence. On `claude` the two are
     the same thing, because 6.6 measured that a hook is a veto and never a key:
@@ -89,11 +91,14 @@ def respond(dialect, allowed, reason):
 def deny_without_dialect(reason):
     """The one answer that cannot be spoken in the caller's dialect.
 
-    Nothing said who is asking, so the script answers in every shape it has and
-    exits non-zero as well. `claude` and `cursor` read the JSON; `agy` fails
-    closed on a non-zero exit, so the exit code covers it whatever it makes of
-    the body. Unverified against a running provider on purpose: this ticket
-    launches none, and a wrong guess here fails toward a run that cannot start.
+    Nothing said who is asking, so the script answers in the two shapes that
+    share a line and exits non-zero as well. `claude` reads the JSON; `agy`
+    fails closed on a non-zero exit, so the exit code covers it whatever it
+    makes of the body; `cursor` sees two objects where it expects one, which is
+    an invalid response, and the hook config Hydra writes says `failClosed`, so
+    it blocks the call and loses the reason. Unverified against a running
+    provider on purpose, and a wrong guess here fails toward a run that cannot
+    start.
     """
     sys.stderr.write("hydra gate: {}\n".format(reason))
     respond("claude", False, reason)
