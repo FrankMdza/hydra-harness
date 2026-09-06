@@ -6,12 +6,11 @@ fourth until ticket 22 unrouted it; its guardrail rules are still copied, its bi
 
 This repo holds a finished design, three documents in `docs/`, written from a wayfinder map that
 closed on 2026-09-05 with 38 of 38 tickets resolved and all four seam checks passing. It also holds
-the Rust that implements one command against that design.
+the Rust that implements three of that design's eleven commands: `run`, `status` and `logs`.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
 design and the code. The code is deliberately not spec-complete: a gated `claude` run works end to
-end, and nothing is injected and nothing is normalized, so that file says what a record does and
-does not carry.
+end and detached, and nothing is injected, so that file says what a record does and does not carry.
 
 The three documents are the design. `docs/harness-spec.md` is how Hydra launches, feeds and records
 the providers; `docs/run-record-contract.md` is the format it writes and Ouroboros reads;
@@ -57,22 +56,25 @@ document and there should not be one.
 
 ## Layout
 
-- `src/`, the binary. `run.rs` is the launch sequence and the place to start reading; `record/` is
-  the run record and the validator the tests drive; `env.rs` is the allowlist; `pty.rs` owns the
-  child's pty; `provider/claude.rs` holds every fact that is true of that binary and not of a model;
-  `policy/` loads the policy set, owns the capability table, and compiles the gate script;
-  `preamble.rs` composes what the run is told.
+- `src/`, the binary. `run.rs` is the launch sequence and the place to start reading; `watch.rs` is
+  the detached half that owns the pty and the record; `live.rs` is the pid liveness test everything
+  else reads; `record/` is the run record and the validator the tests drive; `env.rs` is the
+  allowlist; `pty.rs` owns the child's pty; `provider/claude.rs` holds every fact that is true of
+  that binary and not of a model; `policy/` loads the policy set, owns the capability table, and
+  compiles the gate script; `preamble.rs` composes what the run is told.
 - `policies/`, the five policies of harness spec 7.2 and the pattern floor of 7.4. Protected config
   #1, and `policy_sha` on every run record is its sha. `policies/README.md` is the format.
 - `config/`, protected configs 2 to 5 of harness spec 15.1. Only `preamble.md` exists;
   `config/README.md` says what the other three are waiting on.
 - `IMPLEMENTATION.md`, what is built, what is not, and every departure from the design with its
   reason. Amend it in the same change that narrows the gap.
-- `tests/`, five files. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, nine files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
   hook payloads, launching nothing; `spawn.rs` checks that a run writes that gate where the run will
-  find it.
+  find it; `normalize.rs` and `outcome.rs` read synthetic records back; `detached.rs` drives the
+  detached half on a stub and checks it outlives its launcher; `status.rs` builds the three liveness
+  states by hand.
 - `.scratch/hydra/build/plan.md`, the build index, and `build/NN-slug.md`, one build ticket each.
 - `.scratch/hydra/map.md`, the closed design map. One load gives you the whole design at low
   resolution.

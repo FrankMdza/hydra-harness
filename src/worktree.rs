@@ -102,6 +102,24 @@ pub fn seed_tree(worktree: &Path, index: &Path) -> Result<String> {
         .to_string())
 }
 
+/// The tree an index already holds, without staging anything into it.
+///
+/// **This is how a run recovers its own diff-stat base after the fact.** The sha
+/// [`create`] returned lives in one process's memory, and a detached run returns
+/// to a caller that never had it. `~/hydra/spawn/<run-id>/seed-index` is the index
+/// the seed snapshot staged into and nothing writes to it again, so `write-tree`
+/// against it answers with the same sha `seed_tree` answered with at launch.
+/// Persisting the sha beside it would be a second source of truth for a fact the
+/// index already carries.
+pub fn tree_of_index(worktree: &Path, index: &Path) -> Result<String> {
+    if !index.is_file() {
+        bail!("{} does not exist", index.display());
+    }
+    Ok(git_with_index(worktree, index, &["write-tree"])?
+        .trim()
+        .to_string())
+}
+
 /// What changed in the worktree since `base`, contract 17's diff stat.
 ///
 /// The comparison is tree against tree rather than a working-tree diff, which is

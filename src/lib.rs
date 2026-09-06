@@ -6,9 +6,15 @@
 //! [`outcome`] turns one into contract 8's outcome and contract 17's JSON. The
 //! skill store, MCP injection and delegation are not built, and
 //! `IMPLEMENTATION.md` says what that does to the records this binary writes.
+//!
+//! Every child is detached: [`watch`] is the half that owns the pty and the record,
+//! [`run`] is the half a human talks to, and [`live`] is contract 5.2's liveness
+//! test, which is the only thing that tells the two apart afterwards.
 
 pub mod cli;
 pub mod env;
+pub mod live;
+pub mod logs;
 pub mod normalize;
 pub mod outcome;
 pub mod paths;
@@ -19,4 +25,6 @@ pub mod provider;
 pub mod pty;
 pub mod record;
 pub mod run;
+pub mod status;
+pub mod watch;
 pub mod worktree;

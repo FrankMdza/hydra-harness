@@ -48,7 +48,7 @@ pub struct RunStart {
     pub subscription: Option<String>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub struct WorktreeRef {
     pub path: String,
     pub branch: String,

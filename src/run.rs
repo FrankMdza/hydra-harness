@@ -1,17 +1,25 @@
-//! `hydra run`: the launch sequence, harness spec 6.
+//! `hydra run`: the launch sequence, harness spec 6, and the view over it, 9.
 //!
-//! What this slice does, in order: build the child's environment from the
-//! allowlist, read the provider's version, load the policy set and the preamble,
-//! mint a UUIDv7 run id, create a worktree and seed it, compile the run's gate into
-//! its spawn directory, spawn the provider on a pty with `--settings` pointing at
-//! the hook config, write `run_start`, tee every frame verbatim, and write `run_end`
-//! when the child exits.
+//! What a launch does, in order: build the child's environment from the allowlist,
+//! read the provider's version, load the policy set and the preamble, refuse if the
+//! concurrency cap is already met, mint a UUIDv7 run id, create a worktree and seed
+//! it, compile the run's gate into its spawn directory, compose the provider's argv
+//! and the whole of line 0, then hand all of it to [`crate::watch`], which spawns
+//! the provider on a pty in a session of its own and owns the record from there.
 //!
 //! What it does not do, and what that costs the record, is in `IMPLEMENTATION.md`.
-//! The short version: no injection, so `skills` and `mcp` are absent rather than
-//! null, and the spawn is not detached, so nothing times out.
+//! The short version: nothing is injected, so `skills` and `mcp` are absent rather
+//! than null.
 //!
-//! **The JSON this returns is read back off the file it just wrote.** Contract 17
+//! **This half never touches the run file.** Contract 6 gives a run file one writer
+//! and the detached half is it. `hydra run` tails the file like `hydra logs` does,
+//! and everything below the launch is a reader.
+//!
+//! **Blocking is a view, so the timeout is free.** Harness spec 9: giving up on a
+//! call only means it stops watching. Nothing is signalled, nothing is reaped, and
+//! the run carries on writing its own record for `hydra status` to find.
+//!
+//! **The JSON this returns is read back off the file the run wrote.** Contract 17
 //! makes the result a projection of the record, and reading the record is the only
 //! way to keep that true rather than merely intended.
 //!
@@ -30,14 +38,13 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use chrono::SecondsFormat;
 use uuid::Uuid;
 
 use crate::env::ChildEnv;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
 use crate::provider::{Provider, claude};
-use crate::record::{Auth, RunEnd, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
+use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef};
 
 pub struct Request {
     pub provider: Provider,
@@ -50,9 +57,56 @@ pub struct Request {
     /// `--allow-floor-escape`, harness spec 16. Never inheritable and never
     /// settable by a policy.
     pub floor_lifted: bool,
+    /// How long the call waits before it stops watching. Harness spec 9 defaults
+    /// it to roughly ten minutes; zero returns the handle without waiting.
+    pub timeout: std::time::Duration,
 }
 
-pub fn run(request: Request) -> Result<RunResult> {
+/// What a call gets back: the run, or a way to come back to it.
+///
+/// **Two shapes rather than one with nulls in it.** Harness spec 9 degrades a
+/// blocking call to a handle, and a handle is not a thin result: the run has not
+/// ended, so contract 17's derived fields have no values and printing them as null
+/// would read as measurements. The caller switches on which shape arrived.
+pub enum Call {
+    Ended(Box<RunResult>),
+    Handle(Handle),
+}
+
+/// What the caller gets when the view gave up first.
+///
+/// **`outcome` is the call's, not the record's**, and it is the one place in this
+/// build where those two differ. Contract 8's row reads "the watcher gave up; the
+/// child may still be running", which is a sentence no `run_end` can ever carry:
+/// by the time a record has a closing line the child has stopped. So `timed_out`
+/// is produced here, where the giving up happens, and the record keeps its own
+/// answer for whoever reads it later. A run that outlived its call and then
+/// finished cleanly is `completed` in the corpus, which is the honest lesson.
+///
+/// **There is no `outcome_source`.** Contract 8.2's three values all describe how
+/// a record was read, and this outcome was not read from one. Inventing a fourth
+/// is a decision for the map rather than a field for this struct.
+#[derive(serde::Serialize)]
+pub struct Handle {
+    pub run_id: String,
+    pub outcome: &'static str,
+    /// Contract 5.2's answer at the moment the view stopped watching. False means
+    /// the child died in the same breath, and `hydra status` is where that gets
+    /// reconciled.
+    pub alive: bool,
+    pub pid: Option<u32>,
+    /// The budget that ran out, as it was typed.
+    pub timeout: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    pub run_file: String,
+    /// The two commands that answer "what happened next". Harness spec 10 makes
+    /// observation read-only, so these are the whole of what a caller may do to a
+    /// run it is no longer watching.
+    pub follow: String,
+}
+
+pub fn run(request: Request) -> Result<Call> {
     // Pre-flight that refuses before a run id exists. A wrong PATH or a missing HOME
     // is a fact about this machine rather than a refused spawn, and the contract's
     // four refusal values are all Hydra-side policy checks this slice does not run.
@@ -70,6 +124,12 @@ pub fn run(request: Request) -> Result<RunResult> {
 
     let layout = Layout::discover()?;
     layout.ensure()?;
+
+    // Harness spec 9's cap, checked before anything is created. Concurrency comes
+    // from the orchestrator's own parallel tool calls, so Hydra needs no scheduler,
+    // only a refusal. Queueing here would hold a slot the caller cannot see and
+    // cannot cancel.
+    crate::live::guard(crate::live::LIVE_RUN_CAP, &crate::live::scan(&layout)?)?;
 
     let run_id = Uuid::now_v7().to_string();
     let invoked_in = std::env::current_dir().context("reading the working directory")?;
@@ -106,20 +166,6 @@ pub fn run(request: Request) -> Result<RunResult> {
     let task = crate::preamble::compose(&preamble, &request.task);
 
     let run_file = layout.run_file(&run_id);
-    let mut writer = Writer::create(
-        &run_file,
-        &run_id,
-        None,
-        Some(request.provider.binary()),
-        request.model.as_deref(),
-    )?;
-
-    eprintln!("hydra: run {run_id}");
-    eprintln!("hydra: record {}", run_file.display());
-    if let Some(w) = &worktree_ref {
-        eprintln!("hydra: worktree {} on {}", w.path, w.branch);
-    }
-
     let argv = claude::argv(&claude::Launch {
         task: &task,
         model: request.model.as_deref(),
@@ -127,108 +173,190 @@ pub fn run(request: Request) -> Result<RunResult> {
         policy: &request.policy,
     });
 
-    let spawned = crate::pty::spawn(
-        request.provider.binary(),
-        &argv,
-        &cwd,
-        child_env
-            .vars()
-            .map(|(k, v)| (k.to_string(), v.to_string())),
-    );
-
-    let mut spawned = match spawned {
-        Ok(spawned) => spawned,
-        Err(err) => {
-            // A run that never had a process. Contract 5.2: pid null, and a reader
-            // must not read that as dead-and-unharvested.
-            writer.hydra_line(&run_start(
-                &request,
-                &task,
-                policies.sha(),
-                &provider_version,
-                &cwd,
-                worktree_ref.clone(),
-                None,
-                None,
-                child_env.names(),
-            ))?;
-            writer.hydra_line(&RunEnd::streamed(None, Some(format!("{err:#}"))))?;
-            return Err(err);
-        }
-    };
-
-    let pid = spawned.pid;
-    let start_time =
-        crate::procinfo::start_time(pid)?.map(|t| t.to_rfc3339_opts(SecondsFormat::Micros, true));
-
-    writer.hydra_line(&run_start(
+    // The whole of line 0 except the two fields that do not exist until a process
+    // does. Composing it here keeps every provider-specific fact on this side of
+    // the fork and leaves the detached half nothing to decide.
+    let start = run_start(
         &request,
         &task,
         policies.sha(),
         &provider_version,
         &cwd,
         worktree_ref.clone(),
-        Some(pid),
-        start_time,
         child_env.names(),
-    ))?;
+    );
 
-    let mut tee_error: Option<String> = None;
-    let provider = request.provider;
+    let line_zero = serde_json::to_value(&start)?;
+    let spec_path = layout.launch_spec(&run_id);
 
-    // The session id is observed and not kept. Contract 17 leaves it off the
-    // result and 5.1 has a reader take it from `raw` on the init frame, so a
-    // second copy in memory would have no consumer.
-    let teed = spawned.tee(|line| {
-        if let Some(model) = provider.observe(line).model {
-            writer.set_model(model);
+    // **A launch that fails here writes the record itself.** Everything from the
+    // spec file to the fork happens before the detached half exists, so there is
+    // nothing on the other side to write a run file, and contract 8.3's rule
+    // still holds: under D10 anything not in a run record did not happen, and by
+    // this point a worktree, a branch and a compiled gate are on disk with a run
+    // id on them. The two writers cannot collide, because the failure is what
+    // stops the second one from starting.
+    let launched = crate::watch::write_spec(
+        &spec_path,
+        &crate::watch::Launch {
+            run_id: run_id.clone(),
+            provider: request.provider.to_string(),
+            binary: request.provider.binary().to_string(),
+            argv,
+            cwd,
+            run_file: run_file.clone(),
+            model: request.model.clone(),
+            run_start: line_zero.clone(),
+        },
+    )
+    .and_then(|()| std::env::current_exe().context("locating the hydra binary"))
+    .and_then(|exe| crate::watch::detach(&exe, &spec_path, &layout.watcher_log(&run_id)));
+
+    let mut watcher = match launched {
+        Ok(watcher) => watcher,
+        Err(err) => {
+            if let Err(second) =
+                never_started(&run_file, &run_id, request.provider, &line_zero, &err)
+            {
+                eprintln!("hydra: this run could not be recorded either: {second:#}");
+            }
+            return Err(err);
         }
-        writer.provider_line(line)?;
-        Ok(())
-    });
-    if let Err(err) = teed {
-        tee_error = Some(format!("{err:#}"));
+    };
+
+    eprintln!("hydra: run {run_id}");
+    eprintln!("hydra: record {}", run_file.display());
+    if let Some(w) = &worktree_ref {
+        eprintln!("hydra: worktree {} on {}", w.path, w.branch);
     }
 
-    let exit_code = spawned.wait()?;
+    // Line 0 first, so a handle always carries a pid and a watcher that died on
+    // its way up is reported as that rather than as a run the caller can poll.
+    crate::watch::wait_for_start(&run_file, &mut watcher, LAUNCH_BUDGET).map_err(|err| {
+        err.context(format!(
+            "the run's own log is {}",
+            layout.watcher_log(&run_id).display()
+        ))
+    })?;
 
-    if spawned.lossy_lines > 0 {
-        let note = format!(
-            "{} line(s) the child wrote were not valid UTF-8 and were stored lossily",
-            spawned.lossy_lines
-        );
-        tee_error = Some(match tee_error {
-            Some(existing) => format!("{existing}; {note}"),
-            None => note,
-        });
-    }
-
-    writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;
-    drop(writer);
-
-    // Contract 17: the result is a projection of the record. So it is read back
-    // off disk through the normalizer rather than assembled from what this
-    // function still has in memory. The point is that the JSON cannot carry a
-    // fact the source of truth does not have, which is the mistake section 6 says
-    // ticket 11 made, and reading the file is the only way to be sure of it.
-    //
-    // **A read that fails does not fail the command.** The record is whole and
-    // synced by this line, so propagating the error would report a run that
-    // worked as one that did not, and would take the run id and the path to the
-    // file holding the answer down with it.
-    match crate::normalize::read_file(&run_file, &policies) {
-        Ok(run) => Ok(result(
-            &run,
+    match crate::watch::wait_for_end(&run_file, &mut watcher, request.timeout)? {
+        crate::watch::Waited::TimedOut => Ok(Call::Handle(handle(
+            &run_id,
             &run_file,
             worktree_ref.as_ref(),
-            seed_tree.as_deref(),
-            &layout,
+            request.timeout,
+        )?)),
+        crate::watch::Waited::WriterGone => Err(anyhow::anyhow!(
+            "the run's writer exited without closing {}. Its log is {}",
+            run_file.display(),
+            layout.watcher_log(&run_id).display()
         )),
-        Err(err) => {
-            eprintln!("hydra: the record is written and would not read back: {err:#}");
-            Ok(unread(&run_id, &run_file, exit_code, &err))
+        crate::watch::Waited::Ended => {
+            // Contract 17: the result is a projection of the record. So it is read
+            // back off disk through the normalizer rather than assembled from what
+            // this function still has in memory. The point is that the JSON cannot
+            // carry a fact the source of truth does not have, which is the mistake
+            // section 6 says ticket 11 made, and reading the file is the only way to
+            // be sure of it.
+            //
+            // **A read that fails does not fail the command.** The record is whole
+            // and synced by this line, so propagating the error would report a run
+            // that worked as one that did not, and would take the run id and the
+            // path to the file holding the answer down with it.
+            let result = match crate::normalize::read_file(&run_file, &policies) {
+                Ok(run) => result(
+                    &run,
+                    &run_file,
+                    worktree_ref.as_ref(),
+                    seed_tree.as_deref(),
+                    &layout,
+                ),
+                Err(err) => {
+                    eprintln!("hydra: the record is written and would not read back: {err:#}");
+                    // The exit code is the detached half's to know, so it comes
+                    // off the closing line rather than out of this process's
+                    // memory. That read is a tail and a `serde_json` call, which
+                    // is the half of the record that always parses even when the
+                    // normalizer chokes on what is above it.
+                    let exit_code = crate::live::closing_line(&run_file)
+                        .ok()
+                        .flatten()
+                        .and_then(|end| end["exit_code"].as_i64())
+                        .and_then(|code| i32::try_from(code).ok());
+                    unread(&run_id, &run_file, exit_code, &err)
+                }
+            };
+
+            // **A spawn that never started returns the error rather than the
+            // JSON.** A null exit code with no `refusal` is a record whose child
+            // never existed, and printing a projection of it would exit 0 on a run
+            // that did not happen, which breaks any script reading the status. The
+            // record is written either way, so nothing is lost for the corpus.
+            if result.exit_code.is_none()
+                && result.outcome_source != Some("refusal")
+                && let Some(err) = result.error
+            {
+                anyhow::bail!("{err}");
+            }
+            Ok(Call::Ended(Box::new(result)))
         }
     }
+}
+
+/// How long a launch waits for its own detached half to write line 0.
+///
+/// This is not the call's timeout and is not configurable. It bounds one thing:
+/// the gap between `fork` and the first `sync_data`, which is a process start and
+/// a `pty` open. Ten seconds is far outside it on any machine that can run a
+/// provider at all, and a watcher that has not written by then is broken rather
+/// than slow.
+pub const LAUNCH_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Writes the record for a run whose detached half never started.
+///
+/// Contract 5.2's null pid: a run that never had a process. A reader must not take
+/// that for dead-and-unharvested and go looking for a vendor transcript, and
+/// contract 8.3's shape is the same one a refused spawn gets, `run_start` then
+/// `run_end` with nothing between. It derives `failed`.
+fn never_started(
+    run_file: &std::path::Path,
+    run_id: &str,
+    provider: Provider,
+    line_zero: &serde_json::Value,
+    err: &anyhow::Error,
+) -> Result<()> {
+    let mut writer =
+        crate::record::Writer::create(run_file, run_id, None, Some(provider.binary()), None)?;
+    writer.hydra_line(line_zero)?;
+    writer.hydra_line(&crate::record::RunEnd::streamed(
+        None,
+        Some(format!("{err:#}")),
+    ))?;
+    Ok(())
+}
+
+/// The handle a timed-out call gets, built from line 0 rather than from the run.
+///
+/// Nothing here normalizes. The run has not ended, so there is nothing to derive,
+/// and reading the record back would cost a python process per recorded tool call
+/// to produce a page of nulls.
+fn handle(
+    run_id: &str,
+    run_file: &std::path::Path,
+    worktree: Option<&WorktreeRef>,
+    timeout: std::time::Duration,
+) -> Result<Handle> {
+    let view = crate::live::read_view(run_file)?;
+    Ok(Handle {
+        run_id: run_id.to_string(),
+        outcome: crate::outcome::Outcome::TimedOut.as_str(),
+        alive: view.is_live(),
+        pid: view.pid,
+        timeout: crate::cli::render_duration(timeout),
+        branch: worktree.map(|w| w.branch.clone()),
+        run_file: run_file.display().to_string(),
+        follow: format!("hydra logs {run_id} --follow"),
+    })
 }
 
 /// What is left of contract 17's projection when the record will not read back.
@@ -396,6 +524,11 @@ pub fn write_spawn_config(
     Ok(SpawnFiles { gate, settings })
 }
 
+/// Line 0, composed before the fork.
+///
+/// **`pid` and `process_start_time` are null here and are the detached half's to
+/// fill in.** They are contract 5.2's liveness pair and neither exists until a
+/// process does, which is the one fact this side cannot know.
 #[allow(clippy::too_many_arguments)]
 fn run_start(
     request: &Request,
@@ -404,8 +537,6 @@ fn run_start(
     provider_version: &str,
     cwd: &std::path::Path,
     worktree: Option<WorktreeRef>,
-    pid: Option<u32>,
-    process_start_time: Option<String>,
     env_allowlist: Vec<String>,
 ) -> RunStart {
     RunStart {
@@ -430,8 +561,8 @@ fn run_start(
         worktree,
         // Delegation is not built, so every run is one a human started.
         depth: 0,
-        pid,
-        process_start_time,
+        pid: None,
+        process_start_time: None,
         // Absent rather than null: nothing was injected, so which sha the run pinned
         // is not a question with a missing answer.
         skills: None,
@@ -452,6 +583,65 @@ fn run_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The record a launch writes when its detached half never started.
+    ///
+    /// **What triggers it is not tested and cannot cheaply be**, the same way the
+    /// fallback below cannot: reaching it needs `detach` to fail, which needs a
+    /// full disk or a binary that has moved out from under the process. So this
+    /// pins the shape, which is the half that would otherwise be wrong without
+    /// anyone noticing.
+    #[test]
+    fn a_launch_that_never_forked_still_writes_a_record() {
+        let path =
+            std::env::temp_dir().join(format!("hydra-never-started-{}.jsonl", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let run_id = "01a073ef-701c-7522-b5bb-56d5ecba0f57";
+        let line_zero = serde_json::json!({
+            "type": "run_start",
+            "schema_version": SCHEMA_VERSION,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "cwd": "/tmp",
+            "worktree": null,
+            "policy": "standard",
+            "policy_sha": "0000000000000000000000000000000000000000000000000000000000000000",
+            "provider_version": "2.1.261 (Claude Code)",
+            "provider_session_id": null,
+            "task": "probe",
+            "depth": 0,
+            "pid": null,
+            "process_start_time": null,
+            "subscription": "anthropic",
+        });
+        never_started(
+            &path,
+            run_id,
+            Provider::Claude,
+            &line_zero,
+            &anyhow::anyhow!("no space left on device"),
+        )
+        .unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        crate::record::validate::check(&text, Some(run_id)).assert_ok();
+
+        let end: serde_json::Value =
+            serde_json::from_str(text.lines().next_back().unwrap()).unwrap();
+        // Contract 5.2: a run that never had a process. A reader must not take the
+        // null for dead-and-unharvested.
+        assert!(end["hydra"]["exit_code"].is_null());
+        assert!(end["hydra"]["refusal"].is_null());
+        assert!(
+            end["hydra"]["error"]
+                .as_str()
+                .unwrap()
+                .contains("no space left on device")
+        );
+        let _ = std::fs::remove_file(&path);
+    }
 
     /// The fallback's field shape, contract 17's list with the derivations null.
     ///

@@ -100,6 +100,24 @@ impl Layout {
         self.spawn(run_id).join("stat-index")
     }
 
+    /// What `hydra run` hands the detached half of the launch, harness spec 9.
+    ///
+    /// It is read once, before the record exists, and every fact it carries is
+    /// copied onto line 0. Nothing reads it to interpret a run, which is the
+    /// test harness spec 5 puts on anything living in this directory.
+    pub fn launch_spec(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("launch.json")
+    }
+
+    /// Where the detached half's own stdout and stderr go.
+    ///
+    /// Diagnostics, never a source. Anything about the run that matters is on the
+    /// record; this is where a message from Hydra's own code lands when there is
+    /// no terminal left to print it to.
+    pub fn watcher_log(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("watcher.log")
+    }
+
     /// The hook config `--settings` points at, 6.6.
     ///
     /// The filename is this build's choice. Harness spec 19.1 leaves the names

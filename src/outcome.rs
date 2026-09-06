@@ -26,8 +26,14 @@ use crate::record::Refusal;
 pub enum Outcome {
     Completed,
     Failed,
-    /// The watcher gave up and the child may still be running. **No producer
-    /// here.** The timeout is ticket 05, and until it exists nothing watches.
+    /// The watcher gave up and the child may still be running.
+    ///
+    /// **Its producer is a handle rather than a record**, and it is the only
+    /// outcome in this enum that [`derive`] never returns. The second half of
+    /// contract 8's row is the reason: "the child may still be running" is a
+    /// sentence no `run_end` can carry, because a record with a closing line is a
+    /// run that stopped. `hydra run` constructs it where the giving up happens,
+    /// and the same run's record derives its own answer afterwards.
     TimedOut,
     Crashed,
     Gated,

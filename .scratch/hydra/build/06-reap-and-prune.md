@@ -78,3 +78,35 @@ directories.** Ticket 04's own measurement run added the tenth,
 the pair reap assumes is not there for them. It is the only
 rate-limited record on this machine and the only evidence here of contract 8's nastiest
 shape on a live run, so keep it if you exercise `hydra prune` against real files.
+
+## What ticket 05 left you, added 2026-09-05
+
+**`hydra status` already prints the list you have to act on.** It reports every checkout
+under `~/hydra/worktrees/` that no live run is using, which after any finished run is
+most of them, and it does it from the pid in each record rather than from a directory
+listing. `hydra::status::abandoned_worktrees` is that function and reap should read it
+rather than walk the directory again, because the one thing reap must never touch is a
+worktree whose run is still going.
+
+**It takes a grace period as an argument, and reap has to choose one deliberately.** A
+checkout is created and seeded before its run file exists, so for seconds on a large repo
+a launch in progress has no record and looks exactly like a run whose record was pruned.
+`hydra status` passes `hydra::run::LAUNCH_BUDGET`, ten seconds, which is what the launcher
+itself waits for line 0. A reaper that passes zero will eventually remove the checkout of
+a run that was about to start.
+
+**Recounted after ticket 05: thirteen worktrees, thirteen records and ten spawn
+directories.** Three of the thirteen are ticket 05's own measurement runs,
+`01a07470-e247-7283-8aae-62d72aa86eda`, `01a07471-0a3e-74d2-b576-153ac0e7427b` and
+`01a07484-1667-7500-b299-2889144b84c1`. The three oldest still have no spawn directory, so
+the pair reap assumes is not there for them.
+
+**A spawn directory now holds six files.** `gate`, `settings.json`, the two git index
+files, and `launch.json` and `watcher.log` from the detached spawn. Reap removes the
+directory whole, so this changes nothing about what to delete. `launch.json` carries the
+run's composed task, which is already on line 0 of the record, so nothing is lost with it.
+
+**Reap has to cope with a run that is still live.** Runs are detached now, so a human can
+type `hydra reap` while one is writing. Contract 5.2's test is the guard and
+`hydra::live::read_view` is it: a worktree whose run reads `live` is not reap's to touch,
+and removing it would pull the checkout out from under a running child.

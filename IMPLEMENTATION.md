@@ -80,26 +80,33 @@ Provider versions this slice was built and measured against, read 2026-09-05:
 | `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-05, unchanged since 2026-09-02 |
 | `agy` | 1.1.26 | 2026-09-05, unchanged since 2026-09-04 |
 
-## The one command
+## The commands
 
 ```
 hydra run --provider claude --task "..." [--model <id>] [--policy <name>]
-          [--allow-floor-escape]
+          [--timeout <dur>] [--allow-floor-escape]
+hydra status [<run-id>]
+hydra logs <run-id> [--follow]
 ```
 
-It builds the child's environment from the allowlist, reads the provider's version,
-loads the policy set and the preamble, mints a UUIDv7 run id, creates a git worktree and
-seeds it with the parent's uncommitted work, compiles the run's gate into
-`~/hydra/spawn/<run-id>/`, spawns `claude` on a pty it owns with `--settings` pointing at
-the hook config, writes `run_start`, tees every frame verbatim into
-`~/hydra/runs/<run-id>.jsonl`, and writes `run_end` when the child exits. Then it reads
-the file it just wrote back through the normalizer and prints contract 17's JSON on
-stdout.
+A launch builds the child's environment from the allowlist, reads the provider's
+version, loads the policy set and the preamble, refuses if the concurrency cap is
+already met, mints a UUIDv7 run id, creates a git worktree and seeds it with the
+parent's uncommitted work, compiles the run's gate into `~/hydra/spawn/<run-id>/`,
+composes `claude`'s argv and the whole of line 0, and hands all of it to a detached
+half that spawns the provider on a pty, writes `run_start`, tees every frame verbatim
+into `~/hydra/runs/<run-id>.jsonl` and writes `run_end` when the child exits. The
+foreground tails that file, and on a run that ends inside its budget it reads the file
+back through the normalizer and prints contract 17's JSON on stdout.
 
-Section 9 gives `hydra run` eight optional flags and three are here: `--model`,
-`--policy` and `--allow-floor-escape`. The five that are not each belong to a ticket
-that is not built: `--parent` and `--files` to delegation, `--timeout` and
-`--shared-tree` to the detached spawn, `--allow-billed` to the raw-model plane.
+Section 9 gives `hydra run` eight optional flags and four are here: `--model`,
+`--policy`, `--timeout` and `--allow-floor-escape`. The four that are not each belong
+to a ticket that is not built: `--parent` and `--files` to delegation, `--shared-tree`
+to a worktree question nothing has asked yet, `--allow-billed` to the raw-model plane.
+
+Harness spec 17 lists eleven commands. Three are built. `hydra watch` is a twelfth and
+is not one of them: it is the detached half of a launch, `hydra run` is the only thing
+that types it, and `clap` hides it from the help for that reason.
 
 `cursor-agent` and `agy` are routable in the design and refused here by name, with an
 error that says the slice routes one provider rather than that the provider is
@@ -386,7 +393,9 @@ the last frame are joined in block order, separated by a blank line.
 **A run with no `run_end` gets no outcome, and `derive` returns `Option` to say so.**
 Either the child is still going or the run is ticket 14's abandoned class, and telling
 those apart needs 5.2's pid liveness test, which contract 8.6 gives to `hydra status`.
-Flattening it to `crashed` would file every live run in the corpus as a dead one.
+Flattening it to `crashed` would file every live run in the corpus as a dead one. That
+reader is now built: `hydra status` answers `live` or `abandoned` where the derivation
+answers nothing.
 
 **A record Hydra cannot read back does not fail the command.** The file is whole and
 synced before the read starts, so propagating the error would report a run that worked as
@@ -398,14 +407,24 @@ says which. What triggers it is not tested and cannot cheaply be: it needs `read
 fail on a file `hydra run` just wrote, and `hydra run` launches a provider. The fallback's
 field shape is tested.
 
-**A spawn that never started still writes a record and returns no JSON.** That path
-writes `run_start` and `run_end` with the reason in `error`, then returns the error, so
-`hydra run` exits non-zero with nothing on stdout. The record derives `failed` and
-`tests/outcome.rs` pins it, so nothing is lost for the corpus; what is missing is the JSON
-for a caller that wanted the projection rather than an exit code. Making it print instead
-would mean exiting 0 on a run that never launched, which breaks any script reading the
-status, so the fix belongs with the MCP delegate face in ticket 11, where a caller has no
-exit code to read.
+**A spawn that never started still writes a record and returns no JSON.** The detached
+half writes `run_start` and `run_end` with the reason in `error` and exits; the foreground
+reads that record back like any other, sees a null `exit_code` with no `refusal` beside
+it, and returns the error rather than the projection, so `hydra run` exits non-zero with
+nothing on stdout. A launch that fails before the fork, so that there is no detached half
+to write anything, writes the same record from the foreground instead: `run::never_started`
+is that path, and by then a worktree, a branch and a compiled gate are on disk with a run
+id on them, so under D10 a file has to exist saying so. The record derives `failed` and `tests/outcome.rs` pins it, so nothing
+is lost for the corpus; what is missing is the JSON for a caller that wanted the
+projection rather than an exit code. Making it print instead would mean exiting 0 on a run
+that never launched, which breaks any script reading the status, so the fix belongs with
+the MCP delegate face in ticket 11, where a caller has no exit code to read.
+
+**That test is "no exit code and no refusal", and it is a reading of the record rather
+than a fact the launcher kept.** The launcher no longer runs the spawn, so it has nothing
+in memory to check; contract 8.3's refused spawns carry a `refusal` code and a null exit
+code, which is why the second half of the test is there. `tests/detached.rs` drives a
+binary that is not on disk and asserts the record, the null pid and the closing line.
 
 **The result is nine fields and `provider` is not among them.** Contract 17 gives the
 list and then says "Nothing else", so `provider` and `provider_session_id`, which the
@@ -416,10 +435,159 @@ first slice returned, are gone. Both are in the record and `run_file` is on the 
 **Reading the record back costs a python process per recorded tool call.** Measured on
 this machine: a record with no calls reads back in 0.6ms, one with two calls in 94ms, so
 the gate is about 47ms a call and it is all of the cost. A 200-call run therefore spends
-about nine seconds after the child exits before `hydra run` prints anything. That is the
-price of `permission_decision` being a re-evaluation rather than a copy of the gate's
-answer, which contract 7.7 requires and the "Reading a record back" section above argues
-for. Ticket 05 makes the spawn detached and moves this off the caller's critical path.
+about nine seconds after the child exits before a blocking `hydra run` prints anything.
+That is the price of `permission_decision` being a re-evaluation rather than a copy of the
+gate's answer, which contract 7.7 requires and the "Reading a record back" section above
+argues for.
+
+**Detaching moved the child off the caller's critical path and not that read.** A blocking
+call still pays it, because a projection of the record is what it asked for. What changed
+is that the cost is now optional: a call that gives up pays nothing, since a handle is
+built from line 0 and derives nothing, and `hydra status <run-id>` pays it later on a run
+it did not launch. `hydra status` with no argument pays none of it at all: it reads line 0
+and the tail of each file and never normalizes. Measured on this machine, twelve records:
+under 10ms for the listing, 20 to 30ms for one ended run with no tool calls in it.
+
+## The detached spawn, the timeout, and what `hydra status` reconciles
+
+Ticket 05. Harness spec 9 makes every child detached and blocking a view over it, and
+10 makes process exit the authoritative end of a run with liveness derived and never
+announced. Both are built. `src/watch.rs` is the half that owns the pty and the record,
+`src/run.rs` is the half a human talks to, `src/live.rs` is contract 5.2's test, and
+`src/status.rs` and `src/logs.rs` are the two commands that read what the test says.
+
+**`hydra run` re-execs itself as `hydra watch <spec>` in a session of its own.** The
+launcher composes everything provider-specific first, writes it to
+`~/hydra/spawn/<run-id>/launch.json`, and forks a copy of itself with `setsid` and its
+three standard descriptors on `~/hydra/spawn/<run-id>/watcher.log`. Closing a Ghostty
+window sends `SIGHUP` to the foreground process group of its tty, and a process in its
+own session has no controlling terminal to be hung up on. `tests/detached.rs` asserts
+the session id rather than a symptom of it.
+
+**An in-process `fork` was the alternative and it is the wrong trade.** It would have
+put an allocator, a pty and an open record file on the child side of a call with no
+`exec` after it, and nothing about it would be reachable from a test. Re-exec costs one
+process start per run, which is noise beside a provider launch.
+
+**The launch spec is not a test hook and it is not a second source of truth.** It holds
+the binary, the argv, the cwd, the run file and the whole of line 0 with `pid` and
+`process_start_time` null, which are the only two fields the detached half fills in and
+the only two that cannot exist before a process does. It is read once, at launch, before
+the record exists, so harness spec 5's rule holds: nothing needs a spawn artifact to
+interpret a run. Taking a binary and an argv rather than a provider is what lets
+`tests/detached.rs` drive the whole path with `/bin/sh` and spend no subscription.
+
+**No environment values go in it.** `HTTPS_PROXY` can carry a password, and contract 5.3
+keeps values out of the record for the same reason, so the detached half rebuilds the
+child's environment from the allowlist out of what it inherited. Names reach the record;
+values never touch the disk.
+
+**The timeout returns a handle and the handle is not contract 17's result.** Harness spec
+9 degrades a blocking call rather than thinning it, so the two shapes are different on
+purpose: a run that has not ended has no derived fields, and printing contract 17's list
+with nulls in it would offer a page of measurements nobody took. The handle is `run_id`,
+`outcome`, `alive`, `pid`, `timeout`, `branch`, `run_file` and the `hydra logs --follow`
+line that answers "what happened next".
+
+**`timed_out` is the call's outcome and never the record's, and this is a reading the
+ticket left open.** Contract 8's row is "the watcher gave up; the child may still be
+running", which is a sentence no `run_end` can carry: by the time a record has a closing
+line the child has stopped. Ticket 05 says both "the timeout's handle carries no outcome"
+and "`timed_out` has no producer until you write one", and those point opposite ways. What
+is built takes the second: `Outcome::TimedOut` is produced where the giving up happens,
+on the handle, and the record keeps its own answer for whoever reads it later. Measured on
+run `01a07471-0a3e-74d2-b576-153ac0e7427b`, `read-only`, `--timeout 4s`: the call returned
+the handle with `outcome: timed_out` and `alive: true`, the child carried on with nobody
+watching, and the record it closed by itself derives `completed`. The alternative reading
+would have filed that run in the corpus as a timeout, which is a lesson about the caller's
+patience dressed up as one about the task.
+
+**There is no `outcome_source` on the handle.** Contract 8.2's three values all describe
+how a record was read and this outcome was not read from one. A fourth value is a decision
+for the map rather than a field for this build to invent.
+
+**Nothing kills a child, ever.** Not the timeout, not the cap, not `hydra status`. The
+only thing that removes anything is `hydra reap`, which a human types, and that is ticket
+06. So a wedged run stays wedged until someone looks: harness spec 19.5 rules out a stall
+detector and contract 18.4 says why, and a timeout with a decimal point on it would be
+exactly that detector under another name.
+
+**Liveness is one function and nothing else asks the kernel.** `procinfo::is_alive` was
+already built and tested; `live::read_view` is what feeds it a record's pid and start
+time. Three states come out: a file with a closing line has ended, one without whose pid
+still matches is live, one without whose pid is gone is contract 6's abandoned class.
+`tests/status.rs` builds all three by hand, because the reconciliation is what is under
+test rather than the launch that produced the files.
+
+**A status pass reads line 0 and the last 64 KiB and nothing between.** `run_end` is
+always the last line and is always small, so a fixed tail either holds it whole or the
+file has not ended, whatever the frames above it look like. A whole-file read would make
+every status pass cost the size of the corpus.
+
+**A run file the scan cannot read is skipped with a note.** The scan runs before every
+launch, so propagating that error would mean one unreadable entry under `~/hydra/runs/`
+stops `hydra run` and `hydra status` alike until a human finds it by hand. It is the same
+stance the normalizer takes on a torn record, one level up.
+
+**A dead pid is not by itself an ending, and two places had to learn that.** The detached
+half reaps its child and then writes the closing line, so every ordinary run passes
+through a window where the liveness test says gone and the record has not ended. It is an
+`fsync` wide against a 100ms poll: small, and hit often enough to matter. `wait_for_end`
+and `hydra logs --follow` both re-check the file before they conclude anything, and
+`tests/status.rs` holds that window open with a pid killed before the record was written.
+
+**A checkout younger than the launch budget with no record is a launch in progress, not a
+reap.** `hydra run` creates the worktree and seeds it before the detached half writes line
+0, and on a large repo that is seconds. Age is what tells that apart from a run whose
+record was pruned, and `abandoned_worktrees` takes the grace period as an argument so
+ticket 06's reaper decides it at the call site rather than inheriting it. A filesystem
+with no creation time keeps the directory on the list, which is the safe end for a command
+that only reports.
+
+**A record `hydra status <run-id>` cannot normalize costs the projection and not the
+command.** `hydra run` already degrades that way. `state`, `pid` and `run_file` come off
+line 0 and are what lead a human to the file, and a status command that refuses to report
+a damaged record hides the run most worth looking at.
+
+**A `--timeout` bigger than the clock can reach means "do not give up".** `Instant +
+Duration` panics on overflow and the flag takes any `u64` of seconds, so the deadline is
+computed with `checked_add` and `None` is a budget that never expires. Panicking there
+would have aborted the launcher after the worktree, the gate and the child already
+existed.
+
+**A torn line 0 still reports a run.** The run id falls back to the filename, which is
+where it came from, and the state falls back to abandoned. A status command that refuses
+to report a damaged record is one that hides the run most worth looking at.
+
+**`hydra status <run-id>` returns the same projection `hydra run` does, off the same
+function, on a run it did not launch.** That is contract 17 being a projection of the
+record rather than a summary of a launch, made checkable. It appears only on an ended run:
+a live one has no ending to derive and gets `state` instead.
+
+**The diff stat's base is recovered from the seed index rather than persisted.** The sha
+`worktree::create` returned lives in one process's memory and a detached run returns to a
+caller that never had it. `~/hydra/spawn/<run-id>/seed-index` is the index the seed
+snapshot staged into and nothing writes to it again, so `git write-tree` against it
+answers with the same sha it answered with at launch. A file holding the sha beside it
+would be a second source of truth for a fact the index already carries. Measured on
+`01a073ef-701c-7522-b5bb-56d5ecba0f57`, launched by ticket 04 and read back by a later
+binary: base tree `7c222fb9d996872a39801ad14ef7db1d835280fb`, the same one that run
+reported.
+
+**Abandoned worktrees are every checkout no live run is using**, which after any finished
+run is most of them. Nothing is cleaned up automatically (harness spec 10), so that list
+is work for `hydra reap` rather than a list of faults. A directory whose run file has been
+pruned is on it too: a checkout nobody can explain is exactly what a human wants told.
+
+**`hydra logs` prints the run file verbatim and does nothing else.** Observation is
+read-only: no attach, no input, no answering a permission prompt from outside. `--follow`
+stops at the closing line, and also when the liveness test says the writer is gone, so
+following an abandoned run ends with a line saying so rather than waiting forever.
+
+**Harvest is the half of `hydra status` that is not here.** Section 10 also has it
+complete a dead interactive run from the vendor's transcript. No command in this build
+launches an interactive run, so there is no unharvested body on this machine, and a
+harvester with no producer would be untested code guarding a case that cannot arise.
 
 ## The diff stat, and the seed it has to subtract
 
@@ -618,16 +786,59 @@ task follows is a fourth sentence in Hydra's voice. The cost is that a reader of
 `run_start.task` has to know where the preamble ends, and the preamble is a fixed string
 in `config/preamble.md`, so they can.
 
+**The concurrency cap is eight.** Harness spec 9 asks for "a cap on live children" and
+names no number. Eight is more than the parallel tool calls an orchestrator issues in one
+turn and few enough that eight `claude` processes on one subscription is a bill you notice
+before the machine does. It refuses rather than queues, which is what section 9 asks for:
+a queue holds a slot the caller can neither see nor cancel. The refusal is a type,
+`live::TooManyLive`, carrying the run ids, because a caller that hits it has to decide
+between waiting on one and reaping it and neither is decidable from a sentence.
+
+**A run refused by the cap writes no record.** Contract 8.3 makes a refused spawn a record
+when the refusal is one of section 6's four codes, and the cap is not one of them. Minting
+a fifth is a contract change rather than an implementation, so the refusal goes to stderr
+and no run id is minted.
+
+**The cap is checked and not held, so two launches racing can both pass it.** The count
+comes from a directory scan, and nothing locks between that scan and the fork. Two
+`hydra run` calls started in the same instant with eight already live would leave ten. A
+lock would fix it and would be a second source of truth about how many runs exist, which
+is what D10 spends the run file avoiding; the cap is a brake on an orchestrator issuing
+parallel tool calls, not a quota anyone is defending.
+
+**`--timeout` takes `600`, `30s`, `10m` or `2h`, and defaults to `10m`.** Section 9 says
+"roughly ten minutes" and names no spelling. Bare digits are seconds, which is what every
+other tool on this machine means by a naked timeout. Days are not a unit: a call nobody is
+waiting on for a day should have returned a handle and been polled. `0` is legal and means
+launch and hand me the handle, which follows from nothing here ever killing a child.
+
+**The view polls the run file every 100ms.** So a blocking call can add up to that after
+the child exits, which is noise beside the record read that follows it. Watching the file
+with a kernel notification would remove it and would put a platform dependency on the one
+path a test can already drive by hand.
+
+**The cap's refusal names `hydra logs --follow` and `hydra status`, not `hydra reap`.**
+The count is of live runs, so a run that has ended has already given its slot back and
+reaping it frees nothing, and `reap` is not a command this binary answers to yet either.
+A refusal that tells you to run something that fails twice over is worse than one that
+just says no.
+
+**The spawn directory holds two more files: `launch.json` and `watcher.log`.** Harness
+spec 19.1 leaves the names inside it open. Both die with the worktree under `hydra reap`,
+and neither is read to interpret a run.
+
 **Worktrees live at `~/hydra/worktrees/<run-id>/`, on branch `hydra/<run-id>`.** No
 closed ticket names the location, which is the same gap harness spec 19.1 flags for
 the filenames inside the spawn directory. A Hydra-owned path keeps D9 true when the
 repo being worked on lives somewhere else. Confirm it rather than inherit it.
 
-**`run_start` is written after the spawn, not before it.** Contract section 5 says the
-line is written before the child process starts and 5.2 puts the child's pid on it.
-Both cannot hold literally. What run_end's derivation leans on is that the pid is in
-the file, and a pty buffers everything the child writes until the tee reads it, so
-spawning first loses nothing and `run_start` is still line 0.
+**`run_start` is written after the spawn, not before it, and by the detached half.**
+Contract section 5 says the line is written before the child process starts and 5.2 puts
+the child's pid on it. Both cannot hold literally. What run_end's derivation leans on is
+that the pid is in the file, and a pty buffers everything the child writes until the tee
+reads it, so spawning first loses nothing and `run_start` is still line 0. The launcher
+composes every other field on it; `pid` and `process_start_time` are the two the half
+that owns the process fills in.
 
 **`process_start_time` is RFC 3339 with microseconds**, read from `kinfo_proc` at
 offset 0 through `sysctl`, because `libc` carries no `kinfo_proc` for Apple targets.
@@ -671,26 +882,22 @@ Out of scope for this slice, and each one has a document that already says what 
 - MCP injection and the Cursor pre-flight. 6.5. The spawn directory exists now and holds
   the gate and the hook config; the `mcp.json` beside them and Cursor's `cursor-data/`
   are ticket 08 and ticket 09.
-- Six of harness spec 6.1's seven pre-flight checks. Auth, depth, policy containment,
-  concurrency, skill collision and both MCP checks all belong to tickets that are not
-  built. What runs before a run id exists today is the environment, the provider version,
-  the policy name and the preamble file.
+- Five of harness spec 6.1's seven pre-flight checks. Auth, depth, policy containment,
+  skill collision and both MCP checks belong to tickets that are not built. What runs
+  before a run id exists today is the environment, the provider version, the policy name,
+  the preamble file and the concurrency cap.
 - Delegation: `--parent`, depth, monotonic narrowing, the MCP delegate face. 7.3, 9.
-- Detached spawning and the timeout. Section 9 spawns every child detached and makes
-  blocking a view over it. Here the run is foreground and `hydra run` dies with it.
-  Ctrl-C leaves an orphan child, a record with no `run_end`, an abandoned worktree and
-  now an abandoned spawn directory, which is exactly ticket 14's abandoned-run class
-  arriving early.
-- Three of contract 8's nine outcomes have no producer. `timed_out` needs the watcher
-  ticket 05 builds. `skill_collision` and `mcp_unavailable` are launch checks belonging
-  to tickets 07 and 08, and both arrive through `run_end.refusal`, which nothing writes.
-  All three are in the enum, because a value the reader cannot name is one nobody knows
-  is missing.
+- Two of contract 8's nine outcomes have no producer in a record. `skill_collision` and
+  `mcp_unavailable` are launch checks belonging to tickets 07 and 08, and both arrive
+  through `run_end.refusal`, which nothing writes. Both are in the enum, because a value
+  the reader cannot name is one nobody knows is missing. `timed_out` has a producer now
+  and it is the handle rather than the record; the section above argues that reading.
 - The `cursor-agent` and `agy` adapters, tickets 09 and 10, and harvest, 12. Contract
   7.2's other two columns and 7.2.1's transcript vocabulary have no reader.
 - Interactive runs and harvest. 5.6, 12.
-- Every command but `run`. Notably `hydra reap`, so worktrees and spawn directories
-  accumulate. Section 5 says the two are reaped together. Removing one by hand takes
+- Eight of harness spec 17's eleven commands. Notably `hydra reap`, so worktrees and
+  spawn directories accumulate, and `hydra status` lists them every time. Section 5 says
+  the two are reaped together. Removing one by hand takes
   `git worktree remove ~/hydra/worktrees/<run-id>`, `git branch -D hydra/<run-id>` and
   `rm -rf ~/hydra/spawn/<run-id>`, and read harness spec 10 first, because the specced
   reap commits uncommitted work to the child's branch before removing anything. Ticket
@@ -699,8 +906,15 @@ Out of scope for this slice, and each one has a document that already says what 
 
 ## Rough edges worth knowing
 
-- **A run with no `run_end` is not corrupt.** Contract section 6 says so. This slice
-  produces one every time Hydra is killed mid-run, and nothing yet completes it.
+- **A run with no `run_end` is not corrupt.** Contract section 6 says so. Killing the
+  detached half mid-run produces one, and nothing completes it: `hydra status` reports it
+  as abandoned and stops there, because completing it means harvest and no run on this
+  machine has a vendor transcript to harvest from.
+- **Killing `hydra run` no longer kills the run.** Ctrl-C on the foreground stops the
+  view and leaves the child, its writer and its record alone, which is what harness spec
+  9 asks for and is also a way to leak a run you meant to stop. `hydra status` finds it;
+  nothing in this build can end it. That is deliberate rather than missing: nothing here
+  signals a child, and the design gives removal to `hydra reap`, which a human types.
 - **A frame that is not valid UTF-8 is stored lossily** and the count lands in
   `run_end.error`. It has not happened; `claude` writes JSON through Node.
 - **The tee has no line-length cap.** A provider that streams one enormous frame
@@ -708,9 +922,10 @@ Out of scope for this slice, and each one has a document that already says what 
 - **`~/hydra/spawn/` is not denied as a whole, only this run's own script.** 7.5 names
   "the generated gate script", singular, and `denied_write_paths` follows it literally.
   A `permissive` run could therefore rewrite a concurrent run's live script, which 7.5
-  says is read fresh on every invocation. Nothing exercises this today, because runs are
-  foreground and one at a time until ticket 05 detaches them. It is latent rather than
-  live, and it is smaller than the shell hole above only because shell already reaches
+  says is read fresh on every invocation. This is live now rather than latent: ticket 05
+  detached the spawn, so eight runs can be in flight at once and a `permissive` one among
+  them can reach the other seven's scripts. It is smaller than the shell hole above only
+  because shell already reaches
   every one of these paths. Ticket 04 put two more files in there, the diff stat's
   scratch indexes, and the section above says what a `permissive` run rewriting one
   costs: the stat, and nothing else.

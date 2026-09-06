@@ -1,0 +1,340 @@
+//! `hydra status` and `hydra logs`, harness spec 10 and 17.
+//!
+//! The scenario harness spec 10 works through is the test: a session with two
+//! children in flight dies, and the next status pass has to tell the three states
+//! apart from nothing but the pids in the files. Everything here builds those
+//! files by hand, so the reconciliation is what is under test rather than the
+//! launch that produced them.
+
+use std::io::Write;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use hydra::live::{self, State};
+use hydra::paths::Layout;
+use serde_json::{Value, json};
+
+fn sandbox(name: &str) -> Layout {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "hydra-status-{}-{name}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = Layout::at(&root);
+    layout.ensure().unwrap();
+    layout
+}
+
+/// A run file with the liveness pair set to whatever the caller wants to prove.
+fn write_run(layout: &Layout, run_id: &str, pid: Option<u32>, closed: bool) -> PathBuf {
+    let start = pid.and_then(|pid| hydra::procinfo::start_time(pid).ok().flatten());
+    let mut text = envelope(
+        run_id,
+        0,
+        json!({
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "stub",
+            "provider_session_id": null,
+            "task": "probe",
+            "policy": "standard",
+            "policy_sha": null,
+            "cwd": "/tmp",
+            "worktree": {
+                "path": layout.worktree(run_id).display().to_string(),
+                "branch": format!("hydra/{run_id}"),
+            },
+            "depth": 0,
+            "pid": pid,
+            "process_start_time": start
+                .map(|t| Value::from(t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)))
+                .unwrap_or(Value::Null),
+            "subscription": "none",
+        }),
+    );
+    if closed {
+        text.push_str(&envelope(
+            run_id,
+            1,
+            json!({
+                "type": "run_end",
+                "exit_code": 0,
+                "error": null,
+                "refusal": null,
+                "remediation": null,
+                "body_source": "stream",
+                "ended_at": "2026-09-05T20:52:01.905Z",
+            }),
+        ));
+    }
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+fn envelope(run_id: &str, seq: u64, hydra: Value) -> String {
+    let mut line = json!({
+        "run_id": run_id,
+        "parent_run_id": null,
+        "seq": seq,
+        "ts": "2026-09-05T20:51:39.370Z",
+        "provider": "claude",
+        "model": null,
+        "secret_flag": null,
+        "hydra": hydra,
+    })
+    .to_string();
+    line.push('\n');
+    line
+}
+
+/// A pid that is certainly gone: one we started and reaped ourselves.
+fn dead_pid() -> u32 {
+    let mut child = std::process::Command::new("sleep")
+        .arg("5")
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    pid
+}
+
+#[test]
+fn the_three_states_come_apart_on_the_pid_and_nothing_else() {
+    let layout = sandbox("three");
+    write_run(&layout, "aaa", Some(std::process::id()), false);
+    write_run(&layout, "bbb", Some(dead_pid()), false);
+    write_run(&layout, "ccc", Some(std::process::id()), true);
+
+    let views = live::scan(&layout).unwrap();
+    let state = |id: &str| {
+        views
+            .iter()
+            .find(|v| v.run_id == id)
+            .unwrap_or_else(|| panic!("{id} is missing"))
+            .state
+    };
+    assert_eq!(state("aaa"), State::Live);
+    assert_eq!(state("bbb"), State::Abandoned);
+    // A closing line ends a run whatever the pid says, and it has to: the pid is
+    // recycled long before the record is read.
+    assert_eq!(state("ccc"), State::Ended);
+
+    let report = hydra::status::all(&layout).unwrap();
+    assert!(report.contains("live 1"), "{report}");
+    assert!(report.contains("abandoned 1"), "{report}");
+    assert!(report.contains("ended 1"), "{report}");
+    assert!(report.contains("aaa") && report.contains("bbb"), "{report}");
+}
+
+#[test]
+fn a_worktree_whose_run_is_still_going_is_not_waiting_for_a_reap() {
+    let layout = sandbox("trees");
+    write_run(&layout, "aaa", Some(std::process::id()), false);
+    write_run(&layout, "bbb", Some(std::process::id()), true);
+    std::fs::create_dir_all(layout.worktree("aaa")).unwrap();
+    std::fs::create_dir_all(layout.worktree("bbb")).unwrap();
+    // A checkout whose record was pruned. Nothing can explain it, which is
+    // exactly why a human wants it on the list.
+    std::fs::create_dir_all(layout.worktree("orphan")).unwrap();
+
+    // Zero grace, so the freshly made directories are judged on their records
+    // rather than on their age. The next test covers the age rule.
+    let views = live::scan(&layout).unwrap();
+    let stale =
+        hydra::status::abandoned_worktrees(&layout, &views, std::time::Duration::ZERO).unwrap();
+    let names: Vec<String> = stale
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+
+    assert_eq!(
+        names,
+        vec!["bbb".to_string(), "orphan".to_string()],
+        "{names:?}"
+    );
+}
+
+#[test]
+fn a_checkout_being_created_right_now_is_not_waiting_for_a_reap() {
+    // `hydra run` creates the worktree and seeds it before the detached half
+    // writes line 0, so for a moment the directory exists and no record claims
+    // it. Reporting that as reapable tells a human to remove the checkout of a
+    // run that is about to start.
+    let layout = sandbox("racing");
+    std::fs::create_dir_all(layout.worktree("just-born")).unwrap();
+
+    let views = live::scan(&layout).unwrap();
+    assert!(
+        hydra::status::abandoned_worktrees(&layout, &views, hydra::run::LAUNCH_BUDGET)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn one_unreadable_run_file_does_not_stop_the_scan() {
+    // The scan runs before every launch, so propagating this would mean one bad
+    // entry under `~/hydra/runs/` blocks `hydra run` until a human finds it.
+    let layout = sandbox("unreadable");
+    write_run(&layout, "aaa", Some(std::process::id()), true);
+    // A directory named like a record: `File::open` succeeds and the read fails.
+    std::fs::create_dir_all(layout.run_file("bbb")).unwrap();
+
+    let views = live::scan(&layout).unwrap();
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].run_id, "aaa");
+}
+
+#[test]
+fn a_record_that_will_not_read_back_still_reports_where_to_look() {
+    // `hydra run` degrades the same way, and this module's own scan says why: a
+    // status command that refuses to report a damaged record hides the run most
+    // worth looking at.
+    let layout = sandbox("damaged");
+    write_run(&layout, "aaa", Some(dead_pid()), true);
+    // Truncate the record to a closing line with nothing before it, so the
+    // normalizer has no run to build.
+    let path = layout.run_file("aaa");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, text.lines().next_back().unwrap()).unwrap();
+
+    let report: Value = serde_json::from_str(&hydra::status::one(&layout, "aaa").unwrap()).unwrap();
+    assert_eq!(report["state"], "ended");
+    assert!(report["run_file"].as_str().unwrap().ends_with("aaa.jsonl"));
+}
+
+#[test]
+fn a_live_run_reports_its_state_and_no_outcome() {
+    // Contract 8.6 gives telling a live child from an abandoned one to this
+    // command, because `derive` cannot: a file with no closing line has no ending
+    // to read, and a page of nulls beside it would read as measurements.
+    let layout = sandbox("live");
+    write_run(&layout, "aaa", Some(std::process::id()), false);
+
+    let report: Value = serde_json::from_str(&hydra::status::one(&layout, "aaa").unwrap()).unwrap();
+    assert_eq!(report["state"], "live");
+    assert_eq!(report["pid"], std::process::id());
+    assert_eq!(report["policy"], "standard");
+    assert_eq!(report["branch"], "hydra/aaa");
+    assert!(report.get("result").is_none(), "{report}");
+    // The checkout was never created, so the record points at a path that is gone.
+    assert_eq!(report["worktree_present"], false);
+}
+
+#[test]
+fn an_ended_run_reports_the_same_projection_hydra_run_returns() {
+    let layout = sandbox("ended");
+    write_run(&layout, "aaa", Some(dead_pid()), true);
+
+    let report: Value = serde_json::from_str(&hydra::status::one(&layout, "aaa").unwrap()).unwrap();
+    assert_eq!(report["state"], "ended");
+    let result = &report["result"];
+    assert_eq!(result["run_id"], "aaa");
+    // No `result` frame and no error: the child ended without its terminator,
+    // which is the one shape where the process is the thing that stopped.
+    assert_eq!(result["outcome"], "crashed");
+    assert_eq!(result["outcome_source"], "derived");
+    assert_eq!(result["exit_code"], 0);
+}
+
+#[test]
+fn asking_about_a_run_that_is_not_there_says_so() {
+    let layout = sandbox("missing");
+    let err = hydra::status::one(&layout, "nope").unwrap_err().to_string();
+    assert!(err.contains("no run record"), "{err}");
+}
+
+#[test]
+fn logs_prints_the_run_file_verbatim() {
+    let layout = sandbox("logs");
+    let path = write_run(&layout, "aaa", Some(std::process::id()), true);
+
+    let mut out = Vec::new();
+    hydra::logs::logs(&layout, "aaa", false, &mut out).unwrap();
+    assert_eq!(out, std::fs::read(&path).unwrap());
+}
+
+#[test]
+fn following_stops_at_the_closing_line() {
+    let layout = sandbox("follow");
+    write_run(&layout, "aaa", Some(std::process::id()), false);
+    let path = layout.run_file("aaa");
+
+    // The record grows under the tail, the way a live run's does.
+    let writer = std::thread::spawn(move || {
+        for seq in 1..4 {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            file.write_all(envelope("aaa", seq, json!({"type": "note"})).as_bytes())
+                .unwrap();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(envelope("aaa", 4, json!({"type": "run_end", "exit_code": 0})).as_bytes())
+            .unwrap();
+    });
+
+    let mut out = Vec::new();
+    hydra::logs::logs(&layout, "aaa", true, &mut out).unwrap();
+    writer.join().unwrap();
+
+    let text = String::from_utf8(out).unwrap();
+    assert_eq!(text.lines().count(), 5, "{text}");
+    assert!(text.contains("run_end"), "{text}");
+}
+
+#[test]
+fn following_does_not_give_up_in_the_gap_before_the_closing_line() {
+    // The writer reaps the child and then writes `run_end`, so every ordinary run
+    // passes through a moment where the pid is gone and the record has not ended.
+    // A follow that gives up there drops the closing line off the tail and calls a
+    // finished run abandoned. The dead pid is written from the start here, which
+    // is that window held open.
+    let layout = sandbox("gap");
+    write_run(&layout, "aaa", Some(dead_pid()), false);
+    let path = layout.run_file("aaa");
+
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(envelope("aaa", 1, json!({"type": "run_end", "exit_code": 0})).as_bytes())
+            .unwrap();
+    });
+
+    let mut out = Vec::new();
+    hydra::logs::logs(&layout, "aaa", true, &mut out).unwrap();
+    writer.join().unwrap();
+
+    let text = String::from_utf8(out).unwrap();
+    assert!(
+        text.contains("run_end"),
+        "the closing line was dropped: {text}"
+    );
+    assert_eq!(text.lines().count(), 2, "{text}");
+}
+
+#[test]
+fn following_an_abandoned_run_ends_rather_than_waiting_forever() {
+    let layout = sandbox("abandoned-follow");
+    write_run(&layout, "aaa", Some(dead_pid()), false);
+
+    let mut out = Vec::new();
+    hydra::logs::logs(&layout, "aaa", true, &mut out).unwrap();
+    assert_eq!(String::from_utf8(out).unwrap().lines().count(), 1);
+}
