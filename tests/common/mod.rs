@@ -248,6 +248,118 @@ impl Record {
         self.raw(frame)
     }
 
+    // --- cursor-agent frames, measured on 2026.09.02-c22c1a3, 2026-09-06 ----
+
+    /// A record whose envelope names `cursor-agent`, opened under a policy.
+    pub fn cursor(worktree: &Path, policy: Option<&str>, policy_sha: Option<&str>) -> Self {
+        Self::shaped(Shape {
+            provider: Some("cursor-agent"),
+            policy,
+            policy_sha,
+            worktree: Some(worktree),
+            ..Shape::default()
+        })
+    }
+
+    /// `system/init` as this provider writes it: a display name, no tool list.
+    pub fn cursor_init(&mut self) -> &mut Self {
+        self.raw(json!({
+            "type": "system",
+            "subtype": "init",
+            "apiKeySource": "login",
+            "cwd": "/tmp/ws",
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "model": "Composer 2.5",
+            "permissionMode": "default",
+        }))
+    }
+
+    pub fn cursor_user(&mut self, text: &str) -> &mut Self {
+        self.raw(json!({
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+        }))
+    }
+
+    pub fn cursor_assistant(&mut self, text: &str) -> &mut Self {
+        self.raw(json!({
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+        }))
+    }
+
+    /// One thinking block: its deltas, then the `completed` marker.
+    pub fn cursor_thinking(&mut self, deltas: &[&str]) -> &mut Self {
+        for delta in deltas {
+            self.raw(json!({
+                "type": "thinking", "subtype": "delta", "text": delta,
+                "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+                "timestamp_ms": 1788720518000u64,
+            }));
+        }
+        self.raw(json!({
+            "type": "thinking", "subtype": "completed",
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "timestamp_ms": 1788720518001u64,
+        }))
+    }
+
+    /// A `tool_call` frame. `kind` is the oneof key, `readToolCall` and the
+    /// like; `result` is `None` on the `started` frame and the oneof result
+    /// object on the `completed` one.
+    pub fn cursor_tool(&mut self, call_id: &str, kind: &str, args: Value, result: Option<Value>) -> &mut Self {
+        let mut inner = json!({ "args": args });
+        if let Some(result) = &result {
+            inner["result"] = result.clone();
+        }
+        let mut object = json!({
+            "hookAdditionalContexts": [],
+            "toolCallId": call_id,
+            "startedAtMs": "1788720518123",
+        });
+        object[kind] = inner;
+        let subtype = if result.is_some() { "completed" } else { "started" };
+        if result.is_some() {
+            object["completedAtMs"] = json!("1788720518321");
+        }
+        self.raw(json!({
+            "type": "tool_call",
+            "subtype": subtype,
+            "call_id": call_id,
+            "tool_call": object,
+            "model_call_id": "fc_1",
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "timestamp_ms": 1788720518123u64,
+        }))
+    }
+
+    /// `started` then `completed` for one call, which is how every call the
+    /// probe made arrived.
+    pub fn cursor_call(&mut self, call_id: &str, kind: &str, args: Value, result: Value) -> &mut Self {
+        self.cursor_tool(call_id, kind, args.clone(), None);
+        self.cursor_tool(call_id, kind, args, Some(result))
+    }
+
+    /// The terminator, with or without a usage block.
+    pub fn cursor_result(&mut self, text: &str, usage: Option<Value>) -> &mut Self {
+        let mut frame = json!({
+            "type": "result",
+            "subtype": "success",
+            "duration_ms": 12015,
+            "duration_api_ms": 12015,
+            "is_error": false,
+            "result": text,
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "request_id": "19bf8e59-0aff-41c9-bef0-1e82a660d286",
+        });
+        if let Some(usage) = usage {
+            frame["usage"] = usage;
+        }
+        self.raw(frame)
+    }
+
     pub fn closed(&mut self) -> String {
         self.closed_with(json!({"exit_code": 0}))
     }
@@ -296,6 +408,49 @@ pub fn usage_frame() -> Value {
         "cache_read_input_tokens": 30266,
         "output_tokens": 1270,
         "output_tokens_details": {"thinking_tokens": 872},
+    }})
+}
+
+/// The usage block the probe's `result` frame carried on 2026-09-06.
+pub fn cursor_usage() -> Value {
+    json!({
+        "inputTokens": 8383,
+        "outputTokens": 731,
+        "cacheReadTokens": 109307,
+        "cacheWriteTokens": 0,
+    })
+}
+
+/// A read result body, success case, as measured.
+pub fn cursor_read_ok(path: &str, content: &str) -> Value {
+    json!({ "success": {
+        "content": content, "isEmpty": false, "exceededLimit": false,
+        "totalLines": 2, "fileSize": content.len(), "path": path,
+        "readRange": {"startLine": 1, "endLine": 2},
+        "relatedCursorRulePaths": [], "relatedCursorRules": [],
+    }})
+}
+
+/// A read refused by a hook, as measured on the second probe: an `error`
+/// case whose message carries every hook's words and Cursor's own marker.
+pub fn cursor_read_blocked(reason: &str) -> Value {
+    json!({ "error": { "errorMessage": format!(
+        "File read was blocked by a hook: {reason}\n\nTo view or modify configured \
+         hooks, go to Cursor Settings > Hooks.\n\nAgent note: Do not suggest \
+         workarounds to the blocked tool."
+    )}})
+}
+
+/// A shell command refused by a hook, research 30's shape.
+pub fn cursor_shell_rejected(command: &str, reason: &str) -> Value {
+    json!({ "rejected": {
+        "command": command, "workingDirectory": "",
+        "reason": format!(
+            "Command execution was blocked by a hook: {reason}\n\nTo view or modify \
+             configured hooks, go to Cursor Settings > Hooks.\n\nAgent note: Do not \
+             suggest workarounds to the blocked tool."
+        ),
+        "isReadonly": false,
     }})
 }
 
