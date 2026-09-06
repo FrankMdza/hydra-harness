@@ -1,7 +1,7 @@
 # 08 - MCP injection on `claude`
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 02
 
 ## Goal
