@@ -403,9 +403,13 @@ def floor_violation(command):
 
 
 def capability_of(tool):
-    # A prefix rather than a name, and the prefix is the provider's own:
-    # `mcp__<server>__<tool>` on claude, `MCP:<tool>` on cursor.
-    if tool.startswith(HYDRA_CONFIG["mcp_prefix"]):
+    # A prefix on two providers and the provider's own spelling on each:
+    # `mcp__<server>__<tool>` on claude, `MCP:<tool>` on cursor. `agy` names one
+    # tool, `call_mcp_tool`, so its config carries no prefix and the table
+    # answers for it like any other name. An empty string here would match every
+    # tool, which is why the absent case is null rather than "".
+    prefix = HYDRA_CONFIG.get("mcp_prefix")
+    if prefix and tool.startswith(prefix):
         return "mcp_call"
     return HYDRA_CONFIG["tools"].get(tool)
 
@@ -413,18 +417,44 @@ def capability_of(tool):
 def as_tool_call(payload):
     """The payload as `evaluate` reads it: a tool name, its input, a cwd.
 
-    Cursor's `beforeReadFile` is the one event this gate answers that carries
-    no `tool_name`. Measured on 2026.09.02-c22c1a3, 2026-09-06: the path is a
-    top-level `file_path`, the file's content rides beside it, and there is no
-    `cwd`. It is a read, so it is evaluated as the provider's `Read` tool with
-    that path, which is the row the table already holds for it. Every other
-    event this gate is wired to sends `tool_name` and `tool_input` as they are.
+    Three shapes reach here and only one is already in this shape.
+
+    Cursor's `beforeReadFile` carries no `tool_name`. Measured on
+    2026.09.02-c22c1a3, 2026-09-06: the path is a top-level `file_path`, the
+    file's content rides beside it, and there is no `cwd`. It is a read, so it is
+    evaluated as the provider's `Read` tool with that path, which is the row the
+    table already holds for it.
+
+    `agy` sends `toolCall.name` and `toolCall.args` in camelCase protojson, with
+    no `cwd` field at all. Measured on 1.1.26, 2026-09-06. Two things stand in
+    for the cwd, in order: `run_command` puts the directory it would run in on
+    `args.Cwd`, and every payload carries `workspacePaths`, whose first entry is
+    the worktree Hydra passed on `--add-dir`. Falling back to the compiled
+    `worktree` scope, which `evaluate` does when both are absent, would resolve a
+    relative path against the run's own checkout, and that is the same directory
+    in every launch Hydra makes.
+
+    Keying on the payload rather than on the dialect is deliberate: contract
+    7.7's read-time re-evaluation sends the normalized shape for every provider,
+    so the same script answers the live hook and the replay.
     """
     if payload.get("hook_event_name") == "beforeReadFile":
         return {
             "tool_name": "Read",
             "tool_input": {"file_path": payload.get("file_path")},
             "cwd": payload.get("cwd"),
+        }
+    call = payload.get("toolCall")
+    if isinstance(call, dict):
+        args = call.get("args")
+        if not isinstance(args, dict):
+            args = {}
+        paths = payload.get("workspacePaths")
+        workspace = paths[0] if isinstance(paths, list) and paths else None
+        return {
+            "tool_name": call.get("name"),
+            "tool_input": args,
+            "cwd": args.get("Cwd") or workspace,
         }
     return payload
 

@@ -366,3 +366,84 @@ fn the_shipped_document_admits_nothing_to_anybody() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// agy: the config lives in the worktree and the remote key is its own
+// ---------------------------------------------------------------------------
+
+fn agy_written(layout: &Layout, run_id: &str, policy: &str, worktree: &Path) -> serde_json::Value {
+    let document = Document::parse(DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::Agy, policy, Checkout::Hydra);
+    let file = mcp::write_config(layout, run_id, Provider::Agy, plan.injected(), Some(worktree))
+        .unwrap();
+    assert_eq!(
+        file,
+        worktree.join(".agents/mcp_config.json"),
+        "6.5's table names this path, and research 23 measured it against three others"
+    );
+    serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap()
+}
+
+#[test]
+fn an_agy_run_writes_its_config_into_the_worktree_with_serverurl() {
+    let (layout, root) = layout();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let permissive = agy_written(&layout, "r1", "permissive", &worktree);
+    let servers = permissive["mcpServers"].as_object().unwrap();
+    assert_eq!(servers.len(), 2, "got {permissive}");
+    // The stdio body is byte-identical to the other two providers'.
+    assert_eq!(servers["filesystem"]["command"], "/usr/bin/true");
+    assert_eq!(servers["filesystem"]["args"][0], "--root");
+    // And the remote key is where the three diverge.
+    assert_eq!(servers["docs"]["serverUrl"], "https://example.com/mcp");
+    assert!(
+        servers["docs"].get("url").is_none(),
+        "`url` is Cursor's key; this provider takes `serverUrl` (6.5)"
+    );
+    assert!(servers["docs"].get("type").is_none(), "`type` is claude's");
+
+    let ignore = std::fs::read_to_string(worktree.join(".agents/.gitignore")).unwrap();
+    assert!(ignore.contains("/mcp_config.json"));
+}
+
+#[test]
+fn an_agy_run_outside_a_checkout_can_be_delivered_nothing() {
+    // 6.5: this provider reads the file out of the worktree, so a run with no
+    // checkout of Hydra's own gets no config at all, and a policy that admits a
+    // server then fails the launch rather than launching short.
+    let document = Document::parse(DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::Agy, "permissive", Checkout::None);
+    assert!(plan.undeliverable.is_some());
+    assert_eq!(plan.admitted.len(), 2);
+    let why = plan.shortfall().expect("permissive admits two servers");
+    assert!(why.contains("no checkout"), "{why}");
+    let remediation = plan.remediation();
+    assert!(remediation.contains("filesystem"), "{remediation}");
+    assert!(remediation.contains("no checkout"), "{remediation}");
+
+    // And a policy that admits none is not refused for having none.
+    let quiet = mcp::plan(&document, Provider::Agy, "read-only", Checkout::None);
+    assert!(quiet.shortfall().is_none());
+}
+
+#[test]
+fn an_agy_checkout_that_already_holds_an_mcp_config_is_refused() {
+    let (layout, root) = layout();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(worktree.join(".agents")).unwrap();
+    std::fs::write(worktree.join(".agents/mcp_config.json"), "{\"mcpServers\":{}}").unwrap();
+
+    let document = Document::parse(DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::Agy, "standard", Checkout::Hydra);
+    let err = mcp::write_config(
+        &layout,
+        "r1",
+        Provider::Agy,
+        plan.injected(),
+        Some(&worktree),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err:#}");
+}

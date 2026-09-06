@@ -1024,3 +1024,83 @@ fn the_one_unclassified_result_on_this_machine_is_the_only_unknown() {
         );
     }
 }
+
+// --- agy: the terminator says how it went in a field of its own -----------
+
+#[test]
+fn an_agy_run_that_says_it_failed_is_failed() {
+    // This provider has no `is_error`. It puts `status` on the terminator,
+    // `SUCCESS` or `ERROR`, with an `error` string beside it; measured on 1.1.26
+    // on a slash command it would not run in print mode. Without reading that
+    // field a run that failed outright comes out `completed`, because `is_error`
+    // is absent rather than false.
+    let sandbox = Sandbox::new("agy-failed");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_result("ERROR", "", None)
+        .closed_with(json!({ "exit_code": 1 }));
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Failed, Source::Derived))
+    );
+}
+
+#[test]
+fn an_agy_run_that_worked_is_completed_and_its_success_word_is_worth_nothing_alone() {
+    let sandbox = Sandbox::new("agy-completed");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_response(1, &["DONE"], Some(common::agy_usage(10, 2, 0, 0)))
+        .agy_result("SUCCESS", "DONE", None)
+        .closed();
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Completed, Source::Derived))
+    );
+}
+
+#[test]
+fn an_agy_run_whose_every_call_the_gate_refused_is_gated_over_its_own_success() {
+    // The shape ticket 26 measured: every tool call denied, `status: SUCCESS`,
+    // exit 0, and the model narrating the block and then guessing the answer.
+    // An outcome read off that terminator files a fully blocked run as a
+    // finished one, which is what contract 8 exists to prevent.
+    let sandbox = Sandbox::new("agy-gated");
+    let text = Record::agy(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some(policies().sha()),
+    )
+    .agy_user()
+    .agy_tool_error(
+        2,
+        "run_command",
+        json!({ "CommandLine": "echo T10MARKER" }),
+        "tool call denied by pre-tool hook: hydra/capability: policy read-only does not \
+         allow shell (run_command).",
+    )
+    .agy_response(3, &["It could not be executed."], None)
+    .agy_result("SUCCESS", "It could not be executed.", None)
+    .closed();
+
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Gated, Source::Derived))
+    );
+}
+
+#[test]
+fn an_agy_child_that_died_before_its_terminator_crashed() {
+    // Unlike `cursor-agent`, this provider writes a terminator on every path, so
+    // a record without one is a process that stopped rather than the ordinary
+    // shape of a failure.
+    let sandbox = Sandbox::new("agy-crashed");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_response(1, &["half a th"], None)
+        .closed_with(json!({ "exit_code": 143 }));
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Crashed, Source::Derived))
+    );
+}

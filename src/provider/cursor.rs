@@ -93,42 +93,14 @@ pub fn gitignore(worktree: &Path) -> (PathBuf, &'static str) {
 /// checkout has been checked for the human's own copy and the ignore file is in
 /// place.
 ///
-/// **A file the checkout already holds is refused rather than overwritten.**
-/// The worktree is seeded from the human's repo (6.3), and a `.cursor/hooks.json`
-/// or `.cursor/mcp.json` in it is theirs: writing over it edits their work and
-/// `hydra reap` would commit the edit, and loading theirs instead of Hydra's
-/// launches an ungated run. [`crate::run`] checks the parent repo for both files
-/// before a run id exists; this is the second line, on the checkout itself.
-///
-/// **An existing `.gitignore` is left alone**, the same rule the skill root
-/// follows: a repo that tracks its own would see the overwrite as an edit to the
-/// human's checkout. The cost is that Hydra's files then show in `git status`,
-/// which is visible rather than silent.
+/// [`super::claim`] holds the rule and the reasons; this names the two files it
+/// applies to on this provider.
 pub fn claim(
     worktree: Option<&Path>,
     what: &str,
     file: impl Fn(&Path) -> PathBuf,
 ) -> Result<PathBuf> {
-    let worktree = worktree.with_context(|| {
-        format!("cursor-agent reads its {what} out of the worktree and this run has none")
-    })?;
-    let file = file(worktree);
-    if file.exists() {
-        bail!(
-            "{} already exists in the checkout, and Hydra will not write over a file the \
-             human's repo carries",
-            file.display()
-        );
-    }
-    if let Some(parent) = file.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
-    }
-    let (ignore, body) = gitignore(worktree);
-    if !ignore.exists() {
-        std::fs::write(&ignore, body).with_context(|| format!("writing {}", ignore.display()))?;
-    }
-    Ok(file)
+    super::claim(worktree, "cursor-agent", what, file, gitignore)
 }
 
 /// The hook config, 6.6, in Cursor's own format.
@@ -149,7 +121,8 @@ pub fn claim(
 /// **No `matcher`.** Absent means every tool, and the gate's own table is what
 /// decides per name.
 pub fn hooks_config(gate_script: &Path, gate_sha: &str) -> serde_json::Value {
-    let command = crate::policy::hook_command(gate_script, gate_sha, crate::policy::Dialect::Cursor);
+    let command =
+        crate::policy::hook_command(gate_script, gate_sha, crate::policy::Dialect::Cursor);
     serde_json::json!({
         "version": 1,
         "hooks": {
@@ -535,7 +508,10 @@ mod tests {
         assert_eq!(path, Path::new("/tmp/wt/.cursor/.gitignore"));
         assert!(body.contains("/hooks.json"));
         assert!(body.contains("/mcp.json"));
-        assert!(!body.contains('*'), "a `*` here would hide the human's own files");
+        assert!(
+            !body.contains('*'),
+            "a `*` here would hide the human's own files"
+        );
     }
 
     fn server(name: &str, transport: crate::mcp::Transport) -> crate::mcp::Server {
@@ -559,9 +535,15 @@ mod tests {
         docs.headers
             .insert("Authorization".to_string(), "Bearer x".to_string());
         let config = mcp_config(&[&docs]);
-        assert_eq!(config["mcpServers"]["docs"]["url"], "https://example.com/mcp");
+        assert_eq!(
+            config["mcpServers"]["docs"]["url"],
+            "https://example.com/mcp"
+        );
         assert!(config["mcpServers"]["docs"].get("type").is_none());
-        assert_eq!(config["mcpServers"]["docs"]["headers"]["Authorization"], "Bearer x");
+        assert_eq!(
+            config["mcpServers"]["docs"]["headers"]["Authorization"],
+            "Bearer x"
+        );
     }
 
     #[test]
@@ -571,7 +553,10 @@ mod tests {
         fs.args = vec!["-y".to_string(), "x".to_string()];
         let ours = mcp_config(&[&fs]);
         let theirs = crate::provider::claude::mcp_config(&[&fs]);
-        assert_eq!(ours["mcpServers"]["filesystem"], theirs["mcpServers"]["filesystem"]);
+        assert_eq!(
+            ours["mcpServers"]["filesystem"],
+            theirs["mcpServers"]["filesystem"]
+        );
     }
 
     #[test]
@@ -610,7 +595,8 @@ mod tests {
         };
         assert_eq!(preflight.resolved(), vec!["fs".to_string()]);
 
-        let short = preflight.shortfall(&["fs".to_string(), "docs".to_string(), "gone".to_string()]);
+        let short =
+            preflight.shortfall(&["fs".to_string(), "docs".to_string(), "gone".to_string()]);
         assert_eq!(short.len(), 2, "{short:?}");
         assert_eq!(short[0].name, "docs");
         assert_eq!(short[1].name, "gone");
@@ -671,7 +657,11 @@ mod tests {
             calls += 1;
             Ok(Answer {
                 ok: true,
-                stdout: if args == ["list"] { "fs: ready\n".into() } else { String::new() },
+                stdout: if args == ["list"] {
+                    "fs: ready\n".into()
+                } else {
+                    String::new()
+                },
                 stderr: String::new(),
             })
         };
@@ -689,7 +679,10 @@ mod tests {
             })
         };
         let err = preflight_with(&["fs".to_string()], &mut run).unwrap_err();
-        assert!(err.to_string().contains("not found in configuration"), "{err:#}");
+        assert!(
+            err.to_string().contains("not found in configuration"),
+            "{err:#}"
+        );
     }
 
     #[test]
@@ -700,7 +693,10 @@ mod tests {
 
         let file = claim(Some(&root), "hook config", hooks_file).unwrap();
         assert_eq!(file, root.join(".cursor/hooks.json"));
-        assert!(!file.exists(), "claim names the path and writes nothing to it");
+        assert!(
+            !file.exists(),
+            "claim names the path and writes nothing to it"
+        );
         let ignore = std::fs::read_to_string(root.join(".cursor/.gitignore")).unwrap();
         assert!(ignore.contains("/hooks.json"));
 

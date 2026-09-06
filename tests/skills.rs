@@ -281,6 +281,64 @@ fn the_injected_root_ignores_itself() {
 }
 
 #[test]
+fn agys_own_root_ignores_itself_the_same_way() {
+    // 6.4's third row. This provider's root is `.agents/skills/`, and the
+    // self-ignoring trick has to hold there too: `git status` clean and
+    // `git add -A` staging nothing, which is what keeps `hydra reap` from
+    // committing Hydra's own links into the human's branch.
+    let fixture = Fixture::new("agy-ignores");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+
+    let worktree = fixture.checkout(RUN_A);
+    let injected = skills::inject(&worktree, Provider::Agy, &snapshot, &sha).unwrap();
+    assert_eq!(injected.root, worktree.join(".agents/skills"));
+    assert_eq!(injected.linked, vec!["alpha".to_string()]);
+    assert_eq!(
+        std::fs::read_to_string(injected.root.join(".gitignore")).unwrap(),
+        "*\n"
+    );
+
+    assert_eq!(git(&worktree, &["status", "--porcelain"]).trim(), "");
+    git(&worktree, &["add", "-A"]);
+    assert_eq!(
+        git(&worktree, &["diff", "--cached", "--name-only"]).trim(),
+        "",
+        "git add -A must stage nothing"
+    );
+}
+
+#[test]
+fn a_sidecar_that_admits_agy_alone_is_linked_for_agy_and_nobody_else() {
+    let fixture = Fixture::new("agy-sidecar");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("shared", "For everyone.", None);
+    fixture.store_skill("google-only", "For one binary.", Some("providers = [\"agy\"]\n"));
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+
+    let for_agy = skills::inject(
+        &fixture.checkout(RUN_A),
+        Provider::Agy,
+        &snapshot,
+        &sha,
+    )
+    .unwrap();
+    assert_eq!(
+        for_agy.linked,
+        vec!["google-only".to_string(), "shared".to_string()]
+    );
+
+    let for_claude =
+        skills::inject(&fixture.checkout(RUN_B), Provider::Claude, &snapshot, &sha).unwrap();
+    assert_eq!(for_claude.linked, vec!["shared".to_string()]);
+}
+
+#[test]
 fn an_empty_store_links_nothing_and_still_pins_a_sha() {
     // The state of a fresh machine, and of this one once ticket 07's probes were
     // cleared out. Contract 5.3's three fields still have answers: an empty

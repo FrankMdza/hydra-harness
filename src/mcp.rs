@@ -35,7 +35,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::paths::Layout;
-use crate::provider::{Provider, claude, cursor};
+use crate::provider::{Provider, agy, claude, cursor};
 
 /// Protected config #5's path, the one [`crate::policy::denied_write_paths`]
 /// denies every policy from writing to.
@@ -268,21 +268,24 @@ impl<'a> Plan<'a> {
 
 /// Why a launch of this shape carries no MCP config at all.
 ///
-/// Two providers, one reason each. `claude` answers on the policy name: 6.7's
-/// `judge` argv carries no `--mcp-config`. `cursor-agent` answers on the tree:
-/// 6.5 gives it no injected config outside a checkout Hydra created. `agy`
-/// arrives with ticket 10.
+/// Three providers, two reasons. `claude` answers on the policy name: 6.7's
+/// `judge` argv carries no `--mcp-config`. The other two answer on the tree,
+/// because both read the file out of the worktree: 6.5 gives `cursor-agent` no
+/// injected config outside a checkout Hydra created, and `agy` has nowhere to
+/// write one.
 fn undeliverable(provider: Provider, policy: &str, checkout: Checkout) -> Option<&'static str> {
     match provider {
         Provider::Claude => claude::mcp_undeliverable(policy),
         Provider::CursorAgent => cursor::mcp_undeliverable(checkout),
+        Provider::Agy => agy::mcp_undeliverable(checkout),
     }
 }
 
 /// Writes the run's MCP config where the launch will point at it.
 ///
-/// `~/hydra/spawn/<run-id>/mcp.json` on `claude`, from 6.5's table, and
-/// `<worktree>/.cursor/mcp.json` on `cursor-agent`, which is why this takes the
+/// `~/hydra/spawn/<run-id>/mcp.json` on `claude`, from 6.5's table,
+/// `<worktree>/.cursor/mcp.json` on `cursor-agent` and
+/// `<worktree>/.agents/mcp_config.json` on `agy`, which is why this takes the
 /// worktree and returns a path rather than assuming the spawn directory is where
 /// every provider's file goes.
 ///
@@ -317,6 +320,10 @@ pub fn write_config(
         Provider::CursorAgent => (
             cursor::claim(worktree, "MCP config", cursor::mcp_file)?,
             cursor::mcp_config(servers),
+        ),
+        Provider::Agy => (
+            agy::claim(worktree, "MCP config", agy::mcp_file)?,
+            agy::mcp_config(servers),
         ),
     };
     std::fs::write(&file, serde_json::to_string_pretty(&config)?)

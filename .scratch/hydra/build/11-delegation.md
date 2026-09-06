@@ -82,3 +82,33 @@ and `mcp list` run per child with cwd in that child's worktree.
 lines, and two of them derive `rate_limited` and `auth_failed`. A parent reading a child's
 contract 17 result gets those outcomes rather than `failed`, which is the difference between
 a retry loop and a lesson.
+
+## What ticket 10 left you, added 2026-09-06
+
+**`delegate(provider, ...)` names three providers now, and two of the three need a repo.**
+`agy` reads its gate, its MCP config and its skill links out of the worktree the same way
+`cursor-agent` does, and it is stricter about it: the directory has to arrive as
+`--add-dir` or none of the three loads and the provider says nothing about it. So
+`run::worktree_preconditions` is one function for both, refusing before a run id exists
+when the caller is outside a git repo and again when that repo already carries the
+provider's own two files. A delegate face standing outside a repo can delegate to `claude`
+alone.
+
+**One departure the spec does not ask for sits between your refusal codes and a spawn.**
+An `agy` launch runs a free `agy -p="/hooks"` after writing its hook config and compares
+the listing's `source` against the file Hydra wrote. A failure writes a record through
+`never_started` and derives `failed`, deliberately not dressed as one of contract 6's four
+refusals. If delegation grows a fifth code, that check is a candidate to move under it, and
+the reason it is not one today is that nothing in the contract covers "the gate did not
+mount".
+
+**Depth and narrowing are provider-blind and nothing here changed that.** The gate is
+compiled per provider, so a child on a different binary than its parent gets its own tool
+table and its own dialect, and the policy it was launched under is the only thing 7.3
+compares. A `standard` parent delegating a `read-only` child to another provider is the
+same check it is within one.
+
+**`Provider::Agy` is the third arm of thirteen match sites**, and the compiler lists them
+for you if a fourth ever arrives: `binary`, `dialect`, `skill_root`, `user_skill_roots`,
+`resolve`, `subscription`, `observe`, `FromStr`, `ChildEnv::build`, `mcp::undeliverable`,
+`mcp::write_config`, `run::write_spawn_config` and the argv match in `run::run`.

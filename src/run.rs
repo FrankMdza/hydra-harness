@@ -50,7 +50,7 @@ use uuid::Uuid;
 use crate::env::ChildEnv;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
-use crate::provider::{Provider, claude, cursor};
+use crate::provider::{Provider, agy, claude, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef};
 
 pub struct Request {
@@ -130,10 +130,20 @@ pub fn run(request: Request) -> Result<Call> {
 
     let invoked_in = std::env::current_dir().context("reading the working directory")?;
     let repo = crate::worktree::repo_root(&invoked_in);
-    // Two facts about this repo that decide whether `cursor-agent` can be gated
-    // at all, checked before a run id exists for the same reason PATH is.
-    if request.provider == Provider::CursorAgent {
-        cursor_preconditions(repo.as_deref())?;
+    // Two facts about this repo that decide whether the provider can be gated at
+    // all, checked before a run id exists for the same reason PATH is. Both
+    // providers that read their hook config out of the worktree get the same
+    // check against their own two files.
+    match request.provider {
+        Provider::CursorAgent => worktree_preconditions(
+            "cursor-agent",
+            repo.as_deref(),
+            &[cursor::hooks_file, cursor::mcp_file],
+        )?,
+        Provider::Agy => {
+            worktree_preconditions("agy", repo.as_deref(), &[agy::hooks_file, agy::mcp_file])?
+        }
+        Provider::Claude => {}
     }
 
     // Both are read before a run id exists, for the same reason the environment is:
@@ -386,6 +396,64 @@ pub fn run(request: Request) -> Result<Call> {
         request.floor_lifted,
     )?;
 
+    // **The gate mount is checked on `agy` and on nothing else, free.** 6.6's
+    // table says this provider reads its hook config only when the worktree
+    // arrives as `--add-dir`, "without which it reports `hooks: []` rather than
+    // an error", and that silence is the worst failure mode on the ticket: a run
+    // that looks gated and is not. One read-only slash command rules it out for
+    // no tokens, measured. `claude` needs no equivalent, because its config is an
+    // argument it either accepted or refused to start with, and Cursor's
+    // `failClosed` config would block rather than leak.
+    //
+    // A launch that fails here writes the record itself, the same shape a spawn
+    // that could not fork gets: contract 8.3 wants the attempt on disk, and by
+    // this point a worktree, a branch and a compiled gate are on disk with a run
+    // id on them. It is not one of contract 6's four refusals, so it is not
+    // dressed as one: this is a launch that could not start, and it derives
+    // `failed`.
+    if request.provider == Provider::Agy {
+        let checkout = worktree_ref
+            .as_ref()
+            .map(|w| std::path::PathBuf::from(&w.path))
+            .context("an agy run needs a checkout and this one has none")?;
+        let mounted = agy::hooks_mounted(&checkout).with_context(|| {
+            format!(
+                "asking agy which hooks it loaded for {}, which is what proves the gate is \
+                 in front of the run",
+                checkout.display()
+            )
+        });
+        let verdict = match &mounted {
+            Ok(mounted) if agy::gate_is_mounted(mounted, &spawn.hook_config) => Ok(()),
+            Ok(mounted) => Err(anyhow::anyhow!(
+                "{}",
+                agy::unmounted_remediation(mounted, &spawn.hook_config)
+            )),
+            Err(err) => Err(anyhow::anyhow!("{err:#}")),
+        };
+        if let Err(err) = verdict {
+            // The same three lines `refuse` prints, for the same reason: a
+            // checkout, a branch and a compiled gate are on disk with this run
+            // id on them, and an error naming none of them leaves a human with
+            // an orphan worktree and nothing to type into `hydra reap`.
+            eprintln!("hydra: run {run_id} did not launch");
+            eprintln!("hydra: {err:#}");
+            eprintln!("hydra: record {}", run_file.display());
+            if let Some(worktree) = &worktree_ref {
+                eprintln!(
+                    "hydra: worktree {} on {}",
+                    worktree.path, worktree.branch
+                );
+            }
+            if let Err(second) =
+                never_started(&run_file, &run_id, request.provider, &line_zero, &err)
+            {
+                eprintln!("hydra: this run could not be recorded either: {second:#}");
+            }
+            return Err(err);
+        }
+    }
+
     let argv = match request.provider {
         Provider::Claude => claude::argv(&claude::Launch {
             task: &task,
@@ -400,6 +468,17 @@ pub fn run(request: Request) -> Result<Call> {
         Provider::CursorAgent => cursor::argv(&cursor::Launch {
             task: &task,
             model: request.model.as_deref(),
+        }),
+        // The one flag the skills, the hook config and the MCP config all ride
+        // in on. A launch with no worktree was refused above, so the checkout is
+        // here rather than optional.
+        Provider::Agy => agy::argv(&agy::Launch {
+            task: &task,
+            model: request.model.as_deref(),
+            worktree: worktree_ref
+                .as_ref()
+                .map(|w| std::path::Path::new(w.path.as_str()))
+                .context("an agy run needs a checkout and this one has none")?,
         }),
     };
 
@@ -520,33 +599,39 @@ pub fn run(request: Request) -> Result<Call> {
     }
 }
 
-/// Two facts about the repo a `cursor-agent` run stands in, checked before a
-/// run id exists.
+/// Two facts about the repo a run stands in, for the two providers that read
+/// their config out of the worktree, checked before a run id exists.
 ///
-/// **No repo, no gate.** This provider reads its hook config out of the
-/// workspace, which is cwd, and a run outside a repo would run where Hydra was
-/// invoked: a directory Hydra does not own and may not write a `.cursor/` into
-/// (D9). A provider Hydra cannot gate is not launched (harness spec 2), so the
-/// refusal is here and not a record, the same as a wrong PATH.
+/// **No repo, no gate.** Both read their hook config out of the workspace, and a
+/// run outside a repo would run where Hydra was invoked: a directory Hydra does
+/// not own and may not write into (D9). A provider Hydra cannot gate is not
+/// launched (harness spec 2), so the refusal is here and not a record, the same
+/// as a wrong PATH. On `agy` the workspace is not even cwd: the directory has to
+/// arrive as `--add-dir`, and a run with no checkout has none to pass.
 ///
-/// **A repo that carries Cursor's two files is refused too.** The worktree is
-/// seeded from this repo (6.3), and Hydra has to write `.cursor/hooks.json` and
-/// `.cursor/mcp.json` into it. Writing over the human's own copies would edit
-/// their work and `hydra reap` would commit the edit; loading theirs instead of
-/// Hydra's would launch an ungated run. Neither is a shape 6.6 allows, so the
-/// launch stops and says which file.
-fn cursor_preconditions(repo: Option<&std::path::Path>) -> Result<()> {
+/// **A repo that carries the provider's own two files is refused too.** The
+/// worktree is seeded from this repo (6.3), and Hydra has to write both files
+/// into it. Writing over the human's copies would edit their work and `hydra
+/// reap` would commit the edit; loading theirs instead of Hydra's would launch an
+/// ungated run. Neither is a shape 6.6 allows, so the launch stops and says
+/// which file.
+fn worktree_preconditions(
+    binary: &str,
+    repo: Option<&std::path::Path>,
+    files: &[fn(&std::path::Path) -> PathBuf],
+) -> Result<()> {
     let Some(repo) = repo else {
         anyhow::bail!(
-            "cursor-agent reads its hook config out of the worktree, so a run outside a git \
+            "{binary} reads its hook config out of the worktree, so a run outside a git \
              repo has nowhere Hydra owns to put a gate and is not launched (harness spec 2). \
              Run it from inside a repository."
         );
     };
-    for file in [cursor::hooks_file(repo), cursor::mcp_file(repo)] {
+    for file in files {
+        let file = file(repo);
         if file.exists() {
             anyhow::bail!(
-                "{} exists, and Hydra writes that file into every cursor-agent worktree it \
+                "{} exists, and Hydra writes that file into every {binary} worktree it \
                  seeds from this repo. It will not write over the human's copy and it will \
                  not launch a run that reads it instead of the gate, so move the file \
                  aside for the run.",
@@ -864,7 +949,7 @@ pub struct SpawnFiles {
 /// is per run and the script is created inside it, so a second run in the same
 /// directory is not a case that can arise. Cursor's config goes in the worktree,
 /// which is per run too, and a checkout that already holds one is refused rather
-/// than overwritten: [`cursor_preconditions`] checks the repo it was seeded from
+/// than overwritten: [`worktree_preconditions`] checks the repo it was seeded from
 /// and this is the second line.
 #[allow(clippy::too_many_arguments)]
 pub fn write_spawn_config(
@@ -883,6 +968,7 @@ pub fn write_spawn_config(
     let hook_config = match provider {
         Provider::Claude => layout.settings_file(run_id),
         Provider::CursorAgent => cursor::claim(worktree, "hook config", cursor::hooks_file)?,
+        Provider::Agy => agy::claim(worktree, "hook config", agy::hooks_file)?,
     };
 
     // With no repo there is no worktree, and the child runs where Hydra was
@@ -937,6 +1023,7 @@ pub fn write_spawn_config(
     let config = match provider {
         Provider::Claude => claude::settings(&gate, &gate_sha),
         Provider::CursorAgent => cursor::hooks_config(&gate, &gate_sha),
+        Provider::Agy => agy::hooks_config(&gate, &gate_sha),
     };
     std::fs::write(&hook_config, serde_json::to_string_pretty(&config)?)
         .with_context(|| format!("writing {}", hook_config.display()))?;

@@ -32,8 +32,8 @@ use serde_json::{Value, json};
 
 use super::{
     Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ResultStatus, Role,
-    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, policy_moved,
-    splice, verdict_decision,
+    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, hydra_voice,
+    policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::replay::Replay;
@@ -55,44 +55,6 @@ const COUNT_FIELDS: [&str; 4] = [
 /// fixed marker rather than a hook's prose, and it is what tells a hook block
 /// from a tool that failed on its own.
 const BLOCKED_BY_HOOK: &str = "Agent note: Do not suggest workarounds to the blocked tool.";
-
-/// The codes the gate writes, so that a `hydra/` inside somebody else's prose,
-/// such as a guard quoting `~/hydra/runs`, is not mistaken for Hydra's voice.
-const GATE_CODES: &[&str] = &[
-    "allow",
-    "capability",
-    "out-of-scope",
-    "protected-path",
-    "floor",
-    "no-path",
-    "unknown-tool",
-    "gate-tampered",
-    "no-tool-name",
-    "bad-payload",
-    "wrong-dialect",
-];
-
-/// The gate's own code inside a Cursor refusal text, wherever it sits.
-///
-/// Cursor concatenates every hook's message into one reason, so Hydra's answer
-/// can arrive behind `Command execution was blocked by a hook: ` or after
-/// another hook's paragraph. The prefix is a machine-readable code ticket 01
-/// made stable, which is what 7.7 allows a reader to key on; the prose after it
-/// is what 7.7 forbids.
-pub fn hydra_voice(text: &str) -> Option<&'static str> {
-    let mut rest = text;
-    while let Some(at) = rest.find("hydra/") {
-        let after = &rest[at + "hydra/".len()..];
-        if let Some(colon) = after.find(':') {
-            let code = &after[..colon];
-            if let Some(known) = GATE_CODES.iter().find(|known| **known == code) {
-                return Some(known);
-            }
-        }
-        rest = after;
-    }
-    None
-}
 
 /// A refusal the record shows, as against one the policy implies.
 struct Refusal {
@@ -792,39 +754,6 @@ fn usage_of(seq: u64, result: &Value) -> Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Every `hydra/<code>:` a text carries.
-    fn codes_in(text: &str) -> std::collections::BTreeSet<String> {
-        let mut found = std::collections::BTreeSet::new();
-        let mut rest = text;
-        while let Some(at) = rest.find("hydra/") {
-            let after = &rest[at + "hydra/".len()..];
-            let code: String = after
-                .chars()
-                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
-                .collect();
-            if !code.is_empty() && after[code.len()..].starts_with(':') {
-                found.insert(code);
-            }
-            rest = after;
-        }
-        found
-    }
-
-    #[test]
-    fn the_known_codes_are_exactly_the_ones_the_gate_and_its_wrapper_write() {
-        // `GATE_CODES` is a hand copy, and a code added to the script without a
-        // row here would make a real refusal read as somebody else's.
-        let mut written = codes_in(include_str!("../policy/gate.py"));
-        written.extend(codes_in(&crate::policy::hook_command(
-            std::path::Path::new("/tmp/gate"),
-            "sha",
-            crate::policy::Dialect::Cursor,
-        )));
-        let known: std::collections::BTreeSet<String> =
-            GATE_CODES.iter().map(|code| code.to_string()).collect();
-        assert_eq!(written, known);
-    }
 
     #[test]
     fn hydras_voice_is_found_behind_cursors_own_prefix_and_nowhere_it_is_not() {

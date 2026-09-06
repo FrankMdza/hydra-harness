@@ -10,9 +10,9 @@ the Rust that implements six of that design's eleven commands: `run`, `status`, 
 `prune` and `curate`.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
-design and the code. The code is deliberately not spec-complete: a gated `claude` run and a gated
-`cursor-agent` run both work end to end and detached, with skills and MCP both injected and one
-provider unrouted, so that file says what a record does and does not carry.
+design and the code. The code is deliberately not spec-complete: all three providers are routed and
+gated, with skills and MCP injected into each, so that file says what a record does and does not
+carry and which of the three has never written one.
 
 The three documents are the design. `docs/harness-spec.md` is how Hydra launches, feeds and records
 the providers; `docs/run-record-contract.md` is the format it writes and Ouroboros reads;
@@ -26,14 +26,15 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map is open again at 40 of 46, and nothing open blocks the build.** It reached its
+**The map is open again at 41 of 46, and nothing open blocks the build.** It reached its
 destination on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a
 decision rather than an implementation, which is the one condition for reopening it. Tickets 39 to
 43 are those, three of them about what a policy scope is and who gets to know, one about provider
-drift. Ticket 39 closed on 2026-09-06 and build ticket 13 carries its code; 44 closed the same day
-by ruling out a TUI of Hydra's own; 45 is a task and 46 a grilling, both open. The map's own
-paragraph under `## Destination` says which is which, and 40 and 42 each carry a prepared brief a
-resolving session starts from.
+drift. Ticket 39 closed on 2026-09-06 and build ticket 13 carries its code; 44 and 45 closed the
+same day, one ruling out a TUI of Hydra's own and one measuring Herdr and Hunk against what it
+assumed. **Every open ticket is now a grilling, so every one of them needs the human.** The map's
+own paragraph under `## Destination` says where each stands, and 40 and 42 each carry a prepared
+brief a resolving session starts from.
 
 **Wayfinder is still not how the build continues**: it charts decisions, its tickets resolve
 questions rather than execute slices, and its own instructions say the pull to just do the work is
@@ -69,10 +70,11 @@ document and there should not be one.
   the detached half that owns the pty and the record; `live.rs` is the pid liveness test everything
   else reads; `reap.rs` and `prune.rs` are the two cleanup commands, typed by a human and
   reached from nowhere but `main`; `record/` is the run record and the validator the tests
-  drive; `env.rs` is the allowlist; `pty.rs` owns the child's pty; `provider/claude.rs` and
-  `provider/cursor.rs` hold every fact that is true of one binary and not of a model, and
-  `normalize/claude.rs` and `normalize/cursor.rs` read each one's records back; `policy/` loads
-  the policy set, owns the capability table per provider, and compiles the gate script;
+  drive; `env.rs` is the allowlist; `pty.rs` owns the child's pty; `provider/claude.rs`,
+  `provider/cursor.rs` and `provider/agy.rs` hold every fact that is true of one binary and
+  not of a model, and the three files beside them in `normalize/` read each one's records
+  back; `policy/` loads the policy set, owns the capability table per provider, and compiles
+  the gate script;
   `skills/` is the store, the per-sha snapshot, the read-only index over the user's own skill
   roots and the collision check;
   `mcp.rs` reads the canonical MCP document and decides what one launch is handed;
@@ -113,7 +115,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 40 of 46 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 41 of 46 resolved
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 

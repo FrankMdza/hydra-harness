@@ -78,12 +78,12 @@ Provider versions this build has been measured against:
 |---|---|---|
 | `claude` | 2.1.263 | 2026-09-06. The specs were written against 2.1.257. Every flag in 6.7 still runs, and one claim about a flag has expired: `--restricted` no longer drops MCP, which the section on `judge` below has |
 | `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-06, unchanged since 2026-09-02. Routed by ticket 09 on this build; the section on it below says what was measured and what was read off the bundle |
-| `agy` | 1.1.26 | 2026-09-06, unchanged since 2026-09-04 |
+| `agy` | 1.1.26, then 1.1.27 | 2026-09-06. Routed by ticket 10, and **it self-updated in the middle of that ticket**: the probes below were measured on 1.1.26 and the recorded run an hour later reported 1.1.27. Every measured claim held across the move, and the section on it says which came from which build |
 
 ## The commands
 
 ```
-hydra run --provider <claude|cursor-agent> --task "..." [--model <id>] [--policy <name>]
+hydra run --provider <claude|cursor-agent|agy> --task "..." [--model <id>] [--policy <name>]
           [--timeout <dur>] [--allow-floor-escape]
 hydra status [<run-id>]
 hydra logs <run-id> [--follow]
@@ -125,10 +125,10 @@ a branch in the skill store that a human merges or does not. `--dry-run` reads t
 corpus and launches nothing, which is the only half that works before ticket 07
 creates the store.
 
-`cursor-agent` is routed as of ticket 09, and the section on it below is the one to read
-before trusting a record it wrote. `agy` is routable in the design and refused here by
-name, with an error that says which ticket it is waiting on rather than that the
-provider is unknown.
+`cursor-agent` is routed as of ticket 09 and `agy` as of ticket 10, and each has a
+section below that is the one to read before trusting a record it wrote. All three of the
+design's routable providers are now routed; `hermes` is the fourth that ticket 22
+unrouted, and its name still comes back as an unknown provider.
 
 ## Cleanup: `hydra reap` and `hydra prune`
 
@@ -920,6 +920,256 @@ as well as the permission layer.
 
 **`permissionMode: "default"` on every init frame is the hardcoded literal research
 01 found**, and it still lies under `--force` on this build. Nothing reads it.
+
+## `agy`, the third provider
+
+Ticket 10. `src/provider/agy.rs` holds every fact that is true of that binary,
+`src/normalize/agy.rs` reads its records back, and `src/policy/table.rs` carries its
+capability table beside the other two. Every claim below was measured on 1.1.26 on
+2026-09-06 unless it says otherwise.
+
+**This provider self-updated in the middle of the ticket, which is the ticket's own
+warning arriving on schedule.** The probes ran against 1.1.26 and the recorded run an
+hour later reported 1.1.27. Nothing measured changed across the move: the fifty-seven
+tool names on the init frame are identical, the hook config format still loads, the four
+argument field names still arrive, and the gate still refused two calls out of three. So
+every number below is a 1.1.26 measurement confirmed on 1.1.27 unless it names one build.
+
+**One paid probe, five free ones, and one recorded run.** The paid probe ran in a scratch
+directory under `--model gemini-3.8-flash-low` with a `PreToolUse` hook that logged its
+stdin and answered `allow`, and it is where the tool argument names, the stream shapes and
+the error strings come from. The free ones are the read-only slash commands: `/hooks`
+before and after writing a config, with and without `--add-dir`, and `/skills` with an
+injected skill in the tree. Every one came back `num_turns: 0` with every count in `usage`
+at zero, which is what makes the gate-mount check below free.
+
+**The recorded run is `01a07915-c9cf-7cc0-b156-204771091a76`**, `read-only`,
+`--model gemini-3.8-flash-low`, on 1.1.27. It was asked to read `Cargo.toml`, read
+`/etc/hosts` and write a file. The first went through, the second came back
+`hydra/out-of-scope` and the third `hydra/capability`, both denials carrying Hydra's reason
+verbatim inside the tool error behind the provider's own `tool call denied by pre-tool
+hook: ` prefix. The record is 14 lines, `completed` with two `hydra_policy` denies beside
+one allow and no finding, `usage_source: provider` at 29,133 input and 353 output, 8.4
+seconds from line 0 to `run_end`, and `diff_stat` empty because the one thing the run tried
+to write was refused. It passes the contract checker and both corpus walks.
+
+**`permission_mode` reads `always-proceed` under `--dangerously-skip-permissions`**, where
+the same field reads `request-review` without it. Nothing reads the field; it is here
+because research 26 recorded only the second value and a reader who found the first would
+go looking for a bug.
+
+### The hook config format, and a correction to research 26
+
+**The file is a JSON object keyed by hook name.** Research 26 read the `/hooks` listing
+and recorded its shape as the input format, which it is not. The binary's own embedded
+`Lifecycle Hooks (hooks.json)` reference says each top-level key is a hook name carrying
+event arrays, and a `PreToolUse` entry wraps its handlers in a `matcher` group:
+
+```json
+{ "hydra-gate": { "enabled": true,
+  "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": "..." } ] } ] } }
+```
+
+The listing's shape, with `name`, `enabled`, `source` and a flat `actions` array, is the
+output. **Written in the output shape the file loads as nothing**: `hooks: []`, no error,
+which is how this was found. The handler field is `timeout` and not the listing's
+`timeout_seconds`, seconds, default 30, left at the default. The working directory of the
+hook command is the directory holding `hooks.json`, so `.agents/`, which is why Hydra's
+command names the gate by absolute path.
+
+**`--add-dir` is still required and cwd is still not enough**, re-measured on this build:
+the same `hooks.json` in cwd listed as `hooks: []`, and listed in full the moment the
+directory arrived on the flag. That is the ticket's worst failure mode, a gate nothing
+loaded with nothing anywhere saying so.
+
+**So the gate mount is checked before every `agy` spawn, and this is a departure the
+spec does not ask for.** 6.5 gives the fatal pre-flight to Cursor alone and 6.6 only
+notes the empty listing. But `agy -p="/hooks"` costs nothing, and the failure it rules
+out is a run that looks gated and is not, so `run.rs` runs it after writing the config
+and compares the listing's `source` against the file Hydra wrote. A launch that fails it
+writes a record through `never_started` and derives `failed`, which is the shape a spawn
+that could not fork already gets: it is not one of contract 6's four refusals and it is
+not dressed as one. The check is on the source path rather than the hook's name, because
+a hook of Hydra's name coming out of somebody else's file would pass a name check and
+gate nothing.
+
+### What the gate reads, and the four field names it was given
+
+**The payload is a different shape from the other two providers'**, camelCase protojson
+with the call nested under `toolCall` and no `cwd` field at all. `gate.py`'s
+`as_tool_call` unwraps it and takes the cwd from `args.Cwd` when the tool sends one, then
+from `workspacePaths[0]`, which is the directory Hydra passed on `--add-dir`. It keys on
+the payload rather than on the dialect, so the same script answers a live hook and
+contract 7.7's read-time replay, which sends the normalized shape for every provider.
+
+**The four measured argument names**, off real hook payloads:
+`run_command(CommandLine, Cwd)`, `view_file(AbsolutePath)`, `list_dir(DirectoryPath)`,
+`write_to_file(TargetFile, CodeContent, Overwrite)`. The rest of the table's path fields
+come off the binary's own `jsonschema` struct tags, which is the same class of evidence
+Cursor's rows come from: `SearchDirectory` for `grep_search` and `find_by_name`,
+`TargetFile` for the three editing tools, `NotebookPath` for `notebook_edit`. A wrong
+field name here is a `hydra/no-path` deny on every scoped policy, which fails closed and
+makes the provider unusable rather than unsafe, and `tests/gate.rs` drives the measured
+four both inside and outside the worktree.
+
+**Fifty-seven tools on the init frame**, against research 20's fifty-six on a Claude id
+two days earlier; `list_permissions` is the difference and whether it is new or
+model-dependent is unmeasured. Like `claude`, this provider lists them all at process
+start, so the normalizer compares the list against the table and a rename comes back as
+a finding on the first record written after it.
+
+**MCP is a tool name here rather than a prefix.** `call_mcp_tool` is a row in the table,
+so `Table::mcp_prefix` became an `Option` and this provider's compiled config carries
+null. An empty string there would have matched every tool name and called the whole
+provider an MCP call.
+
+**Three of the fifty-seven are `shell` and carry no command for the floor to read.**
+`send_command_input` writes stdin to a command already running, `command_status` collects
+its output, and `notebook_execution` runs the notebook's code. They are `shell` so that
+no policy denying shell hands a run half of it, and 7.4's named failure mode applies to
+all three. `execute_browser_javascript` is worse and is `provider_native`: it runs code
+the model wrote, which only `permissive` grants, and the floor cannot see inside a
+JavaScript string in a page.
+
+### The stream, and what the adapter makes of it
+
+**One frame type carries almost everything.** `step_update` is the message, the tool
+call, the tool result and the usage, told apart by `step_type` and `state`. `init` has
+the model, the conversation id and the tool list; `result` closes the run.
+
+**`text_delta` is a buffered flush** (contract 7.3), and the adapter concatenates over
+`step_index` into one `message` with the step index on `Message::block`. Measured: an
+`agent_response` step whose whole job was to call a tool carries no `text_delta` on
+either frame, so a step with nothing to concatenate produces no message rather than an
+empty one.
+
+**The pairing is `step_index` because there is no id**, so the `call_id` is the step
+index as a string: unique inside one run and meaningless outside it.
+
+**The stream's `tool_info.parameters` is a subset of the hook's args.** The hook payload
+for `write_to_file` carried five fields and the frame carried `TargetFile` alone;
+`run_command`'s hook payload carried `Cwd` and the frame did not. Every path field the
+gate reads survives, which is what keeps 7.7's re-evaluation answerable, and the `Cwd`
+that does not survive is the run's own checkout on every launch Hydra makes.
+
+**Usage is summed and no frame names it** (contract 9.2). Measured twice. The paid
+probe's four `agent_response` steps summed to input 41,945, output 455, cache read 16,254
+and total 42,400, and its `result.usage` reported exactly those four; the recorded run's
+two steps summed to 14,072 plus 15,061 input and 269 plus 84 output, and its `result.usage`
+reported 29,133 and 353. So on a fresh run the two agree, and 9.2's warning is about a
+resumed one, where `result` carries the predecessor's tokens as well. The single `Usage`
+event therefore carries real counts with `seq: None`, a combination no other adapter
+produces: there is no one frame to point at, and naming the last step would point at a
+frame that reported a fraction of the total.
+
+**`text_delta` split mid-word on the recorded run**, between `...204771091` and
+`1a76/Cargo.toml...`, in the middle of a file URL. Research 20's one sample split at a
+newline, which left open the reading that the frames are whole lines. They are not. The
+concatenation over `step_index` is load-bearing rather than tidy, and a reader that treated
+each frame as a message would report two messages, one of them a truncated path.
+
+**`cache_write_tokens` stays absent rather than becoming zero**, which section 9's table
+asks for, and `thinking_tokens` was 0 on every step of a non-thinking model.
+
+**Contract 7.6's `unclassified` earned its place in one run.** `write_to_file` failed
+with `declaring permissions: cortex tool write_to_file: ... is not a valid artifact
+path` and `run_command` failed with `permission check failed for command ...: user denied
+permission to run command`. Same `state: ERROR`, same `error.type: TOOL_ERROR`, both
+containing the word "permission", and one is a headless refusal while the other is the
+provider rejecting an argument. So the adapter classifies an error only when it carries
+Hydra's own `hydra/<code>:` prefix, the provider's `denied by pre-tool hook` marker, or
+the `jsonhook__` id it names a failing hook by; everything else is `unclassified`. That
+changes one finding: an `unclassified` result under a policy that denies the call is
+**not** reported as a gate leak, because the shape a denial and a failure share is no
+evidence either way. A `Finding::Limit` says so instead.
+
+**`agy` reports how its run went in a field of its own.** The terminator carries `status`,
+`SUCCESS` or `ERROR`, with an `error` string beside it, and no `is_error` at any level;
+measured on a slash command it refused in print mode. `outcome::derive` reads it on this
+provider alone, because `claude` puts `subtype` in the same role and it says `success` on
+a 429. `SUCCESS` on its own is worth nothing: ticket 26 measured a run reporting it with
+every tool call denied and exit 0, which is why `refused_everything` is checked first.
+
+**A rate-limited or logged-out `agy` run has no measured shape.** `provider_refused`
+keys on `api_error_status`, which this provider does not write, and nothing was measured
+on either path. So a run refused for quota comes out `failed` today, which is the
+mistake contract 8 exists to prevent, and it is a gap rather than a decision.
+
+### What it writes, where, and what it refuses
+
+**`.agents/` holds three of Hydra's files and the ignore file lists two by name.** The
+skill root at `.agents/skills/` ignores itself with `*` (6.4), and `.agents/.gitignore`
+lists `/hooks.json`, `/mcp_config.json` and itself, for the reason Cursor's does: this
+provider reads `rules/`, `plugins/` and `workflows/` out of the same directory, and a
+`*` there would hide a file the child created from the commit `hydra reap` makes.
+
+**The MCP config is `<worktree>/.agents/mcp_config.json` with `serverUrl`** on a remote
+server, which is this provider's own spelling of what Cursor calls `url`. A server naming
+both a command and a url cannot reach the writer: `mcp::Document` refuses that pair at
+parse time with `agy` in the error.
+
+**A run outside a git repo is refused before a run id exists**, the same as
+`cursor-agent`, and `worktree_preconditions` is now one function for both: no repo means
+nowhere Hydra owns to put a gate, and a repo already carrying the provider's own
+`hooks.json` or `mcp_config.json` is refused too.
+
+**Both free probes run under the environment the run will get, and both are bounded by
+the provider's own flag.** `ChildEnv::build` is called inside the probe the way
+`claude::resolve` calls it, because inheriting Hydra's environment would hand the probe the
+`GEMINI_API_KEY` on line 1 of `~/.zshrc` and let it authenticate by a route the child
+cannot: the answer would then be about a different process than the run. Measured after the
+scrub: the `/skills` listing still returned all eleven names, so this provider reads the
+keychain under `HOME` and the key was never what authenticated it. `--print-timeout 30s`
+bounds the print-mode wait, because both probes sit on the foreground launch path after the
+worktree exists and a hang there would leave an orphan checkout and no run id to type. A
+hang before print mode begins is still unbounded, which is a gap `cursor-agent`'s
+pre-flight shares.
+
+**The skill listing is free and the MCP set has no free route at all.**
+`agy --add-dir <worktree> -p="/skills" --output-format json` answered with one record per
+surviving skill, keyed on the frontmatter `name`, with the injected probe skill among
+them, for zero tokens. The MCP half is worse than research 23 found: on 1.1.26 `/mcp` is
+refused in print mode outright, `/mcp is not available in print mode (it opens the
+interactive MCP server view)`, so the four paid turns that ticket spent are no longer
+even available. `mcp.resolved` is null on every `agy` record, which contract 5.3 requires
+a reader to treat as unanswered rather than as an empty listing.
+
+**The environment is the base four and the proxies.** No `NODE_EXTRA_CA_CERTS`: 6.2 gives
+it to "the two Node providers" and this binary is a 177 MB arm64 Mach-O built from Go.
+No `SHELL` or `TMPDIR`, which 6.2 gives `claude` alone. `HOME` matters more here than
+anywhere, because this provider hard-fails without it and every path it uses is hardcoded
+under `~/.gemini/`, which is why 6.2 rules out the only lever there is.
+
+**6.5's inherited-server residue is this provider's alone and nothing changed it.**
+`claude` closes it with `--strict-mcp-config` and Cursor under the data-directory
+redirect; this one has neither, and Hydra still never calls `agy mcp disable`, because
+that command is global rather than per run.
+
+### 19.3's three unverified facts, still three
+
+None of the three moved, and one gained a neighbour.
+
+`--effort` exists on this build with `low|medium|high` and is documented as "Reasoning
+effort for the current CLI session". Whether it does anything to a Claude model id needs
+two paid runs on such an id and was not spent. **Caveat.**
+
+`thinking_tokens` was 0 on every step of the measured run, on `gemini-3.8-flash-low`,
+which is a non-thinking model and therefore says nothing about whether the field is
+unwired for Claude ids. **Caveat.**
+
+The 16,338-token floor on a resumed `--conversation` run was not measured, and neither
+`--conversation` nor `--continue` is reachable from Hydra, which mints a fresh run id per
+resume.
+
+**What did land is a pattern nobody has an explanation for: `cache_read_tokens`
+alternates step to step inside one run.** Across three runs, every step that reported a
+cache read reported about 8,120 of them beside roughly 6,000 input, and every step that
+reported zero reported roughly 14,000 input. The paid probe alternated 8,131 / 0 / 8,123 /
+0 across four steps; the recorded `read-only` run reported zero on both of its steps; a
+third run reported zero on three steps and 8,120 on the fourth. So the two numbers sum to
+about the same prompt either way, which points at a cache hit being reported rather than
+avoided, and it is not keyed on the conversation, the run or the clock. **Caveat, and one
+worth a ticket if anyone ever wants to cost an `agy` run.**
 
 ## What the record does not carry
 
@@ -1841,8 +2091,9 @@ Out of scope for this slice, and each one has a document that already says what 
 - Two of harness spec 6.1's seven pre-flight checks. Auth, depth and policy containment
   belong to tickets that are not built. What runs before a spawn today is the
   environment, the provider version, the policy name, the preamble file, the MCP
-  document, the concurrency cap, the skill collision check, the MCP launch check and,
-  on `cursor-agent`, item 7's fatal pre-flight.
+  document, the concurrency cap, the skill collision check, the MCP launch check,
+  on `cursor-agent`, item 7's fatal pre-flight, and on `agy`, the free gate-mount check
+  the spec does not ask for and the section on that provider argues for.
 - Delegation: `--parent`, depth, monotonic narrowing, the MCP delegate face. 7.3, 9.
 - Every one of contract 8's nine outcomes has a producer now. `mcp_unavailable` was the
   last without one and it arrives through `run_end.refusal`, written by 6.1 item 6 when
@@ -1851,8 +2102,14 @@ Out of scope for this slice, and each one has a document that already says what 
   argues. No record on this machine carries `mcp_unavailable`: `tests/mcp.rs` drives the
   refusal against a fixture document, and the shipped document admits nothing to
   anybody, so producing one for real means a human adding a server.
-- The `agy` adapter, ticket 10, and harvest, 12. Contract 7.2's third column and 7.2.1's
-  transcript vocabulary have no reader.
+- Harvest, ticket 12. Contract 7.2.1's transcript vocabulary has no reader on any
+  provider. All three of 7.2's stream columns are read now, `agy`'s as of ticket 10.
+- A rate-limited or logged-out `agy` run. `provider_refused` keys on `api_error_status`,
+  which that provider does not write, and neither path has been measured, so a run
+  refused for quota comes out `failed`.
+- Nothing about `agy` is unbuilt. One recorded run exists, `read-only`, and no `agy` run
+  under any other policy has been made, so `standard` and `permissive` on that provider
+  are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
 - Interactive runs and harvest. 5.6, 12.
 - Five of harness spec 17's eleven commands: `show`, `resume`, `evolve`, `export`
   and `usage recount`.
@@ -1863,6 +2120,15 @@ Out of scope for this slice, and each one has a document that already says what 
   document rather than code: nothing reads it, because nothing reviews yet.
 
 ## Rough edges worth knowing
+
+- **`hydra reap` stages with `git add -A`, so a Hydra file the checkout does not ignore
+  reaches the human's branch.** Hydra drops a `.gitignore` naming its own files into
+  `.cursor/` and `.agents/`, and leaves an existing one alone rather than editing the
+  human's file. A repo that carries its own ignore file in either directory therefore
+  gets Hydra's hook config and MCP server list committed onto `hydra/<run-id>` by reap.
+  `provider::claim` now reads that file and warns, naming the line to add, and the real
+  fix is for reap to exclude Hydra's own paths from what it stages. Nothing has hit this
+  on this machine, because neither directory exists in this repo.
 
 - **`~/hydra` is this checkout on the machine this is developed on**, so everything
   harness spec 5 writes lands inside the source repo and `.gitignore` is what keeps it

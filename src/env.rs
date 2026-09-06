@@ -71,6 +71,13 @@ impl ChildEnv {
             // The other Node provider. `SHELL` and `TMPDIR` stay off: 6.2 gives
             // both to `claude` alone.
             Provider::CursorAgent => names.push(NODE_CA),
+            // The base four and the proxies, and nothing else. 6.2 gives
+            // `NODE_EXTRA_CA_CERTS` to "the two Node providers", and this is not
+            // one of them: the binary is a 177 MB arm64 Mach-O executable built
+            // from Go, checked on 2026-09-06. `HOME` matters more here than
+            // anywhere, because this provider hard-fails without it and its
+            // paths are all hardcoded under `~/.gemini/`.
+            Provider::Agy => {}
         }
         names.extend_from_slice(PROXY);
 
@@ -207,6 +214,30 @@ mod tests {
             assert!(allowed.contains(&name), "{name} is not on cursor's allowlist");
         }
         for leaked in ["CURSOR_AUTH_TOKEN", "CURSOR_API_KEY", "NODE_OPTIONS", "SHELL", "TMPDIR"] {
+            assert!(!built.vars.contains_key(leaked), "{leaked} reached the child");
+        }
+    }
+
+    #[test]
+    fn agy_gets_the_base_four_and_the_proxies_and_nothing_else() {
+        let built = ChildEnv::build(Provider::Agy).unwrap();
+        let allowed: Vec<&str> = BASE.iter().chain(PROXY).copied().collect();
+        for (name, _) in built.vars() {
+            assert!(allowed.contains(&name), "{name} is not on agy's allowlist");
+        }
+        // The Google key on line 1 of `~/.zshrc` is this provider's own secret
+        // and the scrub is what makes D6 true rather than assumed. `AGY_ADC_AUTH`
+        // is the real auth switch and Hydra never sets it; `EDITOR` would hang a
+        // detached child on an editor nobody is watching.
+        for leaked in [
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "AGY_ADC_AUTH",
+            "EDITOR",
+            "NODE_EXTRA_CA_CERTS",
+            "SHELL",
+            "TMPDIR",
+        ] {
             assert!(!built.vars.contains_key(leaked), "{leaked} reached the child");
         }
     }

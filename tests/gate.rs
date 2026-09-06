@@ -124,6 +124,58 @@ impl Gate {
         Self::compile_for(Provider::CursorAgent, policy, false)
     }
 
+    /// A gate compiled for `agy`, which answers `decision` plus `reason`.
+    fn agy(policy: &str) -> Self {
+        Self::compile_for(Provider::Agy, policy, false)
+    }
+
+    /// One skill linked into `agy`'s own root rather than `claude`'s, so a read
+    /// through the link is the same question on this provider's spelling.
+    fn link_agy_skill(&self, name: &str) -> PathBuf {
+        let source = self.snapshot.join(name);
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("SKILL.md"), "---\nname: x\n---\nbody\n").unwrap();
+        let root = self.worktree.join(".agents/skills");
+        std::fs::create_dir_all(&root).unwrap();
+        let link = root.join(name);
+        std::os::unix::fs::symlink(&source, &link).unwrap();
+        link
+    }
+
+    /// Asks in the `agy` dialect and reads its response shape, which the
+    /// binary's own embedded reference documents: `decision` plus `reason`.
+    fn agy_ask(&self, payload: Value) -> Decision {
+        let (value, exit) = self.raw_answer(Some("agy"), payload);
+        let decision = value["decision"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no decision field in {value}"))
+            .to_string();
+        assert!(
+            value.get("overwrite").is_none(),
+            "6.6 forbids `overwrite`, which would rewrite the call the record shows: {value}"
+        );
+        Decision {
+            allowed: decision == "allow",
+            reason: value["reason"].as_str().unwrap_or_default().to_string(),
+            exit,
+        }
+    }
+
+    /// A `PreToolUse` payload in the shape measured on 1.1.26 on 2026-09-06:
+    /// camelCase protojson, the call nested under `toolCall`, no `cwd` field,
+    /// and `workspacePaths` carrying the directory passed on `--add-dir`.
+    fn agy_tool(&self, tool: &str, args: Value) -> Decision {
+        self.agy_ask(json!({
+            "artifactDirectoryPath": "/Users/probe/.gemini/antigravity-cli/brain/b631e11b",
+            "conversationId": "b631e11b-4a99-43db-9f37-11a373cdd98a",
+            "modelName": "gemini-3.8-flash-low",
+            "stepIdx": 2,
+            "toolCall": { "name": tool, "args": args },
+            "transcriptPath": "/Users/probe/.gemini/antigravity-cli/brain/b631e11b/t.jsonl",
+            "workspacePaths": [self.worktree.to_string_lossy()],
+        }))
+    }
+
     /// Runs the script in a dialect and hands back the first line it printed.
     fn raw_answer(&self, dialect: Option<&str>, payload: Value) -> (Value, i32) {
         let mut command = Command::new(SHEBANG_PYTHON);
@@ -1176,3 +1228,234 @@ fn ordinary_shell_is_left_alone() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// The agy dialect, harness spec 6.6, measured on 1.1.26
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_agy_gate_answers_in_the_shape_its_own_reference_documents() {
+    let gate = Gate::agy("standard");
+    let decision = gate.agy_tool(
+        "run_command",
+        json!({
+            "CommandLine": "echo T10PROBE",
+            "Cwd": gate.worktree.to_string_lossy(),
+            "WaitMsBeforeAsync": 5000,
+        }),
+    );
+    assert!(decision.allowed, "{}", decision.reason);
+    assert!(decision.reason.starts_with("hydra/allow:"));
+    assert_eq!(decision.exit, 0);
+}
+
+#[test]
+fn the_call_is_read_out_of_the_nested_toolcall_and_not_beside_it() {
+    // The payload this provider sends carries no `tool_name`, no `tool_input`
+    // and no `cwd`. A gate that read the claude shape here would find no tool
+    // name and deny everything, which fails closed and gates nothing usefully.
+    let gate = Gate::agy("read-only");
+    let inside = gate.worktree.join("a.txt");
+    let read = gate.agy_tool(
+        "view_file",
+        json!({ "AbsolutePath": inside.to_string_lossy() }),
+    );
+    assert!(read.allowed, "{}", read.reason);
+    assert!(
+        !read.denied_for("hydra/no-tool-name"),
+        "the nested toolCall was not unwrapped: {}",
+        read.reason
+    );
+
+    let outside = gate.agy_tool("view_file", json!({ "AbsolutePath": "/etc/hosts" }));
+    assert!(outside.denied_for("hydra/out-of-scope"), "{}", outside.reason);
+}
+
+#[test]
+fn agys_measured_field_names_are_the_ones_the_gate_reads() {
+    // The four measured on a real hook payload, each with the field the gate
+    // scopes on. A wrong field name here is a `hydra/no-path` deny on every
+    // scoped policy, which fails closed and makes the provider unusable.
+    let gate = Gate::agy("standard");
+    let inside = gate.worktree.join("probe.txt");
+    for (tool, args) in [
+        (
+            "view_file",
+            json!({ "AbsolutePath": inside.to_string_lossy() }),
+        ),
+        (
+            "list_dir",
+            json!({ "DirectoryPath": gate.worktree.to_string_lossy() }),
+        ),
+        (
+            "write_to_file",
+            json!({ "TargetFile": inside.to_string_lossy(), "CodeContent": "x" }),
+        ),
+    ] {
+        let decision = gate.agy_tool(tool, args);
+        assert!(decision.allowed, "{tool}: {}", decision.reason);
+    }
+    // And the same three outside it, which the scope refuses.
+    for (tool, args) in [
+        ("view_file", json!({ "AbsolutePath": "/etc/hosts" })),
+        ("list_dir", json!({ "DirectoryPath": "/etc" })),
+        (
+            "write_to_file",
+            json!({ "TargetFile": "/tmp/t10-outside.txt", "CodeContent": "x" }),
+        ),
+    ] {
+        let decision = gate.agy_tool(tool, args);
+        assert!(
+            decision.denied_for("hydra/out-of-scope"),
+            "{tool}: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_relative_path_resolves_against_the_workspace_the_flag_named() {
+    // No `cwd` field on this provider's payload, so the gate reads
+    // `args.Cwd` when the tool sends one and `workspacePaths[0]` otherwise.
+    // Without either, a relative path would resolve against whatever directory
+    // the gate process happened to start in, which is `.agents/`.
+    let gate = Gate::agy("read-only");
+    let inside = gate.agy_tool("view_file", json!({ "AbsolutePath": "a.txt" }));
+    assert!(inside.allowed, "{}", inside.reason);
+
+    let outside = gate.agy_tool("view_file", json!({ "AbsolutePath": "../escape.txt" }));
+    assert!(outside.denied_for("hydra/out-of-scope"), "{}", outside.reason);
+}
+
+#[test]
+fn agy_names_its_mcp_tool_and_carries_no_prefix() {
+    // `call_mcp_tool` is a row in the table rather than a prefix, so this
+    // provider's compiled config has no `mcp_prefix` at all. An empty string
+    // there would have matched every tool name and called the whole provider an
+    // MCP call.
+    let standard = Gate::agy("standard");
+    assert!(
+        standard
+            .agy_tool("call_mcp_tool", json!({}))
+            .denied_for("hydra/capability")
+    );
+    assert!(
+        Gate::agy("permissive")
+            .agy_tool("call_mcp_tool", json!({}))
+            .allowed
+    );
+    // The other two providers' spellings mean nothing here.
+    assert!(
+        Gate::agy("permissive")
+            .agy_tool("mcp__hydra__ping", json!({}))
+            .denied_for("hydra/unknown-tool")
+    );
+}
+
+#[test]
+fn the_seven_path_denials_hold_through_agys_shell_too() {
+    let gate = Gate::agy("permissive");
+    let target = gate.runs.join("r.jsonl");
+    let decision = gate.agy_tool(
+        "run_command",
+        json!({ "CommandLine": format!("echo x >> {}", target.display()) }),
+    );
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "{}",
+        decision.reason
+    );
+}
+
+#[test]
+fn the_pattern_floor_reads_agys_own_command_field() {
+    // `CommandLine`, not `command`. A floor pointed at the wrong field sees an
+    // empty string and refuses nothing.
+    let gate = Gate::agy("standard");
+    let decision = gate.agy_tool(
+        "run_command",
+        json!({ "CommandLine": "git push --force origin main" }),
+    );
+    assert!(decision.denied_for("hydra/floor"), "{}", decision.reason);
+}
+
+#[test]
+fn a_claude_tool_name_means_nothing_to_an_agy_gate() {
+    let gate = Gate::agy("permissive");
+    assert!(
+        gate.agy_tool("Bash", json!({ "command": "echo hi" }))
+            .denied_for("hydra/unknown-tool")
+    );
+}
+
+#[test]
+fn an_agy_gate_refuses_to_be_asked_in_another_dialect() {
+    let gate = Gate::agy("permissive");
+    let (value, _) = gate.raw_answer(
+        Some("claude"),
+        json!({ "tool_name": "run_command", "tool_input": { "CommandLine": "echo hi" } }),
+    );
+    assert_eq!(value["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(
+        value["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("hydra/wrong-dialect"),
+        "{value}"
+    );
+}
+
+#[test]
+fn a_read_through_an_agy_skill_link_lands_in_the_snapshot() {
+    // 6.4 and ticket 39, on this provider's root. The provider names the link
+    // path as the skill's base directory, and the gate resolves the link before
+    // comparing, so a sibling opened through it is inside the snapshot scope
+    // and the same path opened for writing is not.
+    let gate = Gate::agy("read-only");
+    let link = gate.link_agy_skill("t10-skill");
+    let read = gate.agy_tool(
+        "view_file",
+        json!({ "AbsolutePath": link.join("SKILL.md").to_string_lossy() }),
+    );
+    assert!(read.allowed, "{}", read.reason);
+
+    let write = Gate::agy("standard");
+    let link = write.link_agy_skill("t10-skill");
+    let refused = write.agy_tool(
+        "write_to_file",
+        json!({
+            "TargetFile": link.join("SKILL.md").to_string_lossy(),
+            "CodeContent": "rewritten",
+        }),
+    );
+    assert!(
+        refused.denied_for("hydra/out-of-scope"),
+        "a run may read its own skills and write nowhere near them: {}",
+        refused.reason
+    );
+}
+
+#[test]
+fn agys_subagent_tools_belong_to_permissive_alone() {
+    // 7.6: an in-process subagent gets no run id and writes no run file, so
+    // every policy but `permissive` refuses all four of this provider's
+    // spellings.
+    for tool in [
+        "define_subagent",
+        "invoke_subagent",
+        "manage_subagents",
+        "browser_subagent",
+    ] {
+        for policy in ["judge", "read-only", "standard", "curate"] {
+            let decision = Gate::agy(policy).agy_tool(tool, json!({}));
+            assert!(
+                decision.denied_for("hydra/capability"),
+                "{policy} allowed {tool}: {}",
+                decision.reason
+            );
+        }
+        assert!(
+            Gate::agy("permissive").agy_tool(tool, json!({})).allowed,
+            "{tool}"
+        );
+    }
+}

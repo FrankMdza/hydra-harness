@@ -32,8 +32,7 @@ pub struct Cli {
 pub enum Command {
     /// Launch a provider on a recorded run and write its run record.
     Run {
-        /// Which binary to route to: `claude` or `cursor-agent`. `agy` is
-        /// ticket 10.
+        /// Which binary to route to: `claude`, `cursor-agent` or `agy`.
         #[arg(long)]
         provider: String,
 

@@ -439,3 +439,187 @@ fn a_rewritten_gate_fails_closed() {
         "a deleted gate is the same case, got {answer:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// agy: the config lives in the worktree too, and the shape is its own
+// ---------------------------------------------------------------------------
+
+/// The gate command out of an `agy` hook config, which nests its handlers under
+/// a `matcher` group rather than listing them flat.
+fn agy_hook(config: &serde_json::Value) -> String {
+    config["hydra-gate"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no PreToolUse handler in {config}"))
+        .to_string()
+}
+
+#[test]
+fn an_agy_spawn_writes_the_hook_config_into_the_worktree() {
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Agy,
+        "standard",
+        Some(&worktree),
+        None,
+        false,
+    )
+    .unwrap();
+
+    // The script stays outside the worktree it guards (7.5); only the pointer
+    // goes inside, and this provider needs `--add-dir` to read even that.
+    assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
+    assert_eq!(spawn.hook_config, worktree.join(".agents/hooks.json"));
+    assert!(spawn.hook_config.is_file());
+    assert!(
+        !spawn
+            .hook_config
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "6.6 asks for real files, never links, on every provider"
+    );
+
+    let config = settings_of(&spawn.hook_config);
+    let command = agy_hook(&config);
+    assert!(command.contains(spawn.gate.to_str().unwrap()), "{command}");
+    // The dialect is on the command line and never inferred (6.6).
+    assert!(command.ends_with(" agy"), "{command}");
+    assert_eq!(config["hydra-gate"]["PreToolUse"][0]["matcher"], "*");
+    assert_eq!(config["hydra-gate"]["enabled"], true);
+    // The schema has no switch for failing closed, so nothing here writes one:
+    // a broken hook denies every tool on this provider and there is no flag.
+    assert!(!config.to_string().contains("failClosed"));
+
+    // The two files Hydra writes into `.agents/` are kept out of `git status` by
+    // name. A `*` here would hide anything the child wrote in a `.agents/` the
+    // human's repo tracks, and this provider reads `rules/` and `plugins/` out
+    // of the same directory.
+    let ignore = std::fs::read_to_string(worktree.join(".agents/.gitignore")).unwrap();
+    assert!(ignore.contains("/hooks.json"));
+    assert!(ignore.contains("/mcp_config.json"));
+    assert!(!ignore.contains('*'));
+}
+
+#[test]
+fn an_agy_spawn_without_a_worktree_is_refused() {
+    let (layout, _root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let err = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Agy,
+        "standard",
+        None,
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("worktree"), "{err:#}");
+}
+
+#[test]
+fn an_agy_checkout_that_already_holds_a_hook_config_is_refused() {
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(worktree.join(".agents")).unwrap();
+    std::fs::write(worktree.join(".agents/hooks.json"), "{}").unwrap();
+
+    let err = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Agy,
+        "standard",
+        Some(&worktree),
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err:#}");
+    assert_eq!(
+        std::fs::read_to_string(worktree.join(".agents/hooks.json")).unwrap(),
+        "{}",
+        "the human's file was touched"
+    );
+}
+
+#[test]
+fn the_agy_hook_command_gates_a_call_in_the_shape_the_provider_sends() {
+    // The command the config really carries, through a shell, with the payload
+    // measured on 1.1.26: the call nested under `toolCall`, camelCase, and no
+    // `cwd` field anywhere.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Agy,
+        "read-only",
+        Some(&worktree),
+        None,
+        false,
+    )
+    .unwrap();
+
+    let command = agy_hook(&settings_of(&spawn.hook_config));
+    let ask = |payload: String| {
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(payload.as_bytes())
+            .unwrap();
+        String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+    };
+
+    let inside = ask(format!(
+        r#"{{"toolCall":{{"name":"view_file","args":{{"AbsolutePath":"{}/a.txt"}}}},"stepIdx":2,"workspacePaths":["{}"]}}"#,
+        worktree.display(),
+        worktree.display()
+    ));
+    assert!(inside.contains("\"allow\""), "{inside}");
+
+    let outside = ask(format!(
+        r#"{{"toolCall":{{"name":"view_file","args":{{"AbsolutePath":"/etc/hosts"}}}},"stepIdx":3,"workspacePaths":["{}"]}}"#,
+        worktree.display()
+    ));
+    assert!(
+        outside.contains("\"deny\"") && outside.contains("hydra/out-of-scope"),
+        "{outside}"
+    );
+
+    // An emptied script is a deny in this provider's dialect too, and it is the
+    // wrapper rather than the gate that says so.
+    std::fs::write(&spawn.gate, "").unwrap();
+    let tampered = ask(format!(
+        r#"{{"toolCall":{{"name":"view_file","args":{{"AbsolutePath":"{}/a.txt"}}}},"stepIdx":4,"workspacePaths":["{}"]}}"#,
+        worktree.display(),
+        worktree.display()
+    ));
+    assert!(
+        tampered.contains("hydra/gate-tampered") && tampered.contains("\"deny\""),
+        "{tampered}"
+    );
+}

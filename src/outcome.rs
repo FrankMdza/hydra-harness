@@ -17,6 +17,7 @@
 //! a process that never started, and that reads only whether it exists.
 
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::normalize::{Decider, Decision, Finding, Message, Role, Run, UsageSource};
 use crate::record::Refusal;
@@ -181,8 +182,8 @@ pub fn derive(run: &Run) -> Option<Derived> {
                 // learn from.
                 cursor_stderr_refusal(run).unwrap_or(Outcome::Failed)
             } else {
-                // `claude` writes exactly one `result` frame on every path, so
-                // a child that ended without its terminator stopped before it
+                // `claude` and `agy` both write exactly one terminator frame on
+                // every path, so a child that ended without it stopped before it
                 // finished, and Hydra has nothing to say about why. That is the
                 // one shape where the process is the thing that stopped.
                 Outcome::Crashed
@@ -192,7 +193,19 @@ pub fn derive(run: &Run) -> Option<Derived> {
             // `is_error` is the provider's own word and the only honest thing on
             // the frame. `subtype` is not read anywhere: it reads `success` on a
             // 429, which is the nastiest shape in the contract.
-            if result["is_error"].as_bool() == Some(true) {
+            //
+            // **`agy` has no `is_error` and says it in a field of its own.**
+            // Its `result` frame carries `status`, `SUCCESS` or `ERROR`, with an
+            // `error` string beside it when it refused; measured on 1.1.26 on a
+            // command it would not run in print mode. Without this row an `agy`
+            // run that failed outright comes out `completed`, because
+            // `is_error` is absent rather than false. The reading is narrow on
+            // purpose: `SUCCESS` on that frame is worth nothing, since the same
+            // run reports it with every tool call denied, which is what
+            // `refused_everything` above is for.
+            if result["is_error"].as_bool() == Some(true)
+                || agy_status(run, result).is_some_and(|status| status != "SUCCESS")
+            {
                 Outcome::Failed
             } else {
                 Outcome::Completed
@@ -241,6 +254,21 @@ fn provider_refused(run: &Run) -> Option<Outcome> {
         // falls through to `is_error`. A 500 is not a refusal.
         _ => None,
     }
+}
+
+/// `agy`'s own word for how its run ended, on the one provider that reports it.
+///
+/// Read only on that provider, for two reasons. `status` is a field name the
+/// three spell differently, and `claude` puts `subtype` in the same role where it
+/// says `success` on a rate-limited run, which is the shape contract 8 warns
+/// hardest about. And the field is a level down: [`Run::result`] keeps the
+/// terminator frame verbatim, and this provider's frame is an `event` beside a
+/// `result` object rather than the object itself.
+fn agy_status<'a>(run: &Run, frame: &'a Value) -> Option<&'a str> {
+    if run.provider.as_deref() != Some("agy") {
+        return None;
+    }
+    frame["result"]["status"].as_str()
 }
 
 /// The two refusals `cursor-agent` reports on stderr and nowhere else.

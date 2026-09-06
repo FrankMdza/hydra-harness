@@ -16,8 +16,9 @@ use serde_json::json;
 
 mod common;
 use common::{
-    RUN_ID, Record, Sandbox, Shape, corpus, cursor_read_blocked, cursor_read_blocked_late,
-    cursor_read_ok, cursor_shell_rejected, cursor_usage, policies, usage_frame,
+    RUN_ID, Record, Sandbox, Shape, agy_usage, corpus, cursor_read_blocked,
+    cursor_read_blocked_late, cursor_read_ok, cursor_shell_rejected, cursor_usage, policies,
+    usage_frame,
 };
 
 // --- one frame at a time -------------------------------------------------
@@ -1021,7 +1022,10 @@ fn every_record_on_this_machine_normalizes() {
         let run = hydra::normalize::read_file(&path, &policies)
             .unwrap_or_else(|err| panic!("{} did not normalize: {err:#}", path.display()));
         assert!(
-            matches!(run.provider.as_deref(), Some("claude") | Some("cursor-agent")),
+            matches!(
+                run.provider.as_deref(),
+                Some("claude") | Some("cursor-agent") | Some("agy")
+            ),
             "{}: {:?}",
             path.display(),
             run.provider
@@ -1466,4 +1470,397 @@ fn a_call_with_no_id_still_gets_a_decision_and_says_what_it_lost() {
             .count(),
         2
     );
+}
+
+// --- agy, the third column of 7.2 -----------------------------------------
+
+/// The four tool names the measured run used, which is all the table check
+/// needs to pass: it compares the init frame's list against the table, and the
+/// full fifty-seven are asserted in `src/policy/table.rs` instead.
+const AGY_TOOLS: &[&str] = &["run_command", "view_file", "list_dir", "write_to_file"];
+
+#[test]
+fn an_agy_record_is_read_by_its_own_adapter() {
+    // The frames measured on 1.1.26 on 2026-09-06, with the paths shortened.
+    let sandbox = Sandbox::new("agy-read");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_init(AGY_TOOLS)
+        .agy_user()
+        .agy_response(1, &["DONE", "\n"], Some(agy_usage(5950, 89, 8131, 0)))
+        .agy_result("SUCCESS", "DONE\n", Some(agy_usage(5950, 89, 8131, 0)))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.provider.as_deref(), Some("agy"));
+    // No adapter-missing limit: the dispatch found one.
+    assert!(
+        !run.findings.iter().any(
+            |finding| matches!(finding, Finding::Limit(said) if said.contains("no adapter reads"))
+        ),
+        "{:?}",
+        run.findings
+    );
+    assert!(run.result.is_some());
+}
+
+#[test]
+fn text_deltas_concatenate_over_the_step_index_into_one_message() {
+    // Contract 7.3: `text_delta` is a buffered flush wearing a streaming name.
+    // Measured: a ten-line answer arrived whole in one ACTIVE frame and the
+    // DONE frame carried the trailing newline. One message, not two.
+    let sandbox = Sandbox::new("agy-message");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_response(1, &["one\ntwo\nthree", "\n"], Some(agy_usage(10, 5, 0, 0)))
+        .agy_response(3, &["and then this"], Some(agy_usage(10, 5, 0, 0)))
+        .agy_result("SUCCESS", "one\ntwo\nthree\n", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let messages: Vec<_> = run.messages().collect();
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert_eq!(messages[0].text, "one\ntwo\nthree\n");
+    assert_eq!(messages[0].role, Role::Assistant);
+    // `block` is the step index the concatenation ran over, so the derivation
+    // is reproducible from `raw` rather than trusted.
+    assert_eq!(messages[0].block, 1);
+    assert_eq!(messages[1].text, "and then this");
+    assert_eq!(messages[1].block, 3);
+}
+
+#[test]
+fn a_response_step_that_only_called_a_tool_produces_no_message() {
+    // Measured on the same run: an `agent_response` step whose whole job was to
+    // call a tool carries no `text_delta` on either frame. An empty message
+    // would claim the model said nothing rather than that it said nothing here.
+    let sandbox = Sandbox::new("agy-silent");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_response(1, &[], Some(agy_usage(5950, 89, 8131, 0)))
+        .agy_tool_ok(2, "list_dir", json!({ "DirectoryPath": "/tmp/ws" }), "a.txt")
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.messages().count(), 0);
+    assert_eq!(run.tool_calls().count(), 1);
+}
+
+#[test]
+fn a_tool_step_pairs_its_call_and_its_result_on_the_step_index() {
+    // Contract 7.6: there is no id on this provider, so the pairing is
+    // `step_index` and the adapter mints it as the `call_id`.
+    let sandbox = Sandbox::new("agy-tool");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_tool_ok(
+            2,
+            "view_file",
+            json!({ "AbsolutePath": "/tmp/ws/probe.txt" }),
+            "3 lines, 28 bytes",
+        )
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let calls: Vec<_> = run.tool_calls().collect();
+    let results: Vec<_> = run.tool_results().collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(results.len(), 1);
+    assert_eq!(calls[0].call_id, "2");
+    assert_eq!(results[0].call_id, calls[0].call_id);
+    assert_eq!(calls[0].name, "view_file");
+    assert_eq!(
+        calls[0].capability,
+        Some(hydra::policy::Capability::FileRead)
+    );
+    assert_eq!(results[0].status, ResultStatus::Ok);
+    assert_eq!(results[0].output, "3 lines, 28 bytes");
+}
+
+#[test]
+fn a_tool_error_this_provider_cannot_explain_is_unclassified() {
+    // Contract 7.6's own example, measured in one run: a headless permission
+    // denial and a path the provider rejected, same `state: ERROR`, same
+    // `error.type: TOOL_ERROR`, both mentioning permissions. A substring rule
+    // over the word gets one of them wrong, so neither is classified.
+    let sandbox = Sandbox::new("agy-unclassified");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_tool_error(
+            2,
+            "run_command",
+            json!({ "CommandLine": "echo T10MARKER" }),
+            "permission check failed for command \"echo T10MARKER\": user denied \
+             permission to run command",
+        )
+        .agy_tool_error(
+            4,
+            "write_to_file",
+            json!({ "TargetFile": "/tmp/ws/out.txt" }),
+            "declaring permissions: cortex tool write_to_file: /tmp/ws/out.txt is not a \
+             valid artifact path",
+        )
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let results: Vec<_> = run.tool_results().collect();
+    assert_eq!(results.len(), 2);
+    for result in results {
+        assert_eq!(
+            result.status,
+            ResultStatus::Unclassified,
+            "{}",
+            result.output
+        );
+    }
+}
+
+#[test]
+fn a_hook_block_is_an_error_and_carries_hydras_reason_verbatim() {
+    // 7.7's corroboration table calls this provider's attribution strong: the
+    // reason travels into the tool error unchanged behind the provider's own
+    // marker, so the gate's code is readable out of the record.
+    let sandbox = Sandbox::new("agy-blocked");
+    let text = Record::agy(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some(policies().sha()),
+    )
+    .agy_user()
+    .agy_tool_error(
+        2,
+        "run_command",
+        json!({ "CommandLine": "echo T10MARKER" }),
+        "tool call denied by pre-tool hook: hydra/capability: policy read-only does not \
+         allow shell (run_command).",
+    )
+    .agy_result("SUCCESS", "", None)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let results: Vec<_> = run.tool_results().collect();
+    assert_eq!(results[0].status, ResultStatus::Error);
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Deny);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+    // The gate refused and the derivation agrees, so there is no disagreement
+    // and no leak.
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Disagreement { .. } | Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn an_unclassified_failure_under_a_denying_policy_is_not_called_a_leak() {
+    // The one place 7.6's `unclassified` changes a finding. The policy denies
+    // the call, the tool reported an error this provider spells the same way it
+    // spells a refusal, and claiming a gate leak there would report a hole that
+    // may not exist.
+    let sandbox = Sandbox::new("agy-not-a-leak");
+    let text = Record::agy(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some(policies().sha()),
+    )
+    .agy_user()
+    .agy_tool_error(
+        2,
+        "run_command",
+        json!({ "CommandLine": "echo T10MARKER" }),
+        "permission check failed for command: user denied permission to run command",
+    )
+    .agy_result("SUCCESS", "", None)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Limit(said) if said.contains("the same way it spells a refusal")
+        )),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_call_the_policy_allows_that_this_provider_ran_is_an_allow() {
+    let sandbox = Sandbox::new("agy-allow");
+    let inside = sandbox.worktree().join("probe.txt");
+    let text = Record::agy(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some(policies().sha()),
+    )
+    .agy_user()
+    .agy_tool_ok(
+        2,
+        "view_file",
+        json!({ "AbsolutePath": inside.to_string_lossy() }),
+        "1 line",
+    )
+    .agy_result("SUCCESS", "", None)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+    assert!(run.findings.is_empty(), "{:?}", run.findings);
+}
+
+#[test]
+fn a_call_the_policy_denies_that_this_provider_ran_is_a_leak() {
+    // The gate-leak check, on the one status that is evidence: the tool
+    // reported success and the policy says it should not have.
+    let sandbox = Sandbox::new("agy-leak");
+    let text = Record::agy(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some(policies().sha()),
+    )
+    .agy_user()
+    .agy_tool_ok(
+        2,
+        "run_command",
+        json!({ "CommandLine": "echo T10MARKER" }),
+        "T10MARKER",
+    )
+    .agy_result("SUCCESS", "", None)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { tool, .. } if tool == "run_command")),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn usage_is_the_sum_of_the_steps_and_no_frame_names_it() {
+    // Contract 9.2. The four step usages of the measured run, and the
+    // `result.usage` it reported beside them: on a fresh run the two agree
+    // exactly, and on a resumed one `result` carries the predecessor's tokens
+    // too, which is why the sum is what the record uses.
+    let sandbox = Sandbox::new("agy-usage");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_response(1, &["a"], Some(agy_usage(5950, 89, 8131, 0)))
+        .agy_tool_ok(2, "list_dir", json!({ "DirectoryPath": "/tmp/ws" }), "a.txt")
+        .agy_response(3, &["b"], Some(agy_usage(14351, 93, 0, 0)))
+        .agy_response(5, &["c"], Some(agy_usage(6565, 152, 8123, 0)))
+        .agy_response(7, &["d"], Some(agy_usage(15079, 121, 0, 0)))
+        .agy_result("SUCCESS", "", Some(agy_usage(41945, 455, 16254, 0)))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let usage = run.usage().unwrap();
+    assert_eq!(usage.source, UsageSource::Provider);
+    // No single frame reported the total, and naming the last step would point
+    // at a frame carrying a fraction of it.
+    assert!(usage.seq.is_none());
+    let counts = usage.counts.unwrap();
+    assert_eq!(counts.input_tokens, 41945);
+    assert_eq!(counts.output_tokens, 455);
+    assert_eq!(counts.cache_read_tokens, 16254);
+    // Section 9's table marks this absent on this provider, and absent is not
+    // the same fact as zero.
+    assert_eq!(counts.cache_write_tokens, None);
+    assert_eq!(counts.thinking_tokens, Some(0));
+    // 9.1's reconstruction, which excludes nothing the model was sent.
+    assert_eq!(counts.raw_input(), 41945 + 16254);
+    // And deliberately not this provider's own `total_tokens`, which leaves
+    // cache read out and would make a warm-cache run look cheap.
+    assert_eq!(counts.total_tokens(), 41945 + 16254 + 455);
+}
+
+#[test]
+fn an_agy_run_that_reported_no_counts_is_unavailable_rather_than_zero() {
+    let sandbox = Sandbox::new("agy-no-usage");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_user()
+        .agy_response(1, &["a"], None)
+        .agy_result("SUCCESS", "a", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let usage = run.usage().unwrap();
+    assert_eq!(usage.source, UsageSource::Unavailable);
+    assert!(usage.counts.is_none());
+}
+
+#[test]
+fn a_tool_agys_init_frame_offered_that_the_table_does_not_know_is_a_finding() {
+    // 7.1's run-time table check. This provider lists every tool at process
+    // start like `claude` does, so a self-update that renames one is visible in
+    // the first record written after it rather than at the first denial.
+    let sandbox = Sandbox::new("agy-unknown");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_init(&["run_command", "teleport_file"])
+        .agy_user()
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::UnknownTool { name } if name == "teleport_file")),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_step_type_no_event_covers_is_said_out_loud() {
+    let sandbox = Sandbox::new("agy-step-type");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .agy_step(1, "DONE", "cortex_reflection", json!({}))
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Limit(said) if said.contains("cortex_reflection")
+        )),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn agys_stderr_lands_in_the_noise_rather_than_in_an_event() {
+    // Contract 3, and the one sentence measured on this provider's stderr.
+    let sandbox = Sandbox::new("agy-noise");
+    let text = Record::agy(&sandbox.worktree(), None, None)
+        .noise(
+            "jetski: no output produced - a tool required the \"command\" permission that \
+             headless mode cannot prompt for, so it was auto-denied.",
+        )
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.noise.len(), 1);
+    assert!(run.noise[0].contains("auto-denied"));
 }

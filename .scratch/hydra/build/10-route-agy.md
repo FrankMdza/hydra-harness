@@ -1,7 +1,7 @@
 # 10 - Route `agy`
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 03, 08
 
 ## Goal
@@ -167,3 +167,112 @@ You have none: `HOME` is your only lever and it is ruled out (6.2).
 **Your six-root story is one root.** `Provider::user_skill_roots` for Cursor is six
 directories; yours is `~/.gemini/config/skills` and nothing else, and the index already
 scans it.
+
+## Outcome
+
+Resolved 2026-09-06. `agy` was 1.1.26 when the probes ran and **1.1.27 an hour later when
+the recorded run went out**, which is this ticket's own warning arriving on schedule.
+Nothing measured changed across the move. `IMPLEMENTATION.md` has a section for this
+provider with every number and the reasoning; this is the short version.
+
+**Built.** `src/provider/agy.rs`: 6.7's argv with the prompt inside `-p=` and the worktree
+on `--add-dir`, the hook config in the format the binary's own reference documents,
+`.agents/mcp_config.json` with `serverUrl` on a remote server, `.agents/.gitignore` listing
+Hydra's two files by name for the reason Cursor's does, the free `/skills` listing as
+`Provider::resolve` with `mcp: None`, and a free `/hooks` gate-mount check. `table.rs`: the
+fifty-seven tools, four field names measured and the rest off the binary's `jsonschema`
+tags, and `mcp_prefix` became an `Option` because this provider names `call_mcp_tool`
+instead of prefixing. `gate.py`: `as_tool_call` unwraps the nested `toolCall` and takes the
+cwd from `args.Cwd` then `workspacePaths[0]`, keyed on the payload rather than on the
+dialect so the same script answers a live hook and 7.7's replay. `normalize/agy.rs`: the
+third column of 7.2, dispatched on the envelope's provider. `outcome.rs`: `result.status`
+read on this provider alone. `run.rs`: `cursor_preconditions` became
+`worktree_preconditions` for both providers that read config out of the worktree, and
+`provider::claim` is now shared. Thirty-two new tests across `gate.rs`, `normalize.rs`,
+`spawn.rs`, `mcp.rs`, `outcome.rs` and `skills.rs`, plus unit tests under `src/`, none of
+which launches the provider.
+
+**Measured.** One paid probe outside Hydra under a logging hook, five free slash-command
+probes, and one recorded run: `01a07915-c9cf-7cc0-b156-204771091a76`, `read-only`,
+`--model gemini-3.8-flash-low`. It read `Cargo.toml`, was refused `/etc/hosts` with
+`hydra/out-of-scope` and refused a write with `hydra/capability`, both reasons verbatim
+inside the tool error. 14 lines, `completed`, two `hydra_policy` denies beside one allow, no
+finding, 29,133 input and 353 output, 8.4 seconds. Passes the contract checker and both
+corpus walks.
+
+**Done when, item by item.** A recorded run writes a record that passes the checker: met.
+The normalizer concatenates `text_delta` over `step_index` reproducibly from `raw`: met,
+and the recorded run made the case sharper than the ticket did, below. `usage` comes off
+the step frames rather than `result`: met, and the sum equalled `result.usage` on both
+runs, which is the fresh-run case; the resumed case is unreachable, below. 19.3's three
+facts: all three still caveats, and `IMPLEMENTATION.md` says which and why.
+
+**Four things the ticket assumed that turned out false.**
+
+**Research 26 recorded the wrong hook config format**, and this is the finding with teeth.
+It read the `/hooks` output shape, with `name`, `enabled`, `source` and a flat `actions`
+list, and wrote it down as the input format. The binary's own embedded `Lifecycle Hooks
+(hooks.json)` reference says the file is a JSON object keyed by hook name, with
+`PreToolUse` handlers wrapped in a `matcher` group and the handler timeout spelled
+`timeout` rather than `timeout_seconds`. Written in the output shape the file loads as
+nothing: `hooks: []`, no error. That is exactly the silence the ticket warned about, and
+it is how the format was found.
+
+**So there is a departure the spec does not ask for.** 6.5 gives the fatal pre-flight to
+Cursor alone. An `agy` launch now also runs a free `agy -p="/hooks"` after writing its hook
+config and compares the listing's `source` against the file Hydra wrote; a launch that
+fails it writes a record through `never_started` and derives `failed`. It is deliberately
+not dressed as one of contract 6's four refusals, because none of them covers "the gate did
+not mount", and inventing a fifth code is a decision for the map rather than a commit.
+Ticket 11 has the note.
+
+**`/mcp` is gone from print mode.** Ticket 23 paid four turns for the resolved MCP set
+through it on 1.1.25. On 1.1.26 it answers `/mcp is not available in print mode (it opens
+the interactive MCP server view)`. So the honest answer for `mcp.resolved` is not merely
+null-until-someone-finds-a-route; the route ticket 23 used no longer exists.
+
+**`text_delta` does not split at line boundaries.** Contract 7.3 says the field is a
+buffered flush and warns that research 20's one sample "happened to split at a newline".
+The recorded run split one answer mid-word, inside a file URL. Without the concatenation
+that run reads as two messages, one of them a truncated path, so the derivation is
+load-bearing rather than tidy.
+
+**Two smaller measurements worth keeping.** `permission_mode` reads `always-proceed` under
+`--dangerously-skip-permissions` where research 26 saw only `request-review` without it.
+And `cache_read_tokens` alternates step to step inside one run: across three runs every
+step reporting a cache read reported about 8,120 beside roughly 6,000 input, and every step
+reporting zero reported roughly 14,000, so the two sum to about the same prompt either way.
+That is not keyed on the conversation, the run or the clock, and nobody here knows what it
+is keyed on, which is why 19.3's third fact stays a caveat.
+
+**One gap this ticket leaves open rather than closing.** A rate-limited or logged-out `agy`
+run has no measured shape. `provider_refused` keys on `api_error_status`, which this
+provider does not write, so a run refused for quota derives `failed` today, which is the
+mistake contract 8 exists to prevent. It is in `IMPLEMENTATION.md` under Not built.
+
+**What the code review found, and what each fix was.** Seven findings, all taken. Two were
+real bugs. The message role was threaded into the concatenator and then thrown away, so a
+`user_input` step carrying text would have been recorded as the model's own words; the role
+now rides on the open step. And `run_command` had a `path_field` of `CommandLine`, which
+would have had the gate calling `realpath` on a whole shell command the day any policy
+scopes `shell`; it is a plain row now, and the command still reaches the floor through
+`command_field`, which is the map that field belongs in.
+
+Three were holes rather than bugs. The two free probes inherited Hydra's environment, so
+they could have authenticated through `GEMINI_API_KEY` while the child cannot; they build
+the allowlist now, and the listing still answers, which proves the key was never what
+authenticated them. Neither probe was bounded, and both sit on the launch path after the
+worktree exists; `--print-timeout 30s` bounds the print-mode wait. And the gate-mount
+failure returned a bare error naming neither the run id nor the record, leaving an orphan
+checkout and nothing to type; it prints the same three lines `refuse` does.
+
+One was a documentation lie: `observe` claimed to take the conversation id off the first
+frame that names it and read `init` alone. It reads any frame now, which is what the
+provider's own shape allows.
+
+The last one is a hole this ticket widened rather than opened, and it is the only one not
+closed here. `hydra reap` stages with `git add -A`, so a Hydra file the checkout does not
+ignore lands on the run's branch, and a repo carrying its own `.agents/.gitignore` or
+`.cursor/.gitignore` gets exactly that. `provider::claim` now reads that file and warns
+with the line to add. The real fix is reap excluding Hydra's own paths, which belongs to
+that command; `IMPLEMENTATION.md` carries it as a rough edge.

@@ -389,6 +389,145 @@ impl Record {
         self.raw(frame)
     }
 
+    // --- agy frames, measured on 1.1.26, 2026-09-06 -------------------------
+
+    /// A record whose envelope names `agy`, opened under a policy.
+    pub fn agy(worktree: &Path, policy: Option<&str>, policy_sha: Option<&str>) -> Self {
+        Self::shaped(Shape {
+            provider: Some("agy"),
+            policy,
+            policy_sha,
+            worktree: Some(worktree),
+            ..Shape::default()
+        })
+    }
+
+    /// The `init` frame: the model, the cwd and the whole tool list, which is
+    /// what 7.1's table check reads on this provider.
+    pub fn agy_init(&mut self, tools: &[&str]) -> &mut Self {
+        self.raw(json!({
+            "event": "init",
+            "conversation_id": AGY_CONVERSATION,
+            "init": {
+                "model": "gemini-3.8-flash-low",
+                "cwd": "/tmp/ws",
+                "tools": tools,
+                "permission_mode": "request-review",
+            },
+        }))
+    }
+
+    /// One `step_update`, the frame that carries nearly everything.
+    pub fn agy_step(&mut self, step: u64, state: &str, step_type: &str, extra: Value) -> &mut Self {
+        let mut update = json!({
+            "conversation_id": AGY_CONVERSATION,
+            "step_index": step,
+            "state": state,
+            "step_type": step_type,
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            update[key] = value.clone();
+        }
+        self.raw(json!({ "event": "step_update", "step_update": update }))
+    }
+
+    /// The echoed prompt, which arrives as one `DONE` step with no text.
+    pub fn agy_user(&mut self) -> &mut Self {
+        self.agy_step(0, "DONE", "user_input", json!({}))
+    }
+
+    /// One `agent_response` step: its `text_delta` frames, then the `DONE`
+    /// frame that carries the step's usage. Contract 7.3's concatenation runs
+    /// over exactly this.
+    pub fn agy_response(&mut self, step: u64, deltas: &[&str], usage: Option<Value>) -> &mut Self {
+        let (last, rest) = match deltas.split_last() {
+            Some(split) => split,
+            None => (&"", &[] as &[&str]),
+        };
+        for delta in rest {
+            self.agy_step(step, "ACTIVE", "agent_response", json!({ "text_delta": delta }));
+        }
+        let mut done = json!({ "duration_seconds": 2.74 });
+        if !last.is_empty() {
+            done["text_delta"] = json!(last);
+        }
+        if let Some(usage) = usage {
+            done["usage"] = usage;
+        }
+        self.agy_step(step, "DONE", "agent_response", done)
+    }
+
+    /// One tool step: the `ACTIVE` frame is the call and the terminal frame is
+    /// the result, joined on the step index because there is no id.
+    pub fn agy_tool(
+        &mut self,
+        step: u64,
+        name: &str,
+        parameters: Value,
+        state: &str,
+        outcome: Value,
+    ) -> &mut Self {
+        self.agy_step(
+            step,
+            "ACTIVE",
+            "tool",
+            json!({
+                "tool_name": name,
+                "tool_info": { "name": name, "parameters": parameters.clone() },
+            }),
+        );
+        let mut info = json!({ "name": name, "parameters": parameters });
+        for (key, value) in outcome.as_object().unwrap() {
+            info[key] = value.clone();
+        }
+        self.agy_step(
+            step,
+            state,
+            "tool",
+            json!({
+                "tool_name": name,
+                "duration_seconds": 0.49,
+                "tool_info": info,
+            }),
+        )
+    }
+
+    /// A tool step that succeeded, with the output the provider reported.
+    pub fn agy_tool_ok(&mut self, step: u64, name: &str, parameters: Value, output: &str) -> &mut Self {
+        self.agy_tool(step, name, parameters, "DONE", json!({ "output": output }))
+    }
+
+    /// A tool step that failed, with the `TOOL_ERROR` this provider gives a
+    /// refusal and a missing file alike.
+    pub fn agy_tool_error(&mut self, step: u64, name: &str, parameters: Value, message: &str) -> &mut Self {
+        self.agy_tool(
+            step,
+            name,
+            parameters,
+            "ERROR",
+            json!({ "error": { "type": "TOOL_ERROR", "message": message } }),
+        )
+    }
+
+    /// The terminator, which this provider writes on every path.
+    ///
+    /// `status` is `SUCCESS` even on a run whose every tool call was denied, and
+    /// `usage` here is the conversation's rather than the run's (9.2), so the
+    /// adapter records it and sums the steps instead.
+    pub fn agy_result(&mut self, status: &str, response: &str, usage: Option<Value>) -> &mut Self {
+        let mut result = json!({
+            "conversation_id": AGY_CONVERSATION,
+            "status": status,
+            "response": response,
+            "duration_seconds": 8.57,
+            "num_turns": 1,
+        });
+        if let Some(usage) = usage {
+            result["usage"] = usage;
+        }
+        self.raw(json!({ "event": "result", "result": result }))
+    }
+
     pub fn closed(&mut self) -> String {
         self.closed_with(json!({"exit_code": 0}))
     }
@@ -441,6 +580,23 @@ pub fn usage_frame() -> Value {
 }
 
 /// The usage block the probe's `result` frame carried on 2026-09-06.
+/// The conversation id every `agy` frame carries, off the measured run.
+pub const AGY_CONVERSATION: &str = "b631e11b-4a99-43db-9f37-11a373cdd98a";
+
+/// One `agent_response` step's usage, in this provider's five fields.
+///
+/// `cache_write_tokens` is not among them: section 9's table marks it absent on
+/// this provider, and the adapter leaves it absent rather than zeroing it.
+pub fn agy_usage(input: u64, output: u64, cache_read: u64, thinking: u64) -> Value {
+    json!({
+        "input_tokens": input,
+        "output_tokens": output,
+        "thinking_tokens": thinking,
+        "cache_read_tokens": cache_read,
+        "total_tokens": input + output,
+    })
+}
+
 pub fn cursor_usage() -> Value {
     json!({
         "inputTokens": 8383,

@@ -1,21 +1,24 @@
 //! The routable providers.
 //!
-//! Three in the design: `claude`, `cursor-agent`, `agy`. This build routes two.
+//! Three in the design and three in this build: `claude`, `cursor-agent`, `agy`.
 //! Every provider-specific fact is a property of the binary rather than of the
 //! model, so a model is a flag inside a provider and never a provider of its own.
 
+pub mod agy;
 pub mod claude;
 pub mod cursor;
 
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Provider {
     Claude,
     CursorAgent,
+    Agy,
 }
 
 impl Provider {
@@ -23,6 +26,7 @@ impl Provider {
         match self {
             Provider::Claude => "claude",
             Provider::CursorAgent => "cursor-agent",
+            Provider::Agy => "agy",
         }
     }
 
@@ -31,6 +35,7 @@ impl Provider {
         match self {
             Provider::Claude => crate::policy::Dialect::Claude,
             Provider::CursorAgent => crate::policy::Dialect::Cursor,
+            Provider::Agy => crate::policy::Dialect::Agy,
         }
     }
 
@@ -60,22 +65,24 @@ impl Provider {
     /// Where Hydra links this run's skills, relative to the worktree (6.4).
     ///
     /// `cursor-agent` reads its row from cwd or `--workspace`, and Hydra runs it
-    /// with cwd set to the worktree. The third row, `.agents/skills/`, comes with
-    /// `--add-dir` and arrives with `agy` in ticket 10.
+    /// with cwd set to the worktree. `agy` reads its row from neither: the
+    /// worktree has to arrive as `--add-dir` or the directory is not its
+    /// workspace and nothing in it loads.
     pub fn skill_root(self) -> &'static str {
         match self {
             Provider::Claude => ".claude/skills",
             Provider::CursorAgent => ".cursor/skills",
+            Provider::Agy => ".agents/skills",
         }
     }
 
     /// The user-scope roots this provider reads, which the collision check
     /// compares the store against.
     ///
-    /// **`claude` reads one and `cursor-agent` reads six**, so this is a
-    /// per-provider list rather than the index's own. Ticket 24 fired probes into
-    /// all of them at both scopes; `crate::skills::index` scans the union and this
-    /// is the filter over it.
+    /// **`claude` reads one, `agy` reads one and `cursor-agent` reads six**, so
+    /// this is a per-provider list rather than the index's own. Ticket 24 fired
+    /// probes into all of them at both scopes; `crate::skills::index` scans the
+    /// union and this is the filter over it.
     pub fn user_skill_roots(self, home: &std::path::Path) -> Vec<std::path::PathBuf> {
         match self {
             Provider::Claude => vec![home.join(".claude/skills")],
@@ -92,6 +99,14 @@ impl Provider {
                 home.join(".codex/skills"),
                 home.join(".grok/skills"),
             ],
+            // One root, and its own. The builtin skills under
+            // `~/.gemini/antigravity-cli/builtin/skills` and the plugin ones
+            // under `~/.gemini/config/plugins/*/skills` are in the free listing
+            // too, and neither is a directory a human drops a skill into, so
+            // neither is compared against the store here. The provider's own
+            // answer is the test that covers them: a name Hydra linked that the
+            // listing does not carry is a collision whichever side won.
+            Provider::Agy => vec![home.join(".gemini/config/skills")],
         }
     }
 
@@ -112,6 +127,7 @@ impl Provider {
         match self {
             Provider::Claude => claude::resolve(worktree, mcp),
             Provider::CursorAgent => cursor::resolve(worktree, mcp),
+            Provider::Agy => agy::resolve(worktree, mcp),
         }
     }
 
@@ -126,6 +142,7 @@ impl Provider {
         match self {
             Provider::Claude => "anthropic",
             Provider::CursorAgent => "cursor",
+            Provider::Agy => "google",
         }
     }
 
@@ -134,8 +151,95 @@ impl Provider {
         match self {
             Provider::Claude => claude::observe(raw),
             Provider::CursorAgent => cursor::observe(raw),
+            Provider::Agy => agy::observe(raw),
         }
     }
+}
+
+/// The path one of Hydra's per-run files will be written to inside the checkout,
+/// once the checkout has been checked for the human's own copy and the ignore
+/// file is in place.
+///
+/// **A file the checkout already holds is refused rather than overwritten.** The
+/// worktree is seeded from the human's repo (6.3), so a hook or MCP config in it
+/// is theirs: writing over it edits their work and `hydra reap` would commit the
+/// edit, and loading theirs instead of Hydra's launches an ungated run.
+/// [`crate::run`] checks the parent repo for the same files before a run id
+/// exists; this is the second line, on the checkout itself.
+///
+/// **An existing `.gitignore` is left alone**, the same rule the skill root
+/// follows: a repo that tracks its own would see the overwrite as an edit to the
+/// human's checkout.
+///
+/// **And when that happens the human is told, because the cost is worse than
+/// visible.** `hydra reap` commits the run's work with `git add -A`, so a
+/// Hydra file that is neither tracked nor ignored is a file reap puts on
+/// `hydra/<run-id>` for the human to merge: the run's gate pointer, or its MCP
+/// server list. Refusing the launch was the alternative and it is too harsh for
+/// a repo that merely has a `.gitignore` of its own, so this warns and names
+/// the file. Excluding Hydra's own paths inside reap is the real fix and it
+/// belongs to that command rather than to this one; `IMPLEMENTATION.md` carries
+/// it as a rough edge.
+///
+/// Two providers reach this and the parts that differ are arguments: the
+/// directory the files live in, and which names the ignore file lists.
+pub(crate) fn claim(
+    worktree: Option<&Path>,
+    binary: &str,
+    what: &str,
+    file: impl Fn(&Path) -> PathBuf,
+    ignore: impl Fn(&Path) -> (PathBuf, &'static str),
+) -> Result<PathBuf> {
+    let worktree = worktree.with_context(|| {
+        format!("{binary} reads its {what} out of the worktree and this run has none")
+    })?;
+    let file = file(worktree);
+    if file.exists() {
+        bail!(
+            "{} already exists in the checkout, and Hydra will not write over a file the \
+             human's repo carries",
+            file.display()
+        );
+    }
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let (ignore, body) = ignore(worktree);
+    match std::fs::read_to_string(&ignore) {
+        Ok(existing) if !covers(&existing, &file) => eprintln!(
+            "hydra: {} is the checkout's own and does not ignore {}, so `hydra reap` will \
+             commit Hydra's {what} onto this run's branch. Add /{} to that file to stop it.",
+            ignore.display(),
+            file.display(),
+            basename(&file),
+        ),
+        Ok(_) => {}
+        Err(_) => {
+            std::fs::write(&ignore, body)
+                .with_context(|| format!("writing {}", ignore.display()))?;
+        }
+    }
+    Ok(file)
+}
+
+fn basename(file: &Path) -> String {
+    file.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// Whether an ignore file already names the file Hydra is about to write.
+///
+/// A line match rather than a substring one, so `hooks.json` inside a comment or
+/// inside a longer path does not read as coverage. `*` counts, because a
+/// directory ignored whole is a directory reap will not stage from.
+fn covers(existing: &str, file: &Path) -> bool {
+    let name = basename(file);
+    existing
+        .lines()
+        .map(str::trim)
+        .any(|line| line == "*" || line.trim_start_matches('/') == name.trim_start_matches('/'))
 }
 
 /// What one free pre-flight probe found, for contract 5.3's two `resolved`
@@ -170,9 +274,57 @@ impl fmt::Display for Provider {
     }
 }
 
+impl FromStr for Provider {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "claude" => Ok(Provider::Claude),
+            "cursor-agent" => Ok(Provider::CursorAgent),
+            "agy" => Ok(Provider::Agy),
+            // Ticket 22 unrouted it. Its guardrail rules are still copied into
+            // the pattern floor and its binary is not launched.
+            other => bail!("{other} is not a routable provider"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_ignore_file_the_checkout_owns_is_read_rather_than_replaced() {
+        // `hydra reap` stages with `git add -A`, so a Hydra file that is neither
+        // tracked nor ignored lands on the run's branch. An existing ignore file
+        // that already names it is fine; one that does not gets a warning, and
+        // either way the human's file is untouched.
+        let file = std::path::Path::new("/wt/.agents/hooks.json");
+        assert!(covers("/.gitignore\n/hooks.json\n/mcp_config.json\n", file));
+        assert!(covers("*\n", file));
+        assert!(covers("hooks.json", file));
+        // A name inside a longer path or a comment is not coverage.
+        assert!(!covers("/.agents/hooks.json\n", file));
+        assert!(!covers("# hooks.json\n", file));
+        assert!(!covers("/rules\n/plugins\n", file));
+        assert!(!covers("", file));
+    }
+
+    #[test]
+    fn agy_reads_one_user_scope_root_and_injects_into_the_agents_directory() {
+        // 6.4's third row, and the flag that makes it visible is on the argv
+        // rather than here. Ticket 24 measured the root; the builtin and plugin
+        // roots in the free listing are not directories a human drops a skill
+        // into, so the collision check does not compare the store against them.
+        let home = std::path::Path::new("/Users/probe");
+        assert_eq!(
+            Provider::Agy.user_skill_roots(home),
+            vec![home.join(".gemini/config/skills")]
+        );
+        assert_eq!(Provider::Agy.skill_root(), ".agents/skills");
+        assert_eq!(Provider::Agy.subscription(), "google");
+        assert_eq!(Provider::Agy.dialect(), crate::policy::Dialect::Agy);
+    }
 
     #[test]
     fn cursor_reads_six_user_scope_roots_and_claude_reads_one() {
@@ -201,30 +353,13 @@ mod tests {
     }
 
     #[test]
-    fn the_two_routed_names_parse_and_the_third_says_which_ticket() {
+    fn the_three_routed_names_parse_and_the_unrouted_one_does_not() {
         assert_eq!("claude".parse::<Provider>().unwrap(), Provider::Claude);
         assert_eq!(
             "cursor-agent".parse::<Provider>().unwrap(),
             Provider::CursorAgent
         );
-        let err = "agy".parse::<Provider>().unwrap_err().to_string();
-        assert!(err.contains("not built yet"), "{err}");
+        assert_eq!("agy".parse::<Provider>().unwrap(), Provider::Agy);
         assert!("hermes".parse::<Provider>().is_err());
-    }
-}
-
-impl FromStr for Provider {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "claude" => Ok(Provider::Claude),
-            "cursor-agent" => Ok(Provider::CursorAgent),
-            "agy" => bail!(
-                "{s} is a routable provider in the design and is not built yet; \
-                 this build routes claude and cursor-agent"
-            ),
-            other => bail!("{other} is not a routable provider"),
-        }
     }
 }

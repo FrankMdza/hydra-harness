@@ -7,10 +7,9 @@
 //! was migrated. None of the types below derives `Serialize`, so a caller that
 //! wants to put one in a file has to say so out loud first.
 //!
-//! Two providers. [`claude`] and [`cursor`] are the adapters this build routes,
-//! one per column of contract 7.2's table, and [`read_with`] picks one by the
-//! envelope's `provider`, which every line carries (contract 4). `agy` is
-//! ticket 10.
+//! Three providers. [`claude`], [`cursor`] and [`agy`] are one per column of
+//! contract 7.2's table, and [`read_with`] picks one by the envelope's
+//! `provider`, which every line carries (contract 4).
 //!
 //! Two of the ten have no producer here and both are on the list anyway, because
 //! a type the reader cannot name is a type nobody knows is missing.
@@ -18,6 +17,7 @@
 //! off in v1. [`Correction`] comes from an interactive harvest (7.9) and this
 //! build launches no interactive runs.
 
+pub mod agy;
 pub mod claude;
 pub mod cursor;
 
@@ -484,6 +484,7 @@ pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
         .find_map(|envelope| envelope["provider"].as_str().map(str::to_string));
     match provider.as_deref() {
         Some("cursor-agent") => cursor::normalize(text, policies, layout),
+        Some("agy") => agy::normalize(text, policies, layout),
         Some("claude") | None => claude::normalize(text, policies, layout),
         Some(other) => {
             let mut run = claude::normalize(text, policies, layout)?;
@@ -561,6 +562,46 @@ pub(crate) fn policy_moved(recorded: Option<&str>, policies: &PolicySet) -> bool
     recorded.is_some_and(|sha| sha != policies.sha())
 }
 
+/// The codes the gate writes, so that a `hydra/` inside somebody else's prose,
+/// such as a guard quoting `~/hydra/runs`, is not mistaken for Hydra's voice.
+pub(crate) const GATE_CODES: &[&str] = &[
+    "allow",
+    "capability",
+    "out-of-scope",
+    "protected-path",
+    "floor",
+    "no-path",
+    "unknown-tool",
+    "gate-tampered",
+    "no-tool-name",
+    "bad-payload",
+    "wrong-dialect",
+];
+
+/// The gate's own code inside a refusal text, wherever it sits.
+///
+/// **Two adapters read this and neither can key on anything else.** Cursor
+/// concatenates every hook's message into one reason, so Hydra's answer can
+/// arrive behind `Command execution was blocked by a hook: ` or after another
+/// hook's paragraph. `agy` puts the reason verbatim into the tool error behind
+/// `tool call denied by pre-tool hook: `. The prefix is a machine-readable code
+/// ticket 01 made stable, which is what contract 7.7 allows a reader to key on;
+/// the prose after it is what 7.7 forbids.
+pub fn hydra_voice(text: &str) -> Option<&'static str> {
+    let mut rest = text;
+    while let Some(at) = rest.find("hydra/") {
+        let after = &rest[at + "hydra/".len()..];
+        if let Some(colon) = after.find(':') {
+            let code = &after[..colon];
+            if let Some(known) = GATE_CODES.iter().find(|known| **known == code) {
+                return Some(known);
+            }
+        }
+        rest = after;
+    }
+    None
+}
+
 pub(crate) fn verdict_decision(allowed: bool) -> Decision {
     if allowed {
         Decision::Allow
@@ -587,4 +628,50 @@ pub(crate) fn splice(events: Vec<Event>, decisions: Vec<Option<PermissionDecisio
         }
     }
     spliced
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `hydra/<code>:` a text carries.
+    fn codes_in(text: &str) -> std::collections::BTreeSet<String> {
+        let mut found = std::collections::BTreeSet::new();
+        let mut rest = text;
+        while let Some(at) = rest.find("hydra/") {
+            let after = &rest[at + "hydra/".len()..];
+            let code: String = after
+                .chars()
+                .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                .collect();
+            if !code.is_empty() && after[code.len()..].starts_with(':') {
+                found.insert(code);
+            }
+            rest = after;
+        }
+        found
+    }
+
+    #[test]
+    fn the_known_codes_are_exactly_the_ones_the_gate_and_its_wrappers_write() {
+        // `GATE_CODES` is a hand copy, and a code added to the script without a
+        // row here would make a real refusal read as somebody else's. All three
+        // wrappers are read, because each speaks its own provider's dialect and
+        // any of them could grow a code of its own.
+        let mut written = codes_in(include_str!("../policy/gate.py"));
+        for dialect in [
+            crate::policy::Dialect::Claude,
+            crate::policy::Dialect::Cursor,
+            crate::policy::Dialect::Agy,
+        ] {
+            written.extend(codes_in(&crate::policy::hook_command(
+                std::path::Path::new("/tmp/gate"),
+                "sha",
+                dialect,
+            )));
+        }
+        let known: std::collections::BTreeSet<String> =
+            GATE_CODES.iter().map(|code| code.to_string()).collect();
+        assert_eq!(written, known);
+    }
 }

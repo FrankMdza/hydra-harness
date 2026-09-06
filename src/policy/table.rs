@@ -155,11 +155,136 @@ pub const CURSOR_COMMAND_FIELD: &str = "command";
 /// configured on this machine.
 pub const CURSOR_MCP_PREFIX: &str = "MCP:";
 
-/// One provider's table, with the two per-provider spellings beside it.
+/// `agy`'s fifty-seven tools, read off the `init` frame on 2026-09-06 under
+/// `--model gemini-3.8-flash-low`, on 1.1.26 and again on the recorded 1.1.27 run:
+/// the two lists are identical. Research 20 read fifty-six off a Claude id on
+/// 1.1.26 two days earlier; `list_permissions` is the difference and whether it is
+/// new or model-dependent is unmeasured.
+///
+/// **The field names are measured and the capabilities are Hydra's reading.** The
+/// four in the run above arrived on a real `PreToolUse` payload:
+/// `list_dir(DirectoryPath)`, `view_file(AbsolutePath)`,
+/// `write_to_file(TargetFile)` and `run_command(CommandLine)`. The rest come off
+/// the binary's own `jsonschema` struct tags, which is the same class of evidence
+/// Cursor's rows come from: `SearchDirectory` is "The directory to search within.
+/// Must be an absolute path", `NotebookPath` is "Absolute path to the .ipynb
+/// notebook file", and `TargetFile` on the editing tools is "The target file to
+/// modify. Must be an absolute path".
+///
+/// Like `claude`, this provider lists every tool at process start, so the
+/// normalizer compares this table against the init frame and a name the table
+/// does not hold comes back as a finding on the normalized run.
+///
+/// **The browser family is `provider_native` and `execute_browser_javascript`
+/// sits in it.** That tool runs code the model wrote, which no policy but
+/// `permissive` grants, and the pattern floor of 7.4 cannot see inside it because
+/// it is JavaScript in a page rather than a shell command. That is the floor's
+/// named failure mode on a second spelling, the same one `WriteShellStdin` has on
+/// Cursor.
+pub const AGY: &[Tool] = &[
+    // Measured on the hook payload, 2026-09-06. **No `path_field`, because a
+    // command line is not a path.** The command rides in `command_field` below,
+    // which is what the seven path denials and the floor read it out of;
+    // `path_fields` is the map the gate resolves a path from, and putting a
+    // whole shell command in it would have the gate calling `realpath` on
+    // `echo hi && rm -rf /`. `claude`'s `Bash` and Cursor's `Shell` are plain
+    // rows for the same reason.
+    tool("run_command", Capability::Shell),
+    pathed("view_file", Capability::FileRead, "AbsolutePath"),
+    pathed("list_dir", Capability::FileRead, "DirectoryPath"),
+    pathed("write_to_file", Capability::FileWrite, "TargetFile"),
+    // Read off the binary's `jsonschema` tags, same build.
+    pathed("grep_search", Capability::FileRead, "SearchDirectory"),
+    pathed("find_by_name", Capability::FileRead, "SearchDirectory"),
+    pathed("replace_file_content", Capability::FileWrite, "TargetFile"),
+    pathed(
+        "multi_replace_file_content",
+        Capability::FileWrite,
+        "TargetFile",
+    ),
+    pathed("sed_file", Capability::FileWrite, "TargetFile"),
+    pathed("notebook_edit", Capability::FileWrite, "NotebookPath"),
+    // Both feed a shell facility rather than the filesystem, and neither carries
+    // a command for the floor to read: `send_command_input` writes stdin to a
+    // command already running and `command_status` collects its output. 7.4's
+    // limit again, and they are `shell` because that is the facility they belong
+    // to, so no policy that denies shell hands a run half of it.
+    tool("send_command_input", Capability::Shell),
+    tool("command_status", Capability::Shell),
+    // Runs the notebook's own code. Shell for the same reason.
+    tool("notebook_execution", Capability::Shell),
+    tool("read_url_content", Capability::NetworkRead),
+    tool("search_web", Capability::NetworkRead),
+    // **MCP is a tool name here rather than a prefix**, which is why this
+    // provider's table carries no `mcp_prefix`. Ticket 23 read the `PreToolUse`
+    // matcher as `call_mcp_tool` off the bundle.
+    tool("call_mcp_tool", Capability::McpCall),
+    tool("list_resources", Capability::McpCall),
+    tool("read_resource", Capability::McpCall),
+    // 7.6: denied under every policy but `permissive`, because an in-process
+    // subagent gets no run id and writes no run file.
+    tool("define_subagent", Capability::SubagentSpawn),
+    tool("invoke_subagent", Capability::SubagentSpawn),
+    tool("manage_subagents", Capability::SubagentSpawn),
+    tool("browser_subagent", Capability::SubagentSpawn),
+    // No `Skill` row: this provider has no skill-invoking tool, so `skill_invoke`
+    // maps to nothing here and a linked skill reaches the model through the
+    // listing alone.
+    //
+    // The rest exist only inside this provider's own product surface and no
+    // policy in 7.2 grants them.
+    tool("ask_custom_permission", Capability::ProviderNative),
+    tool("ask_permission", Capability::ProviderNative),
+    tool("ask_question", Capability::ProviderNative),
+    tool("browser_click_element", Capability::ProviderNative),
+    tool("browser_drag_pixel_to_pixel", Capability::ProviderNative),
+    tool("browser_get_dom", Capability::ProviderNative),
+    tool("browser_get_network_request", Capability::ProviderNative),
+    tool("browser_input", Capability::ProviderNative),
+    tool("browser_list_network_requests", Capability::ProviderNative),
+    tool("browser_mouse_down", Capability::ProviderNative),
+    tool("browser_mouse_up", Capability::ProviderNative),
+    tool("browser_move_mouse", Capability::ProviderNative),
+    tool("browser_press_key", Capability::ProviderNative),
+    tool("browser_refresh_page", Capability::ProviderNative),
+    tool("browser_resize_window", Capability::ProviderNative),
+    tool("browser_scroll", Capability::ProviderNative),
+    tool("browser_scroll_dom", Capability::ProviderNative),
+    tool("browser_select_option", Capability::ProviderNative),
+    tool("capture_browser_console_logs", Capability::ProviderNative),
+    tool("capture_browser_screenshot", Capability::ProviderNative),
+    tool("click_browser_pixel", Capability::ProviderNative),
+    tool("delete_knowledge", Capability::ProviderNative),
+    tool("execute_browser_javascript", Capability::ProviderNative),
+    tool("finish", Capability::ProviderNative),
+    tool("generate_image", Capability::ProviderNative),
+    tool("list_browser_pages", Capability::ProviderNative),
+    tool("list_permissions", Capability::ProviderNative),
+    tool("manage_inbox", Capability::ProviderNative),
+    tool("manage_task", Capability::ProviderNative),
+    tool("open_browser_url", Capability::ProviderNative),
+    tool("read_browser_page", Capability::ProviderNative),
+    tool("schedule", Capability::ProviderNative),
+    tool("send_message", Capability::ProviderNative),
+    tool("wait", Capability::ProviderNative),
+    tool("wait_5_seconds", Capability::ProviderNative),
+];
+
+/// Measured on the hook payload beside `Cwd` and `WaitMsBeforeAsync`, and the
+/// binary's own schema calls it "The exact command line string to execute".
+pub const AGY_COMMAND_FIELD: &str = "CommandLine";
+
+/// One provider's table, with the per-provider spellings beside it.
 pub struct Table {
     pub tools: &'static [Tool],
     pub command_field: &'static str,
-    pub mcp_prefix: &'static str,
+    /// The prefix that marks an MCP tool, on a provider that uses one.
+    ///
+    /// **`None` on `agy`, which names one tool instead.** `call_mcp_tool` is a
+    /// row in the table like any other, so there is no prefix to match, and an
+    /// empty string here would match every tool name and turn the whole provider
+    /// into `mcp_call`.
+    pub mcp_prefix: Option<&'static str>,
 }
 
 impl Table {
@@ -169,12 +294,17 @@ impl Table {
             Provider::Claude => Table {
                 tools: CLAUDE,
                 command_field: CLAUDE_COMMAND_FIELD,
-                mcp_prefix: CLAUDE_MCP_PREFIX,
+                mcp_prefix: Some(CLAUDE_MCP_PREFIX),
             },
             Provider::CursorAgent => Table {
                 tools: CURSOR,
                 command_field: CURSOR_COMMAND_FIELD,
-                mcp_prefix: CURSOR_MCP_PREFIX,
+                mcp_prefix: Some(CURSOR_MCP_PREFIX),
+            },
+            Provider::Agy => Table {
+                tools: AGY,
+                command_field: AGY_COMMAND_FIELD,
+                mcp_prefix: None,
             },
         }
     }
@@ -186,7 +316,9 @@ impl Table {
     /// the normalizer uses it to fill `tool_call.capability` (contract 7.6).
     /// `None` is the answer 7.1 wants a reader to act on.
     pub fn capability(&self, tool: &str) -> Option<Capability> {
-        if tool.starts_with(self.mcp_prefix) {
+        if let Some(prefix) = self.mcp_prefix
+            && tool.starts_with(prefix)
+        {
             return Some(Capability::McpCall);
         }
         self.tools
@@ -205,6 +337,11 @@ pub fn claude_capability(tool: &str) -> Option<Capability> {
 /// The same for `cursor-agent`.
 pub fn cursor_capability(tool: &str) -> Option<Capability> {
     Table::of(crate::provider::Provider::CursorAgent).capability(tool)
+}
+
+/// The same for `agy`.
+pub fn agy_capability(tool: &str) -> Option<Capability> {
+    Table::of(crate::provider::Provider::Agy).capability(tool)
 }
 
 #[cfg(test)]
@@ -271,8 +408,105 @@ mod tests {
     }
 
     #[test]
+    fn the_agy_table_covers_every_tool_its_init_frame_listed() {
+        // Verbatim off the init frame of the 1.1.26 probe on 2026-09-06, under
+        // `--model gemini-3.8-flash-low`.
+        let measured = [
+            "ask_custom_permission",
+            "ask_permission",
+            "ask_question",
+            "browser_click_element",
+            "browser_drag_pixel_to_pixel",
+            "browser_get_dom",
+            "browser_get_network_request",
+            "browser_input",
+            "browser_list_network_requests",
+            "browser_mouse_down",
+            "browser_mouse_up",
+            "browser_move_mouse",
+            "browser_press_key",
+            "browser_refresh_page",
+            "browser_resize_window",
+            "browser_scroll",
+            "browser_scroll_dom",
+            "browser_select_option",
+            "browser_subagent",
+            "call_mcp_tool",
+            "capture_browser_console_logs",
+            "capture_browser_screenshot",
+            "click_browser_pixel",
+            "command_status",
+            "define_subagent",
+            "delete_knowledge",
+            "execute_browser_javascript",
+            "find_by_name",
+            "finish",
+            "generate_image",
+            "grep_search",
+            "invoke_subagent",
+            "list_browser_pages",
+            "list_dir",
+            "list_permissions",
+            "list_resources",
+            "manage_inbox",
+            "manage_subagents",
+            "manage_task",
+            "multi_replace_file_content",
+            "notebook_edit",
+            "notebook_execution",
+            "open_browser_url",
+            "read_browser_page",
+            "read_resource",
+            "read_url_content",
+            "replace_file_content",
+            "run_command",
+            "schedule",
+            "search_web",
+            "sed_file",
+            "send_command_input",
+            "send_message",
+            "view_file",
+            "wait",
+            "wait_5_seconds",
+            "write_to_file",
+        ];
+        assert_eq!(measured.len(), 57);
+        for name in measured {
+            assert!(
+                AGY.iter().any(|t| t.name == name),
+                "{name} is offered by the provider and has no row, so 7.1 denies it"
+            );
+        }
+        assert_eq!(
+            AGY.len(),
+            measured.len(),
+            "the table names a tool the provider does not offer"
+        );
+    }
+
+    #[test]
+    fn agy_names_its_mcp_tool_instead_of_prefixing_it() {
+        assert_eq!(agy_capability("call_mcp_tool"), Some(Capability::McpCall));
+        // Neither of the other two providers' prefixes means anything here, and
+        // an empty prefix would have made every name an MCP call.
+        assert_eq!(agy_capability("mcp__hydra__ping"), None);
+        assert_eq!(agy_capability("MCP:ping"), None);
+        assert_eq!(agy_capability("run_command"), Some(Capability::Shell));
+        assert!(Table::of(crate::provider::Provider::Agy).mcp_prefix.is_none());
+    }
+
+    #[test]
+    fn no_agy_tool_appears_twice() {
+        let mut names: Vec<_> = AGY.iter().map(|t| t.name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(before, names.len());
+    }
+
+    #[test]
     fn every_write_tool_names_the_field_the_gate_checks() {
-        for t in CLAUDE.iter().chain(CURSOR) {
+        for t in CLAUDE.iter().chain(CURSOR).chain(AGY) {
             if matches!(t.capability, Capability::FileWrite | Capability::FileRead) {
                 assert!(
                     t.path_field.is_some(),
