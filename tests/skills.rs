@@ -281,6 +281,27 @@ fn the_injected_root_ignores_itself() {
 }
 
 #[test]
+fn an_empty_store_links_nothing_and_still_pins_a_sha() {
+    // The state of a fresh machine, and of this one once ticket 07's probes were
+    // cleared out. Contract 5.3's three fields still have answers: an empty
+    // `linked` is a measurement, not a missing one.
+    let fixture = Fixture::new("empty-store");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+    assert!(injected.linked.is_empty());
+    assert!(injected.blocked.is_empty());
+    assert_eq!(skills::record(&injected, None)["store_sha"], sha);
+    // The root and its `.gitignore` are made anyway, so the checkout stays clean
+    // whether or not there was anything to put in it.
+    assert_eq!(git(&worktree, &["status", "--porcelain"]).trim(), "");
+}
+
+#[test]
 fn the_links_are_links_and_they_point_into_the_snapshot() {
     let fixture = Fixture::new("links");
     let layout = fixture.layout();
