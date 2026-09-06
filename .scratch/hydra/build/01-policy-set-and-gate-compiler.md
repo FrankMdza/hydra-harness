@@ -97,14 +97,18 @@ fails to start fails open. That is the one dependency this script cannot afford.
 
 **Six capabilities do not cover twenty-five tools.** The ticket inherited the
 coverage matrix from research 26, six capabilities across three providers, and
-`claude` offers nineteen tools that answer to none of them: `CronCreate`,
+`claude` offers seventeen tools that answer to none of them: `CronCreate`,
 `SendMessage`, `ToolSearch`, `Skill` and the rest. 7.1 denies a name the table does
-not recognise, so a six-capability table would have denied nineteen tools under
-`permissive`, which is supposed to allow everything. They share one row,
-`provider_native`, granted by `permissive` alone. **This means `standard` denies
-`ToolSearch` and `Skill`**, a real loss on coding runs, in the direction 7.1 chose
-on purpose. Ticket 02's first gated run is where it shows up, and the fix, if the
-records ask for one, is a policy file edit rather than code.
+not recognise, so a table holding only the eight names those six capabilities cover
+would have denied the other seventeen under `permissive`, which is supposed to allow
+everything. They share one row, `provider_native`, granted by `permissive`
+alone. **This means `standard` denies `ToolSearch` and `Skill`**, a real loss on
+coding runs, in the direction 7.1 chose on purpose. Ticket 02's first gated run is
+where it shows up, and the fix, if the records ask for one, is a policy file edit
+rather than code.
+
+Re-measured 2026-09-06 on 2.1.263: the init frame lists twenty-nine names, and
+`TaskCreate`, `TaskGet`, `TaskList` and `TaskUpdate` took the row to twenty-one.
 
 **Four of the five protected configs have no file.** 7.5's seven denied paths
 assume five config files exist. Two of the seven are real today, `policies/` and

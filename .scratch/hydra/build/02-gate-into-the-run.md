@@ -67,8 +67,8 @@ typo fails closed loudly rather than open quietly, so it is worth a first-run ch
 `/usr/bin/env python3`. `env` goes through the child's inherited PATH and a hook that
 fails to start fails open on this provider.
 
-**`standard` denies `ToolSearch` and `Skill`**, along with seventeen other tools that
-answer to no capability the five policies speak in. See `IMPLEMENTATION.md`. Expect the
+**`standard` denies `ToolSearch` and `Skill`**, along with every other tool that
+answers to no capability the five policies speak in. See `IMPLEMENTATION.md`. Expect the
 first gated `standard` run to hit it. That is 7.1's chosen direction rather than a bug,
 and the fix, if the records ask for one, is an edit to `policies/standard.json`.
 

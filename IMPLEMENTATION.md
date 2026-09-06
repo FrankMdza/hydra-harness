@@ -268,13 +268,13 @@ name and body framed by its length.** `README.md` is left out: it is prose about
 policies rather than one of them, and a wording fix should not move a value every run
 record carries. The framing is what stops two directories colliding by concatenation.
 
-**Nineteen of `claude`'s twenty-five tools answer to no capability the five policies
-speak in.** 7.1 denies a tool name the table does not recognise, so a table covering
-only the six capabilities of the coverage matrix would deny nineteen tools under
-`permissive`, which is supposed to allow everything. They map to one capability,
-`provider_native`, granted by `permissive` alone. One row rather than nineteen invented
-categories, and 7.1's drift check still fires on a twenty-sixth name. Splitting it is a
-design decision and this build did not make it.
+**Twenty-one of `claude`'s twenty-nine tools answer to no capability the five policies
+speak in.** 7.1 denies a tool name the table does not recognise, so a table holding only
+the eight names that answer to the six capabilities of the coverage matrix would deny the
+other twenty-one under `permissive`, which is supposed to allow everything. They map to
+one capability, `provider_native`, granted by `permissive` alone. One row rather than
+twenty-one invented categories, and 7.1's drift check still fires on a thirtieth name.
+Splitting it is a design decision and this build did not make it.
 
 **`standard` therefore denies `ToolSearch` and `Skill`.** That follows from the
 paragraph above and it is a real capability loss on ordinary coding runs, in the
@@ -775,9 +775,12 @@ costs its own frames and a limit rather than the whole read. The other two are a
 that names a policy and carries no `policy_sha`, whose decisions then answer for today's
 `policies/` rather than the run's, and a `tool_use` block with no id, which nothing can
 join a result or a hook answer to. The decision still follows the policy in both. 7.1's table check reads the
-`system`/`init` frame, which lists every tool at no cost; `claude` 2.1.261 offered
-exactly the twenty-five names `table.rs` holds, so the check is quiet today and a rename
-breaks the first record written after it.
+`system`/`init` frame, which lists every tool at no cost. On 2026-09-06 `claude` 2.1.263
+offered twenty-nine names, four more than the twenty-five 2.1.261 offered the day before:
+`TaskCreate`, `TaskGet`, `TaskList` and `TaskUpdate`. Until this change gave them rows
+they denied under every policy, `permissive` included, which is what the check is for.
+They are `provider_native` now, so it is quiet again and the next rename breaks the first
+record written after it.
 
 ## Deriving an outcome, and what `hydra run` returns
 
