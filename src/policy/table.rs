@@ -6,11 +6,11 @@
 //! another, which is why the table is per provider and the policy is not.
 //!
 //! **Every name the provider offers needs a row.** 7.1 denies a tool name the
-//! table does not recognise, so a table that covers six of twenty-five names
-//! would deny nineteen under `permissive`, which is supposed to allow
-//! everything. The nineteen that answer to none of the six capabilities the five
-//! policies speak in get [`Capability::ProviderNative`] instead, one row rather
-//! than nineteen invented categories, granted by `permissive` alone.
+//! table does not recognise, so a table holding only the eight names that answer
+//! to the six capabilities would deny the other twenty-one under `permissive`,
+//! which is supposed to allow everything. Those twenty-one get
+//! [`Capability::ProviderNative`] instead, one row rather than twenty-one
+//! invented categories, granted by `permissive` alone.
 //!
 //! Splitting `ProviderNative` is a design decision and not one this table makes.
 //! It costs a policy file edit the day a policy needs to grant one of them.
@@ -41,8 +41,9 @@ const fn pathed(name: &'static str, capability: Capability, field: &'static str)
     }
 }
 
-/// `claude` 2.1.261's twenty-five tools, read off the `system`/`init` frame on
-/// 2026-09-05.
+/// `claude` 2.1.263's twenty-nine tools, read off the `system`/`init` frame on
+/// 2026-09-06. 2.1.261 offered twenty-five on 2026-09-05, and the four
+/// `Task*` list tools arrived between the two.
 ///
 /// The init frame lists them on every run at no cost, so ticket 03's normalizer
 /// compares this table against what the provider actually offered and a rename
@@ -63,8 +64,8 @@ pub const CLAUDE: &[Tool] = &[
     // subagent gets no run id and writes no run file, and D10 makes the record
     // the source of truth for work Ouroboros learns from.
     tool("Task", Capability::SubagentSpawn),
-    // The nineteen. Each exists only inside this provider's own product surface
-    // and none is granted by any policy in 7.2.
+    // The twenty-one. Each exists only inside this provider's own product
+    // surface and none is granted by any policy in 7.2.
     tool("CronCreate", Capability::ProviderNative),
     tool("CronDelete", Capability::ProviderNative),
     tool("CronList", Capability::ProviderNative),
@@ -79,8 +80,14 @@ pub const CLAUDE: &[Tool] = &[
     tool("ScheduleWakeup", Capability::ProviderNative),
     tool("SendMessage", Capability::ProviderNative),
     tool("Skill", Capability::ProviderNative),
+    // The four `Task*` list tools are new on 2.1.263, in-process task-list tools
+    // and no relation to `Task`, which spawns a subagent.
+    tool("TaskCreate", Capability::ProviderNative),
+    tool("TaskGet", Capability::ProviderNative),
+    tool("TaskList", Capability::ProviderNative),
     tool("TaskOutput", Capability::ProviderNative),
     tool("TaskStop", Capability::ProviderNative),
+    tool("TaskUpdate", Capability::ProviderNative),
     tool("ToolSearch", Capability::ProviderNative),
 ];
 
@@ -114,7 +121,9 @@ mod tests {
 
     #[test]
     fn the_table_covers_every_tool_the_init_frame_listed() {
-        // The twenty-five, verbatim from research 20, measured on 2.1.261.
+        // The twenty-nine, verbatim off the init frame of run
+        // 01a07512-d36e-7651-b8d9-e9e279e5730b, measured 2026-09-06 on 2.1.263.
+        // Research 20 measured twenty-five of them on 2.1.261 the day before.
         let measured = [
             "Task",
             "Bash",
@@ -135,14 +144,18 @@ mod tests {
             "ScheduleWakeup",
             "SendMessage",
             "Skill",
+            "TaskCreate",
+            "TaskGet",
+            "TaskList",
             "TaskOutput",
             "TaskStop",
+            "TaskUpdate",
             "ToolSearch",
             "WebFetch",
             "WebSearch",
             "Write",
         ];
-        assert_eq!(measured.len(), 25);
+        assert_eq!(measured.len(), 29);
         for name in measured {
             assert!(
                 CLAUDE.iter().any(|t| t.name == name),

@@ -421,8 +421,19 @@ fn a_tool_the_table_does_not_know_is_denied_under_every_policy() {
 }
 
 #[test]
-fn the_nineteen_provider_native_tools_belong_to_permissive_alone() {
-    for tool in ["CronCreate", "SendMessage", "ToolSearch", "Skill"] {
+fn the_provider_native_tools_belong_to_permissive_alone() {
+    // The last four arrived with 2.1.263. They are in the list so a row added
+    // after the gate script was written still reaches the compiled gate.
+    for tool in [
+        "CronCreate",
+        "SendMessage",
+        "ToolSearch",
+        "Skill",
+        "TaskCreate",
+        "TaskGet",
+        "TaskList",
+        "TaskUpdate",
+    ] {
         assert!(
             !Gate::new("standard").ask(tool, json!({})).allowed,
             "{tool} is provider_native and standard does not grant it"
