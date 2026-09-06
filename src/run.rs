@@ -829,6 +829,7 @@ pub fn result(
 }
 
 /// What one spawn writes for the gate: the script, and the config that delivers it.
+#[derive(Debug)]
 pub struct SpawnFiles {
     /// The compiled gate, `0o700`, in `~/hydra/spawn/<run-id>/`.
     pub gate: PathBuf,
