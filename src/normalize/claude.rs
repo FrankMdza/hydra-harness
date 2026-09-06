@@ -483,6 +483,7 @@ impl Walk {
         let skills = layout.skill_store_scope(&self.run_id, &name);
         let runs = layout.runs();
         let spawn = Spawn {
+            provider: crate::provider::Provider::Claude,
             policy: &name,
             worktree: &worktree,
             skill_store: &skills,

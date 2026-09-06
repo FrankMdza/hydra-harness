@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use hydra::mcp::{self, Document};
+use hydra::mcp::{self, Checkout, Document};
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
 use hydra::provider::Provider;
@@ -63,8 +63,8 @@ fn layout() -> (Layout, PathBuf) {
 
 fn written(layout: &Layout, run_id: &str, policy: &str) -> serde_json::Value {
     let document = Document::parse(DOCUMENT).unwrap();
-    let plan = mcp::plan(&document, Provider::Claude, policy);
-    let file = mcp::write_config(layout, run_id, Provider::Claude, plan.injected()).unwrap();
+    let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
+    let file = mcp::write_config(layout, run_id, Provider::Claude, plan.injected(), None).unwrap();
     assert_eq!(file, layout.mcp_file(run_id), "6.5's table names this path");
     serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap()
 }
@@ -107,7 +107,7 @@ fn the_launch_check_refuses_a_judge_run_that_admits_a_server() {
     // 6.1 item 6. `verdicts` is admitted to `judge`, and 6.7's `judge` argv
     // carries no `--mcp-config`, so this launch cannot deliver it.
     let document = Document::parse(DOCUMENT).unwrap();
-    let plan = mcp::plan(&document, Provider::Claude, "judge");
+    let plan = mcp::plan(&document, Provider::Claude, "judge", Checkout::Hydra);
 
     assert!(
         plan.shortfall().is_some(),
@@ -126,7 +126,7 @@ fn the_launch_check_refuses_a_judge_run_that_admits_a_server() {
 fn every_other_policy_delivers_what_it_admits() {
     let document = Document::parse(DOCUMENT).unwrap();
     for policy in ["standard", "read-only", "curate", "permissive"] {
-        let plan = mcp::plan(&document, Provider::Claude, policy);
+        let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
         assert!(plan.shortfall().is_none(), "{policy}");
         assert_eq!(
             plan.injected().len(),
@@ -145,7 +145,7 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
     let (layout, _root) = layout();
     let run_id = "01a07520-0000-7000-8000-00000000000a";
     let document = Document::parse(DOCUMENT).unwrap();
-    let plan = mcp::plan(&document, Provider::Claude, "judge");
+    let plan = mcp::plan(&document, Provider::Claude, "judge", Checkout::Hydra);
 
     let line_zero = serde_json::json!({
         "type": "run_start",
@@ -217,7 +217,7 @@ fn the_shipped_document_admits_nothing_to_anybody() {
     // Every policy therefore launches with an empty `mcpServers` object.
     let document = Document::load().unwrap();
     for policy in ["judge", "curate", "read-only", "standard", "permissive"] {
-        let plan = mcp::plan(&document, Provider::Claude, policy);
+        let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
         assert!(plan.admitted.is_empty(), "{policy}");
         assert!(
             plan.shortfall().is_none(),

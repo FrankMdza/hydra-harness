@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
+use hydra::provider::Provider;
 use hydra::run::write_spawn_config;
 
 /// A layout per test, because the suite runs in parallel.
@@ -48,14 +49,14 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
     std::fs::create_dir_all(&worktree).unwrap();
 
     let spawn =
-        write_spawn_config(&layout, "r1", &set, "standard", Some(&worktree), false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", Some(&worktree), false).unwrap();
 
     assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
-    assert_eq!(spawn.settings, root.join("spawn/r1/settings.json"));
+    assert_eq!(spawn.hook_config, root.join("spawn/r1/settings.json"));
     assert!(spawn.gate.is_file());
-    assert!(spawn.settings.is_file());
+    assert!(spawn.hook_config.is_file());
 
-    let command = hook_command(&settings_of(&spawn.settings));
+    let command = hook_command(&settings_of(&spawn.hook_config));
     assert!(
         command.contains(spawn.gate.to_str().unwrap()),
         "--settings must point at the script this spawn wrote, got {command}"
@@ -70,7 +71,7 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
 fn the_gate_is_executable_and_is_a_real_file() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
 
     // 6.6: real files, never links. `cursor-agent` refuses a symlinked project
     // config silently and runs the command anyway, so this holds for all three.
@@ -84,7 +85,7 @@ fn the_gate_is_executable_and_is_a_real_file() {
     );
     assert!(
         !spawn
-            .settings
+            .hook_config
             .symlink_metadata()
             .unwrap()
             .file_type()
@@ -99,8 +100,8 @@ fn the_gate_is_executable_and_is_a_real_file() {
 fn every_spawn_gets_its_own_directory() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let one = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
-    let two = write_spawn_config(&layout, "r2", &set, "read-only", None, false).unwrap();
+    let one = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
+    let two = write_spawn_config(&layout, "r2", &set, Provider::Claude, "read-only", None, false).unwrap();
 
     assert_ne!(one.gate, two.gate);
     let first = std::fs::read_to_string(&one.gate).unwrap();
@@ -121,7 +122,7 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
     let set = PolicySet::discover().unwrap();
     // 7.5's base case. The script is compiled before it is written, so a
     // placeholder path here would deny a file nothing ever writes to.
-    let spawn = write_spawn_config(&layout, "r1", &set, "permissive", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "permissive", None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
     let resolved = std::fs::canonicalize(&spawn.gate)
         .unwrap()
@@ -137,7 +138,7 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
 fn a_run_with_no_worktree_scopes_writes_to_a_path_nothing_creates() {
     let (layout, root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
 
     assert!(
@@ -177,14 +178,14 @@ fn the_hook_command_runs_the_gate_and_answers() {
     let worktree = root.join("worktree");
     std::fs::create_dir_all(&worktree).unwrap();
     let spawn =
-        write_spawn_config(&layout, "r1", &set, "read-only", Some(&worktree), false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", Some(&worktree), false).unwrap();
 
     let payload = format!(
         r#"{{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{{"file_path":"{}/x.txt","content":"x"}},"cwd":"{}"}}"#,
         worktree.display(),
         worktree.display()
     );
-    let answer = ask_through_the_hook(&spawn.settings, &payload);
+    let answer = ask_through_the_hook(&spawn.hook_config, &payload);
     assert!(
         answer.contains("\"deny\"") && answer.contains("hydra/capability"),
         "read-only should refuse a write through the real hook command, got {answer}"
@@ -201,23 +202,23 @@ fn a_rewritten_gate_fails_closed() {
     // permission to proceed.
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, "read-only", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", None, false).unwrap();
 
     let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi"},"cwd":"/tmp"}"#;
     assert!(
-        !ask_through_the_hook(&spawn.settings, payload).is_empty(),
+        !ask_through_the_hook(&spawn.hook_config, payload).is_empty(),
         "the intact gate answers"
     );
 
     std::fs::write(&spawn.gate, "").unwrap();
-    let answer = ask_through_the_hook(&spawn.settings, payload);
+    let answer = ask_through_the_hook(&spawn.hook_config, payload);
     assert!(
         answer.contains("\"deny\"") && answer.contains("hydra/gate-tampered"),
         "an emptied gate must deny rather than answer nothing, got {answer:?}"
     );
 
     std::fs::remove_file(&spawn.gate).unwrap();
-    let answer = ask_through_the_hook(&spawn.settings, payload);
+    let answer = ask_through_the_hook(&spawn.hook_config, payload);
     assert!(
         answer.contains("hydra/gate-tampered"),
         "a deleted gate is the same case, got {answer:?}"

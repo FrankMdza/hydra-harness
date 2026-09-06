@@ -47,7 +47,7 @@ use uuid::Uuid;
 use crate::env::ChildEnv;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
-use crate::provider::{Provider, claude};
+use crate::provider::{Provider, claude, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef};
 
 pub struct Request {
@@ -122,8 +122,16 @@ pub fn run(request: Request) -> Result<Call> {
     // Pre-flight that refuses before a run id exists. A wrong PATH or a missing HOME
     // is a fact about this machine rather than a refused spawn, and the contract's
     // four refusal values are all Hydra-side policy checks this slice does not run.
-    let child_env = ChildEnv::build(request.provider)?;
+    let mut child_env = ChildEnv::build(request.provider)?;
     let provider_version = request.provider.version()?;
+
+    let invoked_in = std::env::current_dir().context("reading the working directory")?;
+    let repo = crate::worktree::repo_root(&invoked_in);
+    // Two facts about this repo that decide whether `cursor-agent` can be gated
+    // at all, checked before a run id exists for the same reason PATH is.
+    if request.provider == Provider::CursorAgent {
+        cursor_preconditions(repo.as_deref())?;
+    }
 
     // Both are read before a run id exists, for the same reason the environment is:
     // a policy name that is not one of the five, or a preamble file that has gone
@@ -151,11 +159,27 @@ pub fn run(request: Request) -> Result<Call> {
         .run_id
         .clone()
         .unwrap_or_else(|| Uuid::now_v7().to_string());
-    let invoked_in = std::env::current_dir().context("reading the working directory")?;
 
-    let worktree = match crate::worktree::repo_root(&invoked_in) {
+    // 6.2's second category: a variable Hydra sets rather than one it passes
+    // through. `CURSOR_DATA_DIR` moves Cursor's per-project MCP approval state
+    // into the run's spawn directory, so approving an injected server writes
+    // under a path Hydra created rather than into `~/.cursor/`. It is set before
+    // line 0 is composed so the name lands in `env_allowlist`, and it travels to
+    // the detached half by value, because it is a path Hydra computed and not a
+    // secret the launcher inherited.
+    let mut set_env = std::collections::BTreeMap::new();
+    if request.provider == Provider::CursorAgent {
+        let data_dir = layout.cursor_data_dir(&run_id);
+        std::fs::create_dir_all(&data_dir)
+            .with_context(|| format!("creating {}", data_dir.display()))?;
+        let value = data_dir.display().to_string();
+        child_env.set("CURSOR_DATA_DIR", value.clone());
+        set_env.insert("CURSOR_DATA_DIR".to_string(), value);
+    }
+
+    let worktree = match &repo {
         Some(repo) => Some(crate::worktree::create(
-            &repo,
+            repo,
             &layout.worktree(&run_id),
             &format!("hydra/{run_id}"),
             &layout.seed_index(&run_id),
@@ -178,7 +202,11 @@ pub fn run(request: Request) -> Result<Call> {
     // flags and that is what makes its answer the run's rather than the machine's.
     // A launch that cannot deliver gets no file, and the check that refuses it
     // runs after the skill collision check, where 6.1 puts it.
-    let mcp_plan = crate::mcp::plan(&mcp_document, request.provider, &request.policy);
+    let checkout = match &worktree_ref {
+        Some(_) => crate::mcp::Checkout::Hydra,
+        None => crate::mcp::Checkout::None,
+    };
+    let mcp_plan = crate::mcp::plan(&mcp_document, request.provider, &request.policy, checkout);
     let mcp_file = match mcp_plan.undeliverable {
         Some(_) => None,
         None => Some(crate::mcp::write_config(
@@ -186,6 +214,9 @@ pub fn run(request: Request) -> Result<Call> {
             &run_id,
             request.provider,
             mcp_plan.injected(),
+            worktree_ref
+                .as_ref()
+                .map(|w| std::path::Path::new(&w.path)),
         )?),
     };
 
@@ -208,12 +239,38 @@ pub fn run(request: Request) -> Result<Call> {
         )?),
         None => None,
     };
+
+    // 6.1 item 7, the pre-flight Cursor alone gets. It runs here, after the
+    // approvals it makes and before line 0, because its listing is the
+    // provider's own report of what the run will start and that is what
+    // contract 5.3's `mcp.resolved` is on this provider. Its verdict is read
+    // after items 5 and 6 below, in 6.1's order. A pre-flight that could not run
+    // at all is the same refusal with the error as its remediation: nothing
+    // spawned, and the record says why.
+    let injected_names = mcp_plan.injected_names();
+    let preflight = match (request.provider, &worktree_ref, mcp_plan.undeliverable) {
+        (Provider::CursorAgent, Some(worktree), None) => {
+            match cursor::preflight(std::path::Path::new(&worktree.path), &child_env, &injected_names) {
+                Ok(preflight) => Some(Ok(preflight)),
+                Err(err) => Some(Err(format!(
+                    "the Cursor MCP pre-flight could not run, so whether the injected \
+                     servers would start is unknown and the run is refused: {err:#}"
+                ))),
+            }
+        }
+        _ => None,
+    };
+    let mcp_resolved: Option<Vec<String>> = match &preflight {
+        Some(Ok(preflight)) => Some(preflight.resolved()),
+        Some(Err(_)) => None,
+        None => injected
+            .as_ref()
+            .and_then(|injected| injected.mcp_resolved.clone()),
+    };
     let mcp_record = crate::mcp::record(
         &mcp_document.sha,
-        &mcp_plan.injected_names(),
-        injected
-            .as_ref()
-            .and_then(|injected| injected.mcp_resolved.as_deref()),
+        &injected_names,
+        mcp_resolved.as_deref(),
     );
 
     // Contract 5.1: the task is recorded verbatim, preamble and all.
@@ -276,22 +333,66 @@ pub fn run(request: Request) -> Result<Call> {
         );
     }
 
+    // 6.1 item 7. Any injected server the listing did not report ready fails the
+    // run, because on this provider that listing is the one that lies: the
+    // human's same-named server may be starting with the human's token while
+    // the name reads as not loaded. Same refusal code as item 6; harness spec 12
+    // says which check fired is a field Hydra sets, and here it is the
+    // remediation.
+    if let Some(preflight) = &preflight {
+        let remediation = match preflight {
+            Ok(preflight) => {
+                let short = preflight.shortfall(&injected_names);
+                if short.is_empty() {
+                    None
+                } else {
+                    Some(preflight.remediation(&short))
+                }
+            }
+            Err(why) => Some(why.clone()),
+        };
+        if let Some(remediation) = remediation {
+            return refuse(
+                &run_file,
+                &run_id,
+                request.provider,
+                &line_zero,
+                crate::record::Refusal::McpUnavailable,
+                remediation,
+                &policies,
+                worktree_ref.as_ref(),
+                seed_tree.as_deref(),
+                &layout,
+            );
+        }
+    }
+
     let spawn = write_spawn_config(
         &layout,
         &run_id,
         &policies,
+        request.provider,
         &request.policy,
         worktree_ref.as_ref().map(|w| std::path::Path::new(&w.path)),
         request.floor_lifted,
     )?;
 
-    let argv = claude::argv(&claude::Launch {
-        task: &task,
-        model: request.model.as_deref(),
-        settings: &spawn.settings,
-        policy: &request.policy,
-        mcp: mcp_file.as_deref(),
-    });
+    let argv = match request.provider {
+        Provider::Claude => claude::argv(&claude::Launch {
+            task: &task,
+            model: request.model.as_deref(),
+            settings: &spawn.hook_config,
+            policy: &request.policy,
+            mcp: mcp_file.as_deref(),
+        }),
+        // Nothing provider-specific rides the argv: the hook config, the MCP
+        // config and the skill links are all read from cwd, and the data
+        // directory is in the environment.
+        Provider::CursorAgent => cursor::argv(&cursor::Launch {
+            task: &task,
+            model: request.model.as_deref(),
+        }),
+    };
 
     let spec_path = layout.launch_spec(&run_id);
 
@@ -312,6 +413,7 @@ pub fn run(request: Request) -> Result<Call> {
             cwd,
             run_file: run_file.clone(),
             model: request.model.clone(),
+            set_env,
             run_start: line_zero.clone(),
         },
     )
@@ -407,6 +509,43 @@ pub fn run(request: Request) -> Result<Call> {
             Ok(Call::Ended(Box::new(result)))
         }
     }
+}
+
+/// Two facts about the repo a `cursor-agent` run stands in, checked before a
+/// run id exists.
+///
+/// **No repo, no gate.** This provider reads its hook config out of the
+/// workspace, which is cwd, and a run outside a repo would run where Hydra was
+/// invoked: a directory Hydra does not own and may not write a `.cursor/` into
+/// (D9). A provider Hydra cannot gate is not launched (harness spec 2), so the
+/// refusal is here and not a record, the same as a wrong PATH.
+///
+/// **A repo that carries Cursor's two files is refused too.** The worktree is
+/// seeded from this repo (6.3), and Hydra has to write `.cursor/hooks.json` and
+/// `.cursor/mcp.json` into it. Writing over the human's own copies would edit
+/// their work and `hydra reap` would commit the edit; loading theirs instead of
+/// Hydra's would launch an ungated run. Neither is a shape 6.6 allows, so the
+/// launch stops and says which file.
+fn cursor_preconditions(repo: Option<&std::path::Path>) -> Result<()> {
+    let Some(repo) = repo else {
+        anyhow::bail!(
+            "cursor-agent reads its hook config out of the worktree, so a run outside a git \
+             repo has nowhere Hydra owns to put a gate and is not launched (harness spec 2). \
+             Run it from inside a repository."
+        );
+    };
+    for file in [cursor::hooks_file(repo), cursor::mcp_file(repo)] {
+        if file.exists() {
+            anyhow::bail!(
+                "{} exists, and Hydra writes that file into every cursor-agent worktree it \
+                 seeds from this repo. It will not write over the human's copy and it will \
+                 not launch a run that reads it instead of the gate, so move the file \
+                 aside for the run.",
+                file.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// What the injection half of the launch produced: the `skills` group, the
@@ -689,12 +828,14 @@ pub fn result(
     }
 }
 
-/// What one spawn writes into `~/hydra/spawn/<run-id>/`.
+/// What one spawn writes for the gate: the script, and the config that delivers it.
 pub struct SpawnFiles {
-    /// The compiled gate, `0o700`.
+    /// The compiled gate, `0o700`, in `~/hydra/spawn/<run-id>/`.
     pub gate: PathBuf,
-    /// The hook config `--settings` points at.
-    pub settings: PathBuf,
+    /// The hook config the provider reads. `~/hydra/spawn/<run-id>/settings.json`
+    /// on `claude`, passed on `--settings`; `<worktree>/.cursor/hooks.json` on
+    /// `cursor-agent`, read from cwd (6.6's table).
+    pub hook_config: PathBuf,
 }
 
 /// Compiles the run's gate and writes the config that delivers it.
@@ -704,12 +845,16 @@ pub struct SpawnFiles {
 /// layout and reads what it wrote. The other half needs a provider.
 ///
 /// **Real files, never links, rewritten at every spawn** (6.6). The spawn directory
-/// is per run and the two files are created inside it, so a second run in the same
-/// directory is not a case that can arise.
+/// is per run and the script is created inside it, so a second run in the same
+/// directory is not a case that can arise. Cursor's config goes in the worktree,
+/// which is per run too, and a checkout that already holds one is refused rather
+/// than overwritten: [`cursor_preconditions`] checks the repo it was seeded from
+/// and this is the second line.
 pub fn write_spawn_config(
     layout: &Layout,
     run_id: &str,
     policies: &crate::policy::PolicySet,
+    provider: Provider,
     policy: &str,
     worktree: Option<&std::path::Path>,
     floor_lifted: bool,
@@ -717,7 +862,23 @@ pub fn write_spawn_config(
     // The gate is compiled against the path it will really live at, because it
     // denies writes to itself and a placeholder would deny the wrong file.
     let gate = layout.gate_script(run_id);
-    let settings = layout.settings_file(run_id);
+    let hook_config = match provider {
+        Provider::Claude => layout.settings_file(run_id),
+        Provider::CursorAgent => {
+            let worktree = worktree.context(
+                "cursor-agent reads its hook config out of the worktree and this run has none",
+            )?;
+            let file = cursor::hooks_file(worktree);
+            if file.exists() {
+                anyhow::bail!(
+                    "{} already exists in the checkout, and Hydra will not write over a \
+                     file the human's repo carries",
+                    file.display()
+                );
+            }
+            file
+        }
+    };
 
     // With no repo there is no worktree, and the child runs where Hydra was
     // invoked. Scoping the `worktree` capability to that directory would hand the
@@ -739,6 +900,7 @@ pub fn write_spawn_config(
     crate::policy::write_gate(
         policies,
         &crate::policy::Spawn {
+            provider,
             policy,
             worktree: worktree.unwrap_or(&no_worktree),
             skill_store: &skill_store,
@@ -759,13 +921,24 @@ pub fn write_spawn_config(
         format!("{:x}", Sha256::digest(&written))
     };
 
-    std::fs::write(
-        &settings,
-        serde_json::to_string_pretty(&claude::settings(&gate, &gate_sha))?,
-    )
-    .with_context(|| format!("writing {}", settings.display()))?;
+    let config = match provider {
+        Provider::Claude => claude::settings(&gate, &gate_sha),
+        Provider::CursorAgent => {
+            // The file sits beside `mcp.json` in a directory the human's repo
+            // may track, so the ignore file that keeps `git status` clean is
+            // written here as well as by the MCP half, whichever comes first.
+            crate::mcp::write_cursor_gitignore(worktree.expect("checked above"))?;
+            cursor::hooks_config(&gate, &gate_sha)
+        }
+    };
+    if let Some(parent) = hook_config.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::write(&hook_config, serde_json::to_string_pretty(&config)?)
+        .with_context(|| format!("writing {}", hook_config.display()))?;
 
-    Ok(SpawnFiles { gate, settings })
+    Ok(SpawnFiles { gate, hook_config })
 }
 
 /// Line 0, composed before the fork.

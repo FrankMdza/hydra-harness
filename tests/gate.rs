@@ -16,6 +16,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::policy::{PolicySet, Spawn, write_gate};
+use hydra::provider::Provider;
 use serde_json::{Value, json};
 
 /// What the gate script's shebang names, and what every test below runs it on.
@@ -44,6 +45,10 @@ struct Gate {
 
 impl Gate {
     fn compile(policy: &str, floor_lifted: bool) -> Self {
+        Self::compile_for(Provider::Claude, policy, floor_lifted)
+    }
+
+    fn compile_for(provider: Provider, policy: &str, floor_lifted: bool) -> Self {
         // A root per Gate, never per policy: the suite runs in parallel and two
         // tests on the same policy would otherwise share a directory, and the
         // first to drop would delete the other's script.
@@ -68,6 +73,7 @@ impl Gate {
         write_gate(
             &set,
             &Spawn {
+                provider,
                 policy,
                 worktree: &worktree,
                 skill_store: &skills,
@@ -89,6 +95,94 @@ impl Gate {
 
     fn new(policy: &str) -> Self {
         Self::compile(policy, false)
+    }
+
+    /// A gate compiled for `cursor-agent`, which answers in Cursor's own shape.
+    fn cursor(policy: &str) -> Self {
+        Self::compile_for(Provider::CursorAgent, policy, false)
+    }
+
+    /// Runs the script in a dialect and hands back the first line it printed.
+    fn raw_answer(&self, dialect: Option<&str>, payload: Value) -> (Value, i32) {
+        let mut command = Command::new(SHEBANG_PYTHON);
+        command.arg(&self.script);
+        command.env("HYDRA_PROBE_RUNS", &self.runs);
+        if let Some(dialect) = dialect {
+            command.arg(dialect);
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("python3 is on PATH");
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(payload.to_string().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let first = stdout.lines().next().unwrap_or_default();
+        let value: Value = serde_json::from_str(first).unwrap_or_else(|e| {
+            panic!("the gate did not answer in JSON: {stdout:?} ({e})\nstderr: {stderr}")
+        });
+        (value, out.status.code().unwrap_or(-1))
+    }
+
+    /// Asks in the `cursor` dialect and reads Cursor's own response shape:
+    /// `permission` plus `user_message`, measured on 2026.09.02-c22c1a3 by
+    /// research 30's rig, which answered in exactly that shape and was obeyed.
+    fn cursor_ask(&self, payload: Value) -> Decision {
+        let (value, exit) = self.raw_answer(Some("cursor"), payload);
+        let permission = value["permission"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no permission field in {value}"))
+            .to_string();
+        assert!(
+            value.get("hookSpecificOutput").is_none(),
+            "the cursor dialect is Cursor's own shape, not claude's nested one: {value}"
+        );
+        Decision {
+            allowed: permission == "allow",
+            reason: value["user_message"].as_str().unwrap_or_default().to_string(),
+            exit,
+        }
+    }
+
+    /// A `preToolUse` payload in the shape measured on 2026.09.02-c22c1a3 on
+    /// 2026-09-06: `tool_name`, `tool_input`, `tool_use_id`, the event name in
+    /// camel case, and `workspace_roots` where `claude` sends `cwd`.
+    fn cursor_tool(&self, tool: &str, input: Value) -> Decision {
+        self.cursor_ask(json!({
+            "conversation_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "model": "composer-2.5",
+            "tool_name": tool,
+            "tool_input": input,
+            "tool_use_id": "tool_1e718bbc-5384-48a2-86a4-e6bcf9c4dbf",
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "hook_event_name": "preToolUse",
+            "cursor_version": "2026.09.02-c22c1a3",
+            "workspace_roots": [self.worktree.to_string_lossy()],
+        }))
+    }
+
+    /// A `beforeReadFile` payload, same build and date: no `tool_name`, the path
+    /// at the top level as `file_path`, and the content beside it.
+    fn cursor_read(&self, path: &Path) -> Decision {
+        self.cursor_ask(json!({
+            "conversation_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "model": "composer-2.5",
+            "content": "alpha line one\n",
+            "file_path": path.to_string_lossy(),
+            "attachments": [],
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "hook_event_name": "beforeReadFile",
+            "cursor_version": "2026.09.02-c22c1a3",
+            "workspace_roots": [self.worktree.to_string_lossy()],
+        }))
     }
 
     fn ask_with_dialect(&self, dialect: Option<&str>, payload: Value) -> Decision {
@@ -440,6 +534,178 @@ fn the_provider_native_tools_belong_to_permissive_alone() {
         );
         assert!(Gate::new("permissive").ask(tool, json!({})).allowed);
     }
+}
+
+// ---------------------------------------------------------------------------
+// The cursor dialect, harness spec 6.6, measured on 2026.09.02-c22c1a3
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_cursor_gate_answers_in_cursors_own_shape() {
+    // Research 30 measured Cursor obeying `{"permission": ...}` on
+    // `preToolUse`, and `beforeReadFile` gets no translation of the claude
+    // shape at all, so one shape serves both events on this provider.
+    let gate = Gate::cursor("standard");
+    let decision = gate.cursor_tool(
+        "Shell",
+        json!({ "command": "echo T09PROBE", "cwd": "", "timeout": 30000 }),
+    );
+    assert!(decision.allowed, "{}", decision.reason);
+    assert!(decision.reason.starts_with("hydra/allow:"));
+    assert_eq!(decision.exit, 0);
+}
+
+#[test]
+fn a_before_read_file_payload_is_gated_as_a_read() {
+    // 6.6: reads are a capability, and this event is why Cursor registers two.
+    // The payload carries no `tool_name`, so the gate maps it onto `Read` and
+    // the path field it measured, `file_path`.
+    let gate = Gate::cursor("read-only");
+    let inside = gate.cursor_read(&gate.worktree.join("a.txt"));
+    assert!(inside.allowed, "{}", inside.reason);
+
+    let outside = gate.cursor_read(Path::new("/etc/hosts"));
+    assert!(
+        outside.denied_for("hydra/out-of-scope"),
+        "a read outside the worktree walked past beforeReadFile: {}",
+        outside.reason
+    );
+
+    // `judge` allows nothing, reads included.
+    let judge = Gate::cursor("judge").cursor_read(Path::new("/tmp/anything"));
+    assert!(judge.denied_for("hydra/capability"));
+}
+
+#[test]
+fn cursors_tool_names_answer_to_the_capabilities_the_policies_speak_in() {
+    // The names measured off the hook on 2026-09-06: `Read`, `Shell`, `Write`,
+    // `Grep` and `Delete`, and the list tool arrives as `Grep` with an
+    // `output_mode` rather than as a tool of its own.
+    let standard = Gate::cursor("standard");
+    let inside = standard.worktree.join("probe.txt");
+    assert!(
+        standard
+            .cursor_tool("Read", json!({ "file_path": inside.to_string_lossy() }))
+            .allowed
+    );
+    assert!(
+        standard
+            .cursor_tool(
+                "Write",
+                json!({ "file_path": inside.to_string_lossy(), "content": "x\n" })
+            )
+            .allowed
+    );
+    assert!(
+        standard
+            .cursor_tool("Delete", json!({ "file_path": inside.to_string_lossy() }))
+            .allowed
+    );
+    assert!(
+        standard
+            .cursor_tool(
+                "Grep",
+                json!({ "pattern": "", "file_path": standard.worktree.to_string_lossy(),
+                        "glob": "**/*", "output_mode": "files_with_matches" })
+            )
+            .allowed
+    );
+
+    let read_only = Gate::cursor("read-only");
+    let probe = read_only.worktree.join("probe.txt");
+    assert!(
+        read_only
+            .cursor_tool("Delete", json!({ "file_path": probe.to_string_lossy() }))
+            .denied_for("hydra/capability"),
+        "a delete is a write"
+    );
+    assert!(
+        read_only
+            .cursor_tool(
+                "Write",
+                json!({ "file_path": probe.to_string_lossy(), "content": "x\n" })
+            )
+            .denied_for("hydra/capability")
+    );
+    assert!(
+        read_only
+            .cursor_tool("Shell", json!({ "command": "echo hi", "cwd": "", "timeout": 30000 }))
+            .denied_for("hydra/capability")
+    );
+    assert!(
+        read_only
+            .cursor_tool("Write", json!({ "file_path": "/etc/hosts", "content": "x" }))
+            .denied_for("hydra/capability")
+    );
+}
+
+#[test]
+fn cursor_names_an_mcp_tool_with_a_prefix_of_its_own() {
+    // `MCP:<tool>` rather than `mcp__<server>__<tool>`, read off the bundle's
+    // `preToolUse` call for MCP tools. `mcp_call` is granted by `permissive`
+    // alone (7.2).
+    let standard = Gate::cursor("standard");
+    assert!(
+        standard
+            .cursor_tool("MCP:ping", json!({}))
+            .denied_for("hydra/capability")
+    );
+    assert!(
+        Gate::cursor("permissive")
+            .cursor_tool("MCP:ping", json!({}))
+            .allowed
+    );
+}
+
+#[test]
+fn the_seven_path_denials_hold_through_cursors_shell_too() {
+    let gate = Gate::cursor("permissive");
+    let target = gate.runs.join("r.jsonl");
+    let decision = gate.cursor_tool(
+        "Shell",
+        json!({ "command": format!("echo x >> {}", target.display()), "cwd": "", "timeout": 30000 }),
+    );
+    assert!(decision.denied_for("hydra/protected-path"), "{}", decision.reason);
+}
+
+#[test]
+fn a_dialect_that_is_not_the_one_the_gate_was_compiled_for_is_refused() {
+    // The dialect is argv[1] and the provider is compiled in. Both name the
+    // same binary, and a gate handed to one provider answered in another's
+    // shape would be an open door on `claude`, which allows what it cannot
+    // parse. So a mismatch denies rather than guesses.
+    let gate = Gate::cursor("permissive");
+    let (value, _) = gate.raw_answer(
+        Some("claude"),
+        json!({ "tool_name": "Shell", "tool_input": { "command": "echo hi" } }),
+    );
+    assert_eq!(value["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(
+        value["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("hydra/wrong-dialect"),
+        "{value}"
+    );
+
+    let claude = Gate::new("permissive");
+    let mismatch = claude.cursor_ask(json!({
+        "tool_name": "Bash", "tool_input": { "command": "echo hi" },
+        "hook_event_name": "preToolUse",
+    }));
+    assert!(mismatch.denied_for("hydra/wrong-dialect"));
+}
+
+#[test]
+fn a_claude_tool_name_means_nothing_to_a_cursor_gate() {
+    // 7.1's table is per provider. `Bash` is `claude`'s spelling of `Shell`,
+    // and a Cursor gate that answered for it would be answering for a tool the
+    // provider never calls, so it is denied as unknown.
+    let gate = Gate::cursor("permissive");
+    assert!(
+        gate.cursor_tool("Bash", json!({ "command": "echo hi" }))
+            .denied_for("hydra/unknown-tool")
+    );
 }
 
 // ---------------------------------------------------------------------------

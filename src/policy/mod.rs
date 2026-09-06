@@ -310,6 +310,10 @@ impl FromStr for Dialect {
 
 /// Everything the gate needs that is true of one spawn rather than of the policy.
 pub struct Spawn<'a> {
+    /// Which binary the gate is compiled for. It picks the capability table of
+    /// 7.1, the field the shell command rides in, the MCP prefix, and the
+    /// dialect the script will insist on being asked in.
+    pub provider: crate::provider::Provider,
     pub policy: &'a str,
     /// The run's checkout, the `worktree` scope.
     pub worktree: &'a Path,
@@ -367,9 +371,13 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
 pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     let policy = set.get(spawn.policy)?;
 
+    // 7.1's table is per provider, because the three share no vocabulary. The
+    // gate is compiled for one binary and the config says which, so the script
+    // can refuse to answer in another's shape.
+    let table = table::Table::of(spawn.provider);
     let mut tools = serde_json::Map::new();
     let mut path_fields = serde_json::Map::new();
-    for t in table::CLAUDE {
+    for t in table.tools {
         tools.insert(t.name.to_string(), t.capability.as_str().into());
         if let Some(field) = t.path_field {
             path_fields.insert(t.name.to_string(), field.into());
@@ -392,6 +400,11 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     let config = serde_json::json!({
         "policy": policy.name,
         "policy_sha": set.sha(),
+        // The shape this gate answers in. The script is also told on argv, and
+        // a caller naming a different one is refused: the two name the same
+        // binary or something is wired wrong, and a wrong shape is an open
+        // door on `claude`.
+        "dialect": spawn.provider.dialect().as_str(),
         "allow": allow,
         "scopes": {
             "worktree": resolved(spawn.worktree),
@@ -404,7 +417,8 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
             .collect::<Vec<_>>(),
         "tools": tools,
         "path_fields": path_fields,
-        "command_field": table::CLAUDE_COMMAND_FIELD,
+        "command_field": table.command_field,
+        "mcp_prefix": table.mcp_prefix,
         "floor": set.floor(),
         "floor_lifted": spawn.floor_lifted,
     });
@@ -447,6 +461,90 @@ pub fn write_gate(set: &PolicySet, spawn: &Spawn<'_>) -> Result<()> {
     std::fs::set_permissions(spawn.gate_script, std::fs::Permissions::from_mode(0o700))
         .with_context(|| format!("making {} executable", spawn.gate_script.display()))?;
     Ok(())
+}
+
+/// The hook command a provider runs: check the gate against the sha it was
+/// written with, then run it, answering in `dialect`.
+///
+/// **The script is a file the child can write and the config is not.** All three
+/// providers snapshot their hook configuration at process start (6.6), while 7.5
+/// says the script is "read fresh on every invocation". 7.5 closes that for
+/// `judge`, `read-only` and `standard` by scoping their writes to the worktree,
+/// and gives `permissive` and `curate` a base case by denying writes to the script
+/// under every policy. Ticket 02's review found the base case reachable anyway:
+/// the denial was applied to tools carrying a path and `Bash` carries none, so a
+/// shell redirect emptied the script, and an empty script exits 0 printing nothing,
+/// which 6.6 measured `claude` treating as permission to proceed.
+///
+/// The path check now refuses a command that names the script, and this is the
+/// half that does not depend on reading argv. The sha is computed after the script
+/// is written and travels in the config, which the provider has already snapshotted
+/// by the time the child can run anything. A rewritten or deleted script therefore
+/// fails **closed**, in Hydra's own voice, whatever spelling reached it.
+///
+/// **The refusal is spoken in the caller's dialect**, the same as every answer
+/// the gate gives, because a refusal the provider cannot parse is an invalid
+/// response rather than a deny: `claude` would allow the call, and Cursor would
+/// block it under `failClosed` and lose the reason.
+///
+/// The script still lives where 7.5 puts it. Only the pointer got stricter.
+pub fn hook_command(gate_script: &Path, gate_sha: &str, dialect: Dialect) -> String {
+    // JSON string literals are Python string literals, so this quotes a path
+    // containing anything a filesystem allows without a second escaping rule.
+    let path = serde_json::to_string(&gate_script.display().to_string())
+        .unwrap_or_else(|_| "\"\"".to_string());
+    let sha = serde_json::to_string(gate_sha).unwrap_or_else(|_| "\"\"".to_string());
+    let reason = "hydra/gate-tampered: the compiled gate is gone or no longer matches the \
+                  sha this run was launched with, so nothing can be decided and the call \
+                  is refused.";
+    let refusal = match dialect {
+        Dialect::Claude => serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        }),
+        Dialect::Cursor => serde_json::json!({
+            "permission": "deny",
+            "user_message": reason,
+            "agent_message": reason,
+        }),
+        Dialect::Agy => serde_json::json!({ "decision": "deny", "reason": reason }),
+    };
+    let refusal = serde_json::to_string(&refusal.to_string()).unwrap_or_else(|_| "\"\"".to_string());
+    let source = format!(
+        r#"import hashlib, sys
+GATE = {path}
+SHA = {sha}
+try:
+    body = open(GATE, "rb").read()
+except OSError:
+    body = None
+if body is None or hashlib.sha256(body).hexdigest() != SHA:
+    sys.stdout.write({refusal})
+    sys.exit(0)
+exec(compile(body, GATE, "exec"))
+"#
+    );
+    // `python3 -c <source> <dialect>` puts the dialect at sys.argv[1], which is
+    // where the gate reads it, and leaves `__name__` as `__main__` so its own
+    // entry point still fires under `exec`.
+    format!(
+        "/usr/bin/python3 -c {} {}",
+        shell_quote(&source),
+        dialect.as_str()
+    )
+}
+
+/// One shell word.
+///
+/// The hook `command` is a string a shell runs, and it carries both a path under a
+/// home directory Hydra does not name and a block of Python. A space or a quote in
+/// either would split the command and run the gate with no dialect, which denies
+/// and exits 2 rather than failing open, but would deny every call on every run.
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 /// A path with `..` and symlinks resolved, matching what the gate script's own
@@ -621,6 +719,7 @@ mod tests {
         let script = compile(
             &set,
             &Spawn {
+                provider: crate::provider::Provider::Claude,
                 policy: "standard",
                 worktree: Path::new("/tmp/wt"),
                 skill_store: Path::new("/tmp/skills"),

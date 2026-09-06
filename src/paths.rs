@@ -207,6 +207,18 @@ impl Layout {
         self.spawn(run_id).join("mcp.json")
     }
 
+    /// Cursor's data root for one run, `CURSOR_DATA_DIR`, 6.2 and 6.5.
+    ///
+    /// A subdirectory of the spawn directory rather than the directory itself,
+    /// which harness spec 19.1 flags as a refinement over ticket 29: the vendor
+    /// writes `projects/<slug>/` under this root, and keeping that out of the
+    /// directory that holds the gate script keeps "the script lives where
+    /// nothing else writes" true at no cost. Reaped with the rest of the spawn
+    /// directory.
+    pub fn cursor_data_dir(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("cursor-data")
+    }
+
     /// Creates the directories this slice writes into. Never the worktree itself,
     /// which `git worktree add` insists on creating.
     pub fn ensure(&self) -> Result<()> {

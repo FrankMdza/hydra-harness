@@ -44,6 +44,9 @@ const GATE_PYTHON: &str = "/usr/bin/python3";
 pub struct Replay {
     script: String,
     policy: String,
+    /// The shape the compiled gate insists on being asked in, which is the
+    /// run's provider's. The answer is read back in the same shape.
+    dialect: Dialect,
 }
 
 /// What the policy says about one call, in the gate's own words.
@@ -90,6 +93,7 @@ impl Replay {
         Ok(Self {
             script: compile(set, spawn)?,
             policy: spawn.policy.to_string(),
+            dialect: spawn.provider.dialect(),
         })
     }
 
@@ -99,13 +103,18 @@ impl Replay {
 
     /// The policy's answer for one recorded tool call.
     ///
-    /// The payload is the shape `claude` sends a `PreToolUse` hook, minus the
-    /// envelope fields the gate ignores. `cwd` is the run's own checkout, which
-    /// is what the child sent, and it matters because a relative path in a tool
-    /// argument resolves against it.
+    /// The payload is the shape the provider sends its tool hook, minus the
+    /// envelope fields the gate ignores: `tool_name`, `tool_input` and `cwd`,
+    /// which is what both routed providers send on that event. `cwd` is the
+    /// run's own checkout, which is what the child sent, and it matters because
+    /// a relative path in a tool argument resolves against it.
     pub fn decide(&self, tool: &str, input: &Value, cwd: &Path) -> Result<Verdict> {
+        let event = match self.dialect {
+            Dialect::Claude | Dialect::Agy => "PreToolUse",
+            Dialect::Cursor => "preToolUse",
+        };
         let payload = json!({
-            "hook_event_name": "PreToolUse",
+            "hook_event_name": event,
             "tool_name": tool,
             "tool_input": input,
             "cwd": cwd.to_string_lossy(),
@@ -118,7 +127,7 @@ impl Replay {
         let mut child = Command::new(GATE_PYTHON)
             .arg("-c")
             .arg(&self.script)
-            .arg(Dialect::Claude.as_str())
+            .arg(self.dialect.as_str())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -139,12 +148,18 @@ impl Replay {
                 String::from_utf8_lossy(&out.stderr)
             )
         })?;
-        let specific = &answer["hookSpecificOutput"];
-        let decision = specific["permissionDecision"].as_str();
-        let reason = specific["permissionDecisionReason"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
+        let (decision, reason) = match self.dialect {
+            Dialect::Claude => {
+                let specific = &answer["hookSpecificOutput"];
+                (
+                    specific["permissionDecision"].as_str(),
+                    specific["permissionDecisionReason"].as_str(),
+                )
+            }
+            Dialect::Cursor => (answer["permission"].as_str(), answer["user_message"].as_str()),
+            Dialect::Agy => (answer["decision"].as_str(), answer["reason"].as_str()),
+        };
+        let reason = reason.unwrap_or_default().to_string();
         match decision {
             Some("allow") => Ok(Verdict {
                 allowed: true,

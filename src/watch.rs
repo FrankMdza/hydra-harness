@@ -50,6 +50,13 @@ pub struct Launch {
     /// What Hydra passed on `--model`, which the envelope carries until the
     /// provider says which model actually answered.
     pub model: Option<String>,
+    /// Variables Hydra sets for its own purposes, 6.2's second category, by
+    /// name and value. **Never an inherited value**: the rule that keeps
+    /// secrets off this file is about what the launcher's own environment
+    /// carries, and these are paths Hydra computed. `CURSOR_DATA_DIR` is the
+    /// one lever pulled today.
+    #[serde(default)]
+    pub set_env: std::collections::BTreeMap<String, String>,
     /// The whole of line 0's body, composed by `hydra run`, with `pid` and
     /// `process_start_time` null. Those two are the only fields this half fills
     /// in, because they do not exist until the process does.
@@ -124,7 +131,10 @@ pub fn watch(spec: &Path) -> Result<()> {
         serde_json::from_str(&text).with_context(|| format!("parsing {}", spec.display()))?;
 
     let provider: Provider = launch.provider.parse()?;
-    let child_env = ChildEnv::build(provider)?;
+    let mut child_env = ChildEnv::build(provider)?;
+    for (name, value) in &launch.set_env {
+        child_env.set(name, value.clone());
+    }
 
     let mut writer = Writer::create(
         &launch.run_file,
