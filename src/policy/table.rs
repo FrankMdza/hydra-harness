@@ -95,25 +95,110 @@ pub const CLAUDE: &[Tool] = &[
 /// The `tool_input` field carrying the shell command, per provider.
 pub const CLAUDE_COMMAND_FIELD: &str = "command";
 
-/// What capability a `claude` tool name answers to, or `None` when the table
-/// does not know the name.
+/// `claude` names an MCP tool `mcp__<server>__<tool>`.
+pub const CLAUDE_MCP_PREFIX: &str = "mcp__";
+
+/// `cursor-agent` 2026.09.02-c22c1a3's tool names as its `preToolUse` hook
+/// spells them, measured 2026-09-06.
 ///
-/// The gate script has this function too, compiled from [`CLAUDE`], and the two
-/// must agree: the gate uses it to decide and the normalizer uses it to fill
-/// `tool_call.capability` (contract 7.6) and to run 7.1's table check against
-/// the `system`/`init` frame. `None` is the answer 7.1 wants a reader to act on,
-/// because a provider that renamed a tool should break loudly.
+/// **There is no init frame to check this against.** `claude` and `agy` list
+/// every tool at process start and Cursor does not (research 14), so the only
+/// source is the hook itself: five names arrived on a real run and the rest are
+/// read off the bundle's hook descriptors, each of which builds the
+/// `tool_input` the hook sees. A name that arrives and is not here is denied
+/// as unknown, which is 7.1's stance, and the denial is what reveals it.
 ///
-/// `mcp__` is a prefix rather than a name, so it is matched before the table,
-/// exactly as `capability_of` does in `gate.py`.
-pub fn claude_capability(tool: &str) -> Option<Capability> {
-    if tool.starts_with("mcp__") {
-        return Some(Capability::McpCall);
+/// Two spellings are Cursor's own and worth knowing before they surprise
+/// anybody. The directory-listing tool arrives as `Grep` carrying an
+/// `output_mode`, not as a tool of its own. And a `Write` fires a `Read` hook
+/// for the same `tool_use_id` first, so a write under `read-only` is refused
+/// on the second hook rather than the first.
+pub const CURSOR: &[Tool] = &[
+    // Measured live on 2026-09-06.
+    tool("Shell", Capability::Shell),
+    pathed("Read", Capability::FileRead, "file_path"),
+    pathed("Write", Capability::FileWrite, "file_path"),
+    // A delete is a write to the path it names.
+    pathed("Delete", Capability::FileWrite, "file_path"),
+    pathed("Grep", Capability::FileRead, "file_path"),
+    // Read off the bundle's `createToolInput` table, same build.
+    pathed("List", Capability::FileRead, "file_path"),
+    pathed("ReadLints", Capability::FileRead, "file_path"),
+    tool("Fetch", Capability::NetworkRead),
+    // Feeds stdin to a background shell command. It is shell, and the floor
+    // cannot see it, which is 7.4's failure mode on a second spelling.
+    tool("WriteShellStdin", Capability::Shell),
+    // 7.6: denied under every policy but `permissive`.
+    tool("task", Capability::SubagentSpawn),
+    tool("FetchMcpResource", Capability::McpCall),
+    tool("ListMcpResources", Capability::McpCall),
+    // Tools that exist only inside Cursor's own product, granted by
+    // `permissive` alone.
+    tool("ComputerUse", Capability::ProviderNative),
+    tool("RecordScreen", Capability::ProviderNative),
+    tool("askQuestion", Capability::ProviderNative),
+    tool("createPlan", Capability::ProviderNative),
+    tool("generateImage", Capability::ProviderNative),
+    tool("updateTodos", Capability::ProviderNative),
+];
+
+pub const CURSOR_COMMAND_FIELD: &str = "command";
+
+/// `cursor-agent` hands an MCP tool to `preToolUse` as `MCP:<tool>`, read off
+/// the bundle on 2026-09-06 and unmeasured on a live run, because no server is
+/// configured on this machine.
+pub const CURSOR_MCP_PREFIX: &str = "MCP:";
+
+/// One provider's table, with the two per-provider spellings beside it.
+pub struct Table {
+    pub tools: &'static [Tool],
+    pub command_field: &'static str,
+    pub mcp_prefix: &'static str,
+}
+
+impl Table {
+    pub fn of(provider: crate::provider::Provider) -> Self {
+        use crate::provider::Provider;
+        match provider {
+            Provider::Claude => Table {
+                tools: CLAUDE,
+                command_field: CLAUDE_COMMAND_FIELD,
+                mcp_prefix: CLAUDE_MCP_PREFIX,
+            },
+            Provider::CursorAgent => Table {
+                tools: CURSOR,
+                command_field: CURSOR_COMMAND_FIELD,
+                mcp_prefix: CURSOR_MCP_PREFIX,
+            },
+        }
     }
-    CLAUDE
-        .iter()
-        .find(|entry| entry.name == tool)
-        .map(|entry| entry.capability)
+
+    /// What a tool name answers to, or `None` when the table does not know it.
+    ///
+    /// The MCP prefix is matched before the table, exactly as `capability_of`
+    /// does in `gate.py`, and the two must agree: the gate uses it to decide and
+    /// the normalizer uses it to fill `tool_call.capability` (contract 7.6).
+    /// `None` is the answer 7.1 wants a reader to act on.
+    pub fn capability(&self, tool: &str) -> Option<Capability> {
+        if tool.starts_with(self.mcp_prefix) {
+            return Some(Capability::McpCall);
+        }
+        self.tools
+            .iter()
+            .find(|entry| entry.name == tool)
+            .map(|entry| entry.capability)
+    }
+}
+
+/// What capability a `claude` tool name answers to, or `None` when the table
+/// does not know the name. [`Table::capability`] for one provider.
+pub fn claude_capability(tool: &str) -> Option<Capability> {
+    Table::of(crate::provider::Provider::Claude).capability(tool)
+}
+
+/// The same for `cursor-agent`.
+pub fn cursor_capability(tool: &str) -> Option<Capability> {
+    Table::of(crate::provider::Provider::CursorAgent).capability(tool)
 }
 
 #[cfg(test)]
@@ -181,7 +266,7 @@ mod tests {
 
     #[test]
     fn every_write_tool_names_the_field_the_gate_checks() {
-        for t in CLAUDE {
+        for t in CLAUDE.iter().chain(CURSOR) {
             if matches!(t.capability, Capability::FileWrite | Capability::FileRead) {
                 assert!(
                     t.path_field.is_some(),
@@ -190,5 +275,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_cursor_table_holds_the_names_the_hook_delivered() {
+        // Off a real run on 2026-09-06, 2026.09.02-c22c1a3: six tool calls, five
+        // distinct names, because the listing tool arrived as `Grep`.
+        for name in ["Read", "Shell", "Write", "Grep", "Delete"] {
+            assert!(
+                CURSOR.iter().any(|t| t.name == name),
+                "{name} arrived on the hook and has no row, so 7.1 denies it"
+            );
+        }
+        assert_eq!(cursor_capability("MCP:ping"), Some(Capability::McpCall));
+        assert_eq!(
+            cursor_capability("mcp__hydra__ping"),
+            None,
+            "claude's prefix is not Cursor's"
+        );
+        assert_eq!(cursor_capability("Bash"), None);
+    }
+
+    #[test]
+    fn no_cursor_tool_appears_twice() {
+        let mut names: Vec<_> = CURSOR.iter().map(|t| t.name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(before, names.len());
     }
 }

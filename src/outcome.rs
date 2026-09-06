@@ -156,23 +156,35 @@ pub fn derive(run: &Run) -> Option<Derived> {
     // thing in the file that says which side stopped.
     let outcome = match run.result.as_ref() {
         None => {
-            // `claude` writes exactly one `result` frame on every path, so
-            // something stopped before the child finished. Three shapes, and
-            // `crashed` is only one of them, because contract 8 defines it as
-            // "the process died" and two of the three are not that.
+            let error = end.body["error"].as_str();
             if end.body["exit_code"].is_null() {
                 // No process ran at all. Nothing died.
                 Outcome::Failed
-            } else if end.body["error"].as_str().is_some() {
+            } else if error.is_some_and(|text| text.starts_with(crate::watch::SIGNAL_NOTE)) {
+                // The detached half watched the child die on a signal, which
+                // is the one death anything witnessed. It is read before the
+                // tee-error branch below because the note lands in the same
+                // field.
+                Outcome::Crashed
+            } else if error.is_some() {
                 // Hydra stopped rather than the child. The tee broke, and the
                 // child may have gone on to finish perfectly; the record is
                 // short and its own fate is not in the file. Calling that
                 // `crashed` would assert a death nothing witnessed.
                 Outcome::Failed
+            } else if run.provider.as_deref() == Some("cursor-agent") {
+                // `cursor-agent` writes its terminator only on success
+                // (harness spec 10). Every hard failure is its `catch` path:
+                // one sentence on stderr, no frame, exit 1. So no terminator
+                // is the ordinary shape of a run that failed on this provider,
+                // and two of those sentences are refusals rung one must not
+                // learn from.
+                cursor_stderr_refusal(run).unwrap_or(Outcome::Failed)
             } else {
-                // The child ended without its terminator and Hydra has nothing
-                // to say about why. That is the one shape where the process is
-                // the thing that stopped.
+                // `claude` writes exactly one `result` frame on every path, so
+                // a child that ended without its terminator stopped before it
+                // finished, and Hydra has nothing to say about why. That is the
+                // one shape where the process is the thing that stopped.
                 Outcome::Crashed
             }
         }
@@ -229,6 +241,37 @@ fn provider_refused(run: &Run) -> Option<Outcome> {
         // falls through to `is_error`. A 500 is not a refusal.
         _ => None,
     }
+}
+
+/// The two refusals `cursor-agent` reports on stderr and nowhere else.
+///
+/// Its `catch` path prints one sentence and writes no frame, and over the pty
+/// Hydra owns that sentence is a line of the record (contract 3), so this reads
+/// [`Run::noise`]. Both spellings are the provider's own, measured rather than
+/// guessed: research 33 hit `ActionRequiredError: You've hit your usage limit`
+/// twice on 2026.09.02-c22c1a3 on 2026-09-04 by pinning a premium model, and
+/// research 21 read `Authentication required` out of the three logged-out
+/// messages in the 2026.08.31-4057e58 bundle on 2026-09-01; the phrase is still
+/// in the 2026.09.02-c22c1a3 bundle. The class name and the phrase are keyed on
+/// together, so a later sentence that reuses the class for something else does
+/// not file as a limit.
+///
+/// **This is a text match, and it is written down as one.** It is here because
+/// the alternative files an exhausted quota as `failed`, which rung one learns
+/// a skill lesson from, and contract 8 exists to prevent exactly that. A
+/// provider that rewords the sentence sends the run back to `failed`, which is
+/// the safe direction only in the sense that nothing worse happens: rung one
+/// would then learn from it again.
+fn cursor_stderr_refusal(run: &Run) -> Option<Outcome> {
+    for line in &run.noise {
+        if line.contains("ActionRequiredError") && line.contains("usage limit") {
+            return Some(Outcome::RateLimited);
+        }
+        if line.contains("Authentication required") {
+            return Some(Outcome::AuthFailed);
+        }
+    }
+    None
 }
 
 /// Whether the gate refused everything the run tried.

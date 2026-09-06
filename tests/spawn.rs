@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
+use hydra::provider::Provider;
 use hydra::run::write_spawn_config;
 
 /// A layout per test, because the suite runs in parallel.
@@ -48,14 +49,14 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
     std::fs::create_dir_all(&worktree).unwrap();
 
     let spawn =
-        write_spawn_config(&layout, "r1", &set, "standard", Some(&worktree), false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", Some(&worktree), false).unwrap();
 
     assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
-    assert_eq!(spawn.settings, root.join("spawn/r1/settings.json"));
+    assert_eq!(spawn.hook_config, root.join("spawn/r1/settings.json"));
     assert!(spawn.gate.is_file());
-    assert!(spawn.settings.is_file());
+    assert!(spawn.hook_config.is_file());
 
-    let command = hook_command(&settings_of(&spawn.settings));
+    let command = hook_command(&settings_of(&spawn.hook_config));
     assert!(
         command.contains(spawn.gate.to_str().unwrap()),
         "--settings must point at the script this spawn wrote, got {command}"
@@ -70,7 +71,7 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
 fn the_gate_is_executable_and_is_a_real_file() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
 
     // 6.6: real files, never links. `cursor-agent` refuses a symlinked project
     // config silently and runs the command anyway, so this holds for all three.
@@ -84,7 +85,7 @@ fn the_gate_is_executable_and_is_a_real_file() {
     );
     assert!(
         !spawn
-            .settings
+            .hook_config
             .symlink_metadata()
             .unwrap()
             .file_type()
@@ -99,8 +100,8 @@ fn the_gate_is_executable_and_is_a_real_file() {
 fn every_spawn_gets_its_own_directory() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let one = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
-    let two = write_spawn_config(&layout, "r2", &set, "read-only", None, false).unwrap();
+    let one = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
+    let two = write_spawn_config(&layout, "r2", &set, Provider::Claude, "read-only", None, false).unwrap();
 
     assert_ne!(one.gate, two.gate);
     let first = std::fs::read_to_string(&one.gate).unwrap();
@@ -121,7 +122,7 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
     let set = PolicySet::discover().unwrap();
     // 7.5's base case. The script is compiled before it is written, so a
     // placeholder path here would deny a file nothing ever writes to.
-    let spawn = write_spawn_config(&layout, "r1", &set, "permissive", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "permissive", None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
     let resolved = std::fs::canonicalize(&spawn.gate)
         .unwrap()
@@ -137,7 +138,7 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
 fn a_run_with_no_worktree_scopes_writes_to_a_path_nothing_creates() {
     let (layout, root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, "standard", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
 
     assert!(
@@ -177,17 +178,228 @@ fn the_hook_command_runs_the_gate_and_answers() {
     let worktree = root.join("worktree");
     std::fs::create_dir_all(&worktree).unwrap();
     let spawn =
-        write_spawn_config(&layout, "r1", &set, "read-only", Some(&worktree), false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", Some(&worktree), false).unwrap();
 
     let payload = format!(
         r#"{{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{{"file_path":"{}/x.txt","content":"x"}},"cwd":"{}"}}"#,
         worktree.display(),
         worktree.display()
     );
-    let answer = ask_through_the_hook(&spawn.settings, &payload);
+    let answer = ask_through_the_hook(&spawn.hook_config, &payload);
     assert!(
         answer.contains("\"deny\"") && answer.contains("hydra/capability"),
         "read-only should refuse a write through the real hook command, got {answer}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// cursor-agent: the config lives in the worktree, 6.6's table
+// ---------------------------------------------------------------------------
+
+fn cursor_hook(config: &serde_json::Value, event: &str) -> String {
+    config["hooks"][event][0]["command"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no {event} hook in {config}"))
+        .to_string()
+}
+
+#[test]
+fn a_cursor_spawn_writes_the_hook_config_into_the_worktree() {
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::CursorAgent,
+        "standard",
+        Some(&worktree),
+        false,
+    )
+    .unwrap();
+
+    // The script stays outside the worktree it guards (7.5); only the pointer
+    // to it goes inside, because that is where this provider reads it from.
+    assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
+    assert_eq!(spawn.hook_config, worktree.join(".cursor/hooks.json"));
+    assert!(spawn.hook_config.is_file());
+    assert!(
+        !spawn
+            .hook_config
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "cursor-agent refuses a symlinked project config silently and runs the command anyway"
+    );
+
+    let config = settings_of(&spawn.hook_config);
+    assert_eq!(config["version"], 1);
+    for event in ["preToolUse", "beforeReadFile"] {
+        let command = cursor_hook(&config, event);
+        assert!(command.contains(spawn.gate.to_str().unwrap()), "{event}: {command}");
+        assert!(command.ends_with(" cursor"), "{event}: {command}");
+        assert_eq!(config["hooks"][event][0]["failClosed"], true, "{event}");
+    }
+
+    // The two files Hydra writes into `.cursor/` are kept out of `git status`
+    // by name, and nothing else in that directory is.
+    let ignore = std::fs::read_to_string(worktree.join(".cursor/.gitignore")).unwrap();
+    assert!(ignore.contains("/hooks.json"));
+    assert!(ignore.contains("/mcp.json"));
+    assert!(!ignore.contains('*'));
+}
+
+#[test]
+fn a_cursor_spawn_without_a_worktree_is_refused() {
+    // A run outside a repo has nowhere Hydra owns to put the config, and a
+    // provider Hydra cannot gate is not launched (harness spec 2).
+    let (layout, _root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let err = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::CursorAgent,
+        "standard",
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("worktree"), "{err:#}");
+}
+
+#[test]
+fn a_checkout_that_already_holds_a_hook_config_is_refused_rather_than_overwritten() {
+    // The worktree is seeded from the human's repo. Their `.cursor/hooks.json`
+    // is theirs: writing over it edits their work, and loading it instead of
+    // Hydra's launches an ungated run.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(worktree.join(".cursor")).unwrap();
+    std::fs::write(worktree.join(".cursor/hooks.json"), "{\"version\":1,\"hooks\":{}}").unwrap();
+
+    let err = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::CursorAgent,
+        "standard",
+        Some(&worktree),
+        false,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err:#}");
+    assert_eq!(
+        std::fs::read_to_string(worktree.join(".cursor/hooks.json")).unwrap(),
+        "{\"version\":1,\"hooks\":{}}",
+        "the human's file was touched"
+    );
+}
+
+#[test]
+fn the_cursor_hook_command_gates_a_read_through_before_read_file() {
+    // The command the config really carries, through a shell, with the payload
+    // shape measured on 2026.09.02-c22c1a3: no `tool_name`, `file_path` at the
+    // top level, and the content beside it.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::CursorAgent,
+        "read-only",
+        Some(&worktree),
+        false,
+    )
+    .unwrap();
+    let config = settings_of(&spawn.hook_config);
+
+    let run = |command: &str, payload: &str| -> serde_json::Value {
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(payload.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+            panic!(
+                "not JSON: {:?} / {:?}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
+    };
+
+    let outside = run(
+        &cursor_hook(&config, "beforeReadFile"),
+        r#"{"hook_event_name":"beforeReadFile","file_path":"/etc/hosts","content":"x","attachments":[]}"#,
+    );
+    assert_eq!(outside["permission"], "deny", "{outside}");
+    assert!(
+        outside["user_message"]
+            .as_str()
+            .unwrap()
+            .contains("hydra/out-of-scope"),
+        "{outside}"
+    );
+
+    let inside = run(
+        &cursor_hook(&config, "beforeReadFile"),
+        &format!(
+            r#"{{"hook_event_name":"beforeReadFile","file_path":"{}/a.txt","content":"x","attachments":[]}}"#,
+            worktree.display()
+        ),
+    );
+    assert_eq!(inside["permission"], "allow", "{inside}");
+
+    let write = run(
+        &cursor_hook(&config, "preToolUse"),
+        &format!(
+            r#"{{"hook_event_name":"preToolUse","tool_name":"Write","tool_input":{{"file_path":"{}/a.txt","content":"x"}},"tool_use_id":"t"}}"#,
+            worktree.display()
+        ),
+    );
+    assert_eq!(write["permission"], "deny", "{write}");
+    assert!(
+        write["user_message"]
+            .as_str()
+            .unwrap()
+            .contains("hydra/capability"),
+        "{write}"
+    );
+
+    // The tamper wrapper speaks the same shape, or a rewritten script would be
+    // an invalid response that `failClosed` blocks without a reason.
+    std::fs::write(&spawn.gate, "").unwrap();
+    let tampered = run(
+        &cursor_hook(&config, "preToolUse"),
+        r#"{"hook_event_name":"preToolUse","tool_name":"Shell","tool_input":{"command":"echo hi"}}"#,
+    );
+    assert_eq!(tampered["permission"], "deny", "{tampered}");
+    assert!(
+        tampered["user_message"]
+            .as_str()
+            .unwrap()
+            .contains("hydra/gate-tampered"),
+        "{tampered}"
     );
 }
 
@@ -201,23 +413,23 @@ fn a_rewritten_gate_fails_closed() {
     // permission to proceed.
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, "read-only", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", None, false).unwrap();
 
     let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi"},"cwd":"/tmp"}"#;
     assert!(
-        !ask_through_the_hook(&spawn.settings, payload).is_empty(),
+        !ask_through_the_hook(&spawn.hook_config, payload).is_empty(),
         "the intact gate answers"
     );
 
     std::fs::write(&spawn.gate, "").unwrap();
-    let answer = ask_through_the_hook(&spawn.settings, payload);
+    let answer = ask_through_the_hook(&spawn.hook_config, payload);
     assert!(
         answer.contains("\"deny\"") && answer.contains("hydra/gate-tampered"),
         "an emptied gate must deny rather than answer nothing, got {answer:?}"
     );
 
     std::fs::remove_file(&spawn.gate).unwrap();
-    let answer = ask_through_the_hook(&spawn.settings, payload);
+    let answer = ask_through_the_hook(&spawn.hook_config, payload);
     assert!(
         answer.contains("hydra/gate-tampered"),
         "a deleted gate is the same case, got {answer:?}"

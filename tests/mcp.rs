@@ -10,10 +10,10 @@
 //! `src/mcp.rs` holds the parser's own tests: what the document format accepts
 //! and what it refuses. This file is about what reaches the disk.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use hydra::mcp::{self, Document};
+use hydra::mcp::{self, Checkout, Document};
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
 use hydra::provider::Provider;
@@ -63,8 +63,8 @@ fn layout() -> (Layout, PathBuf) {
 
 fn written(layout: &Layout, run_id: &str, policy: &str) -> serde_json::Value {
     let document = Document::parse(DOCUMENT).unwrap();
-    let plan = mcp::plan(&document, Provider::Claude, policy);
-    let file = mcp::write_config(layout, run_id, Provider::Claude, plan.injected()).unwrap();
+    let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
+    let file = mcp::write_config(layout, run_id, Provider::Claude, plan.injected(), None).unwrap();
     assert_eq!(file, layout.mcp_file(run_id), "6.5's table names this path");
     serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap()
 }
@@ -107,7 +107,7 @@ fn the_launch_check_refuses_a_judge_run_that_admits_a_server() {
     // 6.1 item 6. `verdicts` is admitted to `judge`, and 6.7's `judge` argv
     // carries no `--mcp-config`, so this launch cannot deliver it.
     let document = Document::parse(DOCUMENT).unwrap();
-    let plan = mcp::plan(&document, Provider::Claude, "judge");
+    let plan = mcp::plan(&document, Provider::Claude, "judge", Checkout::Hydra);
 
     assert!(
         plan.shortfall().is_some(),
@@ -126,7 +126,7 @@ fn the_launch_check_refuses_a_judge_run_that_admits_a_server() {
 fn every_other_policy_delivers_what_it_admits() {
     let document = Document::parse(DOCUMENT).unwrap();
     for policy in ["standard", "read-only", "curate", "permissive"] {
-        let plan = mcp::plan(&document, Provider::Claude, policy);
+        let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
         assert!(plan.shortfall().is_none(), "{policy}");
         assert_eq!(
             plan.injected().len(),
@@ -145,7 +145,7 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
     let (layout, _root) = layout();
     let run_id = "01a07520-0000-7000-8000-00000000000a";
     let document = Document::parse(DOCUMENT).unwrap();
-    let plan = mcp::plan(&document, Provider::Claude, "judge");
+    let plan = mcp::plan(&document, Provider::Claude, "judge", Checkout::Hydra);
 
     let line_zero = serde_json::json!({
         "type": "run_start",
@@ -210,6 +210,147 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// cursor-agent: the config lives in the worktree, and the pre-flight is fatal
+// ---------------------------------------------------------------------------
+
+fn cursor_written(layout: &Layout, run_id: &str, policy: &str, worktree: &Path) -> serde_json::Value {
+    let document = Document::parse(DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::CursorAgent, policy, Checkout::Hydra);
+    let file = mcp::write_config(
+        layout,
+        run_id,
+        Provider::CursorAgent,
+        plan.injected(),
+        Some(worktree),
+    )
+    .unwrap();
+    assert_eq!(file, worktree.join(".cursor/mcp.json"), "6.5's table names this path");
+    serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap()
+}
+
+#[test]
+fn a_cursor_run_writes_its_config_into_the_worktree_with_url_alone() {
+    let (layout, root) = layout();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let permissive = cursor_written(&layout, "r1", "permissive", &worktree);
+    let servers = permissive["mcpServers"].as_object().unwrap();
+    assert_eq!(servers.len(), 2, "got {permissive}");
+    assert_eq!(servers["filesystem"]["command"], "/usr/bin/true");
+    assert_eq!(servers["docs"]["url"], "https://example.com/mcp");
+    assert!(
+        servers["docs"].get("type").is_none(),
+        "`type` is claude's key; Cursor takes `url` alone (6.5)"
+    );
+
+    // The ignore file went in beside it, so `git status` stays clean.
+    let ignore = std::fs::read_to_string(worktree.join(".cursor/.gitignore")).unwrap();
+    assert!(ignore.contains("/mcp.json"));
+}
+
+#[test]
+fn a_cursor_run_that_admits_nothing_still_gets_a_file() {
+    let (layout, root) = layout();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let config = cursor_written(&layout, "r1", "read-only", &worktree);
+    assert!(config["mcpServers"].as_object().unwrap().is_empty());
+    assert!(worktree.join(".cursor/mcp.json").is_file());
+}
+
+#[test]
+fn a_checkout_that_already_holds_an_mcp_config_is_refused_rather_than_overwritten() {
+    let (layout, root) = layout();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(worktree.join(".cursor")).unwrap();
+    std::fs::write(worktree.join(".cursor/mcp.json"), "{\"mcpServers\":{}}").unwrap();
+
+    let document = Document::parse(DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::CursorAgent, "standard", Checkout::Hydra);
+    let err = mcp::write_config(
+        &layout,
+        "r1",
+        Provider::CursorAgent,
+        plan.injected(),
+        Some(&worktree),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err:#}");
+}
+
+#[test]
+fn the_pre_flight_refusal_writes_a_record_that_derives_mcp_unavailable() {
+    // 6.1 item 7, on the listing shape `cursor-agent mcp list` prints. The
+    // listing says `docs` is not loaded, which on this provider means the
+    // human's same-named server may be starting instead, and that is the one
+    // failure mode that produces a wrong answer rather than no answer.
+    use hydra::provider::cursor::{Preflight, parse_listing};
+
+    let (layout, _root) = layout();
+    let run_id = "01a07520-0000-7000-8000-00000000000b";
+    let document = Document::parse(DOCUMENT).unwrap();
+    let preflight = Preflight {
+        listing: parse_listing("filesystem: ready\ndocs: not loaded (needs approval)\n"),
+    };
+    let injected = vec!["docs".to_string(), "filesystem".to_string()];
+    let short = preflight.shortfall(&injected);
+    assert_eq!(short.len(), 1);
+    assert_eq!(short[0].name, "docs");
+    assert_eq!(preflight.resolved(), vec!["filesystem".to_string()]);
+
+    let line_zero = serde_json::json!({
+        "type": "run_start",
+        "schema_version": 1,
+        "hydra_version": "0.2.0",
+        "command": "run",
+        "launch_mode": "recorded",
+        "provider_version": "2026.09.02-c22c1a3",
+        "provider_session_id": null,
+        "task": "say pong",
+        "policy": "permissive",
+        "policy_sha": "0000000000000000000000000000000000000000000000000000000000000000",
+        "cwd": "/tmp",
+        "worktree": null,
+        "depth": 0,
+        "pid": null,
+        "process_start_time": null,
+        "mcp": { "doc_sha": document.sha, "injected": injected, "resolved": preflight.resolved() },
+        "subscription": "cursor",
+    });
+
+    let run_file = layout.run_file(run_id);
+    let call = hydra::run::refuse(
+        &run_file,
+        run_id,
+        Provider::CursorAgent,
+        &line_zero,
+        Refusal::McpUnavailable,
+        preflight.remediation(&short),
+        &PolicySet::discover().unwrap(),
+        None,
+        None,
+        &layout,
+    )
+    .unwrap();
+
+    let Call::Ended(result) = call else {
+        panic!("a refused launch has ended by definition");
+    };
+    assert_eq!(result.outcome, Some("mcp_unavailable"));
+    assert_eq!(result.outcome_source, Some("refusal"));
+    assert!(result.exit_code.is_none());
+
+    let text = std::fs::read_to_string(&run_file).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+    let end: serde_json::Value = serde_json::from_str(text.lines().next_back().unwrap()).unwrap();
+    assert_eq!(end["hydra"]["refusal"], "mcp_unavailable");
+    let remediation = end["hydra"]["remediation"].as_str().unwrap();
+    assert!(remediation.contains("pre-flight"), "{remediation}");
+    assert!(remediation.contains("docs: not loaded"), "{remediation}");
+}
+
 #[test]
 fn the_shipped_document_admits_nothing_to_anybody() {
     // Protected config #5 as it stands on this machine: no server is configured
@@ -217,7 +358,7 @@ fn the_shipped_document_admits_nothing_to_anybody() {
     // Every policy therefore launches with an empty `mcpServers` object.
     let document = Document::load().unwrap();
     for policy in ["judge", "curate", "read-only", "standard", "permissive"] {
-        let plan = mcp::plan(&document, Provider::Claude, policy);
+        let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
         assert!(plan.admitted.is_empty(), "{policy}");
         assert!(
             plan.shortfall().is_none(),

@@ -63,9 +63,14 @@ impl ChildEnv {
     /// carries the names actually passed.
     pub fn build(provider: Provider) -> Result<Self> {
         let mut names: Vec<&str> = BASE.to_vec();
-        if provider == Provider::Claude {
-            names.extend_from_slice(CLAUDE_ONLY);
-            names.push(NODE_CA);
+        match provider {
+            Provider::Claude => {
+                names.extend_from_slice(CLAUDE_ONLY);
+                names.push(NODE_CA);
+            }
+            // The other Node provider. `SHELL` and `TMPDIR` stay off: 6.2 gives
+            // both to `claude` alone.
+            Provider::CursorAgent => names.push(NODE_CA),
         }
         names.extend_from_slice(PROXY);
 
@@ -93,6 +98,17 @@ impl ChildEnv {
         }
 
         Ok(Self { vars })
+    }
+
+    /// A variable Hydra sets for its own purposes, 6.2's second category.
+    ///
+    /// An inherited variable is a leak to stop and a Hydra-set one is a lever to
+    /// use. One lever is pulled today: `CURSOR_DATA_DIR`, which moves Cursor's
+    /// MCP approval state into the run's spawn directory. The name lands in
+    /// `env_allowlist` like every other name passed, because contract 5.3 records
+    /// what reached the child and this did.
+    pub fn set(&mut self, name: &str, value: impl Into<String>) {
+        self.vars.insert(name.to_string(), value.into());
     }
 
     pub fn vars(&self) -> impl Iterator<Item = (&str, &str)> {
@@ -176,5 +192,33 @@ mod tests {
         if let Some(home) = built.vars.get("HOME") {
             assert_eq!(PathBuf::from(home), real_home().unwrap());
         }
+    }
+
+    #[test]
+    fn cursor_gets_the_base_and_the_node_certificate_and_not_claudes_two() {
+        let built = ChildEnv::build(Provider::CursorAgent).unwrap();
+        let allowed: Vec<&str> = BASE
+            .iter()
+            .chain(PROXY)
+            .chain(std::iter::once(&NODE_CA))
+            .copied()
+            .collect();
+        for (name, _) in built.vars() {
+            assert!(allowed.contains(&name), "{name} is not on cursor's allowlist");
+        }
+        for leaked in ["CURSOR_AUTH_TOKEN", "CURSOR_API_KEY", "NODE_OPTIONS", "SHELL", "TMPDIR"] {
+            assert!(!built.vars.contains_key(leaked), "{leaked} reached the child");
+        }
+    }
+
+    #[test]
+    fn a_variable_hydra_sets_reaches_the_child_and_the_record() {
+        let mut built = ChildEnv::build(Provider::CursorAgent).unwrap();
+        built.set("CURSOR_DATA_DIR", "/tmp/spawn/r1/cursor-data");
+        assert_eq!(
+            built.vars().find(|(k, _)| *k == "CURSOR_DATA_DIR").map(|(_, v)| v),
+            Some("/tmp/spawn/r1/cursor-data")
+        );
+        assert!(built.names().iter().any(|n| n == "CURSOR_DATA_DIR"));
     }
 }

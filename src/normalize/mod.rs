@@ -7,8 +7,10 @@
 //! was migrated. None of the types below derives `Serialize`, so a caller that
 //! wants to put one in a file has to say so out loud first.
 //!
-//! One provider. `claude` is the one this build routes and [`claude`] is its
-//! adapter; the other two are tickets 09 and 10.
+//! Two providers. [`claude`] and [`cursor`] are the adapters this build routes,
+//! one per column of contract 7.2's table, and [`read_with`] picks one by the
+//! envelope's `provider`, which every line carries (contract 4). `agy` is
+//! ticket 10.
 //!
 //! Two of the ten have no producer here and both are on the list anyway, because
 //! a type the reader cannot name is a type nobody knows is missing.
@@ -17,6 +19,7 @@
 //! build launches no interactive runs.
 
 pub mod claude;
+pub mod cursor;
 
 use std::path::Path;
 
@@ -380,6 +383,18 @@ pub struct Run {
     /// The third of 8.5's fields, `rate_limit_event`, is its own frame type and
     /// has no reader until rung two's early abort, so nothing keeps it.
     pub result: Option<Value>,
+    /// Every line the provider wrote that was not JSON, verbatim (contract 3).
+    ///
+    /// On `claude` that is one show-cursor escape per run and nothing reads it.
+    /// On `cursor-agent` 2026.09.02-c22c1a3 it is a coloured tip before the
+    /// first frame, the same escape after the last, and the failure path: the
+    /// provider's `catch` writes no frame, prints one sentence to stderr and
+    /// exits 1 (research 25, read off the emitter on 2026-09-02 and reproduced
+    /// by research 33 on 2026-09-04), and over a pty that sentence lands here.
+    /// Contract 8's outcome derivation reads it for the two refusals that never
+    /// reach a frame on that provider, a usage limit and a lapsed login, so that
+    /// rung one does not learn a skill lesson from an exhausted quota.
+    pub noise: Vec<String>,
 }
 
 impl Run {
@@ -456,6 +471,102 @@ pub fn read(text: &str, policies: &PolicySet) -> Result<Run> {
 /// run had, and two of the three are Hydra's own directories rather than
 /// anything on the record: `skill_store` and `corpus`. A test that points them
 /// at a temporary tree is asking a real question about a synthetic run.
+///
+/// **The adapter is picked by the envelope's `provider`**, read off the first
+/// line that parses. A harness run carries `null` and holds no frames, so any
+/// adapter reads it the same way; a provider this build has no adapter for gets
+/// `claude`'s, which normalizes none of its frames, plus a finding that says so
+/// rather than a run that quietly has no events.
 pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
-    claude::normalize(text, policies, layout)
+    let provider = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find_map(|envelope| envelope["provider"].as_str().map(str::to_string));
+    match provider.as_deref() {
+        Some("cursor-agent") => cursor::normalize(text, policies, layout),
+        Some("claude") | None => claude::normalize(text, policies, layout),
+        Some(other) => {
+            let mut run = claude::normalize(text, policies, layout)?;
+            run.findings.push(Finding::Limit(format!(
+                "no adapter reads {other} frames in this build, so nothing between the two \
+                 Hydra lines was normalized"
+            )));
+            Ok(run)
+        }
+    }
+}
+
+/// A file whose opening line is gone reads exactly like a pre-gate run, and the
+/// two mean opposite things.
+///
+/// Contract 2 puts `run_start` on the first line of every run file, so a file
+/// without one was truncated or is not a run file. Saying nothing would hand a
+/// reader a run with a null policy and no permission decisions, which is a real
+/// and different thing (5.6).
+pub(crate) fn note_missing_run_start(events: &[Event], findings: &mut Vec<Finding>) {
+    if !events.iter().any(|event| matches!(event, Event::RunStart(_))) {
+        findings.push(Finding::Limit(
+            "the file carries no run_start, so the policy, the cwd and the scopes a \
+             decision would be re-evaluated against are all unknown"
+                .into(),
+        ));
+    }
+}
+
+/// The policy directory moved since the run, so every decision derived below
+/// answers for a policy the run never saw.
+pub(crate) fn note_policy_sha(
+    policy: Option<&str>,
+    policy_sha: Option<&str>,
+    policies: &PolicySet,
+    findings: &mut Vec<Finding>,
+) {
+    let Some(name) = policy else {
+        return;
+    };
+    let Some(recorded) = policy_sha else {
+        // 5.1 writes the two together, so this is a record from somewhere else.
+        // The decisions are still derived, and nothing in them would otherwise
+        // say they were never checked against the policy the run actually had.
+        findings.push(Finding::Limit(format!(
+            "the record names policy {name} and carries no policy_sha, so every decision \
+             below answers for today's policies/ rather than for the directory the run \
+             was launched from"
+        )));
+        return;
+    };
+    if recorded != policies.sha() {
+        findings.push(Finding::StalePolicy {
+            recorded: recorded.to_string(),
+            current: policies.sha().to_string(),
+        });
+    }
+}
+
+pub(crate) fn verdict_decision(allowed: bool) -> Decision {
+    if allowed {
+        Decision::Allow
+    } else {
+        Decision::Deny
+    }
+}
+
+/// Each decision goes in behind the call it answers, so the event list still
+/// reads in the order the run happened.
+pub(crate) fn splice(events: Vec<Event>, decisions: Vec<Option<PermissionDecision>>) -> Vec<Event> {
+    if decisions.is_empty() {
+        return events;
+    }
+    let mut spliced = Vec::with_capacity(events.len() + decisions.len());
+    // Position rather than `call_id`, because the adapters build one slot per
+    // call in this order and an id is the provider's to supply.
+    let mut derived = decisions.into_iter();
+    for event in events {
+        let is_call = matches!(event, Event::ToolCall(_));
+        spliced.push(event);
+        if is_call && let Some(Some(decision)) = derived.next() {
+            spliced.push(Event::PermissionDecision(decision));
+        }
+    }
+    spliced
 }

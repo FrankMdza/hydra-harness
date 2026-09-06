@@ -35,7 +35,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::paths::Layout;
-use crate::provider::{Provider, claude};
+use crate::provider::{Provider, claude, cursor};
 
 /// Protected config #5's path, the one [`crate::policy::denied_write_paths`]
 /// denies every policy from writing to.
@@ -169,6 +169,22 @@ pub enum Probe<'a> {
     Unanswerable,
 }
 
+/// Whose tree the run stands in, which is a fact about the launch rather than
+/// about the policy.
+///
+/// 6.5: the redirect follows the tree, not the launch mode. A tree Hydra created
+/// gets Cursor's data directory and an MCP config; a tree it did not create,
+/// which is a `--shared-tree` run or a run outside any repo, gets neither,
+/// because approving a server there would write into `~/.cursor/`. `claude`
+/// takes its config on the command line and does not care.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Checkout {
+    /// A worktree Hydra created for this run.
+    Hydra,
+    /// No checkout of Hydra's own: the child runs where Hydra was invoked.
+    None,
+}
+
 /// What one launch admits, and whether its shape can deliver any of it.
 pub struct Plan<'a> {
     /// What the run's policy admits, whether or not the launch can deliver it.
@@ -181,12 +197,18 @@ pub struct Plan<'a> {
 /// Compares what the policy admits against what the launch can deliver, 6.1
 /// item 6.
 ///
-/// It reads a document and two names and writes nothing, so the whole of the
-/// launch check is testable without a provider, a worktree or a run id.
-pub fn plan<'a>(document: &'a Document, provider: Provider, policy: &str) -> Plan<'a> {
+/// It reads a document, two names and one fact about the tree, and writes
+/// nothing, so the whole of the launch check is testable without a provider, a
+/// worktree or a run id.
+pub fn plan<'a>(
+    document: &'a Document,
+    provider: Provider,
+    policy: &str,
+    checkout: Checkout,
+) -> Plan<'a> {
     Plan {
         admitted: document.admitted(policy),
-        undeliverable: undeliverable(provider, policy),
+        undeliverable: undeliverable(provider, policy, checkout),
     }
 }
 
@@ -246,40 +268,56 @@ impl<'a> Plan<'a> {
 
 /// Why a launch of this shape carries no MCP config at all.
 ///
-/// One provider today and one reason. Tickets 09 and 10 add theirs: 6.5 gives a
-/// `cursor-agent` run on a `--shared-tree` no injected config at all, which is
-/// this same function answering for a different provider.
-fn undeliverable(provider: Provider, policy: &str) -> Option<&'static str> {
+/// Two providers, one reason each. `claude` answers on the policy name: 6.7's
+/// `judge` argv carries no `--mcp-config`. `cursor-agent` answers on the tree:
+/// 6.5 gives it no injected config outside a checkout Hydra created. `agy`
+/// arrives with ticket 10.
+fn undeliverable(provider: Provider, policy: &str, checkout: Checkout) -> Option<&'static str> {
     match provider {
         Provider::Claude => claude::mcp_undeliverable(policy),
+        Provider::CursorAgent => cursor::mcp_undeliverable(checkout),
     }
 }
 
 /// Writes the run's MCP config where the launch will point at it.
 ///
-/// `~/hydra/spawn/<run-id>/mcp.json` on `claude`, from 6.5's table. The other
-/// two providers put theirs inside the worktree, so this returns a path rather
-/// than assuming the spawn directory is where every provider's file goes.
+/// `~/hydra/spawn/<run-id>/mcp.json` on `claude`, from 6.5's table, and
+/// `<worktree>/.cursor/mcp.json` on `cursor-agent`, which is why this takes the
+/// worktree and returns a path rather than assuming the spawn directory is where
+/// every provider's file goes.
 ///
-/// **The file is written even when no server is admitted.** An empty
-/// `mcpServers` object is what makes `--strict-mcp-config` mean something: it is
-/// the difference between a run with no servers and a run with whatever the
-/// human has configured.
+/// **The file is written even when no server is admitted.** On `claude` an
+/// empty `mcpServers` object is what makes `--strict-mcp-config` mean
+/// something. On `cursor-agent` it is the same claim made the only way that
+/// provider can make it: a project file that declares nothing, so the run's
+/// server set is what the pre-flight lists and not what a file the human's
+/// repo carried would have added.
+///
+/// **A file the checkout already holds is refused rather than overwritten.**
+/// The worktree is seeded from the human's repo (6.3), and a `.cursor/mcp.json`
+/// in it is theirs: writing over it edits their work and `hydra reap` would
+/// commit the edit. [`crate::run`] checks the parent repo for the same file
+/// before a run id exists, and [`cursor::claim`] is the second line.
 pub fn write_config(
     layout: &Layout,
     run_id: &str,
     provider: Provider,
     servers: &[&Server],
+    worktree: Option<&Path>,
 ) -> Result<PathBuf> {
-    let file = match provider {
-        Provider::Claude => layout.mcp_file(run_id),
-    };
-    if let Some(parent) = file.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
-    }
-    let config = match provider {
-        Provider::Claude => claude::mcp_config(servers),
+    let (file, config) = match provider {
+        Provider::Claude => {
+            let file = layout.mcp_file(run_id);
+            if let Some(parent) = file.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            (file, claude::mcp_config(servers))
+        }
+        Provider::CursorAgent => (
+            cursor::claim(worktree, "MCP config", cursor::mcp_file)?,
+            cursor::mcp_config(servers),
+        ),
     };
     std::fs::write(&file, serde_json::to_string_pretty(&config)?)
         .with_context(|| format!("writing {}", file.display()))?;
@@ -570,7 +608,7 @@ Prose below it too.
                     command = \"true\"\nadmit = [\"judge\", \"standard\"]\n```\n";
         let doc = Document::parse(text).unwrap();
 
-        let judge = plan(&doc, Provider::Claude, "judge");
+        let judge = plan(&doc, Provider::Claude, "judge", Checkout::Hydra);
         assert!(judge.shortfall().is_some());
         assert!(
             judge.injected().is_empty(),
@@ -578,9 +616,34 @@ Prose below it too.
         );
         assert!(judge.remediation().contains("fs"));
 
-        let standard = plan(&doc, Provider::Claude, "standard");
+        let standard = plan(&doc, Provider::Claude, "standard", Checkout::Hydra);
         assert!(standard.shortfall().is_none());
         assert_eq!(standard.injected_names(), vec!["fs".to_string()]);
+    }
+
+    #[test]
+    fn a_cursor_run_outside_a_tree_of_hydras_cannot_be_delivered_a_server() {
+        // 6.5: the redirect follows the tree. A `judge` run on this provider
+        // is fine, because nothing about `--force` drops MCP the way
+        // `--restricted` was meant to; a run with no checkout is not.
+        let text = "```toml\n[[server]]\nname = \"fs\"\ntransport = \"stdio\"\n\
+                    command = \"true\"\nadmit = [\"judge\", \"standard\"]\n```\n";
+        let doc = Document::parse(text).unwrap();
+
+        let owned = plan(&doc, Provider::CursorAgent, "standard", Checkout::Hydra);
+        assert!(owned.shortfall().is_none());
+        assert_eq!(owned.injected_names(), vec!["fs".to_string()]);
+
+        let judge = plan(&doc, Provider::CursorAgent, "judge", Checkout::Hydra);
+        assert!(judge.shortfall().is_none(), "judge is claude's shape, not this one");
+
+        let shared = plan(&doc, Provider::CursorAgent, "standard", Checkout::None);
+        assert!(shared.shortfall().is_some());
+        assert!(shared.injected().is_empty());
+        assert!(shared.remediation().contains("~/.cursor/"));
+
+        let admits_nothing = plan(&doc, Provider::CursorAgent, "read-only", Checkout::None);
+        assert!(admits_nothing.shortfall().is_none());
     }
 
     #[test]
@@ -591,7 +654,7 @@ Prose below it too.
         let text = "```toml\n[[server]]\nname = \"fs\"\ntransport = \"stdio\"\n\
                     command = \"true\"\nadmit = [\"standard\"]\n```\n";
         let doc = Document::parse(text).unwrap();
-        let judge = plan(&doc, Provider::Claude, "judge");
+        let judge = plan(&doc, Provider::Claude, "judge", Checkout::Hydra);
         assert!(judge.shortfall().is_none());
         assert!(judge.injected_names().is_empty());
     }

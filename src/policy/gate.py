@@ -47,11 +47,17 @@ DIALECTS = ("claude", "cursor", "agy")
 def respond(dialect, allowed, reason):
     """Writes the decision in the provider's own shape.
 
-    `claude` and `cursor` share one shape: 6.6 records that Cursor accepts
-    Claude's response dialect on `preToolUse`, which is why the script answers
-    in two shapes rather than three. Only the `claude` shape has been measured
-    against a running provider (ticket 26, on 2.1.257). Tickets 09 and 10 own
-    the other two.
+    `cursor` gets Cursor's own shape rather than Claude's nested one. 6.6 notes
+    that Cursor accepts Claude's dialect on `preToolUse`, and it does, through a
+    translation the bundle applies to that one event and to no other.
+    `beforeReadFile`, which this gate also answers on Cursor, gets no
+    translation, so the nested shape there would be an invalid response. One
+    shape per provider is the rule that survives both events: `permission`
+    plus `user_message`, which research 30's rig answered in and Cursor obeyed
+    on 2026.09.02-c22c1a3, and which a `beforeReadFile` deny was measured
+    obeying on the same build on 2026-09-06. `agent_message` carries the same
+    text so the model reads the reason too, which is what `claude` does with
+    its own field.
 
     An explicit allow is emitted rather than silence. On `claude` the two are
     the same thing, because 6.6 measured that a hook is a veto and never a key:
@@ -60,13 +66,19 @@ def respond(dialect, allowed, reason):
     from a crash, and a crash on `claude` fails open.
     """
     decision = "allow" if allowed else "deny"
-    if dialect in ("claude", "cursor"):
+    if dialect == "claude":
         out = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": decision,
                 "permissionDecisionReason": reason,
             }
+        }
+    elif dialect == "cursor":
+        out = {
+            "permission": decision,
+            "user_message": reason,
+            "agent_message": reason,
         }
     elif dialect == "agy":
         out = {"decision": decision, "reason": reason}
@@ -79,11 +91,14 @@ def respond(dialect, allowed, reason):
 def deny_without_dialect(reason):
     """The one answer that cannot be spoken in the caller's dialect.
 
-    Nothing said who is asking, so the script answers in every shape it has and
-    exits non-zero as well. `claude` and `cursor` read the JSON; `agy` fails
-    closed on a non-zero exit, so the exit code covers it whatever it makes of
-    the body. Unverified against a running provider on purpose: this ticket
-    launches none, and a wrong guess here fails toward a run that cannot start.
+    Nothing said who is asking, so the script answers in the two shapes that
+    share a line and exits non-zero as well. `claude` reads the JSON; `agy`
+    fails closed on a non-zero exit, so the exit code covers it whatever it
+    makes of the body; `cursor` sees two objects where it expects one, which is
+    an invalid response, and the hook config Hydra writes says `failClosed`, so
+    it blocks the call and loses the reason. Unverified against a running
+    provider on purpose, and a wrong guess here fails toward a run that cannot
+    start.
     """
     sys.stderr.write("hydra gate: {}\n".format(reason))
     respond("claude", False, reason)
@@ -388,9 +403,30 @@ def floor_violation(command):
 
 
 def capability_of(tool):
-    if tool.startswith("mcp__"):
+    # A prefix rather than a name, and the prefix is the provider's own:
+    # `mcp__<server>__<tool>` on claude, `MCP:<tool>` on cursor.
+    if tool.startswith(HYDRA_CONFIG["mcp_prefix"]):
         return "mcp_call"
     return HYDRA_CONFIG["tools"].get(tool)
+
+
+def as_tool_call(payload):
+    """The payload as `evaluate` reads it: a tool name, its input, a cwd.
+
+    Cursor's `beforeReadFile` is the one event this gate answers that carries
+    no `tool_name`. Measured on 2026.09.02-c22c1a3, 2026-09-06: the path is a
+    top-level `file_path`, the file's content rides beside it, and there is no
+    `cwd`. It is a read, so it is evaluated as the provider's `Read` tool with
+    that path, which is the row the table already holds for it. Every other
+    event this gate is wired to sends `tool_name` and `tool_input` as they are.
+    """
+    if payload.get("hook_event_name") == "beforeReadFile":
+        return {
+            "tool_name": "Read",
+            "tool_input": {"file_path": payload.get("file_path")},
+            "cwd": payload.get("cwd"),
+        }
+    return payload
 
 
 def scopes_for(capability):
@@ -403,6 +439,7 @@ def scopes_for(capability):
 
 def evaluate(payload):
     """(allowed, reason) for one tool call."""
+    payload = as_tool_call(payload)
     tool = payload.get("tool_name")
     if not isinstance(tool, str) or not tool:
         return False, "hydra/no-tool-name: the payload named no tool"
@@ -501,6 +538,19 @@ def main():
             "no response dialect on the command line, so the answer cannot be "
             "spoken in a shape the caller is known to read"
         )
+
+    # The config names the provider this gate was compiled for, and argv names
+    # the shape the caller reads. Both name one binary, so a mismatch means
+    # something is wired wrong, and a gate that shrugged and answered anyway
+    # would be answering with the wrong provider's tool table.
+    if dialect != HYDRA_CONFIG["dialect"]:
+        respond(
+            dialect,
+            False,
+            "hydra/wrong-dialect: this gate was compiled for the {} dialect and "
+            "was asked in {}.".format(HYDRA_CONFIG["dialect"], dialect),
+        )
+        return
 
     try:
         raw = sys.stdin.read()

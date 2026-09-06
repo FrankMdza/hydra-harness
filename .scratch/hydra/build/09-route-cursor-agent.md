@@ -1,7 +1,7 @@
 # 09 - Route `cursor-agent`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 03, 08
 
 ## Goal
@@ -124,3 +124,79 @@ instead is record the difference: an injected server that failed reaches stderr 
 provider did not say. It takes a `hydra::mcp::Probe`, which is either the run's own config file
 or `Unanswerable` when the probe cannot reproduce the run's MCP shape. Your MCP answer is the
 paid one, like your skill listing, so returning `None` for both is a supported answer.
+
+## Outcome
+
+Resolved 2026-09-06 on `cursor-agent` 2026.09.02-c22c1a3, `claude` 2.1.263, `agy` 1.1.26,
+all three re-read at the top of the session and unchanged since the map closed.
+`IMPLEMENTATION.md` has a section for this provider with every number below and the
+reasoning; this is the short version.
+
+**Built.** `src/provider/cursor.rs`: 6.7's argv, the hook config in Cursor's own format
+with `preToolUse` and `beforeReadFile` both `failClosed: true`, `.cursor/mcp.json` with
+`url` alone on a remote server, `CURSOR_DATA_DIR` set per run to
+`~/hydra/spawn/<run-id>/cursor-data/` and carried to the detached half by value, the
+free pre-flight of 6.1 item 7 as `mcp enable` per injected server, `mcp list`, `mcp
+disable` for everything else under the redirect, `mcp list` again, refusing the run with
+`mcp_unavailable` when an injected server is not `ready`. `src/policy/table.rs`: a
+second capability table, five names measured off the hook and thirteen read off the
+bundle, `MCP:` as the MCP prefix. `src/policy/gate.py`: a `cursor` dialect that answers
+in Cursor's own shape, maps a `beforeReadFile` payload onto `Read`, and refuses to be
+asked in a dialect other than the one it was compiled for. `src/normalize/cursor.rs`:
+the second column of contract 7.2, dispatched on the envelope's provider. `outcome.rs`:
+no terminator is `failed` on this provider, two stderr sentences derive `rate_limited`
+and `auth_failed`, and a signal death now reaches `run_end.error` on both providers.
+Thirty new tests across `gate.rs`, `spawn.rs`, `mcp.rs`, `normalize.rs` and
+`outcome.rs`, and twenty-six unit tests under `src/`, none of which launches the
+provider.
+
+**Measured.** Two paid probes outside Hydra to learn the hook's spellings and what a
+`beforeReadFile` deny looks like on the stream, then two recorded `hydra run`s on
+`--model composer-2.5`: `01a07891-a339-7173-96d9-70beb88e5efb` under `standard`, three
+tools allowed, `completed`, `usage_source: provider`, 11.9 s; and
+`01a07892-459d-7420-904e-91d6a6986159` under `read-only`, an out-of-scope read refused
+with `hydra/out-of-scope`, an in-scope read allowed, a write refused with
+`hydra/capability`, `completed` with two `hydra_policy` denies and no finding. Both pass
+the contract checker and the corpus walks. The pre-flight listing was measured by hand
+against a working and a broken server under a scratch data directory, and `hydra reap`
+took the first run's spawn directory, socket file and all.
+
+**Done when, item by item.** A recorded run writes a record that passes the checker,
+met twice. Reads are gated, met, and the mechanism is measured on both events. The
+pre-flight fails the run when the listing does not report an injected server ready:
+built, driven by `tests/mcp.rs` from the measured listing shape, and measured by hand
+with the free commands, but not through `hydra run`, because `config/mcp.md` admits no
+server and is a protected config. A run that ends with no counts is `unavailable`,
+never `estimated`: met by construction and by `tests/normalize.rs`, not observed on a
+real run, because producing one means spending a failure.
+
+**What the ticket assumed that turned out false.**
+
+- "`preToolUse` alone leaves the file-read path open on this provider." On this build
+  `preToolUse` fires for `Read` with `tool_name` and `file_path` before the read runs,
+  so the shipped gate refuses an out-of-scope read there and `beforeReadFile` never
+  sees it. Both are registered anyway; the second was measured refusing on its own with
+  a hook that allowed at the first.
+- 6.6's "the script answers in two shapes rather than three." `beforeReadFile` takes
+  only Cursor's own `permission` shape, so the `cursor` dialect answers in that shape
+  on both events. Three shapes, one per provider.
+- Ticket 08's "your MCP answer is the paid one." It is not: the pre-flight listing is
+  free and is what `mcp.resolved` carries. The skill listing is paid and stays null.
+- "A shared-tree run is a fact about the launch rather than the policy, so it will want
+  an argument." It got one: `mcp::plan` takes `Checkout`, and `--shared-tree` is still
+  not built, so `Checkout::None` is a run outside a repo today, which is refused before
+  a run id exists.
+- 6.5's account of what `CURSOR_DATA_DIR` moves is incomplete: the redirect also moves
+  the per-project transcript, `mcp-auth.json`, `repo.json` and a worker socket, all of
+  which die with the spawn directory. `chats/` stayed put, as 6.5 says.
+- Two spellings nobody wrote down: the listing tool arrives at the hook as `Grep`, and a
+  `Write` fires a `Read` hook for the same id first.
+
+**No decision found.** Two things are worth the parent's eye without being the edge of
+the design. The `decider` question the ticket flagged resolved without a guess: the
+decider is derived from the policy as on `claude`, and the reason text is read only for
+the `hydra/<code>:` prefix the gate writes, which 7.7 allows. And map ticket 39's
+possible `Skill` split lands on `Read` here rather than on a row of this table, since
+Cursor has no `Skill` tool and a linked skill is read through the file tool from a path
+under `~/hydra/skills-snapshots/`, which is the same out-of-worktree link ticket 39 is
+already about.

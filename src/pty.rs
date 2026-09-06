@@ -23,6 +23,13 @@ pub struct Spawned {
     _master: Box<dyn MasterPty + Send>,
     /// Lines the child wrote that were not valid UTF-8.
     pub lossy_lines: usize,
+    /// The signal the child died on, once [`Spawned::wait`] has returned, or
+    /// `None` for a child that exited.
+    ///
+    /// Kept beside the exit code because the pty reports a signal death as exit
+    /// code 1, which on `cursor-agent` is also what an orderly failure exits
+    /// with. Without this the two would be one shape on the record.
+    pub signal: Option<String>,
 }
 
 /// Launches `binary` with `argv` on a new pty.
@@ -78,6 +85,7 @@ pub fn spawn(
         reader,
         _master: pair.master,
         lossy_lines: 0,
+        signal: None,
     })
 }
 
@@ -139,6 +147,7 @@ impl Spawned {
     /// providers withhold on the path that matters most.
     pub fn wait(&mut self) -> Result<Option<i32>> {
         let status = self.child.wait().context("waiting for the child")?;
+        self.signal = status.signal().map(str::to_string);
         Ok(Some(status.exit_code() as i32))
     }
 }

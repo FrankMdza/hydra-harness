@@ -10,9 +10,9 @@ the Rust that implements six of that design's eleven commands: `run`, `status`, 
 `prune` and `curate`.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
-design and the code. The code is deliberately not spec-complete: a gated `claude` run works end to
-end and detached, with skills and MCP both injected and two providers unrouted, so that file says
-what a record does and does not carry.
+design and the code. The code is deliberately not spec-complete: a gated `claude` run and a gated
+`cursor-agent` run both work end to end and detached, with skills and MCP both injected and one
+provider unrouted, so that file says what a record does and does not carry.
 
 The three documents are the design. `docs/harness-spec.md` is how Hydra launches, feeds and records
 the providers; `docs/run-record-contract.md` is the format it writes and Ouroboros reads;
@@ -69,10 +69,12 @@ document and there should not be one.
   the detached half that owns the pty and the record; `live.rs` is the pid liveness test everything
   else reads; `reap.rs` and `prune.rs` are the two cleanup commands, typed by a human and
   reached from nowhere but `main`; `record/` is the run record and the validator the tests
-  drive; `env.rs` is the allowlist; `pty.rs` owns the child's pty; `provider/claude.rs` holds
-  every fact that is true of that binary and not of a model; `policy/` loads the policy set,
-  owns the capability table, and compiles the gate script; `skills/` is the store, the per-sha
-  snapshot, the read-only index over the user's own skill roots and the collision check;
+  drive; `env.rs` is the allowlist; `pty.rs` owns the child's pty; `provider/claude.rs` and
+  `provider/cursor.rs` hold every fact that is true of one binary and not of a model, and
+  `normalize/claude.rs` and `normalize/cursor.rs` read each one's records back; `policy/` loads
+  the policy set, owns the capability table per provider, and compiles the gate script;
+  `skills/` is the store, the per-sha snapshot, the read-only index over the user's own skill
+  roots and the collision check;
   `mcp.rs` reads the canonical MCP document and decides what one launch is handed;
   `preamble.rs` composes what the run is told; `ouroboros/` is rung one, `hydra curate`, and
   the only place Ouroboros lives, which is what makes "it calls neither cleanup command" a

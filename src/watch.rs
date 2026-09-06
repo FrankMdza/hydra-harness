@@ -50,6 +50,13 @@ pub struct Launch {
     /// What Hydra passed on `--model`, which the envelope carries until the
     /// provider says which model actually answered.
     pub model: Option<String>,
+    /// Variables Hydra sets for its own purposes, 6.2's second category, by
+    /// name and value. **Never an inherited value**: the rule that keeps
+    /// secrets off this file is about what the launcher's own environment
+    /// carries, and these are paths Hydra computed. `CURSOR_DATA_DIR` is the
+    /// one lever pulled today.
+    #[serde(default)]
+    pub hydra_env: std::collections::BTreeMap<String, String>,
     /// The whole of line 0's body, composed by `hydra run`, with `pid` and
     /// `process_start_time` null. Those two are the only fields this half fills
     /// in, because they do not exist until the process does.
@@ -124,7 +131,10 @@ pub fn watch(spec: &Path) -> Result<()> {
         serde_json::from_str(&text).with_context(|| format!("parsing {}", spec.display()))?;
 
     let provider: Provider = launch.provider.parse()?;
-    let child_env = ChildEnv::build(provider)?;
+    let mut child_env = ChildEnv::build(provider)?;
+    for (name, value) in &launch.hydra_env {
+        child_env.set(name, value.clone());
+    }
 
     let mut writer = Writer::create(
         &launch.run_file,
@@ -181,6 +191,18 @@ pub fn watch(spec: &Path) -> Result<()> {
 
     let exit_code = spawned.wait()?;
 
+    // A signal death is the one ending the detached half witnesses and the
+    // stream cannot show, and the pty reports it as exit code 1. `run_end.error`
+    // is contract 6's field for text Hydra captured that is not on the stream,
+    // and the outcome derivation reads this note first.
+    if let Some(signal) = &spawned.signal {
+        let note = format!("{SIGNAL_NOTE}{signal}");
+        tee_error = Some(match tee_error {
+            Some(existing) => format!("{note}; {existing}"),
+            None => note,
+        });
+    }
+
     if spawned.lossy_lines > 0 {
         let note = format!(
             "{} line(s) the child wrote were not valid UTF-8 and were stored lossily",
@@ -195,6 +217,10 @@ pub fn watch(spec: &Path) -> Result<()> {
     writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;
     Ok(())
 }
+
+/// How `run_end.error` starts when the child died on a signal. The outcome
+/// derivation matches on this prefix, and the signal's name follows it.
+pub const SIGNAL_NOTE: &str = "the child died on signal ";
 
 /// What the blocking view saw before it stopped watching.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

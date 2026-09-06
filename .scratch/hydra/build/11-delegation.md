@@ -53,3 +53,32 @@ policy name the run was launched under, so a narrower child is handed fewer serv
 extra to wire. Monotonic narrowing over capabilities and admission over policy names are two
 different mechanisms that happen to agree here, which is worth knowing before anyone tries to
 make one enforce the other.
+
+## What ticket 09 left you, added 2026-09-06
+
+**`delegate(provider, ...)` has two providers to name now, and one of them needs a repo.**
+A `cursor-agent` run reads its gate, its MCP config and its skill links out of the worktree,
+so `hydra::run` refuses it before a run id exists when the caller is not inside a git repo,
+and again when that repo already carries `.cursor/hooks.json` or `.cursor/mcp.json`. Both
+refusals are errors rather than records, the way a wrong PATH is. A delegate face that runs
+from outside a repo can therefore delegate to `claude` and not to `cursor-agent`, and a
+child's worktree is created from the repo the face stands in, not the parent run's checkout.
+
+**`--shared-tree` on `cursor-agent` is `mcp::Checkout::None`**, which makes every admitted
+server undeliverable and refuses the run with `mcp_unavailable` when the policy admits one.
+The flag itself is still not built; today `Checkout::None` is only ever a run outside a repo.
+Harness spec 9 keeps `--shared-tree` off the MCP face, so nothing here reaches you through
+`delegate`.
+
+**`hydra::run::refuse` is provider-agnostic and `tests/mcp.rs` drives it with both.** Your
+`Refusal::PolicyNarrowing` record is the same three steps whichever provider the child named.
+
+**Per-run data directories do not collide.** Each `cursor-agent` child gets
+`~/hydra/spawn/<run-id>/cursor-data/`, so eight children approving servers at once write
+eight approval files and none of them touches `~/.cursor/`. The pre-flight's `mcp enable`
+and `mcp list` run per child with cwd in that child's worktree.
+
+**The stderr sentences a refused `cursor-agent` child prints are on its record**, as noise
+lines, and two of them derive `rate_limited` and `auth_failed`. A parent reading a child's
+contract 17 result gets those outcomes rather than `failed`, which is the difference between
+a retry loop and a lesson.

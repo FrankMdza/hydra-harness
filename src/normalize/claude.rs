@@ -25,7 +25,8 @@ use serde_json::Value;
 
 use super::{
     Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ResultStatus, Role,
-    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource,
+    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, splice,
+    verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::replay::{Replay, reason_code};
@@ -105,6 +106,8 @@ struct Walk {
     offered: Vec<String>,
     unknown_tools: Vec<String>,
     usage_emitted: bool,
+    /// Lines the provider wrote that were not JSON, kept as strings.
+    noise: Vec<String>,
 }
 
 pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
@@ -151,6 +154,8 @@ impl Walk {
             // one `claude` produces per print-mode run is a show-cursor escape.
             if let Some(frame) = raw.as_object() {
                 self.frame(seq, raw, frame.get("type").and_then(Value::as_str));
+            } else if let Some(text) = raw.as_str() {
+                self.noise.push(text.to_string());
             }
         }
     }
@@ -329,8 +334,13 @@ impl Walk {
     }
 
     fn finish(mut self, policies: &PolicySet, layout: &Layout) -> Result<Run> {
-        self.check_run_start();
-        self.check_policy_sha(policies);
+        super::note_missing_run_start(&self.events, &mut self.findings);
+        super::note_policy_sha(
+            self.policy.as_deref(),
+            self.policy_sha.as_deref(),
+            policies,
+            &mut self.findings,
+        );
         self.check_table();
         let decisions = self.decide(policies, layout);
         self.check_subagents(policies);
@@ -344,54 +354,8 @@ impl Walk {
             events,
             findings: self.findings,
             result: self.result,
+            noise: self.noise,
         })
-    }
-
-    /// A file whose opening line is gone reads exactly like a pre-gate run, and
-    /// the two mean opposite things.
-    ///
-    /// Contract 2 puts `run_start` on the first line of every run file, so a file
-    /// without one was truncated or is not a run file. Saying nothing would hand
-    /// a reader a run with a null policy and no permission decisions, which is a
-    /// real and different thing (5.6).
-    fn check_run_start(&mut self) {
-        if !self
-            .events
-            .iter()
-            .any(|event| matches!(event, Event::RunStart(_)))
-        {
-            self.findings.push(Finding::Limit(
-                "the file carries no run_start, so the policy, the cwd and the scopes a \
-                 decision would be re-evaluated against are all unknown"
-                    .into(),
-            ));
-        }
-    }
-
-    /// The policy directory moved since the run, so every decision below answers
-    /// for a policy the run never saw.
-    fn check_policy_sha(&mut self, policies: &PolicySet) {
-        let Some(name) = &self.policy else {
-            return;
-        };
-        let Some(recorded) = &self.policy_sha else {
-            // 5.1 writes the two together, so this is a record from somewhere
-            // else. The decisions below are still derived, and nothing in them
-            // would otherwise say they were never checked against the policy the
-            // run actually had.
-            self.findings.push(Finding::Limit(format!(
-                "the record names policy {name} and carries no policy_sha, so every \
-                 decision below answers for today's policies/ rather than for the \
-                 directory the run was launched from"
-            )));
-            return;
-        };
-        if recorded != policies.sha() {
-            self.findings.push(Finding::StalePolicy {
-                recorded: recorded.clone(),
-                current: policies.sha().to_string(),
-            });
-        }
     }
 
     /// 7.1's run-time table check, against the names the `init` frame offered.
@@ -483,6 +447,7 @@ impl Walk {
         let skills = layout.skill_store_scope(&self.run_id, &name);
         let runs = layout.runs();
         let spawn = Spawn {
+            provider: crate::provider::Provider::Claude,
             policy: &name,
             worktree: &worktree,
             skill_store: &skills,
@@ -730,34 +695,6 @@ impl Walk {
                     .any(|denial| denial["tool_use_id"].as_str() == Some(call_id))
             })
     }
-}
-
-fn verdict_decision(allowed: bool) -> Decision {
-    if allowed {
-        Decision::Allow
-    } else {
-        Decision::Deny
-    }
-}
-
-/// Each decision goes in behind the call it answers, so the event list still
-/// reads in the order the run happened.
-fn splice(events: Vec<Event>, decisions: Vec<Option<PermissionDecision>>) -> Vec<Event> {
-    if decisions.is_empty() {
-        return events;
-    }
-    let mut spliced = Vec::with_capacity(events.len() + decisions.len());
-    // Position rather than `call_id`, because `decide` built one slot per call
-    // in this order and an id is the provider's to supply.
-    let mut derived = decisions.into_iter();
-    for event in events {
-        let is_call = matches!(event, Event::ToolCall(_));
-        spliced.push(event);
-        if is_call && let Some(Some(decision)) = derived.next() {
-            spliced.push(Event::PermissionDecision(decision));
-        }
-    }
-    spliced
 }
 
 /// A tool result's body, which is a string on most calls and a block list on the

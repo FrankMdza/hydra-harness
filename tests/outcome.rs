@@ -14,7 +14,9 @@ use hydra::record::{Refusal, RunEnd};
 use serde_json::json;
 
 mod common;
-use common::{Record, Sandbox, corpus, policies, usage_frame};
+use common::{
+    Record, Sandbox, corpus, cursor_read_blocked, cursor_usage, policies, usage_frame,
+};
 
 /// The derivation, off a synthetic record.
 fn outcome_of(sandbox: &Sandbox, text: &str) -> Option<(Outcome, Source)> {
@@ -793,6 +795,96 @@ fn a_run_that_said_nothing_returns_no_text_rather_than_an_empty_string() {
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert_eq!(hydra::outcome::final_assistant_text(&run), None);
+}
+
+// --- cursor-agent: no terminator on the failure path ----------------------
+
+#[test]
+fn a_cursor_run_that_exited_with_no_terminator_failed_rather_than_crashed() {
+    // Harness spec 10: `cursor-agent` writes its `result` frame only on
+    // success, so its every hard failure is one stderr sentence, no frame and
+    // exit 1. That is the provider's own failure path and not a death.
+    let sandbox = Sandbox::new("cursor-failed");
+    let text = Record::cursor(&sandbox.worktree(), Some("standard"), Some(policies().sha()))
+        .cursor_init()
+        .cursor_user("x")
+        .noise("Error: something the provider caught")
+        .closed_with(json!({"exit_code": 1}));
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Failed, Source::Derived))
+    );
+}
+
+#[test]
+fn a_cursor_usage_limit_refusal_is_rate_limited_off_stderr() {
+    // Research 33's shape, 2026-09-04: `system/init` and `user` written, then
+    // the sentence on stderr, exit 1, no frame and no usage. Rung one must not
+    // learn a skill lesson from an exhausted quota.
+    let sandbox = Sandbox::new("cursor-limit");
+    let text = Record::cursor(&sandbox.worktree(), Some("standard"), Some(policies().sha()))
+        .cursor_init()
+        .cursor_user("x")
+        .noise(
+            "ActionRequiredError: You've hit your usage limit You've saved $49 on API model \
+             usage this month with Pro. Switch to a different model or set a Spend Limit to \
+             continue with Sonnet.",
+        )
+        .closed_with(json!({"exit_code": 1}));
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::RateLimited, Source::Derived))
+    );
+
+    let sandbox = Sandbox::new("cursor-auth");
+    let text = Record::cursor(&sandbox.worktree(), Some("standard"), Some(policies().sha()))
+        .noise("Error: Authentication required. Please run 'cursor-agent login' first.")
+        .closed_with(json!({"exit_code": 1}));
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::AuthFailed, Source::Derived))
+    );
+}
+
+#[test]
+fn a_cursor_child_that_died_on_a_signal_crashed() {
+    // The pty reports a signal death as exit code 1, which on this provider is
+    // also an orderly failure. The detached half writes the signal into
+    // `run_end.error`, and that note is what separates the two.
+    let sandbox = Sandbox::new("cursor-signal");
+    let text = Record::cursor(&sandbox.worktree(), Some("standard"), Some(policies().sha()))
+        .cursor_init()
+        .closed_with(json!({
+            "exit_code": 1,
+            "error": format!("{}SIGKILL", hydra::watch::SIGNAL_NOTE),
+        }));
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Crashed, Source::Derived))
+    );
+}
+
+#[test]
+fn a_cursor_run_whose_only_call_the_gate_refused_is_gated() {
+    let sandbox = Sandbox::new("cursor-gated");
+    let text = Record::cursor(&sandbox.worktree(), Some("read-only"), Some(policies().sha()))
+        .cursor_init()
+        .cursor_call(
+            "c1",
+            "readToolCall",
+            json!({"path": "/etc/hosts"}),
+            cursor_read_blocked(
+                "hydra/out-of-scope: policy read-only allows file_read inside worktree \
+                 and this call is outside it.",
+            ),
+        )
+        .cursor_assistant("BLOCKED")
+        .cursor_result("BLOCKED", Some(cursor_usage()))
+        .closed();
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Gated, Source::Derived))
+    );
 }
 
 // --- the corpus ----------------------------------------------------------

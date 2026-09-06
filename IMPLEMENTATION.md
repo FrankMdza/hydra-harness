@@ -77,13 +77,13 @@ Provider versions this build has been measured against:
 | Provider | Version | Read |
 |---|---|---|
 | `claude` | 2.1.263 | 2026-09-06. The specs were written against 2.1.257. Every flag in 6.7 still runs, and one claim about a flag has expired: `--restricted` no longer drops MCP, which the section on `judge` below has |
-| `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-06, unchanged since 2026-09-02 |
+| `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-06, unchanged since 2026-09-02. Routed by ticket 09 on this build; the section on it below says what was measured and what was read off the bundle |
 | `agy` | 1.1.26 | 2026-09-06, unchanged since 2026-09-04 |
 
 ## The commands
 
 ```
-hydra run --provider claude --task "..." [--model <id>] [--policy <name>]
+hydra run --provider <claude|cursor-agent> --task "..." [--model <id>] [--policy <name>]
           [--timeout <dur>] [--allow-floor-escape]
 hydra status [<run-id>]
 hydra logs <run-id> [--follow]
@@ -125,9 +125,10 @@ a branch in the skill store that a human merges or does not. `--dry-run` reads t
 corpus and launches nothing, which is the only half that works before ticket 07
 creates the store.
 
-`cursor-agent` and `agy` are routable in the design and refused here by name, with an
-error that says the slice routes one provider rather than that the provider is
-unknown.
+`cursor-agent` is routed as of ticket 09, and the section on it below is the one to read
+before trusting a record it wrote. `agy` is routable in the design and refused here by
+name, with an error that says which ticket it is waiting on rather than that the
+provider is unknown.
 
 ## Cleanup: `hydra reap` and `hydra prune`
 
@@ -674,12 +675,235 @@ pre-flight to Cursor alone and says why: on `claude` the strict flag already gua
 the set. So a failure is a line on stderr and a difference between `injected` and
 `resolved` in the record, which is exactly what that pair of fields is for.
 
+## `cursor-agent`, the second provider
+
+Ticket 09. `src/provider/cursor.rs` holds every fact that is true of that binary,
+`src/normalize/cursor.rs` reads its records back, and `src/policy/table.rs` carries its
+capability table beside `claude`'s. Every claim below was measured on 2026.09.02-c22c1a3
+on 2026-09-06 unless it says it was read off the bundle at
+`~/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/`, and contract 9.3's warning
+applies to all of it: the display name in `model` tracks the account's selection, not
+the binary, so a claim about it can expire without a version moving.
+
+**Two real runs, both under `--model composer-2.5`, and the corpus walks pass with
+both in it.** Run `01a07891-a339-7173-96d9-70beb88e5efb`, `standard`, was asked to read
+`Cargo.toml`, run `echo T09HYDRA` and write `t09-probe.txt`: all three went through,
+the record is 33 lines, `completed` with `usage_source: provider` (12,856 input, 320
+output, 73,256 cache read, 0 cache write), `diff_stat` one file and one insertion, and
+11.9 seconds from line 0 to `run_end`. Run `01a07892-459d-7420-904e-91d6a6986159`,
+`read-only`, was asked to read `/etc/hosts`, read `Cargo.toml` and write the same file:
+the first was refused with `hydra/out-of-scope`, the second went through, the third was
+refused with `hydra/capability`, the model answered `BLOCKED\nOK\nBLOCKED`, and the
+record derives two `permission_decision` denies by `hydra_policy` beside one allow, no
+finding, and `completed`, because one call got through and that is the predicate the
+outcome section above defends. The first run was reaped afterwards to check that a
+spawn directory holding Cursor's socket file goes cleanly; it did, and the record stays.
+Two probes outside Hydra preceded them, one exercising six tools under a logging hook
+to learn the hook's spellings and one denying a read at `beforeReadFile`, and both are
+what the frame shapes in `tests/common/mod.rs` are copied from.
+
+**The gate answers in Cursor's own shape, on both events, and 6.6's "two shapes rather
+than three" sentence is one shape short.** 6.6 says the script answers in two shapes
+because Cursor accepts Claude's response dialect on `preToolUse`. It does, through a
+translation the bundle applies to that one event and to no other, and `beforeReadFile`
+gets none: research 26 read it accepting `allow` or `deny` in Cursor's own `permission`
+field, and the second probe measured that shape denying a read. So the `cursor` dialect
+answers `permission` plus `user_message` plus `agent_message` on both events, which
+research 30's rig had already used on `preToolUse` and had obeyed. The tamper wrapper
+speaks the same shape, because a refusal Cursor cannot parse is an invalid response that
+`failClosed` blocks with the reason lost. Three shapes, then, one per provider, and the
+gate still decides once and only speaks at the end.
+
+**The gate is compiled for one provider and refuses to be asked in another's dialect.**
+The compiled config carries `dialect`, and `hydra/wrong-dialect` is the answer when
+argv names a different one. A gate compiled for Cursor that was asked in `claude`'s
+shape would otherwise answer for a tool table the provider never calls.
+
+**`preToolUse` fires for reads on this build, so `beforeReadFile` is the second line
+rather than the first.** 6.6 registers `beforeReadFile` because "`preToolUse` alone
+leaves the file-read path ungated on that provider", from ticket 26. Measured on
+2026-09-06: a `Read` fires `preToolUse` with `tool_name: Read` and `tool_input:
+{file_path}` before the read executes, and `beforeReadFile` fires after the read
+succeeds inside the provider and before the content reaches the model, carrying the
+path, the content and no tool name. On the shipped gate the first hook refuses an
+out-of-scope read and the second never sees it; the second probe, with a hook that
+allowed at `preToolUse`, measured the second event refusing on its own. Both are
+registered, with `failClosed: true` on each, and the gate maps a `beforeReadFile`
+payload onto `Read` with its measured path field. Whether the next build still fires
+the first for reads is exactly the claim 6.6 declined to rest on.
+
+**The hook's spelling of a tool is not the stream's, and the table holds the hook's.**
+Five names arrived on the hook across the two probes: `Read`, `Shell`, `Write`, `Grep`
+and `Delete`. Thirteen more are read off the bundle's hook descriptors, each of which
+builds the `tool_input` the hook sees: `List`, `ReadLints`, `Fetch`, `WriteShellStdin`,
+`task`, `FetchMcpResource`, `ListMcpResources`, `ComputerUse`, `RecordScreen`,
+`askQuestion`, `createPlan`, `generateImage` and `updateTodos`. `WriteShellStdin` is
+`shell` with no command in its input, so the pattern floor cannot see what it feeds a
+background shell, which is 7.4's failure mode on a second spelling and is the reason
+the row says so. An MCP tool arrives as
+`MCP:<tool>`, read off the same bundle and unmeasured because no server is configured
+here. Three spellings are Cursor's own and would otherwise surprise somebody. The
+listing tool arrives as `Grep` carrying `output_mode: files_with_matches`, not as a tool
+of its own, though the stream calls it `globToolCall`. A `Write` fires a `Read` hook for
+the same `tool_use_id` first, so a write under `read-only` is refused on the second
+hook. And a `Delete` is `file_write` on the path it names. There is no init frame to
+check the table against, unlike `claude`, so 7.1's run-time table check has nothing to
+read on this provider and a name it does not know is caught by the denial that reveals
+it.
+
+**A `Skill` split would land on `Read` here.** Cursor has no `Skill` tool. A linked
+skill is rendered into the prompt as an `<agent_skill fullPath=...>` element and the
+model reads its `SKILL.md` through the ordinary read tool. So if map ticket 39 splits
+`Skill` out of `provider_native` into a capability of its own, this table has no row to
+move; what moves is which scope a `Read` of a path under `~/hydra/skills-snapshots/`
+resolves to, which is the same question ticket 39 already asks about the link
+resolving outside the `worktree` scope. The table is built as the design stands today.
+
+**The normalizer rebuilds the hook's spelling from the stream's, and that is what
+`tool_call.arguments` carries.** The stream says `editToolCall` with `path` and
+`streamContent`; the hook that gated it saw `Write` with `file_path` and `content`.
+Contract 7.7 re-evaluates the policy against what the gate saw, so the adapter maps
+each measured oneof key back to the hook's name and input the way the bundle's own
+`createToolInput` does, and the stream's object survives in `raw`. A key it does not
+know keeps its own spelling with no capability, which is an `UnknownTool` finding.
+Both events for a call come from frames sharing one id, the frame's `call_id` and the
+object's `toolCallId` agreed on every frame measured, and a `completed` frame for a
+refused call carries `args: null`, so the call is taken from `started` and the result
+alone from `completed`.
+
+**Hydra's voice is read out of the refusal text, and nothing else is.** There are no
+hook frames on this provider, so the tool result is the only second source on a
+refusal, and 7.7 says its reason text cannot carry attribution. It cannot, and the
+decider is derived from the policy as on `claude`. What the text can carry is whether
+Hydra's gate spoke and which code it spoke, because every gate answer starts with a
+`hydra/<code>:` prefix and no other hook's does, and the code is checked against the
+gate's own list so a guard quoting `~/hydra/runs` is not mistaken for it. Cursor
+concatenates every hook's message into one reason, allowing hooks included, so
+`hydra/allow` inside a refusal means Hydra allowed and something else denied, which is
+`external`. A refusal with no code at all beside Cursor's own `Agent note: Do not
+suggest workarounds to the blocked tool.` line, or a `rejected` case on a shell command,
+is somebody else's. Where a denied read lands on the stream: the message is
+`readToolCall.result.error.errorMessage`, with `File read was blocked by a hook: ` in
+front of it when `beforeReadFile` refused and nothing in front when `preToolUse` did; a
+denied write is `editToolCall.result.error.error`; a denied shell command is
+`shellToolCall.result.rejected.reason`.
+
+**An allowed call raises no `Ungated` finding on this provider, and the reason is the
+config.** On `claude` a hook that fails to start fails open, so a call with no gate
+answer behind it is worth a finding. Here the config says `failClosed: true`, a hook
+that failed to run would have blocked the call, and the stream carries no gate answer
+for an allowed call anyway, so its absence says nothing. The finding survives for the
+one shape where it means something: the policy denies, something refused, and Hydra's
+voice is not in the text, which is a config the loader did not run, and the loader
+refuses a symlinked one silently.
+
+**No terminator means `failed`, not `crashed`, on this provider.** Harness spec 10:
+`cursor-agent` writes its `result` frame only on success, and its every hard failure
+is the `catch` path, one sentence on stderr, no frame, exit 1. Over the pty Hydra owns
+that sentence is a line of the record, kept as a string per contract 3, and the
+normalizer keeps those lines on `Run::noise`. Two of them are refusals rung one must
+not learn from, and the derivation reads them: `ActionRequiredError` beside `usage
+limit` is `rate_limited`, which research 33 measured twice on 2026-09-04 by pinning a
+premium model, and `Authentication required` is `auth_failed`, which research 21 read
+out of the bundle's logged-out messages. That is a text match and it is written down as
+one; a reworded sentence sends the run back to `failed`. Neither was reproduced on a
+Hydra run, because reproducing the first means burning a premium model's refusal and
+the second means logging out. A signal death reports the same exit code 1 through the
+pty, which is why the detached half now writes the signal into `run_end.error` and the
+derivation reads that note first.
+
+**Two noise lines per run, and one of them is new.** Cursor writes the same bare
+show-cursor escape `claude` does after its last frame, and before its first frame it
+writes a coloured tip, `Tip: You can start the Cursor CLI with 'agent' (same as
+'cursor-agent').`, on stderr, which the pty merges into the record. Both are kept as
+strings and normalize to nothing.
+
+**The fatal pre-flight is three free commands, and its listing names the servers the run
+will start.**
+6.1 item 7, built as 6.5 writes it: `cursor-agent mcp enable <name>` for each injected
+server, run with cwd inside the worktree because `enable` resolves the project from cwd
+and ignores `--workspace`; `mcp list`; `mcp disable <name>` for every server the listing
+names that Hydra did not inject, which is 6.5's per-run kill switch for the human's
+user-scope servers under the redirect; then `mcp list` again. Any injected server the
+final listing does not report `ready` refuses the run with `mcp_unavailable` and a
+remediation naming the pre-flight and the status each server reported. A disable that
+fails is a line on stderr rather than a refusal, because the gate refuses every call
+to a server Hydra did not inject whatever the policy, so the cost is exposure and not
+execution, and the final listing reports the server `ready` for the record to keep.
+The sequence is pinned by a unit test that drives it without the binary. Measured by hand
+on 2026-09-06 against a worktree naming `tests/fixtures/mcp-probe-server.py` and
+`/bin/echo` under a scratch `CURSOR_DATA_DIR`: both `not loaded (needs approval)` before,
+`hydra-probe: ready` and `broken: Error: Connection failed` after the enables, the
+approval written under the scratch directory, and `~/.cursor/projects` untouched.
+`tests/mcp.rs` drives the verdict and the refusal record from that listing shape.
+**Not measured through `hydra run`**, because `config/mcp.md` admits no server and is
+protected config #5; the two real runs each listed nothing, wrote `{"mcpServers":{}}`,
+and recorded `injected: []` beside `resolved: []`.
+
+**`mcp.resolved` is the pre-flight's listing, free, and `skills.resolved` is null.**
+Ticket 08's note to this ticket said both answers were paid. The MCP half is not: the
+listing after the approvals is the provider reporting what the run will start, so the
+`ready` names are `resolved`. The skill half is paid, because ticket 24 put it in
+`~/.cursor/chats/<hash>/<session>/store.db` after a real run, so the launcher says so on
+stderr and writes null, which contract 5.3 makes optional on this provider, and the
+third collision test does not run. The other two do, against six user-scope roots
+rather than `claude`'s one, and `~/.cursor/skills-cursor` holds twenty-odd of Cursor's
+own skills on this machine, so a store skill named `review` or `loop` would refuse a
+Cursor launch today.
+
+**`CURSOR_DATA_DIR` moves more than the approval state, and all of it is reaped.** 6.5
+says the redirect moves `projects/<slug>/` with `mcp-approvals.json` and
+`mcp-disabled.json`. Measured after the first run, the run's `cursor-data/` also held
+`mcp-auth.json`, `repo.json`, `worker.log`, a `worker.sock` under a second project
+directory, and `agent-transcripts/<session>/<session>.jsonl`, the transcript the hook
+payload's `transcript_path` points at. `~/.cursor/projects` gained nothing across both
+runs. What did not move is what 6.5 said would not: `~/.cursor/chats/<hash>/<session>/`
+gained a `store.db` for each run, so the harvest source of section 10 is where the
+design expects it and the per-project transcript is a second copy that dies with the
+spawn directory under `hydra reap`. The variable's name lands in `env_allowlist`,
+because contract 5.3 records the names passed and this one was, and its value travels
+to the detached half in the launch spec as a path Hydra computed rather than a value
+the launcher inherited.
+
+**A `cursor-agent` run needs a checkout of Hydra's own, and two things about the
+parent repo refuse it before a run id exists.** The hook config, the MCP config and the
+skill links are all read from cwd, and cwd is the worktree, so a run outside a git repo
+would have to write `.cursor/` into a directory Hydra does not own. Harness spec 2 says
+a provider Hydra cannot gate is not launched, so the launch stops there with an error
+and no record, the same way a wrong PATH does. And a repo that already carries
+`.cursor/hooks.json` or `.cursor/mcp.json` is refused the same way, because the worktree
+is seeded from it and Hydra has to write both files: writing over the human's copies
+edits their work and `hydra reap` would commit the edit, and loading theirs launches an
+ungated run. `write_spawn_config` and `mcp::write_config` refuse a checkout that holds
+either file as the second line. 6.5's `--shared-tree` is the same shape one flag over,
+and `mcp::plan` takes whose tree the run stands in so that a Cursor run with no tree of
+Hydra's admits no server, which is what `Checkout::None` compiles to today.
+
+**The two files Hydra writes into `.cursor/` are ignored by name.** The skill root
+ignores itself with `*` (6.4); `.cursor/` cannot, because the human's repo may track its
+own `.cursor/rules/` and a `*` there would hide a file the child creates from the commit
+`hydra reap` makes. So `.cursor/.gitignore` lists `/hooks.json`, `/mcp.json` and itself,
+an existing one is left alone, and the first run's reap committed exactly the probe
+file and nothing of Hydra's.
+
+**The argv is 6.7's line with two spellings settled.** `-p` is `--print` on this binary
+and the prompt is a positional, so 6.7's `-p <task>` is one boolean flag and one
+argument, task last. No `--workspace`, because cwd is the worktree and `mcp enable`
+ignores the flag anyway. `--force` covers the workspace trust gate research 14 found
+as well as the permission layer.
+
+**`permissionMode: "default"` on every init frame is the hardcoded literal research
+01 found**, and it still lies under `--force` on this build. Nothing reads it.
+
 ## What the record does not carry
 
 **Both injection groups are written now.** Ticket 08 closed the last one: every recorded
 `claude` run carries `mcp` with `doc_sha`, `injected` and `resolved`, so the section
 this one replaces, which said `mcp` was absent because nothing MCP was injected, no
-longer describes anything.
+longer describes anything. On `cursor-agent` both groups are present too, and one half
+of one is null on purpose: `skills.resolved` is the paid listing, so the record says
+nobody asked rather than claiming an empty one, and `mcp.resolved` is the pre-flight's
+own listing, which is free. The section on that provider has the reason for each.
 
 **`skills` is present on every run with a checkout and absent on the rest.** Ticket 07
 closed that half: a run in a repo carries `store_sha`, `linked` and `resolved`. A run
@@ -713,11 +937,13 @@ checks it rather than asserting it. That test also walks every record under
 
 ## Reading a record back
 
-**One provider.** `src/normalize/` turns a stored `claude` run into contract 7's events.
+**Two providers.** `src/normalize/` turns a stored `claude` or `cursor-agent` run into
+contract 7's events, one adapter per column of 7.2, picked by the envelope's `provider`.
 `read_file` takes a path and the policy set; `read_with` takes text and a layout, which
 is how the tests ask a real question about a synthetic run without touching `~/hydra`.
 Nothing is written, which contract 11 requires and `tests/normalize.rs` checks by
-comparing every byte under `runs/` before and after a walk.
+comparing every byte under `runs/` before and after a walk. What follows in this
+section is the `claude` adapter; the `cursor-agent` section below has the other.
 
 **`usage` says `unavailable` for an object it cannot read, not zero.** A `result` frame
 with no `usage`, and one whose `usage` holds none of section 9's four count fields, both
@@ -859,10 +1085,15 @@ authorization refusal filed as `failed` teaches rung one a skill lesson from a l
 login. Anything else the provider reports falls through to `is_error`, so a 500 is a real
 failure of the run.
 
-**`crashed` reads the terminator's absence, not a signal.** `claude` writes exactly one
-`result` frame on every path, so a `run_end` with no terminator behind it is a child that
-stopped mid-run. With a null `exit_code` it is `failed` instead, because no process ran
-and nothing died.
+**`crashed` reads the terminator's absence, and now one signal note.** `claude` writes
+exactly one `result` frame on every path, so a `run_end` with no terminator behind it is
+a child that stopped mid-run. With a null `exit_code` it is `failed` instead, because no
+process ran and nothing died. Ticket 09 added the one witness the record can have: the
+pty reports a signal death as exit code 1, so the detached half writes `the child died
+on signal <name>` into `run_end.error` when it saw one, and the derivation reads that
+note ahead of the tee-error branch. It matters on `cursor-agent`, where exit 1 with no
+terminator is also the provider's orderly failure path; the section on that provider
+has the split.
 
 **`run_end.error` is read on one side of that split and not the other.** With a
 terminator present the run reached its own end, so the field is a fidelity note: a lossy
@@ -1535,18 +1766,51 @@ reaches no run, which is the failure the launch check exists to make loud.
 in `tests/fixtures/mcp-probe-server.py` is a fixture for measuring, not a server, and it
 is not admitted to anything.
 
+**The `cursor` dialect is Cursor's own shape, on both events.** 6.6 counts two response
+shapes; ticket 09 found `beforeReadFile` takes only Cursor's, and the section on that
+provider has the measurement. One shape per provider is the rule that survives.
+
+**A `cursor-agent` run outside a repo, or in a repo carrying `.cursor/hooks.json` or
+`.cursor/mcp.json`, is refused before a run id exists.** Harness spec 2 gives the rule
+and 6.6 the mechanism; which check runs and when is this build's, and the same section
+argues it.
+
+**`.cursor/.gitignore` names the two files rather than everything.** 6.4's `*` is right
+for a directory Hydra alone writes into and wrong for one the human's repo may track.
+
+**`CURSOR_DATA_DIR` is on `env_allowlist`.** Contract 5.3 says the names passed, and 6.2
+calls it a variable Hydra sets rather than one it passes through; the record follows
+5.3, so a reader sees the redirect was in force.
+
+**`mcp.resolved` on `cursor-agent` is the pre-flight listing's `ready` names.** Ticket
+08 expected null. The listing is free and is taken after the approvals and the
+disables, so it is the provider's own account of what the run will start.
+
+**`tool_call.arguments` on `cursor-agent` is the hook's spelling of the input, rebuilt
+from the stream's.** Contract 7.6 names the field and not its shape; 7.7 re-evaluates
+against what the gate saw, and the gate saw the hook's spelling. The stream's object is
+in `raw`.
+
+**A signal death goes into `run_end.error` as `the child died on signal <name>`.**
+Contract 6 defines the field as text Hydra captured that is not on the stream, and this
+is that. It exists because the pty reports a signal death as exit code 1, which on
+`cursor-agent` is also an orderly failure.
+
+**Two `cursor-agent` outcomes are read off stderr.** `rate_limited` and `auth_failed`
+have no frame to derive from on that provider's failure path, so the derivation reads
+the noise lines the record keeps, keyed on the provider's own error class and phrase.
+The section on that provider says why that is a text match and what happens when the
+sentence moves.
+
 ## Not built
 
 Out of scope for this slice, and each one has a document that already says what it is:
 
-- The Cursor MCP pre-flight and Cursor's `cursor-data/`. 6.5. MCP injection is built for
-  `claude`, and the free `cursor-agent mcp list` that fails a run whose injected server
-  is not ready arrives with its provider in ticket 09.
-- Three of harness spec 6.1's seven pre-flight checks. Auth, depth and policy containment
-  belong to tickets that are not built, and the Cursor pre-flight is item 7. What runs
-  before a spawn today is the environment, the provider version, the policy name, the
-  preamble file, the MCP document, the concurrency cap, the skill collision check and
-  the MCP launch check.
+- Two of harness spec 6.1's seven pre-flight checks. Auth, depth and policy containment
+  belong to tickets that are not built. What runs before a spawn today is the
+  environment, the provider version, the policy name, the preamble file, the MCP
+  document, the concurrency cap, the skill collision check, the MCP launch check and,
+  on `cursor-agent`, item 7's fatal pre-flight.
 - Delegation: `--parent`, depth, monotonic narrowing, the MCP delegate face. 7.3, 9.
 - Every one of contract 8's nine outcomes has a producer now. `mcp_unavailable` was the
   last without one and it arrives through `run_end.refusal`, written by 6.1 item 6 when
@@ -1555,8 +1819,8 @@ Out of scope for this slice, and each one has a document that already says what 
   argues. No record on this machine carries `mcp_unavailable`: `tests/mcp.rs` drives the
   refusal against a fixture document, and the shipped document admits nothing to
   anybody, so producing one for real means a human adding a server.
-- The `cursor-agent` and `agy` adapters, tickets 09 and 10, and harvest, 12. Contract
-  7.2's other two columns and 7.2.1's transcript vocabulary have no reader.
+- The `agy` adapter, ticket 10, and harvest, 12. Contract 7.2's third column and 7.2.1's
+  transcript vocabulary have no reader.
 - Interactive runs and harvest. 5.6, 12.
 - Five of harness spec 17's eleven commands: `show`, `resume`, `evolve`, `export`
   and `usage recount`.

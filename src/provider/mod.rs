@@ -1,10 +1,11 @@
 //! The routable providers.
 //!
-//! Three in the design: `claude`, `cursor-agent`, `agy`. This slice routes one.
+//! Three in the design: `claude`, `cursor-agent`, `agy`. This build routes two.
 //! Every provider-specific fact is a property of the binary rather than of the
 //! model, so a model is a flag inside a provider and never a provider of its own.
 
 pub mod claude;
+pub mod cursor;
 
 use std::fmt;
 use std::str::FromStr;
@@ -14,12 +15,22 @@ use anyhow::{Result, bail};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Provider {
     Claude,
+    CursorAgent,
 }
 
 impl Provider {
     pub fn binary(self) -> &'static str {
         match self {
             Provider::Claude => "claude",
+            Provider::CursorAgent => "cursor-agent",
+        }
+    }
+
+    /// The response shape the gate answers this provider in (6.6).
+    pub fn dialect(self) -> crate::policy::Dialect {
+        match self {
+            Provider::Claude => crate::policy::Dialect::Claude,
+            Provider::CursorAgent => crate::policy::Dialect::Cursor,
         }
     }
 
@@ -48,12 +59,13 @@ impl Provider {
 
     /// Where Hydra links this run's skills, relative to the worktree (6.4).
     ///
-    /// The other two rows of 6.4's table are `.cursor/skills/` and
-    /// `.agents/skills/`, and both come with a launch flag this build does not
-    /// pass, so they arrive with their providers in tickets 09 and 10.
+    /// `cursor-agent` reads its row from cwd or `--workspace`, and Hydra runs it
+    /// with cwd set to the worktree. The third row, `.agents/skills/`, comes with
+    /// `--add-dir` and arrives with `agy` in ticket 10.
     pub fn skill_root(self) -> &'static str {
         match self {
             Provider::Claude => ".claude/skills",
+            Provider::CursorAgent => ".cursor/skills",
         }
     }
 
@@ -67,6 +79,19 @@ impl Provider {
     pub fn user_skill_roots(self, home: &std::path::Path) -> Vec<std::path::PathBuf> {
         match self {
             Provider::Claude => vec![home.join(".claude/skills")],
+            // Its own two, `claude`'s, and the three vendor roots it reads as
+            // well. `~/.cursor/skills-cursor` held twenty-six of Cursor's own
+            // skills on this machine on 2026-09-06, so the collision check has
+            // something to compare against on this provider from the first
+            // launch.
+            Provider::CursorAgent => vec![
+                home.join(".claude/skills"),
+                home.join(".cursor/skills"),
+                home.join(".cursor/skills-cursor"),
+                home.join(".agents/skills"),
+                home.join(".codex/skills"),
+                home.join(".grok/skills"),
+            ],
         }
     }
 
@@ -86,6 +111,7 @@ impl Provider {
     ) -> Result<Resolved> {
         match self {
             Provider::Claude => claude::resolve(worktree, mcp),
+            Provider::CursorAgent => cursor::resolve(worktree, mcp),
         }
     }
 
@@ -99,6 +125,7 @@ impl Provider {
     pub fn subscription(self) -> &'static str {
         match self {
             Provider::Claude => "anthropic",
+            Provider::CursorAgent => "cursor",
         }
     }
 
@@ -106,6 +133,7 @@ impl Provider {
     pub fn observe(self, raw: &str) -> Observed {
         match self {
             Provider::Claude => claude::observe(raw),
+            Provider::CursorAgent => cursor::observe(raw),
         }
     }
 }
@@ -142,15 +170,59 @@ impl fmt::Display for Provider {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_reads_six_user_scope_roots_and_claude_reads_one() {
+        // 6.4 and ticket 24. `~/.cursor/skills-cursor` held twenty-six of
+        // Cursor's own skills on this machine on 2026-09-06, so the collision
+        // check on that provider has names to compare a store against from the
+        // first launch.
+        let home = std::path::Path::new("/Users/probe");
+        let cursor = Provider::CursorAgent.user_skill_roots(home);
+        assert_eq!(cursor.len(), 6);
+        for root in [
+            ".claude/skills",
+            ".cursor/skills",
+            ".cursor/skills-cursor",
+            ".agents/skills",
+            ".codex/skills",
+            ".grok/skills",
+        ] {
+            assert!(cursor.contains(&home.join(root)), "{root}");
+        }
+        assert_eq!(
+            Provider::Claude.user_skill_roots(home),
+            vec![home.join(".claude/skills")]
+        );
+        assert_eq!(Provider::CursorAgent.skill_root(), ".cursor/skills");
+    }
+
+    #[test]
+    fn the_two_routed_names_parse_and_the_third_says_which_ticket() {
+        assert_eq!("claude".parse::<Provider>().unwrap(), Provider::Claude);
+        assert_eq!(
+            "cursor-agent".parse::<Provider>().unwrap(),
+            Provider::CursorAgent
+        );
+        let err = "agy".parse::<Provider>().unwrap_err().to_string();
+        assert!(err.contains("not built yet"), "{err}");
+        assert!("hermes".parse::<Provider>().is_err());
+    }
+}
+
 impl FromStr for Provider {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "claude" => Ok(Provider::Claude),
-            "cursor-agent" | "agy" => bail!(
+            "cursor-agent" => Ok(Provider::CursorAgent),
+            "agy" => bail!(
                 "{s} is a routable provider in the design and is not built yet; \
-                 this slice routes claude only"
+                 this build routes claude and cursor-agent"
             ),
             other => bail!("{other} is not a routable provider"),
         }

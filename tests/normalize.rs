@@ -15,7 +15,10 @@ use hydra::normalize::{Decider, Decision, Event, Finding, ResultStatus, Role, Us
 use serde_json::json;
 
 mod common;
-use common::{RUN_ID, Record, Sandbox, corpus, policies, usage_frame};
+use common::{
+    RUN_ID, Record, Sandbox, corpus, cursor_read_blocked, cursor_read_blocked_late, cursor_read_ok,
+    cursor_shell_rejected, cursor_usage, policies, usage_frame,
+};
 
 // --- one frame at a time -------------------------------------------------
 
@@ -452,6 +455,384 @@ fn a_tool_the_provider_offered_that_the_table_does_not_know_is_a_finding() {
     );
 }
 
+// --- cursor-agent, the second column of 7.2 -------------------------------
+
+#[test]
+fn a_cursor_record_is_read_by_its_own_adapter() {
+    // The envelope's provider picks the adapter (contract 4). The frames are
+    // the ones the 2026-09-06 probe streamed: init, the echoed prompt, thinking,
+    // the answer, and a result carrying usage.
+    let sandbox = Sandbox::new("cursor-read");
+    let text = Record::cursor(&sandbox.worktree(), None, None)
+        .cursor_init()
+        .cursor_user("Reply with the single word DONE.")
+        .cursor_thinking(&["The user wants", " DONE."])
+        .cursor_assistant("DONE")
+        .cursor_result("DONE", Some(cursor_usage()))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.provider.as_deref(), Some("cursor-agent"));
+
+    let messages: Vec<_> = run.messages().collect();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].role, Role::User);
+    assert_eq!(messages[1].role, Role::Assistant);
+    assert_eq!(messages[1].text, "DONE");
+
+    // 7.5: text alone, one event per block, concatenated over its deltas and
+    // reproducible from `raw` by the seq of the first delta.
+    let thinking: Vec<_> = run
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Thinking(block) => Some(block),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(thinking.len(), 1);
+    assert_eq!(thinking[0].text, "The user wants DONE.");
+    assert_eq!(thinking[0].signature, None);
+    assert_eq!(thinking[0].block, 0);
+    assert_eq!(thinking[0].seq, 3, "the first delta's frame");
+
+    // Section 9: the parts, net of cache, and no thinking count on this
+    // provider.
+    let usage = run.usage().unwrap();
+    assert_eq!(usage.source, UsageSource::Provider);
+    let counts = usage.counts.unwrap();
+    assert_eq!(counts.input_tokens, 8383);
+    assert_eq!(counts.cache_read_tokens, 109307);
+    assert_eq!(counts.cache_write_tokens, Some(0));
+    assert_eq!(counts.thinking_tokens, None);
+    assert_eq!(counts.raw_input(), 8383 + 109307);
+    assert!(run.findings.is_empty(), "{:?}", run.findings);
+}
+
+#[test]
+fn a_cursor_tool_call_is_named_as_the_hook_saw_it() {
+    // The stream says `editToolCall` with `path` and `streamContent`; the hook
+    // that gated it saw `Write` with `file_path` and `content`, and 7.7
+    // re-evaluates the policy against what the gate saw.
+    let sandbox = Sandbox::new("cursor-calls");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, None, None)
+        .cursor_tool("c1", "readToolCall", json!({"path": ws.join("a.txt")}), None)
+        .cursor_tool(
+            "c2",
+            "shellToolCall",
+            json!({"command": "echo T09PROBE", "workingDirectory": "", "timeout": 30000}),
+            None,
+        )
+        .cursor_tool(
+            "c3",
+            "editToolCall",
+            json!({"path": ws.join("b.txt"), "streamContent": "hello-b\n"}),
+            None,
+        )
+        .cursor_tool(
+            "c4",
+            "globToolCall",
+            json!({"targetDirectory": ws, "globPattern": "*"}),
+            None,
+        )
+        .cursor_tool("c5", "deleteToolCall", json!({"path": ws.join("b.txt")}), None)
+        .cursor_tool("c6", "semSearchToolCall", json!({"query": "x"}), None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let calls: Vec<_> = run.tool_calls().collect();
+    assert_eq!(calls.len(), 6);
+    assert_eq!(calls[0].name, "Read");
+    assert_eq!(calls[0].call_id, "c1");
+    assert_eq!(
+        calls[0].arguments["file_path"].as_str(),
+        Some(ws.join("a.txt").to_string_lossy().as_ref())
+    );
+    assert_eq!(calls[0].capability.map(|c| c.as_str()), Some("file_read"));
+    assert_eq!(calls[1].name, "Shell");
+    assert_eq!(calls[1].arguments["command"], "echo T09PROBE");
+    assert_eq!(calls[1].capability.map(|c| c.as_str()), Some("shell"));
+    assert_eq!(calls[2].name, "Write");
+    assert_eq!(calls[2].arguments["content"], "hello-b\n");
+    assert_eq!(calls[2].capability.map(|c| c.as_str()), Some("file_write"));
+    assert_eq!(calls[3].name, "Grep", "the listing tool is gated as Grep");
+    assert_eq!(calls[3].capability.map(|c| c.as_str()), Some("file_read"));
+    assert_eq!(calls[4].name, "Delete");
+    assert_eq!(calls[4].capability.map(|c| c.as_str()), Some("file_write"));
+    // A key the adapter does not know keeps its own spelling and 7.1 makes
+    // it a finding rather than a shrug.
+    assert_eq!(calls[5].name, "semSearchToolCall");
+    assert_eq!(calls[5].capability, None);
+    assert!(run.findings.contains(&Finding::UnknownTool {
+        name: "semSearchToolCall".into()
+    }));
+}
+
+#[test]
+fn a_cursor_result_joins_its_call_by_id_and_names_its_case() {
+    let sandbox = Sandbox::new("cursor-results");
+    let ws = sandbox.worktree();
+    let a = ws.join("a.txt").to_string_lossy().to_string();
+    let text = Record::cursor(&ws, None, None)
+        .cursor_call("c1", "readToolCall", json!({"path": a}), cursor_read_ok(&a, "hi\n"))
+        .cursor_call(
+            "c2",
+            "readToolCall",
+            json!({"path": ws.join("nope.txt")}),
+            json!({"error": {"errorMessage": "File not found"}}),
+        )
+        .cursor_call(
+            "c3",
+            "shellToolCall",
+            json!({"command": "exit 3", "workingDirectory": "", "timeout": 30000}),
+            json!({"rejected": {"command": "exit 3", "workingDirectory": "", "reason": "", "isReadonly": false}}),
+        )
+        .cursor_call("c4", "readToolCall", json!({"path": a}), json!({"somethingNew": {}}))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    // One call per id, whichever frames carried it.
+    assert_eq!(run.tool_calls().count(), 4);
+    let results: Vec<_> = run.tool_results().collect();
+    assert_eq!(results.len(), 4);
+    assert_eq!(results[0].call_id, "c1");
+    assert_eq!(results[0].status, ResultStatus::Ok);
+    assert!(results[0].output.contains("hi\\n"));
+    assert_eq!(results[1].status, ResultStatus::Error);
+    assert_eq!(results[2].status, ResultStatus::Error, "a rejection is not ok");
+    assert_eq!(results[3].status, ResultStatus::Unclassified);
+    assert!(!results[0].truncated);
+}
+
+#[test]
+fn a_cursor_run_with_no_result_frame_is_unavailable_never_estimated() {
+    // Contract 7.8 and 18.1: the failure path writes no frame, and Cursor
+    // counts about twice what the transcript keeps, so nothing estimates.
+    let sandbox = Sandbox::new("cursor-nousage");
+    let text = Record::cursor(&sandbox.worktree(), None, None)
+        .cursor_init()
+        .cursor_user("x")
+        .noise("ActionRequiredError: You've hit your usage limit ...")
+        .closed_with(json!({"exit_code": 1}));
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let usage = run.usage().unwrap();
+    assert_eq!(usage.source, UsageSource::Unavailable);
+    assert!(usage.counts.is_none());
+    assert!(usage.estimator.is_none());
+    assert_eq!(run.noise.len(), 1, "the stderr sentence is kept for the outcome");
+
+    // A `result` frame with no usage block, which the emitter permits on the
+    // success path too, is the same answer.
+    let text = Record::cursor(&sandbox.worktree(), None, None)
+        .cursor_result("DONE", None)
+        .closed();
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.usage().unwrap().source, UsageSource::Unavailable);
+}
+
+#[test]
+fn a_cursor_read_the_policy_denies_and_the_hook_refused_is_hydras_deny() {
+    // Both shapes a refused read arrives in, measured on 2026-09-06: the real
+    // run's, refused at `preToolUse` with the gate's words in front, and the
+    // probe's, refused at `beforeReadFile` behind Cursor's own prefix.
+    let reason = "hydra/out-of-scope: policy read-only allows file_read inside worktree \
+                  and this call is outside it.";
+    for (name, blocked) in [
+        ("cursor-deny-early", cursor_read_blocked(reason)),
+        ("cursor-deny-late", cursor_read_blocked_late(reason)),
+    ] {
+        let sandbox = Sandbox::new(name);
+        let ws = sandbox.worktree();
+        let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+            .cursor_call("c1", "readToolCall", json!({"path": "/etc/hosts"}), blocked)
+            .cursor_assistant("BLOCKED")
+            .cursor_result("BLOCKED", Some(cursor_usage()))
+            .closed();
+
+        let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+        let decisions: Vec<_> = run.permission_decisions().collect();
+        assert_eq!(decisions.len(), 1, "{name}");
+        assert_eq!(decisions[0].call_id, "c1");
+        assert_eq!(decisions[0].decision, Decision::Deny);
+        assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+        assert!(decisions[0].reason.starts_with("hydra/out-of-scope:"), "{}", decisions[0].reason);
+        assert!(run.findings.is_empty(), "{name}: {:?}", run.findings);
+    }
+}
+
+#[test]
+fn a_cursor_refusal_carrying_hydras_allow_under_a_denying_policy_is_a_disagreement() {
+    // The gate allowed at run time, the user's guard denied, and the policy
+    // denies now. Two sources disagree, and the record says so rather than
+    // filing the call as one the gate never answered.
+    let sandbox = Sandbox::new("cursor-disagree");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+        .cursor_call(
+            "c1",
+            "shellToolCall",
+            json!({"command": "git t30probe", "workingDirectory": "", "timeout": 30000}),
+            cursor_shell_rejected(
+                "git t30probe",
+                "hydra/allow: policy standard allows shell.\n\n---\n\nHook blocked with \
+                 message: 'git t30probe' is not a known subcommand.",
+            ),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions[0].decision, Decision::Deny);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Disagreement { call_id, gate_said: Decision::Allow, .. } if call_id == "c1"
+        )),
+        "{:?}",
+        run.findings
+    );
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_cursor_frame_with_no_call_id_still_yields_a_call_and_says_what_it_lost() {
+    let sandbox = Sandbox::new("cursor-noid");
+    let ws = sandbox.worktree();
+    let mut record = Record::cursor(&ws, None, None);
+    for _ in 0..2 {
+        record.raw(json!({
+            "type": "tool_call", "subtype": "started",
+            "tool_call": {"readToolCall": {"args": {"path": ws.join("a.txt")}}},
+        }));
+    }
+    let text = record.closed();
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.tool_calls().count(), 2, "two starts are two calls, id or no id");
+}
+
+#[test]
+fn a_cursor_call_the_policy_denies_that_went_through_is_a_gate_leak() {
+    let sandbox = Sandbox::new("cursor-leak");
+    let ws = sandbox.worktree();
+    let b = ws.join("b.txt").to_string_lossy().to_string();
+    let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+        .cursor_call(
+            "c1",
+            "editToolCall",
+            json!({"path": b, "streamContent": "x\n"}),
+            json!({"success": {"path": b, "linesAdded": 1, "linesRemoved": 0}}),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::GateLeak { call_id, tool, .. } if call_id == "c1" && tool == "Write"
+        )),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_cursor_refusal_carrying_hydras_allow_is_external() {
+    // Research 30's U7 shape: the project hook allowed, the user's guard
+    // denied by exit code, and Cursor concatenated both messages. The policy
+    // allows the call, so the decider is the guard and nothing leaked.
+    let sandbox = Sandbox::new("cursor-external");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("standard"), Some(policies().sha()))
+        .cursor_call(
+            "c1",
+            "shellToolCall",
+            json!({"command": "git t30probe", "workingDirectory": "", "timeout": 30000}),
+            cursor_shell_rejected(
+                "git t30probe",
+                "hydra/allow: policy standard allows shell.\n\n---\n\nHook blocked with \
+                 message: 'git t30probe' is not a known subcommand: it could be an alias \
+                 wrapping a destructive operation.",
+            ),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Deny);
+    assert_eq!(decisions[0].decider, Decider::External);
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_cursor_call_the_policy_allows_that_went_through_raises_no_finding() {
+    // No hook frames on this provider, so an allowed call carries no gate
+    // answer and its absence is not evidence: the config fails closed.
+    let sandbox = Sandbox::new("cursor-allow");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("standard"), Some(policies().sha()))
+        .cursor_call(
+            "c1",
+            "shellToolCall",
+            json!({"command": "echo T09PROBE", "workingDirectory": "", "timeout": 30000}),
+            json!({"success": {"command": "echo T09PROBE", "exitCode": 0, "stdout": "T09PROBE\n", "stderr": ""}}),
+        )
+        .cursor_result("DONE", Some(cursor_usage()))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+    assert!(run.findings.is_empty(), "{:?}", run.findings);
+}
+
+#[test]
+fn a_cursor_refusal_without_hydras_voice_under_a_denying_policy_is_ungated() {
+    // The policy denies, something refused, and Hydra's message is not in the
+    // concatenation. On this provider that is a config the loader did not run,
+    // which it does silently for a symlinked one.
+    let sandbox = Sandbox::new("cursor-ungated");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+        .cursor_call(
+            "c1",
+            "shellToolCall",
+            json!({"command": "echo hi", "workingDirectory": "", "timeout": 30000}),
+            cursor_shell_rejected("echo hi", "Hook blocked with message: no echo today"),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions[0].decision, Decision::Deny);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Ungated { call_id, .. } if call_id == "c1"
+        )),
+        "{:?}",
+        run.findings
+    );
+}
+
 // --- the corpus ----------------------------------------------------------
 
 #[test]
@@ -462,7 +843,12 @@ fn every_record_on_this_machine_normalizes() {
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies)
             .unwrap_or_else(|err| panic!("{} did not normalize: {err:#}", path.display()));
-        assert_eq!(run.provider.as_deref(), Some("claude"));
+        assert!(
+            matches!(run.provider.as_deref(), Some("claude") | Some("cursor-agent")),
+            "{}: {:?}",
+            path.display(),
+            run.provider
+        );
         assert!(run.run_start().is_some(), "{}", path.display());
 
         match run.policy {
