@@ -13,7 +13,7 @@ mod lines;
 mod secrets;
 pub mod validate;
 
-pub use lines::{Auth, RunEnd, RunStart, WorktreeRef};
+pub use lines::{Auth, Refusal, RunEnd, RunStart, WorktreeRef};
 
 use std::fs::File;
 use std::io::Write;

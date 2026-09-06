@@ -80,10 +80,10 @@ pub struct RunEnd {
     /// Text Hydra captured that is not on the stream.
     pub error: Option<String>,
     /// The Hydra-side check that refused, or null. Four outcomes are things Hydra
-    /// decided rather than read, and this names the check for them. Nothing in this
-    /// slice sets it: the three refusals that would are pre-flight checks it does
-    /// not run.
-    pub refusal: Option<String>,
+    /// decided rather than read, and this names the check for them. [`Refusal`] is
+    /// the vocabulary, and nothing in this build writes one: all four checks
+    /// belong to tickets that are not built.
+    pub refusal: Option<&'static str>,
     pub remediation: Option<String>,
     /// `stream` or `harvest`. Always `stream` here, because this slice launches no
     /// interactive runs and harvests nothing.
@@ -100,7 +100,84 @@ impl RunEnd {
             refusal: None,
             remediation: None,
             body_source: Some("stream"),
-            ended_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            ended_at: now(),
+        }
+    }
+
+    /// A run Hydra refused. No child ever started, so there is no exit code and
+    /// no body, and contract 8.3 requires the file all the same: without it the
+    /// attempt is invisible, and under D10 anything not in a run record did not
+    /// happen.
+    ///
+    /// Nothing calls this yet. It is here rather than in each of the four tickets
+    /// that will, so the codes have one home and the derivation in
+    /// [`crate::outcome`] reads the same strings the writer wrote.
+    pub fn refused(refusal: Refusal, remediation: impl Into<String>) -> Self {
+        Self {
+            kind: "run_end",
+            exit_code: None,
+            error: None,
+            refusal: Some(refusal.as_str()),
+            remediation: Some(remediation.into()),
+            body_source: None,
+            ended_at: now(),
+        }
+    }
+}
+
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// The four Hydra-side checks that can refuse a launch, contract 6.
+///
+/// **These are codes rather than prose**, in the shape ticket 01 gave the gate's
+/// `hydra/` reason prefix and for the same reason: the derivation has to map one
+/// back to an outcome, and a sentence is not something to match on. The
+/// remediation field beside it is where the words for a human go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// A child named a policy wider than its parent's, measured as capability set
+    /// containment (contract 8.3). Ticket 11.
+    PolicyNarrowing,
+    /// A linked skill name the provider did not resolve as Hydra's. Ticket 07.
+    SkillCollision,
+    /// The MCP launch check, or Cursor's pre-flight. Ticket 08.
+    ///
+    /// Contract 8's `mcp_unavailable` covers both and harness spec 12 says which
+    /// one fired is a field Hydra sets rather than a second outcome, so this is
+    /// one code and the remediation says which check it was.
+    McpUnavailable,
+    /// The auth pre-flight. Not built, and the mid-run half of `auth_failed`
+    /// derives from the stream instead.
+    AuthPreflight,
+}
+
+impl Refusal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Refusal::PolicyNarrowing => "policy_narrowing",
+            Refusal::SkillCollision => "skill_collision",
+            Refusal::McpUnavailable => "mcp_unavailable",
+            Refusal::AuthPreflight => "auth_preflight",
+        }
+    }
+
+    /// The outcome a recorded refusal derives to, contract 8.2's `refusal` source.
+    ///
+    /// **A code this build does not know still comes out `gated`.** All four
+    /// refusals are outcomes rung one never learns from, so the class is right
+    /// even when the specific check is from a version this binary predates, and
+    /// `gated` is the enum's own name for "Hydra refused". The alternative,
+    /// falling through to `completed`, would put a run that never started into the
+    /// corpus as a finished one.
+    pub fn outcome_of(code: &str) -> crate::outcome::Outcome {
+        use crate::outcome::Outcome;
+        match code {
+            "skill_collision" => Outcome::SkillCollision,
+            "mcp_unavailable" => Outcome::McpUnavailable,
+            "auth_preflight" => Outcome::AuthFailed,
+            _ => Outcome::Gated,
         }
     }
 }

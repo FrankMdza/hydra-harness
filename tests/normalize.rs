@@ -9,215 +9,13 @@
 //! Every test that touches a policy compiles the real gate and runs it, so these
 //! cost a python process per tool call and launch no provider.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use hydra::normalize::{Decider, Decision, Event, Finding, ResultStatus, Role, UsageSource};
-use hydra::paths::Layout;
-use hydra::policy::PolicySet;
-use serde_json::{Value, json};
+use serde_json::json;
 
-const RUN_ID: &str = "01a07357-58a5-79e2-a25a-3df578a750b4";
-
-/// A layout whose three scopes are directories this test owns.
-///
-/// The gate resolves `worktree`, `skill_store` and `corpus` against real paths,
-/// so a synthetic run that points them at `~/hydra` would be asking about the
-/// developer's own tree rather than about the record.
-struct Sandbox {
-    root: PathBuf,
-}
-
-impl Sandbox {
-    fn new(name: &str) -> Self {
-        let root =
-            std::env::temp_dir().join(format!("hydra-normalize-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let layout = Layout::at(&root);
-        layout.ensure().unwrap();
-        std::fs::create_dir_all(layout.worktree(RUN_ID)).unwrap();
-        std::fs::create_dir_all(layout.skills()).unwrap();
-        Self { root }
-    }
-
-    fn layout(&self) -> Layout {
-        Layout::at(&self.root)
-    }
-
-    fn worktree(&self) -> PathBuf {
-        self.layout().worktree(RUN_ID)
-    }
-}
-
-impl Drop for Sandbox {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
-
-/// One synthetic run file, built a frame at a time.
-struct Record {
-    seq: u64,
-    lines: Vec<String>,
-}
-
-impl Record {
-    /// Opens with a `run_start` under the named policy, `None` for a pre-gate run.
-    fn opened(worktree: &Path, policy: Option<&str>, policy_sha: Option<&str>) -> Self {
-        let mut record = Self {
-            seq: 0,
-            lines: Vec::new(),
-        };
-        let start = json!({
-            "type": "run_start",
-            "schema_version": 1,
-            "hydra_version": "0.2.0",
-            "command": "run",
-            "launch_mode": "recorded",
-            "provider_version": "2.1.261 (Claude Code)",
-            "provider_session_id": null,
-            "task": "probe",
-            "policy": policy,
-            "policy_sha": policy_sha,
-            "cwd": worktree.to_string_lossy(),
-            "worktree": {
-                "path": worktree.to_string_lossy(),
-                "branch": format!("hydra/{RUN_ID}"),
-            },
-            "depth": 0,
-            "pid": 4242,
-            "process_start_time": "2026-09-05T20:51:39.369329Z",
-            "subscription": "anthropic",
-        });
-        record.line("hydra", start);
-        record
-    }
-
-    fn line(&mut self, field: &str, body: Value) {
-        let mut envelope = json!({
-            "run_id": RUN_ID,
-            "parent_run_id": null,
-            "seq": self.seq,
-            "ts": "2026-09-05T20:51:39.370Z",
-            "provider": "claude",
-            "model": null,
-            "secret_flag": null,
-        });
-        envelope[field] = body;
-        self.lines.push(envelope.to_string());
-        self.seq += 1;
-    }
-
-    fn raw(&mut self, frame: Value) -> &mut Self {
-        self.line("raw", frame);
-        self
-    }
-
-    /// A line the provider wrote that is not JSON, kept as a string (contract 3).
-    fn noise(&mut self, text: &str) -> &mut Self {
-        self.line("raw", Value::String(text.into()));
-        self
-    }
-
-    fn assistant(&mut self, blocks: Value) -> &mut Self {
-        self.raw(json!({
-            "type": "assistant",
-            "message": {"id": "msg_01", "role": "assistant", "content": blocks},
-        }))
-    }
-
-    fn tool_use(&mut self, id: &str, name: &str, input: Value) -> &mut Self {
-        self.assistant(json!([{"type": "tool_use", "id": id, "name": name, "input": input}]))
-    }
-
-    fn tool_result(&mut self, id: &str, content: &str, is_error: bool) -> &mut Self {
-        self.raw(json!({
-            "type": "user",
-            "message": {"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": id, "content": content, "is_error": is_error}
-            ]},
-        }))
-    }
-
-    /// A `PreToolUse` response in the shape `--include-hook-events` writes.
-    fn hook_response(&mut self, tool: &str, decision: &str, reason: &str) -> &mut Self {
-        let output = json!({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": decision,
-                "permissionDecisionReason": reason,
-            }
-        })
-        .to_string();
-        self.raw(json!({
-            "type": "system",
-            "subtype": "hook_response",
-            "hook_id": "4f041c03-db30-4ae0-96dd-be3022a64b1e",
-            "hook_name": format!("PreToolUse:{tool}"),
-            "hook_event": "PreToolUse",
-            "output": output,
-            "exit_code": 0,
-            "outcome": "success",
-        }))
-    }
-
-    fn init(&mut self, tools: &[&str]) -> &mut Self {
-        self.raw(json!({
-            "type": "system",
-            "subtype": "init",
-            "session_id": "3c9b2699-9e74-4bf1-8dda-8c7ddc66ff09",
-            "tools": tools,
-            "mcp_servers": [],
-            "model": "claude-opus-5[1m]",
-            "permissionMode": "bypassPermissions",
-        }))
-    }
-
-    fn result(&mut self, extra: Value) -> &mut Self {
-        let mut frame = json!({
-            "type": "result",
-            "subtype": "success",
-            "is_error": false,
-            "num_turns": 2,
-            "session_id": "3c9b2699-9e74-4bf1-8dda-8c7ddc66ff09",
-        });
-        for (key, value) in extra.as_object().unwrap() {
-            frame[key] = value.clone();
-        }
-        self.raw(frame)
-    }
-
-    fn closed(&mut self) -> String {
-        self.line(
-            "hydra",
-            json!({
-                "type": "run_end",
-                "exit_code": 0,
-                "error": null,
-                "refusal": null,
-                "remediation": null,
-                "body_source": "stream",
-                "ended_at": "2026-09-05T20:52:01.905Z",
-            }),
-        );
-        let mut text = self.lines.join("\n");
-        text.push('\n');
-        text
-    }
-}
-
-fn policies() -> PolicySet {
-    PolicySet::discover().unwrap()
-}
-
-fn usage_frame() -> Value {
-    json!({"usage": {
-        "input_tokens": 4,
-        "cache_creation_input_tokens": 15110,
-        "cache_read_input_tokens": 30266,
-        "output_tokens": 1270,
-        "output_tokens_details": {"thinking_tokens": 872},
-    }})
-}
+mod common;
+use common::{RUN_ID, Record, Sandbox, corpus, policies, usage_frame};
 
 // --- one frame at a time -------------------------------------------------
 
@@ -656,24 +454,6 @@ fn a_tool_the_provider_offered_that_the_table_does_not_know_is_a_finding() {
 
 // --- the corpus ----------------------------------------------------------
 
-/// Every `.jsonl` under `~/hydra/runs/`, or nothing on a machine that has run
-/// nothing. Same shape as the contract suite's walk.
-fn corpus() -> Vec<PathBuf> {
-    let Ok(home) = hydra::env::real_home() else {
-        return Vec::new();
-    };
-    let Ok(entries) = std::fs::read_dir(home.join("hydra").join("runs")) else {
-        return Vec::new();
-    };
-    let mut paths: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .collect();
-    paths.sort();
-    paths
-}
-
 #[test]
 fn every_record_on_this_machine_normalizes() {
     let policies = policies();
@@ -888,7 +668,7 @@ fn a_call_the_record_stops_after_is_unknown_rather_than_a_leak() {
         json!({"file_path": path, "content": "HELLO\n"}),
     );
     // No result, no hook frame, no `run_end`.
-    let text = record.lines.join("\n");
+    let text = record.unclosed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(
@@ -1026,8 +806,8 @@ fn a_torn_line_costs_its_own_frames_and_nothing_else() {
     let sandbox = Sandbox::new("torn");
     let mut record = Record::opened(&sandbox.worktree(), None, None);
     record.assistant(json!([{"type": "text", "text": "this line is whole"}]));
-    let mut text = record.lines.join("\n");
-    text.push_str("\n{\"run_id\":\"x\",\"seq\":9,\"raw\":{\"type\":\"assis");
+    let mut text = record.unclosed();
+    text.push_str("{\"run_id\":\"x\",\"seq\":9,\"raw\":{\"type\":\"assis");
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert_eq!(run.messages().count(), 1);

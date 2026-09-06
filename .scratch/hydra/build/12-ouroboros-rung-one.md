@@ -64,3 +64,33 @@ call. Nine records cost a quarter of a second; a corpus of thousands will not. T
 policy compiles once per run, so the cost scales with calls rather than with records, and
 if it bites, the fix is a batch mode on the gate rather than a second implementation of
 the rules in Rust.
+
+## What ticket 04 left you, added 2026-09-05
+
+**The input exists now. `hydra::outcome::derive` takes a `&Run` and returns
+`Option<Derived>`, with `outcome` and `source` on it.** Both of this ticket's filters are
+one call each: `Outcome::rung_one_learns()` is contract 8's right-hand column, and a
+`None` from `derive` is the abandoned class. The third filter, harness runs, is still
+`Run::provider == None` and needs no outcome.
+
+**`rung_one_learns()` is the column, not a judgement, and reading it as "keep" is the
+mistake contract 8 spends a paragraph on.** Every run is recorded in full whatever it
+says. What this ticket may not do is learn a skill lesson from a run in the lower half.
+
+**Two of the five outcomes it never learns from have no producer yet**, so a corpus walk
+today sees `completed`, `gated`, `unknown`-sourced `completed` and `rate_limited` and
+nothing else. `skill_collision` and `mcp_unavailable` wait on tickets 07 and 08.
+
+**`gated` is coarser than "a call was refused", and this ticket is why it is.** It fires
+only when the gate refused everything the run tried, so a run that had one call denied and
+finished the task stays in the corpus as a learnable trajectory with the denial visible per
+call. The consequence for this ticket is the reverse one: a run that failed on too narrow a
+policy but got one call through comes out `completed`, so keying only on the outcome will
+occasionally hand you a policy bug dressed as a skill failure. `Run::permission_decisions`
+is where you check, and ticket 27 already says a policy bug is not a skill bug.
+
+**A pre-gate record with a real denial in it derives `completed`.** Three records on this
+machine carry `policy: null`, contract 7.7 gives those no `permission_decision`, and one of
+them had a `Write` refused. Nothing in the outcome says so. They are the oldest three files
+under `~/hydra/runs/` and are worth excluding by the same test `IMPLEMENTATION.md` names, a
+null policy, rather than by date.

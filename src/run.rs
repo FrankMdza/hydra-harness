@@ -9,7 +9,11 @@
 //!
 //! What it does not do, and what that costs the record, is in `IMPLEMENTATION.md`.
 //! The short version: no injection, so `skills` and `mcp` are absent rather than
-//! null, and nothing derives `permission_decision` from the gate's answers yet.
+//! null, and the spawn is not detached, so nothing times out.
+//!
+//! **The JSON this returns is read back off the file it just wrote.** Contract 17
+//! makes the result a projection of the record, and reading the record is the only
+//! way to keep that true rather than merely intended.
 //!
 //! **The gate is compiled before the child starts and never rewritten.** 6.6 asks
 //! for real files, never links, rewritten at every spawn. The spawn directory is
@@ -27,10 +31,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use chrono::SecondsFormat;
-use serde::Serialize;
 use uuid::Uuid;
 
 use crate::env::ChildEnv;
+use crate::outcome::RunResult;
 use crate::paths::Layout;
 use crate::provider::{Provider, claude};
 use crate::record::{Auth, RunEnd, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
@@ -48,24 +52,7 @@ pub struct Request {
     pub floor_lifted: bool,
 }
 
-/// What `hydra run` prints on stdout (D7).
-///
-/// Contract section 17 makes this a projection of the record plus a diff stat. Most
-/// of that projection needs the normalizer, which is not built, so this returns the
-/// fields it can fill honestly and names the rest rather than inventing them. A
-/// `usage` of null and an `outcome` of null would both read as measurements.
-#[derive(Serialize)]
-pub struct Outcome {
-    pub run_id: String,
-    pub provider: String,
-    pub provider_session_id: Option<String>,
-    pub exit_code: Option<i32>,
-    pub run_file: String,
-    pub worktree: Option<WorktreeRef>,
-    pub not_yet_derived: Vec<&'static str>,
-}
-
-pub fn run(request: Request) -> Result<Outcome> {
+pub fn run(request: Request) -> Result<RunResult> {
     // Pre-flight that refuses before a run id exists. A wrong PATH or a missing HOME
     // is a fact about this machine rather than a refused spawn, and the contract's
     // four refusal values are all Hydra-side policy checks this slice does not run.
@@ -92,9 +79,11 @@ pub fn run(request: Request) -> Result<Outcome> {
             &repo,
             &layout.worktree(&run_id),
             &format!("hydra/{run_id}"),
+            &layout.seed_index(&run_id),
         )?),
         None => None,
     };
+    let seed_tree = worktree.as_ref().and_then(|w| w.seed_tree.clone());
     let cwd: PathBuf = worktree
         .as_ref()
         .map(|w| w.path.clone())
@@ -184,17 +173,15 @@ pub fn run(request: Request) -> Result<Outcome> {
         child_env.names(),
     ))?;
 
-    let mut session_id: Option<String> = None;
     let mut tee_error: Option<String> = None;
     let provider = request.provider;
 
+    // The session id is observed and not kept. Contract 17 leaves it off the
+    // result and 5.1 has a reader take it from `raw` on the init frame, so a
+    // second copy in memory would have no consumer.
     let teed = spawned.tee(|line| {
-        let observed = provider.observe(line);
-        if let Some(model) = observed.model {
+        if let Some(model) = provider.observe(line).model {
             writer.set_model(model);
-        }
-        if let Some(id) = observed.session_id {
-            session_id.get_or_insert(id);
         }
         writer.provider_line(line)?;
         Ok(())
@@ -217,22 +204,125 @@ pub fn run(request: Request) -> Result<Outcome> {
     }
 
     writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;
+    drop(writer);
 
-    Ok(Outcome {
-        run_id,
-        provider: request.provider.binary().to_string(),
-        provider_session_id: session_id,
+    // Contract 17: the result is a projection of the record. So it is read back
+    // off disk through the normalizer rather than assembled from what this
+    // function still has in memory. The point is that the JSON cannot carry a
+    // fact the source of truth does not have, which is the mistake section 6 says
+    // ticket 11 made, and reading the file is the only way to be sure of it.
+    //
+    // **A read that fails does not fail the command.** The record is whole and
+    // synced by this line, so propagating the error would report a run that
+    // worked as one that did not, and would take the run id and the path to the
+    // file holding the answer down with it.
+    match crate::normalize::read_file(&run_file, &policies) {
+        Ok(run) => Ok(result(
+            &run,
+            &run_file,
+            worktree_ref.as_ref(),
+            seed_tree.as_deref(),
+            &layout,
+        )),
+        Err(err) => {
+            eprintln!("hydra: the record is written and would not read back: {err:#}");
+            Ok(unread(&run_id, &run_file, exit_code, &err))
+        }
+    }
+}
+
+/// What is left of contract 17's projection when the record will not read back.
+///
+/// Four fields Hydra knows without the normalizer, and nulls where a derivation
+/// would have gone. `error` carries the read failure rather than the record's own,
+/// which is the one place this struct is not a projection of the file, and it is
+/// what stops `outcome: null` reading as a measurement: contract 6 defines `error`
+/// as text Hydra captured that is not on the stream, and this is exactly that.
+fn unread(
+    run_id: &str,
+    run_file: &std::path::Path,
+    exit_code: Option<i32>,
+    err: &anyhow::Error,
+) -> RunResult {
+    RunResult {
+        run_id: run_id.to_string(),
+        outcome: None,
+        outcome_source: None,
         exit_code,
+        error: Some(format!("the record would not read back: {err:#}")),
+        result_text: None,
+        branch: None,
+        diff_stat: None,
+        usage: crate::outcome::Usage::unavailable(),
         run_file: run_file.display().to_string(),
-        worktree: worktree_ref,
-        not_yet_derived: vec![
-            "outcome",
-            "outcome_source",
-            "usage",
-            "result_text",
-            "diff_stat",
-        ],
-    })
+    }
+}
+
+/// Contract 17's JSON, off a normalized run.
+///
+/// Split out from [`run`] so a test can build the projection from a record on
+/// disk without launching a provider.
+///
+/// The run id comes off the record rather than from the caller, so the scratch
+/// index and the returned `run_id` cannot name two different runs.
+pub fn result(
+    run: &crate::normalize::Run,
+    run_file: &std::path::Path,
+    worktree: Option<&WorktreeRef>,
+    seed_tree: Option<&str>,
+    layout: &Layout,
+) -> RunResult {
+    let derived = crate::outcome::derive(run);
+    let end = run.run_end();
+
+    // The diff stat is the one returned field with no record equivalent, computed
+    // from git at return time. It needs a checkout, the tree the seed left, and a
+    // run id, so a run outside a repo has none of the three and the field is
+    // absent.
+    //
+    // The run id is on that list because of what a torn line does. A record whose
+    // line 0 did not parse normalizes to an empty `run_id` with a
+    // `Finding::Limit` rather than failing the read, and `Layout::spawn("")` is
+    // `~/hydra/spawn/` itself, so the scratch index would be one shared file for
+    // every such record. Two of them at once would stage into each other.
+    let diff_stat = match (worktree, seed_tree, !run.run_id.is_empty()) {
+        (Some(worktree), Some(base), true) => crate::worktree::diff_stat(
+            std::path::Path::new(&worktree.path),
+            &layout.stat_index(&run.run_id),
+            base,
+        )
+        .inspect_err(|err| {
+            // The record is already whole at this point, so a failed stat is a
+            // missing field rather than a failed run. It is said out loud because
+            // an absent `diff_stat` otherwise reads as "no checkout".
+            eprintln!("hydra: no diff stat for this run: {err:#}");
+        })
+        .ok()
+        .map(|stat| crate::outcome::DiffStat {
+            covers: "what the run changed in its worktree, against the tree Hydra \
+                     seeded it with from the parent's uncommitted work",
+            base_tree: base.to_string(),
+            files_changed: stat.files_changed,
+            insertions: stat.insertions,
+            deletions: stat.deletions,
+        }),
+        _ => None,
+    };
+
+    RunResult {
+        run_id: run.run_id.clone(),
+        outcome: derived.map(|d| d.outcome.as_str()),
+        outcome_source: derived.map(|d| d.source.as_str()),
+        exit_code: end
+            .and_then(|end| end.body["exit_code"].as_i64())
+            .and_then(|code| i32::try_from(code).ok()),
+        error: end.and_then(|end| end.body["error"].as_str().map(str::to_string)),
+        result_text: crate::outcome::final_assistant_text(run),
+        branch: worktree.map(|w| w.branch.clone()),
+        diff_stat,
+        usage: crate::outcome::Usage::of(run),
+        run_file: run_file.display().to_string(),
+    }
 }
 
 /// What one spawn writes into `~/hydra/spawn/<run-id>/`.
@@ -356,5 +446,48 @@ fn run_start(
         }),
         env_allowlist: Some(env_allowlist),
         subscription: Some(request.provider.subscription().to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The fallback's field shape, contract 17's list with the derivations null.
+    ///
+    /// **What triggers it is not tested and cannot cheaply be.** Reaching it
+    /// needs `read_file` to fail on a record `run` has just written and synced,
+    /// and `run` launches a provider. So this pins what a caller gets, which is
+    /// the half that would otherwise be wrong without anyone noticing.
+    #[test]
+    fn a_record_that_will_not_read_back_still_returns_the_run_id_and_the_path() {
+        let err = anyhow::anyhow!("python3 is not on PATH");
+        let result = unread(
+            "01a073ef-701c-7522-b5bb-56d5ecba0f57",
+            std::path::Path::new("/Users/nobody/hydra/runs/r.jsonl"),
+            Some(0),
+            &err,
+        );
+        let json = serde_json::to_value(&result).unwrap();
+
+        assert_eq!(json["run_id"], "01a073ef-701c-7522-b5bb-56d5ecba0f57");
+        assert_eq!(json["run_file"], "/Users/nobody/hydra/runs/r.jsonl");
+        assert_eq!(json["exit_code"], 0);
+        assert!(json["outcome"].is_null());
+        assert!(json["outcome_source"].is_null());
+        assert!(json["result_text"].is_null());
+        assert_eq!(json["usage"]["usage_source"], "unavailable");
+        // The null outcome has to be explained by something, or it reads as a
+        // measurement. `error` is what explains it.
+        assert!(
+            json["error"]
+                .as_str()
+                .unwrap()
+                .contains("python3 is not on PATH"),
+            "{json}"
+        );
+        // No checkout was asked about, so 5.5's rule leaves both out.
+        assert!(json.get("branch").is_none());
+        assert!(json.get("diff_stat").is_none());
     }
 }

@@ -50,7 +50,8 @@ fn the_seed_carries_tracked_edits_and_untracked_files() {
 
     let dest = repo.parent().unwrap().join("wt");
     let _ = std::fs::remove_dir_all(&dest);
-    let worktree = hydra::worktree::create(&repo, &dest, "hydra/test-run").unwrap();
+    let worktree =
+        hydra::worktree::create(&repo, &dest, "hydra/test-run", &index(&repo, "seed")).unwrap();
 
     assert_eq!(worktree.branch, "hydra/test-run");
     assert_eq!(
@@ -81,4 +82,72 @@ fn a_directory_outside_a_repo_has_no_root() {
     std::fs::create_dir_all(&plain).unwrap();
     // std::env::temp_dir() on macOS is under /var/folders, which is not a repo.
     assert!(hydra::worktree::repo_root(&plain).is_none());
+}
+
+/// A scratch index path outside the checkout it stages.
+fn index(repo: &Path, name: &str) -> PathBuf {
+    repo.parent().unwrap().join(format!("{name}-index"))
+}
+
+// --- the diff stat, contract 17 ------------------------------------------
+
+#[test]
+fn the_diff_stat_counts_the_child_and_not_the_seed() {
+    let repo = a_repo("stat");
+
+    // The parent's work in progress. This is the trap: a naive `git diff HEAD`
+    // inside the child's checkout reports these two lines as the child's.
+    std::fs::write(repo.join("committed.txt"), "one\ntwo\n").unwrap();
+    std::fs::write(repo.join("brand-new.txt"), "fresh\n").unwrap();
+
+    let dest = repo.parent().unwrap().join("stat-wt");
+    let _ = std::fs::remove_dir_all(&dest);
+    let worktree =
+        hydra::worktree::create(&repo, &dest, "hydra/stat-run", &index(&repo, "stat-seed"))
+            .unwrap();
+    let base = worktree
+        .seed_tree
+        .expect("the seed left no tree to measure from");
+
+    // Before the child touches anything, the seed is the whole difference and
+    // the stat against it is empty.
+    let quiet = hydra::worktree::diff_stat(&dest, &index(&repo, "stat-a"), &base).unwrap();
+    assert_eq!(
+        quiet,
+        hydra::worktree::Stat::default(),
+        "the parent's uncommitted work was counted as the child's"
+    );
+
+    // What the child did: one line into a seeded file, one new file, one delete.
+    std::fs::write(dest.join("committed.txt"), "one\ntwo\nthree\n").unwrap();
+    std::fs::write(dest.join("child.txt"), "a\nb\n").unwrap();
+    std::fs::remove_file(dest.join("brand-new.txt")).unwrap();
+
+    let stat = hydra::worktree::diff_stat(&dest, &index(&repo, "stat-b"), &base).unwrap();
+    assert_eq!(stat.files_changed, 3);
+    assert_eq!(stat.insertions, 3, "one line edited plus two written");
+    assert_eq!(stat.deletions, 1, "the seeded file the child removed");
+}
+
+#[test]
+fn the_seed_snapshot_leaves_the_childs_own_index_alone() {
+    let repo = a_repo("index");
+    std::fs::write(repo.join("committed.txt"), "one\ntwo\n").unwrap();
+
+    let dest = repo.parent().unwrap().join("index-wt");
+    let _ = std::fs::remove_dir_all(&dest);
+    hydra::worktree::create(&repo, &dest, "hydra/index-run", &index(&repo, "kept")).unwrap();
+
+    // A child asked to finish work in progress runs `git status` and has to see
+    // the seed as work in progress. Staging it into the checkout's own index
+    // would show a tree the parent does not have.
+    let staged = git(&dest, &["diff", "--cached", "--name-only"]);
+    assert!(
+        staged.trim().is_empty(),
+        "the snapshot staged into the child's index: {staged}"
+    );
+    assert!(
+        git(&dest, &["status", "--porcelain"]).contains("committed.txt"),
+        "the seed is not showing as uncommitted work"
+    );
 }

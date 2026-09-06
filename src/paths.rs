@@ -81,6 +81,25 @@ impl Layout {
         self.spawn(run_id).join("gate")
     }
 
+    /// Where the seed snapshot of 6.3 stages, so the run's own index is left
+    /// alone. It holds a git index and never a path the run is told about.
+    ///
+    /// It is in the spawn directory because that is what ticket 06 reaps beside
+    /// the worktree, and the gate protects only the gate script inside it. Under
+    /// four of the five policies writes are scoped to the worktree and a run
+    /// cannot reach this; under `permissive` it can, and a `permissive` run that
+    /// rewrites its own index makes the diff stat wrong and nothing else. The
+    /// record is what carries the truth about what a run wrote.
+    pub fn seed_index(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("seed-index")
+    }
+
+    /// The scratch index the closing diff stat stages into. A second file rather
+    /// than a reuse of [`Layout::seed_index`], which staging would overwrite.
+    pub fn stat_index(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("stat-index")
+    }
+
     /// The hook config `--settings` points at, 6.6.
     ///
     /// The filename is this build's choice. Harness spec 19.1 leaves the names

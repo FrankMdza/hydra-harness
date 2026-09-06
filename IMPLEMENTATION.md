@@ -92,8 +92,9 @@ loads the policy set and the preamble, mints a UUIDv7 run id, creates a git work
 seeds it with the parent's uncommitted work, compiles the run's gate into
 `~/hydra/spawn/<run-id>/`, spawns `claude` on a pty it owns with `--settings` pointing at
 the hook config, writes `run_start`, tees every frame verbatim into
-`~/hydra/runs/<run-id>.jsonl`, and writes `run_end` when the child exits. It prints JSON
-on stdout.
+`~/hydra/runs/<run-id>.jsonl`, and writes `run_end` when the child exits. Then it reads
+the file it just wrote back through the normalizer and prints contract 17's JSON on
+stdout.
 
 Section 9 gives `hydra run` eight optional flags and three are here: `--model`,
 `--policy` and `--allow-floor-escape`. The five that are not each belong to a ticket
@@ -305,6 +306,204 @@ join a result or a hook answer to. The decision still follows the policy in both
 exactly the twenty-five names `table.rs` holds, so the check is quiet today and a rename
 breaks the first record written after it.
 
+## Deriving an outcome, and what `hydra run` returns
+
+Ticket 04. `src/outcome.rs` turns a normalized run into contract 8's nine outcomes and
+8.2's `outcome_source`, and `hydra::run::result` projects that plus the diff stat into
+contract 17's JSON. Nothing else in the crate derives `Serialize`, so the module boundary
+is where contract 11's never-store rule stops being a comment.
+
+**Nothing reads the exit status to pick an outcome**, and the rate-limited run below is
+why. It exited 1. The one thing the derivation reads off `exit_code` is whether it exists
+at all, which separates a child that died from a spawn that never happened.
+
+**`gated` is "the gate refused everything", as a predicate.** That is contract 8's own
+phrase, and harness spec 12 and tickets 27 and 14 all use the same words. It comes out
+`gated` when the run made at least one tool call, no call got through, and at least one
+refusal was Hydra's own gate. Three things it deliberately is not:
+
+- **Not one refused call.** Contract 8.1 dropped `denied` partly because it "read as a
+  per-tool-call fact", and a run that made fifty calls, had one denied and finished the
+  task is a trajectory rung one should learn from. The denial stays in the record per
+  call, where 7.7 puts it.
+- **Not a gate leak.** A `Finding::GateLeak` is the policy denying a call nothing
+  actually refused, so the call went through. An outcome says what happened, and filing a
+  leak as `gated` would report the run as blocked by the hole that let it through.
+- **Not somebody else's hooks.** A `decider` of `external` is the user's own `PreToolUse`
+  guards, which 7.7 spends a section separating from Hydra's gate. A run blocked entirely
+  by those comes out `completed`.
+
+**The rule has one weak spot beyond that.** A run with one allowed `Read` and four
+denied `Write`s comes out `completed`, because something got through. That run genuinely
+failed on too narrow a policy, which ticket 27 calls a policy bug rather than a skill bug,
+and nothing in the record says what it was trying to do. Fixing it means a threshold like
+"mostly refused", which is a number no ticket settled. So the predicate stays literal, and
+`tests/outcome.rs` pins both directions so a change to it breaks a test on purpose.
+
+**A pre-gate record with a real denial in it comes out `completed`.** Contract 7.7 gives
+a run with no policy no `permission_decision` at all, and `external` "presumes a policy
+exists to have allowed", so there is nothing for the `gated` rule to read.
+`01a07218-8817-7581-9ddb-47565e5d5ba7` is that record: one `Write`, refused, `policy:
+null`, derived `completed`. It is the design's own consequence rather than a hole, and it
+applies to the three pre-gate records on this machine and to nothing written since.
+
+**`unknown` has one producer and it is the only soft outcome.** A `completed` reached by
+nothing saying otherwise, on a run holding a tool result the adapter returned
+`unclassified` for, is `outcome_source: unknown`. Every other outcome rests on something
+a source said out loud, and an unreadable tool result does not weaken those: a 429 beside
+an unclassified result is still `rate_limited`, `derived`.
+
+**`auth_failed` from the stream is a hypothesis and `rate_limited` is not.** 429 is
+measured, on the run below. 401 and 403 are what an expired token should produce and
+neither has been seen on a record here, so they are in the match with that said out loud
+rather than presented as a reading. The direction of the guess is deliberate: an
+authorization refusal filed as `failed` teaches rung one a skill lesson from a lapsed
+login. Anything else the provider reports falls through to `is_error`, so a 500 is a real
+failure of the run.
+
+**`crashed` reads the terminator's absence, not a signal.** `claude` writes exactly one
+`result` frame on every path, so a `run_end` with no terminator behind it is a child that
+stopped mid-run. With a null `exit_code` it is `failed` instead, because no process ran
+and nothing died.
+
+**`run_end.error` is read on one side of that split and not the other.** With a
+terminator present the run reached its own end, so the field is a fidelity note: a lossy
+line means the record has every line and one is degraded, and filing that run as `failed`
+would teach rung one a skill lesson from a UTF-8 byte. With no terminator it is the only
+thing in the file that says which side stopped. So a `run_end` with no terminator, a real
+exit code and an `error` is Hydra's tee having broken on a child that may have gone on to
+finish, and it comes out `failed` rather than `crashed`, because contract 8 defines
+`crashed` as "the process died" and nothing witnessed one. `crashed` is left for the
+shape where the child ended without its terminator and Hydra has nothing to say about
+why.
+
+**The final assistant text is the final turn, not the final block.** Contract 7.3 gives
+one `message` event per content block, which is what `Message::block` numbers, so a frame
+that interleaves thinking with prose arrives as `[text, thinking, text]`. Taking the last
+event returned the second half of what the model said and dropped the first. The blocks of
+the last frame are joined in block order, separated by a blank line.
+
+**A run with no `run_end` gets no outcome, and `derive` returns `Option` to say so.**
+Either the child is still going or the run is ticket 14's abandoned class, and telling
+those apart needs 5.2's pid liveness test, which contract 8.6 gives to `hydra status`.
+Flattening it to `crashed` would file every live run in the corpus as a dead one.
+
+**A record Hydra cannot read back does not fail the command.** The file is whole and
+synced before the read starts, so propagating the error would report a run that worked as
+one that did not and would take the run id and the path to the answer with it. The
+fallback returns contract 17's field list with the derivations null and `error` naming the
+read failure, which is what stops `outcome: null` reading as a measurement. That null now
+has two producers, a run with no `run_end` and a record that would not read, and `error`
+says which. What triggers it is not tested and cannot cheaply be: it needs `read_file` to
+fail on a file `hydra run` just wrote, and `hydra run` launches a provider. The fallback's
+field shape is tested.
+
+**A spawn that never started still writes a record and returns no JSON.** That path
+writes `run_start` and `run_end` with the reason in `error`, then returns the error, so
+`hydra run` exits non-zero with nothing on stdout. The record derives `failed` and
+`tests/outcome.rs` pins it, so nothing is lost for the corpus; what is missing is the JSON
+for a caller that wanted the projection rather than an exit code. Making it print instead
+would mean exiting 0 on a run that never launched, which breaks any script reading the
+status, so the fix belongs with the MCP delegate face in ticket 11, where a caller has no
+exit code to read.
+
+**The result is nine fields and `provider` is not among them.** Contract 17 gives the
+list and then says "Nothing else", so `provider` and `provider_session_id`, which the
+first slice returned, are gone. Both are in the record and `run_file` is on the list.
+`branch` and `diff_stat` are absent rather than null on a run with no checkout, following
+5.5's rule; the rest are always present.
+
+**Reading the record back costs a python process per recorded tool call.** Measured on
+this machine: a record with no calls reads back in 0.6ms, one with two calls in 94ms, so
+the gate is about 47ms a call and it is all of the cost. A 200-call run therefore spends
+about nine seconds after the child exits before `hydra run` prints anything. That is the
+price of `permission_decision` being a re-evaluation rather than a copy of the gate's
+answer, which contract 7.7 requires and the "Reading a record back" section above argues
+for. Ticket 05 makes the spawn detached and moves this off the caller's critical path.
+
+## The diff stat, and the seed it has to subtract
+
+Contract 17's one returned field with no record equivalent, and the trap in it is real
+rather than theoretical. Harness spec 6.3 seeds a run's worktree with the parent's
+uncommitted work, so `git diff HEAD` inside the checkout counts the human's work in
+progress as the child's.
+
+**So the base is a tree, snapshotted after seeding.** `worktree::seed_tree` stages the
+freshly seeded checkout into a scratch index and calls `git write-tree`; the sha rides on
+the `Worktree` and the closing `git diff-tree -r --numstat` is against it. The returned
+`diff_stat` carries `base_tree` and a `covers` sentence, because the number is useless to
+anyone who does not know what it is measured from.
+
+**The scratch index is why the snapshot is invisible.** `git add -A` against the
+checkout's own `.git/index` would leave the child looking at a fully staged tree, and a
+child asked to finish work in progress would see something the parent does not have.
+`GIT_INDEX_FILE` points at `~/hydra/spawn/<run-id>/seed-index` instead, with a second
+file for the closing pass so staging cannot destroy the base. `tests/worktree.rs` asserts
+the child's own `git status` still shows the seed as uncommitted work.
+
+Measured on this repo, 2026-09-05: a worktree seeded from nine dirty files, one file
+written into it afterwards. `diff_stat` reported one file and one insertion; `git diff
+HEAD` in the same checkout reported nine files.
+
+**Committing the seed was the alternative and it is the wrong trade.** One commit on the
+run's branch would make `git diff HEAD` correct for free, including for the child itself.
+It also hides the work in progress from a child asked to continue it, which is what 6.3
+seeds the worktree for, and it changes what the branch means. The snapshot changes
+nothing the run can see.
+
+**A stat that cannot be computed says so on stderr.** Neither failure refuses a run: by
+the time the closing diff runs the record is already whole, and a seed snapshot that will
+not write costs the field and nothing else. Both print a line, because an absent
+`diff_stat` otherwise reads as "this run had no checkout".
+
+**A record with no `run_id` gets no diff stat.** A torn line 0 normalizes to an empty
+`run_id` with a `Finding::Limit` rather than failing the read, and `Layout::spawn("")` is
+`~/hydra/spawn/` itself, so the scratch index would be one file shared by every such
+record and two at once would stage into each other. The guard skips the stat, the same
+way a missing seed tree does.
+
+**A `permissive` run can make the stat wrong.** Writes are scoped to the worktree under
+four of the five policies, so nothing can reach the index files; `permissive` grants
+unscoped writes and the gate protects only the gate script inside the spawn directory.
+Such a run can rewrite its own `seed-index`, which costs the diff stat and nothing else.
+The record is what carries the truth about what a run wrote.
+
+## What a rate-limited run really looks like
+
+The first `hydra run` after ticket 04 landed hit the session limit, which measured
+contract 8's nastiest shape on a live run rather than on a synthetic frame. Run
+`01a073ef-701c-7522-b5bb-56d5ecba0f57`, `claude` 2.1.261, `read-only`, 2026-09-05:
+
+```
+subtype: "success"      is_error: true       api_error_status: 429
+terminal_reason: "api_error"                 stop_reason: "stop_sequence"
+exit code 1             usage: every count present and 0
+```
+
+Derived `rate_limited` with `outcome_source: derived`, and `result_text` carried the
+provider's own words: "You've hit your session limit · resets 7:50pm (America/Bogota)".
+
+**Two things the contract did not already say.** `terminal_reason` reads `api_error`,
+which is a second honest signal beside `api_error_status`; nothing keys on it, and it is
+written down because a provider that drops the status field would leave it as the only
+one. And the exit code was 1, so a reader keying off the exit status would have filed
+this as an ordinary failure and rung one would have learned a skill lesson from an
+exhausted quota.
+
+**`usage` is `provider` with zeroes here, and that is correct.** The frame reported every
+count and every count was zero, because the request was rejected before a token moved.
+Contract 7.8's rule is about a provider that reported *nothing*, which is the
+`unavailable` case; a provider reporting zero is a measurement.
+
+**The `rate_limit_event` frame does not have the shape contract 8.5 describes.** 8.5 puts
+`rateLimitType`, a `status`, a `resetsAt` epoch and a per-window `utilization` on the
+frame. Measured, they are nested one level down under `rate_limit_info`, `utilization`
+lives under `unifiedWindows.<window>`, and three fields 8.5 does not name are beside
+them: `overageStatus`, `overageDisabledReason` and `isUsingOverage`. This frame has no
+reader until rung two's early abort, so nothing is broken today. Whoever builds that
+reads the shape here rather than 8.5's sentence, and the `resetsAt` staleness test 8.5
+asks for still works.
+
 ## What the command line does not carry
 
 **`--mcp-config` and `--strict-mcp-config` are not passed.** 6.7 puts both on a
@@ -447,11 +646,19 @@ error naming the silent logout it would otherwise cause. It writes no run record
 contract's four `refusal` values are all Hydra-side policy checks this slice does not
 run, and inventing a fifth is a contract change.
 
-**`hydra run` returns fewer fields than contract 17 specifies.** `outcome`,
-`outcome_source`, `usage` and the final assistant text are all normalizer output, and
-the diff stat would report the seed plus the child's work rather than the child's. A
-null `usage` reads as a measurement of zero, so the JSON carries a
-`not_yet_derived` list naming the five instead. That field goes away when they land.
+**The result is read back off the file rather than assembled in memory.** Contract 17
+makes it a projection of the record, and `hydra run` still has every value in scope when
+the child exits, so building it from those would be faster and would also let the JSON
+carry a fact the record does not have. Section 6 says that is the mistake ticket 11 made.
+Reading the file is what keeps the projection true rather than intended, and it costs
+what the section below measures.
+
+**Two refusal codes are minted here, not in a ticket.** Contract 6 names four Hydra-side
+checks in prose and no closed ticket gives them strings. `record::Refusal` is the
+vocabulary, one code each, in the shape ticket 01 gave the gate's `hydra/` reason prefix
+and for the same reason: the derivation matches on it, and a sentence is not something to
+match on. Nothing writes one yet, so the four tickets that will are free to disagree
+with the spelling before any record carries it.
 
 ## Not built
 
@@ -474,9 +681,11 @@ Out of scope for this slice, and each one has a document that already says what 
   Ctrl-C leaves an orphan child, a record with no `run_end`, an abandoned worktree and
   now an abandoned spawn directory, which is exactly ticket 14's abandoned-run class
   arriving early.
-- Outcome derivation. Contract 8, and ticket 04. The normalizer reads a `claude` run
-  now; nothing turns one into an outcome, and `hydra run` still returns the short
-  answer below.
+- Three of contract 8's nine outcomes have no producer. `timed_out` needs the watcher
+  ticket 05 builds. `skill_collision` and `mcp_unavailable` are launch checks belonging
+  to tickets 07 and 08, and both arrive through `run_end.refusal`, which nothing writes.
+  All three are in the enum, because a value the reader cannot name is one nobody knows
+  is missing.
 - The `cursor-agent` and `agy` adapters, tickets 09 and 10, and harvest, 12. Contract
   7.2's other two columns and 7.2.1's transcript vocabulary have no reader.
 - Interactive runs and harvest. 5.6, 12.
@@ -502,7 +711,9 @@ Out of scope for this slice, and each one has a document that already says what 
   says is read fresh on every invocation. Nothing exercises this today, because runs are
   foreground and one at a time until ticket 05 detaches them. It is latent rather than
   live, and it is smaller than the shell hole above only because shell already reaches
-  every one of these paths.
+  every one of these paths. Ticket 04 put two more files in there, the diff stat's
+  scratch indexes, and the section above says what a `permissive` run rewriting one
+  costs: the stat, and nothing else.
 - **A gate that fails to start still fails open on `claude`.** 6.6 measured it. The
   shebang is absolute and the script imports nothing outside the standard library,
   which is what that risk is spent on, and the sha check now catches a script that

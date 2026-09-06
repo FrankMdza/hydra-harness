@@ -57,3 +57,24 @@ says the gate does not stop a run invoking `hydra` itself.
 **The three ticket-02 records are the ones worth keeping.** They are the only evidence
 on this machine that a compiled deny held under `bypassPermissions`, so if you exercise
 `hydra prune` against real files, move them rather than testing the delete flag on them.
+
+## What ticket 04 left you, added 2026-09-05
+
+**A spawn directory now holds four files, not two.** `gate`, `settings.json` and two git
+index files: `Layout::seed_index` and `Layout::stat_index`, which the diff stat stages
+through so the child's own index is never touched. Reap removes the directory whole, so
+this changes nothing about what to delete; it is here so a reader of `~/hydra/spawn/`
+does not wonder what the indexes are.
+
+**Reaping a worktree destroys the diff stat's base.** Harness spec 10's reap commits
+uncommitted work to the child's branch before removing anything, and the tree the stat is
+measured against is only reachable while the objects live. That is the same reasoning
+contract 17 gives for the diff stat not being a record field: the `tool_call` events are
+the version that survives the branch.
+
+**Recounted after ticket 04: ten worktrees, ten `hydra/*` branches and seven spawn
+directories.** Ticket 04's own measurement run added the tenth,
+`01a073ef-701c-7522-b5bb-56d5ecba0f57`. The three oldest still have no spawn directory, so
+the pair reap assumes is not there for them. It is the only
+rate-limited record on this machine and the only evidence here of contract 8's nastiest
+shape on a live run, so keep it if you exercise `hydra prune` against real files.
