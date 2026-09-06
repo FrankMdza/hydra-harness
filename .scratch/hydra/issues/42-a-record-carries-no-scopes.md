@@ -377,3 +377,24 @@ bullet is about `~/hydra/worktrees/`, `~/hydra/spawn/` and `config/`.
 `hydra.skills.store_sha`, which sits on line 0 of every record that linked a skill, so a reader a
 month later recomputes it without being told. It is the first scope with that property. The
 question you settle is whether the other three get it too, or whether the record names its paths.
+
+**Built on 2026-09-06 by build ticket 13, and the property is real.** `Layout::skill_snapshot_scope`
+is the whole rule and both sides call it: `src/run.rs` with the sha it pinned, both normalizers with
+the sha they read off line 0. `tests/normalize.rs` has the pair that shows it working, a record with
+the sha whose read derives allow and the same record without it whose read derives a deny and a
+`GateLeak`. So the option you are costing has one worked example in the tree, and its cost was one
+function plus one field on the normalizer's `Walk`. A run that linked nothing carries no `skills`
+object at all, and the scope then resolves to `<spawn dir>/no-snapshot`, which is the case a rule
+recomputed from the record has to answer for and a stored path would not.
+
+**One more thing the build turned up, and it is yours rather than ticket 40's.** A cross-check
+between a record's own gate answers and a replay is only sound while `policy_sha` has not moved.
+Build ticket 13 was the first policy edit since records existed, and it made one run report a
+`Disagreement` that was pure artifact: the old gate refused a `Skill` call correctly and today's
+policy allows it. `normalize::policy_moved` now downgrades a disagreement to a limit when the sha
+moved. `GateLeak` has the same exposure in the other direction and was left alone, because
+suppressing a leak is the unsafe half of the same fix: an edit that narrows a policy would make the
+replay deny a call the old gate allowed, and that reads as a leak that never happened. Nothing fires
+today because this edit only widened. Whatever you decide about storing scopes, a record that
+carried its own resolved paths would not fix this: the paths are not the part that moved, the rules
+are.

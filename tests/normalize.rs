@@ -16,8 +16,8 @@ use serde_json::json;
 
 mod common;
 use common::{
-    RUN_ID, Record, Sandbox, corpus, cursor_read_blocked, cursor_read_blocked_late, cursor_read_ok,
-    cursor_shell_rejected, cursor_usage, policies, usage_frame,
+    RUN_ID, Record, Sandbox, Shape, corpus, cursor_read_blocked, cursor_read_blocked_late,
+    cursor_read_ok, cursor_shell_rejected, cursor_usage, policies, usage_frame,
 };
 
 // --- one frame at a time -------------------------------------------------
@@ -242,6 +242,104 @@ fn the_runs_own_policy_is_re_evaluated_into_a_decision() {
 }
 
 #[test]
+fn a_skill_the_run_was_linked_reads_back_as_invocable_and_readable() {
+    // Contract 7.7 over map ticket 39's two calls. The record carries the sha
+    // the run pinned, the re-evaluation turns that back into the
+    // `skill_snapshot` scope, and both calls derive the answer the real gate
+    // gave on run 01a078bc-420f-7b23-8e67-2dfc9f98f859: `skill_invoke` on the
+    // `Skill` call, `file_read` on a sibling opened through the link.
+    let sandbox = Sandbox::new("skill-link");
+    let sha = "1f0dcafe1f0dcafe1f0dcafe1f0dcafe1f0dcafe";
+    let link = sandbox.link_skill(sha, "hydra-sentinel");
+
+    let text = Record::shaped(Shape {
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        store_sha: Some(sha),
+        ..Shape::default()
+    })
+    .tool_use("toolu_01", "Skill", json!({"skill": "hydra-sentinel"}))
+    .hook_response(
+        "Skill",
+        "allow",
+        "hydra/allow: policy standard allows skill_invoke.",
+    )
+    .tool_result("toolu_01", "Launching skill", false)
+    .tool_use(
+        "toolu_02",
+        "Read",
+        json!({"file_path": link.join("SIBLING.md")}),
+    )
+    .hook_response(
+        "Read",
+        "allow",
+        "hydra/allow: policy standard allows file_read.",
+    )
+    .tool_result("toolu_02", "The second sentinel is", false)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 2);
+    for decision in &decisions {
+        assert_eq!(decision.decision, Decision::Allow, "{}", decision.reason);
+        assert_eq!(decision.decider, Decider::HydraPolicy);
+    }
+    assert!(decisions[0].reason.contains("skill_invoke"));
+    assert!(decisions[1].reason.contains("file_read"));
+    // The gate and the derivation agree, so nothing is reported.
+    assert!(run.findings.is_empty(), "{:?}", run.findings);
+}
+
+#[test]
+fn without_the_sha_the_same_read_derives_a_deny() {
+    // What proves the scope did the work. The link resolves outside the
+    // checkout, so `worktree` alone denies it, and a record with no `skills`
+    // object recomputes to a snapshot path nothing creates. The gate answer on
+    // the record says allow, so the disagreement is reported rather than
+    // swallowed: this is what a record written before the scope existed reads
+    // back as.
+    let sandbox = Sandbox::new("skill-link-unpinned");
+    let link = sandbox.link_skill("1f0dcafe1f0dcafe1f0dcafe1f0dcafe1f0dcafe", "hydra-sentinel");
+
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    )
+    .tool_use(
+        "toolu_01",
+        "Read",
+        json!({"file_path": link.join("SIBLING.md")}),
+    )
+    .hook_response(
+        "Read",
+        "allow",
+        "hydra/allow: policy standard allows file_read.",
+    )
+    .tool_result("toolu_01", "The second sentinel is", false)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Deny);
+    assert!(
+        decisions[0].reason.starts_with("hydra/out-of-scope:"),
+        "{}",
+        decisions[0].reason
+    );
+    assert!(
+        run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
 fn a_call_the_policy_allows_gets_an_allow_decision() {
     let sandbox = Sandbox::new("allow");
     let text = Record::opened(
@@ -372,6 +470,85 @@ fn the_gates_own_answer_disagreeing_with_the_derivation_is_a_finding() {
         "{:?}",
         run.findings
     );
+}
+
+#[test]
+fn the_same_disagreement_under_a_moved_policy_is_only_a_limit() {
+    // Contract 7.7 calls a disagreement the one place two independent sources
+    // answer the same question. Once `policy_sha` moves they are answering
+    // about two policies, so the difference is a limit. Build ticket 13 is what
+    // made this fire: it gave `standard` a capability it lacked, and the one
+    // recorded run whose `Skill` call the old gate correctly refused started
+    // reporting a contradiction it never had.
+    let sandbox = Sandbox::new("disagreement-stale");
+    let path = sandbox.worktree().join("probe.txt");
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some("0000000000000000000000000000000000000000000000000000000000000000"),
+    )
+    .tool_use(
+        "toolu_01",
+        "Write",
+        json!({"file_path": path, "content": "HELLO\n"}),
+    )
+    .hook_response(
+        "Write",
+        "allow",
+        "hydra/allow: policy read-only allows file_write.",
+    )
+    .tool_result("toolu_01", "File created successfully.", false)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Disagreement { .. })),
+        "{:?}",
+        run.findings
+    );
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Limit(said) if said.contains("two policies")
+        )),
+        "{:?}",
+        run.findings
+    );
+    // The staleness itself is still said, by the finding that has always said it.
+    assert!(
+        run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::StalePolicy { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn the_fixture_writes_a_run_start_the_contract_accepts() {
+    // Contract 5.3 and 5.5: `skills` is absent when no sha was pinned, never
+    // null, and `check_run_start` flags the null. Every synthetic record in this
+    // suite and in `tests/outcome.rs` is built by that fixture, so a shape it
+    // gets wrong is a shape none of them are testing against.
+    let sandbox = Sandbox::new("fixture-contract");
+    for store_sha in [None, Some("1f0dcafe1f0dcafe1f0dcafe1f0dcafe1f0dcafe")] {
+        let text = Record::shaped(Shape {
+            policy: Some("standard"),
+            policy_sha: Some(policies().sha()),
+            worktree: Some(&sandbox.worktree()),
+            store_sha,
+            ..Shape::default()
+        })
+        .closed();
+        let report = hydra::record::validate::check(&text, Some(RUN_ID));
+        assert!(
+            report.ok(),
+            "store_sha {store_sha:?}:\n  {}",
+            report.problems.join("\n  ")
+        );
+    }
 }
 
 #[test]

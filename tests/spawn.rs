@@ -49,7 +49,7 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
     std::fs::create_dir_all(&worktree).unwrap();
 
     let spawn =
-        write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", Some(&worktree), false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", Some(&worktree), None, false).unwrap();
 
     assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
     assert_eq!(spawn.hook_config, root.join("spawn/r1/settings.json"));
@@ -71,7 +71,7 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
 fn the_gate_is_executable_and_is_a_real_file() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, false).unwrap();
 
     // 6.6: real files, never links. `cursor-agent` refuses a symlinked project
     // config silently and runs the command anyway, so this holds for all three.
@@ -100,8 +100,8 @@ fn the_gate_is_executable_and_is_a_real_file() {
 fn every_spawn_gets_its_own_directory() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let one = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
-    let two = write_spawn_config(&layout, "r2", &set, Provider::Claude, "read-only", None, false).unwrap();
+    let one = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, false).unwrap();
+    let two = write_spawn_config(&layout, "r2", &set, Provider::Claude, "read-only", None, None, false).unwrap();
 
     assert_ne!(one.gate, two.gate);
     let first = std::fs::read_to_string(&one.gate).unwrap();
@@ -122,7 +122,7 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
     let set = PolicySet::discover().unwrap();
     // 7.5's base case. The script is compiled before it is written, so a
     // placeholder path here would deny a file nothing ever writes to.
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "permissive", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "permissive", None, None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
     let resolved = std::fs::canonicalize(&spawn.gate)
         .unwrap()
@@ -138,7 +138,7 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
 fn a_run_with_no_worktree_scopes_writes_to_a_path_nothing_creates() {
     let (layout, root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
 
     assert!(
@@ -178,7 +178,7 @@ fn the_hook_command_runs_the_gate_and_answers() {
     let worktree = root.join("worktree");
     std::fs::create_dir_all(&worktree).unwrap();
     let spawn =
-        write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", Some(&worktree), false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", Some(&worktree), None, false).unwrap();
 
     let payload = format!(
         r#"{{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{{"file_path":"{}/x.txt","content":"x"}},"cwd":"{}"}}"#,
@@ -217,6 +217,7 @@ fn a_cursor_spawn_writes_the_hook_config_into_the_worktree() {
         Provider::CursorAgent,
         "standard",
         Some(&worktree),
+        None,
         false,
     )
     .unwrap();
@@ -266,6 +267,7 @@ fn a_cursor_spawn_without_a_worktree_is_refused() {
         Provider::CursorAgent,
         "standard",
         None,
+        None,
         false,
     )
     .unwrap_err();
@@ -290,6 +292,7 @@ fn a_checkout_that_already_holds_a_hook_config_is_refused_rather_than_overwritte
         Provider::CursorAgent,
         "standard",
         Some(&worktree),
+        None,
         false,
     )
     .unwrap_err();
@@ -317,6 +320,7 @@ fn the_cursor_hook_command_gates_a_read_through_before_read_file() {
         Provider::CursorAgent,
         "read-only",
         Some(&worktree),
+        None,
         false,
     )
     .unwrap();
@@ -413,7 +417,7 @@ fn a_rewritten_gate_fails_closed() {
     // permission to proceed.
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", None, None, false).unwrap();
 
     let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi"},"cwd":"/tmp"}"#;
     assert!(

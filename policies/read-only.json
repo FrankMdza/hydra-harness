@@ -1,7 +1,9 @@
 {
   "name": "read-only",
-  "allows": "reads inside the worktree, no shell, no writes",
+  "allows": "reads inside the worktree and its skill snapshot, invokes linked skills, no shell, no writes",
   "allow": [
-    { "capability": "file_read", "scope": "worktree" }
+    { "capability": "file_read", "scope": "worktree" },
+    { "capability": "file_read", "scope": "skill_snapshot" },
+    { "capability": "skill_invoke" }
   ]
 }

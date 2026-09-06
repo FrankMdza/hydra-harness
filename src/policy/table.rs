@@ -6,11 +6,15 @@
 //! another, which is why the table is per provider and the policy is not.
 //!
 //! **Every name the provider offers needs a row.** 7.1 denies a tool name the
-//! table does not recognise, so a table holding only the eight names that answer
-//! to the six capabilities would deny the other twenty-one under `permissive`,
-//! which is supposed to allow everything. Those twenty-one get
-//! [`Capability::ProviderNative`] instead, one row rather than twenty-one
-//! invented categories, granted by `permissive` alone.
+//! table does not recognise, so a table holding only the nine names that answer
+//! to the seven capabilities would deny the other twenty under `permissive`,
+//! which is supposed to allow everything. Those twenty get
+//! [`Capability::ProviderNative`] instead, one row rather than twenty invented
+//! categories, granted by `permissive` alone.
+//!
+//! `Skill` used to be the twenty-first. Ticket 39 gave it `skill_invoke` on
+//! 2026-09-06, which is what splitting `ProviderNative` costs when a policy
+//! needs to grant one of them: a row here and an entry in four policy files.
 //!
 //! Splitting `ProviderNative` is a design decision and not one this table makes.
 //! It costs a policy file edit the day a policy needs to grant one of them.
@@ -65,8 +69,8 @@ pub const CLAUDE: &[Tool] = &[
     // subagent gets no run id and writes no run file, and D10 makes the record
     // the source of truth for work Ouroboros learns from.
     tool("Task", Capability::SubagentSpawn),
-    // The twenty-one. Each exists only inside this provider's own product
-    // surface and none is granted by any policy in 7.2.
+    // The twenty. Each exists only inside this provider's own product surface
+    // and none is granted by any policy in 7.2.
     tool("CronCreate", Capability::ProviderNative),
     tool("CronDelete", Capability::ProviderNative),
     tool("CronList", Capability::ProviderNative),
@@ -80,7 +84,9 @@ pub const CLAUDE: &[Tool] = &[
     tool("ReportFindings", Capability::ProviderNative),
     tool("ScheduleWakeup", Capability::ProviderNative),
     tool("SendMessage", Capability::ProviderNative),
-    tool("Skill", Capability::ProviderNative),
+    // 7.1: its own capability since ticket 39. A run that is linked a skill and
+    // cannot invoke it was given a listing entry rather than a skill.
+    tool("Skill", Capability::SkillInvoke),
     // The four `Task*` list tools are new on 2.1.263, in-process task-list tools
     // and no relation to `Task`, which spawns a subagent.
     tool("TaskCreate", Capability::ProviderNative),

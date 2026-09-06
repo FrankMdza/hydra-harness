@@ -269,19 +269,22 @@ name and body framed by its length.** `README.md` is left out: it is prose about
 policies rather than one of them, and a wording fix should not move a value every run
 record carries. The framing is what stops two directories colliding by concatenation.
 
-**Twenty-one of `claude`'s twenty-nine tools answer to no capability the five policies
-speak in.** 7.1 denies a tool name the table does not recognise, so a table holding only
-the eight names that answer to the six capabilities of the coverage matrix would deny the
-other twenty-one under `permissive`, which is supposed to allow everything. They map to
-one capability, `provider_native`, granted by `permissive` alone. One row rather than
-twenty-one invented categories, and 7.1's drift check still fires on a thirtieth name.
-Splitting it is a design decision and this build did not make it.
+**Twenty of `claude`'s twenty-nine tools answer to no capability the five policies speak
+in.** 7.1 denies a tool name the table does not recognise, so a table holding only the
+nine names that answer to the seven capabilities of the coverage matrix would deny the
+other twenty under `permissive`, which is supposed to allow everything. They map to one
+capability, `provider_native`, granted by `permissive` alone. One row rather than twenty
+invented categories, and 7.1's drift check still fires on a thirtieth name.
 
-**`standard` therefore denies `ToolSearch` and `Skill`.** That follows from the
-paragraph above and it is a real capability loss on ordinary coding runs, in the
-direction 7.1 chose on purpose: an allowlist fails toward a run that cannot do its job,
-which someone notices. Ticket 02's first gated run is where it gets noticed, and the
-fix, if the records ask for one, is a policy file edit rather than code.
+**It was twenty-one until map ticket 39 split `Skill` out on 2026-09-06.** That is what
+splitting one of them costs: a row in `src/policy/table.rs`, an entry in four policy
+files, and a `policy_sha` that moves. The section on the skill store below has the whole
+change.
+
+**`standard` still denies `ToolSearch`.** That follows from the paragraph above and it is
+a real capability loss on ordinary coding runs, in the direction 7.1 chose on purpose: an
+allowlist fails toward a run that cannot do its job, which someone notices. Ticket 43 is
+where it gets decided, and it turns on whether MCP tools arrive deferred in print mode.
 
 **Two protected configs are still paths rather than files.** 7.5 denies writes to seven
 paths under every policy. Five exist now: `policies/`, `~/hydra/runs/`, the per-spawn
@@ -491,51 +494,72 @@ transcript showed. That is a smaller field than contract 5.3's paragraph implies
 is the largest one that costs nothing. The run's own transcript holds the rest and
 nothing reads it.
 
-### A linked skill is unreachable under four of the five policies
+### A linked skill is invocable and readable, built
 
-This is the edge of the design rather than a gap in the code, and it needs a decision
-rather than an implementation. It is map ticket 39.
+Harness spec 6.4's "a run may invoke what it was linked and may read it", 7.1's
+`skill_invoke` and 7.2's `skill_snapshot`, decided by map ticket 39 on 2026-09-06 and built by
+build ticket 13 the same day. Frank authorized the edit to protected config #1 that carries it.
 
-Measured on 2026-09-06 with a real run and with that run's own compiled gate. Under
-`standard`, a linked skill is listed to the model, and then:
+`Skill` answers to `Capability::SkillInvoke` in `src/policy/table.rs`, out of the twenty-one
+that answer to `provider_native` and now twenty. `read-only`, `standard`, `curate` and
+`permissive` grant it; `judge` grants nothing and refuses it with `hydra/capability`.
 
-- `Skill` is a `provider_native` tool, which only `permissive` grants, so the run cannot
-  invoke it. The gate answered `hydra/out-of-scope` and the run derived `gated`. That
-  half was already written down above and now has a second sighting.
-- The link resolves into `~/hydra/skills-snapshots/<sha>/`, outside the checkout, so
-  `file_read` scoped to `worktree` denies reading the `SKILL.md` too. The gate resolves
-  symlinks before comparing, which is deliberate and is what `tests/gate.rs` calls
-  `a_symlink_out_of_the_worktree_does_not_widen_the_scope`.
+`Scope::SkillSnapshot` is the run's own checkout of the store,
+`~/hydra/skills-snapshots/<sha>/`, on `file_read` for those same four and on no policy's
+`file_write`. A run that could write there could edit its own instructions mid-session, which
+is the thing copying the skill into the worktree would have allowed and is why the copy was
+rejected.
 
-Both denials are correct against the documents as written. Together they mean injection
-delivers a name and a description into the system prompt and nothing else under `judge`,
-`read-only`, `standard` and `curate`. Under `permissive` it works, because that policy
-grants `provider_native` and `file_read` anywhere.
+`Layout::skill_snapshot_scope` is the whole rule, and both sides call it: the launch passes the
+sha `inject_skills` pinned, and contract 7.7's re-evaluation passes the sha it reads back off
+`hydra.skills.store_sha`. Neither side can drift, which is the same shape `skill_store_scope`
+already had. A run with no sha gets `<spawn dir>/no-snapshot`, a path nothing creates, for the
+reason a run with no repo gets `no-worktree`: pointing at `skills-snapshots/` would hand every
+run every other run's snapshot.
 
-**Re-measured on 2026-09-06 while preparing map ticket 39, and three of the sentences
-above are too strong.** A gate compiled per policy and driven with synthetic payloads, no
-provider launched, says: the `Skill` refusal's code is `hydra/capability`, not
-`hydra/out-of-scope`, which only fires for a scoped capability whose path fell outside.
-The body is out of reach under three policies rather than four, because `standard` grants
-`shell` unscoped and `cat <worktree>/.claude/skills/<name>/SKILL.md` is allowed: the
-snapshot is not one of 7.5's seven denied paths, so the capability boundary and the
-practical one already disagree. And "under `permissive` it works" is read off the gate
-rather than observed, since no run on this machine has ever had a `Skill` call allowed.
-The ticket's prepared section has the per-policy table and the reason strings.
+**Measured on one real `standard` run**, `01a078bc-420f-7b23-8e67-2dfc9f98f859`, `claude`
+2.1.263 on `haiku`, with a two-file marker skill in the store. Both sentinels came back. The
+gate answered `hydra/allow: policy standard allows skill_invoke.` on the `Skill` call and
+`hydra/allow: policy standard allows file_read.` on a `Read` of a sibling through the link
+path, which is the path the provider names to the model as the skill's base directory. The
+gate resolves that link into the snapshot before comparing, so the same path opened for
+writing is `hydra/out-of-scope`. Reading it back derives both decisions again and reports no
+gate leak, which `tests/normalize.rs` checks against the corpus and against a synthetic record
+whose only difference is the missing sha.
 
-Nothing here was changed to fix it. 6.4 says the links point into a snapshot and 7.2 says
-the `worktree` scope is the checkout, and no closed ticket connects the two. The store's
-own scope is a second half of the same question, and ticket 12 answered it one way while
-harness spec 7.2 and `docs/ouroboros-spec.md` 3.6 still answer it two ways. That half is
-map ticket 40.
+**`policy_sha` moved and 18 of the 22 records on this machine now read as `StalePolicy` to
+rung one.** Accepted while the corpus is probes. The ticket predicted 13 of 17; the corpus
+grew between the decision and the build. Three of the 22 carry no `policy_sha` at all, which
+is what a harness run writes.
 
-**Decided by map ticket 39 on 2026-09-06, and not yet built.** A linked skill is meant to be
-invocable and readable. `Skill` becomes its own capability, `skill_invoke`, and the run's snapshot
-becomes a read scope of its own, `skill_snapshot`, resolved from `hydra.skills.store_sha`. One
-`permissive` run, `01a07886-a450-7a21-92cf-799b26358a05`, showed the body arriving on the `Skill`
-call with no read the gate sees and the sibling arriving through `Read` on the link path, which is
-what settled both halves. Build ticket 13 carries the code; until it lands, everything above this
-paragraph still describes the binary.
+**Two capabilities still reach the snapshot for writing, and neither names it.**
+`skill_snapshot` appears on no policy's `file_write`, which is what the code says and all
+it says. The snapshot is not one of 7.5's seven denied paths, so:
+
+- **`shell`, under `standard` and `permissive`.** Measured on the compiled `standard` gate
+  on 2026-09-06: `echo x > <worktree>/.claude/skills/<name>/SKILL.md` is allowed as
+  `hydra/allow: policy standard allows shell.`, and so is a `cat` of the snapshot path
+  directly. `shell` is unscoped by design and 7.4 opens by saying why.
+- **`file_write` with scope `anywhere`, under `permissive`.** The gate short-circuits on
+  `anywhere` before it compares any root, so a `Write` through the link lands in the
+  snapshot.
+
+Both were true before this ticket. What changed is that they now read as a contradiction
+rather than as an omission, because the scope exists and is deliberately read-only.
+Snapshots are shared per sha, so the run corrupted may be another one that is still going,
+and `skills::remove_snapshot` goes through `git worktree remove`, which refuses a dirty
+checkout: a mutated snapshot is one `hydra reap` can never sweep.
+
+**Closing it is a decision rather than an implementation.** 7.5 lists seven denied paths
+and this would be an eighth, which is a spec change, and `~/hydra/skills-snapshots/` denied
+whole would also stop `curate` from ever writing a proposal through a checkout of its own.
+It belongs on the map beside ticket 40, which is already asking what the store scope points
+at.
+
+**`cursor-agent` and `agy` have no `Skill` tool the specs know of**, so `skill_invoke` maps to
+no row in their tables until one appears. The snapshot scope applies to them unchanged: the
+gate resolves paths the same way on all three, and `src/normalize/cursor.rs` recomputes the
+scope off the same field.
 
 ## The canonical MCP document, and what a run is handed
 
@@ -751,13 +775,15 @@ check the table against, unlike `claude`, so 7.1's run-time table check has noth
 read on this provider and a name it does not know is caught by the denial that reveals
 it.
 
-**A `Skill` split would land on `Read` here.** Cursor has no `Skill` tool. A linked
-skill is rendered into the prompt as an `<agent_skill fullPath=...>` element and the
-model reads its `SKILL.md` through the ordinary read tool. So if map ticket 39 splits
-`Skill` out of `provider_native` into a capability of its own, this table has no row to
-move; what moves is which scope a `Read` of a path under `~/hydra/skills-snapshots/`
-resolves to, which is the same question ticket 39 already asks about the link
-resolving outside the `worktree` scope. The table is built as the design stands today.
+**The `Skill` split landed on `Read` here, as expected.** Cursor has no `Skill` tool. A
+linked skill is rendered into the prompt as an `<agent_skill fullPath=...>` element and
+the model reads its `SKILL.md` through the ordinary read tool. So when map ticket 39 gave
+`Skill` its own capability on 2026-09-06 this table had no row to move, and
+`skill_invoke` maps to nothing here until Cursor ships such a tool. What moved is the
+scope: a `Read` of a path resolving under `~/hydra/skills-snapshots/<sha>/` is now inside
+`skill_snapshot` rather than outside `worktree`, and `src/normalize/cursor.rs` recomputes
+that scope off the same `hydra.skills.store_sha` the `claude` side reads. Unmeasured on a
+live Cursor run: no skill has been linked into one.
 
 **The normalizer rebuilds the hook's spelling from the stream's, and that is what
 `tool_call.arguments` carries.** The stream says `editToolCall` with `path` and
@@ -1462,6 +1488,12 @@ model replied "The policy compiled for this run does not allow the Skill tool", 
 run derived `gated`. The loss is real and it is now on the record twice. The section on
 the skill store above has the other half, which is that the link resolves outside the
 `worktree` scope so the `SKILL.md` cannot be read either.
+
+**Both halves closed on 2026-09-06.** Map ticket 39 decided and build ticket 13 built
+`skill_invoke` and the `skill_snapshot` scope, and run
+`01a078bc-420f-7b23-8e67-2dfc9f98f859` is the same probe under `standard` with both calls
+allowed. The two paragraphs above stand as what the records said before that, which is
+the point of keeping them. `ToolSearch` is the half still denied.
 
 ## What the first slice measured
 

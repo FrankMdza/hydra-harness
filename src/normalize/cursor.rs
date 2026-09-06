@@ -32,8 +32,8 @@ use serde_json::{Value, json};
 
 use super::{
     Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ResultStatus, Role,
-    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, splice,
-    verdict_decision,
+    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, policy_moved,
+    splice, verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::replay::Replay;
@@ -189,6 +189,9 @@ struct Walk {
     provider: Option<String>,
     policy: Option<String>,
     policy_sha: Option<String>,
+    /// `hydra.skills.store_sha` off line 0, for the `skill_snapshot` scope
+    /// contract 7.7's re-evaluation recomputes.
+    store_sha: Option<String>,
     cwd: Option<PathBuf>,
     worktree: Option<PathBuf>,
     events: Vec<Event>,
@@ -257,6 +260,7 @@ impl Walk {
             Some("run_start") => {
                 self.policy = body["policy"].as_str().map(str::to_string);
                 self.policy_sha = body["policy_sha"].as_str().map(str::to_string);
+                self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
                 self.cwd = body["cwd"].as_str().map(PathBuf::from);
                 self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
                 self.events.push(Event::RunStart(RunStart {
@@ -510,12 +514,14 @@ impl Walk {
         let worktree = self.worktree.clone().unwrap_or_else(|| cwd.clone());
         let gate_script = layout.gate_script(&self.run_id);
         let skills = layout.skill_store_scope(&self.run_id, &name);
+        let snapshot = layout.skill_snapshot_scope(&self.run_id, self.store_sha.as_deref());
         let runs = layout.runs();
         let spawn = Spawn {
             provider: Provider::CursorAgent,
             policy: &name,
             worktree: &worktree,
             skill_store: &skills,
+            skill_snapshot: &snapshot,
             runs: &runs,
             gate_script: &gate_script,
             // No field on the record carries it; `IMPLEMENTATION.md` has
@@ -587,6 +593,17 @@ impl Walk {
                     // refused, which it does silently for a symlinked one.
                     Some(refusal) if refusal.by == Decider::External => {
                         match hydra_voice(&refusal.reason) {
+                            // A moved policy directory means the gate and the
+                            // derivation answered about two policies rather than
+                            // one, so the difference is a limit and not a
+                            // disagreement. See `policy_moved`.
+                            Some(_) if policy_moved(self.policy_sha.as_deref(), policies) => {
+                                self.findings.push(Finding::Limit(format!(
+                                    "the gate allowed {call_id} ({tool}) and the \
+                                     derivation denies it, under a policy_sha that is no \
+                                     longer today's, so the two answered about two policies"
+                                )));
+                            }
                             Some(code) => self.findings.push(Finding::Disagreement {
                                 call_id: call_id.clone(),
                                 derived: Decision::Deny,
@@ -623,13 +640,21 @@ impl Walk {
                     // now allows. Two sources disagree (7.7), and on this
                     // provider the result text is the only second source.
                     Some(refusal) => {
-                        self.findings.push(Finding::Disagreement {
-                            call_id: call_id.clone(),
-                            derived: verdict_decision(true),
-                            derived_code: verdict.code().map(str::to_string),
-                            gate_said: Decision::Deny,
-                            gate_code: hydra_voice(&refusal.reason).map(str::to_string),
-                        });
+                        if policy_moved(self.policy_sha.as_deref(), policies) {
+                            self.findings.push(Finding::Limit(format!(
+                                "the gate denied {call_id} ({tool}) and the derivation \
+                                 allows it, under a policy_sha that is no longer today's, \
+                                 so the two answered about two policies"
+                            )));
+                        } else {
+                            self.findings.push(Finding::Disagreement {
+                                call_id: call_id.clone(),
+                                derived: verdict_decision(true),
+                                derived_code: verdict.code().map(str::to_string),
+                                gate_said: Decision::Deny,
+                                gate_code: hydra_voice(&refusal.reason).map(str::to_string),
+                            });
+                        }
                         PermissionDecision {
                             seq,
                             call_id: call_id.clone(),

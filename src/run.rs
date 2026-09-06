@@ -382,6 +382,7 @@ pub fn run(request: Request) -> Result<Call> {
         request.provider,
         &request.policy,
         worktree_ref.as_ref().map(|w| std::path::Path::new(&w.path)),
+        injected.as_ref().map(|i| i.store_sha.as_str()),
         request.floor_lifted,
     )?;
 
@@ -562,6 +563,11 @@ fn cursor_preconditions(repo: Option<&std::path::Path>) -> Result<()> {
 struct InjectedSkills {
     record: serde_json::Value,
     collisions: Vec<crate::skills::collision::Collision>,
+    /// The sha this run pinned, contract 5.3's `skills.store_sha`. The gate's
+    /// `skill_snapshot` scope is derived from it through
+    /// [`Layout::skill_snapshot_scope`], which is the same function contract
+    /// 7.7's re-evaluation calls with the sha read back off the record.
+    store_sha: String,
     /// Contract 5.3's `mcp.resolved`, from the same probe. `None` is unanswered,
     /// never an empty listing.
     mcp_resolved: Option<Vec<String>>,
@@ -627,6 +633,7 @@ fn inject_skills(
     Ok(InjectedSkills {
         record: crate::skills::record(&injected, resolved.skills.as_deref()),
         collisions,
+        store_sha,
         mcp_resolved: resolved.mcp,
     })
 }
@@ -859,6 +866,7 @@ pub struct SpawnFiles {
 /// which is per run too, and a checkout that already holds one is refused rather
 /// than overwritten: [`cursor_preconditions`] checks the repo it was seeded from
 /// and this is the second line.
+#[allow(clippy::too_many_arguments)]
 pub fn write_spawn_config(
     layout: &Layout,
     run_id: &str,
@@ -866,6 +874,7 @@ pub fn write_spawn_config(
     provider: Provider,
     policy: &str,
     worktree: Option<&std::path::Path>,
+    store_sha: Option<&str>,
     floor_lifted: bool,
 ) -> Result<SpawnFiles> {
     // The gate is compiled against the path it will really live at, because it
@@ -893,6 +902,13 @@ pub fn write_spawn_config(
     // same answer with nothing but the run id and the policy name.
     let skill_store = layout.skill_store_scope(run_id, policy);
 
+    // 6.4 and 7.2: the run's links resolve into its own snapshot, so a read
+    // through one lands inside this and a write to the same path lands nowhere,
+    // because no policy puts this scope on `file_write`. A run with no store sha
+    // was linked nothing and gets a path inside its spawn directory that nothing
+    // creates, the same shape `no_worktree` has above.
+    let skill_snapshot = layout.skill_snapshot_scope(run_id, store_sha);
+
     crate::policy::write_gate(
         policies,
         &crate::policy::Spawn {
@@ -900,6 +916,7 @@ pub fn write_spawn_config(
             policy,
             worktree: worktree.unwrap_or(&no_worktree),
             skill_store: &skill_store,
+            skill_snapshot: &skill_snapshot,
             runs: &layout.runs(),
             gate_script: &gate,
             floor_lifted,

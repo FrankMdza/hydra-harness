@@ -1,9 +1,11 @@
 {
   "name": "curate",
-  "allows": "reads the corpus, writes only inside the skill store",
+  "allows": "reads the corpus and its skill snapshot, invokes linked skills, writes only inside the skill store",
   "allow": [
     { "capability": "file_read", "scope": "corpus" },
     { "capability": "file_read", "scope": "skill_store" },
-    { "capability": "file_write", "scope": "skill_store" }
+    { "capability": "file_read", "scope": "skill_snapshot" },
+    { "capability": "file_write", "scope": "skill_store" },
+    { "capability": "skill_invoke" }
   ]
 }

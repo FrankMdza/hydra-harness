@@ -1,10 +1,12 @@
 {
   "name": "standard",
-  "allows": "reads, writes, shell and network reads inside the worktree",
+  "allows": "reads, writes, shell and network reads inside the worktree, reads its skill snapshot, invokes linked skills",
   "allow": [
     { "capability": "file_read", "scope": "worktree" },
+    { "capability": "file_read", "scope": "skill_snapshot" },
     { "capability": "file_write", "scope": "worktree" },
     { "capability": "shell" },
-    { "capability": "network_read" }
+    { "capability": "network_read" },
+    { "capability": "skill_invoke" }
   ]
 }

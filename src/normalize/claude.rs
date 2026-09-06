@@ -25,8 +25,8 @@ use serde_json::Value;
 
 use super::{
     Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ResultStatus, Role,
-    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, splice,
-    verdict_decision,
+    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, policy_moved,
+    splice, verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::replay::{Replay, reason_code};
@@ -93,6 +93,9 @@ struct Walk {
     provider: Option<String>,
     policy: Option<String>,
     policy_sha: Option<String>,
+    /// `hydra.skills.store_sha` off line 0. Contract 7.7's re-evaluation needs
+    /// the `skill_snapshot` scope, and this is the field it is recomputed from.
+    store_sha: Option<String>,
     cwd: Option<PathBuf>,
     worktree: Option<PathBuf>,
     events: Vec<Event>,
@@ -165,6 +168,7 @@ impl Walk {
             Some("run_start") => {
                 self.policy = body["policy"].as_str().map(str::to_string);
                 self.policy_sha = body["policy_sha"].as_str().map(str::to_string);
+                self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
                 self.cwd = body["cwd"].as_str().map(PathBuf::from);
                 self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
                 self.events.push(Event::RunStart(RunStart {
@@ -445,12 +449,18 @@ impl Walk {
         // every curator's record reads back as a gate that leaked on its own
         // proposal.
         let skills = layout.skill_store_scope(&self.run_id, &name);
+        // Same rule as the line above and for the same reason: the launch derived
+        // this scope from the sha it pinned, contract 5.3 put that sha on line 0,
+        // and both sides call one function on it. A run with no `skills` object
+        // was linked nothing, and the scope is then a path nothing creates.
+        let snapshot = layout.skill_snapshot_scope(&self.run_id, self.store_sha.as_deref());
         let runs = layout.runs();
         let spawn = Spawn {
             provider: crate::provider::Provider::Claude,
             policy: &name,
             worktree: &worktree,
             skill_store: &skills,
+            skill_snapshot: &snapshot,
             runs: &runs,
             gate_script: &gate_script,
             // No field on the record carries it, so a run launched with
@@ -521,14 +531,26 @@ impl Walk {
             {
                 // The only place in the record where two independent sources
                 // answer the same question, so a difference is reported rather
-                // than resolved (7.7).
-                self.findings.push(Finding::Disagreement {
-                    call_id: call_id.clone(),
-                    derived: verdict_decision(verdict.allowed),
-                    derived_code: verdict.code().map(str::to_string),
-                    gate_said: *decision,
-                    gate_code: reason_code(reason).map(str::to_string),
-                });
+                // than resolved (7.7). Unless the policy directory moved between
+                // the run and the read, in which case the two sources answered
+                // about two policies and the difference says nothing.
+                if policy_moved(self.policy_sha.as_deref(), policies) {
+                    self.findings.push(Finding::Limit(format!(
+                        "the gate answered {:?} for {call_id} ({tool}) and the derivation \
+                         says {:?}, under a policy_sha that is no longer today's, so the \
+                         two answered about two policies",
+                        decision,
+                        verdict_decision(verdict.allowed),
+                    )));
+                } else {
+                    self.findings.push(Finding::Disagreement {
+                        call_id: call_id.clone(),
+                        derived: verdict_decision(verdict.allowed),
+                        derived_code: verdict.code().map(str::to_string),
+                        gate_said: *decision,
+                        gate_code: reason_code(reason).map(str::to_string),
+                    });
+                }
             }
 
             let derived = if !verdict.allowed {

@@ -390,3 +390,19 @@ run from `hydra.skills.store_sha`, and build ticket 13 lands it before your buil
 human's choice. Start from that `Scope`. It is the one scope that is a pure function of a field the
 record already carries, which is the property ticket 42 wants from every scope, so whatever
 `skill_store` resolves to, the reader will ask whether it can be recomputed the same way.
+
+**It landed on 2026-09-06, and here is what changed under you.** `Scope::SkillSnapshot` sits between
+`SkillStore` and `Corpus`, so `Scope` has five arms and not four. The rule is
+`Layout::skill_snapshot_scope(run_id, store_sha)`, beside `skill_store_scope`, and both `src/run.rs`
+and the two normalizers call it. `Spawn` gained a `skill_snapshot` field, so the four literals your
+brief counted now take five fields each; `tests/gate.rs`'s `Gate` carries a `snapshot` directory and
+a `link_skill` helper that builds a real symlink into it, which is the rig option C would reuse.
+`write_spawn_config` gained a `store_sha: Option<&str>` argument and an eighth position, so eleven
+callers moved and it now carries `#[allow(clippy::too_many_arguments)]`. If your build wants a
+struct there instead, this is the change that earns it.
+
+**Two numbers in the costing above are stale.** `policy_sha` already moved: four policy files gained
+`skill_invoke` and three of them gained `file_read` on `skill_snapshot`. The corpus is now 22 records,
+18 of which report `StalePolicy`, 3 of which carry no `policy_sha` at all, and 1 of which is current.
+So option C's "one number" cost is already paid for this round, and a second edit under `policies/`
+adds no new class of reader problem, only one more sha.

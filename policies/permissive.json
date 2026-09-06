@@ -8,6 +8,7 @@
     { "capability": "network_read" },
     { "capability": "mcp_call" },
     { "capability": "subagent_spawn" },
+    { "capability": "skill_invoke" },
     { "capability": "provider_native" }
   ]
 }

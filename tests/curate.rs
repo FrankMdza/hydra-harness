@@ -604,6 +604,7 @@ fn the_curators_writes_are_scoped_to_its_checkout_and_not_to_the_store() {
         hydra::provider::Provider::Claude,
         "curate",
         None,
+        None,
         false,
     )
     .unwrap();
@@ -632,6 +633,7 @@ fn the_curators_writes_are_scoped_to_its_checkout_and_not_to_the_store() {
         &policies(),
         hydra::provider::Provider::Claude,
         "standard",
+        None,
         None,
         false,
     )

@@ -41,6 +41,9 @@ struct Gate {
     worktree: PathBuf,
     runs: PathBuf,
     skills: PathBuf,
+    /// The run's own snapshot of the store, `~/hydra/skills-snapshots/<sha>/` on
+    /// a real launch. The links inside the worktree point here.
+    snapshot: PathBuf,
 }
 
 impl Gate {
@@ -63,8 +66,9 @@ impl Gate {
         let worktree = root.join("worktree");
         let runs = root.join("runs");
         let skills = root.join("skills");
+        let snapshot = root.join("skills-snapshots/deadbeef");
         let spawn_dir = root.join("spawn");
-        for dir in [&worktree, &runs, &skills, &spawn_dir] {
+        for dir in [&worktree, &runs, &skills, &snapshot, &spawn_dir] {
             std::fs::create_dir_all(dir).unwrap();
         }
         let script = spawn_dir.join("gate");
@@ -77,6 +81,7 @@ impl Gate {
                 policy,
                 worktree: &worktree,
                 skill_store: &skills,
+                skill_snapshot: &snapshot,
                 runs: &runs,
                 gate_script: &script,
                 floor_lifted,
@@ -90,7 +95,24 @@ impl Gate {
             worktree,
             runs,
             skills,
+            snapshot,
         }
+    }
+
+    /// One skill in the snapshot, linked into the checkout the way `inject`
+    /// links it: `<worktree>/.claude/skills/<name>` pointing at the snapshot
+    /// directory. Answers with the link path, which is the path the provider
+    /// names to the model as the skill's base directory (ticket 39).
+    fn link_skill(&self, name: &str) -> PathBuf {
+        let source = self.snapshot.join(name);
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("SKILL.md"), "---\nname: x\n---\nbody\n").unwrap();
+        std::fs::write(source.join("reference.md"), "a sibling file\n").unwrap();
+        let root = self.worktree.join(".claude/skills");
+        std::fs::create_dir_all(&root).unwrap();
+        let link = root.join(name);
+        std::os::unix::fs::symlink(&source, &link).unwrap();
+        link
     }
 
     fn new(policy: &str) -> Self {
@@ -261,6 +283,10 @@ impl Gate {
             "Write",
             json!({ "file_path": path.to_string_lossy(), "content": "x" }),
         )
+    }
+
+    fn read_from(&self, path: &Path) -> Decision {
+        self.ask("Read", json!({ "file_path": path.to_string_lossy() }))
     }
 }
 
@@ -518,11 +544,13 @@ fn a_tool_the_table_does_not_know_is_denied_under_every_policy() {
 fn the_provider_native_tools_belong_to_permissive_alone() {
     // The last four arrived with 2.1.263. They are in the list so a row added
     // after the gate script was written still reaches the compiled gate.
+    //
+    // `Skill` used to be here. Map ticket 39 moved it to `skill_invoke` on
+    // 2026-09-06, and the test below is where it lives now.
     for tool in [
         "CronCreate",
         "SendMessage",
         "ToolSearch",
-        "Skill",
         "TaskCreate",
         "TaskGet",
         "TaskList",
@@ -534,6 +562,110 @@ fn the_provider_native_tools_belong_to_permissive_alone() {
         );
         assert!(Gate::new("permissive").ask(tool, json!({})).allowed);
     }
+}
+
+// ---------------------------------------------------------------------------
+// `skill_invoke` and the `skill_snapshot` scope, map ticket 39
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_policy_that_reads_at_all_may_invoke_a_linked_skill() {
+    // 7.2. A run that is linked a skill and cannot invoke it was given a listing
+    // entry rather than a skill. `judge` reads nothing and gets neither.
+    for policy in ["read-only", "standard", "curate", "permissive"] {
+        let decision = Gate::new(policy).ask("Skill", json!({ "skill": "hydra-sentinel" }));
+        assert!(
+            decision.allowed,
+            "{policy} refused a linked skill: {}",
+            decision.reason
+        );
+    }
+    let judge = Gate::new("judge").ask("Skill", json!({ "skill": "hydra-sentinel" }));
+    assert!(
+        judge.denied_for("hydra/capability"),
+        "judge allows nothing, and the refusal is a capability one: {}",
+        judge.reason
+    );
+}
+
+#[test]
+fn a_read_through_a_skill_link_lands_in_the_snapshot() {
+    // Ticket 39 measured `claude` naming the link path inside the worktree as
+    // the skill's base directory, so the model reaches for the sibling through
+    // the link. The gate resolves the link into the snapshot before comparing,
+    // which is what the `skill_snapshot` scope is for.
+    for policy in ["read-only", "standard", "curate"] {
+        let gate = Gate::new(policy);
+        let link = gate.link_skill("hydra-sentinel");
+        let decision = gate.read_from(&link.join("reference.md"));
+        assert!(
+            decision.allowed,
+            "{policy} refused a sibling read through the link: {}",
+            decision.reason
+        );
+        assert!(decision.reason.starts_with("hydra/allow:"));
+    }
+}
+
+#[test]
+fn a_write_through_a_skill_link_is_still_out_of_scope() {
+    // The snapshot is a read scope and appears on no policy's `file_write`. A
+    // run that could edit it could edit its own instructions mid-session.
+    let gate = Gate::new("standard");
+    let link = gate.link_skill("hydra-sentinel");
+    assert!(
+        gate.write_to(&link.join("SKILL.md"))
+            .denied_for("hydra/out-of-scope")
+    );
+    assert!(
+        gate.write_to(&link.join("new-file.md"))
+            .denied_for("hydra/out-of-scope")
+    );
+}
+
+#[test]
+fn the_snapshot_scope_is_this_runs_snapshot_and_not_the_directory_above_it() {
+    // Snapshots are keyed by sha and shared, so a scope pointing at
+    // `skills-snapshots/` would hand every run every other run's snapshot.
+    let gate = Gate::new("standard");
+    gate.link_skill("hydra-sentinel");
+    let sibling = gate.root.join("skills-snapshots/cafebabe");
+    std::fs::create_dir_all(&sibling).unwrap();
+    assert!(
+        gate.read_from(&sibling.join("other/SKILL.md"))
+            .denied_for("hydra/out-of-scope")
+    );
+}
+
+#[test]
+fn a_link_to_anywhere_else_is_still_out_of_scope() {
+    // The snapshot scope is one more root, not a hole in the symlink rule. A
+    // link inside the injected root that points somewhere neither protected nor
+    // pinned resolves the same way it did before ticket 13.
+    let gate = Gate::new("standard");
+    gate.link_skill("hydra-sentinel");
+    let elsewhere = gate.root.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("secret.md"), "not yours\n").unwrap();
+    let link = gate
+        .worktree
+        .join(".claude/skills")
+        .join("pretending-to-be-a-skill");
+    std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+    assert!(
+        gate.read_from(&link.join("secret.md"))
+            .denied_for("hydra/out-of-scope")
+    );
+}
+
+#[test]
+fn judge_reads_no_snapshot() {
+    let gate = Gate::new("judge");
+    let link = gate.link_skill("hydra-sentinel");
+    assert!(
+        gate.read_from(&link.join("SKILL.md"))
+            .denied_for("hydra/capability")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,3 +1175,4 @@ fn ordinary_shell_is_left_alone() {
         "a relative path inside the worktree is not a protected path"
     );
 }
+

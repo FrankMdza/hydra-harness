@@ -25,6 +25,15 @@ pub struct Layout {
     root: PathBuf,
 }
 
+/// Whether a string is a git object name and therefore safe to `join`.
+///
+/// Hex and nothing else, any length git might use: 40 today, 64 the day a
+/// repository is sha256. It rules out `/`, `..` and every other spelling that
+/// escapes the directory the caller meant to stay inside.
+fn is_object_name(sha: &str) -> bool {
+    !sha.is_empty() && sha.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 impl Layout {
     /// `~/hydra`, from the real home rather than from `HOME`.
     ///
@@ -116,6 +125,38 @@ impl Layout {
         match policy {
             "curate" => self.skill_worktree(run_id),
             _ => self.skills(),
+        }
+    }
+
+    /// Where one run's `skill_snapshot` scope points, harness spec 6.4 and 7.2.
+    ///
+    /// The snapshot the run pinned, which is what its injected links resolve to,
+    /// so a read through a link lands inside the scope. Keyed by sha rather than
+    /// by run id for the same reason [`Layout::snapshot`] is.
+    ///
+    /// **A run with no store sha gets a path nothing creates**, the way a run
+    /// with no repo gets `no-worktree` for its `worktree` scope. Pointing at
+    /// `skills-snapshots/` instead would hand the run read access to every other
+    /// run's snapshot, and a run that was linked nothing has nothing to read.
+    ///
+    /// **It is a function of the run id and the sha so that a reader can
+    /// recompute it.** Contract 7.7 re-evaluates the run's policy against every
+    /// recorded call, and `hydra.skills.store_sha` is the field it reads. No
+    /// field on the record carries a scope, and inventing one is a contract
+    /// change; a rule both sides derive costs nothing and cannot drift.
+    ///
+    /// **A sha that is not a sha resolves to no snapshot at all.** On the read
+    /// side the value comes off a file, the validator only checks that it is a
+    /// string, and `join` with an absolute path replaces everything before it:
+    /// a record carrying `/` would compile a replay gate whose read scope is the
+    /// whole filesystem, so every denial in it would re-derive as an allow and
+    /// a real leak would go unreported. Anything but hex therefore falls back to
+    /// the same path an unpinned run gets, which fails toward a run that could
+    /// read nothing rather than one that could read everything.
+    pub fn skill_snapshot_scope(&self, run_id: &str, store_sha: Option<&str>) -> PathBuf {
+        match store_sha {
+            Some(sha) if is_object_name(sha) => self.snapshot(sha),
+            _ => self.spawn(run_id).join("no-snapshot"),
         }
     }
 
@@ -229,5 +270,31 @@ impl Layout {
         std::fs::create_dir_all(self.spawns())
             .with_context(|| format!("creating {}", self.spawns().display()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_store_sha_that_is_not_a_sha_resolves_to_no_snapshot() {
+        // Contract 7.7 reads this value off a record, and `join` with an
+        // absolute path replaces everything before it. A replay gate whose read
+        // scope is `/` re-derives every denial as an allow.
+        let layout = Layout::at("/tmp/hydra-test");
+        let real = "1f0dcafe1f0dcafe1f0dcafe1f0dcafe1f0dcafe";
+        assert_eq!(
+            layout.skill_snapshot_scope("r1", Some(real)),
+            layout.snapshot(real)
+        );
+        let none = layout.skill_snapshot_scope("r1", None);
+        for bad in ["/", "..", "../../etc", "a/b", "", "not-hex"] {
+            assert_eq!(
+                layout.skill_snapshot_scope("r1", Some(bad)),
+                none,
+                "{bad:?} reached the filesystem as a path component"
+            );
+        }
     }
 }

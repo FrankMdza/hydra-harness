@@ -543,6 +543,24 @@ pub(crate) fn note_policy_sha(
     }
 }
 
+/// Whether the record was written under a different policy directory than the
+/// one being replayed.
+///
+/// **A disagreement means something only when both sources answered the same
+/// question** (contract 7.7's "two independent sources"). The gate's answer was
+/// written under the sha on the record and the derivation answers under today's,
+/// so once those differ the two are not disagreeing, they are answering about
+/// two policies. Build ticket 13 is where that stopped being hypothetical: it
+/// gave `standard` the `skill_invoke` it lacked, and the one recorded run whose
+/// `Skill` call the old gate correctly refused started reporting a contradiction
+/// it never had.
+///
+/// A record carrying no `policy_sha` is not stale, it is unattributable, and
+/// [`note_policy_sha`] already says so as a limit of its own.
+pub(crate) fn policy_moved(recorded: Option<&str>, policies: &PolicySet) -> bool {
+    recorded.is_some_and(|sha| sha != policies.sha())
+}
+
 pub(crate) fn verdict_decision(allowed: bool) -> Decision {
     if allowed {
         Decision::Allow

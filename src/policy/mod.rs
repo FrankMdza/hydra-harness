@@ -37,6 +37,13 @@ pub enum Capability {
     NetworkRead,
     McpCall,
     SubagentSpawn,
+    /// Invoking a skill the run was linked (7.1). Its own capability rather than
+    /// one of the twenty that answer to [`Capability::ProviderNative`], because
+    /// a run that is linked a skill and cannot invoke it was given a
+    /// listing entry rather than a skill. Ticket 39 measured the delivery on
+    /// `claude`: an allowed `Skill` call brings the body into context with no
+    /// file read the gate sees, so this carries that tier on its own.
+    SkillInvoke,
     /// The tools that exist only inside one provider's own product surface and
     /// that no policy in 7.2 grants. See `table.rs` for why this row exists.
     ProviderNative,
@@ -61,6 +68,7 @@ impl Capability {
             Capability::NetworkRead => "network_read",
             Capability::McpCall => "mcp_call",
             Capability::SubagentSpawn => "subagent_spawn",
+            Capability::SkillInvoke => "skill_invoke",
             Capability::ProviderNative => "provider_native",
         }
     }
@@ -74,6 +82,12 @@ pub enum Scope {
     Worktree,
     /// `~/hydra/skills/`. `curate` writes here, outside its own worktree.
     SkillStore,
+    /// `~/hydra/skills-snapshots/<sha>/`, the checkout this run's links point
+    /// into. Read only: 6.4 gives a run its own skills to read and nothing to
+    /// write, and a run that could edit the snapshot could edit its own
+    /// instructions mid-session. Resolved per run from the sha the run pinned,
+    /// which contract 7.7 recomputes from `hydra.skills.store_sha`.
+    SkillSnapshot,
     /// `~/hydra/runs/`, read only in practice: 7.5 denies writes to it under
     /// every policy, because a loop that learns from the corpus must not be
     /// able to edit the corpus.
@@ -86,6 +100,7 @@ impl Scope {
         match self {
             Scope::Worktree => "worktree",
             Scope::SkillStore => "skill_store",
+            Scope::SkillSnapshot => "skill_snapshot",
             Scope::Corpus => "corpus",
             Scope::Anywhere => "anywhere",
         }
@@ -319,6 +334,11 @@ pub struct Spawn<'a> {
     pub worktree: &'a Path,
     /// `~/hydra/skills/`, the `skill_store` scope.
     pub skill_store: &'a Path,
+    /// This run's snapshot of the store, the `skill_snapshot` scope. It is where
+    /// the injected links resolve to, so a read through a link lands inside it.
+    /// A run with no checkout has no links and no snapshot, and the caller
+    /// passes a path nothing creates rather than the snapshots directory.
+    pub skill_snapshot: &'a Path,
     /// `~/hydra/runs/`, the `corpus` scope and the seventh denied path.
     pub runs: &'a Path,
     /// Where this script is about to be written, `~/hydra/spawn/<run-id>/gate`.
@@ -409,6 +429,7 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         "scopes": {
             "worktree": resolved(spawn.worktree),
             "skill_store": resolved(spawn.skill_store),
+            "skill_snapshot": resolved(spawn.skill_snapshot),
             "corpus": resolved(spawn.runs),
         },
         "deny_write_paths": denied_write_paths(set, spawn)
@@ -633,6 +654,60 @@ mod tests {
     }
 
     #[test]
+    fn standard_contains_read_only() {
+        // 7.3, and the reason it is worth its own test: `skill_invoke` and the
+        // `skill_snapshot` scope have to land on both policies or containment
+        // stops holding and 7.3 loses a delegation. Map ticket 39 named it.
+        let set = set();
+        let standard = set.get("standard").unwrap();
+        let read_only = set.get("read-only").unwrap();
+        assert!(standard.contains(read_only));
+        assert!(!read_only.contains(standard));
+    }
+
+    #[test]
+    fn every_policy_that_reads_at_all_invokes_and_reads_its_snapshot() {
+        // 7.2. `judge` reads nothing and gets neither; the other four get both,
+        // and no policy may write to the snapshot.
+        let set = set();
+        for name in NAMES {
+            let policy = set.get(name).unwrap();
+            let reads = policy
+                .allow
+                .iter()
+                .any(|a| a.capability == Capability::FileRead);
+            let invokes = policy
+                .allow
+                .iter()
+                .any(|a| a.capability == Capability::SkillInvoke);
+            assert_eq!(reads, invokes, "{name} reads and invokes must agree");
+
+            let snapshot = policy.allow.iter().any(|a| {
+                a.capability == Capability::FileRead && a.scope == Some(Scope::SkillSnapshot)
+            });
+            let anywhere = policy.allow.iter().any(|a| a.scope == Some(Scope::Anywhere));
+            assert_eq!(
+                snapshot || anywhere,
+                reads,
+                "{name} may read and cannot reach the snapshot it was linked"
+            );
+            // Named on no policy's `file_write`. `permissive` still reaches a
+            // snapshot through `anywhere`, the way it reaches everything that is
+            // not one of 7.5's seven denied paths, and `IMPLEMENTATION.md`
+            // carries that along with the `shell` half of the same hole. This
+            // asserts the narrower thing it can: nobody wrote the scope down.
+            let names_snapshot_on_write = policy.allow.iter().any(|a| {
+                a.capability == Capability::FileWrite && a.scope == Some(Scope::SkillSnapshot)
+            });
+            assert!(
+                !names_snapshot_on_write,
+                "{name} names skill_snapshot on file_write, so a run may edit its own \
+                 instructions by policy rather than by omission"
+            );
+        }
+    }
+
+    #[test]
     fn permissive_contains_all_five_and_judge_contains_only_itself() {
         let set = set();
         let permissive = set.get("permissive").unwrap();
@@ -723,6 +798,7 @@ mod tests {
                 policy: "standard",
                 worktree: Path::new("/tmp/wt"),
                 skill_store: Path::new("/tmp/skills"),
+                skill_snapshot: Path::new("/tmp/snapshots/abc"),
                 runs: Path::new("/tmp/runs"),
                 gate_script: Path::new("/tmp/spawn/gate"),
                 floor_lifted: false,

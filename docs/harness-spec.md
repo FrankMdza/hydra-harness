@@ -651,8 +651,8 @@ child may do. The cost is accepted in that direction on purpose.
 Two known table entries a reader would otherwise get wrong: `agy` names one action `write_to_file`
 as a step and `write_file` as a permission rule, so the table needs both.
 
-**`Skill` is its own capability, `skill_invoke`, rather than one of the twenty-one tools that answer
-to `provider_native`.** A run that is linked a skill and cannot invoke it was given a listing entry
+**`Skill` is its own capability, `skill_invoke`, rather than one of the twenty tools that answer to
+`provider_native`.** A run that is linked a skill and cannot invoke it was given a listing entry
 rather than a skill. Ticket 39 measured the delivery on `claude`: an allowed `Skill` call brings the
 body into context with no file read the gate sees, so the capability carries that tier on its own.
 `ToolSearch` stays in `provider_native` until ticket 43 says whether MCP tools arrive deferred.

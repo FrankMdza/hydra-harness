@@ -83,12 +83,16 @@ impl Replay {
     ///
     /// The caller builds the [`Spawn`] out of `run_start`, which is what makes
     /// this a re-evaluation of the run's own policy rather than of today's
-    /// defaults. Two fields deserve care. `gate_script` has to name the path the
-    /// run's gate really lived at, because the script denies writes to itself
-    /// and a placeholder would deny the wrong file. `floor_lifted` has no field
-    /// on the record at all, so a caller can only pass `false`, and a run where
-    /// a human typed `--allow-floor-escape` re-evaluates to a deny it did not
-    /// get. `IMPLEMENTATION.md` has carried that gap since ticket 02.
+    /// defaults. Three fields deserve care. `gate_script` has to name the path
+    /// the run's gate really lived at, because the script denies writes to
+    /// itself and a placeholder would deny the wrong file. `skill_snapshot` is
+    /// recomputed from `hydra.skills.store_sha` through
+    /// [`crate::paths::Layout::skill_snapshot_scope`], the same function the
+    /// launch called, so a read through a skill link reads back the way the gate
+    /// answered rather than as a leak. `floor_lifted` has no field on the record
+    /// at all, so a caller can only pass `false`, and a run where a human typed
+    /// `--allow-floor-escape` re-evaluates to a deny it did not get.
+    /// `IMPLEMENTATION.md` has carried that gap since ticket 02.
     pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<Self> {
         Ok(Self {
             script: compile(set, spawn)?,

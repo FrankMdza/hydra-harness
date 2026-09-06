@@ -46,6 +46,22 @@ impl Sandbox {
     pub fn worktree(&self) -> PathBuf {
         self.layout().worktree(RUN_ID)
     }
+
+    /// One skill in a snapshot, linked into the checkout the way
+    /// `hydra::skills::inject` links it. Answers with the link path, which is
+    /// what the provider names to the model as the skill's base directory and
+    /// therefore what a `Read` on a sibling carries (ticket 39).
+    pub fn link_skill(&self, store_sha: &str, name: &str) -> PathBuf {
+        let source = self.layout().snapshot(store_sha).join(name);
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("SKILL.md"), "---\nname: x\n---\nbody\n").unwrap();
+        std::fs::write(source.join("SIBLING.md"), "The second sentinel is\n").unwrap();
+        let root = self.worktree().join(".claude/skills");
+        std::fs::create_dir_all(&root).unwrap();
+        let link = root.join(name);
+        std::os::unix::fs::symlink(&source, &link).unwrap();
+        link
+    }
 }
 
 impl Drop for Sandbox {
@@ -74,6 +90,11 @@ pub struct Shape<'a> {
     pub pid: Option<u32>,
     pub process_start_time: Option<String>,
     pub worktree: Option<&'a Path>,
+    /// Contract 5.3's `skills.store_sha`, the sha the run pinned. `None` leaves
+    /// the whole `skills` object off, which is what a run with no checkout
+    /// writes. Contract 7.7's re-evaluation recomputes the `skill_snapshot`
+    /// scope from this field and from nothing else.
+    pub store_sha: Option<&'a str>,
 }
 
 impl Default for Shape<'_> {
@@ -89,6 +110,7 @@ impl Default for Shape<'_> {
             pid: Some(4242),
             process_start_time: Some("2026-09-05T20:51:39.369329Z".to_string()),
             worktree: None,
+            store_sha: None,
         }
     }
 }
@@ -150,6 +172,13 @@ impl Record {
             "process_start_time": shape.process_start_time,
             "subscription": "anthropic",
         });
+        // Contract 5.3 and 5.5: absent when the question does not apply, never
+        // null. `check_run_start` flags a null group, so this key exists only
+        // when a sha was pinned, which is what `src/run.rs` writes.
+        let mut start = start;
+        if let Some(sha) = shape.store_sha {
+            start["skills"] = json!({ "store_sha": sha, "linked": [], "resolved": null });
+        }
         record.line("hydra", start);
         record
     }
