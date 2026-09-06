@@ -79,6 +79,24 @@ impl RunView {
     pub fn is_live(&self) -> bool {
         self.state == State::Live
     }
+
+    /// Whether anything in the record proves a process ever existed for this run.
+    ///
+    /// **A run file that exists with nothing in it is a launch in progress.**
+    /// [`crate::watch`] creates the file before it spawns the child and writes
+    /// line 0 after, so for as long as [`crate::run::LAUNCH_BUDGET`] allows there
+    /// is a record with no pid on it, and [`read_view`] can only call that
+    /// [`State::Abandoned`]. A torn line 0 looks identical.
+    ///
+    /// **Nothing that removes things may act on that state.** The record says
+    /// nothing yet, so age is the only evidence there is, and the callers that
+    /// delete a checkout or move a record pair this with
+    /// [`crate::status::just_created`]. A refused spawn passes, because it has a
+    /// closing line: contract 5.2's null pid is a run that never had a process,
+    /// which is a different claim from a record that has not spoken.
+    pub fn launched(&self) -> bool {
+        self.pid.is_some() || self.state == State::Ended
+    }
 }
 
 /// Reads one run file's opening envelope and its closing line.

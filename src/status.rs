@@ -183,8 +183,11 @@ struct Report {
 /// **A launch in progress is the one case that has to be kept off it.**
 /// `hydra run` creates the checkout and seeds it with the parent's uncommitted
 /// work before the detached half writes line 0, and on a large repo that is
-/// seconds rather than microseconds. In that window the directory exists and no
-/// record claims it, which reads exactly like a pruned run. What tells them apart
+/// seconds rather than microseconds. In that window the directory exists and
+/// nothing that has spoken claims it, which reads exactly like a pruned run. The
+/// record may be there and empty, since the detached half opens the file before
+/// it spawns the child, and [`crate::live::RunView::launched`] is the test for
+/// that. What tells them apart
 /// is age, and `grace` is the line: a checkout with no record that is younger than
 /// that is one being made right now. The command passes
 /// [`crate::run::LAUNCH_BUDGET`], which is the same number the launcher waits for
@@ -210,8 +213,16 @@ pub fn abandoned_worktrees(
         .filter(|path| {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             match views.iter().find(|view| view.run_id == name) {
-                Some(view) => view.state != State::Live,
-                None => !just_created(path, grace),
+                Some(view) if view.state == State::Live => false,
+                // A record that has spoken: it carries a pid, or it has ended.
+                Some(view) if view.launched() => true,
+                // Everything else is judged on age, and a record that exists but
+                // says nothing is on that side rather than this one. `hydra run`
+                // creates the run file before the child exists, so during a launch
+                // there is an empty record reading as abandoned beside a checkout
+                // being seeded, and reading the empty file as proof the run is over
+                // is how a reaper removes the checkout of a run that is starting.
+                _ => !just_created(path, grace),
             }
         })
         .collect();
@@ -220,7 +231,7 @@ pub fn abandoned_worktrees(
 }
 
 /// Whether a directory appeared within `grace`.
-fn just_created(path: &std::path::Path, grace: std::time::Duration) -> bool {
+pub(crate) fn just_created(path: &std::path::Path, grace: std::time::Duration) -> bool {
     let Ok(created) = path.metadata().and_then(|meta| meta.created()) else {
         return false;
     };

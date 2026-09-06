@@ -58,23 +58,27 @@ document and there should not be one.
 
 - `src/`, the binary. `run.rs` is the launch sequence and the place to start reading; `watch.rs` is
   the detached half that owns the pty and the record; `live.rs` is the pid liveness test everything
-  else reads; `record/` is the run record and the validator the tests drive; `env.rs` is the
-  allowlist; `pty.rs` owns the child's pty; `provider/claude.rs` holds every fact that is true of
-  that binary and not of a model; `policy/` loads the policy set, owns the capability table, and
-  compiles the gate script; `preamble.rs` composes what the run is told.
+  else reads; `reap.rs` and `prune.rs` are the two cleanup commands, typed by a human and
+  reached from nowhere but `main`; `record/` is the run record and the validator the tests
+  drive; `env.rs` is the allowlist; `pty.rs` owns the child's pty; `provider/claude.rs` holds
+  every fact that is true of that binary and not of a model; `policy/` loads the policy set,
+  owns the capability table, and compiles the gate script; `preamble.rs` composes what the run
+  is told.
 - `policies/`, the five policies of harness spec 7.2 and the pattern floor of 7.4. Protected config
   #1, and `policy_sha` on every run record is its sha. `policies/README.md` is the format.
 - `config/`, protected configs 2 to 5 of harness spec 15.1. Only `preamble.md` exists;
   `config/README.md` says what the other three are waiting on.
 - `IMPLEMENTATION.md`, what is built, what is not, and every departure from the design with its
   reason. Amend it in the same change that narrows the gap.
-- `tests/`, nine files. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, ten files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
   hook payloads, launching nothing; `spawn.rs` checks that a run writes that gate where the run will
   find it; `normalize.rs` and `outcome.rs` read synthetic records back; `detached.rs` drives the
   detached half on a stub and checks it outlives its launcher; `status.rs` builds the three liveness
-  states by hand.
+  states by hand; `cleanup.rs` drives `hydra reap` and `hydra prune` against a throwaway repo
+  and checks that reap's commit reaches the branch before the checkout goes, and that neither
+  command touches a launch in progress.
 - `.scratch/hydra/build/plan.md`, the build index, and `build/NN-slug.md`, one build ticket each.
 - `.scratch/hydra/map.md`, the closed design map. One load gives you the whole design at low
   resolution.

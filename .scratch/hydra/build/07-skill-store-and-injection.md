@@ -55,3 +55,16 @@ repo, and `curate` grants no `shell`, so either the supervisor commits or the po
 needs something it does not have. Ticket 01 did not decide it. If this ticket settles
 where the store's worktree lives, the `skill_store` scope in `src/policy/mod.rs` moves
 with it.
+
+## What ticket 06 left you, added 2026-09-05
+
+**Reap does not touch `~/hydra/skills-snapshots/`, and deciding who does is yours.**
+Harness spec 5's table gives the snapshot a different lifetime from the other three
+rows: created per sha, shared and refcounted, reaped "when no live run references it"
+with no command named. `src/reap.rs` removes a run's checkout and its spawn directory
+and stops there, so a snapshot left behind by this ticket's work has no reaper until you
+write one. `hydra::live::scan` is how you ask what still references one, the same
+function reap and `hydra status` use.
+
+**`~/hydra/worktrees/` and `~/hydra/spawn/` are empty now**, so a skills link you find
+inside a checkout is one this ticket made rather than one an old run left.

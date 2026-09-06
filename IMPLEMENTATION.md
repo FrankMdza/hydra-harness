@@ -87,6 +87,8 @@ hydra run --provider claude --task "..." [--model <id>] [--policy <name>]
           [--timeout <dur>] [--allow-floor-escape]
 hydra status [<run-id>]
 hydra logs <run-id> [--follow]
+hydra reap [<run-id>] [--delete-branch]
+hydra prune [<run-id>...] [--delete] [--dry-run]
 ```
 
 A launch builds the child's environment from the allowlist, reads the provider's
@@ -104,13 +106,106 @@ Section 9 gives `hydra run` eight optional flags and four are here: `--model`,
 to a ticket that is not built: `--parent` and `--files` to delegation, `--shared-tree`
 to a worktree question nothing has asked yet, `--allow-billed` to the raw-model plane.
 
-Harness spec 17 lists eleven commands. Three are built. `hydra watch` is a twelfth and
+Harness spec 17 lists eleven commands. Five are built. `hydra watch` is a twelfth and
 is not one of them: it is the detached half of a launch, `hydra run` is the only thing
 that types it, and `clap` hides it from the help for that reason.
+
+`hydra reap` commits a checkout to the child's branch, then removes the checkout and
+the run's spawn directory. `hydra prune` moves run files to `~/hydra/pruned/`. Neither
+appends to or removes a run record the other owns, and the section below says what each
+guarantees and how.
 
 `cursor-agent` and `agy` are routable in the design and refused here by name, with an
 error that says the slice routes one provider rather than that the provider is
 unknown.
+
+## Cleanup: `hydra reap` and `hydra prune`
+
+Ticket 06. Harness spec 10 gives both to a human to type and Ouroboros to neither, and
+harness spec 7.5 already ruled out enforcing that with the gate: the binary is reached
+through `shell`, so any rule against it is an argv match with the pattern floor's failure
+mode. What holds it here is that nothing in `src/` calls `reap::reap` or `prune::prune`
+except `main`.
+
+**Reap's commit-first rule is enforced by git rather than by `src/reap.rs`.** That is the
+whole point of it. `git commit` leaves the checkout clean, and only a clean checkout is
+one `git worktree remove` will take without `--force`, which reap never passes. So a
+commit that did not happen stops the removal instead of preceding it, and the guarantee
+is not a sentence in a doc comment. Harness spec 10 calls this the Hermes lesson turned
+on our own tooling.
+
+**The branch survives whatever it carries, decided by the same mechanism.**
+`git branch -d` refuses a branch that is not fully merged, so the commit reap just made
+is exactly what keeps the branch alive. A branch with nothing on it is litter and goes.
+`--delete-branch` is `git branch -D`, and it is the same shape prune gives deletion:
+recoverable by default, destructive only when a human typed the flag.
+`docs/ouroboros-spec.md` section 4.11 already expects a leftover branch to be removed
+with `git branch -D`; the flag is that sentence typed through the command.
+
+**Only the branch Hydra named for the run is ever deleted.** A child that checked out one
+of the human's own branches gets its work committed there and the branch left alone.
+
+**A branch that survives is reported in git's own words.** `git branch -d` refuses for two
+causes that want different answers: the branch holds commits nothing else has, or it is
+checked out in another worktree. The second is refused by `-D` as well, so a report that
+said "it holds commits" both times told the human the wrong reason and handed them a flag
+that cannot help.
+
+**A detached HEAD is refused rather than reaped.** A commit on one is reachable from
+nothing once the checkout is gone, which is the single shape where committing first saves
+nothing, so reap leaves the pair and says why.
+
+**Both commands take the launch grace period as an argument, the way
+`status::abandoned_worktrees` does, and `main` passes `run::LAUNCH_BUDGET`.** A checkout
+is created and seeded before its run file exists, and the file itself exists before line 0
+does, so for ten seconds a launch in progress has a checkout and an empty record and looks
+exactly like a run whose record was pruned. `RunView::launched` plus the age is what tells
+them apart; the section on `hydra status` below has the detail. Reaping there removes the
+checkout out from under a child that is starting, and pruning there moves the record out
+from under the writer that has it open, so the launcher waits ten seconds for a line 0
+being written into `pruned/` and then reports a running run as one that wrote nothing.
+`--delete` destroys it outright. Naming a run id skips the grace for reap, because the
+grace is a launch window and a human who typed the id has answered that question; prune
+keeps it even on a named run, because there the file is being written rather than merely
+sitting there.
+
+**Prune works on the path the scan found, not on a path rebuilt from a run id.**
+`read_view` takes the run id off line 0 and only falls back to the filename, so a record
+whose envelope disagrees with its name would otherwise have the sweep move a file that is
+not there, and the named form find no view and skip the liveness check entirely.
+
+**A move that cannot finish takes its copy back out.** The rename is what happens on one
+filesystem; the copy-and-remove fallback is for a home directory spanning two mounts. A
+copy that lands followed by a remove that fails would leave the record in both places, and
+the destination check would then refuse every retry as an overwrite, turning one bad
+minute into a permanent refusal.
+
+**A sweep walks `spawn/` as well as `worktrees/`.** Harness spec 5 reaps the pair, and
+the pair is missing on both sides in practice: the three oldest runs on this machine
+predate the spawn directory, and a run outside a repo gets a spawn directory and no
+checkout at all.
+
+**Prune moves to `~/hydra/pruned/<run-id>.jsonl`, and the destination is this build's
+choice.** Harness spec 5's table says prune "moves rather than deletes" and names no
+destination, the same gap 19.1 leaves for the filenames inside the spawn directory. A
+sibling of `runs/` keeps the move a rename on one filesystem, and the run id stays on the
+file, so putting a record back is a `mv`. A destination that already holds that run id is
+a refusal rather than an overwrite. `pruned/` is in `.gitignore` beside `runs/`.
+
+**Prune with no run ids takes every run that is not live, and that is safe because the
+default is a move.** The command that destroys something needs a flag; the command that
+tidies does not need a list. A live run is never pruned under either form: contract 6
+gives a run file one writer, and a rename does not take the file away from an open
+descriptor, so the writer would keep appending into a path nothing looks in.
+
+**Typing `hydra prune` on this machine would empty the corpus
+`tests/record_contract.rs` walks.** That test reads every `.jsonl` under `~/hydra/runs/`
+and returns quietly when there are none, so a prune sweep costs the check silently. The
+records are the evidence and they are cheap; prune the ones you have finished with by
+name.
+
+**Reap, then prune.** Reap derives liveness from the pid in each run record, so pruning
+first leaves it reading records that are no longer there.
 
 ## The policy set and the gate, on a run
 
@@ -536,13 +631,23 @@ through a window where the liveness test says gone and the record has not ended.
 and `hydra logs --follow` both re-check the file before they conclude anything, and
 `tests/status.rs` holds that window open with a pid killed before the record was written.
 
-**A checkout younger than the launch budget with no record is a launch in progress, not a
-reap.** `hydra run` creates the worktree and seeds it before the detached half writes line
-0, and on a large repo that is seconds. Age is what tells that apart from a run whose
-record was pruned, and `abandoned_worktrees` takes the grace period as an argument so
-ticket 06's reaper decides it at the call site rather than inheriting it. A filesystem
-with no creation time keeps the directory on the list, which is the safe end for a command
-that only reports.
+**A checkout younger than the launch budget is a launch in progress, not a reap, and the
+record being there does not change that.** `hydra run` creates the worktree and seeds it
+before the detached half writes line 0, and on a large repo that is seconds. Age is what
+tells that apart from a run whose record was pruned, and `abandoned_worktrees` takes the
+grace period as an argument so ticket 06's reaper decides it at the call site rather than
+inheriting it.
+
+The first version applied the grace only when there was no record at all, and ticket 06's
+code review found the hole: `watch` creates the run file before it spawns the child, so
+during a launch there is an empty record that reads as abandoned with a null pid, and a
+view existed, so age was skipped. `RunView::launched` is the test now, meaning the record
+carries a pid or has ended. Everything else is judged on age. A refused spawn passes
+because it has a closing line, which is what makes contract 5.2's null pid a claim rather
+than a silence.
+
+A filesystem with no creation time keeps the directory on the list, which is the safe end
+for a command that only reports.
 
 **A record `hydra status <run-id>` cannot normalize costs the projection and not the
 command.** `hydra run` already degrades that way. `state`, `pid` and `run_file` come off
@@ -776,6 +881,14 @@ such a run reads nothing through the file tools either, and shell is what it has
 That is the honest reading of D9: Hydra writes only under a path it created, and a run
 with no checkout has none.
 
+**Reap deletes a branch only when git says nothing would be lost, and a flag goes
+further.** Harness spec 10 and 17 both stop at the worktree and the spawn directory, and
+neither says what becomes of the branch. Committing to it and then deleting it would make
+the commit theatre, which is the failure the section is about, so the default is
+`git branch -d` and `--delete-branch` is the human's way past it. Ticket 06's "done when"
+asked for the thirteen branches on this machine to be gone by the command; they were kept
+instead, and the ticket's outcome says why.
+
 **The spawn directory's filenames are `gate` and `settings.json`.** Harness spec 19.1
 leaves the names inside the spawn directory open. `settings.json` comes from 6.6's own
 table; `gate` comes from 7.5's prose. Neither is a ticket's decision.
@@ -895,13 +1008,8 @@ Out of scope for this slice, and each one has a document that already says what 
 - The `cursor-agent` and `agy` adapters, tickets 09 and 10, and harvest, 12. Contract
   7.2's other two columns and 7.2.1's transcript vocabulary have no reader.
 - Interactive runs and harvest. 5.6, 12.
-- Eight of harness spec 17's eleven commands. Notably `hydra reap`, so worktrees and
-  spawn directories accumulate, and `hydra status` lists them every time. Section 5 says
-  the two are reaped together. Removing one by hand takes
-  `git worktree remove ~/hydra/worktrees/<run-id>`, `git branch -D hydra/<run-id>` and
-  `rm -rf ~/hydra/spawn/<run-id>`, and read harness spec 10 first, because the specced
-  reap commits uncommitted work to the child's branch before removing anything. Ticket
-  06 builds it.
+- Six of harness spec 17's eleven commands: `show`, `resume`, `curate`, `evolve`,
+  `export` and `usage recount`.
 - Ouroboros, both rungs.
 
 ## Rough edges worth knowing

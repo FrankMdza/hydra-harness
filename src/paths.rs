@@ -3,6 +3,8 @@
 //! Harness spec section 5 names four places Hydra writes. Three exist here: the
 //! run file, the worktree and the spawn directory. The fourth is
 //! `~/hydra/skills-snapshots/<sha>/`, which needs the skill store (ticket 07).
+//! `~/hydra/pruned/` is a fifth that section 5 does not name; [`Layout::pruned`]
+//! says why it is a choice rather than a reading.
 //!
 //! **The spawn directory is a sibling of `runs/` and not a subdirectory of it.**
 //! Section 5 is explicit: ticket 13 derives liveness from a run file's opening
@@ -68,6 +70,22 @@ impl Layout {
 
     pub fn spawns(&self) -> PathBuf {
         self.root.join("spawn")
+    }
+
+    /// Where `hydra prune` moves a run file to.
+    ///
+    /// **A fifth place, and the design names four.** Harness spec 5's table says
+    /// prune "moves rather than deletes" and stops there, so the destination is
+    /// this build's choice, the same gap 19.1 leaves for the filenames inside the
+    /// spawn directory. A sibling of `runs/` keeps the move a rename on one
+    /// filesystem and keeps D9 true, and the run id stays on the file, so putting
+    /// a record back is a `mv` and nothing else.
+    pub fn pruned(&self) -> PathBuf {
+        self.root.join("pruned")
+    }
+
+    pub fn pruned_file(&self, run_id: &str) -> PathBuf {
+        self.pruned().join(format!("{run_id}.jsonl"))
     }
 
     /// `~/hydra/spawn/<run-id>/`, created per run and reaped with the worktree.

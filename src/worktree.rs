@@ -236,7 +236,11 @@ fn head_exists(repo: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn git(repo: &Path, args: &[&str]) -> Result<String> {
+/// `git` in `repo`, stdout on success and stderr in the error.
+///
+/// Crate-visible because `hydra reap` runs the same three-line shape and a second
+/// copy of it would be a second place to get the stderr handling wrong.
+pub(crate) fn git(repo: &Path, args: &[&str]) -> Result<String> {
     let out = Command::new("git").args(args).current_dir(repo).output()?;
     if !out.status.success() {
         bail!(

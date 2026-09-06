@@ -45,6 +45,47 @@ fn main() -> Result<()> {
             let mut out = std::io::stdout().lock();
             hydra::logs::logs(&Layout::discover()?, &run_id, follow, &mut out)?;
         }
+        Command::Reap {
+            run_id,
+            delete_branch,
+        } => {
+            let layout = Layout::discover()?;
+            // The launch grace period, the same one `hydra status` reports
+            // against. A checkout exists before its record does, so a sweep that
+            // allowed none would eventually remove the checkout of a run that was
+            // about to start.
+            let reaped = hydra::reap::reap(
+                &layout,
+                run_id.as_deref(),
+                delete_branch,
+                hydra::run::LAUNCH_BUDGET,
+            )?;
+            print!("{}", hydra::reap::report(&reaped));
+            // A sweep that left a live run's checkout alone succeeded. One that
+            // could not finish what it started did not, and a script driving the
+            // cleanup has to be able to tell those apart from the exit code.
+            let failed = hydra::reap::failures(&reaped);
+            if failed > 0 {
+                anyhow::bail!("{failed} of {} could not be reaped", reaped.len());
+            }
+        }
+        Command::Prune {
+            run_id,
+            delete,
+            dry_run,
+        } => {
+            let layout = Layout::discover()?;
+            // The same launch grace reap gets, and for the same reason: the run
+            // file exists before line 0 does, so an empty record is a run that is
+            // starting rather than one that is over.
+            let pruned =
+                hydra::prune::prune(&layout, &run_id, delete, dry_run, hydra::run::LAUNCH_BUDGET)?;
+            print!("{}", hydra::prune::report(&pruned));
+            let failed = hydra::prune::failures(&pruned);
+            if failed > 0 {
+                anyhow::bail!("{failed} of {} could not be pruned", pruned.len());
+            }
+        }
         Command::Watch { spec } => hydra::watch::watch(&spec)?,
     }
     Ok(())

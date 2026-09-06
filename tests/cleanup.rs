@@ -1,0 +1,642 @@
+//! `hydra reap` and `hydra prune`, harness spec 10.
+//!
+//! The two cleanup commands share a fixture and a rule, so they share a file. The
+//! rule is that neither destroys anything a human has not asked to lose: reap
+//! commits a checkout to its branch before removing it, prune moves a record
+//! rather than deleting it, and each has one flag that goes further.
+//!
+//! **The commit is what most of this checks, because it is the promise.** Harness
+//! spec 10 calls reap the Hermes lesson turned on our own tooling, and a guarantee
+//! written in a doc comment is worth what Hermes' was. So the assertions read the
+//! branch back and look for the bytes.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use hydra::paths::Layout;
+use hydra::prune::Pruned;
+use hydra::reap::Reaped;
+use serde_json::{Value, json};
+
+// --- the fixture ---------------------------------------------------------
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// A repository with one commit, and a `~/hydra` beside it that the test owns.
+///
+/// The two are siblings rather than nested, which is the shape a real run has:
+/// `~/hydra/worktrees/<run-id>` is a checkout of a repo that lives somewhere else
+/// entirely, and reap has to find its way back from the checkout to the repo.
+struct Fixture {
+    root: PathBuf,
+    repo: PathBuf,
+}
+
+impl Fixture {
+    fn new(name: &str) -> Self {
+        let root =
+            std::env::temp_dir().join(format!("hydra-cleanup-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["config", "user.email", "test@example.invalid"]);
+        git(&repo, &["config", "user.name", "hydra tests"]);
+        std::fs::write(repo.join("committed.txt"), "one\n").unwrap();
+        std::fs::write(repo.join(".gitignore"), "ignored/\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-qm", "first"]);
+
+        let fixture = Self {
+            root: root.join("hydra"),
+            repo,
+        };
+        fixture.layout().ensure().unwrap();
+        fixture
+    }
+
+    fn layout(&self) -> Layout {
+        Layout::at(&self.root)
+    }
+
+    /// A checkout the way `hydra run` makes one, spawn directory and all.
+    ///
+    /// The seed index lands in `~/hydra/spawn/<run-id>/`, so this creates the pair
+    /// reap has to remove together without a second call.
+    fn checkout(&self, run_id: &str) -> PathBuf {
+        let layout = self.layout();
+        let dest = layout.worktree(run_id);
+        hydra::worktree::create(
+            &self.repo,
+            &dest,
+            &format!("hydra/{run_id}"),
+            &layout.seed_index(run_id),
+        )
+        .unwrap();
+        dest
+    }
+
+    fn branches(&self) -> String {
+        git(
+            &self.repo,
+            &["branch", "--list", "--format=%(refname:short)"],
+        )
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.root.parent().unwrap());
+    }
+}
+
+/// A run file with the liveness pair set to whatever the test wants to prove.
+fn write_run(layout: &Layout, run_id: &str, pid: Option<u32>, closed: bool) -> PathBuf {
+    let start = pid.and_then(|pid| hydra::procinfo::start_time(pid).ok().flatten());
+    let mut text = envelope(
+        run_id,
+        0,
+        json!({
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "stub",
+            "provider_session_id": null,
+            "task": "probe",
+            "policy": "standard",
+            "policy_sha": null,
+            "cwd": "/tmp",
+            "worktree": {
+                "path": layout.worktree(run_id).display().to_string(),
+                "branch": format!("hydra/{run_id}"),
+            },
+            "depth": 0,
+            "pid": pid,
+            "process_start_time": start
+                .map(|t| Value::from(t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)))
+                .unwrap_or(Value::Null),
+            "subscription": "none",
+        }),
+    );
+    if closed {
+        text.push_str(&envelope(
+            run_id,
+            1,
+            json!({"type": "run_end", "exit_code": 0, "body_source": "stream"}),
+        ));
+    }
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+fn envelope(run_id: &str, seq: u64, hydra: Value) -> String {
+    let mut line = json!({
+        "run_id": run_id,
+        "parent_run_id": null,
+        "seq": seq,
+        "ts": "2026-09-05T20:51:39.370Z",
+        "provider": "claude",
+        "model": null,
+        "secret_flag": null,
+        "hydra": hydra,
+    })
+    .to_string();
+    line.push('\n');
+    line
+}
+
+/// The `Done` inside, or a panic naming why there is not one.
+fn as_done(reaped: &Reaped) -> &hydra::reap::Done {
+    match reaped {
+        Reaped::Done(done) => done,
+        Reaped::Left { run_id, why } => panic!("{run_id} was left: {why}"),
+        Reaped::Failed { run_id, why } => panic!("{run_id} failed: {why}"),
+    }
+}
+
+/// Reaps one run. The grace period is a launch window and a named run skips it,
+/// so this passes zero and the sweeps below say which of the two they mean.
+fn reap_one(layout: &Layout, run_id: &str, delete_branch: bool) -> Vec<Reaped> {
+    hydra::reap::reap(layout, Some(run_id), delete_branch, NO_GRACE).unwrap()
+}
+
+/// No launch is in progress in a test, so the sweeps judge a checkout on its
+/// record rather than on its age. Two tests below want the age rule and say so.
+const NO_GRACE: std::time::Duration = std::time::Duration::ZERO;
+
+/// Prunes the named runs, or all of them with an empty slice.
+fn prune(layout: &Layout, run_ids: &[String], delete: bool, dry_run: bool) -> Vec<Pruned> {
+    hydra::prune::prune(layout, run_ids, delete, dry_run, NO_GRACE).unwrap()
+}
+
+// --- reap ----------------------------------------------------------------
+
+#[test]
+fn the_childs_work_is_on_the_branch_before_the_checkout_goes() {
+    let fixture = Fixture::new("commits");
+    let layout = fixture.layout();
+    let run = "01a07217-6007-7733-9ce2-7bb31830eab8";
+    let checkout = fixture.checkout(run);
+
+    // What the child did: one new file and one edit to a tracked one.
+    std::fs::write(checkout.join("child.txt"), "what the child wrote\n").unwrap();
+    std::fs::write(checkout.join("committed.txt"), "one\ntwo\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let done = as_done(&reaped[0]);
+
+    assert!(done.committed.is_some(), "reap removed without committing");
+    assert!(!checkout.exists(), "the checkout is still there");
+    assert!(
+        !layout.spawn(run).exists(),
+        "the spawn directory is still there"
+    );
+
+    // The bytes, read back off the branch. This is the assertion the whole
+    // command exists for.
+    let branch = format!("hydra/{run}");
+    assert_eq!(
+        git(&fixture.repo, &["show", &format!("{branch}:child.txt")]),
+        "what the child wrote\n"
+    );
+    assert_eq!(
+        git(&fixture.repo, &["show", &format!("{branch}:committed.txt")]),
+        "one\ntwo\n"
+    );
+    assert!(
+        fixture.branches().contains(&branch),
+        "the branch holding the commit was deleted: {}",
+        fixture.branches()
+    );
+    assert!(!done.branch_removed);
+}
+
+#[test]
+fn a_branch_with_nothing_on_it_goes_and_one_with_a_commit_stays() {
+    // The difference is `git branch -d` and not a rule of ours, which is what
+    // makes it hold: the branch survives exactly when deleting it would lose the
+    // commit reap just made.
+    let fixture = Fixture::new("branches");
+    let layout = fixture.layout();
+
+    let quiet = "01a07218-8817-7581-9ddb-47565e5d5ba7";
+    let busy = "01a0721b-2883-7c30-ab56-f06ba0027cb8";
+    fixture.checkout(quiet);
+    let busy_tree = fixture.checkout(busy);
+    std::fs::write(busy_tree.join("child.txt"), "work\n").unwrap();
+
+    let quiet_done = reap_one(&layout, quiet, false);
+    let busy_done = reap_one(&layout, busy, false);
+
+    assert!(as_done(&quiet_done[0]).committed.is_none());
+    assert!(as_done(&quiet_done[0]).branch_removed);
+    assert!(as_done(&busy_done[0]).committed.is_some());
+    assert!(!as_done(&busy_done[0]).branch_removed);
+
+    let branches = fixture.branches();
+    assert!(!branches.contains(quiet), "{branches}");
+    assert!(branches.contains(busy), "{branches}");
+
+    // In git's own words. A boolean here would say "it holds commits" for a branch
+    // checked out in another worktree too, which `--delete-branch` cannot fix
+    // either, so the human would be told the wrong reason and handed a useless flag.
+    let said = hydra::reap::report(&busy_done);
+    assert!(said.contains("not fully merged"), "{said}");
+}
+
+#[test]
+fn the_flag_is_what_drops_a_branch_holding_work() {
+    let fixture = Fixture::new("delete-branch");
+    let layout = fixture.layout();
+    let run = "01a07307-2693-7ef0-b572-a565ffcc3190";
+    let checkout = fixture.checkout(run);
+    std::fs::write(checkout.join("child.txt"), "work\n").unwrap();
+
+    let reaped = reap_one(&layout, run, true);
+    assert!(
+        as_done(&reaped[0]).committed.is_some(),
+        "the flag skipped the commit"
+    );
+    assert!(as_done(&reaped[0]).branch_removed);
+    assert!(!fixture.branches().contains(run), "{}", fixture.branches());
+}
+
+#[test]
+fn a_live_runs_checkout_is_never_reaped() {
+    // Runs are detached, so a human can type `hydra reap` while one is writing.
+    // Removing the checkout would pull it out from under a running child.
+    let fixture = Fixture::new("live");
+    let layout = fixture.layout();
+    let run = "01a07308-39e3-79c2-8901-ac052723b79a";
+    let checkout = fixture.checkout(run);
+    write_run(&layout, run, Some(std::process::id()), false);
+
+    let named = reap_one(&layout, run, false);
+    assert!(
+        matches!(named[0], Reaped::Left { .. }),
+        "a live run was reaped"
+    );
+    assert!(checkout.is_dir());
+
+    // And the sweep leaves it out entirely rather than reporting it as skipped.
+    let swept = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
+    assert!(swept.is_empty(), "the sweep picked up a live run");
+    assert!(checkout.is_dir());
+}
+
+#[test]
+fn the_sweep_takes_every_checkout_no_live_run_is_using() {
+    let fixture = Fixture::new("sweep");
+    let layout = fixture.layout();
+    let ended = "01a07340-67a3-7c41-8c69-8d1e28bb58a7";
+    let orphan = "01a07357-2c4e-7083-9ff9-2ebb23f6a3f2";
+
+    fixture.checkout(ended);
+    write_run(&layout, ended, Some(std::process::id()), true);
+    // A checkout whose record was pruned. Nothing can explain it, and reap is
+    // what a human types about it.
+    fixture.checkout(orphan);
+
+    let reaped = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
+    assert_eq!(reaped.len(), 2);
+    assert!(hydra::reap::failures(&reaped) == 0);
+    assert!(!layout.worktree(ended).exists());
+    assert!(!layout.worktree(orphan).exists());
+
+    // Reap appends to no run file and removes none. Contract 6 gives a file one
+    // writer, and the record is what survives the checkout.
+    assert!(layout.run_file(ended).is_file());
+}
+
+#[test]
+fn a_worktree_with_no_spawn_directory_still_reaps() {
+    // The three oldest runs on this machine predate the spawn directory, so the
+    // pair reap assumes is not always there.
+    let fixture = Fixture::new("no-spawn");
+    let layout = fixture.layout();
+    let run = "01a07357-58a5-79e2-a25a-3df578a750b4";
+    fixture.checkout(run);
+    std::fs::remove_dir_all(layout.spawn(run)).unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    assert!(as_done(&reaped[0]).worktree_removed);
+    assert!(!as_done(&reaped[0]).spawn_removed);
+    assert!(!layout.worktree(run).exists());
+}
+
+#[test]
+fn a_spawn_directory_with_no_checkout_is_reaped_on_its_own() {
+    // A run outside a repo gets a spawn directory and no worktree, so a sweep
+    // that only walked `worktrees/` would leave half of harness spec 5's pair.
+    let fixture = Fixture::new("lone-spawn");
+    let layout = fixture.layout();
+    let run = "01a073ef-701c-7522-b5bb-56d5ecba0f57";
+    std::fs::create_dir_all(layout.spawn(run)).unwrap();
+    std::fs::write(layout.gate_script(run), "#!/usr/bin/env python3\n").unwrap();
+
+    // Through the sweep rather than by name, because finding it at all is what
+    // is under test: `worktrees/` holds nothing for this run.
+    let reaped = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
+    assert_eq!(reaped.len(), 1);
+    assert!(as_done(&reaped[0]).spawn_removed);
+    assert!(!as_done(&reaped[0]).worktree_removed);
+    assert!(!layout.spawn(run).exists());
+}
+
+#[test]
+fn a_launch_in_progress_is_not_swept() {
+    // `hydra run` creates the checkout, then the spawn directory, and only then
+    // does the detached half write line 0. In that window neither has a record
+    // and both look exactly like a run whose record was pruned. A sweep that
+    // took them would remove the checkout of a run that is about to start.
+    let fixture = Fixture::new("racing");
+    let layout = fixture.layout();
+    fixture.checkout("01a07471-0a3e-74d2-b576-153ac0e7427b");
+    std::fs::create_dir_all(layout.spawn("01a07484-1667-7500-b299-2889144b84c1")).unwrap();
+
+    let reaped = hydra::reap::reap(&layout, None, false, hydra::run::LAUNCH_BUDGET).unwrap();
+    assert!(reaped.is_empty(), "a launch in progress was reaped");
+}
+
+#[test]
+fn a_record_that_exists_and_says_nothing_is_a_launch_and_not_a_corpse() {
+    // `hydra watch` creates the run file, then spawns the child, then writes line
+    // 0, so for as long as the launch budget allows there is an empty record
+    // beside a checkout being seeded. It reads as abandoned with a null pid, which
+    // is indistinguishable from a run that died, and anything removing things on
+    // that reading takes a run that is starting: the checkout out from under the
+    // child, or the record out from under the writer that has it open.
+    let fixture = Fixture::new("starting");
+    let layout = fixture.layout();
+    let run = "01a07500-1111-7000-8000-000000000001";
+    fixture.checkout(run);
+    std::fs::write(layout.run_file(run), "").unwrap();
+
+    let swept = hydra::reap::reap(&layout, None, false, hydra::run::LAUNCH_BUDGET).unwrap();
+    assert!(
+        swept.is_empty(),
+        "the checkout of a starting run was reaped"
+    );
+    assert!(layout.worktree(run).is_dir());
+
+    let pruned =
+        hydra::prune::prune(&layout, &[], false, false, hydra::run::LAUNCH_BUDGET).unwrap();
+    assert!(pruned.is_empty(), "the record of a starting run was pruned");
+    assert!(layout.run_file(run).is_file());
+
+    // Named explicitly it is reported rather than acted on, `--delete` included.
+    let named = hydra::prune::prune(
+        &layout,
+        &[run.to_string()],
+        true,
+        false,
+        hydra::run::LAUNCH_BUDGET,
+    )
+    .unwrap();
+    match &named[0] {
+        Pruned::Left { why, .. } => assert!(why.contains("still starting"), "{why}"),
+        _ => panic!("a starting run's record was deleted"),
+    }
+    assert!(layout.run_file(run).is_file());
+
+    // Once the budget is past, both take it. Age is the only evidence there is.
+    assert_eq!(
+        hydra::reap::reap(&layout, None, false, NO_GRACE)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(prune(&layout, &[], false, false).len(), 1);
+}
+
+#[test]
+fn a_refused_spawn_is_not_mistaken_for_a_launch_in_progress() {
+    // Contract 5.2's null pid is a run that never had a process, and the closing
+    // line is what says so. Reading it as a record that has not spoken yet would
+    // hold every refused spawn out of reach for the length of the grace.
+    let fixture = Fixture::new("refused");
+    let layout = fixture.layout();
+    write_run(&layout, "01a07500-1111-7000-8000-000000000002", None, true);
+
+    let pruned =
+        hydra::prune::prune(&layout, &[], false, false, hydra::run::LAUNCH_BUDGET).unwrap();
+    assert!(matches!(pruned[0], Pruned::Moved { .. }), "not moved");
+}
+
+#[test]
+fn a_record_whose_envelope_disagrees_with_its_filename_is_handled_by_path() {
+    // `read_view` takes the run id off line 0 and only falls back to the filename.
+    // Rebuilding the path from that id moves a file that is not there and leaves
+    // the one that is, and on the named side it finds no view at all and skips the
+    // liveness check, which is the half that loses a live run's record.
+    let fixture = Fixture::new("prune-mismatch");
+    let layout = fixture.layout();
+    let on_disk = "01a07500-1111-7000-8000-000000000003";
+    let in_the_envelope = "01a07500-1111-7000-8000-000000000004";
+
+    // Ended, and claiming to be a different run.
+    write_run(&layout, on_disk, Some(std::process::id()), true);
+    let text = std::fs::read_to_string(layout.run_file(on_disk))
+        .unwrap()
+        .replace(on_disk, in_the_envelope);
+    std::fs::write(layout.run_file(on_disk), text).unwrap();
+
+    // Live, and claiming to be a different run.
+    let live_on_disk = "01a07500-1111-7000-8000-000000000005";
+    write_run(&layout, live_on_disk, Some(std::process::id()), false);
+    let text = std::fs::read_to_string(layout.run_file(live_on_disk))
+        .unwrap()
+        .replace(live_on_disk, "01a07500-1111-7000-8000-000000000006");
+    std::fs::write(layout.run_file(live_on_disk), text).unwrap();
+
+    let swept = prune(&layout, &[], false, false);
+    assert_eq!(swept.len(), 1, "the sweep took the live run too");
+    assert!(
+        !layout.run_file(on_disk).exists(),
+        "the file on disk stayed"
+    );
+    assert!(
+        layout.pruned_file(on_disk).is_file(),
+        "it was filed under the envelope's id rather than its own name"
+    );
+
+    let named = prune(&layout, &[live_on_disk.to_string()], false, false);
+    match &named[0] {
+        Pruned::Left { why, .. } => assert!(why.contains("still writing"), "{why}"),
+        _ => panic!("a live record was pruned because its envelope named another run"),
+    }
+    assert!(layout.run_file(live_on_disk).is_file());
+}
+
+#[test]
+fn a_detached_head_is_refused_rather_than_committed_into_nothing() {
+    // A commit on a detached HEAD is reachable from nothing once the checkout is
+    // gone, which is the one shape where committing first saves nothing.
+    let fixture = Fixture::new("detached");
+    let layout = fixture.layout();
+    let run = "01a07470-e247-7283-8aae-62d72aa86eda";
+    let checkout = fixture.checkout(run);
+    git(&checkout, &["checkout", "-q", "--detach"]);
+    std::fs::write(checkout.join("child.txt"), "work\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    match &reaped[0] {
+        Reaped::Failed { why, .. } => assert!(why.contains("detached HEAD"), "{why}"),
+        _ => panic!("a detached HEAD was reaped"),
+    }
+    assert!(checkout.is_dir(), "the checkout went anyway");
+    assert!(layout.spawn(run).is_dir(), "the pair came apart");
+    assert_eq!(hydra::reap::failures(&reaped), 1);
+}
+
+#[test]
+fn reaping_a_run_that_was_never_there_does_nothing_and_says_so() {
+    let fixture = Fixture::new("absent");
+    let reaped = reap_one(&fixture.layout(), "nobody", false);
+    let done = as_done(&reaped[0]);
+    assert!(!done.worktree_removed && !done.spawn_removed);
+    assert_eq!(hydra::reap::failures(&reaped), 0);
+}
+
+// --- prune ---------------------------------------------------------------
+
+#[test]
+fn a_pruned_record_is_moved_and_not_gone() {
+    let fixture = Fixture::new("prune-moves");
+    let layout = fixture.layout();
+    let run = "01a07471-0a3e-74d2-b576-153ac0e7427b";
+    let path = write_run(&layout, run, Some(std::process::id()), true);
+    let before = std::fs::read_to_string(&path).unwrap();
+
+    let pruned = prune(&layout, &[], false, false);
+    assert!(matches!(pruned[0], Pruned::Moved { .. }), "not moved");
+    assert!(!path.exists());
+    assert_eq!(
+        std::fs::read_to_string(layout.pruned_file(run)).unwrap(),
+        before,
+        "the record changed on the way out of runs/"
+    );
+}
+
+#[test]
+fn only_the_flag_deletes() {
+    let fixture = Fixture::new("prune-deletes");
+    let layout = fixture.layout();
+    let run = "01a07484-1667-7500-b299-2889144b84c1";
+    write_run(&layout, run, Some(std::process::id()), true);
+
+    let pruned = prune(&layout, &[run.to_string()], true, false);
+    assert!(matches!(pruned[0], Pruned::Deleted { .. }));
+    assert!(!layout.run_file(run).exists());
+    assert!(
+        !layout.pruned_file(run).exists(),
+        "a delete left a copy behind, so the flag means nothing"
+    );
+}
+
+#[test]
+fn a_dry_run_changes_nothing() {
+    let fixture = Fixture::new("prune-dry");
+    let layout = fixture.layout();
+    let run = "01a07217-6007-7733-9ce2-7bb31830eab8";
+    write_run(&layout, run, Some(std::process::id()), true);
+
+    let pruned = prune(&layout, &[], false, true);
+    match &pruned[0] {
+        Pruned::Would { what, .. } => assert!(what.starts_with("move "), "{what}"),
+        _ => panic!("a dry run did something"),
+    }
+    assert!(layout.run_file(run).is_file());
+    assert!(!layout.pruned_file(run).exists());
+}
+
+#[test]
+fn a_live_runs_record_is_never_pruned() {
+    // Contract 6 gives a run file one writer, and a rename does not take the file
+    // away from an open descriptor: the writer would keep appending into a path
+    // nothing looks in.
+    let fixture = Fixture::new("prune-live");
+    let layout = fixture.layout();
+    let live = "01a07218-8817-7581-9ddb-47565e5d5ba7";
+    let over = "01a0721b-2883-7c30-ab56-f06ba0027cb8";
+    write_run(&layout, live, Some(std::process::id()), false);
+    write_run(&layout, over, Some(std::process::id()), true);
+
+    let swept = prune(&layout, &[], false, false);
+    assert_eq!(swept.len(), 1, "the sweep took a live run");
+    assert!(layout.run_file(live).is_file());
+    assert!(!layout.run_file(over).is_file());
+
+    // Named explicitly it is reported rather than skipped quietly, because the
+    // human asked about that one.
+    let named = prune(&layout, &[live.to_string()], false, false);
+    match &named[0] {
+        Pruned::Left { why, .. } => assert!(why.contains("still writing"), "{why}"),
+        _ => panic!("a live record was pruned"),
+    }
+    assert!(layout.run_file(live).is_file());
+}
+
+#[test]
+fn pruning_the_same_run_twice_refuses_rather_than_overwrites() {
+    // The second copy is a different run's worth of evidence only by accident of
+    // sharing a name, and overwriting would destroy what the first prune saved.
+    let fixture = Fixture::new("prune-twice");
+    let layout = fixture.layout();
+    let run = "01a07307-2693-7ef0-b572-a565ffcc3190";
+
+    write_run(&layout, run, Some(std::process::id()), true);
+    prune(&layout, &[], false, false);
+    std::fs::write(layout.run_file(run), "a second file with the same name\n").unwrap();
+
+    let again = prune(&layout, &[run.to_string()], false, false);
+    assert_eq!(hydra::prune::failures(&again), 1);
+    assert!(
+        layout.run_file(run).is_file(),
+        "the second record went anyway"
+    );
+    assert!(
+        std::fs::read_to_string(layout.pruned_file(run))
+            .unwrap()
+            .contains("run_start"),
+        "the first record was overwritten"
+    );
+}
+
+#[test]
+fn pruning_a_run_that_is_not_there_says_so() {
+    let fixture = Fixture::new("prune-absent");
+    let pruned = prune(&fixture.layout(), &["nobody".to_string()], false, false);
+    assert_eq!(hydra::prune::failures(&pruned), 1);
+    assert!(hydra::prune::report(&pruned).contains("no run record"));
+}
+
+#[test]
+fn prune_leaves_the_checkout_and_the_spawn_directory_to_reap() {
+    let fixture = Fixture::new("prune-scope");
+    let layout = fixture.layout();
+    let run = "01a07308-a250-7792-9e8b-0d99697c99d9";
+    fixture.checkout(run);
+    write_run(&layout, run, Some(std::process::id()), true);
+
+    prune(&layout, &[], false, false);
+    assert!(layout.worktree(run).is_dir());
+    assert!(layout.spawn(run).is_dir());
+}

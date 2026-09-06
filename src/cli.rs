@@ -1,8 +1,13 @@
 //! The command surface.
 //!
-//! Harness spec 17 lists eleven commands. Three are here: `run`, `status` and
-//! `logs`. Section 9 gives `hydra run` eight optional flags and four are here.
-//! The four that are not each belong to a ticket that is not built.
+//! Harness spec 17 lists eleven commands. Five are here: `run`, `status`, `logs`,
+//! `reap` and `prune`. Section 9 gives `hydra run` eight optional flags and four
+//! are here. The four that are not each belong to a ticket that is not built.
+//!
+//! **`reap` and `prune` are typed by a human and reachable from no run.** Nothing
+//! in the library calls either, which is the only mechanism there is: harness spec
+//! 7.5 says the gate cannot keep a run away from a binary reached through `shell`,
+//! so the property lives in Hydra's own source.
 //!
 //! **`watch` is a twelfth command and is not one of the eleven.** It is the
 //! detached half of a launch, `hydra run` is the only thing that types it, and it
@@ -66,6 +71,32 @@ pub enum Command {
         /// Keep reading until the run closes.
         #[arg(long, short)]
         follow: bool,
+    },
+
+    /// Commit a worktree's uncommitted changes to the child's branch, then remove
+    /// the worktree and the run's spawn directory.
+    Reap {
+        /// One run. Without it, every checkout no live run is using.
+        run_id: Option<String>,
+
+        /// Remove the branch even when the commit left work on it. Without this,
+        /// a branch holding commits survives the reap.
+        #[arg(long)]
+        delete_branch: bool,
+    },
+
+    /// Move run files out of `runs/`. Deletes only behind a flag.
+    Prune {
+        /// The runs to prune. Without any, every run that is not live.
+        run_id: Vec<String>,
+
+        /// Delete rather than move. Anything deleted is training data destroyed.
+        #[arg(long)]
+        delete: bool,
+
+        /// Print what would happen and change nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// The detached half of a launch. `hydra run` types this; a human does not.

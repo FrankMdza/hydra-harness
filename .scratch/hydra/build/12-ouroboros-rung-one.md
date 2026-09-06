@@ -94,3 +94,14 @@ machine carry `policy: null`, contract 7.7 gives those no `permission_decision`,
 them had a `Write` refused. Nothing in the outcome says so. They are the oldest three files
 under `~/hydra/runs/` and are worth excluding by the same test `IMPLEMENTATION.md` names, a
 null policy, rather than by date.
+
+## What ticket 06 left you, added 2026-09-05
+
+**The two commands now exist, so the constraint above has real code to violate.**
+`hydra::reap::reap` and `hydra::prune::prune` are public on the library and `main` is the
+only caller. When you add a rung-one code path, that stays true or the
+`evidence_is_read_only` checklist item is already broken. There is no gate to fall back
+on, for the reason harness spec 7.5 gives.
+
+**Prune with no arguments moves every run that is not live.** A curator pass that shells
+out to `hydra prune` for any reason would take the corpus it learns from with it.
