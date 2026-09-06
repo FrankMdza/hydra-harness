@@ -511,6 +511,17 @@ delivers a name and a description into the system prompt and nothing else under 
 `read-only`, `standard` and `curate`. Under `permissive` it works, because that policy
 grants `provider_native` and `file_read` anywhere.
 
+**Re-measured on 2026-09-06 while preparing map ticket 39, and three of the sentences
+above are too strong.** A gate compiled per policy and driven with synthetic payloads, no
+provider launched, says: the `Skill` refusal's code is `hydra/capability`, not
+`hydra/out-of-scope`, which only fires for a scoped capability whose path fell outside.
+The body is out of reach under three policies rather than four, because `standard` grants
+`shell` unscoped and `cat <worktree>/.claude/skills/<name>/SKILL.md` is allowed: the
+snapshot is not one of 7.5's seven denied paths, so the capability boundary and the
+practical one already disagree. And "under `permissive` it works" is read off the gate
+rather than observed, since no run on this machine has ever had a `Skill` call allowed.
+The ticket's prepared section has the per-policy table and the reason strings.
+
 Nothing here was changed to fix it. 6.4 says the links point into a snapshot and 7.2 says
 the `worktree` scope is the checkout, and no closed ticket connects the two. The store's
 own scope is a second half of the same question, and ticket 12 answered it one way while

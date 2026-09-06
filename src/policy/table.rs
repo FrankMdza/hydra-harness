@@ -46,9 +46,10 @@ const fn pathed(name: &'static str, capability: Capability, field: &'static str)
 /// `Task*` list tools arrived between the two.
 ///
 /// The init frame lists them on every run at no cost, so ticket 03's normalizer
-/// compares this table against what the provider actually offered and a rename
-/// breaks the next run loudly. Until that lands, the table is a same-day
-/// measurement and nothing checks it at run time.
+/// compares this table against what the provider actually offered and a name
+/// the table does not hold comes back as a finding on the normalized run. The
+/// four `Task*` rows are the first time that fired: every 2.1.263 record written
+/// before they were added carries the finding.
 ///
 /// `mcp__*` is not here. It is a prefix rather than a name, and the gate script
 /// matches it before consulting this table.
