@@ -1,7 +1,7 @@
 # 08 - MCP injection on `claude`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 02
 
 ## Goal
@@ -84,3 +84,92 @@ lever and it changes what the probe measures, so decide it rather than reach for
 groups the same question and ticket 07 answered it for skills by asking the provider and
 storing null when it could not be asked. An empty array would claim the run got nothing,
 which is a different fact.
+
+## Outcome, 2026-09-06
+
+All four bullets are built, on `claude` 2.1.263. `config/mcp.md` is protected config #5 and
+the only place a server is declared, `src/mcp.rs` reads it and decides what one launch gets,
+`src/provider/claude.rs` turns that into `~/hydra/spawn/<run-id>/mcp.json`, and both flags
+ride a non-`judge` recorded run. `tests/mcp.rs` is new and drives the whole path without a
+provider. 290 tests pass, up from 261.
+
+**The document's format.** Markdown with prose and exactly one fenced `toml` block, and the
+block is the data. Markdown because a human edits this file by hand and the rules belong
+beside the servers; one block rather than one per server, so a broken fence is an error
+rather than a launch that silently admits nothing. A server carries `name`, `transport`
+(`stdio`, `http` or `sse`), `admit` as a list of policy names, and then `command`/`args`/`env`
+or `url`/`headers`. Four things are refused at parse time and each would otherwise be silent:
+an unknown field, an `admit` entry that is not one of the five policies, a name carrying `__`,
+and a server naming both a command and a url. Ticket 23's per-provider differences all fit:
+the stdio body is shared, and `transport` is what tells `type`+`url` from `url` from
+`serverUrl` when tickets 09 and 10 generate their files.
+
+**`doc_sha` is a sha256 of the whole file, prose included.** So `shasum -a 256 config/mcp.md`
+reproduces what a record carries. The alternative, hashing only the block so a wording fix does
+not move the value, is what `policy_sha` does for `policies/README.md`; it loses here because
+there the prose is a separate file, and a sha over part of a file cannot be checked by hand.
+
+**What the document holds on this machine: no servers.** Nobody has an MCP server configured
+here, so it ships with the format and one commented example per transport. Two tests assert
+that emptiness so the day a human adds one, the suite says which tests then describe something
+else.
+
+**The shapes that make a server undeliverable, and there is one today.** `judge`. 6.7 gives it
+`--restricted` and no `--mcp-config`, so nothing Hydra writes can reach it, and a document
+admitting a server to `judge` fails the launch with `mcp_unavailable` before anything spawns.
+Everything else delivers what it admits. Two shapes that turned out not to be shortfalls: a run
+with no checkout, since on `claude` the servers ride the command line rather than the worktree,
+and a server admitted to a policy that does not grant `mcp_call`, which is four of the five.
+That last one delivers the server and refuses every call to it, which is ticket 27's decision
+rather than a shortfall, and it is now on a record.
+
+**`run_start.mcp` carries `doc_sha`, `injected` and `resolved`, and one probe answers both
+`resolved` fields.** Ticket 07's free probe already ran per launch; it now carries the run's own
+`--mcp-config` and `--strict-mcp-config`, and its transcript's `deferred_tools_delta` attachment
+holds the answer. `addedNames` carries one entry per MCP tool as `mcp__<server>__<tool>`, which
+is why the document refuses a server name containing `__`, and the same attachment carries
+`pendingMcpServers`, `needsAuthMcpServers` and `failedMcpServers`. Measured on 2.1.263: 1.8s with
+an empty config, 1.9s with one server, against ticket 07's 1.8s with no MCP flags.
+
+**Line 0 does not wait for the init frame, and does not have to.** The ticket asked what happens
+if the only honest source arrives after line 0 is written. It does not: the probe runs before
+line 0 and answers under the run's own MCP flags. The run's init frame turned out to carry
+`mcp_servers` with a `status` per server as well, which corroborates the probe from the record
+rather than replacing it. Deciding `--strict-mcp-config` on the probe was the open question
+ticket 07 left; it is taken, because without it the probe resolves the human's servers and the
+record would claim them for a run that will not have them. The cost is that an admitted server
+starts twice per launch.
+
+**`resolved` is null on a `judge` run**, a second producer for that null beside a probe that
+failed. The probe is not `--restricted`, so it cannot reproduce what a `judge` run resolves, and
+an empty array would be a claim rather than a measurement.
+
+**Measured on two real runs, `--model haiku`, 2026-09-06.** Run
+`01a077c3-e32f-7612-bb19-89227bf6f531`, `standard`, on the shipped document: both flags
+accepted, `mcp.json` was `{"mcpServers":{}}`, the init frame said `mcp_servers: []`, the record
+carried the sha and two empty lists, 6.8s end to end. Run
+`01a077c4-68e9-7203-9cc9-030044661116`, `standard`, with one stdio server added to the document
+by hand for the measurement and taken out again: `injected` and `resolved` both
+`["hydra-probe"]`, the init frame said `[{"name":"hydra-probe","status":"connected"}]` and
+listed `mcp__hydra-probe__ping`, and the model's call to that tool came back
+`hydra/capability: policy standard does not allow mcp_call (mcp__hydra-probe__ping).` 12.6s end
+to end. The server is `tests/fixtures/mcp-probe-server.py`, which cost about twenty minutes to
+write and answers the MCP handshake and nothing else.
+
+**One thing the ticket assumed that turned out false, and it needs a decision.**
+`--restricted` does not drop MCP on 2.1.263. The ticket, 6.5 and 6.7 all rest on ticket 23's
+measurement of 2.1.257, and the probe now shows `claude --restricted --mcp-config <file>`
+resolving the server in that file; 2.1.263's own help says "add --strict-mcp-config to skip MCP
+servers too". So a `judge` run, which carries neither flag, keeps whatever the human has
+configured. The gate refuses every `mcp__` call under `judge`, so what is left is server
+processes starting and their tool descriptions reaching the context, which is ticket 27's
+residue arriving on the provider 6.5 says is free of it. Not measurable further here, because
+this machine has no user-scope server and writing one into the human's config is theirs to do.
+The fix is one flag on the `judge` argv and 6.7 is what writes that argv, so it is left for the
+map. `IMPLEMENTATION.md` has it under its own heading beside the code.
+
+**Two smaller things.** The refusal path is now one function, `hydra::run::refuse`, shared by
+6.1's items 5 and 6, which is what let a test drive the `mcp_unavailable` record without a
+provider. And the contract validator now checks both injection groups' three fields rather than
+only that neither is null, so `tests/record_contract.rs` says something about 5.3 rather than
+about absence alone.

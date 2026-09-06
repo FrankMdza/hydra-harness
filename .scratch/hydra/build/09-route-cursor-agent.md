@@ -91,3 +91,36 @@ rather than a gap. A run refused for a usage limit writes no `store.db` at all.
 
 **Your listing has no name field**, only a path and a description, so the third collision
 test needs a shape of its own. The first two tests compare names and work unchanged.
+
+## What ticket 08 left you, added 2026-09-06
+
+**The canonical document exists and your file is generated from it.** `config/mcp.md` is
+protected config #5: Markdown prose around exactly one fenced `toml` block, one `[[server]]`
+table per server, carrying `name`, `transport` (`stdio`, `http` or `sse`), `admit` as a list of
+policy names, and then `command`/`args`/`env` or `url`/`headers`. `hydra::mcp::Document` parses
+it and `hydra::mcp::Server` is the shape you generate from. Your half is two functions beside
+`claude`'s: `claude::mcp_config` builds `{"mcpServers": {...}}` with `type` plus `url` on a
+remote server, and yours writes `<worktree>/.cursor/mcp.json` with `url` alone. The stdio body
+is identical, which is what one document buys.
+
+**Your file does not go in the spawn directory, and `mcp::write_config` already knows that.**
+It matches on the provider to pick a path, and `Layout::mcp_file` is the `claude` one. Yours
+needs the worktree, so a `--shared-tree` run has nowhere to put one, which is the next note.
+
+**Your `undeliverable` reason is the second one, and the shape is waiting for it.**
+`hydra::mcp::plan` asks `claude::mcp_undeliverable`, which answers on the policy name. 6.5 gives
+a `--shared-tree` Cursor run no injected config at all, so that is a launch that cannot deliver
+whatever the document admits, and `Plan::shortfall` turns it into the same `mcp_unavailable`
+refusal `judge` gets on `claude`. Today the function takes a policy name; a shared-tree run is a
+fact about the launch rather than the policy, so it will want an argument.
+
+**The fatal pre-flight is still yours and is not written.** 6.5 gives it to Cursor alone, so
+nothing on the `claude` path checks that an injected server actually started. What `claude` does
+instead is record the difference: an injected server that failed reaches stderr and shows up as
+`injected` without `resolved`. Your listing is the one that lies, so yours refuses.
+
+**`Provider::resolved_skills` is now `Provider::resolve`**, and it answers contract 5.3's two
+`resolved` fields from one probe: `Resolved { skills, mcp, failed_mcp }`, each `Option` where the
+provider did not say. It takes a `hydra::mcp::Probe`, which is either the run's own config file
+or `Unanswerable` when the probe cannot reproduce the run's MCP shape. Your MCP answer is the
+paid one, like your skill listing, so returning `None` for both is a supported answer.

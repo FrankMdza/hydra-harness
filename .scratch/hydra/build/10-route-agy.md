@@ -87,3 +87,29 @@ because the user's own skills are not held to that rule.
 **You collapse two skills declaring one name and `claude` does not**, which ticket 24
 measured. The launch check will see that as a linked name you did not list, which is a
 collision, which is the right answer.
+
+## What ticket 08 left you, added 2026-09-06
+
+**The canonical document exists and your file is generated from it.** `config/mcp.md` is
+protected config #5: Markdown prose around exactly one fenced `toml` block, one `[[server]]`
+table per server, carrying `name`, `transport` (`stdio`, `http` or `sse`), `admit` as a list of
+policy names, and then `command`/`args`/`env` or `url`/`headers`. `hydra::mcp::Document` parses
+it, `hydra::mcp::Server` is the shape you generate from, and `hydra::mcp::write_config` matches
+on the provider to pick both the path and the body. Yours is `<worktree>/.agents/mcp_config.json`
+with `serverUrl` on a remote server, and it needs `--add-dir <worktree>` or it is invisible.
+
+**The document already refuses the pair you cannot express.** A server naming both a command and
+a url fails at parse time, with your name in the error, so no document can ask you to write one.
+
+**Nothing calls `agy mcp disable` and nothing here changed that.** 6.5's inherited-server residue
+is yours alone now: `claude` closes it with `--strict-mcp-config`, Cursor closes it under the
+data-directory redirect, and you have neither. One thing did move: `--restricted` no longer drops
+MCP on `claude` 2.1.263, so that provider keeps the residue on `judge` runs too.
+`IMPLEMENTATION.md` has the measurement, and it is a decision rather than a fix.
+
+**`Provider::resolved_skills` is now `Provider::resolve`**, answering contract 5.3's two
+`resolved` fields from one probe: `Resolved { skills, mcp, failed_mcp }`, each `Option` where the
+provider did not say. It takes a `hydra::mcp::Probe`, which is either the run's own config file
+or `Unanswerable`. Your skill listing is free through `agy -p "/skills"`; ticket 23 found no free
+route to your resolved MCP set, so `mcp: None` is the honest answer until one turns up, and
+contract 5.3 requires a reader to treat it as unanswered rather than as an empty listing.

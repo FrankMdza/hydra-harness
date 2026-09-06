@@ -39,3 +39,17 @@ from a human.
 **Marking is advice.** What Hydra guarantees is that the marker is present. Hydra gates
 actions, never beliefs, and the layer that stops a laundered instruction is the one that
 never read the text.
+
+## What ticket 08 left you, added 2026-09-06
+
+**Two of contract 6's four refusal codes are written, and the third is yours.**
+`hydra::run::refuse` is one function now, shared by 6.1's skill collision and MCP launch checks:
+it writes line 0, writes `RunEnd::refused` with your code and remediation, reads the record back
+through the normalizer and returns contract 17's projection. `Refusal::PolicyNarrowing` is
+already in the enum with no caller. Adding yours is a call rather than a shape.
+
+**A child's MCP set follows its own policy, not its parent's.** `hydra::mcp::plan` takes the
+policy name the run was launched under, so a narrower child is handed fewer servers with nothing
+extra to wire. Monotonic narrowing over capabilities and admission over policy names are two
+different mechanisms that happen to agree here, which is worth knowing before anyone tries to
+make one enforce the other.

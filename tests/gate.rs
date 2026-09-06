@@ -229,9 +229,7 @@ fn the_path_denials_hold_under_permissive_and_curate() {
     // 7.5: denied under every policy, `permissive` and `curate` included. This
     // is where `permissive` stops being permissive.
     let policies_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("policies");
-    let env_allowlist = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("config")
-        .join("env-allowlist.json");
+    let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");
 
     for policy in ["permissive", "curate"] {
         let gate = Gate::new(policy);
@@ -240,7 +238,15 @@ fn the_path_denials_hold_under_permissive_and_curate() {
                 "the delegation policy set",
                 policies_dir.join("standard.json"),
             ),
-            ("the environment allowlist", env_allowlist.clone()),
+            (
+                "the environment allowlist",
+                config.join("env-allowlist.json"),
+            ),
+            ("the instruction preamble", config.join("preamble.md")),
+            // 15.1 #5. This one is a file now, and it is the one where a write
+            // is arbitrary code inside every future run rather than a wrong
+            // instruction in one.
+            ("the canonical MCP document", config.join("mcp.md")),
             ("the generated gate script", gate.script.clone()),
             ("the run records directory", gate.runs.join("any-run.jsonl")),
         ];
@@ -253,6 +259,23 @@ fn the_path_denials_hold_under_permissive_and_curate() {
                 decision.reason
             );
         }
+    }
+}
+
+#[test]
+fn the_mcp_document_is_denied_under_all_five_policies() {
+    // 15.1 #5 and 7.5. The test above covers the two policies where the denial is
+    // the only thing standing there; this one is literal about "every policy",
+    // because a server definition is a command Hydra spawns inside every future
+    // run, and the answer has to be no from all five rather than no from the two
+    // that could otherwise reach it.
+    let document = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("config")
+        .join("mcp.md");
+    for policy in ["judge", "curate", "read-only", "standard", "permissive"] {
+        let gate = Gate::new(policy);
+        let decision = gate.write_to(&document);
+        assert!(!decision.allowed, "{policy} wrote to the MCP document");
     }
 }
 

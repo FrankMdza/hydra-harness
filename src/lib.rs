@@ -5,8 +5,9 @@
 //! [`normalize`] reads one back into the ten event types of contract 7 and
 //! [`outcome`] turns one into contract 8's outcome and contract 17's JSON.
 //! [`skills`] is the store, the per-sha snapshot and what a run gets linked into
-//! its checkout. MCP injection and delegation are not built, and
-//! `IMPLEMENTATION.md` says what that does to the records this binary writes.
+//! its checkout, and [`mcp`] is the canonical MCP document and the file one launch
+//! generates from it. Delegation is not built, and `IMPLEMENTATION.md` says what
+//! that does to the records this binary writes.
 //!
 //! Every child is detached: [`watch`] is the half that owns the pty and the record,
 //! [`run`] is the half a human talks to, and [`live`] is contract 5.2's liveness
@@ -19,6 +20,7 @@ pub mod cli;
 pub mod env;
 pub mod live;
 pub mod logs;
+pub mod mcp;
 pub mod normalize;
 pub mod ouroboros;
 pub mod outcome;

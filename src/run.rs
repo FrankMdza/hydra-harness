@@ -1,17 +1,19 @@
 //! `hydra run`: the launch sequence, harness spec 6, and the view over it, 9.
 //!
 //! What a launch does, in order: build the child's environment from the allowlist,
-//! read the provider's version, load the policy set and the preamble, refuse if the
-//! concurrency cap is already met, mint a UUIDv7 run id, create a worktree and seed
-//! it, pin the skill store and link a snapshot of it into the checkout, ask the
-//! provider what it resolved and refuse on a collision, compile the run's gate into
+//! read the provider's version, load the policy set, the preamble and the canonical
+//! MCP document, refuse if the concurrency cap is already met, mint a UUIDv7 run id,
+//! create a worktree and seed it, write the run's MCP config, pin the skill store
+//! and link a snapshot of it into the checkout, ask the provider what it resolved
+//! and refuse on a skill collision or an MCP shortfall, compile the run's gate into
 //! its spawn directory, compose the provider's argv and the whole of line 0, then
 //! hand all of it to [`crate::watch`], which spawns the provider on a pty in a
 //! session of its own and owns the record from there.
 //!
 //! What it does not do, and what that costs the record, is in `IMPLEMENTATION.md`.
-//! The short version: nothing MCP is injected, so `mcp` is absent rather than null,
-//! and `skills` is absent on a run with no checkout to inject into.
+//! The short version: `skills` is absent on a run with no checkout to inject into,
+//! and `mcp` is present on every recorded `claude` run, because on this provider
+//! the servers ride the command line rather than the worktree.
 //!
 //! **This half never touches the run file.** Contract 6 gives a run file one writer
 //! and the detached half is it. `hydra run` tails the file like `hydra logs` does,
@@ -131,6 +133,10 @@ pub fn run(request: Request) -> Result<Call> {
     let policies = crate::policy::PolicySet::discover()?;
     policies.get(&request.policy)?;
     let preamble = crate::preamble::load()?;
+    // Protected config #5, read here for the same reason: a document that will
+    // not parse is a fact about this machine rather than a refused spawn. The
+    // refusal it can produce is 6.1 item 6's, and that one needs a run id.
+    let mcp_document = crate::mcp::Document::load()?;
 
     let layout = Layout::discover()?;
     layout.ensure()?;
@@ -166,19 +172,49 @@ pub fn run(request: Request) -> Result<Call> {
         branch: w.branch.clone(),
     });
 
+    // 6.5: the document decides which servers this run's policy admits and the
+    // launch shape decides whether any of them can be delivered. The file is
+    // written before the probe below, because the probe carries the run's own MCP
+    // flags and that is what makes its answer the run's rather than the machine's.
+    // A launch that cannot deliver gets no file, and the check that refuses it
+    // runs after the skill collision check, where 6.1 puts it.
+    let mcp_plan = crate::mcp::plan(&mcp_document, request.provider, &request.policy);
+    let mcp_file = match mcp_plan.undeliverable {
+        Some(_) => None,
+        None => Some(crate::mcp::write_config(
+            &layout,
+            &run_id,
+            request.provider,
+            mcp_plan.injected(),
+        )?),
+    };
+
     // 6.4: the store is pinned, snapshotted and linked into the checkout before
     // anything asks the provider a question. A run with no checkout has nowhere to
     // inject into, so it gets no links and its record leaves `skills` absent
-    // rather than null: the question does not apply.
+    // rather than null: the question does not apply. The MCP group is present
+    // either way, which is 6.5's asymmetry showing up in the record: on `claude`
+    // the servers ride the command line and need no checkout to land in.
     let injected = match &worktree_ref {
         Some(worktree) => Some(inject_skills(
             &layout,
             &run_id,
             request.provider,
             std::path::Path::new(&worktree.path),
+            match &mcp_file {
+                Some(file) => crate::mcp::Probe::Strict(file),
+                None => crate::mcp::Probe::Unanswerable,
+            },
         )?),
         None => None,
     };
+    let mcp_record = crate::mcp::record(
+        &mcp_document.sha,
+        &mcp_plan.injected_names(),
+        injected
+            .as_ref()
+            .and_then(|injected| injected.mcp_resolved.as_deref()),
+    );
 
     // Contract 5.1: the task is recorded verbatim, preamble and all.
     let task = crate::preamble::compose(&preamble, &request.task);
@@ -198,6 +234,7 @@ pub fn run(request: Request) -> Result<Call> {
         worktree_ref.clone(),
         child_env.names(),
         injected.as_ref().map(|i| i.record.clone()),
+        Some(mcp_record),
     );
     let line_zero = serde_json::to_value(&start)?;
 
@@ -206,12 +243,32 @@ pub fn run(request: Request) -> Result<Call> {
     if let Some(injected) = &injected
         && !injected.collisions.is_empty()
     {
-        return refuse_for_collision(
+        let remediation = crate::skills::collision::remediation(&injected.collisions);
+        return refuse(
             &run_file,
             &run_id,
             request.provider,
             &line_zero,
-            &injected.collisions,
+            crate::record::Refusal::SkillCollision,
+            remediation,
+            &policies,
+            worktree_ref.as_ref(),
+            seed_tree.as_deref(),
+            &layout,
+        );
+    }
+
+    // 6.1 item 6, one item after it. A run whose policy admits a server this
+    // launch cannot deliver is refused rather than launched short, which is
+    // section 2's rule: a run that quietly comes up short is what it forbids.
+    if mcp_plan.shortfall().is_some() {
+        return refuse(
+            &run_file,
+            &run_id,
+            request.provider,
+            &line_zero,
+            crate::record::Refusal::McpUnavailable,
+            mcp_plan.remediation(),
             &policies,
             worktree_ref.as_ref(),
             seed_tree.as_deref(),
@@ -233,6 +290,7 @@ pub fn run(request: Request) -> Result<Call> {
         model: request.model.as_deref(),
         settings: &spawn.settings,
         policy: &request.policy,
+        mcp: mcp_file.as_deref(),
     });
 
     let spec_path = layout.launch_spec(&run_id);
@@ -351,11 +409,15 @@ pub fn run(request: Request) -> Result<Call> {
     }
 }
 
-/// What the skills half of the launch produced: the record's object and the
-/// verdict of 6.1's fifth pre-flight check.
+/// What the injection half of the launch produced: the `skills` group, the
+/// verdict of 6.1's fifth pre-flight check, and the MCP half of the one answer
+/// the probe gave.
 struct InjectedSkills {
     record: serde_json::Value,
     collisions: Vec<crate::skills::collision::Collision>,
+    /// Contract 5.3's `mcp.resolved`, from the same probe. `None` is unanswered,
+    /// never an empty listing.
+    mcp_resolved: Option<Vec<String>>,
 }
 
 /// Pins the store, snapshots it, links it into the checkout and asks the provider
@@ -364,32 +426,44 @@ struct InjectedSkills {
 /// Split out of [`run`] because it is four steps with one failure mode each and
 /// none of them is about launching a process.
 ///
+/// **One probe answers both `resolved` fields.** The skill listing and the MCP
+/// tool list arrive in the same transcript, so the launch pays for one process and
+/// reads two answers off it. The MCP config is already written by the time this
+/// runs, and the probe carries it, which is what makes the answer the run's.
+///
 /// **An unanswerable listing does not refuse the run.** The probe is free and it
 /// is still a second process that can fail, and contract 5.3 already requires a
-/// reader to treat an absent `skills.resolved` as unanswered rather than as an
-/// empty listing. The cost is that the third of the three collision tests does not
+/// reader to treat an absent `resolved` as unanswered rather than as an empty
+/// listing. The cost is that the third of the three collision tests does not
 /// run, which is said out loud rather than swallowed: the other two still do.
 fn inject_skills(
     layout: &Layout,
     run_id: &str,
     provider: Provider,
     worktree: &std::path::Path,
+    mcp: crate::mcp::Probe<'_>,
 ) -> Result<InjectedSkills> {
     let store = crate::skills::Store::open(layout)?;
     let store_sha = store.pin(run_id)?;
     let snapshot = store.snapshot(layout, &store_sha)?;
     let injected = crate::skills::inject(worktree, provider, &snapshot, &store_sha)?;
 
-    let resolved = match provider.resolved_skills(worktree) {
-        Ok(names) => Some(names),
+    let resolved = match provider.resolve(worktree, mcp) {
+        Ok(resolved) => resolved,
         Err(err) => {
             eprintln!(
-                "hydra: {provider} would not say which skills it resolved, so the \
-                 record cannot: {err:#}"
+                "hydra: {provider} would not say what it resolved, so the record \
+                 cannot: {err:#}"
             );
-            None
+            crate::provider::Resolved::default()
         }
     };
+    // 6.5 gives the fatal pre-flight to Cursor alone, so a server that would not
+    // start is a line on stderr and a difference between `injected` and
+    // `resolved` in the record, rather than a refused launch.
+    for failure in &resolved.failed_mcp {
+        eprintln!("hydra: an injected MCP server did not start: {failure}");
+    }
 
     let home = crate::env::real_home()?;
     let user = crate::skills::index::Index::user_scope(&home)?;
@@ -400,48 +474,53 @@ fn inject_skills(
         &home,
         &user,
         &project,
-        resolved.as_deref(),
+        resolved.skills.as_deref(),
     );
 
     Ok(InjectedSkills {
-        record: crate::skills::record(&injected, resolved.as_deref()),
+        record: crate::skills::record(&injected, resolved.skills.as_deref()),
         collisions,
+        mcp_resolved: resolved.mcp,
     })
 }
 
-/// Writes the record for a launch 6.1's skill collision check refused.
+/// Writes the record for a launch one of 6.1's pre-flight checks refused.
 ///
 /// Contract 8.3: no child process starts, so without the record the attempt is
 /// invisible, and under D10 anything not in a run record did not happen. The shape
-/// is `run_start` then `run_end` with a `refusal` on it, which derives
-/// `skill_collision` from `refusal` rather than from anything on a stream.
+/// is `run_start` then `run_end` with a `refusal` on it, which derives its outcome
+/// from `refusal` rather than from anything on a stream.
+///
+/// **One function for every check that refuses**, because the three steps are the
+/// same three every time and only the code and the remediation change. Two of
+/// contract 6's four checks are built and reach here: the skill collision of 6.1
+/// item 5 and the MCP launch check of item 6.
+///
+/// It is public so a test can drive the whole shape without launching a provider.
 ///
 /// The checkout, the branch and the links stay where they are. `hydra reap` is
 /// what removes them, the same as for a run that spawned, and a human who wants to
-/// see what collided can look at the directory.
+/// see what was refused can look at the directory.
 #[allow(clippy::too_many_arguments)]
-fn refuse_for_collision(
+pub fn refuse(
     run_file: &std::path::Path,
     run_id: &str,
     provider: Provider,
     line_zero: &serde_json::Value,
-    collisions: &[crate::skills::collision::Collision],
+    refusal: crate::record::Refusal,
+    remediation: String,
     policies: &crate::policy::PolicySet,
     worktree: Option<&WorktreeRef>,
     seed_tree: Option<&str>,
     layout: &Layout,
 ) -> Result<Call> {
-    let remediation = crate::skills::collision::remediation(collisions);
     eprintln!("hydra: run {run_id} refused");
     eprintln!("hydra: {remediation}");
 
     let mut writer =
         crate::record::Writer::create(run_file, run_id, None, Some(provider.binary()), None)?;
     writer.hydra_line(line_zero)?;
-    writer.hydra_line(&crate::record::RunEnd::refused(
-        crate::record::Refusal::SkillCollision,
-        remediation,
-    ))?;
+    writer.hydra_line(&crate::record::RunEnd::refused(refusal, remediation))?;
     drop(writer);
 
     // Read back through the normalizer for the same reason the spawned path does:
@@ -704,6 +783,7 @@ fn run_start(
     worktree: Option<WorktreeRef>,
     env_allowlist: Vec<String>,
     skills: Option<serde_json::Value>,
+    mcp: Option<serde_json::Value>,
 ) -> RunStart {
     RunStart {
         kind: "run_start",
@@ -733,9 +813,11 @@ fn run_start(
         // inject into. Absent rather than null: with nowhere to link, which sha
         // the run pinned is not a question with a missing answer.
         skills,
-        // Still absent, for the reason above. Nothing MCP is injected until
-        // ticket 08.
-        mcp: None,
+        // Contract 5.3's other group, and present on every recorded `claude` run
+        // this build launches. It needs no checkout, because on this provider the
+        // servers ride the command line, so a run outside a repo carries `mcp`
+        // and no `skills`.
+        mcp,
         auth: Some(Auth {
             // Authored from what Hydra did rather than sniffed. The allowlist passes
             // no key, so the child can only be on the stored subscription login.

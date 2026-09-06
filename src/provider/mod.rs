@@ -70,13 +70,22 @@ impl Provider {
         }
     }
 
-    /// What this provider says it resolved, contract 5.3's `skills.resolved`.
+    /// What this provider says it resolved: contract 5.3's `skills.resolved` and
+    /// `mcp.resolved`, from one probe.
+    ///
+    /// **One question and not two, because it is one process.** The skill listing
+    /// and the MCP tool list arrive in the same transcript, so asking twice would
+    /// pay twice for an answer that is already there.
     ///
     /// Free on `claude` and on `agy`, paid on `cursor-agent`. See
-    /// [`claude::resolved_skills`] for what free costs in wall-clock time.
-    pub fn resolved_skills(self, worktree: &std::path::Path) -> Result<Vec<String>> {
+    /// [`claude::resolve`] for what free costs in wall-clock time.
+    pub fn resolve(
+        self,
+        worktree: &std::path::Path,
+        mcp: crate::mcp::Probe<'_>,
+    ) -> Result<Resolved> {
         match self {
-            Provider::Claude => claude::resolved_skills(worktree),
+            Provider::Claude => claude::resolve(worktree, mcp),
         }
     }
 
@@ -99,6 +108,24 @@ impl Provider {
             Provider::Claude => claude::observe(raw),
         }
     }
+}
+
+/// What one free pre-flight probe found, for contract 5.3's two `resolved`
+/// fields.
+///
+/// Each half is `None` when the probe could not answer it. Contract 5.3 already
+/// requires a reader to treat that as unanswered rather than as an empty listing,
+/// and the two halves fail independently: a transcript can carry a tool list and
+/// no skill listing.
+#[derive(Default)]
+pub struct Resolved {
+    pub skills: Option<Vec<String>>,
+    pub mcp: Option<Vec<String>>,
+    /// Servers the provider named as failed, each as `name: reason`. Not a
+    /// refusal: 6.5 gives the fatal pre-flight to Cursor alone and says why, so
+    /// this reaches stderr and the record shows the server as injected and not
+    /// resolved.
+    pub failed_mcp: Vec<String>,
 }
 
 /// The two fields a frame can teach the envelope. Contract 4 and 5.1 both backfill

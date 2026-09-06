@@ -1,18 +1,24 @@
-//! `claude`, measured on 2.1.261.
+//! `claude`, measured on 2.1.263.
 //!
-//! The command line is harness spec 6.7's, in both of its policy shapes, with the
-//! two MCP flags held back and one redirect dropped.
+//! The command line is harness spec 6.7's, in both of its policy shapes, with one
+//! redirect dropped.
 //!
-//! **`--mcp-config` and `--strict-mcp-config` are not passed**, and the two are held
-//! back for different reasons. 6.7 puts both on a non-`judge` recorded run. Ticket 08
-//! writes the file `--mcp-config` points at, so passing that one now would name a file
-//! that does not exist. `--strict-mcp-config` is the one that costs something: 6.5 says
-//! it stops the human's inherited servers starting at all, and without it a recorded
-//! run's server set is the state of five directories rather than an argument Hydra
-//! wrote. Measured on ticket 02's three runs, every init frame came back
-//! `mcp_servers: []`, so nothing was inherited on this machine. That is an observation
-//! and not the guarantee the flag would make. 6.7 pairs the two, so both go on together
-//! in ticket 08.
+//! **`--mcp-config` and `--strict-mcp-config` ride a non-`judge` recorded run**,
+//! together, which is how 6.7 pairs them. The first names the file
+//! [`crate::mcp::write_config`] wrote and the second is what makes the run's server
+//! set an argument Hydra wrote rather than the state of five directories at spawn
+//! time. Without the strict flag the record could report only what Hydra intended.
+//!
+//! **`--restricted` does not drop MCP on 2.1.263, and the design says it does.**
+//! Measured 2026-09-06 with the free probe below: `--restricted --mcp-config <file>`
+//! resolved the server in the file, and 2.1.263's own `--help` now says "add
+//! --strict-mcp-config to skip MCP servers too". Ticket 23 measured the opposite on
+//! 2.1.257 and 6.5 and 6.7 were written from it, so `judge` gets neither flag and, on
+//! this version, keeps whatever the human configured. The gate refuses every
+//! `mcp__` call under `judge`, so what is left is tool descriptions reaching the
+//! model's context, which is ticket 27's residue arriving on the provider that was
+//! supposed to be free of it. Nothing was changed here: 6.7 fixes the `judge` argv,
+//! adding a flag to it is a design decision, and `IMPLEMENTATION.md` records it.
 //!
 //! **`< /dev/null` is dropped, because a pty is not a pipe.** 6.7 adds it so
 //! `claude` does not wait three seconds for stdin and write `no stdin data received
@@ -24,7 +30,7 @@
 use std::path::Path;
 
 use crate::policy::Dialect;
-use crate::provider::Observed;
+use crate::provider::{Observed, Resolved};
 
 /// The argv after the binary name.
 pub struct Launch<'a> {
@@ -36,6 +42,10 @@ pub struct Launch<'a> {
     pub settings: &'a Path,
     /// The policy name, which picks between 6.7's two shapes.
     pub policy: &'a str,
+    /// The run's MCP config, `~/hydra/spawn/<run-id>/mcp.json`, or `None` on a
+    /// launch shape that carries none. [`mcp_undeliverable`] is the one thing
+    /// that answers `None` today.
+    pub mcp: Option<&'a Path>,
 }
 
 /// `judge` takes `--restricted` and a shorter line than the other four.
@@ -74,6 +84,18 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
     argv.push("--settings".to_string());
     argv.push(launch.settings.display().to_string());
 
+    // 6.7: both flags or neither, on a non-`judge` recorded run. The strict flag
+    // is what makes the set an argument Hydra wrote, which is what lets
+    // `run_start.mcp.injected` claim it. A `judge` run gets no file to point at,
+    // so the branch above and this one answer the same question twice on purpose.
+    if let Some(mcp) = launch.mcp
+        && !restricted
+    {
+        argv.push("--mcp-config".to_string());
+        argv.push(mcp.display().to_string());
+        argv.push("--strict-mcp-config".to_string());
+    }
+
     if !restricted {
         // 6.7: safe because a hook deny beats it, measured, and because a detached
         // child has nobody to answer a prompt. The gate does the refusing.
@@ -87,6 +109,66 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
     }
     argv.push(launch.task.to_string());
     argv
+}
+
+/// Why a launch of this shape carries no MCP config at all, when it carries none.
+///
+/// One shape on this provider: 6.7's `judge` argv has no `--mcp-config` on it, so
+/// nothing Hydra writes can reach that run whatever the document admits.
+/// [`crate::mcp::Plan::shortfall`] turns that into 6.1 item 6's refusal.
+///
+/// **The reason is the argv and no longer the flag.** 6.7 justifies the omission
+/// with "`--restricted` drops MCP anyway", measured by ticket 23 on 2.1.257. That
+/// is false on 2.1.263, measured 2026-09-06, and the module comment above has the
+/// probe. The omission still holds because 6.7 writes the argv, which is why this
+/// answers on the policy name rather than on what the flag does.
+pub fn mcp_undeliverable(policy: &str) -> Option<&'static str> {
+    (policy == RESTRICTED_POLICY).then_some(
+        "harness spec 6.7 gives a judge run --restricted and no --mcp-config, so no \
+         server Hydra writes can reach it",
+    )
+}
+
+/// The `--mcp-config` file's contents, 6.5.
+///
+/// `claude`'s own shape: `mcpServers` keyed by name, a stdio body of `command`,
+/// `args` and `env`, and a remote body of `type` plus `url`. The remote key is
+/// where the three providers part company, so this is the one place the shape is
+/// written down for this one.
+///
+/// **An empty object is a real answer.** With `--strict-mcp-config` beside it, an
+/// empty `mcpServers` is what stops the human's own servers starting, so a run
+/// that admits nothing still gets a file.
+pub fn mcp_config(servers: &[&crate::mcp::Server]) -> serde_json::Value {
+    use crate::mcp::Transport;
+
+    let mut map = serde_json::Map::new();
+    for server in servers {
+        let mut body = serde_json::Map::new();
+        match server.transport {
+            Transport::Stdio => {
+                body.insert(
+                    "command".into(),
+                    server.command.clone().unwrap_or_default().into(),
+                );
+                if !server.args.is_empty() {
+                    body.insert("args".into(), server.args.clone().into());
+                }
+                if !server.env.is_empty() {
+                    body.insert("env".into(), serde_json::json!(server.env));
+                }
+            }
+            Transport::Http | Transport::Sse => {
+                body.insert("type".into(), server.transport.as_str().into());
+                body.insert("url".into(), server.url.clone().unwrap_or_default().into());
+                if !server.headers.is_empty() {
+                    body.insert("headers".into(), serde_json::json!(server.headers));
+                }
+            }
+        }
+        map.insert(server.name.clone(), serde_json::Value::Object(body));
+    }
+    serde_json::json!({ "mcpServers": serde_json::Value::Object(map) })
 }
 
 /// The hook config `--settings` points at, 6.6.
@@ -192,7 +274,8 @@ fn shell_quote(text: &str) -> String {
 /// would turn this into a paid call, which is why the name says what it is.
 const PROBE_MODEL: &str = "hydra-skill-preflight-not-a-model";
 
-/// What `claude` says it resolved, for contract 5.3's `skills.resolved`.
+/// What `claude` says it resolved, for contract 5.3's `skills.resolved` and
+/// `mcp.resolved`.
 ///
 /// **The record cannot claim what the model saw without this.** Claude Code fits
 /// its whole skill listing into a character budget and renders the overflow as
@@ -202,9 +285,22 @@ const PROBE_MODEL: &str = "hydra-skill-preflight-not-a-model";
 /// listing does.
 ///
 /// **It is free and it is not instant.** Measured 2026-09-05 on 2.1.263: 1.8s
-/// wall clock, no API call, no tokens. The transcript it leaves behind is the
-/// answer: one `attachment` line whose `attachment.type` is `skill_listing`,
-/// carrying `skillCount` and a `names` array.
+/// wall clock, no API call, no tokens. Re-measured 2026-09-06 with both MCP flags:
+/// 1.8s with an empty config and 1.9s with one stdio server in it.
+///
+/// **The MCP half comes off the tool names.** Measured 2026-09-06 on 2.1.263
+/// against a stdio server written for it, `tests/fixtures/mcp-probe-server.py`:
+/// the transcript's `deferred_tools_delta` attachment gained
+/// `mcp__hydra-probe__ping` in `addedNames`, and the same attachment carries
+/// `pendingMcpServers`, `needsAuthMcpServers` and `failedMcpServers`, the last as
+/// objects with a `name` and an error string. **A server that connects and offers
+/// no tool is invisible to this reading**, which is the one thing it cannot see.
+///
+/// **The probe carries the run's own MCP flags.** Without them it would resolve
+/// the human's servers and the record would claim them for a run that will not
+/// have them. `--strict-mcp-config` on the probe is chosen for that reason rather
+/// than reached for as a speed lever, and it means the probe starts every server
+/// the run will start, once more per launch.
 ///
 /// Three details are load-bearing. `--session-id` names the transcript, so this
 /// reads a file it can predict rather than the newest one in a directory a
@@ -218,15 +314,25 @@ const PROBE_MODEL: &str = "hydra-skill-preflight-not-a-model";
 /// ordinary `claude` invocation with the user's settings. That is the same
 /// exposure a recorded run already has and is worth knowing about here, where
 /// nothing was asked of a model.
-pub fn resolved_skills(worktree: &Path) -> anyhow::Result<Vec<String>> {
+pub fn resolve(worktree: &Path, mcp: crate::mcp::Probe<'_>) -> anyhow::Result<Resolved> {
     use anyhow::Context;
 
     let env = crate::env::ChildEnv::build(crate::provider::Provider::Claude)?;
     let home = crate::env::real_home()?;
     let session = uuid::Uuid::now_v7().to_string();
 
+    let mut args: Vec<String> = ["-p", "x", "--model", PROBE_MODEL, "--session-id", &session]
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect();
+    if let crate::mcp::Probe::Strict(config) = mcp {
+        args.push("--mcp-config".to_string());
+        args.push(config.display().to_string());
+        args.push("--strict-mcp-config".to_string());
+    }
+
     let out = std::process::Command::new("claude")
-        .args(["-p", "x", "--model", PROBE_MODEL, "--session-id", &session])
+        .args(&args)
         .current_dir(worktree)
         .env_clear()
         .envs(env.vars())
@@ -256,7 +362,19 @@ pub fn resolved_skills(worktree: &Path) -> anyhow::Result<Vec<String>> {
         )
     })?;
 
-    skill_listing(&text).context("the probe's transcript carries no skill listing")
+    let tools = tool_listing(&text);
+    Ok(Resolved {
+        skills: skill_listing(&text),
+        // A probe that was not asked the run's own question answers nothing about
+        // servers, whatever its own transcript says.
+        mcp: match mcp {
+            crate::mcp::Probe::Strict(_) => {
+                tools.as_ref().map(|listing| mcp_servers(&listing.added))
+            }
+            crate::mcp::Probe::Unanswerable => None,
+        },
+        failed_mcp: tools.map(|listing| listing.failed).unwrap_or_default(),
+    })
 }
 
 /// The first line the probe printed on either stream, for an error message.
@@ -293,6 +411,80 @@ fn project_slug(path: &Path) -> String {
             }
         })
         .collect()
+}
+
+/// What the transcript's `deferred_tools_delta` attachment says about tools and
+/// about the servers behind them.
+struct ToolListing {
+    /// `addedNames`, which holds one entry per MCP tool as
+    /// `mcp__<server>__<tool>`.
+    added: Vec<String>,
+    /// `failedMcpServers`, rendered as `name: reason`.
+    failed: Vec<String>,
+}
+
+/// The first `deferred_tools_delta` attachment in a transcript.
+///
+/// **The first, because the probe writes exactly one.** The name says delta and a
+/// long session would carry several; the probe never reaches a second turn, so
+/// merging them would be code no run of this build can exercise. A session that
+/// did carry more would need the removals applied too, and that belongs to
+/// whoever first has one.
+fn tool_listing(transcript: &str) -> Option<ToolListing> {
+    for line in transcript.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value["attachment"]["type"].as_str() != Some("deferred_tools_delta") {
+            continue;
+        }
+        let added = value["attachment"]["addedNames"]
+            .as_array()
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| name.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let failed = value["attachment"]["failedMcpServers"]
+            .as_array()
+            .map(|servers| {
+                servers
+                    .iter()
+                    .map(|server| {
+                        let name = server["name"].as_str().unwrap_or("?");
+                        let why = server["error"]
+                            .as_str()
+                            .or_else(|| server["errorCode"].as_str())
+                            .unwrap_or("no reason given");
+                        format!("{name}: {why}")
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        return Some(ToolListing { added, failed });
+    }
+    None
+}
+
+/// The servers behind a list of tool names, sorted and deduplicated.
+///
+/// `claude` names an MCP tool `mcp__<server>__<tool>`, so the server is what sits
+/// between the prefix and the next `__`. That split is exact because
+/// [`crate::mcp::Document`] refuses a server name carrying `__`, which is the
+/// rule that keeps this from being a guess.
+fn mcp_servers(tools: &[String]) -> Vec<String> {
+    let mut names: Vec<String> = tools
+        .iter()
+        .filter_map(|tool| tool.strip_prefix("mcp__"))
+        .filter_map(|rest| rest.split("__").next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// The `names` array off the transcript's `skill_listing` attachment.
@@ -352,12 +544,15 @@ pub fn observe(raw: &str) -> Observed {
 mod tests {
     use super::*;
 
+    const MCP: &str = "/tmp/spawn/r1/mcp.json";
+
     fn launch<'a>(policy: &'a str, settings: &'a Path) -> Launch<'a> {
         Launch {
             task: "hi",
             model: None,
             settings,
             policy,
+            mcp: Some(Path::new(MCP)),
         }
     }
 
@@ -398,10 +593,41 @@ mod tests {
     }
 
     #[test]
-    fn the_mcp_flags_wait_for_ticket_08() {
+    fn the_two_mcp_flags_ride_together() {
+        // 6.7 pairs them on a non-`judge` recorded run, and the pairing is the
+        // point: `--mcp-config` alone would add Hydra's servers to whatever the
+        // human has, and the record could then only report what Hydra intended.
         let argv = argv(&launch("standard", Path::new("/tmp/s.json")));
+        let at = argv.iter().position(|a| a == "--mcp-config").unwrap();
+        assert_eq!(argv[at + 1], MCP);
+        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    #[test]
+    fn judge_carries_neither_mcp_flag_even_when_a_file_exists() {
+        // 6.7's `judge` shape. `mcp::plan` never hands this policy a file, and
+        // the argv refuses one anyway, because two answers to one question is
+        // how a later edit to either half goes unnoticed.
+        let argv = argv(&launch("judge", Path::new("/tmp/s.json")));
         assert!(!argv.iter().any(|a| a == "--mcp-config"));
         assert!(!argv.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    #[test]
+    fn a_launch_with_no_mcp_file_passes_neither_flag() {
+        let argv = argv(&Launch {
+            task: "hi",
+            model: None,
+            settings: Path::new("/tmp/s.json"),
+            policy: "standard",
+            mcp: None,
+        });
+        assert!(!argv.iter().any(|a| a == "--mcp-config"));
+        assert!(
+            !argv.iter().any(|a| a == "--strict-mcp-config"),
+            "the strict flag without a config would strip the human's servers and \
+             add none, which is not a shape 6.7 asks for"
+        );
     }
 
     #[test]
@@ -418,6 +644,7 @@ mod tests {
             model: Some("sonnet"),
             settings: Path::new("/tmp/s.json"),
             policy: "standard",
+            mcp: Some(Path::new(MCP)),
         });
         assert_eq!(argv.last().unwrap(), "do the thing");
     }
@@ -506,6 +733,111 @@ mod tests {
             skill_listing(transcript).unwrap(),
             vec!["alpha".to_string(), "mattpocock-skills:tdd".to_string()]
         );
+    }
+
+    fn server(name: &str, transport: crate::mcp::Transport) -> crate::mcp::Server {
+        crate::mcp::Server {
+            name: name.to_string(),
+            transport,
+            admit: vec!["standard".to_string()],
+            command: None,
+            args: Vec::new(),
+            env: Default::default(),
+            url: None,
+            headers: Default::default(),
+        }
+    }
+
+    #[test]
+    fn a_stdio_server_generates_the_body_all_three_providers_share() {
+        let mut fs = server("filesystem", crate::mcp::Transport::Stdio);
+        fs.command = Some("npx".to_string());
+        fs.args = vec!["-y".to_string(), "server-filesystem".to_string()];
+        fs.env.insert("TOKEN".to_string(), "x".to_string());
+
+        let config = mcp_config(&[&fs]);
+        assert_eq!(config["mcpServers"]["filesystem"]["command"], "npx");
+        assert_eq!(
+            config["mcpServers"]["filesystem"]["args"][1],
+            "server-filesystem"
+        );
+        assert_eq!(config["mcpServers"]["filesystem"]["env"]["TOKEN"], "x");
+        assert!(
+            config["mcpServers"]["filesystem"].get("type").is_none(),
+            "a stdio server carries no type on this provider"
+        );
+    }
+
+    #[test]
+    fn a_remote_server_carries_the_key_this_provider_reads() {
+        // 6.5: `type` plus `url` here, `url` alone on `cursor-agent`,
+        // `serverUrl` on `agy`. This is the difference the canonical document
+        // exists to absorb.
+        let mut docs = server("docs", crate::mcp::Transport::Http);
+        docs.url = Some("https://example.com/mcp".to_string());
+        docs.headers
+            .insert("Authorization".to_string(), "Bearer x".to_string());
+
+        let config = mcp_config(&[&docs]);
+        assert_eq!(config["mcpServers"]["docs"]["type"], "http");
+        assert_eq!(
+            config["mcpServers"]["docs"]["url"],
+            "https://example.com/mcp"
+        );
+        assert_eq!(
+            config["mcpServers"]["docs"]["headers"]["Authorization"],
+            "Bearer x"
+        );
+        assert!(config["mcpServers"]["docs"].get("command").is_none());
+    }
+
+    #[test]
+    fn a_run_that_admits_nothing_still_gets_a_file() {
+        // With `--strict-mcp-config` beside it, an empty object is what stops the
+        // human's own servers starting. It is a claim rather than an omission.
+        let config = mcp_config(&[]);
+        assert!(config["mcpServers"].is_object());
+        assert_eq!(config["mcpServers"].as_object().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn judge_is_the_one_shape_that_cannot_be_delivered_a_server() {
+        assert!(mcp_undeliverable("judge").is_some());
+        for policy in ["standard", "read-only", "curate", "permissive"] {
+            assert!(mcp_undeliverable(policy).is_none(), "{policy}");
+        }
+    }
+
+    #[test]
+    fn the_resolved_servers_come_off_the_tool_names() {
+        // Measured on 2.1.263, 2026-09-06: the probe's transcript carried
+        // `mcp__hydra-probe__ping` in `addedNames` for a stdio server passed on
+        // `--mcp-config`, and named a server that would not start in
+        // `failedMcpServers`.
+        let transcript = concat!(
+            "{\"type\":\"attachment\",\"attachment\":{\"type\":\"deferred_tools_delta\",",
+            "\"addedNames\":[\"WebSearch\",\"mcp__hydra-probe__ping\",",
+            "\"mcp__hydra-probe__pong\",\"mcp__docs__search_the_docs\"],",
+            "\"failedMcpServers\":[{\"name\":\"broken\",\"errorCode\":\"CONNECTION_CLOSED\",",
+            "\"error\":\"Connection closed\"}]}}\n",
+        );
+        let listing = tool_listing(transcript).unwrap();
+        assert_eq!(
+            mcp_servers(&listing.added),
+            vec!["docs".to_string(), "hydra-probe".to_string()],
+            "one entry per server, not per tool"
+        );
+        assert_eq!(
+            listing.failed,
+            vec!["broken: Connection closed".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_transcript_with_no_tool_listing_answers_nothing() {
+        // The same rule `skills.resolved` follows: absent is unanswered, and an
+        // empty array would claim the run got no servers.
+        assert!(tool_listing("{\"type\":\"user\"}\n").is_none());
     }
 
     #[test]

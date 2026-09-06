@@ -197,6 +197,16 @@ impl Layout {
         self.spawn(run_id).join("settings.json")
     }
 
+    /// The MCP config `--mcp-config` points at, 6.5.
+    ///
+    /// The name comes from 6.5's own table rather than from a ticket, the same
+    /// way `settings.json` comes from 6.6's. It is a `claude` path: the other two
+    /// providers read their MCP config out of the worktree, which is 6.5's
+    /// deliberate asymmetry rather than an oversight here.
+    pub fn mcp_file(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("mcp.json")
+    }
+
     /// Creates the directories this slice writes into. Never the worktree itself,
     /// which `git worktree add` insists on creating.
     pub fn ensure(&self) -> Result<()> {
