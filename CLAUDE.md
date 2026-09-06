@@ -22,15 +22,19 @@ nothing crosses between the harness and Ouroboros except the run record and the 
 ## The map
 
 `.scratch/hydra/map.md` is the history: the destination, the settled decisions D1 to D16, a one-line
-index of all 38 closed tickets, what is still fog, and what is out of scope. Read it when you need to
+index of the closed tickets, what is still fog, and what is out of scope. Read it when you need to
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-The map has no open tickets and it is closed. **Wayfinder is not how the build continues**: it
-charts decisions, its tickets resolve questions rather than execute slices, and its own instructions
-say the pull to just do the work is the signal you have reached the edge of the map. This map reached
-its destination and handed off. Reopen it only if new work needs a decision rather than an
-implementation:
+**The map is open again at 38 of 42, and none of the four blocks the build.** It reached its
+destination on 2026-09-05 and closed; build tickets 07 and 12 then hit four things that need a
+decision rather than an implementation, which is the one condition for reopening it. Tickets 39 to
+42 are those, three of them about what a policy scope is and who gets to know. The map's own
+paragraph under `## Destination` says which is which.
+
+**Wayfinder is still not how the build continues**: it charts decisions, its tickets resolve
+questions rather than execute slices, and its own instructions say the pull to just do the work is
+the signal you have reached the edge of the map. Take a map ticket only when the work is a decision:
 
 ```
 /mattpocock-skills:wayfinder .scratch/hydra/map.md
@@ -102,7 +106,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 38 of 38 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 38 of 42 resolved
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 

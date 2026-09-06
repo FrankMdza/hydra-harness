@@ -39,6 +39,26 @@ destination and someone who was in none of these sessions can build from them.
 `.scratch/hydra/build/plan.md`, because wayfinder tickets resolve decisions and build tickets execute
 slices. Nothing in that file reopens a decision here.
 
+**Reopened 2026-09-06 at 38 of 42, by the build rather than by a session of its own.** Build tickets
+07 and 12 hit four things that need a decision rather than an implementation, which is the one
+condition for reopening this map. Both tickets wrote them into `IMPLEMENTATION.md` beside the code
+that hit them and neither decided one. They are tickets 39 to 42 and they are open:
+
+- [39](issues/39-linked-skill-nobody-can-reach.md) A linked skill is unreachable under four of the
+  five policies. Injection is built and measured; under everything but `permissive` a skill reaches
+  the model as a listing entry it can neither invoke nor read.
+- [40](issues/40-where-the-skill-store-scope-points.md) Where the `skill_store` scope points.
+  Harness spec 7.2 and `docs/ouroboros-spec.md` 3.6 disagree, the code answers, and the confirming
+  never happened. Graduated from the fog.
+- [41](issues/41-curate-checkout-against-the-store-pin.md) The curate checkout runs before the
+  launch commits the store, so a pass on a dirty store reads a checkout its own launch moves past.
+  Blocked by 40.
+- [42](issues/42-a-record-carries-no-scopes.md) A record pins `policy_sha` and not the paths its
+  scopes resolved to, so a build that moves a scope rewrites how every earlier record reads.
+
+Three of the four are one question seen from different sides: what a scope is, and who gets to know.
+None of them blocks build ticket 08, which is what the frontier will hand the next session.
+
 ## Notes
 
 **Domain.** Hydra is a router, not an agent. One command picks a provider, injects the shared skills, launches that provider's own CLI as a child process on a pty it owns, and tees its structured output to a trajectory log. Ticket 02 settled that Hydra is the parent process rather than a client of a terminal; ticket 01 settled that it should speak ACP to the providers that have it. Three routable providers in v1: `claude` (2.1.261), `cursor-agent` (2026.09.02-c22c1a3), `agy` (1.1.26). `hermes` (0.14.0) was the fourth until ticket 22 unrouted it. Versions observed 2026-09-04 11:40; `agy` had already moved again since the earlier reading that day. **Two of the three self-update without asking. `agy` alone has moved through four versions in four days, and the drift has invalidated a finding three times**: `cursor-agent` went 2025.10.02 to 2026.08.31 on 09-01 and killed ticket 03's Cursor finding, then 2026.08.31 to 2026.09.02 on 09-02, superseding the build ticket 25 measured; `agy` went 1.0.10 to 1.1.23 mid-ticket-18, to 1.1.24 on 09-02, to 1.1.25 on 09-03 during ticket 15, then to 1.1.26 on 09-04 during ticket 16. `claude` broke its run of holding still and went 2.1.257 to 2.1.261 on 09-04 between tickets 34 and 35, which is why ticket 34 read one binary and ticket 35 exercised another. Ticket 26 probed the hook gate on 1.1.24 and ticket 30 re-measured it on 1.1.25; `--add-dir` and `--output-format stream-json` were re-checked on 1.1.26 and both survive. All three have now moved under this map, so none of them holds still. Re-read every version at the top of a session, and date every provider-specific claim you write. **Version is not the only thing that drifts.** Ticket 33 found `cursor-agent` reporting a different `model` on the build ticket 25 measured, because the account's model selection changed, so a provider claim can expire without a version moving. Record what the config said, not only what the binary was. Ticket 18 replaced `gemini` (0.42.0) with `agy` as the Google provider; `gemini` stays specced as a cold fallback on an API key. A session can delegate to another provider mid-flight, so a Claude Code session acting as orchestrator can hand a small task to cursor-agent and get a structured result back.
@@ -159,14 +179,6 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
   which is run content that entered through no tool call and now blocks export. Whether the other
   two vendors' stores carry an equivalent is unasked, and it decides how much of the interactive
   corpus is exportable at all.
-
-- **The curator's own worktree of the skill store.** `docs/ouroboros-spec.md` section 9.1. The
-  curator writes into a git worktree of the store rather than into `~/hydra/skills/` itself, because a
-  run pins the store at a sha and a dirty store is committed before pinning, so a curator writing into
-  the live working tree collides with the next launch's commit. No closed ticket says this; it follows
-  from two that do. The open detail is where that worktree lives, and the spawn directory is reaped
-  with the run, which is fine for a checkout and irrelevant to the branch. Sharp enough to confirm
-  rather than decide, so it waits for someone building rung one rather than for a session of its own.
 
 - **Rung two's build details.** `docs/ouroboros-spec.md` section 9 holds four open items and three of
   them are these, which nothing else on this map covers. Whether the proposer needs a sixth

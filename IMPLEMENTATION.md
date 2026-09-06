@@ -488,7 +488,7 @@ nothing reads it.
 ### A linked skill is unreachable under four of the five policies
 
 This is the edge of the design rather than a gap in the code, and it needs a decision
-rather than an implementation.
+rather than an implementation. It is map ticket 39.
 
 Measured on 2026-09-06 with a real run and with that run's own compiled gate. Under
 `standard`, a linked skill is listed to the model, and then:
@@ -508,11 +508,9 @@ grants `provider_native` and `file_read` anywhere.
 
 Nothing here was changed to fix it. 6.4 says the links point into a snapshot and 7.2 says
 the `worktree` scope is the checkout, and no closed ticket connects the two. The store's
-own scope is a second half of the same question: harness spec 7.2 says `curate` writes to
-`~/hydra/skills/` literally, `docs/ouroboros-spec.md` 3.6 has the curator working in its
-own worktree of the store, and 9.1 flags that as a refinement to confirm. Ticket 07 left
-`Scope::SkillStore` pointing at `~/hydra/skills/` unchanged, because moving it is a
-decision for the map.
+own scope is a second half of the same question, and ticket 12 answered it one way while
+harness spec 7.2 and `docs/ouroboros-spec.md` 3.6 still answer it two ways. That half is
+map ticket 40.
 
 ## The one departure from the record contract
 
@@ -1202,8 +1200,8 @@ in the store reads the store as it was before its own launch tidied it. Ticket 0
 wired the pinning and did not touch this, because it is an ordering decision rather
 than a line of code: either the store is committed before the curate checkout, or
 the checkout moves after the launch and the gate is compiled against a directory
-that does not exist yet. Neither ticket decided it, so it is open, and it belongs on
-the map. The pass measured above hit the harmless half, an empty `HEAD` under a
+that does not exist yet. Neither ticket decided it, so it is open. It is map ticket 41,
+blocked by 40 because the order depends on where the checkout lives. The pass measured above hit the harmless half, an empty `HEAD` under a
 store whose skills were not committed.
 
 ## Choices this build made that no ticket settled
@@ -1390,8 +1388,8 @@ Out of scope for this slice, and each one has a document that already says what 
   Seen for real on 2026-09-06: a concurrent branch pointed `skill_store` at a per-run
   worktree of the store, and its run's ten in-scope reads re-derive on this branch as ten
   `GateLeak` findings. Nothing is wrong with either build. The record is missing the
-  field that would tell them apart, and that is a decision for the map rather than a fix
-  for a ticket.
+  field that would tell them apart. That is map ticket 42, and ticket 40 is the same
+  question seen from one scope.
 - **A run with no `run_end` is not corrupt.** Contract section 6 says so. Killing the
   detached half mid-run produces one, and nothing completes it: `hydra status` reports it
   as abandoned and stops there, because completing it means harvest and no run on this
