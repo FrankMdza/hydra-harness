@@ -48,6 +48,9 @@ fn line_zero(cwd: &Path) -> serde_json::Value {
         task: Some("stub".into()),
         policy: Some("standard".into()),
         policy_sha: None,
+        // A stub launch compiles no gate, so it resolved no scope.
+        floor_lifted: Some(false),
+        scopes: None,
         cwd: cwd.display().to_string(),
         worktree: None,
         depth: 0,

@@ -334,6 +334,57 @@ fn one_refused_call_is_a_policy_bug_and_the_run_is_still_learned_from() {
 }
 
 #[test]
+fn a_record_with_no_scopes_reaches_the_curator_as_a_limit() {
+    // Map ticket 42's cost, checked at the place it would be paid. The reader
+    // rebuilt the paths this run's decisions resolve against, which is a limit of
+    // the derivation. Routed to `disagreements` instead it would weigh 2 in the
+    // ranking and read in the brief as "the record and the policy disagree",
+    // which is how one clean record would have arrived top of a pass's brief as a
+    // run whose gate leaked twenty times.
+    let fixture = Fixture::new("scope-limit");
+    let sha = policies().sha().to_string();
+    let worktree = fixture.worktree(A);
+    let mut record = Record::shaped(Shape {
+        run_id: A,
+        policy: Some("standard"),
+        policy_sha: Some(&sha),
+        worktree: Some(&worktree),
+        ..Shape::default()
+    });
+    let text = record
+        .tool_use(
+            "toolu_01",
+            "Write",
+            json!({"file_path": worktree.join("ok.txt"), "content": "yes\n"}),
+        )
+        .hook_response(
+            "Write",
+            "allow",
+            "hydra/allow: policy standard allows file_write.",
+        )
+        .tool_result("toolu_01", "File created successfully.", false)
+        .result(usage_frame())
+        .closed();
+    fixture.write(A, &text);
+
+    let selection = fixture.select();
+    let run = &selection.learn[0];
+    assert!(
+        run.signals
+            .limits
+            .iter()
+            .any(|said| said.contains("carries no scopes for")),
+        "{:?}",
+        run.signals.limits
+    );
+    assert!(
+        run.signals.disagreements.is_empty(),
+        "{:?}",
+        run.signals.disagreements
+    );
+}
+
+#[test]
 fn an_abandoned_run_is_learned_from_and_a_live_one_is_not_read_at_all() {
     // The first of the five classes is a dead pid with no `run_end`, and the
     // outcome derivation says `None` to exactly that. A live run says the same
@@ -698,12 +749,12 @@ fn compiled_config(gate: &Path) -> serde_json::Value {
 
 #[test]
 fn a_curate_runs_own_record_does_not_read_back_as_a_gate_that_leaked() {
-    // Contract 7.7 re-evaluates the run's policy against every recorded call, and
-    // it rebuilds the scopes rather than reading them off the record. A curate
-    // run writes in its own checkout, so a reader that scoped it to
+    // Contract 7.7 re-evaluates the run's policy against every recorded call. A
+    // curate run writes in its own checkout, so a reader that scoped it to
     // `~/hydra/skills/` instead would report every write the curator made as a
     // call the gate should have refused. Ten of those landed in one real record
-    // before `Layout::skill_checkout` was what both sides derived.
+    // before `Layout::skill_checkout` was what both sides derived, and the
+    // record now carries the path rather than leaving it to a rule.
     let fixture = Fixture::new("replay");
     let store = fixture.store();
     let run_id = A;
@@ -716,10 +767,20 @@ fn a_curate_runs_own_record_does_not_read_back_as_a_gate_that_leaked() {
     )
     .unwrap();
 
+    let worktree = fixture.worktree(run_id);
     let mut record = Record::shaped(Shape {
         run_id,
         policy: Some("curate"),
         policy_sha: Some(policies().sha()),
+        worktree: Some(&worktree),
+        // Build ticket 15: the checkout is on the record now, so the reader
+        // takes it rather than rebuilding it from its own layout.
+        scopes: Some(common::scopes_of(
+            &fixture.layout(),
+            run_id,
+            "curate",
+            &worktree,
+        )),
         ..Shape::default()
     });
     let text = record

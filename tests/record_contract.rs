@@ -40,6 +40,8 @@ fn a_run_start() -> RunStart {
         task: Some("say pong".into()),
         policy: None,
         policy_sha: None,
+        floor_lifted: None,
+        scopes: None,
         cwd: "/Users/USER/hydra/worktrees/x".into(),
         worktree: Some(WorktreeRef {
             path: "/Users/USER/hydra/worktrees/x".into(),
@@ -240,6 +242,22 @@ fn the_validator_catches_a_null_group_that_should_be_absent() {
     );
 }
 
+#[test]
+fn the_validator_catches_null_scopes() {
+    // 5.5 and 5.6: a harness run and an interactive one compiled no gate, so
+    // which paths they resolved is not a question with a missing answer. A null
+    // invites a reader to ask, which is what the group rule is for, and `scopes`
+    // joined it under ticket 42.
+    let text = start_line(0).replace(r#""worktree":null"#, r#""worktree":null,"scopes":null"#);
+    assert!(
+        problems(&format!("{text}\n"))
+            .iter()
+            .any(|p| p.contains("scopes is null")),
+        "{:?}",
+        problems(&format!("{text}\n"))
+    );
+}
+
 /// Line 0 with contract 5.3's `mcp` group on it, as a launch writes it.
 fn with_mcp(group: &str) -> String {
     format!(
@@ -338,6 +356,122 @@ fn the_validator_catches_a_run_id_that_does_not_match_the_filename() {
             .iter()
             .any(|p| p.contains("does not match the filename"))
     );
+}
+
+/// The policy the compiler wrote into a gate script, read back.
+///
+/// The script carries it as `json.loads("<json>")`, a JSON document inside a
+/// JSON string, so this unwraps both layers rather than matching substrings
+/// through two levels of escaping.
+fn compiled_config(gate: &std::path::Path) -> serde_json::Value {
+    let script = std::fs::read_to_string(gate).unwrap();
+    let line = script
+        .lines()
+        .find(|line| line.starts_with("HYDRA_CONFIG = json.loads("))
+        .expect("the compiled gate carries a config line");
+    let literal = line
+        .trim_start_matches("HYDRA_CONFIG = json.loads(")
+        .trim_end_matches(')');
+    let inner: String = serde_json::from_str(literal).unwrap();
+    serde_json::from_str(&inner).unwrap()
+}
+
+#[test]
+fn a_record_carries_the_paths_its_gate_was_compiled_against() {
+    // Contract 5.1's `scopes` and `floor_lifted`, from the launch's own values.
+    // The point of the test is not that six keys are present, it is that they
+    // are the paths `write_spawn_config` compiled into the script: two correct
+    // builds resolved one scope two ways on 2026-09-06 and no field told them
+    // apart (map ticket 42).
+    let root = std::env::temp_dir().join(format!("hydra-scopes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = hydra::paths::Layout::at(&root);
+    layout.ensure().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    // A real repository, because `parent_git_dir` is read back out of
+    // `git rev-parse --git-common-dir` and git answers that for one alone.
+    let repo = root.join("parent");
+    std::fs::create_dir_all(&repo).unwrap();
+    let out = std::process::Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    // A `curate` spawn, because it is the one policy with a checkout, and the
+    // sixth key is absent on every other. The pass checks the store out before
+    // it launches, so the directory is there by the time the gate is compiled.
+    std::fs::create_dir_all(layout.skill_checkout(RUN_ID)).unwrap();
+    std::fs::create_dir_all(layout.skills()).unwrap();
+    let set = hydra::policy::PolicySet::discover().unwrap();
+    let spawn = hydra::run::write_spawn_config(
+        &layout,
+        RUN_ID,
+        &set,
+        hydra::provider::Provider::Claude,
+        "curate",
+        Some(&worktree),
+        Some(&repo),
+        Some("1f0dcafe1f0dcafe1f0dcafe1f0dcafe1f0dcafe"),
+        true,
+    )
+    .unwrap();
+
+    let path = scratch("scopes.jsonl");
+    let _ = std::fs::remove_file(&path);
+    let mut start = a_run_start();
+    start.policy = Some("curate".into());
+    start.policy_sha = Some(set.sha().to_string());
+    start.floor_lifted = Some(true);
+    start.scopes = Some(spawn.scopes.clone());
+    let mut writer = Writer::create(&path, RUN_ID, None, Some("claude"), None).unwrap();
+    writer.hydra_line(&start).unwrap();
+    writer.hydra_line(&RunEnd::streamed(Some(0), None)).unwrap();
+    drop(writer);
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    check(&text, Some(RUN_ID)).assert_ok();
+    let line: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    let recorded = &line["hydra"]["scopes"];
+
+    assert_eq!(line["hydra"]["floor_lifted"], serde_json::json!(true));
+    for (name, expected) in [
+        ("worktree", &worktree),
+        ("skill_store", &layout.skills()),
+        ("skill_checkout", &layout.skill_checkout(RUN_ID)),
+        ("corpus", &layout.runs()),
+        ("gate_script", &spawn.gate),
+        ("parent_git_dir", &repo.join(".git")),
+    ] {
+        let stored = recorded[name].as_str().unwrap_or_else(|| {
+            panic!("the record carries no {name}: {recorded}");
+        });
+        // The stored path is canonical and keeps its case, so a reader can open
+        // it. `/var` against `/private/var` on this machine is why the
+        // comparison is against the canonicalized path rather than the raw one.
+        assert_eq!(
+            std::path::Path::new(stored),
+            std::fs::canonicalize(expected).unwrap(),
+            "{name}"
+        );
+    }
+    // `skill_snapshot` is not a key: contract 5.1 leaves it out because it
+    // recomputes from `skills.store_sha`, which is already on line 0.
+    assert!(recorded.get("skill_snapshot").is_none(), "{recorded}");
+
+    // The seam this ticket is about. The record and the script name the same
+    // paths, folded to the case the script matches on (harness spec 15.2).
+    let compiled = compiled_config(&spawn.gate);
+    for name in ["worktree", "skill_store", "skill_checkout", "corpus"] {
+        assert_eq!(
+            compiled["scopes"][name].as_str().unwrap(),
+            recorded[name].as_str().unwrap().to_lowercase(),
+            "the gate and the record disagree about {name}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

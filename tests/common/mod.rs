@@ -95,6 +95,14 @@ pub struct Shape<'a> {
     /// writes. Contract 7.7's re-evaluation recomputes the `skill_snapshot`
     /// scope from this field and from nothing else.
     pub store_sha: Option<&'a str>,
+    /// Contract 5.1's `scopes`, the paths the gate was compiled against.
+    /// `None` leaves the object off, which is what every record written before
+    /// build ticket 15 looks like and what most fixtures here want.
+    pub scopes: Option<Value>,
+    /// Contract 5.1's `floor_lifted`. `None` leaves the field off, the shape a
+    /// record written before build ticket 15 has, and the reader reads that as
+    /// false.
+    pub floor_lifted: Option<bool>,
 }
 
 impl Default for Shape<'_> {
@@ -111,8 +119,46 @@ impl Default for Shape<'_> {
             process_start_time: Some("2026-09-05T20:51:39.369329Z".to_string()),
             worktree: None,
             store_sha: None,
+            scopes: None,
+            floor_lifted: None,
         }
     }
+}
+
+/// The `scopes` object a launch writes, for a record a test builds by hand.
+///
+/// The five keys a run under this layout has a path for. `parent_git_dir` is
+/// left to the caller, since a fixture rarely has a repository, and
+/// `skill_checkout` rides on the policy the way `write_spawn_config` decides it.
+pub fn scopes_of(layout: &Layout, run_id: &str, policy: &str, worktree: &Path) -> Value {
+    let mut scopes = json!({
+        "worktree": worktree.to_string_lossy(),
+        "skill_store": layout.skills().to_string_lossy(),
+        "corpus": layout.runs().to_string_lossy(),
+        "gate_script": layout.gate_script(run_id).to_string_lossy(),
+    });
+    if policy == "curate" {
+        scopes["skill_checkout"] = json!(layout.skill_checkout(run_id).to_string_lossy());
+    }
+    scopes
+}
+
+/// Every finding but the one a record with no `scopes` on it earns.
+///
+/// Build ticket 15 made the reader say out loud that it rebuilt the paths a
+/// decision resolves against, and no fixture here carries `scopes` unless it
+/// says so, which is what every record written before that ticket looks like.
+/// A test asking whether a call raised anything wants the rest of the list.
+pub fn other_findings(run: &hydra::normalize::Run) -> Vec<&hydra::normalize::Finding> {
+    run.findings
+        .iter()
+        .filter(|finding| !rebuilt_the_scopes(finding))
+        .collect()
+}
+
+/// Whether this finding is the reader saying it rebuilt the run's scopes.
+pub fn rebuilt_the_scopes(finding: &hydra::normalize::Finding) -> bool {
+    matches!(finding, hydra::normalize::Finding::Limit(said) if said.contains("carries no scopes"))
 }
 
 /// One synthetic run file, built a frame at a time.
@@ -126,11 +172,32 @@ pub struct Record {
 
 impl Record {
     /// Opens with a `run_start` under the named policy, `None` for a pre-gate run.
+    ///
+    /// No `scopes`, which is what every record on this machine looks like.
     pub fn opened(worktree: &Path, policy: Option<&str>, policy_sha: Option<&str>) -> Self {
         Self::shaped(Shape {
             policy,
             policy_sha,
             worktree: Some(worktree),
+            ..Shape::default()
+        })
+    }
+
+    /// A record this build would have written: the `scopes` object beside the
+    /// policy, so a replay resolves against the paths the gate really used.
+    ///
+    /// **A leak and a disagreement are only reported on a record like this
+    /// one.** Rebuild a path and the derivation answered about another gate, so
+    /// build ticket 15 downgrades both to a limit. A test that wants either has
+    /// to say which paths the gate had.
+    pub fn gated(sandbox: &Sandbox, provider: &str, policy: &str, policy_sha: &str) -> Self {
+        let worktree = sandbox.worktree();
+        Self::shaped(Shape {
+            provider: Some(provider),
+            policy: Some(policy),
+            policy_sha: Some(policy_sha),
+            worktree: Some(&worktree),
+            scopes: Some(scopes_of(&sandbox.layout(), RUN_ID, policy, &worktree)),
             ..Shape::default()
         })
     }
@@ -178,6 +245,15 @@ impl Record {
         let mut start = start;
         if let Some(sha) = shape.store_sha {
             start["skills"] = json!({ "store_sha": sha, "linked": [], "resolved": null });
+        }
+        // Contract 5.1's two fields from build ticket 15. Both are absent by
+        // default, because that is what every record written before it carries
+        // and what the reader has to keep reading.
+        if let Some(scopes) = shape.scopes {
+            start["scopes"] = scopes;
+        }
+        if let Some(lifted) = shape.floor_lifted {
+            start["floor_lifted"] = json!(lifted);
         }
         record.line("hydra", start);
         record

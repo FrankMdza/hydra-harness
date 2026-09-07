@@ -32,6 +32,22 @@ pub struct RunStart {
     pub task: Option<String>,
     pub policy: Option<String>,
     pub policy_sha: Option<String>,
+    /// `--allow-floor-escape`, harness spec 16. A fact about the request rather
+    /// than about the gate, so it is filled on every recorded run, a refused one
+    /// included, and null on a harness run and an interactive one, where no gate
+    /// is compiled (contract 5.5 and 5.6).
+    pub floor_lifted: Option<bool>,
+    /// The absolute paths the gate resolved its scopes to, keyed by scope name
+    /// (contract 5.1). Absent, never null, on a run that compiled no gate, and a
+    /// key the run had no path for is absent from the object.
+    ///
+    /// **The sixth input to the compile, and the one nothing recovers.**
+    /// `policy_sha` pins the rules and this pins what they were applied to. Two
+    /// correct builds resolved `skill_store` two ways on 2026-09-06 and ten
+    /// in-scope reads on one record re-derived as ten gate leaks on the other,
+    /// with no field saying the two builds differed (map ticket 42).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<std::collections::BTreeMap<String, String>>,
     pub cwd: String,
     pub worktree: Option<WorktreeRef>,
     pub depth: u32,

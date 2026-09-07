@@ -32,6 +32,8 @@ fn minimal_run_start(pid: u32, start: Option<String>) -> RunStart {
         task: Some("stub".into()),
         policy: None,
         policy_sha: None,
+        floor_lifted: None,
+        scopes: None,
         cwd: "/tmp".into(),
         worktree: None,
         depth: 0,

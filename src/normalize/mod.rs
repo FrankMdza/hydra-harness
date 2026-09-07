@@ -27,7 +27,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::paths::Layout;
-use crate::policy::{Capability, PolicySet, Spawn};
+use crate::policy::{Capability, PolicySet, Spawn, keys};
 use crate::provider::Provider;
 
 /// One normalized event. Ten variants, contract 7.2.
@@ -498,11 +498,61 @@ pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
     }
 }
 
+/// **What line 0 says about the gate the run was compiled with.** Contract 5.1's
+/// `scopes` and `floor_lifted`, read the way every other line 0 field is read: by
+/// name, out of a `Value`, with absence meaning something. A record written
+/// before build ticket 15 carries neither, so both are optional here and the
+/// reader says out loud what it stood in for.
+#[derive(Default, Debug, Clone)]
+pub(crate) struct RecordedGate {
+    /// `None` on a record that predates the field.
+    ///
+    /// **A key missing from a present object is an answer for two of the seven
+    /// and a gap for the rest.** `skill_checkout` and `parent_git_dir` are absent
+    /// when the run had no such path, which contract 5.1 makes the meaning of an
+    /// absent key. The other four are on every record a gate was compiled for, so
+    /// a present object missing one is a record from somewhere else, and the
+    /// reader rebuilds it and says so rather than reading the gap as "no
+    /// worktree".
+    scopes: Option<std::collections::BTreeMap<String, PathBuf>>,
+    floor_lifted: bool,
+}
+
+impl RecordedGate {
+    pub(crate) fn of(body: &Value) -> Self {
+        let scopes = body.get("scopes").and_then(Value::as_object).map(|object| {
+            object
+                .iter()
+                .filter_map(|(name, path)| Some((name.clone(), PathBuf::from(path.as_str()?))))
+                .collect()
+        });
+        Self {
+            scopes,
+            // Harness spec 16's flag, and false is what a record without it
+            // means: the floor was in force, which is the shape ticket 03 left.
+            floor_lifted: body["floor_lifted"].as_bool().unwrap_or(false),
+        }
+    }
+
+    fn path(&self, name: &str) -> Option<&Path> {
+        self.scopes.as_ref()?.get(name).map(PathBuf::as_path)
+    }
+
+    fn carries_scopes(&self) -> bool {
+        self.scopes.is_some()
+    }
+}
+
 /// The launch a record describes, rebuilt for contract 7.7's re-evaluation.
 ///
-/// **The three adapters differ in the provider and in nothing else here.** Every
-/// scope below is recomputed from the record by the same rule the launch used, so
-/// a gate compiled from this answers the question the live gate answered. A
+/// **A stored path wins and a missing one is rebuilt.** Contract 7.7: a reader
+/// never prefers its own layout over a path on the record, because the stored
+/// path is what the gate saw and the layout is what this build would have done.
+/// Where the record says nothing, every scope below is recomputed by the same
+/// rule the launch used, and [`ReplaySpawn::scope_limit`] is the reader saying
+/// which ones.
+///
+/// **The three adapters differ in the provider and in nothing else here.** A
 /// second spelling of any one of these fields in one adapter would make that
 /// adapter's `GateLeak` findings mean something different from the other two's,
 /// and nothing would say which.
@@ -513,10 +563,19 @@ pub(crate) struct ReplaySpawn<'a> {
     policy: String,
     cwd: PathBuf,
     worktree: PathBuf,
+    skill_store: PathBuf,
+    corpus: PathBuf,
     skill_snapshot: PathBuf,
     skill_checkout: Option<PathBuf>,
     parent_git_dir: Option<PathBuf>,
     gate_script: PathBuf,
+    floor_lifted: bool,
+    /// The scope names this rebuilt rather than read, in the order the compile
+    /// takes them.
+    rebuilt: Vec<&'static str>,
+    /// The parent repo's `.git` was rebuilt and nothing answered, so the replay
+    /// runs one denied path short of the gate's.
+    parent_git_dir_lost: bool,
 }
 
 impl<'a> ReplaySpawn<'a> {
@@ -529,42 +588,94 @@ impl<'a> ReplaySpawn<'a> {
         cwd: Option<&Path>,
         worktree: Option<&Path>,
         store_sha: Option<&str>,
+        gate: &RecordedGate,
     ) -> Self {
         let here = cwd
             .or(worktree)
             .map(Path::to_path_buf)
             .unwrap_or_else(|| layout.worktree(run_id));
-        // The parent repo's `.git`, rediscovered from the checkout the run
-        // worked in. `--git-common-dir` answers there with the directory every
-        // checkout of that repo shares, which is the one 7.5 denies; joining
-        // `.git` onto the checkout would name a pointer file instead. A record
-        // whose checkout has been reaped derives one denied path fewer, which
-        // loses a `GateLeak` it could have reported and never invents one.
-        let parent_git_dir = crate::worktree::git_common_dir(worktree.unwrap_or(&here));
-        Self {
-            layout,
-            policy: policy.to_string(),
-            cwd: here,
-            // The same path the launch used for a run with no worktree, and not
-            // the record's own `cwd`. 7.5 carves the run's worktree out of the
-            // denials, so a fallback to the cwd would let a replay read the whole
-            // directory the human stood in as a path the run owned.
-            worktree: worktree
+        let mut rebuilt: Vec<&'static str> = Vec::new();
+        // A stored path, or the rebuild with the key named. The four below are on
+        // every record a gate was compiled for, so a missing one is a gap rather
+        // than an answer.
+        let mut take = |key: &'static str, derive: &mut dyn FnMut() -> PathBuf| match gate.path(key)
+        {
+            Some(path) => path.to_path_buf(),
+            None => {
+                rebuilt.push(key);
+                derive()
+            }
+        };
+
+        // The same path the launch used for a run with no worktree, and not the
+        // record's own `cwd`. 7.5 carves the run's worktree out of the denials,
+        // so a fallback to the cwd would let a replay read the whole directory
+        // the human stood in as a path the run owned.
+        let worktree_scope = take(keys::WORKTREE, &mut || {
+            worktree
                 .map(Path::to_path_buf)
-                .unwrap_or_else(|| layout.spawn(run_id).join("no-worktree")),
-            // The launch derived this scope from the sha it pinned, contract 5.3
-            // put that sha on line 0, and both sides call one function on it. A
-            // run with no `skills` object was linked nothing, and the scope is
-            // then a path nothing creates.
-            skill_snapshot: layout.skill_snapshot_scope(run_id, store_sha),
+                .unwrap_or_else(|| layout.spawn(run_id).join("no-worktree"))
+        });
+        let skill_store = take(keys::SKILL_STORE, &mut || layout.skills());
+        let corpus = take(keys::CORPUS, &mut || layout.runs());
+        let gate_script = take(keys::GATE_SCRIPT, &mut || layout.gate_script(run_id));
+
+        // These two are absent from a `scopes` object when the run had no path
+        // for them, so on a record that carries the object an absent key is the
+        // answer and nothing is rebuilt.
+        let mut parent_git_dir_lost = false;
+        let (skill_checkout, parent_git_dir) = if gate.carries_scopes() {
+            (
+                gate.path(keys::SKILL_CHECKOUT).map(Path::to_path_buf),
+                gate.path(keys::PARENT_GIT_DIR).map(Path::to_path_buf),
+            )
+        } else {
             // A curate run's writes are scoped to its own checkout of the store,
             // and the rule is a function of the run id so that this side can
             // recompute what the gate was compiled with. Without it every
             // curator's record reads back as a gate that leaked on its own
-            // proposal.
-            skill_checkout: (policy == "curate").then(|| layout.skill_checkout(run_id)),
+            // proposal. Every other policy was given no checkout, so nothing is
+            // rebuilt and the limit below does not claim a path the run never
+            // had.
+            let checkout = (policy == "curate").then(|| layout.skill_checkout(run_id));
+            if checkout.is_some() {
+                rebuilt.push(keys::SKILL_CHECKOUT);
+            }
+            // The parent repo's `.git`, rediscovered from the checkout the run
+            // worked in. `--git-common-dir` answers there with the directory
+            // every checkout of that repo shares, which is the one 7.5 denies;
+            // joining `.git` onto the checkout would name a pointer file
+            // instead. A record whose checkout `hydra reap` has taken answers
+            // nothing, which loses a `GateLeak` it could have reported and never
+            // invents one. Ticket 14 measured it and it is the sharpest case for
+            // a stored path over a rebuilt one.
+            let found = crate::worktree::git_common_dir(worktree.unwrap_or(&here));
+            match &found {
+                Some(_) => rebuilt.push(keys::PARENT_GIT_DIR),
+                None => parent_git_dir_lost = true,
+            }
+            (checkout, found)
+        };
+
+        Self {
+            layout,
+            policy: policy.to_string(),
+            cwd: here,
+            worktree: worktree_scope,
+            skill_store,
+            corpus,
+            // The launch derived this scope from the sha it pinned, contract 5.3
+            // put that sha on line 0, and both sides call one function on it. A
+            // run with no `skills` object was linked nothing, and the scope is
+            // then a path nothing creates. It is not on `scopes` for that
+            // reason: the record already answers it once.
+            skill_snapshot: layout.skill_snapshot_scope(run_id, store_sha),
+            skill_checkout,
             parent_git_dir,
-            gate_script: layout.gate_script(run_id),
+            gate_script,
+            floor_lifted: gate.floor_lifted,
+            rebuilt,
+            parent_git_dir_lost,
         }
     }
 
@@ -574,20 +685,71 @@ impl<'a> ReplaySpawn<'a> {
         &self.cwd
     }
 
+    /// What the derivation stood in for, once per record.
+    ///
+    /// **A limit and never a disagreement.** A disagreement reaches the
+    /// curator's brief weighted as a clean-looking failure, and rebuilding a
+    /// path the record never carried earns nothing of the sort. Map ticket 42
+    /// measured the cost of getting that arm wrong: one real record would have
+    /// arrived at the top of a pass's brief as a run whose gate leaked twenty
+    /// times, having leaked none.
+    pub(crate) fn scope_limit(&self) -> Option<Finding> {
+        if self.rebuilt.is_empty() && !self.parent_git_dir_lost {
+            return None;
+        }
+        let mut said = format!(
+            "the record carries no scopes for {}, so the paths this run's decisions \
+             resolve against were rebuilt from this build's layout rather than read \
+             off line 0",
+            self.rebuilt.join(", ")
+        );
+        if self.parent_git_dir_lost {
+            said.push_str(
+                ", and nothing answered for parent_git_dir, so the replay runs one \
+                 denied path short of the gate's",
+            );
+        }
+        Some(Finding::Limit(said))
+    }
+
+    /// A finding about one call, downgraded because a path it was decided
+    /// against was rebuilt rather than read.
+    ///
+    /// **The same shape [`policy_moved`] gives `StalePolicy`, and the same
+    /// argument.** A `GateLeak` and a `Disagreement` both claim the gate and the
+    /// derivation answered the same question and differed. Rebuild one of the
+    /// paths the question resolves against and they did not: the derivation
+    /// answered about a gate compiled from this build's layout. Map ticket 42's
+    /// decision 5 chose this cost out loud, so a record with no `scopes` cannot
+    /// report a leak, and `src/ouroboros/corpus.rs` keeps limits out of the
+    /// weighted `signals.disagreements` a brief ranks on.
+    ///
+    /// `None` when every path came off the record, which is when the two really
+    /// did answer the same question.
+    pub(crate) fn stood_in(&self, what: &str) -> Option<Finding> {
+        if self.rebuilt.is_empty() {
+            return None;
+        }
+        Some(Finding::Limit(format!(
+            "{what}, and the scopes it was decided against were rebuilt here ({}) \
+             rather than read off the record, so the two answered about two gates",
+            self.rebuilt.join(", ")
+        )))
+    }
+
     pub(crate) fn spawn(&self, provider: Provider) -> Spawn<'_> {
         Spawn {
             provider,
             policy: &self.policy,
             layout: self.layout,
             worktree: &self.worktree,
+            skill_store: &self.skill_store,
+            corpus: &self.corpus,
             skill_snapshot: &self.skill_snapshot,
             skill_checkout: self.skill_checkout.as_deref(),
             parent_git_dir: self.parent_git_dir.as_deref(),
             gate_script: &self.gate_script,
-            // No field on the record carries it, so a run launched with
-            // `--allow-floor-escape` re-evaluates to a deny it did not get.
-            // `IMPLEMENTATION.md` has carried that gap since ticket 02.
-            floor_lifted: false,
+            floor_lifted: self.floor_lifted,
         }
     }
 }

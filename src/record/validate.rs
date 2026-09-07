@@ -243,10 +243,12 @@ fn check_run_start(body: &serde_json::Map<String, Value>, at: &str, say: &mut im
         }
     }
 
-    // Contract 5.5 and 5.6: these two groups are absent when the question does not
+    // Contract 5.5 and 5.6: these groups are absent when the question does not
     // apply, never null. A null store_sha invites a reader to ask which sha the run
-    // pinned, and no sha was pinned.
-    for group in ["skills", "mcp", "auth"] {
+    // pinned, and no sha was pinned. `scopes` joined them under ticket 42, and for
+    // the same reason: a harness run compiled no gate, so which paths it resolved
+    // is not a question with a missing answer.
+    for group in ["skills", "mcp", "auth", "scopes"] {
         if body.get(group).is_some_and(Value::is_null) {
             say(format!(
                 "{at}: {group} is null; the contract says absent when it does not apply"

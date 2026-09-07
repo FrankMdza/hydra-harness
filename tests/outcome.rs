@@ -136,29 +136,25 @@ fn a_gate_that_refused_everything_is_gated_over_a_clean_terminator() {
     // three providers produce and the reason the outcome is derived at all.
     let sandbox = Sandbox::new("gated");
     let path = sandbox.worktree().join("probe.txt");
-    let text = Record::opened(
-        &sandbox.worktree(),
-        Some("read-only"),
-        Some(policies().sha()),
-    )
-    .tool_use(
-        "toolu_01",
-        "Write",
-        json!({"file_path": path, "content": "HELLO\n"}),
-    )
-    .hook_response(
-        "Write",
-        "deny",
-        "hydra/capability: policy read-only does not allow file_write (Write).",
-    )
-    .tool_result(
-        "toolu_01",
-        "hydra/capability: policy read-only does not allow file_write (Write).",
-        true,
-    )
-    .assistant(json!([{"type": "text", "text": "I cannot write under this policy."}]))
-    .result(usage_frame())
-    .closed();
+    let text = Record::gated(&sandbox, "claude", "read-only", policies().sha())
+        .tool_use(
+            "toolu_01",
+            "Write",
+            json!({"file_path": path, "content": "HELLO\n"}),
+        )
+        .hook_response(
+            "Write",
+            "deny",
+            "hydra/capability: policy read-only does not allow file_write (Write).",
+        )
+        .tool_result(
+            "toolu_01",
+            "hydra/capability: policy read-only does not allow file_write (Write).",
+            true,
+        )
+        .assistant(json!([{"type": "text", "text": "I cannot write under this policy."}]))
+        .result(usage_frame())
+        .closed();
 
     assert_eq!(
         outcome_of(&sandbox, &text),
@@ -220,19 +216,15 @@ fn a_gate_leak_is_not_a_gated_run() {
     // run as blocked by the hole that let it through.
     let sandbox = Sandbox::new("leaked");
     let path = sandbox.worktree().join("probe.txt");
-    let text = Record::opened(
-        &sandbox.worktree(),
-        Some("read-only"),
-        Some(policies().sha()),
-    )
-    .tool_use(
-        "toolu_01",
-        "Write",
-        json!({"file_path": path, "content": "HELLO\n"}),
-    )
-    .tool_result("toolu_01", "File created successfully.", false)
-    .result(usage_frame())
-    .closed();
+    let text = Record::gated(&sandbox, "claude", "read-only", policies().sha())
+        .tool_use(
+            "toolu_01",
+            "Write",
+            json!({"file_path": path, "content": "HELLO\n"}),
+        )
+        .tool_result("toolu_01", "File created successfully.", false)
+        .result(usage_frame())
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(
@@ -549,31 +541,27 @@ fn a_leak_beside_a_real_refusal_keeps_a_run_out_of_gated() {
     // a simplification rather than a fix.
     let sandbox = Sandbox::new("collide");
     let path = sandbox.worktree().join("probe.txt");
-    let text = Record::opened(
-        &sandbox.worktree(),
-        Some("read-only"),
-        Some(policies().sha()),
-    )
-    // One `Write` the policy denies, which went through: a successful result and
-    // no refusal, so the gate leaked.
-    .assistant(json!([{"type": "tool_use", "name": "Write",
-                       "input": {"file_path": path, "content": "one\n"}}]))
-    .raw(json!({
-        "type": "user",
-        "message": {"role": "user", "content": [
-            {"type": "tool_result", "content": "File created successfully.", "is_error": false}
-        ]},
-    }))
-    // A second `Write` the gate really refused.
-    .assistant(json!([{"type": "tool_use", "name": "Write",
-                       "input": {"file_path": path, "content": "two\n"}}]))
-    .hook_response(
-        "Write",
-        "deny",
-        "hydra/capability: policy read-only does not allow file_write (Write).",
-    )
-    .result(usage_frame())
-    .closed();
+    let text = Record::gated(&sandbox, "claude", "read-only", policies().sha())
+        // One `Write` the policy denies, which went through: a successful result and
+        // no refusal, so the gate leaked.
+        .assistant(json!([{"type": "tool_use", "name": "Write",
+                           "input": {"file_path": path, "content": "one\n"}}]))
+        .raw(json!({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "content": "File created successfully.", "is_error": false}
+            ]},
+        }))
+        // A second `Write` the gate really refused.
+        .assistant(json!([{"type": "tool_use", "name": "Write",
+                           "input": {"file_path": path, "content": "two\n"}}]))
+        .hook_response(
+            "Write",
+            "deny",
+            "hydra/capability: policy read-only does not allow file_write (Write).",
+        )
+        .result(usage_frame())
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     let leaks = run
@@ -784,14 +772,10 @@ fn a_provider_that_reported_no_tokens_gets_no_counts_rather_than_zeroes() {
 #[test]
 fn a_run_that_said_nothing_returns_no_text_rather_than_an_empty_string() {
     let sandbox = Sandbox::new("silent");
-    let text = Record::opened(
-        &sandbox.worktree(),
-        Some("read-only"),
-        Some(policies().sha()),
-    )
-    .assistant(json!([{"type": "text", "text": "   "}]))
-    .result(usage_frame())
-    .closed();
+    let text = Record::gated(&sandbox, "claude", "read-only", policies().sha())
+        .assistant(json!([{"type": "text", "text": "   "}]))
+        .result(usage_frame())
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert_eq!(hydra::outcome::final_assistant_text(&run), None);

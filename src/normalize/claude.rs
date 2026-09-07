@@ -24,9 +24,9 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::{
-    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ReplaySpawn,
-    ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource,
-    policy_moved, splice, verdict_decision,
+    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedGate,
+    ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage,
+    UsageSource, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::replay::{Replay, reason_code};
@@ -99,6 +99,10 @@ struct Walk {
     store_sha: Option<String>,
     cwd: Option<PathBuf>,
     worktree: Option<PathBuf>,
+    /// Contract 5.1's `scopes` and `floor_lifted`, the other two inputs to the
+    /// compile 7.7 re-runs. Absent on every record written before ticket 42,
+    /// which is what `RecordedGate` answers for.
+    gate: RecordedGate,
     events: Vec<Event>,
     findings: Vec<Finding>,
     hooks: Vec<HookAnswer>,
@@ -172,6 +176,7 @@ impl Walk {
                 self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
                 self.cwd = body["cwd"].as_str().map(PathBuf::from);
                 self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
+                self.gate = RecordedGate::of(body);
                 self.events.push(Event::RunStart(RunStart {
                     seq,
                     body: body.clone(),
@@ -446,7 +451,11 @@ impl Walk {
             self.cwd.as_deref(),
             self.worktree.as_deref(),
             self.store_sha.as_deref(),
+            &self.gate,
         );
+        // Once per record, before any decision, so a reader sees what the
+        // derivation stood in for ahead of what it derived.
+        self.findings.extend(spawn.scope_limit());
         let replay = match Replay::compile(policies, &spawn.spawn(Provider::Claude)) {
             Ok(replay) => replay,
             Err(err) => {
@@ -521,6 +530,12 @@ impl Walk {
                         decision,
                         verdict_decision(verdict.allowed),
                     )));
+                } else if let Some(limit) = spawn.stood_in(&format!(
+                    "the gate answered {:?} for {call_id} ({tool}) and the derivation says {:?}",
+                    decision,
+                    verdict_decision(verdict.allowed),
+                )) {
+                    self.findings.push(limit);
                 } else {
                     self.findings.push(Finding::Disagreement {
                         call_id: call_id.clone(),
@@ -542,17 +557,21 @@ impl Walk {
                     let fate_known = results.contains_key(&call_id)
                         || gate_said.is_some()
                         || self.denied_in_result(&call_id);
-                    if fate_known {
+                    if !fate_known {
+                        self.findings.push(Finding::Limit(format!(
+                            "{call_id} ({tool}) is the last thing the record says, so \
+                             whether the gate refused a call the policy denies is unknown"
+                        )));
+                    } else if let Some(limit) = spawn.stood_in(&format!(
+                        "the policy denies {call_id} ({tool}) and nothing in the record refused it"
+                    )) {
+                        self.findings.push(limit);
+                    } else {
                         self.findings.push(Finding::GateLeak {
                             call_id: call_id.clone(),
                             tool: tool.clone(),
                             reason: verdict.reason.clone(),
                         });
-                    } else {
-                        self.findings.push(Finding::Limit(format!(
-                            "{call_id} ({tool}) is the last thing the record says, so \
-                             whether the gate refused a call the policy denies is unknown"
-                        )));
                     }
                 }
                 PermissionDecision {

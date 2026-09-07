@@ -126,6 +126,8 @@ impl Gate {
                 policy,
                 layout: &layout,
                 worktree: &worktree,
+                skill_store: &skills,
+                corpus: &runs,
                 skill_snapshot: &snapshot,
                 skill_checkout: checkout.as_deref(),
                 parent_git_dir: Some(&parent_git),

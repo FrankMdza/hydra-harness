@@ -370,7 +370,9 @@ pub fn run(request: Request) -> Result<Call> {
         // binary for its version and nothing built the child's environment, so
         // both are absent rather than guessed, and `skills` and `mcp` follow. The
         // envelope still names the provider, which is contract 4's field and a
-        // fact about the request rather than about a process.
+        // fact about the request rather than about a process. `scopes` is absent
+        // for the same reason and `floor_lifted` is not: the flag was typed on
+        // this run, and no gate was compiled to resolve a path (contract 5.1).
         let line_zero = serde_json::to_value(run_start(
             &request,
             &task,
@@ -382,6 +384,7 @@ pub fn run(request: Request) -> Result<Call> {
             None,
             None,
             &lineage,
+            None,
         ))?;
         return refuse(
             &run_file,
@@ -501,12 +504,19 @@ pub fn run(request: Request) -> Result<Call> {
     let injected_names = mcp_plan.injected_names();
 
     // The whole of line 0 except the two fields that do not exist until a process
-    // does, as a function of the one field the pre-flight below decides.
+    // does, as a function of the two the steps below decide.
     // Composing it here keeps every provider-specific fact on this side of the
     // fork and leaves the detached half nothing to decide, and a refused launch
     // writes the same line 0 a spawned one would, because contract 8.3 wants the
     // attempt on disk in full.
-    let line_zero = |mcp_resolved: Option<&[String]>| -> Result<serde_json::Value> {
+    //
+    // **`scopes` is absent until a gate is compiled**, which is below the two
+    // pre-flight refusals. A refused run resolved no scope, so contract 5.1's
+    // rule applies: the key is absent rather than filled with what the compile
+    // would have produced had it run.
+    let line_zero = |mcp_resolved: Option<&[String]>,
+                     scopes: Option<&std::collections::BTreeMap<String, String>>|
+     -> Result<serde_json::Value> {
         let start = run_start(
             &request,
             &task,
@@ -522,6 +532,7 @@ pub fn run(request: Request) -> Result<Call> {
                 mcp_resolved,
             )),
             &lineage,
+            scopes.cloned(),
         );
         Ok(serde_json::to_value(&start)?)
     };
@@ -539,7 +550,7 @@ pub fn run(request: Request) -> Result<Call> {
             &run_file,
             &run_id,
             request.provider,
-            &line_zero(injected.mcp_resolved.as_deref())?,
+            &line_zero(injected.mcp_resolved.as_deref(), None)?,
             crate::record::Refusal::SkillCollision,
             remediation,
             &policies,
@@ -575,7 +586,9 @@ pub fn run(request: Request) -> Result<Call> {
             .as_ref()
             .and_then(|injected| injected.mcp_resolved.clone()),
     };
-    let line_zero = line_zero(mcp_resolved.as_deref())?;
+    // No gate is compiled yet, so the two refusals below write a line 0 with no
+    // `scopes` on it. The launched path recomposes it after `write_spawn_config`.
+    let refused_line_zero = line_zero(mcp_resolved.as_deref(), None)?;
 
     // 6.1 item 6, one item after it. A run whose policy admits a server this
     // launch cannot deliver is refused rather than launched short, which is
@@ -585,7 +598,7 @@ pub fn run(request: Request) -> Result<Call> {
             &run_file,
             &run_id,
             request.provider,
-            &line_zero,
+            &refused_line_zero,
             crate::record::Refusal::McpUnavailable,
             mcp_plan.remediation(),
             &policies,
@@ -619,7 +632,7 @@ pub fn run(request: Request) -> Result<Call> {
                 &run_file,
                 &run_id,
                 request.provider,
-                &line_zero,
+                &refused_line_zero,
                 crate::record::Refusal::McpUnavailable,
                 remediation,
                 &policies,
@@ -642,6 +655,11 @@ pub fn run(request: Request) -> Result<Call> {
         injected.as_ref().map(|i| i.store_sha.as_str()),
         request.floor_lifted,
     )?;
+
+    // Line 0 again, now that the gate has been compiled and the paths it
+    // resolved are known. Everything above it wrote `refused_line_zero`, which
+    // carries no `scopes` because no gate existed to name any.
+    let line_zero = line_zero(mcp_resolved.as_deref(), Some(&spawn.scopes))?;
 
     // **The gate mount is checked on `agy` and on nothing else, free.** 6.6's
     // table says this provider reads its hook config only when the worktree
@@ -1212,6 +1230,11 @@ pub struct SpawnFiles {
     /// on `claude`, passed on `--settings`; `<worktree>/.cursor/hooks.json` on
     /// `cursor-agent`, read from cwd (6.6's table).
     pub hook_config: PathBuf,
+    /// The absolute paths the gate was compiled against, keyed by scope name,
+    /// which contract 5.1 puts on `run_start` as `scopes`. It is returned rather
+    /// than recomputed by the caller because the gate and the record have to
+    /// name the same paths, and one function is how that is made true.
+    pub scopes: std::collections::BTreeMap<String, String>,
 }
 
 /// Compiles the run's gate and writes the config that delivers it.
@@ -1279,20 +1302,25 @@ pub fn write_spawn_config(
     // creates, the same shape `no_worktree` has above.
     let skill_snapshot = layout.skill_snapshot_scope(run_id, store_sha);
 
-    crate::policy::write_gate(
-        policies,
-        &crate::policy::Spawn {
-            provider,
-            policy,
-            layout,
-            worktree: worktree.unwrap_or(&no_worktree),
-            skill_snapshot: &skill_snapshot,
-            skill_checkout: skill_checkout.as_deref(),
-            parent_git_dir: parent_git_dir.as_deref(),
-            gate_script: &gate,
-            floor_lifted,
-        },
-    )?;
+    let spawn = crate::policy::Spawn {
+        provider,
+        policy,
+        layout,
+        worktree: worktree.unwrap_or(&no_worktree),
+        skill_store: &layout.skills(),
+        corpus: &layout.runs(),
+        skill_snapshot: &skill_snapshot,
+        skill_checkout: skill_checkout.as_deref(),
+        parent_git_dir: parent_git_dir.as_deref(),
+        gate_script: &gate,
+        floor_lifted,
+    };
+    // Contract 5.1's `scopes`, taken off the spawn the gate is compiled from
+    // rather than composed again here. The two cannot disagree, which is what
+    // map ticket 42 asked for after two correct builds resolved one scope two
+    // ways and no field on the record told them apart.
+    let scopes = spawn.recorded_scopes();
+    crate::policy::write_gate(policies, &spawn)?;
 
     // Read back rather than hashed in memory, so the sha is of the bytes that
     // reached the disk. The hook config carries it and the provider snapshots the
@@ -1313,7 +1341,11 @@ pub fn write_spawn_config(
     std::fs::write(&hook_config, serde_json::to_string_pretty(&config)?)
         .with_context(|| format!("writing {}", hook_config.display()))?;
 
-    Ok(SpawnFiles { gate, hook_config })
+    Ok(SpawnFiles {
+        gate,
+        hook_config,
+        scopes,
+    })
 }
 
 /// Line 0, composed before the fork.
@@ -1340,6 +1372,7 @@ pub fn run_start(
     skills: Option<serde_json::Value>,
     mcp: Option<serde_json::Value>,
     lineage: &Lineage,
+    scopes: Option<std::collections::BTreeMap<String, String>>,
 ) -> RunStart {
     RunStart {
         kind: "run_start",
@@ -1359,6 +1392,12 @@ pub fn run_start(
         // 5.1: the permission decisions in a record are re-derived from the
         // policy, so a reader a month later needs it exactly as it was.
         policy_sha: Some(policy_sha.to_string()),
+        // Harness spec 16: the flag was typed on this run whether or not the
+        // launch got as far as compiling a gate, so it is filled on a refused
+        // run too. The `scopes` beside it are not, because they are a fact about
+        // a compile that may not have happened.
+        floor_lifted: Some(request.floor_lifted),
+        scopes,
         cwd: cwd.display().to_string(),
         worktree,
         // 6.1 item 2: the parent's depth plus one, and 0 for a run a human

@@ -114,7 +114,8 @@ pub enum Scope {
 }
 
 impl Scope {
-    pub fn as_str(self) -> &'static str {
+    /// `const` so [`keys`] can name these without a second spelling.
+    pub const fn as_str(self) -> &'static str {
         match self {
             Scope::Worktree => "worktree",
             Scope::SkillStore => "skill_store",
@@ -124,6 +125,27 @@ impl Scope {
             Scope::Anywhere => "anywhere",
         }
     }
+}
+
+/// The names a resolved path is keyed by, in one place.
+///
+/// **Three readers key on these and nothing but equality ties them together**:
+/// the compiled gate's `scopes` block, `run_start.scopes` on the record, and the
+/// reader that prefers a stored path over a rebuilt one. A typo in any of the
+/// three is a scope that silently stops matching, which is the failure map
+/// ticket 42 is about, so the strings live here and the enum above owns five of
+/// them. The other two are per-run denied paths rather than scopes a policy can
+/// name, and they are on the record because nothing else recovers them.
+pub mod keys {
+    use super::Scope;
+
+    pub const WORKTREE: &str = Scope::Worktree.as_str();
+    pub const SKILL_STORE: &str = Scope::SkillStore.as_str();
+    pub const SKILL_SNAPSHOT: &str = Scope::SkillSnapshot.as_str();
+    pub const SKILL_CHECKOUT: &str = Scope::SkillCheckout.as_str();
+    pub const CORPUS: &str = Scope::Corpus.as_str();
+    pub const GATE_SCRIPT: &str = "gate_script";
+    pub const PARENT_GIT_DIR: &str = "parent_git_dir";
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
@@ -351,13 +373,19 @@ pub struct Spawn<'a> {
     pub policy: &'a str,
     /// The `~/hydra` layout this run was launched under.
     ///
-    /// It carries the `skill_store` and `corpus` scopes and seven of the
-    /// directories 7.5 denies, all of which are one accessor each. Passing the
-    /// layout rather than the paths is what keeps the deny list and harness
-    /// spec 5's table readable against each other.
+    /// It carries seven of the directories 7.5 denies, one accessor each.
+    /// Passing the layout rather than the paths is what keeps the deny list and
+    /// harness spec 5's table readable against each other. The scopes below are
+    /// named paths instead, because a replay takes those off the record and only
+    /// the deny list has to come from the reader's own layout.
     pub layout: &'a crate::paths::Layout,
     /// The run's checkout, the `worktree` scope and the first carve-out.
     pub worktree: &'a Path,
+    /// The skill store, `~/hydra/skills/`, which every policy that grants a
+    /// read of a skill is scoped to.
+    pub skill_store: &'a Path,
+    /// `~/hydra/runs/`, the `corpus` scope `curate` reads.
+    pub corpus: &'a Path,
     /// This run's snapshot of the store, the `skill_snapshot` scope. It is where
     /// the injected links resolve to, so a read through a link lands inside it.
     /// A run with no checkout has no links and no snapshot, and the caller
@@ -378,6 +406,86 @@ pub struct Spawn<'a> {
     /// `--allow-floor-escape`, harness spec 16. Never inheritable, never
     /// settable by a policy, and it lands in the run record as an argument.
     pub floor_lifted: bool,
+}
+
+/// The scope names contract 5.1 puts on `run_start.scopes`.
+///
+/// `skill_snapshot` is not among them: it recomputes from `skills.store_sha`,
+/// which is already on the record, and a stored copy would be a second answer to
+/// a question line 0 answers once. `gate_script` and `parent_git_dir` are, even
+/// though the script resolves no scope against them, because both are denied
+/// paths the record is the only copy of: a moved spawn directory flips a
+/// `permissive` write from `protected-path` to `allow`, measured under ticket 42,
+/// and the parent's `.git` is unrecoverable once `hydra reap` has taken the
+/// worktree, measured under ticket 14.
+pub const RECORDED_SCOPES: &[&str] = &[
+    keys::WORKTREE,
+    keys::SKILL_STORE,
+    keys::SKILL_CHECKOUT,
+    keys::CORPUS,
+    keys::GATE_SCRIPT,
+    keys::PARENT_GIT_DIR,
+];
+
+/// The scope names the compiled script resolves a call against.
+const GATE_SCOPES: &[&str] = &[
+    keys::WORKTREE,
+    keys::SKILL_STORE,
+    keys::SKILL_SNAPSHOT,
+    keys::CORPUS,
+    keys::SKILL_CHECKOUT,
+];
+
+impl Spawn<'_> {
+    /// Every path this spawn names, canonicalized, keyed by scope name.
+    ///
+    /// **One function, so the gate and the record cannot disagree.** The script
+    /// compiled below and the `scopes` object on `run_start` are two views over
+    /// this map rather than two lists of accessors, which is what makes contract
+    /// 7.7's "the re-evaluation resolves against the stored paths" a property of
+    /// the code instead of a promise two files keep separately.
+    ///
+    /// A path the spawn has none of is absent, never a placeholder: no
+    /// `skill_checkout` outside a `curate` pass, no `parent_git_dir` outside a
+    /// repository.
+    ///
+    /// A launch calls this twice, once for the record and once inside
+    /// [`compile`], and each call canonicalizes seven paths. That is deliberate:
+    /// a handful of `canonicalize` calls next to a process spawn is not worth a
+    /// second signature to thread the map through.
+    pub fn paths(&self) -> BTreeMap<&'static str, PathBuf> {
+        let mut paths = BTreeMap::new();
+        paths.insert(keys::WORKTREE, resolved_path(self.worktree));
+        paths.insert(keys::SKILL_STORE, resolved_path(self.skill_store));
+        paths.insert(keys::SKILL_SNAPSHOT, resolved_path(self.skill_snapshot));
+        paths.insert(keys::CORPUS, resolved_path(self.corpus));
+        paths.insert(keys::GATE_SCRIPT, resolved_path(self.gate_script));
+        if let Some(checkout) = self.skill_checkout {
+            paths.insert(keys::SKILL_CHECKOUT, resolved_path(checkout));
+        }
+        if let Some(git_dir) = self.parent_git_dir {
+            paths.insert(keys::PARENT_GIT_DIR, resolved_path(git_dir));
+        }
+        paths
+    }
+
+    /// The paths contract 5.1 asks `run_start` to carry.
+    ///
+    /// **The case is kept here and folded in the script.** 15.2 matches
+    /// case-insensitively, so the gate compares casefolded strings, and a
+    /// lowercased path is not a path on a case-sensitive filesystem. The record
+    /// stores what a reader can open; [`compile`] folds it again on the way
+    /// back in, so a replay hands the script the bytes the launch's script had.
+    pub fn recorded_scopes(&self) -> BTreeMap<String, String> {
+        let paths = self.paths();
+        RECORDED_SCOPES
+            .iter()
+            .filter_map(|name| {
+                let path = paths.get(name)?;
+                Some(((*name).to_string(), path.to_string_lossy().into_owned()))
+            })
+            .collect()
+    }
 }
 
 /// The paths no run may write to, under any policy, before the policy is
@@ -507,22 +615,17 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         })
         .collect();
 
+    // The same map the record's `scopes` object is built from, folded to the
+    // case 15.2 matches on. `skill_checkout` is emitted only when the spawn was
+    // given one: a policy naming that scope on a spawn without a checkout finds
+    // no root to match, which denies rather than falling back to a directory
+    // the run does not own.
+    let named = spawn.paths();
     let mut scopes = serde_json::Map::new();
-    scopes.insert("worktree".into(), resolved(spawn.worktree).into());
-    scopes.insert(
-        "skill_store".into(),
-        resolved(&spawn.layout.skills()).into(),
-    );
-    scopes.insert(
-        "skill_snapshot".into(),
-        resolved(spawn.skill_snapshot).into(),
-    );
-    scopes.insert("corpus".into(), resolved(&spawn.layout.runs()).into());
-    // Emitted only when the spawn was given one. A policy naming this scope on a
-    // spawn without a checkout finds no root to match, which denies rather than
-    // falling back to a directory the run does not own.
-    if let Some(checkout) = spawn.skill_checkout {
-        scopes.insert("skill_checkout".into(), resolved(checkout).into());
+    for name in GATE_SCOPES {
+        if let Some(path) = named.get(name) {
+            scopes.insert((*name).into(), casefold(path).into());
+        }
     }
 
     let config = serde_json::json!({
@@ -690,8 +793,11 @@ fn shell_quote(text: &str) -> String {
 /// this does the same: walk up to the longest ancestor that exists, canonicalize
 /// that, and put the remainder back.
 ///
-/// Lowercased because 15.2 matches case-insensitively.
-fn resolved(path: &Path) -> String {
+/// **The case is kept.** The gate compares casefolded, [`casefold`] is what
+/// does it, and the run record stores what this returns: a lowercased path is
+/// not a path on a case-sensitive filesystem, and a reader has to be able to
+/// open what line 0 names.
+fn resolved_path(path: &Path) -> PathBuf {
     let mut tail: Vec<std::ffi::OsString> = Vec::new();
     let mut cursor = path.to_path_buf();
     loop {
@@ -700,7 +806,7 @@ fn resolved(path: &Path) -> String {
             for part in tail.iter().rev() {
                 out.push(part);
             }
-            return out.to_string_lossy().to_lowercase();
+            return out;
         }
         match (cursor.file_name(), cursor.parent()) {
             (Some(name), Some(parent)) if !parent.as_os_str().is_empty() => {
@@ -708,9 +814,19 @@ fn resolved(path: &Path) -> String {
                 cursor = parent.to_path_buf();
             }
             // Nothing on the way up exists, so there is nothing to resolve.
-            _ => return path.to_string_lossy().to_lowercase(),
+            _ => return path.to_path_buf(),
         }
     }
+}
+
+/// One path as the compiled script compares it, 15.2's case-insensitive match.
+fn casefold(path: &Path) -> String {
+    path.to_string_lossy().to_lowercase()
+}
+
+/// A resolved path, folded to the case the script matches on.
+fn resolved(path: &Path) -> String {
+    casefold(&resolved_path(path))
 }
 
 #[cfg(test)]
@@ -907,6 +1023,8 @@ mod tests {
                 policy: "standard",
                 layout: &layout,
                 worktree: &layout.worktree("r1"),
+                skill_store: &layout.skills(),
+                corpus: &layout.runs(),
                 skill_snapshot: &layout.snapshot("abc"),
                 skill_checkout: None,
                 parent_git_dir: None,
@@ -933,6 +1051,8 @@ mod tests {
             policy: "permissive",
             layout: &layout,
             worktree: &layout.worktree("r1"),
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
             skill_snapshot: &layout.snapshot("abc"),
             skill_checkout: None,
             parent_git_dir: None,
@@ -970,6 +1090,8 @@ mod tests {
             policy: "curate",
             layout: &layout,
             worktree: &worktree,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
             skill_snapshot: &layout.snapshot("abc"),
             skill_checkout: None,
             parent_git_dir: None,
@@ -997,6 +1119,8 @@ mod tests {
             policy: "standard",
             layout: &layout,
             worktree: &placeholder,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
             skill_snapshot: &layout.snapshot("abc"),
             skill_checkout: None,
             parent_git_dir: None,

@@ -239,7 +239,11 @@ fn the_runs_own_policy_is_re_evaluated_into_a_decision() {
         decisions[0].reason
     );
     // The gate and the derivation agree, so nothing is reported.
-    assert!(run.findings.is_empty(), "{:?}", run.findings);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
 }
 
 #[test]
@@ -290,7 +294,11 @@ fn a_skill_the_run_was_linked_reads_back_as_invocable_and_readable() {
     assert!(decisions[0].reason.contains("skill_invoke"));
     assert!(decisions[1].reason.contains("file_read"));
     // The gate and the derivation agree, so nothing is reported.
-    assert!(run.findings.is_empty(), "{:?}", run.findings);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
 }
 
 #[test]
@@ -304,23 +312,21 @@ fn without_the_sha_the_same_read_derives_a_deny() {
     let sandbox = Sandbox::new("skill-link-unpinned");
     let link = sandbox.link_skill("1f0dcafe1f0dcafe1f0dcafe1f0dcafe1f0dcafe", "hydra-sentinel");
 
-    let text = Record::opened(
-        &sandbox.worktree(),
-        Some("standard"),
-        Some(policies().sha()),
-    )
-    .tool_use(
-        "toolu_01",
-        "Read",
-        json!({"file_path": link.join("SIBLING.md")}),
-    )
-    .hook_response(
-        "Read",
-        "allow",
-        "hydra/allow: policy standard allows file_read.",
-    )
-    .tool_result("toolu_01", "The second sentinel is", false)
-    .closed();
+    // The record carries its scopes, so the leak below is the snapshot scope
+    // missing rather than a path this reader rebuilt (build ticket 15).
+    let text = Record::gated(&sandbox, "claude", "standard", policies().sha())
+        .tool_use(
+            "toolu_01",
+            "Read",
+            json!({"file_path": link.join("SIBLING.md")}),
+        )
+        .hook_response(
+            "Read",
+            "allow",
+            "hydra/allow: policy standard allows file_read.",
+        )
+        .tool_result("toolu_01", "The second sentinel is", false)
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     let decisions: Vec<_> = run.permission_decisions().collect();
@@ -337,6 +343,209 @@ fn without_the_sha_the_same_read_derives_a_deny() {
             .any(|finding| matches!(finding, Finding::GateLeak { .. })),
         "{:?}",
         run.findings
+    );
+}
+
+/// One curate record, with the stored scopes the caller asks for.
+///
+/// A curate pass writes in its own checkout of the store, and where that
+/// checkout lives is a rule on the layout. It is the shape map ticket 42
+/// measured: replay the record under another `~/hydra` and the rule answers with
+/// a different directory, so the curator's own writes read back as gate leaks.
+fn a_curate_write(
+    sandbox: &Sandbox,
+    checkout: &std::path::Path,
+    scopes: Option<serde_json::Value>,
+) -> String {
+    Record::shaped(Shape {
+        policy: Some("curate"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        scopes,
+        ..Shape::default()
+    })
+    .tool_use(
+        "toolu_01",
+        "Write",
+        json!({"file_path": checkout.join("proposal.md"), "content": "a class\n"}),
+    )
+    .hook_response(
+        "Write",
+        "allow",
+        "hydra/allow: policy curate allows file_write.",
+    )
+    .tool_result("toolu_01", "File created successfully.", false)
+    .closed()
+}
+
+#[test]
+fn the_scopes_on_the_record_beat_a_layout_that_moved() {
+    // Contract 7.7: the re-evaluation resolves its scopes against
+    // `run_start.scopes` where the record has it, and never prefers its own
+    // layout over a stored path. The stored path is what the gate saw; the
+    // layout is what this build would have done.
+    let sandbox = Sandbox::new("scopes-stored");
+    let layout = sandbox.layout();
+    let checkout = layout.skill_checkout(RUN_ID);
+    std::fs::create_dir_all(&checkout).unwrap();
+    let stored = common::scopes_of(&layout, RUN_ID, "curate", &sandbox.worktree());
+    let moved = Sandbox::new("scopes-moved");
+
+    let run = hydra::normalize::read_with(
+        &a_curate_write(&sandbox, &checkout, Some(stored)),
+        &policies(),
+        &moved.layout(),
+    )
+    .unwrap();
+    let decision = run.permission_decisions().next().unwrap();
+    assert_eq!(decision.decision, Decision::Allow, "{}", decision.reason);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+
+    // What proves the stored path did the work. The same record without it,
+    // under the same moved layout, resolves `skill_checkout` to a directory in
+    // the reader's own `~/hydra` and derives a deny for the write the gate
+    // allowed. The record says the gate allowed it, so this is where the old
+    // reader reported a leak, and map ticket 42's decision 5 is that it may not:
+    // the derivation answered about a gate compiled from paths it rebuilt, so
+    // the difference is a limit naming those paths.
+    let rebuilt = hydra::normalize::read_with(
+        &a_curate_write(&sandbox, &checkout, None),
+        &policies(),
+        &moved.layout(),
+    )
+    .unwrap();
+    assert_eq!(
+        rebuilt.permission_decisions().next().unwrap().decision,
+        Decision::Deny
+    );
+    assert!(
+        !rebuilt.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::GateLeak { .. } | Finding::Disagreement { .. }
+        )),
+        "a rebuilt scope produced a finding the curator would weigh: {:?}",
+        rebuilt.findings
+    );
+    assert!(
+        rebuilt.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Limit(said) if said.contains("two gates") && said.contains("skill_checkout")
+        )),
+        "{:?}",
+        rebuilt.findings
+    );
+}
+
+#[test]
+fn a_record_with_no_scopes_is_rebuilt_and_reports_a_limit() {
+    // The other half of map ticket 42's answer: derive where the field is
+    // absent, and say so. A limit rather than a disagreement, because a
+    // disagreement reaches the curator's brief weighted as a clean-looking
+    // failure, and the derivation earned nothing of the sort.
+    let sandbox = Sandbox::new("scopes-rebuilt");
+    let checkout = sandbox.layout().skill_checkout(RUN_ID);
+    std::fs::create_dir_all(&checkout).unwrap();
+
+    let run = hydra::normalize::read_with(
+        &a_curate_write(&sandbox, &checkout, None),
+        &policies(),
+        &sandbox.layout(),
+    )
+    .unwrap();
+
+    // The layout has not moved, so the rebuild reaches the verdict the stored
+    // path reaches. Nothing about the answer says the record was short a field,
+    // which is why the reader has to say it.
+    let decision = run.permission_decisions().next().unwrap();
+    assert_eq!(decision.decision, Decision::Allow, "{}", decision.reason);
+
+    let limits: Vec<&Finding> = run
+        .findings
+        .iter()
+        .filter(|finding| common::rebuilt_the_scopes(finding))
+        .collect();
+    assert_eq!(limits.len(), 1, "{:?}", run.findings);
+    let Finding::Limit(said) = limits[0] else {
+        unreachable!()
+    };
+    for key in [
+        "worktree",
+        "skill_store",
+        "skill_checkout",
+        "corpus",
+        "gate_script",
+    ] {
+        assert!(said.contains(key), "the limit does not name {key}: {said}");
+    }
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn the_floor_lift_on_the_record_reaches_the_replay() {
+    // Harness spec 16's flag is the sixth input to the compile, and it had no
+    // field until map ticket 42. Without it a shell call a human lifted the
+    // floor for re-derives to a `hydra/floor` deny it never got, and the same
+    // call then reports a gate leak, because nothing refused it.
+    let sandbox = Sandbox::new("floor-lifted");
+    let call = json!({"command": "git push --force"});
+
+    let lifted = Record::shaped(Shape {
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        floor_lifted: Some(true),
+        ..Shape::default()
+    })
+    .tool_use("toolu_01", "Bash", call.clone())
+    .hook_response(
+        "Bash",
+        "allow",
+        "hydra/allow: policy standard allows shell.",
+    )
+    .tool_result("toolu_01", "Everything up-to-date", false)
+    .closed();
+
+    let run = hydra::normalize::read_with(&lifted, &policies(), &sandbox.layout()).unwrap();
+    let decision = run.permission_decisions().next().unwrap();
+    assert_eq!(decision.decision, Decision::Allow, "{}", decision.reason);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+
+    // The same call on a record that does not carry the field, which is what
+    // every record written before build ticket 15 looks like.
+    let unlifted = Record::shaped(Shape {
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        ..Shape::default()
+    })
+    .tool_use("toolu_01", "Bash", call)
+    .hook_response(
+        "Bash",
+        "allow",
+        "hydra/allow: policy standard allows shell.",
+    )
+    .tool_result("toolu_01", "Everything up-to-date", false)
+    .closed();
+
+    let run = hydra::normalize::read_with(&unlifted, &policies(), &sandbox.layout()).unwrap();
+    let decision = run.permission_decisions().next().unwrap();
+    assert_eq!(decision.decision, Decision::Deny);
+    assert!(
+        decision.reason.starts_with("hydra/floor:"),
+        "{}",
+        decision.reason
     );
 }
 
@@ -366,26 +575,26 @@ fn a_call_the_policy_allows_gets_an_allow_decision() {
     assert_eq!(decisions.len(), 1);
     assert_eq!(decisions[0].decision, Decision::Allow);
     assert_eq!(decisions[0].decider, Decider::HydraPolicy);
-    assert!(run.findings.is_empty(), "{:?}", run.findings);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
 }
 
 #[test]
 fn a_call_the_policy_denies_that_nothing_refused_is_a_gate_leak() {
     let sandbox = Sandbox::new("leak");
     let path = sandbox.worktree().join("probe.txt");
-    let text = Record::opened(
-        &sandbox.worktree(),
-        Some("read-only"),
-        Some(policies().sha()),
-    )
-    .tool_use(
-        "toolu_01",
-        "Write",
-        json!({"file_path": path, "content": "HELLO\n"}),
-    )
-    // The call went through: a successful result and no refusal anywhere.
-    .tool_result("toolu_01", "File created successfully.", false)
-    .closed();
+    let text = Record::gated(&sandbox, "claude", "read-only", policies().sha())
+        .tool_use(
+            "toolu_01",
+            "Write",
+            json!({"file_path": path, "content": "HELLO\n"}),
+        )
+        // The call went through: a successful result and no refusal anywhere.
+        .tool_result("toolu_01", "File created successfully.", false)
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(
@@ -440,24 +649,20 @@ fn a_refusal_the_policy_would_have_allowed_is_external() {
 fn the_gates_own_answer_disagreeing_with_the_derivation_is_a_finding() {
     let sandbox = Sandbox::new("disagreement");
     let path = sandbox.worktree().join("probe.txt");
-    let text = Record::opened(
-        &sandbox.worktree(),
-        Some("read-only"),
-        Some(policies().sha()),
-    )
-    .tool_use(
-        "toolu_01",
-        "Write",
-        json!({"file_path": path, "content": "HELLO\n"}),
-    )
-    // The gate that ran said allow. Re-evaluating the same policy says deny.
-    .hook_response(
-        "Write",
-        "allow",
-        "hydra/allow: policy read-only allows file_write.",
-    )
-    .tool_result("toolu_01", "File created successfully.", false)
-    .closed();
+    let text = Record::gated(&sandbox, "claude", "read-only", policies().sha())
+        .tool_use(
+            "toolu_01",
+            "Write",
+            json!({"file_path": path, "content": "HELLO\n"}),
+        )
+        // The gate that ran said allow. Re-evaluating the same policy says deny.
+        .hook_response(
+            "Write",
+            "allow",
+            "hydra/allow: policy read-only allows file_write.",
+        )
+        .tool_result("toolu_01", "File created successfully.", false)
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(
@@ -836,7 +1041,11 @@ fn a_cursor_read_the_policy_denies_and_the_hook_refused_is_hydras_deny() {
         assert_eq!(decisions[0].decision, Decision::Deny);
         assert_eq!(decisions[0].decider, Decider::HydraPolicy);
         assert!(decisions[0].reason.starts_with("hydra/out-of-scope:"), "{}", decisions[0].reason);
-        assert!(run.findings.is_empty(), "{name}: {:?}", run.findings);
+        assert!(
+            common::other_findings(&run).is_empty(),
+            "{name}: {:?}",
+            run.findings
+        );
     }
 }
 
@@ -846,8 +1055,7 @@ fn a_cursor_refusal_carrying_hydras_allow_under_a_denying_policy_is_a_disagreeme
     // denies now. Two sources disagree, and the record says so rather than
     // filing the call as one the gate never answered.
     let sandbox = Sandbox::new("cursor-disagree");
-    let ws = sandbox.worktree();
-    let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+    let text = Record::gated(&sandbox, "cursor-agent", "read-only", policies().sha())
         .cursor_call(
             "c1",
             "shellToolCall",
@@ -902,7 +1110,7 @@ fn a_cursor_call_the_policy_denies_that_went_through_is_a_gate_leak() {
     let sandbox = Sandbox::new("cursor-leak");
     let ws = sandbox.worktree();
     let b = ws.join("b.txt").to_string_lossy().to_string();
-    let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+    let text = Record::gated(&sandbox, "cursor-agent", "read-only", policies().sha())
         .cursor_call(
             "c1",
             "editToolCall",
@@ -978,7 +1186,11 @@ fn a_cursor_call_the_policy_allows_that_went_through_raises_no_finding() {
     assert_eq!(decisions.len(), 1);
     assert_eq!(decisions[0].decision, Decision::Allow);
     assert_eq!(decisions[0].decider, Decider::HydraPolicy);
-    assert!(run.findings.is_empty(), "{:?}", run.findings);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
 }
 
 #[test]
@@ -1108,6 +1320,21 @@ fn no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent() {
             })
             .collect();
         assert!(leaks.is_empty(), "{}: {leaks:?}", path.display());
+
+        // Every record on this machine predates `run_start.scopes`, so every one
+        // of them that had a decision to derive says once that it rebuilt the
+        // paths. The walk has to keep reading those records rather than treat
+        // the limit as a fault, which is what build ticket 15 asks of it.
+        let rebuilt = run
+            .findings
+            .iter()
+            .filter(|finding| common::rebuilt_the_scopes(finding))
+            .count();
+        assert!(
+            rebuilt <= 1,
+            "{}: the reader said it rebuilt the scopes {rebuilt} times, and it is once per record",
+            path.display()
+        );
     }
 }
 
@@ -1721,7 +1948,11 @@ fn a_call_the_policy_allows_that_this_provider_ran_is_an_allow() {
     assert_eq!(decisions.len(), 1);
     assert_eq!(decisions[0].decision, Decision::Allow);
     assert_eq!(decisions[0].decider, Decider::HydraPolicy);
-    assert!(run.findings.is_empty(), "{:?}", run.findings);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
 }
 
 #[test]
@@ -1729,20 +1960,16 @@ fn a_call_the_policy_denies_that_this_provider_ran_is_a_leak() {
     // The gate-leak check, on the one status that is evidence: the tool
     // reported success and the policy says it should not have.
     let sandbox = Sandbox::new("agy-leak");
-    let text = Record::agy(
-        &sandbox.worktree(),
-        Some("read-only"),
-        Some(policies().sha()),
-    )
-    .agy_user()
-    .agy_tool_ok(
-        2,
-        "run_command",
-        json!({ "CommandLine": "echo T10MARKER" }),
-        "T10MARKER",
-    )
-    .agy_result("SUCCESS", "", None)
-    .closed();
+    let text = Record::gated(&sandbox, "agy", "read-only", policies().sha())
+        .agy_user()
+        .agy_tool_ok(
+            2,
+            "run_command",
+            json!({ "CommandLine": "echo T10MARKER" }),
+            "T10MARKER",
+        )
+        .agy_result("SUCCESS", "", None)
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(

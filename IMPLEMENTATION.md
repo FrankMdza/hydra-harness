@@ -1297,18 +1297,20 @@ force and the sha of the directory it was compiled from, and the preamble rides 
 string, so `run_start.task` is the preamble followed by a blank line and the caller's
 task verbatim.
 
-**`--allow-floor-escape` is not on the run record.** Harness spec 16 says a per-run
-human flag "lands in the run record as an argument, so the record shows why a run was
-allowed to do the thing", and `--allow-billed` has `auth.allow_billed` for exactly that.
-The floor flag has no field, and contract 5.1 names none, so adding one is a contract
-change rather than a line of code. Until it lands, a floor-lifted run is
-indistinguishable in the record from one that was never offered the lift, and the
-normalizer has to pass `floor_lifted: false` because there is no field to read. So a
-shell call that a human lifted the floor for re-derives to a `hydra/floor` deny it never
-got, and the same call then reports a gate leak, because nothing refused it. Ticket 03
-left the gap where it found it: inventing a field is a contract change. Map ticket 42 made
-the change on 2026-09-06: `floor_lifted` is a boolean on `run_start` and build ticket 15
-writes and reads it.
+**`--allow-floor-escape` is on the run record, since build ticket 15.** Harness spec 16
+says a per-run human flag "lands in the run record as an argument, so the record shows
+why a run was allowed to do the thing", and `--allow-billed` has `auth.allow_billed` for
+exactly that. The floor flag had no field until map ticket 42 named one, because
+inventing a field is a contract change and ticket 03 left the gap where it found it.
+`run_start.floor_lifted` is a boolean now, filled from `Request::floor_lifted` on every
+recorded run and null on a harness run and an interactive one, where no gate is compiled.
+It is a fact about the request rather than about the compile, so a refused launch carries
+it too. `RecordedGate` in `src/normalize/mod.rs` reads it back and hands it to the
+replay's `Spawn`, and a record without it re-derives as if the floor was in force, which
+is what every record on this machine does.
+`tests/normalize.rs::the_floor_lift_on_the_record_reaches_the_replay` is the pair: the
+same `git push --force` derives allow on a record that carries the flag and `hydra/floor`
+on one that does not.
 
 Everything else in contract sections 2 to 6 is met, and `tests/record_contract.rs`
 checks it rather than asserting it. That test also walks every record under
@@ -1363,26 +1365,78 @@ single assistant frame share a `seq` and so share a window, and they are handed 
 in hook order, which is an assumption and not a measurement. That last part reaches only
 the disagreement check, never the decision.
 
-**Five scopes are rebuilt now, not three.** `worktree` comes off `run_start`; `corpus`,
-`skill_store` and `skill_snapshot` are Hydra's own directories, recomputable because
-they never move per run. `skill_checkout` and `parent_git_dir`, added by build ticket
-14, are the two with a per-run answer. `ReplaySpawn` in `src/normalize/mod.rs` rebuilds them
-once for all three adapters: it decides whether this run gets a checkout at all from the
-record's `policy` field, `Some` on `curate` alone, asks `Layout::skill_checkout(run_id)` for the
-path, and asks `git rev-parse --git-common-dir` inside the record's worktree for the parent's
-`.git`, through the same `crate::worktree::git_common_dir` the launch calls from the parent. Not
-`repo_root` on the record's `cwd`: that `cwd` is the worktree itself, `--show-toplevel` answers
-with the worktree there, and `.git` under it is a pointer file the carve-out then owns, which is
-what the first version did until the spec review caught it. A worktree `hydra reap` has taken
-answers nothing, so that record replays with one denied path fewer, which loses a `GateLeak`
-and never invents one. It is the one scope only the record can keep, and build ticket 15 stores it. `Layout::skill_store_scope`, which
-used to make that `curate`-or-not decision by itself, is gone, and `skill_store` means
-the same path under every policy on both sides now, so a curator's record does not come
-back as a gate that leaked for the store's sake, only for its checkout's.
-Map ticket 42 replaced the rebuilding on 2026-09-06: `run_start.scopes` carries the
-paths the gate was compiled against, the reader prefers them, and a record without
-them is rebuilt as above and reports a limit. Build ticket 15 carries it; until it
-lands, every record on this machine is rebuilt.
+**The record carries its scopes, and the rebuild is the fallback.** Build ticket 15 landed
+map ticket 42 on 2026-09-06: `run_start.scopes` is six absolute paths keyed by scope name,
+`worktree`, `skill_store`, `skill_checkout`, `corpus`, `gate_script` and `parent_git_dir`,
+written from the same `Spawn` the gate was compiled from. `Spawn::paths` in
+`src/policy/mod.rs` is that one function, and `compile`'s own `scopes` block and
+`SpawnFiles::scopes` are two views over it, so the script and the record cannot name
+different paths. `skill_snapshot` is not a key, because it recomputes from
+`skills.store_sha`, which line 0 already carries. Two of the six are not scopes at all:
+`gate_script` and `parent_git_dir` are per-run denied paths, and they are in the same
+object because the record is the only copy of either. The contract's own key list stays a
+list of keys and says nothing about that split, which is why it is here.
+
+**No refused spawn carries the object, and all three carry `floor_lifted`.** The policy
+narrowing check of build ticket 11, the skill collision of 6.1 item 5 and the MCP
+shortfall of item 6 all refuse before `write_spawn_config` runs, so no gate was compiled
+and no scope was resolved: the key is absent rather than filled with what the compile
+would have produced. The flag is different, because it is a fact about the request and a
+human typed it whether or not the launch got that far.
+
+**A replay recovers the scopes and not the denials.** `Spawn` carries the six paths above
+as arguments and the rest of 7.5's deny list off `layout`, which on the read side is the
+reader's own `~/hydra`. So a record read on the machine that wrote it loses nothing, and a
+record from another root resolves its scopes against the stored paths while denying
+against the reader's directories. That is half the compile recovered rather than all of
+it. Carrying the whole deny list would mean putting a dozen paths on every line 0 to
+recover a case that only arises when `~/hydra` moves, and ticket 42 costed the six at 213
+bytes on a 1,759-byte median line 0 before deciding what to store.
+
+`RecordedGate` in `src/normalize/mod.rs` reads the object off line 0 and `ReplaySpawn`
+prefers it key by key. A key the record does not carry is rebuilt the way build ticket 14
+left it: `worktree` off `run_start.worktree.path` and otherwise the launch's own
+`spawn/<run-id>/no-worktree` placeholder; `corpus`, `skill_store` and `gate_script` from
+the reader's own `Layout`; `skill_checkout` from the record's `policy` field, `Some` on
+`curate` alone; and `parent_git_dir` from `git rev-parse --git-common-dir` inside the
+record's worktree, through the same `crate::worktree::git_common_dir` the launch calls
+from the parent. Not `repo_root` on the record's `cwd`: that `cwd` is the worktree itself,
+`--show-toplevel` answers with the worktree there, and `.git` under it is a pointer file
+the carve-out then owns, which is what the first version did until the spec review caught
+it. A worktree `hydra reap` has taken answers nothing, which loses a `GateLeak` it could
+have reported and never invents one, and that is the case the stored path closes: ticket
+14 called `parent_git_dir` the one scope only the record can keep, and the record keeps it
+now.
+
+**A rebuilt key is one `Finding::Limit` per record and never a disagreement.**
+`ReplaySpawn::scope_limit` names the keys it stood in for, and adds that nothing answered
+for `parent_git_dir` when the git call came back empty. `src/ouroboros/corpus.rs` routes
+every `Limit` to `signals.limits`, which the ranking does not weigh, rather than to
+`signals.disagreements`, which weighs 2 and reads in the brief as "the record and the
+policy disagree". Getting that arm wrong is the failure ticket 42 measured: one clean
+record would have arrived at the top of a pass's brief as a run whose gate leaked twenty
+times. Every record on this machine predates the field, so every one of them with a
+decision to derive reports the limit once, and the corpus walk in `tests/normalize.rs`
+asserts it stays at once.
+
+**A record with no `scopes` can no longer report a gate leak, and that is the price
+decision 5 named.** A `GateLeak` and a `Disagreement` both claim two sources answered one
+question and differed. Rebuild a path the question resolves against and they did not, so
+`ReplaySpawn::stood_in` turns both into a limit that names the rebuilt keys, the way
+`policy_moved` turns a disagreement into one when the sha moved. Every record on this
+machine is in that state, so the corpus-wide leak check now proves less than it did on
+2026-09-06: it would take a leak on a record written after this build to fail. What kept
+it worth running is that the check is unchanged for records that carry their scopes, which
+is every record from here on, and `tests/normalize.rs` reaches both a `GateLeak` and a
+`Disagreement` through `Record::gated` fixtures that carry them. This is the one place
+where a decision on the map made the reader quieter rather than louder, and ticket 42
+chose it with the alternative measured: twenty findings on one record whose gate leaked
+none.
+
+`Layout::skill_store_scope`, which used to make the `curate`-or-not decision for
+`skill_store` by itself, is gone, and `skill_store` means the same path under every policy
+on both sides, so a curator's record does not come back as a gate that leaked for the
+store's sake, only for its checkout's.
 
 **The replay's no-worktree fallback used to disagree with the launch's, and the
 carve-out is why that now matters.** A run outside a repo has no checkout, and the live
@@ -1393,10 +1447,12 @@ let a replay treat the whole working directory as the run's own now that a spawn
 a checkout too. The three normalizers mirror the launch's fallback since build ticket 14.
 
 **`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
-that read a policy live in `src/policy/gate.py`. Nor did it cover the paths the script
-was compiled against, until ticket 42 put them on the record. A record can therefore re-evaluate
-against gate code that changed while its sha matched, and what reports that is a
-disagreement rather than a stale policy. All nine records on this machine re-evaluate to
+that read a policy live in `src/policy/gate.py`. It does not cover the paths the script
+was compiled against either, and `scopes` and `floor_lifted` are what carry those since
+build ticket 15, so the only input to `policy::compile` a record still leaves to the
+reader is the gate code itself, which `hydra_version` dates. A record can therefore
+re-evaluate against gate code that changed while its sha matched, and what reports that is
+a disagreement rather than a stale policy. All nine records on this machine re-evaluate to
 the verdict their gate gave, including the two shell calls ticket 06's measurement left,
 and `tests/normalize.rs` asserts it per call rather than in aggregate.
 
@@ -2097,8 +2153,10 @@ means `~/hydra/skills/` on every spawn now, no exceptions, and the policy-name
 match inside `src/paths.rs` is gone with it. `Layout::skill_checkout(run_id)`
 answers the checkout's path as a pure function of the layout and the run id, and
 whether a spawn gets one at all is a decision each caller makes from the policy
-name: `src/run.rs`, `src/ouroboros/curate.rs` and the three normalizers all pass
-`Some` on `curate` and `None` on everything else. `Spawn` carries the result as
+name: `src/run.rs`, `src/ouroboros/curate.rs` and `ReplaySpawn` all pass
+`Some` on `curate` and `None` on everything else, and since build ticket 15 the
+read side asks that question only of a record carrying no `scopes`. `Spawn`
+carries the result as
 `skill_checkout: Option<&Path>`, and the deny list denies the store outright under
 every policy, `curate` included, which is what makes the two scopes different
 names for different places rather than one name that used to move.
@@ -2411,17 +2469,15 @@ Out of scope for this slice, and each one has a document that already says what 
   `git status` with no warning. They are anchored to the repo root now. A new directory
   under `src/` sharing a name with one of Hydra's own is worth a `git status` glance
   either way.
-- **A record does not carry the paths its scopes resolved to.** `policy` and `policy_sha`
-  pin the rules; `worktree`, `skill_store` and `corpus` are resolved at compile time from
-  `Layout` and go nowhere. Contract 11 re-derives `permission_decision` by running the
-  policy again, so a build that moves where a scope points makes every earlier record
-  re-derive differently, and `policy_sha` does not move because no policy file changed.
-  Seen for real on 2026-09-06: a concurrent branch pointed `skill_store` at a per-run
-  worktree of the store, and its run's ten in-scope reads re-derive on this branch as ten
-  `GateLeak` findings. Nothing is wrong with either build. The record was missing the
-  field that would tell them apart. Map ticket 42 added it on 2026-09-06, `scopes` and
-  `floor_lifted` on `run_start`, and build ticket 15 carries the code. Until it lands the
-  edge is as described.
+- **A record carries the paths its scopes resolved to, and the corpus predates the
+  field.** `policy` and `policy_sha` pin the rules and `scopes` pins what they were
+  applied to, since build ticket 15. The edge that is left is the records already on
+  disk: none of them carries the object, so each one re-derives against this build's
+  `Layout` and says so once as a limit. Seen for real on 2026-09-06, which is why the
+  field exists: a concurrent branch pointed `skill_store` at a per-run worktree of the
+  store, and its run's ten in-scope reads re-derived on this branch as ten `GateLeak`
+  findings. Nothing was wrong with either build. Moving a scope now rewrites the reading
+  of records written before the move and of nothing written after it.
 - **A run that can run a shell can set `HYDRA_ROOT` and move where its own children are
   recorded.** The variable never reaches a child through 6.2's allowlist, so nothing
   inherits it. What a child can do is export it itself and then invoke `hydra run`, which

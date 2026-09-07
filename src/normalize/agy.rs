@@ -62,9 +62,9 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::{
-    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ReplaySpawn,
-    ResultStatus, Role, Run, RunEnd, RunStart, ToolCall, ToolResult, Usage, UsageSource,
-    hydra_voice, policy_moved, splice, verdict_decision,
+    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedGate,
+    ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, ToolCall, ToolResult, Usage,
+    UsageSource, hydra_voice, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::PolicySet;
@@ -111,6 +111,10 @@ struct Walk {
     store_sha: Option<String>,
     cwd: Option<PathBuf>,
     worktree: Option<PathBuf>,
+    /// Contract 5.1's `scopes` and `floor_lifted`, the other two inputs to the
+    /// compile 7.7 re-runs. Absent on every record written before ticket 42,
+    /// which is what `RecordedGate` answers for.
+    gate: RecordedGate,
     events: Vec<Event>,
     findings: Vec<Finding>,
     result: Option<Value>,
@@ -183,6 +187,7 @@ impl Walk {
                 self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
                 self.cwd = body["cwd"].as_str().map(PathBuf::from);
                 self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
+                self.gate = RecordedGate::of(body);
                 self.events.push(Event::RunStart(RunStart {
                     seq,
                     body: body.clone(),
@@ -517,7 +522,11 @@ impl Walk {
             self.cwd.as_deref(),
             self.worktree.as_deref(),
             self.store_sha.as_deref(),
+            &self.gate,
         );
+        // Once per record, before any decision, so a reader sees what the
+        // derivation stood in for ahead of what it derived.
+        self.findings.extend(spawn.scope_limit());
         let replay = match Replay::compile(policies, &spawn.spawn(Provider::Agy)) {
             Ok(replay) => replay,
             Err(err) => {
@@ -556,11 +565,17 @@ impl Walk {
                         // claimed when the tool reported success.
                         match result {
                             Some((ResultStatus::Ok, _)) => {
-                                self.findings.push(Finding::GateLeak {
-                                    call_id: call_id.clone(),
-                                    tool: tool.clone(),
-                                    reason: verdict.reason.clone(),
-                                });
+                                match spawn.stood_in(&format!(
+                                    "the policy denies step {call_id} ({tool}) and nothing in \
+                                     the record refused it"
+                                )) {
+                                    Some(limit) => self.findings.push(limit),
+                                    None => self.findings.push(Finding::GateLeak {
+                                        call_id: call_id.clone(),
+                                        tool: tool.clone(),
+                                        reason: verdict.reason.clone(),
+                                    }),
+                                }
                             }
                             Some(_) => self.findings.push(Finding::Limit(format!(
                                 "step {call_id} ({tool}) failed with an error this provider \
@@ -592,13 +607,21 @@ impl Walk {
                                      longer today's, so the two answered about two policies"
                                 )));
                             }
-                            Some(code) => self.findings.push(Finding::Disagreement {
-                                call_id: call_id.clone(),
-                                derived: Decision::Deny,
-                                derived_code: verdict.code().map(str::to_string),
-                                gate_said: Decision::Allow,
-                                gate_code: Some(code.to_string()),
-                            }),
+                            Some(code) => {
+                                match spawn.stood_in(&format!(
+                                    "the gate allowed step {call_id} ({tool}) and the \
+                                     derivation denies it"
+                                )) {
+                                    Some(limit) => self.findings.push(limit),
+                                    None => self.findings.push(Finding::Disagreement {
+                                        call_id: call_id.clone(),
+                                        derived: Decision::Deny,
+                                        derived_code: verdict.code().map(str::to_string),
+                                        gate_said: Decision::Allow,
+                                        gate_code: Some(code.to_string()),
+                                    }),
+                                }
+                            }
                             // A hook refused and it was not Hydra's. The gate
                             // fails closed on this provider and there is no
                             // flag to change that, so the innocent reading is
@@ -640,6 +663,11 @@ impl Walk {
                                  allows it, under a policy_sha that is no longer today's, \
                                  so the two answered about two policies"
                             )));
+                        } else if let Some(limit) = spawn.stood_in(&format!(
+                            "the gate denied step {call_id} ({tool}) and the derivation \
+                             allows it"
+                        )) {
+                            self.findings.push(limit);
                         } else {
                             self.findings.push(Finding::Disagreement {
                                 call_id: call_id.clone(),

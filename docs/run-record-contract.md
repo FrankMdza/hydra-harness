@@ -216,10 +216,11 @@ ticket 42. Measured on 2026-09-06: two correct builds resolved `skill_store` to 
 policy file changed, and ten in-scope reads on one record re-derived as ten gate leaks on the other
 build. So `scopes` carries the paths, in the shape section 5.3 uses for `skills`: a sha without
 names does not say what was scoped. The keys are `worktree`, `skill_store`, `skill_checkout`,
-`corpus` and `gate_script`, each an absolute path as the gate saw it. A key the run did not have is
-absent, never null, so a run with no checkout carries no `skill_checkout`. `skill_snapshot` is not
-a key: it recomputes from `skills.store_sha`, which is already here. The `config/` prefix is not a
-key either, because it moves only with a Hydra release and `hydra_version` covers that.
+`corpus`, `gate_script` and `parent_git_dir`, each an absolute path as the gate saw it. A key the
+run did not have is absent, never null, so a run with no checkout carries no `skill_checkout`.
+`skill_snapshot` is not a key: it recomputes from `skills.store_sha`, which is already here. The
+`config/` prefix is not a key either, because it moves only with a Hydra release and
+`hydra_version` covers that.
 
 **The compiled gate script's own sha is still not carried.** An earlier draft said the script was a
 pure function of the policy source and the Hydra version, which was false: it takes the six inputs

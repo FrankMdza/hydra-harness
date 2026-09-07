@@ -812,9 +812,10 @@ Generated per spawn with the policy compiled into it, written to
 
 **What the script is compiled from.** The policy files at `policy_sha`, the policy name, whether the
 human lifted the floor on this run, and the resolved absolute path of every scope the policy
-grants: the worktree, the store, the curate checkout when there is one, the corpus and the script's
-own path. All of it but the policy files is on `run_start` as `policy`, `floor_lifted` and `scopes`,
-so a reader can reproduce the compile without the script (contract 5.1).
+grants: the worktree, the store, the curate checkout when there is one, the corpus, the script's
+own path and the parent repo's `.git`. All of it but the policy files is on `run_start` as
+`policy`, `floor_lifted` and `scopes`, so a reader can reproduce the compile without the script
+(contract 5.1).
 
 Not a script that reads a policy file when it fires. Anything read at fire time is a file that may
 have changed since the previous tool call. All three providers snapshot their hook *config* at
