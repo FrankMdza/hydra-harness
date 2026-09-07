@@ -105,7 +105,7 @@ impl Layout {
         self.root.join("skill-worktrees")
     }
 
-    pub fn skill_worktree(&self, run_id: &str) -> PathBuf {
+    pub fn skill_checkout(&self, run_id: &str) -> PathBuf {
         self.skill_worktrees().join(run_id)
     }
 
@@ -123,7 +123,7 @@ impl Layout {
     /// change; a rule both sides derive costs nothing and cannot drift.
     pub fn skill_store_scope(&self, run_id: &str, policy: &str) -> PathBuf {
         match policy {
-            "curate" => self.skill_worktree(run_id),
+            "curate" => self.skill_checkout(run_id),
             _ => self.skills(),
         }
     }

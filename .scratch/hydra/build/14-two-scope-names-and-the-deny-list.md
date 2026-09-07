@@ -1,7 +1,7 @@
 # 14 - Two scope names, the two-kind deny list, and the reap sweep
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## Goal

@@ -118,7 +118,7 @@ fn brief_for(fixture: &Fixture, selection: &Selection) -> String {
         "01a07500-0000-7000-8000-00000000cafe",
         &fixture
             .layout()
-            .skill_worktree("01a07500-0000-7000-8000-00000000cafe"),
+            .skill_checkout("01a07500-0000-7000-8000-00000000cafe"),
         &fixture.layout(),
         selection,
     )
@@ -595,7 +595,7 @@ fn the_curators_writes_are_scoped_to_its_checkout_and_not_to_the_store() {
     let fixture = Fixture::new("scope");
     let store = fixture.store();
     let run_id = A;
-    let checkout = fixture.layout().skill_worktree(run_id);
+    let checkout = fixture.layout().skill_checkout(run_id);
     curate::check_out(
         &store,
         &checkout,
@@ -664,7 +664,7 @@ fn a_curate_runs_own_record_does_not_read_back_as_a_gate_that_leaked() {
     let fixture = Fixture::new("replay");
     let store = fixture.store();
     let run_id = A;
-    let checkout = fixture.layout().skill_worktree(run_id);
+    let checkout = fixture.layout().skill_checkout(run_id);
     curate::check_out(
         &store,
         &checkout,
@@ -713,7 +713,7 @@ fn the_commit_is_the_proposal_and_the_checkout_goes_after_it() {
     let store = fixture.store();
     let run_id = A;
     let branch = format!("ouroboros/curate/{run_id}");
-    let checkout = fixture.layout().skill_worktree(run_id);
+    let checkout = fixture.layout().skill_checkout(run_id);
     curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
 
     std::fs::write(
@@ -780,7 +780,7 @@ fn a_pass_on_a_dirty_store_checks_out_the_sha_its_own_launch_will_pin() {
 
     let run_id = A;
     let branch = format!("ouroboros/curate/{run_id}");
-    let checkout = fixture.layout().skill_worktree(run_id);
+    let checkout = fixture.layout().skill_checkout(run_id);
     let sha = Store::open(&fixture.layout()).unwrap().pin(run_id).unwrap();
     curate::check_out(&store, &checkout, &branch, &sha).unwrap();
 
@@ -819,7 +819,7 @@ fn a_pass_that_proposed_nothing_leaves_no_branch() {
     let store = fixture.store();
     let run_id = B;
     let branch = format!("ouroboros/curate/{run_id}");
-    let checkout = fixture.layout().skill_worktree(run_id);
+    let checkout = fixture.layout().skill_checkout(run_id);
     curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
 
     let proposal = curate::propose(
