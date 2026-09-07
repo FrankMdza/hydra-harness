@@ -267,7 +267,9 @@ ever read at launch, where a dirty store is committed before pinning. A curator 
 same working tree would collide with the next launch's commit. Its worktree is created per run at
 `~/hydra/skill-worktrees/<run-id>/` and its commits land on `ouroboros/curate/<run-id>` in the
 store's own repo. Ticket 40 settled this on 2026-09-06 and harness spec 7.2 was the paragraph that
-moved.
+moved. The worktree is checked out at the sha the run pins, and the pass does the pinning itself
+before the checkout, so a dirty store is committed by `hydra curate` rather than by the launch that
+follows it and the curator never reads a store its own launch is about to move past. Ticket 41.
 
 **Every limit above lives at the tool-dispatch layer and the gate, and none of it lives in a
 prompt.**

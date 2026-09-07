@@ -1,7 +1,7 @@
 # 41 - The curate checkout happens before the launch commits the store
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 40
 
 ## Question
@@ -70,3 +70,35 @@ types that line. Build ticket 14 carries the change.
 gate, so a curate pass calling `Store::pin` itself is Hydra doing the commit rather than the child,
 which is the only writer the store has left besides a human. That makes the first ordering the one
 that composes with the deny list rather than around it.
+
+## Answer
+
+Resolved 2026-09-06. **The store is committed before the curate checkout.** `hydra curate` opens
+the store, calls `Store::pin` with the run id it minted, and checks out at the sha it got back
+instead of at `HEAD`. `run::run` then pins a store the pass already left clean and gets the same
+sha, so the record's `skills.store_sha` and the curator's checkout name one commit and nothing is
+committed twice.
+
+**Why this one.** Ticket 40 decided it before this ticket was taken. `~/hydra/skills/` is denied
+to every policy at the gate, so the store's working tree has two writers left, a human and
+`Store::pin`. A curate pass calling `Store::pin` is Hydra doing the one write it reserved for
+itself, one launch earlier than before. The second ordering would have kept `hydra curate` out of
+the store's history, but 40 measured the objection to it away and left it no argument for: a gate
+compiled before the checkout exists is byte-identical to one compiled after, so moving the checkout
+would have bought nothing but a write scope that is a promise for the run's first moments.
+
+**The trailer cost is accepted.** `Hydra-Pinned-By: <run-id>` now lands on the commit before the
+run it names has started. The trailer says which run turned the working tree into a commit, and
+that is still this run.
+
+**What was done.** `check_out` in `src/ouroboros/curate.rs` takes the revision to check out at,
+and the pass hands it the pinned sha; the four tests that called it pass `HEAD`. One new test,
+`a_pass_on_a_dirty_store_checks_out_the_sha_its_own_launch_will_pin` in `tests/curate.rs`, dirties
+a store, pins, checks out, and checks that the checkout holds the edit, that the store is clean,
+that a second pin under the same run id returns the same sha, and that the trailer names the run.
+`IMPLEMENTATION.md`'s paragraph "One ordering the skill store broke, and it is live now" is
+replaced by what was done. Ouroboros spec 3.6 and harness spec 6.4 each gained a sentence. Nothing
+was launched.
+
+**One thing to know.** `cargo fmt` is not clean on `master`: running it touched fifteen files this
+change does not, and those were reverted. Whoever runs it next will see the same churn.

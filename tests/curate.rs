@@ -17,6 +17,7 @@ use hydra::ouroboros::corpus::{self, Selection, Why};
 use hydra::ouroboros::curate;
 use hydra::outcome::{Outcome, RunResult, Usage};
 use hydra::paths::Layout;
+use hydra::skills::Store;
 use serde_json::json;
 
 mod common;
@@ -595,7 +596,13 @@ fn the_curators_writes_are_scoped_to_its_checkout_and_not_to_the_store() {
     let store = fixture.store();
     let run_id = A;
     let checkout = fixture.layout().skill_worktree(run_id);
-    curate::check_out(&store, &checkout, &format!("ouroboros/curate/{run_id}")).unwrap();
+    curate::check_out(
+        &store,
+        &checkout,
+        &format!("ouroboros/curate/{run_id}"),
+        "HEAD",
+    )
+    .unwrap();
 
     let spawn = hydra::run::write_spawn_config(
         &fixture.layout(),
@@ -658,7 +665,13 @@ fn a_curate_runs_own_record_does_not_read_back_as_a_gate_that_leaked() {
     let store = fixture.store();
     let run_id = A;
     let checkout = fixture.layout().skill_worktree(run_id);
-    curate::check_out(&store, &checkout, &format!("ouroboros/curate/{run_id}")).unwrap();
+    curate::check_out(
+        &store,
+        &checkout,
+        &format!("ouroboros/curate/{run_id}"),
+        "HEAD",
+    )
+    .unwrap();
 
     let mut record = Record::shaped(Shape {
         run_id,
@@ -701,7 +714,7 @@ fn the_commit_is_the_proposal_and_the_checkout_goes_after_it() {
     let run_id = A;
     let branch = format!("ouroboros/curate/{run_id}");
     let checkout = fixture.layout().skill_worktree(run_id);
-    curate::check_out(&store, &checkout, &branch).unwrap();
+    curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
 
     std::fs::write(
         checkout.join("writing-tests.md"),
@@ -754,6 +767,50 @@ fn the_commit_is_the_proposal_and_the_checkout_goes_after_it() {
 }
 
 #[test]
+fn a_pass_on_a_dirty_store_checks_out_the_sha_its_own_launch_will_pin() {
+    // Map ticket 41. The pass pins before it checks out, so the checkout and the
+    // record's `skills.store_sha` name one commit. A checkout of `HEAD` taken
+    // before the launch's own pin would hand the curator the store as it was
+    // before the skill the human just edited, while the record said otherwise.
+    let fixture = Fixture::new("dirty");
+    let store = fixture.store();
+    let before = git(&store, &["rev-parse", "HEAD"]).trim().to_string();
+    let edited = "the skill store, edited and not committed\n";
+    std::fs::write(store.join("README.md"), edited).unwrap();
+
+    let run_id = A;
+    let branch = format!("ouroboros/curate/{run_id}");
+    let checkout = fixture.layout().skill_worktree(run_id);
+    let sha = Store::open(&fixture.layout()).unwrap().pin(run_id).unwrap();
+    curate::check_out(&store, &checkout, &branch, &sha).unwrap();
+
+    assert_ne!(sha, before, "the dirty store was checked out uncommitted");
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]).trim(), sha);
+    assert_eq!(
+        std::fs::read_to_string(checkout.join("README.md")).unwrap(),
+        edited,
+        "the curator reads the store from before the edit"
+    );
+    assert!(git(&store, &["status", "--porcelain"]).trim().is_empty());
+
+    // The launch pins next, on a store this pass left clean, and gets the same
+    // sha rather than a second commit.
+    assert_eq!(
+        Store::open(&fixture.layout()).unwrap().pin(run_id).unwrap(),
+        sha
+    );
+    assert_eq!(
+        git(&store, &["log", "--oneline", "main"]).lines().count(),
+        2
+    );
+    let message = git(&store, &["log", "-1", "--format=%B", "main"]);
+    assert!(
+        message.contains(&format!("Hydra-Pinned-By: {run_id}")),
+        "{message}"
+    );
+}
+
+#[test]
 fn a_pass_that_proposed_nothing_leaves_no_branch() {
     // An empty pass is a real answer. `git branch -d` is what decides this: it
     // refuses a branch that is not fully merged, so a branch only goes when
@@ -763,7 +820,7 @@ fn a_pass_that_proposed_nothing_leaves_no_branch() {
     let run_id = B;
     let branch = format!("ouroboros/curate/{run_id}");
     let checkout = fixture.layout().skill_worktree(run_id);
-    curate::check_out(&store, &checkout, &branch).unwrap();
+    curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
 
     let proposal = curate::propose(
         &store,

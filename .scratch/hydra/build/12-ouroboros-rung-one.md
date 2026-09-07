@@ -165,7 +165,8 @@ the round trip now.
   curator reads the store as it was before its own launch tidied it. Whoever wires
   the pinning owns the fix and it is an ordering decision rather than a line of
   code: commit the store before the curate checkout, or move the checkout after the
-  launch and compile the gate against a directory that does not exist yet.
+  launch and compile the gate against a directory that does not exist yet. Map
+  ticket 41 took the first on 2026-09-06: the pass pins, then checks out at that sha.
 - **Section 9.1's suggestion that the checkout could live in the spawn directory
   does not hold.** `hydra reap` removes that directory whole, and a pass whose run
   outlived its call leaves an uncommitted proposal in the checkout. It lives at

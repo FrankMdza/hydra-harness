@@ -1892,15 +1892,17 @@ the one `unclassified` result without diagnosing from it, and said the store hel
 no skill to edit. The empty branch was deleted, which is the shape above working
 rather than a pass that failed.
 
-**One ordering the skill store broke, and it is live now.** The checkout is of the
-store's `HEAD`, and 6.4 has a launch commit a dirty store before pinning it. `hydra
-curate` checks out before it launches, so a pass started with an uncommitted skill
-in the store reads the store as it was before its own launch tidied it. Ticket 07
-wired the pinning and did not touch this, because it is an ordering decision rather
-than a line of code: either the store is committed before the curate checkout, or
-the checkout moves after the launch and the gate is compiled against a directory
-that does not exist yet. Neither ticket decided it, so it is open. It is map ticket 41,
-blocked by 40 because the order depends on where the checkout lives. The pass measured above hit the harmless half, an empty `HEAD` under a
+**The pass pins the store before it checks out, settled by map ticket 41 on
+2026-09-06.** 6.4 has a launch commit a dirty store before pinning it, and `hydra
+curate` checks out before it launches, so until this the curator read the store as
+it was before its own launch tidied it. Now `curate` calls `Store::pin` with the run
+id it minted and checks out at the sha it gets back; `run::run` pins a store that is
+already clean and gets the same sha. Chosen over moving the checkout after the
+launch because ticket 40 left the store two writers, a human and `Store::pin`, so
+the pass committing is Hydra doing the write it already reserved for itself. The
+trailer on that commit names a run that has not started yet, which is accepted.
+`tests/curate.rs` covers the one shape where the orderings differ, a pass on a dirty
+store. The pass measured above had hit the harmless half, an empty `HEAD` under a
 store whose skills were not committed.
 
 ## Choices this build made that no ticket settled

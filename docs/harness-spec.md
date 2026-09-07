@@ -284,7 +284,8 @@ with no read the gate sees, and a sibling arrives through `Read` on the link pat
 **If the store is dirty at launch, Hydra commits it before pinning**, with authorship in the commit
 trailer. Launching from HEAD and ignoring the working tree would mean editing a skill, running, and
 watching nothing happen, which would happen on day one. Committing is the only option where the sha
-in the run record is always true.
+in the run record is always true. `hydra curate` pins before it checks the store out, so its launch
+finds the store clean and pins the sha the checkout already sits on (ticket 41).
 
 **The skills already on disk do not move.** The 11 skills in `~/.claude/skills` stay where they are.
 This is the only honest option rather than generosity: every provider reads a user-scope root as

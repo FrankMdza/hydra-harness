@@ -6,9 +6,10 @@
 //! does not. `docs/ouroboros-spec.md` section 3 is the design.
 //!
 //! **It is a `hydra run` like any other** (3.5), so it goes through
-//! [`crate::run::run`]: one launch sequence, one record, one writer. Three things
+//! [`crate::run::run`]: one launch sequence, one record, one writer. Four things
 //! are the pass's own rather than the launch's: which runs the curator is told
-//! about, where the `skill_store` scope points, and the commit afterwards.
+//! about, where the `skill_store` scope points, the pin before the checkout, and
+//! the commit afterwards.
 //!
 //! **The pass gets no run record of its own.** Contract 5.5 says why, and the test
 //! it gives is whether the supervisor decided anything after the run's file
@@ -30,6 +31,7 @@ use crate::paths::Layout;
 use crate::policy::PolicySet;
 use crate::provider::Provider;
 use crate::run::{Call, Handle, Request};
+use crate::skills::Store;
 use crate::worktree::git;
 
 use super::corpus::{self, Learnable, Selection};
@@ -101,7 +103,15 @@ pub fn curate(pass: Pass) -> Result<Done> {
     }
 
     let store = store(&layout)?;
-    check_out(&store, &checkout, &branch)?;
+    // The pass pins before it checks out, and the launch pins again a store this
+    // already left clean, so both get one sha. Map ticket 41 chose this over
+    // moving the checkout after the launch: the store's only writers are a
+    // human and `Store::pin`, so a curate pass committing the store is Hydra
+    // doing what the deny list already reserves for it. A checkout of `HEAD`
+    // taken before the launch's own commit would read the store as it was
+    // before this pass tidied it.
+    let sha = Store::open(&layout)?.pin(&run_id)?;
+    check_out(&store, &checkout, &branch, &sha)?;
 
     let call = crate::run::run(Request {
         provider: Provider::Claude,
@@ -168,14 +178,18 @@ pub fn store(layout: &Layout) -> Result<PathBuf> {
     Ok(store)
 }
 
-/// A git worktree of the store, on the branch the proposal will land on.
+/// A git worktree of the store at `rev`, on the branch the proposal will land on.
 ///
 /// **Never the store's own working tree** (3.6). A run pins the store at a sha and
 /// links into an immutable snapshot, and a dirty store is committed before that
 /// pinning, so a curator writing into the live tree would collide with the next
-/// launch's commit. The checkout starts at the store's `HEAD` and is not seeded
-/// with anything: a proposal is a change against what the store has committed.
-pub fn check_out(store: &Path, checkout: &Path, branch: &str) -> Result<()> {
+/// launch's commit. The checkout is not seeded with anything: a proposal is a
+/// change against what the store has committed.
+///
+/// **`rev` is the sha the run will pin**, which is why [`curate`] pins before it
+/// calls this. Checking out `HEAD` before the launch commits a dirty store would
+/// hand the curator yesterday's store while its record says today's.
+pub fn check_out(store: &Path, checkout: &Path, branch: &str, rev: &str) -> Result<()> {
     if let Some(parent) = checkout.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
@@ -188,7 +202,7 @@ pub fn check_out(store: &Path, checkout: &Path, branch: &str) -> Result<()> {
             "-b",
             branch,
             &checkout.to_string_lossy(),
-            "HEAD",
+            rev,
         ],
     )
     .with_context(|| format!("checking the skill store out at {}", checkout.display()))?;
