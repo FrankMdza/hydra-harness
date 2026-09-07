@@ -60,6 +60,12 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
 - [43](issues/43-restricted-keeps-mcp-on-judge.md) `--restricted` no longer drops MCP on `claude`
   2.1.263, so a `judge` run keeps the human's own servers. Provider drift under 6.5 and 6.7, and the
   fix is one flag on an argv the design writes. Closed 2026-09-06, and the premise was wrong.
+- [47](issues/47-judge-gets-linked-skills-it-cannot-see.md) A `judge` run is linked skills it cannot
+  list, read or invoke, and build ticket 16 papered over it with a null. Whether 6.4 should inject
+  on `judge` at all. Opened 2026-09-07 from the build.
+- [48](issues/48-the-face-needs-the-run-id-and-the-document-has-no-field.md) The delegate face
+  needs `--parent <run-id>` per run and the MCP document has no field that could say so, so every
+  tree a document-spawned face makes is flat. Opened 2026-09-07 from the build.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
@@ -109,6 +115,12 @@ hook's `additionalContext` is data, Hydra keeps loading the user's settings, the
 reopening tickets left a build ticket each, 14 through 16 in `build/plan.md`, and the map closes
 the way it closed the first time: a session that finds a decision rather than an implementation
 reopens it.
+
+**Build tickets 11, 15 and 16 closed on 2026-09-07 and two of them found a decision, so the map is
+open again at 46 of 48.** Ticket 16 measured `--restricted` dropping the skills Hydra links into a
+`judge` run, which is ticket 47. Ticket 11 built the delegate face and found that the MCP document
+cannot hand it the run id, which is ticket 48. Both are grillings, and neither blocks anything on
+the build, which stands at 16 of 16.
 
 ## Notes
 
