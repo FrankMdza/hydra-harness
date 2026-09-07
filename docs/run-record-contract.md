@@ -173,6 +173,8 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `task` | the full task string as passed, preamble included |
 | `policy` | the policy name in force |
 | `policy_sha` | the sha of the delegation policy directory, pattern floor included |
+| `floor_lifted` | boolean, whether `--allow-floor-escape` was typed on this run (harness spec 16) |
+| `scopes` | the absolute paths the gate was compiled against, keyed by scope name; see below |
 | `cwd` | the directory the child was launched in |
 | `worktree` | path and branch name, or null under `--shared-tree` |
 | `depth` | integer, 0 for a run a human started |
@@ -203,11 +205,26 @@ preamble rides on the task string rather than an injected skill, so it lands her
 of its own. A child's result is wrapped in a per-call randomised delimiter on the way back to its
 parent, and that marker is in the parent's frames too.
 
-**`policy_sha` is what makes section 7.6 work.** The permission decisions in the record are
-re-derived from the policy, so a reader a month later needs the policy exactly as it was, and the
-pattern floor moves independently of the five policy names. The compiled gate script's own sha is
-deliberately not carried: the script is a pure function of the policy source and the Hydra version,
-both of which are here, so a third sha would prove nothing the first two do not.
+**`policy_sha` is half of what makes section 7.7 work, and `scopes` is the other half.** The
+permission decisions in the record are re-derived from the policy, so a reader a month later needs
+the policy exactly as it was, and the pattern floor moves independently of the five policy names.
+The sha pins the rules. It does not pin what the rules were applied to: the gate is compiled per
+spawn from the policy files, the policy name, `floor_lifted`, and the resolved paths of every scope
+the policy grants, and those paths were computed from Hydra's layout and stored nowhere until
+ticket 42. Measured on 2026-09-06: two correct builds resolved `skill_store` to two directories, no
+policy file changed, and ten in-scope reads on one record re-derived as ten gate leaks on the other
+build. So `scopes` carries the paths, in the shape section 5.3 uses for `skills`: a sha without
+names does not say what was scoped. The keys are `worktree`, `skill_store`, `skill_checkout`,
+`corpus` and `gate_script`, each an absolute path as the gate saw it. A key the run did not have is
+absent, never null, so a run with no checkout carries no `skill_checkout`. `skill_snapshot` is not
+a key: it recomputes from `skills.store_sha`, which is already here. The `config/` prefix is not a
+key either, because it moves only with a Hydra release and `hydra_version` covers that.
+
+**The compiled gate script's own sha is still not carried.** An earlier draft said the script was a
+pure function of the policy source and the Hydra version, which was false: it takes the six inputs
+above. With `policy_sha`, `policy`, `floor_lifted` and `scopes` on the record, every input but the
+Hydra version is here, and a fourth sha would tell a reader its replay was wrong without saying what
+was right.
 
 ### 5.2 Liveness
 
@@ -318,10 +335,11 @@ Hydra lines" holds without an exception.
 |---|---|
 | `command`, `cwd`, `depth`, `pid`, `process_start_time`, `schema_version`, `hydra_version` | filled |
 | `provider`, `provider_version`, `model`, `provider_session_id`, `launch_mode`, `task`, `policy`, `policy_sha`, `worktree` | null |
-| `skills`, `mcp`, `auth`, `env_allowlist` | **absent**, not null |
+| `skills`, `mcp`, `auth`, `env_allowlist`, `scopes` | **absent**, not null |
+| `floor_lifted` | null; no gate was compiled |
 | `subscription` | null; nothing was spent by the pass itself |
 
-**Seven fields of twenty-six are filled, and that number belongs in the contract rather than in a
+**Seven fields of twenty-eight are filled, and that number belongs in the contract rather than in a
 reader's discovery.** It is the strongest argument anyone will ever make for reversing this decision,
 so it should be in front of whoever makes it. What bought it: the proposer and the judges need a
 parent that exists. Without one they are four unrelated runs at depth 0, and a human who hits Ctrl-C
@@ -362,9 +380,9 @@ empties three groups of fields that read as unconditional above.
 | `provider`, `provider_version`, `model`, `provider_session_id`, `task`, `cwd`, `depth`, `pid`, `process_start_time`, `command`, `schema_version`, `hydra_version` | filled |
 | `launch_mode` | `interactive` |
 | `env_allowlist`, `auth`, `subscription` | filled; Hydra still builds the environment and still checks the login |
-| `policy`, `policy_sha` | **null**; no gate is compiled, so no policy is in force |
+| `policy`, `policy_sha`, `floor_lifted` | **null**; no gate is compiled, so no policy is in force |
 | `worktree` | **null**; worktrees are per recorded run (harness spec 6.3) |
-| `skills` | **absent**, not null |
+| `skills`, `scopes` | **absent**, not null |
 | `mcp` | present on `claude`, **absent** on the other two; see below |
 | `run_end.body_source` | `harvest`, always (section 12) |
 
@@ -628,6 +646,13 @@ re-evaluates the policy recorded in `run_start` against the call recorded in the
 only mechanism available: calling back into `hydra` per tool call is ruled out, the gate script
 cannot append to the run file, and the spawn directory the gate lives in is reaped with the
 worktree.
+
+**The re-evaluation resolves its scopes against `run_start.scopes` where the record has it.** Where
+it does not, on a record written before ticket 42, the reader rebuilds each path from its own layout
+and the run id and reports a limit saying the derivation stood in for a stored input. A reader never
+prefers its own layout over a stored path, because the stored path is what the gate saw and the
+layout is what this build would have done. `floor_lifted` is read the same way, and a record without
+it re-derives as if the floor was in force, which is the shape ticket 03 left.
 
 **It says which policy accounts for the refusal, not which process fired.** That distinction is the
 honest limit and it exists because the reason text cannot carry the field. On `agy` the first deny
@@ -1070,6 +1095,12 @@ decision, and it does not: the policy is in `run_start` and the call is in `raw`
 a function of two things already on disk. `correction` looks like it should, because a human made
 it, and it does not: the vendor's transcript recorded it and harvest stores those frames verbatim.
 
+**`scopes` and `floor_lifted` are stored inputs, not stored derivations.** Ticket 42 put them on
+`run_start` because a permission decision is a function of the policy, the call and the paths the
+gate was compiled against, and only the first two were on disk. A path is a fact about the spawn the
+way `cwd` is, not a reading of the stream, so storing it is the same act as storing the policy name.
+A reader that counts this as an exception to never-store has misread it.
+
 **A run's outcome is derived too, and that is the sharpest case.** It is the field most readers
 want stored, and storing it would freeze today's classification into a corpus meant to be read for
 years. Section 6's `refusal` field is the narrow exception, and it is narrow because Hydra refusing
@@ -1169,6 +1200,13 @@ costs a reader's trust now.
 
 **Removing or repurposing a type is a breaking change** and increments the version. Removing
 `permission_request` before v1 shipped cost nothing because no file exists.
+
+**Adding a `run_start` field is not a version change, and removing or re-typing one is.** The
+reader indexes into line 0 by name and the validator checks presence and never absence, both
+measured on 2026-09-06 under ticket 42, so a field a reader may ignore costs nobody a migration.
+`scopes` and `floor_lifted` landed under that rule and a reader handles their absence on every record
+written before them (section 7.7). A field whose meaning changes, or whose type changes, breaks
+readers that predate the change, and that increments the version.
 
 **A provider version change is not a schema change.** `provider_version` is on every `run_start` for
 exactly this: a normalizer can branch on it, and a claim measured on one build does not silently

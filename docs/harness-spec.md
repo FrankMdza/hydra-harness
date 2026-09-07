@@ -132,7 +132,9 @@ what keeps it true on Cursor, where approving an injected MCP server would other
 **The spawn directory dies with the worktree, and that puts a test on the record.** If reading a
 spawn artifact is needed to interpret a run record, the record is not the source of truth and is
 missing a field. The record therefore answers "which servers did this run get" and "what did the
-gate refuse" on its own.
+gate refuse" on its own. The compiled gate script is a spawn artifact and this test applies to it,
+which ticket 42 settled on 2026-09-06 after it failed: the script held the only copy of the paths
+the policy's scopes resolved to, and the contract's `run_start.scopes` now carries them.
 
 **A `hydra evolve` pass writes only the last row.** The record contract's section 2 splits a run into
 two kinds, and the second one is work Hydra did itself rather than a provider process it launched.
@@ -778,6 +780,12 @@ A human lifts the floor per run with a flag, in the shape section 16 describes.
 
 Generated per spawn with the policy compiled into it, written to
 `~/hydra/spawn/<run-id>/gate`, outside the worktree it guards.
+
+**What the script is compiled from.** The policy files at `policy_sha`, the policy name, whether the
+human lifted the floor on this run, and the resolved absolute path of every scope the policy
+grants: the worktree, the store, the curate checkout when there is one, the corpus and the script's
+own path. All of it but the policy files is on `run_start` as `policy`, `floor_lifted` and `scopes`,
+so a reader can reproduce the compile without the script (contract 5.1).
 
 Not a script that reads a policy file when it fires. Anything read at fire time is a file that may
 have changed since the previous tool call. All three providers snapshot their hook *config* at

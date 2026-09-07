@@ -49,6 +49,7 @@ it.
 - [12 - Ouroboros rung one](12-ouroboros-rung-one.md)
 - [13 - `skill_invoke` and the `skill_snapshot` scope](13-skill-invoke-and-snapshot-scope.md)
 - [14 - Two scope names, the two-kind deny list, and the reap sweep](14-two-scope-names-and-the-deny-list.md)
+- [15 - `scopes` and `floor_lifted` on the record](15-scopes-and-floor-lifted-on-the-record.md)
 
 ## Out of scope
 

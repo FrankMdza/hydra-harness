@@ -1,7 +1,7 @@
 # 42 - A record pins the policy and not the paths it resolved to
 
 Type: grilling
-Status: open
+Status: resolved
 
 ## Question
 
@@ -421,3 +421,48 @@ four of the five and the others three, since a run with no checkout has no `skil
 `src/policy/mod.rs` rather than anything under `policies/`, so no sha moved. That does not change
 what you decide, but a reader of a replayed record now sees a `protected-path` refusal where it used
 to see an `out-of-scope` one, and the two carry different reason strings.
+
+## Answer
+
+Resolved 2026-09-06 with the human, two rounds from the brief above. Seven decisions.
+
+**1. Harness spec 5's test applies to the compiled gate.** A record that needs the gate script to
+be interpreted is missing a field. The script held the only copy of the paths the scopes resolved
+to, and spec 5 now names it.
+
+**2. `run_start` gains a `scopes` object of resolved absolute paths, keyed by scope name.** The
+paths, not the gate script's sha: a sha would tell a reader its replay was wrong and leave it no
+way to get it right. Shape follows contract 5.3's rule for `skills`, a sha without names does not
+say what was selected.
+
+**3. The keys are `worktree`, `skill_store`, `skill_checkout`, `corpus` and `gate_script`.**
+`skill_snapshot` stays derived from `skills.store_sha`, which is already on the record. A key the
+run did not have is absent, never null. The whole object is absent on a harness run and an
+interactive run. The `config/` prefix stays out, because it moves only with a release and
+`hydra_version` covers that. `gate_script` is in because a moved spawn directory flips a
+`permissive` write from `protected-path` to `allow`, measured.
+
+**4. `floor_lifted` lands on `run_start` as a boolean beside `policy`**, in the same change. It is
+the sixth input to `policy::compile`, harness spec 16 already says a per-run human flag lands on
+the record, and ticket 03 had left it out only because inventing a field was a contract change.
+
+**5. The reader prefers stored scopes, derives where absent, and reports a limit on the derived
+path.** Never a disagreement, because a disagreement reaches the curator's brief weighted as a
+clean-looking failure, which is the cost the brief measured. Contract 11 says the two fields are
+stored inputs rather than a fourth exception to never-store. This also closes the no-repo
+`worktree` divergence, since the reader stops guessing the fallback path.
+
+**6. Neither field is a `schema_version` bump.** Contract 15 gains the rule: an added `run_start`
+field a reader may ignore is not a version change, a removed or re-typed one is. Measured basis: the
+reader indexes into a `Value`, the validator checks presence and never absence.
+
+**7. Contract 5.1's sentence on why no gate sha is carried was false and is rewritten here**, to
+list what the script is compiled from. Harness spec 7.5 carries the same list.
+
+**What moved.** Contract 5.1, 5.5, 5.6, 7.7, 11 and 15; harness spec 5 and 7.5; three paragraphs and
+one rough edge in `IMPLEMENTATION.md`. Build ticket 15 carries the code, blocked by 14 because the
+key set is 14's. No source changed.
+
+**Left where it was.** The `GateLeak` exposure ticket 13 flagged when `policy_sha` moves is not
+this ticket's, as 13 said: the paths are not the part that moves there, the rules are. The
+`command: "run"` on the curate record is a build ticket's, per ticket 40's note.

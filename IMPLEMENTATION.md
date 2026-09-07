@@ -14,23 +14,24 @@ measurement, before the version moved to `0.2.0`. A null `policy` is the test th
 
 ## What the gate does about `shell`, and what it still does not
 
-Harness spec 7.5 states seven path denials as delivered outright: "a hook sees the path
-and refuses the write before it reaches disk". The gate delivers that for tools that
-carry a path in their arguments. `Bash` carries none, `shell` is unscoped in every
-policy that grants it, and no argv match can decide what a shell command will write.
+Harness spec 7.5 delivers a set of paths denied outright, plus what a spawn owns carved
+back out of that denial: "a hook sees the path and refuses the write before it reaches
+disk". The gate delivers that for tools that carry a path in their arguments. `Bash`
+carries none, `shell` is unscoped in every policy that grants it, and no argv match can
+decide what a shell command will write.
 
-**Ticket 02's code review found all seven reachable by redirect**, the run's own gate
-script included, which is 7.5's induction base case. That one composed into a full
-bypass: an emptied script exits 0 printing nothing, and 6.6 measured `claude` failing
-open on a response in a shape it does not recognise, so two `Bash` calls under
-`standard` ended the gate for the rest of the run. `--permission-mode
+**Ticket 02's code review found every path denied outright then reachable by redirect**,
+the run's own gate script included, which is 7.5's induction base case. That one
+composed into a full bypass: an emptied script exits 0 printing nothing, and 6.6
+measured `claude` failing open on a response in a shape it does not recognise, so two
+`Bash` calls under `standard` ended the gate for the rest of the run. `--permission-mode
 bypassPermissions` had removed the layer previously refusing those calls, so the flag
 and the hole arrived in the same change.
 
 Two mechanisms now stand where none did. They are worth telling apart, because one is a
 floor and one is not.
 
-**A shell command that names one of the seven is refused whole.** Every token of every
+**A shell command that names a denied path it does not own is refused whole.** Every token of every
 segment is expanded and resolved before the comparison: `~` and the variables the
 child's own environment carries, the tail of a `--flag=/path` option, and the tail of a
 `D=/path` assignment, which is where a variable the command sets itself is written down.
@@ -81,19 +82,34 @@ Provider versions this build has been measured against:
 | `agy` | 1.1.26, then 1.1.27 | 2026-09-06. Routed by ticket 10, and **it self-updated in the middle of that ticket**: the probes below were measured on 1.1.26 and the recorded run an hour later reported 1.1.27. Every measured claim held across the move, and the section on it says which came from which build |
 
 
-**Measured on 2026-09-06 for map ticket 40, and open until build ticket 14 lands.** A gate per
-policy, `claude` dialect, 32 destructive routes each. `judge`, `read-only` and `curate` refused all
-of them. `~/hydra/runs/` was refused under every policy by `Write`, `rm -rf`, `mv` and
-`find -delete`. Everything else under `~/hydra` is reachable today from `standard` through `shell`
-and from `permissive` through `shell` and file tools: `rm -rf` on `~/hydra/pruned/`, on a sibling
-run's worktree, on `~/hydra/skills/.git`, on the snapshots, and on the parent repo's `.git`, all
-allowed; `git gc --prune=now`, `git prune --expire=now` and `git worktree remove --force`, all
-allowed; a `Write` into a sibling's gate script under `permissive`, allowed, which kills that
-sibling rather than bypassing it because its hook command checks the sha first. The floor catches
-`reset --hard`, `clean -fdx`, `branch -D` and `update-ref` and not `checkout -- .`, `stash drop` or
-`clean -f`, which the ticket decided to leave. Harness spec 7.5 now describes a deny list with two
-kinds of entry, denied parents and own-path carve-outs, and 7.4 names the three git forms the floor
-gains. The code still compiles the flat list of seven, so this paragraph is what is real.
+**Built for map ticket 40, closed by build ticket 14 on 2026-09-06.** The deny list now has the
+two kinds of entry 7.5 describes, denied outright and what a spawn owns carved back out, decided by
+one function, `protected_root` in `gate.py`, so the `Write` check and the shell check cannot drift
+apart. `denied_write_paths` and `own_write_paths` in `src/policy/mod.rs` are the two lists, and
+`Spawn` carries `layout: &Layout`, `skill_checkout: Option<&Path>` and `parent_git_dir:
+Option<&Path>` so the deny list can be built from what the run actually has. `~/hydra/spawn/` is
+one of the denied parents now rather than just this run's own script inside it, which closes the
+hole a `permissive` run had into a concurrent run's live gate script.
+
+Ticket 40's hand-measured matrix is two tests in `tests/gate.rs` now,
+`the_loss_matrix_of_ticket_40_reads_denied_where_a_write_read_allow` and
+`..._where_a_shell_read_allow`: 13 write probes across all five policies and a shell table for
+`standard` and `permissive`. Every row that read `ALLOW` under `standard` or `permissive` on
+2026-09-06 reads `protected-path` now: `rm -rf` on `~/hydra/pruned/`, on a sibling's worktree, on
+`~/hydra/skills/.git`, on the snapshots, on the parent repo's `.git`, and a `Write` into a
+sibling's gate script under `permissive`. `git gc`, `git prune` and every `git worktree` form but
+`list` hit the floor now, the three forms 7.4 names.
+
+**Five rows stay allowed on purpose, decision 11 of ticket 40:** `git checkout -- .`, `git stash
+drop`, `git clean -f`, `git worktree list`, and `rm -rf` on the run's own worktree. The
+own-worktree `Write` under `standard` and `permissive` asserts `allow`, and the own-checkout
+`Write` under `curate` asserts `allow`; those two are the carve-out 7.5 names.
+
+**One thing the matrix showed that the hand measurement had missed.** Under `judge`, `read-only`
+and `curate`, a shell command naming a denied path answers `protected-path`, not `capability`: the
+path denial runs before the policy is consulted, so a policy with no shell grant at all still gets
+the path-shaped answer rather than the capability-shaped one. The pre-ticket-40 matrix had already
+shown this for `~/hydra/runs/`; the new one shows it everywhere.
 
 ## The commands
 
@@ -159,6 +175,28 @@ that pinned it, and reaped when no live run references it. The sweep runs whethe
 a run id was named, because reaping one run does not release a snapshot another still
 holds and reaping none can release several. The section on the skill store below has the
 refcount and the two guards on it.
+
+**Reap also sweeps a leftover curate checkout, added by build ticket 14.** Map ticket 40's
+decision 5: before this, reap took a run's worktree, its spawn directory and its snapshot
+and left `~/hydra/skill-worktrees/<run-id>/` standing with whatever the curator had
+written into it, because `hydra curate` only removes the checkout of a pass it watches to
+the end. `commit_then_remove` in `src/reap.rs` generalizes what used to be
+`remove_checkout` to serve both directories: it takes the branch Hydra made,
+`hydra/<run-id>` for the worktree and `ouroboros/curate/<run-id>` for the checkout, and the
+commit message, `hydra reap: what curate run <run-id> left uncommitted` for the checkout.
+The checkout is swept between the worktree and the spawn directory, so a commit that fails
+there stops the spawn directory removal the same way a failed worktree commit already did.
+`git branch -d` follows, `-D` only under `--delete-branch`, so an empty pass's branch goes
+and a real proposal's stays.
+
+`Done` gained a `checkout: Option<Checkout>` field, and `report()` prints its lines
+prefixed `skill store checkout`. The sweep with no run id walks `skill-worktrees/` with the
+same three filters `orphan_spawns` applies to the spawn directory, and a live run's
+checkout is left alone by name and by sweep, the rule the worktree already had. Five tests
+in `tests/cleanup.rs` cover it: a proposal reaches its branch before the checkout goes, an
+empty checkout takes its empty branch with it, a live pass's checkout is never reaped, the
+sweep finds a checkout with no worktree and no spawn directory beside it, and the store's
+own working tree is never written to by a reap.
 
 **Reap's commit-first rule is enforced by git rather than by `src/reap.rs`.** That is the
 whole point of it. `git commit` leaves the checkout clean, and only a clean checkout is
@@ -301,11 +339,12 @@ a real capability loss on ordinary coding runs, in the direction 7.1 chose on pu
 allowlist fails toward a run that cannot do its job, which someone notices. Ticket 43 is
 where it gets decided, and it turns on whether MCP tools arrive deferred in print mode.
 
-**Two protected configs are still paths rather than files.** 7.5 denies writes to seven
-paths under every policy. Five exist now: `policies/`, `~/hydra/runs/`, the per-spawn
-gate script, `config/preamble.md` from ticket 02 and `config/mcp.md` from ticket 08. The
-other two are named at `config/env-allowlist.json` and `config/export-allowlist.json`,
-and **neither of those files exists**. The environment allowlist is still Rust code in
+**Two protected configs are still paths rather than files.** 7.5 denied seven paths under
+every policy before ticket 40 grew the list to the full deny list the section above
+describes. Five of the original seven are real files or directories: `policies/`,
+`~/hydra/runs/`, the per-spawn gate script, `config/preamble.md` from ticket 02 and
+`config/mcp.md` from ticket 08. The other two are named at `config/env-allowlist.json`
+and `config/export-allowlist.json`, and **neither of those files exists**. The environment allowlist is still Rust code in
 `src/env.rs`, which 15.2 protects at admission rather than at run time, so the config
 the table means has no file. Denying a write to a path that holds nothing is the same
 denial it will be the day the file lands, which is why the names went in early rather
@@ -527,10 +566,11 @@ rejected.
 
 `Layout::skill_snapshot_scope` is the whole rule, and both sides call it: the launch passes the
 sha `inject_skills` pinned, and contract 7.7's re-evaluation passes the sha it reads back off
-`hydra.skills.store_sha`. Neither side can drift, which is the same shape `skill_store_scope`
-already had. A run with no sha gets `<spawn dir>/no-snapshot`, a path nothing creates, for the
-reason a run with no repo gets `no-worktree`: pointing at `skills-snapshots/` would hand every
-run every other run's snapshot.
+`hydra.skills.store_sha`. Neither side can drift, the same shape `Layout::skill_checkout` has
+now that `skill_store_scope` is gone: a pure function of the layout and the run id, with each
+caller deciding on its own whether this spawn gets one at all. A run with no sha gets `<spawn
+dir>/no-snapshot`, a path nothing creates, for the reason a run with no repo gets `no-worktree`:
+pointing at `skills-snapshots/` would hand every run every other run's snapshot.
 
 **Measured on one real `standard` run**, `01a078bc-420f-7b23-8e67-2dfc9f98f859`, `claude`
 2.1.263 on `haiku`, with a two-file marker skill in the store. Both sentinels came back. The
@@ -547,29 +587,23 @@ rung one.** Accepted while the corpus is probes. The ticket predicted 13 of 17; 
 grew between the decision and the build. Three of the 22 carry no `policy_sha` at all, which
 is what a harness run writes.
 
-**Two capabilities still reach the snapshot for writing, and neither names it.**
-`skill_snapshot` appears on no policy's `file_write`, which is what the code says and all
-it says. The snapshot is not one of 7.5's seven denied paths, so:
+**The two capabilities that used to reach the snapshot for writing are closed, by build
+ticket 14.** `skill_snapshot` still appears on no policy's `file_write`, and now the
+snapshots directory is one of 7.5's paths denied outright as well, so both routes that
+used to bypass the read-only scope land on the denial instead of on it. `shell`, under
+`standard` and `permissive`, and `file_write` with scope `anywhere`, under `permissive`,
+both answer `hydra/protected-path` on a snapshot path now, and `tests/gate.rs`'s
+`a_write_through_a_skill_link_lands_on_a_denied_snapshot` runs the check under both
+policies. Before this, a mutated snapshot was one `hydra reap` could never sweep, since
+`skills::remove_snapshot` goes through `git worktree remove`, which refuses a dirty
+checkout, and snapshots are shared per sha, so the run a write there corrupted could be
+one that was still going.
 
-- **`shell`, under `standard` and `permissive`.** Measured on the compiled `standard` gate
-  on 2026-09-06: `echo x > <worktree>/.claude/skills/<name>/SKILL.md` is allowed as
-  `hydra/allow: policy standard allows shell.`, and so is a `cat` of the snapshot path
-  directly. `shell` is unscoped by design and 7.4 opens by saying why.
-- **`file_write` with scope `anywhere`, under `permissive`.** The gate short-circuits on
-  `anywhere` before it compares any root, so a `Write` through the link lands in the
-  snapshot.
-
-Both were true before this ticket. What changed is that they now read as a contradiction
-rather than as an omission, because the scope exists and is deliberately read-only.
-Snapshots are shared per sha, so the run corrupted may be another one that is still going,
-and `skills::remove_snapshot` goes through `git worktree remove`, which refuses a dirty
-checkout: a mutated snapshot is one `hydra reap` can never sweep.
-
-**Closing it is a decision rather than an implementation.** 7.5 lists seven denied paths
-and this would be an eighth, which is a spec change, and `~/hydra/skills-snapshots/` denied
-whole would also stop `curate` from ever writing a proposal through a checkout of its own.
-It belongs on the map beside ticket 40, which is already asking what the store scope points
-at.
+**One sentence here turned out wrong.** Denying `~/hydra/skills-snapshots/` whole was
+thought to also stop `curate` from ever writing a proposal through a checkout of its own.
+It does not: the checkout lives at `~/hydra/skill-worktrees/<run-id>/`, a sibling of the
+snapshots directory rather than something inside it, so denying one leaves the other
+untouched.
 
 **`cursor-agent` and `agy` have no `Skill` tool the specs know of**, so `skill_invoke` maps to
 no row in their tables until one appears. The snapshot scope applies to them unchanged: the
@@ -1220,7 +1254,9 @@ indistinguishable in the record from one that was never offered the lift, and th
 normalizer has to pass `floor_lifted: false` because there is no field to read. So a
 shell call that a human lifted the floor for re-derives to a `hydra/floor` deny it never
 got, and the same call then reports a gate leak, because nothing refused it. Ticket 03
-left the gap where it found it: inventing a field is a contract change.
+left the gap where it found it: inventing a field is a contract change. Map ticket 42 made
+the change on 2026-09-06: `floor_lifted` is a boolean on `run_start` and build ticket 15
+writes and reads it.
 
 Everything else in contract sections 2 to 6 is met, and `tests/record_contract.rs`
 checks it rather than asserting it. That test also walks every record under
@@ -1281,9 +1317,14 @@ Hydra's own directories, which is what makes them recomputable at all. The store
 is the one with a per-run answer: a curate run's writes are scoped to its own
 checkout, and `Layout::skill_store_scope` is the rule both the launch and this
 re-evaluation read, so a curator's record does not come back as a gate that leaked.
+Map ticket 42 replaced the rebuilding on 2026-09-06: `run_start.scopes` carries the
+paths the gate was compiled against, the reader prefers them, and a record without
+them is rebuilt as above and reports a limit. Build ticket 15 carries it; until it
+lands, every record on this machine is rebuilt.
 
 **`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
-that read a policy live in `src/policy/gate.py`. A record can therefore re-evaluate
+that read a policy live in `src/policy/gate.py`. Nor did it cover the paths the script
+was compiled against, until ticket 42 put them on the record. A record can therefore re-evaluate
 against gate code that changed while its sha matched, and what reports that is a
 disagreement rather than a stale policy. All nine records on this machine re-evaluate to
 the verdict their gate gave, including the two shell calls ticket 06's measurement left,
@@ -2161,9 +2202,10 @@ Out of scope for this slice, and each one has a document that already says what 
   re-derive differently, and `policy_sha` does not move because no policy file changed.
   Seen for real on 2026-09-06: a concurrent branch pointed `skill_store` at a per-run
   worktree of the store, and its run's ten in-scope reads re-derive on this branch as ten
-  `GateLeak` findings. Nothing is wrong with either build. The record is missing the
-  field that would tell them apart. That is map ticket 42, and ticket 40 is the same
-  question seen from one scope.
+  `GateLeak` findings. Nothing is wrong with either build. The record was missing the
+  field that would tell them apart. Map ticket 42 added it on 2026-09-06, `scopes` and
+  `floor_lifted` on `run_start`, and build ticket 15 carries the code. Until it lands the
+  edge is as described.
 - **A run with no `run_end` is not corrupt.** Contract section 6 says so. Killing the
   detached half mid-run produces one, and nothing completes it: `hydra status` reports it
   as abandoned and stops there, because completing it means harvest and no run on this
