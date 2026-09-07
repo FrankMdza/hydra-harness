@@ -19,20 +19,24 @@ leftover curate checkout the way it sweeps a worktree, commit first.
   denials, per spawn".
 - `docs/ouroboros-spec.md` 3.6 and 9.1.
 
-## Two lines are the human's
+## Authorized
 
-`policies/` is protected config #1 and this ticket needs two edits in it. Neither is authorized for
-an agent. The build session asks Frank to type them, or to authorize the edit in the ticket the way
-build ticket 13's `## Authorized` section did, and touches nothing under `policies/` until one of
-the two has happened.
+Frank authorized on 2026-09-06, map ticket 40 questions 4 and 10 and this ticket's follow-up, the
+two edits to protected config #1 that `CLAUDE.md` otherwise forbids an agent:
 
-- `policies/curate.json`: `file_write` moves from scope `skill_store` to scope `skill_checkout`.
-  `file_read` on `skill_store` stays.
-- `policies/floor.json`: `git.forbidden` gains `gc`, `prune`, and `worktree` in every form but
-  `list`.
+- `policies/curate.json`: the `file_write` entry's scope moves from `skill_store` to
+  `skill_checkout`. The `file_read` entry on `skill_store` stays.
+- `policies/floor.json`: `git.forbidden` gains `gc` and `prune` as one-element entries, and
+  `worktree` in every form but `list`, which needs a special case in `check_git` beside the one
+  `clean` has, because the entry shape cannot say "except".
 
-`policy_sha` moves with them. 18 of the 22 records on this machine already report `StalePolicy`
-and the one current record joins them.
+Nothing else under `policies/` moves. `policies/README.md` gains `skill_checkout` in its scope
+list. `policy_sha` moves with it; 18 of the 22 records on this machine already report
+`StalePolicy` and the one current record joins them.
+
+**Both lines land in the same commit as the code and not before.** `skill_checkout` is not a
+`Scope` variant today, so a `curate.json` naming it fails `PolicySet::discover()` and with it every
+test and every `hydra run` until the variant exists.
 
 ## The slices
 
