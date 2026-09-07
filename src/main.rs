@@ -14,6 +14,7 @@ fn main() -> Result<()> {
             task,
             model,
             policy,
+            parent,
             allow_floor_escape,
             timeout,
         } => {
@@ -24,6 +25,7 @@ fn main() -> Result<()> {
                 policy,
                 floor_lifted: allow_floor_escape,
                 timeout,
+                parent,
                 run_id: None,
             })?;
             // D7: hydra run returns JSON on stdout. Two shapes, because harness
@@ -117,6 +119,12 @@ fn main() -> Result<()> {
             }
         }
         Command::Watch { spec } => hydra::watch::watch(&spec)?,
+        // Stdout belongs to the protocol from here on, so nothing below prints.
+        Command::DelegateFace { parent } => {
+            let stdin = std::io::stdin().lock();
+            let stdout = std::io::stdout().lock();
+            hydra::face::serve(stdin, stdout, parent)?;
+        }
     }
     Ok(())
 }

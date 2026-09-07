@@ -36,6 +36,20 @@ const TAIL_BYTES: u64 = 64 * 1024;
 /// machine does. Nothing inherits it and no policy sets it.
 pub const LIVE_RUN_CAP: usize = 8;
 
+/// How deep a delegation tree may go, harness spec 6.1 item 2 and section 9.
+///
+/// **"Configurable" means a constant today.** Section 9 says the cap is
+/// configurable and names no mechanism, and there is no configuration file for a
+/// number like this one: the five protected configs are policies, the preamble,
+/// the MCP document and two that do not exist. A flag would be worse, because a
+/// child that can raise its own cap is not a cap. So it moves when this line
+/// moves, and `IMPLEMENTATION.md` says so.
+///
+/// A human is depth 0, its child is 1, and that child's child is 2. Section 7.6
+/// closes the blind spot: an in-process subagent gets no run id and counts against
+/// nothing, so every policy but `permissive` denies one.
+pub const MAX_DEPTH: u32 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     /// A `run_end` is on disk. The run is over whatever its outcome.
@@ -219,6 +233,27 @@ pub fn scan(layout: &Layout) -> Result<Vec<RunView>> {
 /// The cheap half of [`read_view`], for the tail loop that asks once a tick.
 pub fn has_run_end(path: &Path) -> Result<bool> {
     Ok(closing_line(path)?.is_some())
+}
+
+/// The body of line 0, or `None` on a file that has none to read.
+///
+/// **The twin of [`closing_line`], and it is here for the same reason.** A
+/// delegating launch reads two fields off its parent's record, `depth` and
+/// `policy`, and normalizing the whole file to get them would cost a python
+/// process per recorded tool call. [`read_view`] already reads this line and keeps
+/// what liveness needs; this hands back the body so a caller can read a field
+/// liveness has no opinion about.
+pub fn opening_line(path: &Path) -> Result<Option<Value>> {
+    let Some(first) = first_line(path)? else {
+        return Ok(None);
+    };
+    let Ok(mut envelope) = serde_json::from_str::<Value>(&first) else {
+        return Ok(None);
+    };
+    if envelope["hydra"]["type"].as_str() != Some("run_start") {
+        return Ok(None);
+    }
+    Ok(Some(envelope["hydra"].take()))
 }
 
 /// The body of the closing line, or `None` on a run that has not ended.

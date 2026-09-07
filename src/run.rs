@@ -2,8 +2,10 @@
 //!
 //! What a launch does, in order: build the child's environment from the allowlist,
 //! read the provider's version, load the policy set, the preamble and the canonical
-//! MCP document, refuse if the concurrency cap is already met, mint a UUIDv7 run id,
-//! create a worktree and seed it, write the run's MCP config, pin the skill store
+//! MCP document, read the parent's record for its depth and its policy, refuse if
+//! the concurrency cap is already met, mint a UUIDv7 run id, refuse a child whose
+//! policy the parent's does not contain, create a worktree and seed it, write the
+//! run's MCP config, pin the skill store
 //! and link a snapshot of it into the checkout, ask the provider what it resolved
 //! and refuse on a skill collision or an MCP shortfall, run Cursor's fatal
 //! pre-flight when the provider is `cursor-agent`, compile the run's gate into its
@@ -67,6 +69,13 @@ pub struct Request {
     /// How long the call waits before it stops watching. Harness spec 9 defaults
     /// it to roughly ten minutes; zero returns the handle without waiting.
     pub timeout: std::time::Duration,
+    /// `--parent`, the run id of the run that asked for this one.
+    ///
+    /// It is a run id and never a path, because the record under
+    /// `~/hydra/runs/<run-id>.jsonl` is the only thing that says how deep the
+    /// parent is and what policy bounds it. A parent with no record is refused
+    /// before a run id exists (6.1 item 2).
+    pub parent: Option<String>,
     /// The run id, when the caller minted it before the launch.
     ///
     /// **`hydra run` passes `None` and this function mints one.** `hydra curate`
@@ -121,18 +130,281 @@ pub struct Handle {
     pub follow: String,
 }
 
-pub fn run(request: Request) -> Result<Call> {
-    // Pre-flight that refuses before a run id exists. A wrong PATH or a missing HOME
-    // is a fact about this machine rather than a refused spawn, and the contract's
-    // four refusal values are all Hydra-side policy checks this slice does not run.
-    let mut child_env = ChildEnv::build(request.provider)?;
-    let provider_version = request.provider.version()?;
+/// What the parent's record says about a child, harness spec 6.1 items 2 and 3.
+///
+/// **The parent is a run id and its record is the only source.** Contract 4 makes
+/// `parent_run_id` an edge the parent writes at spawn and never reads back off the
+/// child, so the two facts a launch needs about its parent, how deep it is and
+/// what policy bounds it, come off the parent's own line 0.
+///
+/// **Both checks run before the child exists and only one of them writes a
+/// record.** [`Lineage::of`] refuses a tree already at the cap with a typed error
+/// and no run id, because contract 8.3 promises a record for the narrowing
+/// refusal and for nothing else. [`Lineage::narrowing`] is the one that writes,
+/// and 7.3 says why: attempted escalation is exactly the signal the corpus should
+/// carry.
+#[derive(Debug)]
+pub struct Lineage {
+    parent: Option<Parent>,
+    /// The parent's depth plus one, and 0 for a run a human started.
+    pub depth: u32,
+}
 
+/// The two fields a child reads off its parent's record.
+#[derive(Debug)]
+struct Parent {
+    run_id: String,
+    /// Never null. A parent whose record states no policy states no bound, and
+    /// [`Lineage::of`] refuses it rather than reading the absence as permission.
+    policy: String,
+}
+
+impl Lineage {
+    /// Reads the parent's record and computes the child's depth, 6.1 item 2.
+    ///
+    /// Three ways this refuses, all of them before a run id exists and all of them
+    /// errors rather than records: a parent this machine has no record of, a
+    /// parent whose record states no policy, and a child that would land past
+    /// [`crate::live::MAX_DEPTH`].
+    pub fn of(layout: &Layout, parent: Option<&str>) -> Result<Self> {
+        let Some(parent) = parent else {
+            return Ok(Self {
+                parent: None,
+                depth: 0,
+            });
+        };
+
+        let run_file = layout.run_file(parent);
+        let Some(start) = crate::live::opening_line(&run_file)? else {
+            anyhow::bail!(
+                "there is no run record at {}, so how deep {parent} is and what policy \
+                 bounds it cannot be read, and a child of it would be launched bounded by \
+                 nothing. `hydra status` lists the runs this machine has.",
+                run_file.display()
+            );
+        };
+
+        let Some(policy) = start["policy"].as_str() else {
+            anyhow::bail!(
+                "run {parent} has no policy on its record, which is a run written before \
+                 the gate reached a provider or an interactive one (contract 5.6). Harness \
+                 spec 7.3 bounds a child by its parent's policy and this parent states \
+                 none, so it cannot delegate. Start the work at depth 0 with `hydra run`."
+            );
+        };
+
+        let depth = start["depth"].as_u64().and_then(|d| u32::try_from(d).ok());
+        let Some(depth) = depth else {
+            anyhow::bail!(
+                "run {parent} has no usable depth on its record, and a child's depth is \
+                 its parent's plus one (harness spec 6.1). The record is {}.",
+                run_file.display()
+            );
+        };
+
+        // Compared rather than incremented, because a record claiming a depth of
+        // `u32::MAX` is a torn or hand-edited line and adding one to it panics.
+        if depth >= crate::live::MAX_DEPTH {
+            return Err(TooDeep {
+                parent_run_id: parent.to_string(),
+                parent_depth: depth,
+                cap: crate::live::MAX_DEPTH,
+            }
+            .into());
+        }
+
+        Ok(Self {
+            parent: Some(Parent {
+                run_id: parent.to_string(),
+                policy: policy.to_string(),
+            }),
+            depth: depth + 1,
+        })
+    }
+
+    pub fn parent_run_id(&self) -> Option<&str> {
+        self.parent.as_ref().map(|parent| parent.run_id.as_str())
+    }
+
+    pub fn parent_policy(&self) -> Option<&str> {
+        self.parent.as_ref().map(|parent| parent.policy.as_str())
+    }
+
+    /// 6.1 item 3, the containment test. `None` when the child may run, and the
+    /// remediation a human reads when it may not.
+    ///
+    /// **Containment is a partial order and this is where that costs something.**
+    /// `curate` writes to its checkout of the store and cannot touch a worktree,
+    /// `standard` is the reverse, and neither contains the other. 7.3 refuses an
+    /// incomparable pair rather than resolving it, so a `standard` parent cannot
+    /// delegate a `curate` child and the remediation says which case this is.
+    pub fn narrowing(
+        &self,
+        policies: &crate::policy::PolicySet,
+        child: &str,
+    ) -> Result<Option<String>> {
+        let Some(parent) = &self.parent else {
+            return Ok(None);
+        };
+        let bound = policies.get(&parent.policy).with_context(|| {
+            format!(
+                "run {} names a policy this binary does not have, so there is nothing for \
+                 7.3 to compare against",
+                parent.run_id
+            )
+        })?;
+        let asked = policies.get(child)?;
+        if bound.contains(asked) {
+            return Ok(None);
+        }
+
+        // Two different failures with one refusal, and the words matter to
+        // whoever reads them: one is an attempted escalation, the other is 7.3's
+        // accepted cost showing up in a legitimate request.
+        let relation = if asked.contains(bound) {
+            format!("`{child}` is wider than `{}`", parent.policy)
+        } else {
+            format!(
+                "`{child}` and `{}` are incomparable, because each grants something the \
+                 other does not",
+                parent.policy
+            )
+        };
+        Ok(Some(format!(
+            "{relation}, and harness spec 7.3 never lets a child hold a capability its \
+             parent does not. Run {} is the parent. Ask for `{}` or a policy it contains, \
+             or start this work at depth 0 yourself.",
+            parent.run_id, parent.policy
+        )))
+    }
+}
+
+/// The depth cap refused this spawn, 6.1 item 2.
+///
+/// **A typed error rather than a record**, which is the shape 6.1 item 4 gives the
+/// concurrency cap. Contract 8.3 promises a run record for the narrowing refusal
+/// and for nothing else, and the caller here is itself a run whose record already
+/// carries the `delegate` call and the error it got back. A run id minted to say
+/// "this never ran" would put a row in the corpus with no policy, no task and no
+/// tree under it.
+#[derive(Debug)]
+pub struct TooDeep {
+    pub parent_run_id: String,
+    pub parent_depth: u32,
+    pub cap: u32,
+}
+
+impl std::fmt::Display for TooDeep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "run {} is at depth {} and the cap is {}, so a child of it would be depth {} \
+             and this spawn is refused. A child that delegates is how three subscriptions \
+             get drained overnight (harness spec 9), and section 7.6 closes the cap's \
+             blind spot by denying in-process subagents. Start the work you wanted at \
+             depth 0.",
+            self.parent_run_id,
+            self.parent_depth,
+            self.cap,
+            self.parent_depth.saturating_add(1)
+        )
+    }
+}
+
+impl std::error::Error for TooDeep {}
+
+pub fn run(request: Request) -> Result<Call> {
+    // **What the attempt was is decided before what the machine is.** 6.1's items
+    // 2 and 3 run first here, ahead of the environment, the provider's version and
+    // the two repo files, because 7.3 wants an attempted escalation on disk and
+    // those three can all fail on a machine where the child was never going to
+    // start. Reading the version first would turn a child reaching for `permissive`
+    // on a binary nobody installed into an error with nothing written, which is the
+    // invisible attempt the containment check exists to prevent.
     let invoked_in = std::env::current_dir().context("reading the working directory")?;
     let repo = crate::worktree::repo_root(&invoked_in);
-    // Two facts about this repo that decide whether the provider can be gated at
-    // all, checked before a run id exists for the same reason PATH is. Both
-    // providers that read their hook config out of the worktree get the same
+
+    // Read before a run id exists: a policy name that is not one of the five, or a
+    // preamble file that has gone missing, is a fact about this machine rather than
+    // a refused spawn. Line 0 needs all three whichever way the launch goes.
+    let policies = crate::policy::PolicySet::discover()?;
+    policies.get(&request.policy)?;
+    let preamble = crate::preamble::load()?;
+    // Contract 5.1: the task is recorded verbatim, preamble and all. It is
+    // composed here rather than beside the argv because a launch refused by 6.1
+    // item 3 records line 0 too, and line 0 carries the task.
+    let task = crate::preamble::compose(&preamble, &request.task);
+    // Protected config #5, read here for the same reason: a document that will
+    // not parse is a fact about this machine rather than a refused spawn. The
+    // refusal it can produce is 6.1 item 6's, and that one needs a run id.
+    let mcp_document = crate::mcp::Document::load()?;
+
+    let layout = Layout::discover()?;
+    layout.ensure()?;
+
+    // 6.1 item 2, ahead of item 4 below in the order the spec lists them. The
+    // parent's own record is the only thing that says how deep this child is and
+    // what policy bounds it, so a `--parent` this machine has no record of is
+    // refused here rather than launched bounded by nothing.
+    let lineage = Lineage::of(&layout, request.parent.as_deref())?;
+
+    // Harness spec 9's cap, checked before anything is created. Concurrency comes
+    // from the orchestrator's own parallel tool calls, so Hydra needs no scheduler,
+    // only a refusal. Queueing here would hold a slot the caller cannot see and
+    // cannot cancel.
+    crate::live::guard(crate::live::LIVE_RUN_CAP, &crate::live::scan(&layout)?)?;
+
+    let run_id = request
+        .run_id
+        .clone()
+        .unwrap_or_else(|| Uuid::now_v7().to_string());
+    let run_file = layout.run_file(&run_id);
+
+    // 6.1 item 3, and the one pre-flight check whose refusal is a run record. It
+    // runs after the id is minted, which is out of the spec's order on purpose:
+    // contract 8.3 makes this refusal a run file and a run file needs a run id.
+    // Nothing else has been created yet, so the record is the whole of what the
+    // attempt leaves behind, which is what 7.3 asks for.
+    if let Some(remediation) = lineage.narrowing(&policies, &request.policy)? {
+        // Contract 8.3: no provider fields on a refused spawn. Nothing asked the
+        // binary for its version and nothing built the child's environment, so
+        // both are absent rather than guessed, and `skills` and `mcp` follow. The
+        // envelope still names the provider, which is contract 4's field and a
+        // fact about the request rather than about a process.
+        let line_zero = serde_json::to_value(run_start(
+            &request,
+            &task,
+            policies.sha(),
+            None,
+            &invoked_in,
+            None,
+            None,
+            None,
+            None,
+            &lineage,
+        ))?;
+        return refuse(
+            &run_file,
+            &run_id,
+            request.provider,
+            &line_zero,
+            crate::record::Refusal::PolicyNarrowing,
+            remediation,
+            &policies,
+            None,
+            None,
+            &layout,
+            lineage.parent_run_id(),
+        );
+    }
+
+    // The machine's own facts, read once the attempt has been judged. A wrong
+    // PATH, a missing HOME, a provider binary that is not installed and a repo
+    // that already carries the provider's two files are all errors rather than
+    // refused spawns, the way they were before delegation existed.
+    let mut child_env = ChildEnv::build(request.provider)?;
+    let provider_version = request.provider.version()?;
+    // Both providers that read their hook config out of the worktree get the same
     // check against their own two files.
     match request.provider {
         Provider::CursorAgent => worktree_preconditions(
@@ -145,33 +417,6 @@ pub fn run(request: Request) -> Result<Call> {
         }
         Provider::Claude => {}
     }
-
-    // Both are read before a run id exists, for the same reason the environment is:
-    // a policy name that is not one of the five, or a preamble file that has gone
-    // missing, is a fact about this machine rather than a refused spawn, and the
-    // contract's four refusal values are all Hydra-side policy checks this slice
-    // does not run.
-    let policies = crate::policy::PolicySet::discover()?;
-    policies.get(&request.policy)?;
-    let preamble = crate::preamble::load()?;
-    // Protected config #5, read here for the same reason: a document that will
-    // not parse is a fact about this machine rather than a refused spawn. The
-    // refusal it can produce is 6.1 item 6's, and that one needs a run id.
-    let mcp_document = crate::mcp::Document::load()?;
-
-    let layout = Layout::discover()?;
-    layout.ensure()?;
-
-    // Harness spec 9's cap, checked before anything is created. Concurrency comes
-    // from the orchestrator's own parallel tool calls, so Hydra needs no scheduler,
-    // only a refusal. Queueing here would hold a slot the caller cannot see and
-    // cannot cancel.
-    crate::live::guard(crate::live::LIVE_RUN_CAP, &crate::live::scan(&layout)?)?;
-
-    let run_id = request
-        .run_id
-        .clone()
-        .unwrap_or_else(|| Uuid::now_v7().to_string());
 
     // 6.2's second category: a variable Hydra sets rather than one it passes
     // through. `CURSOR_DATA_DIR` moves Cursor's per-project MCP approval state
@@ -253,9 +498,6 @@ pub fn run(request: Request) -> Result<Call> {
         None => None,
     };
 
-    // Contract 5.1: the task is recorded verbatim, preamble and all.
-    let task = crate::preamble::compose(&preamble, &request.task);
-    let run_file = layout.run_file(&run_id);
     let injected_names = mcp_plan.injected_names();
 
     // The whole of line 0 except the two fields that do not exist until a process
@@ -269,16 +511,17 @@ pub fn run(request: Request) -> Result<Call> {
             &request,
             &task,
             policies.sha(),
-            &provider_version,
+            Some(&provider_version),
             &cwd,
             worktree_ref.clone(),
-            child_env.names(),
+            Some(child_env.names()),
             injected.as_ref().map(|i| i.record.clone()),
             Some(crate::mcp::record(
                 &mcp_document.sha,
                 &injected_names,
                 mcp_resolved,
             )),
+            &lineage,
         );
         Ok(serde_json::to_value(&start)?)
     };
@@ -303,6 +546,7 @@ pub fn run(request: Request) -> Result<Call> {
             worktree_ref.as_ref(),
             seed_tree.as_deref(),
             &layout,
+            lineage.parent_run_id(),
         );
     }
 
@@ -348,6 +592,7 @@ pub fn run(request: Request) -> Result<Call> {
             worktree_ref.as_ref(),
             seed_tree.as_deref(),
             &layout,
+            lineage.parent_run_id(),
         );
     }
 
@@ -381,6 +626,7 @@ pub fn run(request: Request) -> Result<Call> {
                 worktree_ref.as_ref(),
                 seed_tree.as_deref(),
                 &layout,
+                lineage.parent_run_id(),
             );
         }
     }
@@ -446,9 +692,14 @@ pub fn run(request: Request) -> Result<Call> {
                     worktree.path, worktree.branch
                 );
             }
-            if let Err(second) =
-                never_started(&run_file, &run_id, request.provider, &line_zero, &err)
-            {
+            if let Err(second) = never_started(
+                &run_file,
+                &run_id,
+                request.provider,
+                &line_zero,
+                &err,
+                lineage.parent_run_id(),
+            ) {
                 eprintln!("hydra: this run could not be recorded either: {second:#}");
             }
             return Err(err);
@@ -496,6 +747,10 @@ pub fn run(request: Request) -> Result<Call> {
         &spec_path,
         &crate::watch::Launch {
             run_id: run_id.clone(),
+            // Contract 4's edge, carried across the fork. The detached half owns
+            // every line of the record, so this is the only way the parent's id
+            // reaches any of them.
+            parent_run_id: lineage.parent_run_id().map(str::to_string),
             provider: request.provider.to_string(),
             binary: request.provider.binary().to_string(),
             argv,
@@ -512,9 +767,14 @@ pub fn run(request: Request) -> Result<Call> {
     let mut watcher = match launched {
         Ok(watcher) => watcher,
         Err(err) => {
-            if let Err(second) =
-                never_started(&run_file, &run_id, request.provider, &line_zero, &err)
-            {
+            if let Err(second) = never_started(
+                &run_file,
+                &run_id,
+                request.provider,
+                &line_zero,
+                &err,
+                lineage.parent_run_id(),
+            ) {
                 eprintln!("hydra: this run could not be recorded either: {second:#}");
             }
             return Err(err);
@@ -732,9 +992,9 @@ fn inject_skills(
 /// from `refusal` rather than from anything on a stream.
 ///
 /// **One function for every check that refuses**, because the three steps are the
-/// same three every time and only the code and the remediation change. Two of
-/// contract 6's four checks are built and reach here: the skill collision of 6.1
-/// item 5 and the MCP launch check of item 6.
+/// same three every time and only the code and the remediation change. Three of
+/// contract 6's four checks are built and reach here: the policy containment of
+/// 6.1 item 3, the skill collision of item 5 and the MCP launch check of item 6.
 ///
 /// It is public so a test can drive the whole shape without launching a provider.
 ///
@@ -753,12 +1013,20 @@ pub fn refuse(
     worktree: Option<&WorktreeRef>,
     seed_tree: Option<&str>,
     layout: &Layout,
+    parent_run_id: Option<&str>,
 ) -> Result<Call> {
     eprintln!("hydra: run {run_id} refused");
     eprintln!("hydra: {remediation}");
 
-    let mut writer =
-        crate::record::Writer::create(run_file, run_id, None, Some(provider.binary()), None)?;
+    // Contract 4: the edge goes on every line of the child's file, including the
+    // two a refused spawn gets, because a refused child is still a child.
+    let mut writer = crate::record::Writer::create(
+        run_file,
+        run_id,
+        parent_run_id,
+        Some(provider.binary()),
+        None,
+    )?;
     writer.hydra_line(line_zero)?;
     writer.hydra_line(&crate::record::RunEnd::refused(refusal, remediation))?;
     drop(writer);
@@ -800,9 +1068,15 @@ fn never_started(
     provider: Provider,
     line_zero: &serde_json::Value,
     err: &anyhow::Error,
+    parent_run_id: Option<&str>,
 ) -> Result<()> {
-    let mut writer =
-        crate::record::Writer::create(run_file, run_id, None, Some(provider.binary()), None)?;
+    let mut writer = crate::record::Writer::create(
+        run_file,
+        run_id,
+        parent_run_id,
+        Some(provider.binary()),
+        None,
+    )?;
     writer.hydra_line(line_zero)?;
     writer.hydra_line(&crate::record::RunEnd::streamed(
         None,
@@ -1047,17 +1321,25 @@ pub fn write_spawn_config(
 /// **`pid` and `process_start_time` are null here and are the detached half's to
 /// fill in.** They are contract 5.2's liveness pair and neither exists until a
 /// process does, which is the one fact this side cannot know.
+///
+/// It is public for the same reason [`refuse`] is: `tests/delegation.rs` composes
+/// the line a refused child gets and everything above it in [`run`] needs a
+/// provider binary on PATH.
 #[allow(clippy::too_many_arguments)]
-fn run_start(
+pub fn run_start(
     request: &Request,
     task: &str,
     policy_sha: &str,
-    provider_version: &str,
+    // `None` on a refused spawn, where no binary was asked (contract 8.3).
+    provider_version: Option<&str>,
     cwd: &std::path::Path,
     worktree: Option<WorktreeRef>,
-    env_allowlist: Vec<String>,
+    // `None` on a refused spawn, where no child environment was built. Absent
+    // rather than empty, because an empty list reads as a measurement.
+    env_allowlist: Option<Vec<String>>,
     skills: Option<serde_json::Value>,
     mcp: Option<serde_json::Value>,
+    lineage: &Lineage,
 ) -> RunStart {
     RunStart {
         kind: "run_start",
@@ -1065,7 +1347,7 @@ fn run_start(
         hydra_version: env!("CARGO_PKG_VERSION").to_string(),
         command: "run".to_string(),
         launch_mode: Some("recorded".to_string()),
-        provider_version: Some(provider_version.to_string()),
+        provider_version: provider_version.map(str::to_string),
         // Late on every provider. It lands on `claude`'s init frame, and a reader
         // takes it from `raw` rather than expecting a rewrite of line 0.
         provider_session_id: None,
@@ -1079,8 +1361,12 @@ fn run_start(
         policy_sha: Some(policy_sha.to_string()),
         cwd: cwd.display().to_string(),
         worktree,
-        // Delegation is not built, so every run is one a human started.
-        depth: 0,
+        // 6.1 item 2: the parent's depth plus one, and 0 for a run a human
+        // started. The cap has already refused anything past it.
+        depth: lineage.depth,
+        // Contract 8.3 wants the parent's policy beside the requested one, and a
+        // run with no parent leaves the field out rather than null.
+        parent_policy: lineage.parent_policy().map(str::to_string),
         pid: None,
         process_start_time: None,
         // Contract 5.3's three fields, or absent on a run with no checkout to
@@ -1100,7 +1386,7 @@ fn run_start(
             allow_billed: false,
             gated: true,
         }),
-        env_allowlist: Some(env_allowlist),
+        env_allowlist,
         subscription: Some(request.provider.subscription().to_string()),
     }
 }
@@ -1147,6 +1433,7 @@ mod tests {
             Provider::Claude,
             &line_zero,
             &anyhow::anyhow!("no space left on device"),
+            None,
         )
         .unwrap();
 

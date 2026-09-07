@@ -7,8 +7,8 @@
 //! [`outcome`] turns one into contract 8's outcome and contract 17's JSON.
 //! [`skills`] is the store, the per-sha snapshot and what a run gets linked into
 //! its checkout, and [`mcp`] is the canonical MCP document and the file one launch
-//! generates from it. Delegation is not built, and `IMPLEMENTATION.md` says what
-//! that does to the records this binary writes.
+//! generates from it. [`face`] is the MCP delegate face of harness spec 9, and the
+//! four arguments it takes are the whole of what an orchestrator may decide.
 //!
 //! Every child is detached: [`watch`] is the half that owns the pty and the record,
 //! [`run`] is the half a human talks to, and [`live`] is contract 5.2's liveness
@@ -19,6 +19,7 @@
 
 pub mod cli;
 pub mod env;
+pub mod face;
 pub mod live;
 pub mod logs;
 pub mod mcp;

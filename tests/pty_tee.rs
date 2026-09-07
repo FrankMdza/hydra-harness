@@ -35,6 +35,7 @@ fn minimal_run_start(pid: u32, start: Option<String>) -> RunStart {
         cwd: "/tmp".into(),
         worktree: None,
         depth: 0,
+        parent_policy: None,
         pid: Some(pid),
         process_start_time: start,
         skills: None,

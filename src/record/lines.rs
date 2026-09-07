@@ -35,6 +35,18 @@ pub struct RunStart {
     pub cwd: String,
     pub worktree: Option<WorktreeRef>,
     pub depth: u32,
+    /// The policy the parent run was launched under, on a delegated run and
+    /// absent on every other.
+    ///
+    /// **Contract 8.3 asks for it and contract 5.1 named no field for it.** A
+    /// refused spawn's record has to carry "the requested policy and the parent's
+    /// beside it", and `policy` is the requested one. Absent rather than null
+    /// under 5.5's rule: a run a human started has no parent, so which policy the
+    /// parent held is not a question with a missing answer. Contract 15 allows the
+    /// addition, because a reader that ignores the field reads the record exactly
+    /// as it did before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_policy: Option<String>,
     pub pid: Option<u32>,
     pub process_start_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -81,8 +93,9 @@ pub struct RunEnd {
     pub error: Option<String>,
     /// The Hydra-side check that refused, or null. Four outcomes are things Hydra
     /// decided rather than read, and this names the check for them. [`Refusal`] is
-    /// the vocabulary, and nothing in this build writes one: all four checks
-    /// belong to tickets that are not built.
+    /// the vocabulary, and three of its four codes have a writer: policy
+    /// narrowing, the skill collision and the MCP launch check. The auth
+    /// pre-flight belongs to a ticket that is not built.
     pub refusal: Option<&'static str>,
     pub remediation: Option<String>,
     /// `stream` or `harvest`. Always `stream` here, because this slice launches no
@@ -109,9 +122,9 @@ impl RunEnd {
     /// attempt is invisible, and under D10 anything not in a run record did not
     /// happen.
     ///
-    /// Nothing calls this yet. It is here rather than in each of the four tickets
-    /// that will, so the codes have one home and the derivation in
-    /// [`crate::outcome`] reads the same strings the writer wrote.
+    /// The codes live in one place rather than in each check that writes one, so
+    /// the derivation in [`crate::outcome`] reads the same strings the writer
+    /// wrote. [`crate::run::refuse`] is the only caller.
     pub fn refused(refusal: Refusal, remediation: impl Into<String>) -> Self {
         Self {
             kind: "run_end",
@@ -137,8 +150,9 @@ fn now() -> String {
 /// remediation field beside it is where the words for a human go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
-    /// A child named a policy wider than its parent's, measured as capability set
-    /// containment (contract 8.3). Ticket 11.
+    /// A child named a policy its parent's does not contain, measured as
+    /// capability set containment (contract 8.3). [`crate::run::Lineage`] decides
+    /// it and 7.3 is the rule.
     PolicyNarrowing,
     /// A linked skill name the provider did not resolve as Hydra's. Ticket 07.
     SkillCollision,

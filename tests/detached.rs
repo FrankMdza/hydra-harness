@@ -51,6 +51,7 @@ fn line_zero(cwd: &Path) -> serde_json::Value {
         cwd: cwd.display().to_string(),
         worktree: None,
         depth: 0,
+        parent_policy: None,
         // The two fields the detached half fills in. Null here is the point.
         pid: None,
         process_start_time: None,
@@ -70,6 +71,7 @@ fn spec_for(layout: &Layout, script: &str) -> PathBuf {
         &path,
         &Launch {
             run_id: RUN_ID.to_string(),
+            parent_run_id: None,
             provider: "claude".to_string(),
             binary: "/bin/sh".to_string(),
             argv: vec!["-c".to_string(), script.to_string()],
@@ -206,6 +208,7 @@ fn a_binary_that_is_not_there_still_writes_a_record() {
         &spec,
         &Launch {
             run_id: RUN_ID.to_string(),
+            parent_run_id: None,
             provider: "claude".to_string(),
             binary: "/nonexistent/hydra-stub".to_string(),
             argv: vec![],

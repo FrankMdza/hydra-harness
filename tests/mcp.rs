@@ -214,6 +214,7 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
         None,
         None,
         &layout,
+        None,
     )
     .unwrap();
 
@@ -376,6 +377,7 @@ fn the_pre_flight_refusal_writes_a_record_that_derives_mcp_unavailable() {
         None,
         None,
         &layout,
+        None,
     )
     .unwrap();
 

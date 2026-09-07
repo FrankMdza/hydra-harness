@@ -178,6 +178,7 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `cwd` | the directory the child was launched in |
 | `worktree` | path and branch name, or null under `--shared-tree` |
 | `depth` | integer, 0 for a run a human started |
+| `parent_policy` | the policy the parent was launched under, absent on a run with no parent. Section 8.3 requires it beside the requested one on a refused spawn |
 
 **`command` names what created the run, and it earns its place on the harness run.** On a provider
 run it is nearly redundant, because the provider and the task string already describe the row. On a

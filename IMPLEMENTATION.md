@@ -118,7 +118,7 @@ shown this for `~/hydra/runs/`; the new one shows it everywhere.
 
 ```
 hydra run --provider <claude|cursor-agent|agy> --task "..." [--model <id>] [--policy <name>]
-          [--timeout <dur>] [--allow-floor-escape]
+          [--parent <run-id>] [--timeout <dur>] [--allow-floor-escape]
 hydra status [<run-id>]
 hydra logs <run-id> [--follow]
 hydra reap [<run-id>] [--delete-branch]
@@ -139,14 +139,17 @@ run's gate into the same spawn directory, composes `claude`'s argv and the whole
 inside its budget it reads the file back through the normalizer and prints contract 17's
 JSON on stdout.
 
-Section 9 gives `hydra run` eight optional flags and four are here: `--model`,
-`--policy`, `--timeout` and `--allow-floor-escape`. The four that are not each belong
-to a ticket that is not built: `--parent` and `--files` to delegation, `--shared-tree`
-to a worktree question nothing has asked yet, `--allow-billed` to the raw-model plane.
+Section 9 gives `hydra run` eight optional flags and five are here: `--model`,
+`--policy`, `--parent`, `--timeout` and `--allow-floor-escape`. The three that are not
+each belong to a ticket that is not built: `--files` is on the delegate face and not on
+the command line, `--shared-tree` answers a worktree question nothing has asked yet, and
+`--allow-billed` belongs to the raw-model plane.
 
 Harness spec 17 lists eleven commands. Six are built. `hydra watch` is a twelfth and
 is not one of them: it is the detached half of a launch, `hydra run` is the only thing
-that types it, and `clap` hides it from the help for that reason.
+that types it, and `clap` hides it from the help for that reason. `hydra delegate-face`
+is a thirteenth, hidden the same way: it is the MCP delegate face of section 9, a run's
+own provider starts it, and the section on delegation below says what it hands a model.
 
 `hydra reap` commits a checkout to the child's branch, then removes the checkout and
 the run's spawn directory. `hydra prune` moves run files to `~/hydra/pruned/`. Neither
@@ -1401,7 +1404,8 @@ and `tests/normalize.rs` asserts it per call rather than in aggregate.
 puts it there rather than in the body, because the parent writes it at spawn and
 nothing reconciles it against the child. Rung one reads it twice, for the retry
 class and to leave out the runs a curator pass spawned, so a reader that had only
-the body would have neither. It is null on every record this build writes.
+the body would have neither. Ticket 11 gave it a producer: a run launched with
+`--parent`, or through the delegate face with one, carries it on every line.
 
 **Findings are not events.** An event says what happened; a finding says two sources
 disagree or that the derivation could not do its job. Seven of them: a gate leak,
@@ -1538,8 +1542,10 @@ is that path, and by then a worktree, a branch and a compiled gate are on disk w
 id on them, so under D10 a file has to exist saying so. The record derives `failed` and `tests/outcome.rs` pins it, so nothing
 is lost for the corpus; what is missing is the JSON for a caller that wanted the
 projection rather than an exit code. Making it print instead would mean exiting 0 on a run
-that never launched, which breaks any script reading the status, so the fix belongs with
-the MCP delegate face in ticket 11, where a caller has no exit code to read.
+that never launched, which breaks any script reading the status. The delegate face is
+where that hurts, because a caller there has no exit code to read, so the face turns the
+error into a tool result with `isError` and the sentence in it. On the command line the
+exit code is still the answer.
 
 **That test is "no exit code and no refusal", and it is a reading of the record rather
 than a fact the launcher kept.** The launcher no longer runs the spawn, so it has nothing
@@ -1906,6 +1912,129 @@ these records nothing derives from either, because 7.7 needs a policy. It gets n
 in the producer table for that reason and a paragraph in 7.7 instead, so the next
 reader meets it in the document rather than in a record.
 
+## Delegation, and the face
+
+`hydra run --parent <run-id>` makes a child of another run, and `hydra delegate-face` is
+the MCP server a model delegates through. Ticket 11 built both, and `tests/delegation.rs`
+and `tests/face.rs` cover them without launching a provider.
+
+**What the attempt was is decided before what the machine is.** 6.1's items 2 and 3 now
+run ahead of the environment build, the provider version read and the two repo-file checks.
+The order matters for one case: a child reaching for `permissive` on a provider nobody
+installed used to error out with nothing on disk, which is the invisible attempt 7.3 exists
+to prevent. So the narrowing refusal writes first and the machine's own facts are read
+after. The record that refusal writes carries no provider fields, contract 8.3's phrase:
+`provider_version` is null because no binary was asked and `env_allowlist` is absent
+because no child environment was built. The envelope still names the provider, which is
+contract 4's field and a fact about the request. `tests/face.rs` is the proof, since it
+now passes on a machine with no agent CLI installed at all.
+
+**A child reads two fields off its parent's record and nothing else.** `run::Lineage::of`
+takes `depth` and `policy` off line 0 of `~/hydra/runs/<parent>.jsonl` and refuses three
+shapes before a run id exists: a parent this machine has no record of, a parent whose
+`policy` is null, which is a pre-gate record or an interactive one, and a child that would
+land past the cap. Contract 4 makes `parent_run_id` an edge the parent writes at spawn, so
+nothing is ever reconciled against the child. The edge rides the launch spec into the
+detached half, and it is on every line of a child's file, the two a refused spawn gets
+included.
+
+**The cap is `live::MAX_DEPTH` and it is 2.** Harness spec 9 says "capped at 2,
+configurable" and names no mechanism, so configurable means this line moves and the binary
+is rebuilt. A flag was the obvious alternative and a child that can raise its own cap is
+not a cap, and a protected config for one integer would be a sixth of those. A child of a
+depth 2 run is refused with a typed error and no run id, the shape 6.1 item 4 gives the
+concurrency cap. Contract 8.3 promises a record for the narrowing refusal and for nothing
+else, and the parent's own record already carries the refused call and the sentence that
+came back.
+
+**The narrowing refusal is a record, and `policy_narrowing` is the third of contract 6's
+four codes to get a producer.** It is written after the run id is minted and before the
+worktree is created, so what the attempt leaves behind is `run_start`, `run_end`, and
+nothing on disk beside them. Line 0 carries the requested policy in `policy` and the
+parent's in `parent_policy`, a field contract 5.1 did not have: 8.3 asks for both and 5.1
+named one. It is absent on a run with no parent, under 5.5's rule, and contract 15 covers
+the addition because a reader that ignores it reads the record exactly as before. The
+remediation names both policies and says which of the two failures this is: `permissive`
+under a `read-only` parent is wider, and `curate` under a `standard` parent is
+incomparable, since the five are a partial order rather than a chain (7.3). Both are
+refused. Only the first is an attempted escalation, and the words are different so a
+reader can tell them apart.
+
+**The face is a stdio JSON-RPC server written by hand in `src/face.rs`.** Four methods:
+`initialize`, which answers the protocol version the client sent, `notifications/initialized`,
+which is ignored, `tools/list`, and `tools/call`. Anything else is `-32601`. No dependency
+was added for it, because the protocol this speaks is four methods wide and `serde_json`
+was already here, and what that buys is one writer on stdout. A stray line there breaks
+the client's parser and the failure looks like a hung server, so diagnostics go to stderr
+beside the ones `hydra run` already prints.
+
+**One tool, `delegate(provider, task, files?, policy?)`, and everything the model gets
+wrong comes back as a tool result rather than a protocol error.** An unroutable provider
+name, an argument the face does not take, a policy the parent does not contain: all of
+them are `isError` with a sentence, because a JSON-RPC error is the client's to handle and
+the model never sees it. A refused launch is not even that. It is `isError: false` with
+contract 17's JSON in the content block, `outcome: gated` inside, which is a result the
+model can act on. `model`, the timeout, `--shared-tree` and depth are not in the schema
+and passing one is refused by name, because dropping `model` silently would tell a model
+it got the model it asked for.
+
+**The marker is `<<<hydra-result TOKEN>>>`, the text, then `<<<end hydra-result TOKEN>>>`.**
+The token is a UUIDv7 with the first six bytes thrown away, 20 hex characters, drawn after
+the child returned. Those six bytes are the millisecond clock and a child that knows
+roughly when it stopped could guess them; what is left is 74 bits it has no way to see.
+`/dev/urandom` would give 128 bits and one more failure mode on a path with nowhere to
+report one. `hydra run`'s own JSON is unchanged and `result_text` stays a plain string
+there: the face is what wraps, because the face is where a child's words reach a model
+that did not run it. A result with no text carries no boundary, which is every refusal.
+
+**`files` is text in the task string and grants nothing.** Harness spec 9 names `--files`
+on the CLI and on the face and defines it nowhere, so this is a decision rather than a
+reading: the paths land under one heading at the end of the task, which means they are in
+`run_start.task` verbatim and the record shows exactly what the child was told. What the
+child may read is its policy's business, and a path here that the policy denies is still
+denied. `--files` is not on `hydra run` itself, because a human typing a command line can
+write the paths into the task.
+
+**How a run gets the face.** Through the canonical MCP document, protected config #5,
+which a human edits by hand. The block to add:
+
+```toml
+[[server]]
+name = "hydra"
+transport = "stdio"
+command = "hydra"
+args = ["delegate-face"]
+admit = ["permissive"]
+```
+
+`command = "hydra"` needs the binary on the child's PATH, which is the launcher's PATH
+under 6.2's allowlist; an absolute path works and is what a machine that runs Hydra out of
+a cargo target directory wants. `permissive` is the only admission worth writing, because
+`mcp_call` is granted by that policy alone (7.2), so a face admitted to `standard` would
+start, list its tool, and have every call to it refused by the gate.
+
+**Nothing injects `--parent <run-id>` into that server's arguments per run, and this is
+the gap.** The document is read once per launch and the servers it names are copied into
+the run's config as written, so a face spawned this way has no `--parent` and its children
+are depth 0: the tree is flat, and a delegated child's own delegations are bounded by
+nothing above them. Closing it means `mcp::write_config` substituting the run id into an
+argument list for this one server, which is a per-server rule the document format has no
+field for, so it is a document change and a code change together rather than a two-line
+patch. Until then a face with no `--parent` is what a human's own `claude` session gets,
+which is the honest reading of what it is: a way to hand work to a fresh run at depth 0.
+
+**`hydra show` is still not built**, so a parent that wants more than contract 17's nine
+fields has `hydra logs <run-id>`, which prints the record's lines. Harness spec 9 points at
+`hydra show <run-id> --events` for exactly this, and the result stays small on purpose:
+delegation exists to keep a child's trajectory out of the orchestrator's context.
+
+**`HYDRA_ROOT` overrides `Layout::discover`, and it exists for one test file.** Every other
+test builds a `Layout::at` a temporary directory and calls the library; `tests/face.rs`
+drives the built binary as a subprocess, and the binary is what calls `discover`. It is
+read in `src/paths.rs` and nowhere else, and it never reaches a child provider, because
+6.2 builds that environment from an allowlist this name is not on. The rough edge below
+says what is left of it.
+
 ## Ouroboros rung one: `hydra curate`
 
 Ticket 12. `src/ouroboros/` is the whole of it. `corpus.rs` decides which runs the
@@ -2230,13 +2359,16 @@ sentence moves.
 
 Out of scope for this slice, and each one has a document that already says what it is:
 
-- Two of harness spec 6.1's seven pre-flight checks. Auth, depth and policy containment
-  belong to tickets that are not built. What runs before a spawn today is the
-  environment, the provider version, the policy name, the preamble file, the MCP
-  document, the concurrency cap, the skill collision check, the MCP launch check,
-  on `cursor-agent`, item 7's fatal pre-flight, and on `agy`, the free gate-mount check
-  the spec does not ask for and the section on that provider argues for.
-- Delegation: `--parent`, depth, monotonic narrowing, the MCP delegate face. 7.3, 9.
+- One of harness spec 6.1's seven pre-flight checks. Auth is the one that belongs to a
+  ticket that is not built. What runs before a spawn today, in the order it runs, is the
+  policy name, the preamble file, the MCP document, the depth cap, the concurrency cap,
+  the policy containment check, then the environment, the provider version and the two
+  repo files on the providers that read their gate out of a worktree, then the skill
+  collision check, the MCP launch check, on `cursor-agent`, item 7's fatal pre-flight,
+  and on `agy`, the free gate-mount check the spec does not ask for and the section on
+  that provider argues for.
+- `--shared-tree`, so nothing in this build runs two children in one checkout, and the
+  MCP cost 6.5 gives that flag on Cursor has no producer.
 - Every one of contract 8's nine outcomes has a producer now. `mcp_unavailable` was the
   last without one and it arrives through `run_end.refusal`, written by 6.1 item 6 when
   a policy admits a server the launch cannot deliver. `skill_collision` is 6.1's fifth
@@ -2290,6 +2422,17 @@ Out of scope for this slice, and each one has a document that already says what 
   field that would tell them apart. Map ticket 42 added it on 2026-09-06, `scopes` and
   `floor_lifted` on `run_start`, and build ticket 15 carries the code. Until it lands the
   edge is as described.
+- **A run that can run a shell can set `HYDRA_ROOT` and move where its own children are
+  recorded.** The variable never reaches a child through 6.2's allowlist, so nothing
+  inherits it. What a child can do is export it itself and then invoke `hydra run`, which
+  puts that run's record, worktree and spawn directory under a path of the child's
+  choosing, outside the corpus rung one reads. Harness spec 7.5 already says the gate
+  cannot keep a run away from a binary reached through `shell`, and this is one more
+  spelling of that rather than a new hole: the same shell can call `hydra run` with any
+  flag at all. It is worth writing down because the variable is new. Closing it means
+  reading the override from somewhere a run cannot write, and today the honest statement
+  is that a delegated run's record is where its own environment says.
+
 - **A run with no `run_end` is not corrupt.** Contract section 6 says so. Killing the
   detached half mid-run produces one, and nothing completes it: `hydra status` reports it
   as abandoned and stops there, because completing it means harvest and no run on this

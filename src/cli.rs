@@ -2,7 +2,7 @@
 //!
 //! Harness spec 17 lists eleven commands. Six are here: `run`, `status`, `logs`,
 //! `reap`, `prune` and `curate`. Section 9 gives `hydra run` eight optional flags
-//! and four are here. The four that are not each belong to a ticket that is not
+//! and five are here. The three that are not each belong to a ticket that is not
 //! built.
 //!
 //! **`reap` and `prune` are typed by a human and reachable from no run.** Nothing
@@ -16,6 +16,12 @@
 //! is hidden from the help for that reason. The alternative was `fork` in process,
 //! which would have put a pty, an allocator and an open record file on the wrong
 //! side of a call nobody can test.
+//!
+//! **`delegate-face` is a thirteenth and is not one of the eleven either.** It is
+//! the MCP face of harness spec 9, a stdio JSON-RPC server a run's own provider
+//! spawns from the canonical MCP document, and section 17 lists commands a human
+//! types. Hidden for the same reason `watch` is: typing it yourself gets you a
+//! process waiting for a protocol you are not speaking.
 
 use std::time::Duration;
 
@@ -48,6 +54,11 @@ pub enum Command {
         /// network reads inside the worktree.
         #[arg(long, default_value = "standard")]
         policy: String,
+
+        /// The run id this one is a child of. Its depth plus one is this run's,
+        /// and its policy is the widest this one may ask for (7.3).
+        #[arg(long)]
+        parent: Option<String>,
 
         /// Lift the pattern floor for this run, harness spec 16. A human types
         /// this on one run; no policy can set it and no delegation inherits it.
@@ -125,6 +136,16 @@ pub enum Command {
     Watch {
         /// The launch spec `hydra run` wrote into the run's spawn directory.
         spec: std::path::PathBuf,
+    },
+
+    /// The MCP delegate face of harness spec 9, spoken over stdin and stdout.
+    /// An orchestrator's provider runs this; a human does not.
+    #[command(hide = true)]
+    DelegateFace {
+        /// The run whose children these are. Without it the face spawns runs at
+        /// depth 0, which is what a human's own session gets.
+        #[arg(long)]
+        parent: Option<String>,
     },
 }
 

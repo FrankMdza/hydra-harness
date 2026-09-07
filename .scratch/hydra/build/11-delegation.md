@@ -1,7 +1,7 @@
 # 11 - Delegation and the MCP delegate face
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 05, 09, 10
 
 ## Goal
@@ -112,3 +112,75 @@ same check it is within one.
 for you if a fourth ever arrives: `binary`, `dialect`, `skill_root`, `user_skill_roots`,
 `resolve`, `subscription`, `observe`, `FromStr`, `ChildEnv::build`, `mcp::undeliverable`,
 `mcp::write_config`, `run::write_spawn_config` and the argv match in `run::run`.
+
+## Outcome
+
+Resolved 2026-09-07. Two slices, both green with no provider launched.
+
+**Slice 1, lineage and the two pre-flight checks.** `Request` gains `parent`, `hydra run`
+gains `--parent <run-id>`, and `run::Lineage` is the seam: `Lineage::of` reads `depth` and
+`policy` off line 0 of the parent's record through a new `live::opening_line`, the twin of
+`closing_line`, and `Lineage::narrowing` compares the two policies through the
+`Policy::contains` that was already there. Both run ahead of the environment build, the
+provider version read and the two repo-file checks, so an attempted escalation is recorded
+even when the child was never going to start, and the record carries no provider fields:
+contract 8.3's phrase, a null `provider_version` and an absent `env_allowlist`. Three shapes are refused before a run id exists,
+all of them typed errors and none of them a record: a parent with no record, a parent whose
+`policy` is null, and a child that would land past `live::MAX_DEPTH`, which is 2 beside
+`LIVE_RUN_CAP`. The narrowing refusal runs after the mint and before the worktree, so it
+writes `run_start`, `run_end` and nothing else on disk, through the same `run::refuse`
+tickets 07 and 08 built. `parent_run_id` now travels through the launch spec into
+`hydra watch` and through `refuse`, so it is on every line of a child's file.
+
+**Slice 2, the marking and the face.** `hydra delegate-face [--parent <run-id>]` is a
+hidden subcommand and a hand-written stdio JSON-RPC server in `src/face.rs`: `initialize`
+answers the version the client sent, `notifications/initialized` is ignored, `tools/list`
+returns one tool, `tools/call` runs it, and anything else is `-32601`. No dependency added.
+The tool is `delegate(provider, task, files?, policy?)` and nothing else; an argument the
+face does not take is refused by name. `face::mark` wraps the child's text in
+`<<<hydra-result TOKEN>>>` and `<<<end hydra-result TOKEN>>>`, the token being a UUIDv7
+with its six clock bytes dropped, 20 hex characters, drawn after the child returned.
+`hydra run`'s own JSON is unchanged.
+
+**Measured.** 19 new tests: 7 in `tests/delegation.rs`, 7 in `tests/face.rs` and 5 unit
+tests in `src/face.rs`. 444 pass and 0 fail on the commit this was written against, which
+had 425; 451 pass after rebasing onto build ticket 16, which brought 432 of its own.
+`cargo clippy --all-targets` is clean. Nothing launches or even asks for a provider:
+`tests/face.rs` drives the built binary over a pipe, and its end-to-end test comes back
+`outcome: gated` with the record on disk on a machine where no agent CLI is installed.
+
+**What the ticket assumed that turned out false or unstated.**
+
+- **Contract 5.1 had no field for the parent's policy and 8.3 requires one.** `parent_policy`
+  is new on `run_start`, absent on a run with no parent, and `docs/run-record-contract.md`
+  section 5.1's lineage table gains the row with a pointer to 8.3. That is the one doc edit
+  this ticket made.
+- **The depth cap is a constant, not configuration.** Harness spec 9 says "capped at 2,
+  configurable" and names no mechanism. A flag would let a child raise its own cap and a
+  protected config for one integer would be a sixth of those, so it is `live::MAX_DEPTH` and
+  moving it means a rebuild. `IMPLEMENTATION.md` says so.
+- **The version read had been hoisted above every check, and that made an escalation
+  invisible.** `run::run` read `provider.version()` and built the child's environment before
+  anything about the request was judged, so a child naming a wider policy on a provider that
+  is not installed errored out with no record. 6.1 lists neither among its seven checks, so
+  the order was an accident rather than a reading. Items 2 and 3 now run first, which is
+  what makes contract 8.3's "no provider fields" true of the record and what lets the face
+  test pass with no agent CLI on the machine.
+- **The face needed a way to point the binary at a throwaway `~/hydra`.** Every other test
+  builds a `Layout::at` a temp directory; this one drives the binary as a subprocess.
+  `HYDRA_ROOT` overrides `Layout::discover`, is read in `src/paths.rs` and nowhere else, and
+  never reaches a child provider because 6.2's allowlist does not carry the name. What is
+  left of it is in `IMPLEMENTATION.md`'s rough edges: a run that can shell out can export
+  the variable itself and record its own children somewhere the corpus does not look, which
+  is 7.5's "the gate cannot keep a run away from a binary reached through `shell`" in a new
+  spelling.
+- **Nothing injects `--parent <run-id>` into the face's own arguments per run.** The MCP
+  document is copied into a run's config as written, so a face spawned from it has no
+  `--parent` and its children are depth 0. Closing that means a per-server substitution rule
+  the document format has no field for, which is a document change and a code change
+  together. It is written up in `IMPLEMENTATION.md` and left.
+- **`files` is a decision.** Harness spec 9 names it and defines it nowhere, so the paths are
+  rendered under one heading at the end of the task string. They grant nothing.
+- **A `judge` parent can delegate nothing but `judge`**, which the ticket did not say but
+  `policy::contains` already made true, and it is worth knowing before someone gives a
+  panel member a helper.

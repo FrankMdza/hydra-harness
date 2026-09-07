@@ -40,7 +40,18 @@ impl Layout {
     /// Harness spec 6.2: a wrong `HOME` logs three providers out silently, so
     /// nothing here trusts the variable. [`crate::env::real_home`] reads the
     /// passwd entry.
+    ///
+    /// **`HYDRA_ROOT` overrides it, and it exists for one test file.** Every other
+    /// test builds a [`Layout::at`] a temporary directory and calls the library
+    /// directly; `tests/face.rs` cannot, because it drives the built binary as a
+    /// subprocess and the binary is what calls this. The variable is read here and
+    /// nowhere else, it never reaches a child provider, because 6.2 builds that
+    /// environment from an allowlist this name is not on, and a human who sets it
+    /// has moved their whole `~/hydra` rather than half of it.
     pub fn discover() -> Result<Self> {
+        if let Some(root) = std::env::var_os("HYDRA_ROOT") {
+            return Ok(Self::at(PathBuf::from(root)));
+        }
         let home = crate::env::real_home().context("cannot locate the home directory")?;
         Ok(Self::at(home.join("hydra")))
     }

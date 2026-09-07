@@ -39,6 +39,11 @@ use crate::record::{RunEnd, Writer};
 #[derive(Serialize, Deserialize)]
 pub struct Launch {
     pub run_id: String,
+    /// The run that asked for this one, contract 4. It goes on every line of the
+    /// child's record and is never reconciled against what the child says about
+    /// itself. `None` on a run a human started.
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
     /// The provider name, for the envelope and for [`Provider::observe`].
     pub provider: String,
     /// The binary to exec. Separate from `provider` so the suite can drive this
@@ -139,7 +144,7 @@ pub fn watch(spec: &Path) -> Result<()> {
     let mut writer = Writer::create(
         &launch.run_file,
         &launch.run_id,
-        None,
+        launch.parent_run_id.as_deref(),
         Some(&launch.provider),
         launch.model.as_deref(),
     )?;

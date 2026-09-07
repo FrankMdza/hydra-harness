@@ -120,6 +120,9 @@ pub fn curate(pass: Pass) -> Result<Done> {
         policy: "curate".to_string(),
         floor_lifted: false,
         timeout: pass.timeout,
+        // Rung one is started by a human typing `hydra curate`, so its run is
+        // depth 0 and bounded by nothing above it (ouroboros spec 3.6).
+        parent: None,
         run_id: Some(run_id.clone()),
     });
 
@@ -363,8 +366,8 @@ pub fn brief(run_id: &str, checkout: &Path, layout: &Layout, selection: &Selecti
         classes.tool_errors
     ));
     text.push_str(&format!(
-        "  retry loop: {} (no producer yet: delegation is not built, so every \
-         parent_run_id is null)\n",
+        "  retry loop: {} run(s) whose record names a parent. Every record written \
+         before ticket 11 has none\n",
         classes.retries
     ));
     text.push_str(&format!(

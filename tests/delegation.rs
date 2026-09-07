@@ -1,0 +1,372 @@
+//! Delegation's two pre-flight checks, harness spec 6.1 items 2 and 3.
+//!
+//! **Nothing here launches a provider.** Both checks run before a child process
+//! exists, so the seam is the check itself: `Lineage::of` reads the parent's
+//! record and computes the depth, `Lineage::narrowing` compares the two policies,
+//! and `hydra::run::refuse` writes the record contract 8.3 asks for. The launch
+//! that would follow a passing pair stops at `write_spawn_config`, which is the
+//! last step before an argv.
+//!
+//! **The parent records are built by hand**, the way `tests/cleanup.rs` builds
+//! them, because a parent written by a real launch would cost a subscription and
+//! the only three fields read off one are `depth`, `policy` and the run id.
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+use hydra::paths::Layout;
+use hydra::policy::PolicySet;
+use hydra::provider::Provider;
+use hydra::record::Refusal;
+use hydra::run::{Call, Lineage, Request};
+use serde_json::{Value, json};
+
+/// A layout per test, because the suite runs in parallel.
+fn layout() -> (Layout, PathBuf) {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "hydra-delegation-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = Layout::at(&root);
+    layout.ensure().unwrap();
+    (layout, root)
+}
+
+/// A parent's record: line 0 and a closing line, with the two fields a child
+/// reads off it set to whatever the test wants to prove.
+fn write_parent(layout: &Layout, run_id: &str, policy: Option<&str>, depth: u32) -> PathBuf {
+    let mut text = envelope(
+        run_id,
+        0,
+        json!({
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "stub",
+            "provider_session_id": null,
+            "task": "the parent's own task",
+            "policy": policy,
+            "policy_sha": null,
+            "cwd": "/tmp",
+            "worktree": null,
+            "depth": depth,
+            "pid": null,
+            "process_start_time": null,
+            "subscription": "anthropic",
+        }),
+    );
+    text.push_str(&envelope(
+        run_id,
+        1,
+        json!({"type": "run_end", "exit_code": 0, "body_source": "stream"}),
+    ));
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+fn envelope(run_id: &str, seq: u64, hydra: Value) -> String {
+    let mut line = json!({
+        "run_id": run_id,
+        "parent_run_id": null,
+        "seq": seq,
+        "ts": "2026-09-06T09:12:04.100Z",
+        "provider": "claude",
+        "model": null,
+        "secret_flag": null,
+        "hydra": hydra,
+    })
+    .to_string();
+    line.push('\n');
+    line
+}
+
+fn request(policy: &str, parent: Option<&str>) -> Request {
+    Request {
+        provider: Provider::Claude,
+        task: "narrow this down".to_string(),
+        model: None,
+        policy: policy.to_string(),
+        floor_lifted: false,
+        timeout: Duration::from_secs(600),
+        run_id: None,
+        parent: parent.map(str::to_string),
+    }
+}
+
+/// How many run files are under `runs/`, for the refusals that write none.
+fn records(layout: &Layout) -> usize {
+    std::fs::read_dir(layout.runs()).unwrap().count()
+}
+
+/// The refusal, driven the way `hydra::run::run` drives it: compose line 0 from
+/// the request and the lineage, then write the two-line record.
+fn refuse(
+    layout: &Layout,
+    policies: &PolicySet,
+    request: &Request,
+    lineage: &Lineage,
+    run_id: &str,
+    remediation: String,
+) -> Call {
+    // Contract 8.3's "no provider fields": the check that refuses runs before the
+    // version is read and before the child's environment is built, so neither is
+    // on the line and neither is guessed.
+    let line_zero = serde_json::to_value(hydra::run::run_start(
+        request,
+        "the preamble, then the task",
+        policies.sha(),
+        None,
+        std::path::Path::new("/tmp"),
+        None,
+        None,
+        None,
+        None,
+        lineage,
+    ))
+    .unwrap();
+
+    hydra::run::refuse(
+        &layout.run_file(run_id),
+        run_id,
+        request.provider,
+        &line_zero,
+        Refusal::PolicyNarrowing,
+        remediation,
+        policies,
+        None,
+        None,
+        layout,
+        lineage.parent_run_id(),
+    )
+    .unwrap()
+}
+
+const PARENT: &str = "01a07600-0000-7000-8000-0000000000a1";
+const CHILD: &str = "01a07600-0000-7000-8000-0000000000b1";
+
+#[test]
+fn a_child_naming_a_wider_policy_is_refused_with_a_record() {
+    // Contract 8.3: no child process starts, so without the record the attempt is
+    // invisible, and attempted escalation is exactly the signal the corpus should
+    // carry.
+    let (layout, _root) = layout();
+    let policies = PolicySet::discover().unwrap();
+    write_parent(&layout, PARENT, Some("read-only"), 0);
+
+    let request = request("permissive", Some(PARENT));
+    let lineage = Lineage::of(&layout, request.parent.as_deref()).unwrap();
+    assert_eq!(lineage.depth, 1, "a child of a depth 0 run is depth 1");
+
+    let remediation = lineage
+        .narrowing(&policies, &request.policy)
+        .unwrap()
+        .expect("permissive is wider than read-only");
+    assert!(remediation.contains("read-only"), "{remediation}");
+    assert!(remediation.contains("permissive"), "{remediation}");
+    assert!(remediation.contains("7.3"), "{remediation}");
+
+    let call = refuse(&layout, &policies, &request, &lineage, CHILD, remediation);
+    let Call::Ended(result) = call else {
+        panic!("a refused launch has ended by definition");
+    };
+    assert_eq!(result.outcome, Some("gated"));
+    assert_eq!(result.outcome_source, Some("refusal"));
+    assert!(
+        result.exit_code.is_none(),
+        "no child ran, so there is no exit status"
+    );
+
+    let text = std::fs::read_to_string(layout.run_file(CHILD)).unwrap();
+    hydra::record::validate::check(&text, Some(CHILD)).assert_ok();
+    assert_eq!(
+        text.lines().count(),
+        2,
+        "run_start, run_end, nothing between"
+    );
+
+    let start: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    // Contract 4: the parent writes the edge at spawn, on every line of the
+    // child's file rather than only on line 0.
+    for line in text.lines() {
+        let line: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(line["parent_run_id"], PARENT);
+    }
+    // Contract 8.3: the requested policy and the parent's beside it.
+    assert_eq!(start["hydra"]["policy"], "permissive");
+    assert_eq!(start["hydra"]["parent_policy"], "read-only");
+    assert_eq!(start["hydra"]["depth"], 1);
+    assert!(start["hydra"]["pid"].is_null());
+    assert!(start["hydra"]["process_start_time"].is_null());
+    // Nothing was created for this run, so line 0 says so rather than guessing.
+    assert!(start["hydra"]["worktree"].is_null());
+    assert!(start["hydra"].get("skills").is_none());
+    // Contract 8.3: no provider fields. The version is null because no binary was
+    // asked, and the environment list is absent because none was built.
+    assert!(start["hydra"]["provider_version"].is_null(), "{start}");
+    assert!(start["hydra"].get("env_allowlist").is_none(), "{start}");
+
+    let end: Value = serde_json::from_str(text.lines().next_back().unwrap()).unwrap();
+    assert_eq!(end["hydra"]["refusal"], "policy_narrowing");
+}
+
+#[test]
+fn a_standard_parent_cannot_delegate_curate_and_the_refusal_says_incomparable() {
+    // 7.3's accepted cost: the five are a partial order rather than a chain, so
+    // this is not an escalation and it is still refused. A curator pass starts at
+    // depth 0 from a human.
+    let (layout, _root) = layout();
+    let policies = PolicySet::discover().unwrap();
+    write_parent(&layout, PARENT, Some("standard"), 0);
+
+    let request = request("curate", Some(PARENT));
+    let lineage = Lineage::of(&layout, request.parent.as_deref()).unwrap();
+    let remediation = lineage
+        .narrowing(&policies, &request.policy)
+        .unwrap()
+        .expect("standard does not contain curate");
+
+    assert!(
+        remediation.contains("incomparable"),
+        "a partial order is not a chain, and the word for this pair is not \
+         `wider`: {remediation}"
+    );
+    assert!(!remediation.contains("wider than"), "{remediation}");
+    assert!(remediation.contains("depth 0"), "{remediation}");
+}
+
+#[test]
+fn a_child_of_the_deepest_run_is_refused_before_a_run_id_exists() {
+    // 6.1 item 2. The cap is 2, so a child of a depth 2 run would be depth 3.
+    // Contract 8.3 promises a record for the narrowing refusal and for nothing
+    // else, so this one is a typed error and the parent's own record shows the
+    // refused call.
+    let (layout, _root) = layout();
+    write_parent(&layout, PARENT, Some("standard"), 1);
+    let deepest = "01a07600-0000-7000-8000-0000000000a2";
+    write_parent(&layout, deepest, Some("standard"), 2);
+
+    let allowed = Lineage::of(&layout, Some(PARENT)).unwrap();
+    assert_eq!(
+        allowed.depth, 2,
+        "the cap is a limit, not a forbidden value"
+    );
+
+    let err = Lineage::of(&layout, Some(deepest)).unwrap_err();
+    let said = err.to_string();
+    assert!(said.contains(deepest), "{said}");
+    assert!(said.contains('2'), "the cap is in the sentence: {said}");
+    assert_eq!(
+        records(&layout),
+        2,
+        "the refusal wrote no record of its own"
+    );
+}
+
+#[test]
+fn a_parent_with_no_record_is_refused_before_a_run_id_exists() {
+    // The run id is the whole of what `--parent` takes, and a run id with no file
+    // under `~/hydra/runs/` is a typo rather than a lineage. It is refused the way
+    // a policy name that is not one of the five is.
+    let (layout, _root) = layout();
+    let err = Lineage::of(&layout, Some(PARENT)).unwrap_err();
+    let said = err.to_string();
+    assert!(said.contains(PARENT), "{said}");
+    assert_eq!(records(&layout), 0);
+}
+
+#[test]
+fn a_parent_whose_record_has_no_policy_cannot_delegate() {
+    // A null policy is a record written before the gate reached a provider, or an
+    // interactive run (contract 5.6). Neither states a bound, and 7.3 needs one to
+    // compare against, so the child is refused rather than given the benefit.
+    let (layout, _root) = layout();
+    write_parent(&layout, PARENT, None, 0);
+
+    let err = Lineage::of(&layout, Some(PARENT)).unwrap_err();
+    let said = err.to_string();
+    assert!(said.contains("policy"), "{said}");
+    assert_eq!(records(&layout), 1);
+}
+
+#[test]
+fn a_permissive_parent_delegating_read_only_passes_both_checks() {
+    // The pair that runs. It stops at `write_spawn_config`, the last step before
+    // an argv, and the gate it wrote is compiled under the child's own policy
+    // rather than the parent's.
+    let (layout, _root) = layout();
+    let policies = PolicySet::discover().unwrap();
+    write_parent(&layout, PARENT, Some("permissive"), 0);
+
+    let request = request("read-only", Some(PARENT));
+    let lineage = Lineage::of(&layout, request.parent.as_deref()).unwrap();
+    assert_eq!(lineage.depth, 1);
+    assert_eq!(lineage.parent_policy(), Some("permissive"));
+    assert!(
+        lineage
+            .narrowing(&policies, &request.policy)
+            .unwrap()
+            .is_none(),
+        "permissive contains every policy, read-only included"
+    );
+
+    let spawn = hydra::run::write_spawn_config(
+        &layout,
+        CHILD,
+        &policies,
+        request.provider,
+        &request.policy,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let gate = std::fs::read_to_string(&spawn.gate).unwrap();
+    assert!(gate.contains("\\\"policy\\\":\\\"read-only\\\""), "{gate}");
+    assert!(spawn.hook_config.is_file());
+}
+
+#[test]
+fn a_run_with_no_parent_is_depth_zero_and_bound_by_nothing() {
+    // A human at depth 0 is the only thing that can widen anything (7.3), and this
+    // is the shape every run had before delegation was built.
+    let (layout, _root) = layout();
+    let policies = PolicySet::discover().unwrap();
+
+    let lineage = Lineage::of(&layout, None).unwrap();
+    assert_eq!(lineage.depth, 0);
+    assert_eq!(lineage.parent_run_id(), None);
+    assert!(
+        lineage
+            .narrowing(&policies, "permissive")
+            .unwrap()
+            .is_none(),
+        "nothing bounds a run a human started"
+    );
+
+    let line_zero = serde_json::to_value(hydra::run::run_start(
+        &request("permissive", None),
+        "the preamble, then the task",
+        policies.sha(),
+        Some("2.1.263 (Claude Code)"),
+        std::path::Path::new("/tmp"),
+        None,
+        Some(vec!["PATH".to_string()]),
+        None,
+        None,
+        &lineage,
+    ))
+    .unwrap();
+    assert_eq!(line_zero["depth"], 0);
+    assert!(
+        line_zero.get("parent_policy").is_none(),
+        "absent rather than null: with no parent there is no policy to name"
+    );
+}

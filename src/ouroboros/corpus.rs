@@ -35,8 +35,8 @@ pub struct Selection {
 pub struct Learnable {
     pub run_id: String,
     pub run_file: PathBuf,
-    /// The run that spawned this one. Always null in this build, and the field
-    /// the self-exclusion of section 3.5 keys on.
+    /// The run that spawned this one, and the field the self-exclusion of section
+    /// 3.5 keys on. Null on every run a human started, which is most of them.
     pub parent_run_id: Option<String>,
     pub provider: String,
     pub policy: Option<String>,
@@ -188,8 +188,8 @@ impl Selection {
             classes.tool_errors += usize::from(run.signals.failed_tools > 0);
             classes.clean_looking +=
                 usize::from(run.signals.clean_looking_failure(run.outcome.as_ref()));
-            // Contract 10's tree. Delegation is not built, so every
-            // `parent_run_id` on this machine is null and this is zero.
+            // Contract 10's tree. Every record written before ticket 11 has a null
+            // `parent_run_id`, so this counts the delegated runs alone.
             classes.retries += usize::from(run.parent_run_id.is_some());
         }
         classes
@@ -226,8 +226,8 @@ pub fn select(layout: &Layout, policies: &PolicySet) -> Result<Selection> {
     let mut learn = Vec::new();
     let mut skipped = Vec::new();
     // Every run that was itself a curator pass, so the pass below can drop the
-    // children of one. Delegation is not built, so nothing has a parent yet and
-    // this filter takes nothing out today.
+    // children of one. A curate pass delegates nothing today, so the filter takes
+    // something out only once a pass has spawned a child of its own.
     let mut curator_passes: Vec<String> = Vec::new();
 
     for view in live::scan(layout)? {
