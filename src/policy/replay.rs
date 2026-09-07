@@ -7,13 +7,13 @@
 //! policy into the gate of 7.5 again and asking it about each call.
 //!
 //! **A second implementation of the decision in Rust was the alternative, and it
-//! is the wrong trade.** The gate decides with the seven path denials, the scope
-//! resolution, the `mcp__` prefix rule and the pattern floor of 7.4, and the
-//! floor tokenizes a shell command with `shlex`. A Rust copy of all that drifts
-//! from the Python the day either side is edited, and a copy that answers
-//! `allow` where the gate answered `deny` reports a gate leak that never
-//! happened. Running the real script keeps that check worth reading: a
-//! disagreement then means the policy directory moved or the environment
+//! is the wrong trade.** The gate decides with the denied paths and their
+//! carve-outs, the scope resolution, the `mcp__` prefix rule and the pattern
+//! floor of 7.4, and the floor tokenizes a shell command with `shlex`. A Rust
+//! copy of all that drifts from the Python the day either side is edited, and a
+//! copy that answers `allow` where the gate answered `deny` reports a gate leak
+//! that never happened. Running the real script keeps that check worth reading:
+//! a disagreement then means the policy directory moved or the environment
 //! differs, never that two spellings of one rule fell out of step.
 //!
 //! Two costs, both in `IMPLEMENTATION.md`. It is a process per tool call, and

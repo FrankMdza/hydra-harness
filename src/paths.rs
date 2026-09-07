@@ -73,6 +73,11 @@ impl Layout {
     ///
     /// [`crate::skills::Store::open`] creates it as a git repo of its own, living
     /// inside the `~/hydra` working tree and ignored by it (6.4).
+    ///
+    /// **The `skill_store` scope on every spawn, and a path no policy writes.**
+    /// Harness spec 7.5 denies it under all five since ticket 40, so its only
+    /// writers are [`crate::skills::Store::pin`] and a human. A curator proposes
+    /// into [`Layout::skill_checkout`] instead.
     pub fn skills(&self) -> PathBuf {
         self.root.join("skills")
     }
@@ -100,32 +105,26 @@ impl Layout {
     /// rather than a file in the spawn directory because `hydra reap` removes that
     /// directory whole: a pass whose run outlived its call leaves an uncommitted
     /// proposal here, and work is not something a cleanup command should be able
-    /// to take. Nothing but `hydra curate` creates or removes one.
+    /// to take. `hydra curate` creates one, and `hydra reap` removes one after
+    /// committing what it holds to `ouroboros/curate/<run-id>` (ticket 40).
     pub fn skill_worktrees(&self) -> PathBuf {
         self.root.join("skill-worktrees")
     }
 
+    /// Where one run's `skill_checkout` scope points, ouroboros spec 3.6.
+    ///
+    /// A curate pass writes into its own checkout of the store and every other
+    /// policy is given none, which is what makes the carve-out of harness spec
+    /// 7.5 per spawn rather than per policy name.
+    ///
+    /// **It is a function of the run id so that a reader can recompute it.**
+    /// Contract 7.7 re-evaluates the run's policy against every recorded call,
+    /// and a scope that lived only in the compiled gate would make every curate
+    /// run read back as a run whose gate leaked on its own writes. No field on
+    /// the record carries a scope, and inventing one is a contract change; a
+    /// rule both sides derive costs nothing and cannot drift.
     pub fn skill_checkout(&self, run_id: &str) -> PathBuf {
         self.skill_worktrees().join(run_id)
-    }
-
-    /// Where one run's `skill_store` scope points.
-    ///
-    /// A curate pass writes into its own checkout of the store (ouroboros spec
-    /// 3.6) and every other run gets the store itself, which no policy but
-    /// `curate` grants anything on.
-    ///
-    /// **It is a function of the run id and the policy name so that a reader can
-    /// recompute it.** Contract 7.7 re-evaluates the run's policy against every
-    /// recorded call, and a scope that lived only in the compiled gate would make
-    /// every curate run read back as a run whose gate leaked on its own writes.
-    /// No field on the record carries a scope, and inventing one is a contract
-    /// change; a rule both sides derive costs nothing and cannot drift.
-    pub fn skill_store_scope(&self, run_id: &str, policy: &str) -> PathBuf {
-        match policy {
-            "curate" => self.skill_checkout(run_id),
-            _ => self.skills(),
-        }
     }
 
     /// Where one run's `skill_snapshot` scope points, harness spec 6.4 and 7.2.

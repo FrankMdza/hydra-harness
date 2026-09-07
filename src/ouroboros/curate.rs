@@ -8,8 +8,8 @@
 //! **It is a `hydra run` like any other** (3.5), so it goes through
 //! [`crate::run::run`]: one launch sequence, one record, one writer. Four things
 //! are the pass's own rather than the launch's: which runs the curator is told
-//! about, where the `skill_store` scope points, the pin before the checkout, and
-//! the commit afterwards.
+//! about, where the `skill_checkout` scope points, the pin before the checkout,
+//! and the commit afterwards.
 //!
 //! **The pass gets no run record of its own.** Contract 5.5 says why, and the test
 //! it gives is whether the supervisor decided anything after the run's file
@@ -32,7 +32,7 @@ use crate::policy::PolicySet;
 use crate::provider::Provider;
 use crate::run::{Call, Handle, Request};
 use crate::skills::Store;
-use crate::worktree::git;
+use crate::worktree::{commit_everything, git};
 
 use super::corpus::{self, Learnable, Selection};
 
@@ -92,7 +92,7 @@ pub fn curate(pass: Pass) -> Result<Done> {
     // The path the gate will scope this run's writes to, from the same rule the
     // read-time re-evaluation uses. Asking the layout rather than composing it
     // here is what keeps the checkout and the scope the same directory.
-    let checkout = layout.skill_store_scope(&run_id, "curate");
+    let checkout = layout.skill_checkout(&run_id);
     let branch = format!("ouroboros/curate/{run_id}");
 
     let selection = corpus::select(&layout, &policies)?;
@@ -241,24 +241,7 @@ pub fn propose(
         left: Vec::new(),
     };
 
-    if !git(checkout, &["status", "--porcelain"])?.trim().is_empty() {
-        git(checkout, &["add", "-A"])?;
-        // `--no-verify` for the reason reap has: a hook in the store that refuses
-        // would leave the pass unable to keep the work the run did, and this
-        // commit is a proposal a human reads rather than a contribution anyone
-        // merged.
-        git(
-            checkout,
-            &[
-                "commit",
-                "-q",
-                "--no-verify",
-                "-m",
-                &message(run_id, result),
-            ],
-        )?;
-        proposal.commit = Some(git(checkout, &["rev-parse", "HEAD"])?.trim().to_string());
-    }
+    proposal.commit = commit_everything(checkout, &message(run_id, result))?;
 
     match git(store, &["worktree", "remove", &checkout.to_string_lossy()]) {
         Ok(_) => proposal.checkout_removed = true,

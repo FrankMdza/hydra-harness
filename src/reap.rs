@@ -48,7 +48,7 @@ use anyhow::Result;
 
 use crate::live::{RunView, State};
 use crate::paths::Layout;
-use crate::worktree::git;
+use crate::worktree::{commit_everything, git};
 
 /// What one run's reap did.
 pub enum Reaped {
@@ -63,23 +63,13 @@ pub enum Reaped {
 
 pub struct Done {
     pub run_id: String,
-    /// The commit reap made, or `None` when the checkout was already clean.
-    pub committed: Option<String>,
-    /// The branch the commit landed on, and whether it is still there.
-    pub branch: Option<String>,
-    pub branch_removed: bool,
-    /// Why the branch survived, in git's own words where git decided it.
-    ///
-    /// A boolean here told the human "it holds commits" whatever the reason, and
-    /// the two reasons are not alike: a branch checked out in another worktree is
-    /// refused by `-D` as well, so the flag would not help and the message would
-    /// have been wrong twice.
-    pub branch_kept: Option<String>,
-    pub worktree_removed: bool,
+    /// The run's own checkout of the parent repo, `None` when there was none.
+    /// A run outside a repo never had one, and a reaped run no longer has one.
+    pub worktree: Option<Checkout>,
+    /// A curate pass's checkout of the skill store, `None` when there was none.
+    /// Every run but a curate pass leaves none.
+    pub store_checkout: Option<Checkout>,
     pub spawn_removed: bool,
-    /// What became of a curate pass's checkout of the skill store, and `None`
-    /// when there was none. Every run but a curate pass leaves none.
-    pub checkout: Option<Checkout>,
 }
 
 /// What committing and removing one git worktree did.
@@ -87,9 +77,7 @@ pub struct Done {
 /// **Two directories have this shape and the fields say the same thing for
 /// both**: the run's checkout of the parent repo, whose branch is
 /// `hydra/<run-id>`, and a curate pass's checkout of the skill store, whose
-/// branch is `ouroboros/curate/<run-id>`. [`Done`] carries the first one flat,
-/// because that is the shape it had before the second existed and a caller
-/// reading `done.worktree_removed` should keep reading it.
+/// branch is `ouroboros/curate/<run-id>`.
 pub struct Checkout {
     /// The commit reap made, or `None` when the directory was already clean.
     pub committed: Option<String>,
@@ -97,6 +85,11 @@ pub struct Checkout {
     pub branch: String,
     pub branch_removed: bool,
     /// Why the branch survived, in git's own words where git decided it.
+    ///
+    /// A boolean here told the human "it holds commits" whatever the reason, and
+    /// the two reasons are not alike: a branch checked out in another worktree is
+    /// refused by `-D` as well, so the flag would not help and the message would
+    /// have been wrong twice.
     pub branch_kept: Option<String>,
     pub removed: bool,
 }
@@ -145,9 +138,11 @@ pub fn reap(
         }
     }
 
-    // A curate pass takes its checkout before it calls the launch, so a pass
-    // whose launch failed leaves a checkout with no worktree and no spawn
-    // directory beside it, and neither list above holds its id.
+    // A checkout can outlive both directories above. A pass whose run outlived
+    // the call leaves all three, and a reap made before this build took the
+    // worktree and the spawn directory and left the checkout, which is what
+    // ticket 40 measured. Neither list above holds such an id, so the checkouts
+    // are walked on their own.
     for orphan in orphan_checkouts(layout, &views, grace)? {
         if !ids.contains(&orphan) {
             ids.push(orphan);
@@ -194,13 +189,9 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
 
     let mut done = Done {
         run_id: run_id.to_string(),
-        committed: None,
-        branch: None,
-        branch_removed: false,
-        branch_kept: None,
-        worktree_removed: false,
+        worktree: None,
+        store_checkout: None,
         spawn_removed: false,
-        checkout: None,
     };
 
     if worktree.is_dir() {
@@ -210,13 +201,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
             &format!("hydra reap: what run {run_id} left uncommitted"),
             delete_branch,
         ) {
-            Ok(swept) => {
-                done.committed = swept.committed;
-                done.branch = Some(swept.branch);
-                done.branch_removed = swept.branch_removed;
-                done.branch_kept = swept.branch_kept;
-                done.worktree_removed = swept.removed;
-            }
+            Ok(swept) => done.worktree = Some(swept),
             Err(why) => {
                 return Reaped::Failed {
                     run_id: run_id.to_string(),
@@ -236,7 +221,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
             &format!("hydra reap: what curate run {run_id} left uncommitted"),
             delete_branch,
         ) {
-            Ok(swept) => done.checkout = Some(swept),
+            Ok(swept) => done.store_checkout = Some(swept),
             Err(why) => {
                 return Reaped::Failed {
                     run_id: run_id.to_string(),
@@ -274,13 +259,13 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
 /// **One sequence for the two directories a model writes into.** The run's
 /// checkout of the parent repo and a curate pass's checkout of the skill store
 /// differ in the repository they came off, the branch Hydra made for them and the
-/// commit message, so those are the arguments. `made` is that branch,
+/// commit message, so those are the arguments. `hydra_branch` is
 /// `hydra/<run-id>` for the one and `ouroboros/curate/<run-id>` for the other, and
 /// everything below runs against whichever repository the checkout belongs to,
 /// which [`main_worktree`] reads off the checkout itself.
 fn commit_then_remove(
     checkout: &Path,
-    made: &str,
+    hydra_branch: &str,
     message: &str,
     delete_branch: bool,
 ) -> Result<Checkout> {
@@ -304,14 +289,7 @@ fn commit_then_remove(
         removed: false,
     };
 
-    if !git(checkout, &["status", "--porcelain"])?.trim().is_empty() {
-        git(checkout, &["add", "-A"])?;
-        // `--no-verify`, because a pre-commit hook that refuses would leave reap
-        // unable to keep its promise, and this commit is a snapshot of what a
-        // checkout held rather than a contribution anyone reviews.
-        git(checkout, &["commit", "-q", "--no-verify", "-m", message])?;
-        swept.committed = Some(git(checkout, &["rev-parse", "HEAD"])?.trim().to_string());
-    }
+    swept.committed = commit_everything(checkout, message)?;
 
     git(&main, &["worktree", "remove", &checkout.to_string_lossy()])?;
     swept.removed = true;
@@ -320,7 +298,7 @@ fn commit_then_remove(
     // human's own branches gets its work committed there and the branch left
     // alone, which is the difference between cleaning up after a run and deleting
     // somebody's work.
-    if branch != made {
+    if branch != hydra_branch {
         swept.branch_kept = Some(format!(
             "{branch} is not the branch Hydra made for this run"
         ));
@@ -611,51 +589,14 @@ pub fn report(reaped: &[Reaped]) -> String {
         match item {
             Reaped::Done(done) => {
                 out.push_str(&format!("reaped {}\n", done.run_id));
-                if let Some(sha) = &done.committed {
-                    let branch = done.branch.as_deref().unwrap_or("its branch");
-                    out.push_str(&format!(
-                        "  committed {} to {branch}\n",
-                        &sha[..12.min(sha.len())]
-                    ));
+                if let Some(swept) = &done.worktree {
+                    checkout_lines(&mut out, "worktree", swept);
                 }
-                if done.worktree_removed {
-                    out.push_str("  worktree removed\n");
+                if let Some(swept) = &done.store_checkout {
+                    checkout_lines(&mut out, "skill store checkout", swept);
                 }
                 if done.spawn_removed {
                     out.push_str("  spawn directory removed\n");
-                }
-                match (&done.branch, &done.branch_kept) {
-                    (Some(branch), _) if done.branch_removed => {
-                        out.push_str(&format!("  branch {branch} removed\n"));
-                    }
-                    (Some(branch), Some(why)) => {
-                        out.push_str(&format!("  branch {branch} kept: {why}\n"));
-                    }
-                    _ => {}
-                }
-                // Named rather than called "the checkout", because the run's own
-                // checkout is what the four lines above are about and a human
-                // reading a curate pass back has two of them.
-                if let Some(swept) = &done.checkout {
-                    if let Some(sha) = &swept.committed {
-                        out.push_str(&format!(
-                            "  skill store checkout committed {} to {}\n",
-                            &sha[..12.min(sha.len())],
-                            swept.branch
-                        ));
-                    }
-                    if swept.removed {
-                        out.push_str("  skill store checkout removed\n");
-                    }
-                    match &swept.branch_kept {
-                        _ if swept.branch_removed => {
-                            out.push_str(&format!("  branch {} removed\n", swept.branch))
-                        }
-                        Some(why) => {
-                            out.push_str(&format!("  branch {} kept: {why}\n", swept.branch))
-                        }
-                        None => {}
-                    }
                 }
             }
             Reaped::Left { run_id, why } => out.push_str(&format!("left {run_id}: {why}\n")),
@@ -663,6 +604,28 @@ pub fn report(reaped: &[Reaped]) -> String {
         }
     }
     out
+}
+
+/// What became of one checkout, three lines at most.
+///
+/// `what` names which of the two directories this was. A curate pass leaves both,
+/// and "the checkout" would name either of them to a human reading that pass back.
+fn checkout_lines(out: &mut String, what: &str, swept: &Checkout) {
+    if let Some(sha) = &swept.committed {
+        out.push_str(&format!(
+            "  {what} committed {} to {}\n",
+            short(sha),
+            swept.branch
+        ));
+    }
+    if swept.removed {
+        out.push_str(&format!("  {what} removed\n"));
+    }
+    if swept.branch_removed {
+        out.push_str(&format!("  branch {} removed\n", swept.branch));
+    } else if let Some(why) = &swept.branch_kept {
+        out.push_str(&format!("  branch {} kept: {why}\n", swept.branch));
+    }
 }
 
 /// How many entries were tried and would not go through.

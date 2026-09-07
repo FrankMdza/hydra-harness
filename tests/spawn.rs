@@ -30,6 +30,21 @@ fn layout() -> (Layout, PathBuf) {
     (layout, root)
 }
 
+/// An empty repository at `dir`. One `git init` is enough: nothing here commits,
+/// and `--git-common-dir` answers as soon as the directory is a repository.
+fn git_init(dir: &Path) {
+    let out = std::process::Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 fn settings_of(path: &Path) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
@@ -49,7 +64,7 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
     std::fs::create_dir_all(&worktree).unwrap();
 
     let spawn =
-        write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", Some(&worktree), None, false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", Some(&worktree), None, None, false).unwrap();
 
     assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
     assert_eq!(spawn.hook_config, root.join("spawn/r1/settings.json"));
@@ -71,7 +86,7 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
 fn the_gate_is_executable_and_is_a_real_file() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, None, false).unwrap();
 
     // 6.6: real files, never links. `cursor-agent` refuses a symlinked project
     // config silently and runs the command anyway, so this holds for all three.
@@ -100,8 +115,8 @@ fn the_gate_is_executable_and_is_a_real_file() {
 fn every_spawn_gets_its_own_directory() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let one = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, false).unwrap();
-    let two = write_spawn_config(&layout, "r2", &set, Provider::Claude, "read-only", None, None, false).unwrap();
+    let one = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, None, false).unwrap();
+    let two = write_spawn_config(&layout, "r2", &set, Provider::Claude, "read-only", None, None, None, false).unwrap();
 
     assert_ne!(one.gate, two.gate);
     let first = std::fs::read_to_string(&one.gate).unwrap();
@@ -122,7 +137,7 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
     let set = PolicySet::discover().unwrap();
     // 7.5's base case. The script is compiled before it is written, so a
     // placeholder path here would deny a file nothing ever writes to.
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "permissive", None, None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "permissive", None, None, None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
     let resolved = std::fs::canonicalize(&spawn.gate)
         .unwrap()
@@ -135,10 +150,74 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
 }
 
 #[test]
+fn the_parent_repos_git_directory_reaches_the_deny_list() {
+    // 7.5's one denied path outside `~/hydra`. `hydra run` knows the parent
+    // because it ran `git worktree add` from it, and that directory is shared by
+    // every worktree: it holds every run's branch and, on a machine where the
+    // parent is Hydra's own checkout, Hydra's own history. Ticket 40 measured a
+    // `standard` run's shell allowed to `rm -rf` it.
+    //
+    // A real repository rather than a directory named `.git`, because the path
+    // is read back out of `git rev-parse --git-common-dir` and git answers that
+    // for a repository alone. From inside a linked worktree the same call
+    // answers with the parent's directory, which is the whole reason it is the
+    // call rather than a `join(".git")`.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let repo = root.join("parent");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "permissive",
+        Some(&worktree),
+        Some(&repo),
+        None,
+        false,
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&spawn.gate).unwrap();
+    let git_dir = std::fs::canonicalize(repo.join(".git"))
+        .unwrap()
+        .to_string_lossy()
+        .to_lowercase();
+    assert!(
+        text.contains(&git_dir),
+        "the compiled deny list does not name {git_dir}"
+    );
+
+    // A run outside a repo has no parent to protect, and nothing is invented
+    // for it.
+    let orphan = write_spawn_config(
+        &layout,
+        "r2",
+        &set,
+        Provider::Claude,
+        "permissive",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert!(
+        !std::fs::read_to_string(&orphan.gate)
+            .unwrap()
+            .contains(&git_dir)
+    );
+}
+
+#[test]
 fn a_run_with_no_worktree_scopes_writes_to_a_path_nothing_creates() {
     let (layout, root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, None, false).unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
 
     assert!(
@@ -178,7 +257,7 @@ fn the_hook_command_runs_the_gate_and_answers() {
     let worktree = root.join("worktree");
     std::fs::create_dir_all(&worktree).unwrap();
     let spawn =
-        write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", Some(&worktree), None, false).unwrap();
+        write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", Some(&worktree), None, None, false).unwrap();
 
     let payload = format!(
         r#"{{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{{"file_path":"{}/x.txt","content":"x"}},"cwd":"{}"}}"#,
@@ -217,6 +296,7 @@ fn a_cursor_spawn_writes_the_hook_config_into_the_worktree() {
         Provider::CursorAgent,
         "standard",
         Some(&worktree),
+        None,
         None,
         false,
     )
@@ -268,6 +348,7 @@ fn a_cursor_spawn_without_a_worktree_is_refused() {
         "standard",
         None,
         None,
+        None,
         false,
     )
     .unwrap_err();
@@ -292,6 +373,7 @@ fn a_checkout_that_already_holds_a_hook_config_is_refused_rather_than_overwritte
         Provider::CursorAgent,
         "standard",
         Some(&worktree),
+        None,
         None,
         false,
     )
@@ -320,6 +402,7 @@ fn the_cursor_hook_command_gates_a_read_through_before_read_file() {
         Provider::CursorAgent,
         "read-only",
         Some(&worktree),
+        None,
         None,
         false,
     )
@@ -417,7 +500,7 @@ fn a_rewritten_gate_fails_closed() {
     // permission to proceed.
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", None, None, false).unwrap();
+    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", None, None, None, false).unwrap();
 
     let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi"},"cwd":"/tmp"}"#;
     assert!(
@@ -467,6 +550,7 @@ fn an_agy_spawn_writes_the_hook_config_into_the_worktree() {
         Provider::Agy,
         "standard",
         Some(&worktree),
+        None,
         None,
         false,
     )
@@ -520,6 +604,7 @@ fn an_agy_spawn_without_a_worktree_is_refused() {
         "standard",
         None,
         None,
+        None,
         false,
     )
     .unwrap_err();
@@ -541,6 +626,7 @@ fn an_agy_checkout_that_already_holds_a_hook_config_is_refused() {
         Provider::Agy,
         "standard",
         Some(&worktree),
+        None,
         None,
         false,
     )
@@ -569,6 +655,7 @@ fn the_agy_hook_command_gates_a_call_in_the_shape_the_provider_sends() {
         Provider::Agy,
         "read-only",
         Some(&worktree),
+        None,
         None,
         false,
     )

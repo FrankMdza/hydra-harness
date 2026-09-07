@@ -80,8 +80,22 @@ impl Capability {
 pub enum Scope {
     /// The run's own checkout.
     Worktree,
-    /// `~/hydra/skills/`. `curate` writes here, outside its own worktree.
+    /// `~/hydra/skills/`, the store's own working tree.
+    ///
+    /// **No policy writes it.** 7.5 denies it under all five since ticket 40,
+    /// and its only writers are [`crate::skills::Store::pin`] and a human. A
+    /// curator writing here would hand its half-finished proposal to whichever
+    /// run launches next, which is what [`Scope::SkillCheckout`] exists for.
     SkillStore,
+    /// `~/hydra/skill-worktrees/<run-id>/`, the `curate` pass's own git
+    /// worktree of the store.
+    ///
+    /// The one `file_write` scope any policy puts outside the run's worktree,
+    /// and the reason 7.5's deny list has a second kind of entry: the
+    /// checkouts directory is denied and this run's own checkout is carved out
+    /// of that denial. Ouroboros spec 3.6 is the design and ticket 40 settled
+    /// the name.
+    SkillCheckout,
     /// `~/hydra/skills-snapshots/<sha>/`, the checkout this run's links point
     /// into. Read only: 6.4 gives a run its own skills to read and nothing to
     /// write, and a run that could edit the snapshot could edit its own
@@ -100,6 +114,7 @@ impl Scope {
         match self {
             Scope::Worktree => "worktree",
             Scope::SkillStore => "skill_store",
+            Scope::SkillCheckout => "skill_checkout",
             Scope::SkillSnapshot => "skill_snapshot",
             Scope::Corpus => "corpus",
             Scope::Anywhere => "anywhere",
@@ -153,8 +168,8 @@ impl Policy {
     /// True when `self` grants everything `other` does.
     ///
     /// 7.3's containment, over the five. It is a partial order rather than a
-    /// chain: `curate` writes to the store and cannot touch a worktree,
-    /// `standard` is the reverse, and neither contains the other. An
+    /// chain: `curate` writes to its checkout of the store and cannot touch a
+    /// worktree, `standard` is the reverse, and neither contains the other. An
     /// incomparable pair is refused rather than resolved, which is delegation's
     /// business (ticket 11) and not this module's.
     pub fn contains(&self, other: &Policy) -> bool {
@@ -330,17 +345,28 @@ pub struct Spawn<'a> {
     /// dialect the script will insist on being asked in.
     pub provider: crate::provider::Provider,
     pub policy: &'a str,
-    /// The run's checkout, the `worktree` scope.
+    /// The `~/hydra` layout this run was launched under.
+    ///
+    /// It carries the `skill_store` and `corpus` scopes and seven of the
+    /// directories 7.5 denies, all of which are one accessor each. Passing the
+    /// layout rather than the paths is what keeps the deny list and harness
+    /// spec 5's table readable against each other.
+    pub layout: &'a crate::paths::Layout,
+    /// The run's checkout, the `worktree` scope and the first carve-out.
     pub worktree: &'a Path,
-    /// `~/hydra/skills/`, the `skill_store` scope.
-    pub skill_store: &'a Path,
     /// This run's snapshot of the store, the `skill_snapshot` scope. It is where
     /// the injected links resolve to, so a read through a link lands inside it.
     /// A run with no checkout has no links and no snapshot, and the caller
     /// passes a path nothing creates rather than the snapshots directory.
     pub skill_snapshot: &'a Path,
-    /// `~/hydra/runs/`, the `corpus` scope and the seventh denied path.
-    pub runs: &'a Path,
+    /// This run's checkout of the skill store, the `skill_checkout` scope and
+    /// the second carve-out. `Some` on a `curate` pass and `None` on every other
+    /// policy, so a spawn that was given no checkout can write in none.
+    pub skill_checkout: Option<&'a Path>,
+    /// The parent repo's `.git`, which `hydra run` knows because it ran
+    /// `git worktree add` from it. `None` for a run outside a repo, which has
+    /// no parent to protect.
+    pub parent_git_dir: Option<&'a Path>,
     /// Where this script is about to be written, `~/hydra/spawn/<run-id>/gate`.
     /// It denies writes to itself, which is 7.5's base case for `permissive` and
     /// `curate`.
@@ -350,10 +376,20 @@ pub struct Spawn<'a> {
     pub floor_lifted: bool,
 }
 
-/// The paths no run may write to, under any policy.
+/// The paths no run may write to, under any policy, before the policy is
+/// consulted at all.
 ///
-/// 7.5's seven, in the order the spec lists them: the five protected configs of
-/// 15.1, the generated gate script, and everything under `~/hydra/runs/`.
+/// 7.5's "denied outright", in the order the spec lists it. The rule behind the
+/// list is one sentence: a run writes only inside what Hydra created for it.
+/// The per-run parents are denied rather than the siblings enumerated, because
+/// siblings appear and disappear while a run is live, and what the run does own
+/// comes back out of the denial in [`own_write_paths`].
+///
+/// Ticket 40 measured why the flat list of seven was not enough. Under
+/// `standard`, whose `shell` carries no scope, `rm -rf` on a sibling's worktree,
+/// on `~/hydra/pruned/`, on the store's `.git` and on the parent repo's `.git`
+/// all came back allowed, and a `Write` into a sibling's gate script came back
+/// allowed under `permissive`.
 ///
 /// **Three of the five configs are paths rather than files today.** Ticket 02
 /// wrote `config/preamble.md`. The environment allowlist is still Rust code in
@@ -364,7 +400,8 @@ pub struct Spawn<'a> {
 /// records the gap.
 pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
     let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");
-    vec![
+    let layout = spawn.layout;
+    let mut paths = vec![
         // 15.1 #1, and the pattern floor by inheritance.
         set.dir().to_path_buf(),
         // 15.1 #2: a secret reaches a child by inheritance.
@@ -378,9 +415,58 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
         config.join("mcp.md"),
         // 7.5, the induction's base case for `permissive` and `curate`.
         spawn.gate_script.to_path_buf(),
-        // 7.5 and 15.2 entry 12: the record is the evidence.
-        spawn.runs.to_path_buf(),
-    ]
+        // 7.5 and 15.2 entry 12: the record is the evidence, and a loop that
+        // learns from the corpus must not be able to edit the corpus.
+        layout.runs(),
+        // `hydra prune` moves a record rather than deleting it, and that promise
+        // is empty if a child can delete the moved copy.
+        layout.pruned(),
+        // The store and its snapshots are the other half of D5's seam. Rung one
+        // proposes rather than lands, and a run that writes its own snapshot
+        // edits its own instructions mid-session.
+        layout.skills(),
+        layout.snapshots(),
+    ];
+    // Shared by every worktree, so it holds every run's branch and, on a machine
+    // where the parent is Hydra's own checkout, Hydra's own history.
+    if let Some(git_dir) = spawn.parent_git_dir {
+        paths.push(git_dir.to_path_buf());
+    }
+    // The three per-run parents. A sibling's worktree holds work `hydra reap`
+    // has not committed yet, a sibling's checkout holds a proposal no human has
+    // seen, and a sibling's spawn directory holds the gate its every call runs
+    // through: a replaced one ends that run as `hydra/gate-tampered`.
+    paths.push(layout.worktrees());
+    paths.push(layout.spawns());
+    paths.push(layout.skill_worktrees());
+    paths
+}
+
+/// What this one spawn owns, carved out of the denials above.
+///
+/// 7.5's second kind of entry. The check both halves of the gate apply is
+/// "inside a denied path and not inside an own path", which is what lets the
+/// parents be denied while a run still writes in its own worktree, and a
+/// `curate` pass in its own checkout of the store.
+///
+/// **The run's own spawn directory is deliberately not here.** Nothing a gated
+/// tool call does has business in it: Hydra writes it at spawn and the vendor
+/// process writes its own data root through no tool the gate sees.
+pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    // A run outside a repo has no checkout, and `hydra run` scopes it to
+    // `<spawn dir>/no-worktree`, a path nothing creates. Carving that out would
+    // hand back a piece of the run's own spawn directory, which the paragraph
+    // above keeps whole, so the worktree is an own path only when it is one.
+    // Such a run reads and shells out and writes nowhere, which is what
+    // `src/run.rs` says it does.
+    if !spawn.worktree.starts_with(spawn.layout.spawns()) {
+        paths.push(spawn.worktree.to_path_buf());
+    }
+    if let Some(checkout) = spawn.skill_checkout {
+        paths.push(checkout.to_path_buf());
+    }
+    paths
 }
 
 /// Turns a policy name into the gate script of 7.5.
@@ -417,6 +503,24 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         })
         .collect();
 
+    let mut scopes = serde_json::Map::new();
+    scopes.insert("worktree".into(), resolved(spawn.worktree).into());
+    scopes.insert(
+        "skill_store".into(),
+        resolved(&spawn.layout.skills()).into(),
+    );
+    scopes.insert(
+        "skill_snapshot".into(),
+        resolved(spawn.skill_snapshot).into(),
+    );
+    scopes.insert("corpus".into(), resolved(&spawn.layout.runs()).into());
+    // Emitted only when the spawn was given one. A policy naming this scope on a
+    // spawn without a checkout finds no root to match, which denies rather than
+    // falling back to a directory the run does not own.
+    if let Some(checkout) = spawn.skill_checkout {
+        scopes.insert("skill_checkout".into(), resolved(checkout).into());
+    }
+
     let config = serde_json::json!({
         "policy": policy.name,
         "policy_sha": set.sha(),
@@ -426,13 +530,14 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         // door on `claude`.
         "dialect": spawn.provider.dialect().as_str(),
         "allow": allow,
-        "scopes": {
-            "worktree": resolved(spawn.worktree),
-            "skill_store": resolved(spawn.skill_store),
-            "skill_snapshot": resolved(spawn.skill_snapshot),
-            "corpus": resolved(spawn.runs),
-        },
+        "scopes": scopes,
         "deny_write_paths": denied_write_paths(set, spawn)
+            .iter()
+            .map(|p| resolved(p))
+            .collect::<Vec<_>>(),
+        // 7.5's carve-out. The gate reads a write as protected when it is inside
+        // a denied path and inside none of these.
+        "own_write_paths": own_write_paths(spawn)
             .iter()
             .map(|p| resolved(p))
             .collect::<Vec<_>>(),
@@ -691,11 +796,10 @@ mod tests {
                 reads,
                 "{name} may read and cannot reach the snapshot it was linked"
             );
-            // Named on no policy's `file_write`. `permissive` still reaches a
-            // snapshot through `anywhere`, the way it reaches everything that is
-            // not one of 7.5's seven denied paths, and `IMPLEMENTATION.md`
-            // carries that along with the `shell` half of the same hole. This
-            // asserts the narrower thing it can: nobody wrote the scope down.
+            // Named on no policy's `file_write`, and since ticket 40 the
+            // snapshots directory is denied outright as well, so `permissive`
+            // no longer reaches one through `anywhere`. This asserts the
+            // narrower thing it always could: nobody wrote the scope down.
             let names_snapshot_on_write = policy.allow.iter().any(|a| {
                 a.capability == Capability::FileWrite && a.scope == Some(Scope::SkillSnapshot)
             });
@@ -791,16 +895,18 @@ mod tests {
     fn the_compiled_script_carries_no_path_to_a_policy_file() {
         // 7.5: not a script that reads a policy file when it fires.
         let set = set();
+        let layout = crate::paths::Layout::at("/tmp/hydra-compile");
         let script = compile(
             &set,
             &Spawn {
                 provider: crate::provider::Provider::Claude,
                 policy: "standard",
-                worktree: Path::new("/tmp/wt"),
-                skill_store: Path::new("/tmp/skills"),
-                skill_snapshot: Path::new("/tmp/snapshots/abc"),
-                runs: Path::new("/tmp/runs"),
-                gate_script: Path::new("/tmp/spawn/gate"),
+                layout: &layout,
+                worktree: &layout.worktree("r1"),
+                skill_snapshot: &layout.snapshot("abc"),
+                skill_checkout: None,
+                parent_git_dir: None,
+                gate_script: &layout.gate_script("r1"),
                 floor_lifted: false,
             },
         )
@@ -808,6 +914,92 @@ mod tests {
         assert!(!script.contains("standard.json"));
         assert!(!script.contains("floor.json"));
         assert!(script.contains("\\\"policy\\\":\\\"standard\\\""));
+    }
+
+    #[test]
+    fn every_directory_the_layout_creates_is_inside_a_denied_path() {
+        // 7.5 asks a reader to check its list against harness spec 5's table by
+        // hand. This is that check: a directory added under `~/hydra` later is
+        // covered the day it exists only if someone adds it to the deny list, so
+        // the test fails the day one is not.
+        let set = set();
+        let layout = crate::paths::Layout::at("/tmp/hydra-denied");
+        let spawn = Spawn {
+            provider: crate::provider::Provider::Claude,
+            policy: "permissive",
+            layout: &layout,
+            worktree: &layout.worktree("r1"),
+            skill_snapshot: &layout.snapshot("abc"),
+            skill_checkout: None,
+            parent_git_dir: None,
+            gate_script: &layout.gate_script("r1"),
+            floor_lifted: false,
+        };
+        let denied = denied_write_paths(&set, &spawn);
+        for directory in [
+            layout.runs(),
+            layout.worktrees(),
+            layout.spawns(),
+            layout.skills(),
+            layout.snapshots(),
+            layout.skill_worktrees(),
+            layout.pruned(),
+        ] {
+            assert!(
+                denied.iter().any(|root| directory.starts_with(root)),
+                "{} is a directory Hydra writes and no policy denies it",
+                directory.display()
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_curate_spawn_carves_a_checkout_out_of_the_denials() {
+        // The carve-out is per spawn and not per policy name: a spawn that was
+        // given no checkout owns none, which is what makes the last row of
+        // ticket 40's matrix read `protected-path` under four policies.
+        let layout = crate::paths::Layout::at("/tmp/hydra-own");
+        let worktree = layout.worktree("r1");
+        let checkout = layout.skill_checkout("r1");
+        let base = Spawn {
+            provider: crate::provider::Provider::Claude,
+            policy: "curate",
+            layout: &layout,
+            worktree: &worktree,
+            skill_snapshot: &layout.snapshot("abc"),
+            skill_checkout: None,
+            parent_git_dir: None,
+            gate_script: &layout.gate_script("r1"),
+            floor_lifted: false,
+        };
+        assert_eq!(own_write_paths(&base), vec![worktree.clone()]);
+        let with_checkout = Spawn {
+            skill_checkout: Some(&checkout),
+            ..base
+        };
+        assert_eq!(own_write_paths(&with_checkout), vec![worktree, checkout]);
+    }
+
+    #[test]
+    fn a_run_with_no_checkout_owns_nothing_at_all() {
+        // 7.5 leaves the run's own spawn directory denied, and a run outside a
+        // repo is scoped to a placeholder inside it. Carving the placeholder out
+        // would open a hole in the one directory that stays whole, so this run
+        // writes nowhere rather than under `spawn/<run-id>/no-worktree`.
+        let layout = crate::paths::Layout::at("/tmp/hydra-no-checkout");
+        let placeholder = layout.spawn("r1").join("no-worktree");
+        let spawn = Spawn {
+            provider: crate::provider::Provider::Claude,
+            policy: "standard",
+            layout: &layout,
+            worktree: &placeholder,
+            skill_snapshot: &layout.snapshot("abc"),
+            skill_checkout: None,
+            parent_git_dir: None,
+            gate_script: &layout.gate_script("r1"),
+            floor_lifted: false,
+        };
+        assert!(own_write_paths(&spawn).is_empty());
     }
 
     fn tempdir() -> PathBuf {

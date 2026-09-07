@@ -62,14 +62,14 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::{
-    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ResultStatus, Role,
-    Run, RunEnd, RunStart, ToolCall, ToolResult, Usage, UsageSource, hydra_voice, policy_moved,
-    splice, verdict_decision,
+    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ReplaySpawn,
+    ResultStatus, Role, Run, RunEnd, RunStart, ToolCall, ToolResult, Usage, UsageSource,
+    hydra_voice, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
+use crate::policy::PolicySet;
 use crate::policy::replay::Replay;
 use crate::policy::table::agy_capability;
-use crate::policy::{PolicySet, Spawn};
 use crate::provider::Provider;
 
 /// The sentence this provider puts in front of a hook's reason, measured by
@@ -508,29 +508,17 @@ impl Walk {
             return decisions;
         }
 
-        let cwd = self
-            .cwd
-            .clone()
-            .or_else(|| self.worktree.clone())
-            .unwrap_or_else(|| layout.worktree(&self.run_id));
-        let worktree = self.worktree.clone().unwrap_or_else(|| cwd.clone());
-        let gate_script = layout.gate_script(&self.run_id);
-        let skills = layout.skill_store_scope(&self.run_id, &name);
-        let snapshot = layout.skill_snapshot_scope(&self.run_id, self.store_sha.as_deref());
-        let runs = layout.runs();
-        let spawn = Spawn {
-            provider: Provider::Agy,
-            policy: &name,
-            worktree: &worktree,
-            skill_store: &skills,
-            skill_snapshot: &snapshot,
-            runs: &runs,
-            gate_script: &gate_script,
-            // No field on the record carries it; `IMPLEMENTATION.md` has
-            // carried that gap since ticket 02.
-            floor_lifted: false,
-        };
-        let replay = match Replay::compile(policies, &spawn) {
+        // Every scope the gate was compiled with, recomputed from the record.
+        // The three adapters build it the same way and differ in the provider.
+        let spawn = ReplaySpawn::of(
+            layout,
+            &self.run_id,
+            &name,
+            self.cwd.as_deref(),
+            self.worktree.as_deref(),
+            self.store_sha.as_deref(),
+        );
+        let replay = match Replay::compile(policies, &spawn.spawn(Provider::Agy)) {
             Ok(replay) => replay,
             Err(err) => {
                 self.findings.push(Finding::Limit(format!(
@@ -542,7 +530,7 @@ impl Walk {
 
         let results = self.results_by_call();
         for (seq, call_id, tool, arguments) in calls {
-            let verdict = match replay.decide(&tool, &arguments, &cwd) {
+            let verdict = match replay.decide(&tool, &arguments, spawn.cwd()) {
                 Ok(verdict) => verdict,
                 Err(err) => {
                     self.findings.push(Finding::Limit(format!(

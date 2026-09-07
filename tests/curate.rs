@@ -612,28 +612,48 @@ fn the_curators_writes_are_scoped_to_its_checkout_and_not_to_the_store() {
         "curate",
         None,
         None,
+        None,
         false,
     )
     .unwrap();
 
-    let script = std::fs::read_to_string(&spawn.gate).unwrap();
     let resolved = |path: &Path| {
         std::fs::canonicalize(path)
             .unwrap()
             .to_string_lossy()
             .to_lowercase()
     };
+    let config = compiled_config(&spawn.gate);
+    assert_eq!(
+        config["scopes"]["skill_checkout"],
+        resolved(&checkout),
+        "the gate scoped the curator's writes somewhere other than its checkout"
+    );
+    assert_eq!(
+        config["scopes"]["skill_store"],
+        resolved(&store),
+        "the store keeps the scope name it has on every other spawn, and it is \
+         the one curate reads"
+    );
+    // What stops a write into the store's working tree is 7.5's deny list
+    // rather than the scope, since ticket 40, and what lets the curator write
+    // its checkout is the carve-out beside it. `tests/gate.rs` runs both
+    // refusals; this asserts the wiring that feeds them.
+    let denied = config["deny_write_paths"].as_array().unwrap().clone();
     assert!(
-        script.contains(&format!("skill_store\\\":\\\"{}", resolved(&checkout))),
-        "the gate scoped the store somewhere other than the checkout"
+        denied.contains(&resolved(&store).into()),
+        "the store's working tree is not denied: {denied:?}"
     );
     assert!(
-        !script.contains(&resolved(&store)),
-        "the store's own working tree is inside the write scope"
+        config["own_write_paths"]
+            .as_array()
+            .unwrap()
+            .contains(&resolved(&checkout).into()),
+        "the checkout is not carved out of the denials this spawn compiled"
     );
 
-    // Every other policy keeps the store itself, which nothing but `curate`
-    // grants anything on.
+    // Every other policy keeps the store on `skill_store` and is given no
+    // checkout at all, so it writes in neither.
     let ordinary = hydra::run::write_spawn_config(
         &fixture.layout(),
         "r2",
@@ -642,25 +662,48 @@ fn the_curators_writes_are_scoped_to_its_checkout_and_not_to_the_store() {
         "standard",
         None,
         None,
+        None,
         false,
     )
     .unwrap();
-    assert!(
-        std::fs::read_to_string(&ordinary.gate)
-            .unwrap()
-            .contains(&format!("skill_store\\\":\\\"{}", resolved(&store))),
+    let ordinary = compiled_config(&ordinary.gate);
+    assert_eq!(
+        ordinary["scopes"]["skill_store"],
+        resolved(&store),
         "an ordinary run's store scope moved"
     );
+    assert!(
+        ordinary["scopes"]["skill_checkout"].is_null(),
+        "a spawn with no checkout compiled a scope pointing at one"
+    );
+}
+
+/// The policy the compiler wrote into a gate script, read back.
+///
+/// The script carries it as `json.loads("<json>")`, a JSON document inside a
+/// JSON string, so this unwraps both layers rather than matching substrings
+/// through two levels of escaping.
+fn compiled_config(gate: &Path) -> serde_json::Value {
+    let script = std::fs::read_to_string(gate).unwrap();
+    let line = script
+        .lines()
+        .find(|line| line.starts_with("HYDRA_CONFIG = json.loads("))
+        .expect("the compiled gate carries a config line");
+    let literal = line
+        .trim_start_matches("HYDRA_CONFIG = json.loads(")
+        .trim_end_matches(')');
+    let inner: String = serde_json::from_str(literal).unwrap();
+    serde_json::from_str(&inner).unwrap()
 }
 
 #[test]
 fn a_curate_runs_own_record_does_not_read_back_as_a_gate_that_leaked() {
     // Contract 7.7 re-evaluates the run's policy against every recorded call, and
     // it rebuilds the scopes rather than reading them off the record. A curate
-    // run's store scope is its own checkout, so a reader that used
+    // run writes in its own checkout, so a reader that scoped it to
     // `~/hydra/skills/` instead would report every write the curator made as a
     // call the gate should have refused. Ten of those landed in one real record
-    // before `Layout::skill_store_scope` existed.
+    // before `Layout::skill_checkout` was what both sides derived.
     let fixture = Fixture::new("replay");
     let store = fixture.store();
     let run_id = A;

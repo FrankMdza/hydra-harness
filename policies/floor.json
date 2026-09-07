@@ -29,7 +29,10 @@
       { "argv": ["branch", "-D"], "why": "deletes a branch with no merge check" },
       { "argv": ["update-ref"], "why": "moves a ref with no reflog discipline" },
       { "argv": ["reflog", "expire"], "why": "destroys the recovery path for everything above" },
-      { "argv": ["reset", "--hard"], "why": "discards the working tree" }
+      { "argv": ["reset", "--hard"], "why": "discards the working tree" },
+      { "argv": ["gc"], "why": "deletes unreachable objects in the tree a run's diff stat is measured against" },
+      { "argv": ["prune"], "why": "deletes unreachable objects, same tree and same loss" },
+      { "argv": ["worktree"], "why": "in every form but `list` it moves or removes a checkout, and a removal takes a sibling run's uncommitted work" }
     ],
     "clean_requires_force_with": ["-d", "-x"],
     "symbolic_ref_write_form": "two non-flag arguments, `git symbolic-ref HEAD refs/heads/x`; the one-argument read form is allowed"

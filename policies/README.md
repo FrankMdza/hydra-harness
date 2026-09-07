@@ -13,8 +13,15 @@ can disagree is a bug with a schema.
 `mcp_call`, `subagent_spawn`, `skill_invoke` and `provider_native` take no scope.
 
 The scopes are `worktree` (the run's own checkout), `skill_store` (`~/hydra/skills/`),
-`skill_snapshot` (`~/hydra/skills-snapshots/<sha>/`, the checkout this run's links point
-into), `corpus` (`~/hydra/runs/`) and `anywhere`.
+`skill_checkout` (`~/hydra/skill-worktrees/<run-id>/`, a `curate` pass's own git worktree
+of the store), `skill_snapshot` (`~/hydra/skills-snapshots/<sha>/`, the checkout this
+run's links point into), `corpus` (`~/hydra/runs/`) and `anywhere`.
+
+`skill_checkout` arrived with map ticket 40 on 2026-09-06, and `skill_store` went back to
+meaning the store on every spawn. One name was resolving to two directories, which is the
+ticket. `curate` reads four scopes, the corpus, the store, its checkout and its snapshot,
+and writes one, its checkout. No policy writes `skill_store`: harness spec 7.5 denies the
+store's working tree under all five, and its only writers are `Store::pin` and a human.
 
 `skill_invoke` and `skill_snapshot` arrived with map ticket 39 on 2026-09-06. A run that
 is linked a skill and cannot invoke it was given a listing entry rather than a skill, so

@@ -38,6 +38,51 @@ pub fn repo_root(dir: &Path) -> Option<PathBuf> {
     (!root.is_empty()).then(|| PathBuf::from(root))
 }
 
+/// The `.git` directory the repository containing `dir` keeps its refs in, or
+/// `None` when `dir` is not in a repository or is no longer there.
+///
+/// **Not `<repo>/.git`.** Inside a linked worktree that name is a file holding a
+/// pointer, and the directory it points at is the one every checkout of the repo
+/// shares. Every run's branch is in it, and on a machine where the parent is
+/// Hydra's own checkout so is Hydra's history. That shared directory is what
+/// harness spec 7.5 denies, and it is what `--git-common-dir` answers with from
+/// either side. From a main checkout the two are the same path.
+pub fn git_common_dir(dir: &Path) -> Option<PathBuf> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let common = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!common.is_empty()).then(|| PathBuf::from(common))
+}
+
+/// Commits everything a checkout holds, and answers with the commit it made.
+///
+/// `None` when the tree was already clean, which is what tells a checkout
+/// holding work from one holding none.
+///
+/// **`--no-verify`**, because a pre-commit hook that refuses would leave the
+/// caller unable to keep the work the checkout holds, and this commit is a
+/// snapshot of what a directory held rather than a contribution anyone reviews.
+///
+/// Two callers, and both remove the checkout afterwards: `hydra reap` and the
+/// curate pass's own `propose`. The removal is what differs between them, so it
+/// stays with each.
+pub fn commit_everything(checkout: &Path, message: &str) -> Result<Option<String>> {
+    if git(checkout, &["status", "--porcelain"])?.trim().is_empty() {
+        return Ok(None);
+    }
+    git(checkout, &["add", "-A"])?;
+    git(checkout, &["commit", "-q", "--no-verify", "-m", message])?;
+    Ok(Some(
+        git(checkout, &["rev-parse", "HEAD"])?.trim().to_string(),
+    ))
+}
+
 /// Creates the run's worktree and seeds it from the parent's working tree.
 ///
 /// `index` is a scratch path for the seed snapshot, outside the checkout.

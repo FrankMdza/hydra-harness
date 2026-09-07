@@ -24,14 +24,15 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::{
-    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ResultStatus, Role,
-    Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource, policy_moved,
-    splice, verdict_decision,
+    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, ReplaySpawn,
+    ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage, UsageSource,
+    policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::replay::{Replay, reason_code};
 use crate::policy::table::claude_capability;
-use crate::policy::{Capability, PolicySet, Spawn};
+use crate::policy::{Capability, PolicySet};
+use crate::provider::Provider;
 
 /// What a `PreToolUse` hook answered.
 ///
@@ -436,39 +437,17 @@ impl Walk {
             return decisions;
         }
 
-        let cwd = self
-            .cwd
-            .clone()
-            .or_else(|| self.worktree.clone())
-            .unwrap_or_else(|| layout.worktree(&self.run_id));
-        let worktree = self.worktree.clone().unwrap_or_else(|| cwd.clone());
-        let gate_script = layout.gate_script(&self.run_id);
-        // Not `layout.skills()`. A curate run's writes are scoped to its own
-        // checkout of the store, and the rule is a function of the run id so that
-        // this side can recompute what the gate was compiled with. Without it
-        // every curator's record reads back as a gate that leaked on its own
-        // proposal.
-        let skills = layout.skill_store_scope(&self.run_id, &name);
-        // Same rule as the line above and for the same reason: the launch derived
-        // this scope from the sha it pinned, contract 5.3 put that sha on line 0,
-        // and both sides call one function on it. A run with no `skills` object
-        // was linked nothing, and the scope is then a path nothing creates.
-        let snapshot = layout.skill_snapshot_scope(&self.run_id, self.store_sha.as_deref());
-        let runs = layout.runs();
-        let spawn = Spawn {
-            provider: crate::provider::Provider::Claude,
-            policy: &name,
-            worktree: &worktree,
-            skill_store: &skills,
-            skill_snapshot: &snapshot,
-            runs: &runs,
-            gate_script: &gate_script,
-            // No field on the record carries it, so a run launched with
-            // `--allow-floor-escape` re-evaluates to a deny it did not get.
-            // `IMPLEMENTATION.md` has carried that gap since ticket 02.
-            floor_lifted: false,
-        };
-        let replay = match Replay::compile(policies, &spawn) {
+        // Every scope the gate was compiled with, recomputed from the record.
+        // The three adapters build it the same way and differ in the provider.
+        let spawn = ReplaySpawn::of(
+            layout,
+            &self.run_id,
+            &name,
+            self.cwd.as_deref(),
+            self.worktree.as_deref(),
+            self.store_sha.as_deref(),
+        );
+        let replay = match Replay::compile(policies, &spawn.spawn(Provider::Claude)) {
             Ok(replay) => replay,
             Err(err) => {
                 self.findings.push(Finding::Limit(format!(
@@ -498,7 +477,7 @@ impl Walk {
                      and no hook answer can be joined to it"
                 )));
             }
-            let verdict = match replay.decide(&tool, &arguments, &cwd) {
+            let verdict = match replay.decide(&tool, &arguments, spawn.cwd()) {
                 Ok(verdict) => verdict,
                 Err(err) => {
                     self.findings.push(Finding::Limit(format!(

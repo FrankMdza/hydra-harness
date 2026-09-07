@@ -143,6 +143,35 @@ def target_path(tool, tool_input, cwd):
     return resolve(raw, cwd)
 
 
+def protected_root(path):
+    """The denied path this one falls under, or None. Already resolved.
+
+    7.5's list has two kinds of entry since ticket 40, and this is where they
+    meet: a path is protected when it is inside a denied path and inside none of
+    the paths this spawn owns. The rule behind it is one sentence, a run writes
+    only inside what Hydra created for it, and it is why the per-run parents can
+    be denied whole while a run still writes in its own worktree and a `curate`
+    pass in its own checkout of the store.
+
+    One function rather than two so the `file_write` check and the shell check
+    cannot drift apart. A carve-out that held for `Write` and not for `Bash`
+    would be a rule with a redirect-shaped hole in it, which is the hole ticket
+    02 found in the first version of the shell check.
+
+    The own list is read with a default because a gate compiled before ticket 40
+    does not carry one. A `KeyError` here would exit non-zero with nothing on
+    stdout, and 6.6 measured `claude` allowing the call in that case, so the
+    missing key has to read as an empty carve-out rather than as a crash.
+    """
+    for own in HYDRA_CONFIG.get("own_write_paths", []):
+        if inside(path, own):
+            return None
+    for protected in HYDRA_CONFIG["deny_write_paths"]:
+        if inside(path, protected):
+            return protected
+    return None
+
+
 def protected_path_named_by(command, cwd):
     """The first protected path a shell command names, or None.
 
@@ -154,12 +183,13 @@ def protected_path_named_by(command, cwd):
     script exits 0 and prints nothing, and 6.6 measured `claude` failing open on
     a response in a shape it does not recognise.
 
-    So a command that names one of the seven is refused whole, reads included.
-    Which token of a command is a redirect target is not decidable without
-    running it, and neither is which is an argument to a writing binary, so the
-    refusal is coarse in the same direction 7.4's floor is coarse. Reading the
-    corpus is what `curate` scopes `file_read` to, and that path goes through the
-    file tools, which carry a path the gate can check.
+    So a command that names a denied path it does not own is refused whole,
+    reads included. Which token of a command is a redirect target is not
+    decidable without running it, and neither is which is an argument to a
+    writing binary, so the refusal is coarse in the same direction 7.4's floor
+    is coarse. Reading the corpus is what `curate` scopes `file_read` to, and
+    that path goes through the file tools, which carry a path the gate can
+    check.
 
     **A path a substitution builds is not caught**, and neither is one assembled
     from a variable. That is the failure mode 7.4 names out loud for the floor:
@@ -176,10 +206,9 @@ def protected_path_named_by(command, cwd):
     for argv in segments:
         for token in argv:
             for candidate in path_candidates(token):
-                resolved = resolve(candidate, cwd)
-                for protected in HYDRA_CONFIG["deny_write_paths"]:
-                    if inside(resolved, protected):
-                        return protected
+                protected = protected_root(resolve(candidate, cwd))
+                if protected is not None:
+                    return protected
     return None
 
 
@@ -307,6 +336,15 @@ def check_git(argv):
         wanted = {c.lstrip("-") for c in rules["clean_requires_force_with"]}
         if forced and (flags & wanted):
             return "git clean -f with -d or -x"
+        return None
+
+    if sub == "worktree" and rest[:1] == ["list"]:
+        # 7.4 forbids `git worktree` in every form but this one, and a forbidden
+        # entry is an argv prefix that cannot say "except", so the exception is
+        # here beside `clean`'s. Listing worktrees reads; `remove --force`
+        # discards a sibling run's uncommitted work and `prune` drops the
+        # registration `hydra reap` needs. Bare `git worktree` names no form and
+        # falls through to the forbidden entry below.
         return None
 
     if sub == "symbolic-ref":
@@ -491,17 +529,17 @@ def evaluate(payload):
 
     path = target_path(tool, tool_input, cwd)
 
-    # The seven path denials of 7.5, before the policy is consulted at all.
-    # This is where `permissive` stops being permissive.
+    # The path denials of 7.5, before the policy is consulted at all. This is
+    # where `permissive` stops being permissive.
     if capability == "file_write" and path is not None:
-        for protected in HYDRA_CONFIG["deny_write_paths"]:
-            if inside(path, protected):
-                return False, (
-                    "hydra/protected-path: {} writes under {}, denied under every "
-                    "policy by harness spec 7.5.".format(tool, protected)
-                )
+        protected = protected_root(path)
+        if protected is not None:
+            return False, (
+                "hydra/protected-path: {} writes under {}, denied under every "
+                "policy by harness spec 7.5.".format(tool, protected)
+            )
 
-    # The same seven, reached through the capability that carries no path.
+    # The same list, reached through the capability that carries no path.
     if capability == "shell":
         raw_command = tool_input.get(HYDRA_CONFIG["command_field"], "")
         if isinstance(raw_command, str) and raw_command:

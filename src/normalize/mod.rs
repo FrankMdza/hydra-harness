@@ -21,13 +21,14 @@ pub mod agy;
 pub mod claude;
 pub mod cursor;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::paths::Layout;
-use crate::policy::{Capability, PolicySet};
+use crate::policy::{Capability, PolicySet, Spawn};
+use crate::provider::Provider;
 
 /// One normalized event. Ten variants, contract 7.2.
 #[derive(Debug, Clone)]
@@ -493,6 +494,100 @@ pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
                  Hydra lines was normalized"
             )));
             Ok(run)
+        }
+    }
+}
+
+/// The launch a record describes, rebuilt for contract 7.7's re-evaluation.
+///
+/// **The three adapters differ in the provider and in nothing else here.** Every
+/// scope below is recomputed from the record by the same rule the launch used, so
+/// a gate compiled from this answers the question the live gate answered. A
+/// second spelling of any one of these fields in one adapter would make that
+/// adapter's `GateLeak` findings mean something different from the other two's,
+/// and nothing would say which.
+///
+/// It owns its paths because [`Spawn`] borrows them.
+pub(crate) struct ReplaySpawn<'a> {
+    layout: &'a Layout,
+    policy: String,
+    cwd: PathBuf,
+    worktree: PathBuf,
+    skill_snapshot: PathBuf,
+    skill_checkout: Option<PathBuf>,
+    parent_git_dir: Option<PathBuf>,
+    gate_script: PathBuf,
+}
+
+impl<'a> ReplaySpawn<'a> {
+    /// `cwd` and `worktree` are the record's own fields, both absent on a run
+    /// whose opening line is gone.
+    pub(crate) fn of(
+        layout: &'a Layout,
+        run_id: &str,
+        policy: &str,
+        cwd: Option<&Path>,
+        worktree: Option<&Path>,
+        store_sha: Option<&str>,
+    ) -> Self {
+        let here = cwd
+            .or(worktree)
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| layout.worktree(run_id));
+        // The parent repo's `.git`, rediscovered from the checkout the run
+        // worked in. `--git-common-dir` answers there with the directory every
+        // checkout of that repo shares, which is the one 7.5 denies; joining
+        // `.git` onto the checkout would name a pointer file instead. A record
+        // whose checkout has been reaped derives one denied path fewer, which
+        // loses a `GateLeak` it could have reported and never invents one.
+        let parent_git_dir = crate::worktree::git_common_dir(worktree.unwrap_or(&here));
+        Self {
+            layout,
+            policy: policy.to_string(),
+            cwd: here,
+            // The same path the launch used for a run with no worktree, and not
+            // the record's own `cwd`. 7.5 carves the run's worktree out of the
+            // denials, so a fallback to the cwd would let a replay read the whole
+            // directory the human stood in as a path the run owned.
+            worktree: worktree
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| layout.spawn(run_id).join("no-worktree")),
+            // The launch derived this scope from the sha it pinned, contract 5.3
+            // put that sha on line 0, and both sides call one function on it. A
+            // run with no `skills` object was linked nothing, and the scope is
+            // then a path nothing creates.
+            skill_snapshot: layout.skill_snapshot_scope(run_id, store_sha),
+            // A curate run's writes are scoped to its own checkout of the store,
+            // and the rule is a function of the run id so that this side can
+            // recompute what the gate was compiled with. Without it every
+            // curator's record reads back as a gate that leaked on its own
+            // proposal.
+            skill_checkout: (policy == "curate").then(|| layout.skill_checkout(run_id)),
+            parent_git_dir,
+            gate_script: layout.gate_script(run_id),
+        }
+    }
+
+    /// The directory the run worked in, which is what a path in a tool call
+    /// resolves against.
+    pub(crate) fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+
+    pub(crate) fn spawn(&self, provider: Provider) -> Spawn<'_> {
+        Spawn {
+            provider,
+            policy: &self.policy,
+            layout: self.layout,
+            worktree: &self.worktree,
+            skill_snapshot: &self.skill_snapshot,
+            skill_checkout: self.skill_checkout.as_deref(),
+            parent_git_dir: self.parent_git_dir.as_deref(),
+            gate_script: &self.gate_script,
+            // No field on the record carries it, so a run launched with
+            // `--allow-floor-escape` re-evaluates to a deny it did not get.
+            // `IMPLEMENTATION.md` has carried that gap since ticket 02.
+            floor_lifted: false,
         }
     }
 }

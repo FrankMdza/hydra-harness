@@ -392,6 +392,7 @@ pub fn run(request: Request) -> Result<Call> {
         request.provider,
         &request.policy,
         worktree_ref.as_ref().map(|w| std::path::Path::new(&w.path)),
+        repo.as_deref(),
         injected.as_ref().map(|i| i.store_sha.as_str()),
         request.floor_lifted,
     )?;
@@ -959,6 +960,7 @@ pub fn write_spawn_config(
     provider: Provider,
     policy: &str,
     worktree: Option<&std::path::Path>,
+    repo: Option<&std::path::Path>,
     store_sha: Option<&str>,
     floor_lifted: bool,
 ) -> Result<SpawnFiles> {
@@ -980,13 +982,21 @@ pub fn write_spawn_config(
     // it created, and a run with no checkout has none.
     let no_worktree = layout.spawn(run_id).join("no-worktree");
 
-    // The store itself on every run but a curate pass, which gets its own
-    // checkout of it: ouroboros spec 3.6 keeps the curator out of
+    // A curate pass writes into its own checkout of the store and every other
+    // policy is given none: ouroboros spec 3.6 keeps the curator out of
     // `~/hydra/skills/` because the next launch commits that tree before pinning
-    // it, and two writers to one working tree is the collision. The rule lives on
-    // the layout because contract 7.7's read-time re-evaluation has to reach the
-    // same answer with nothing but the run id and the policy name.
-    let skill_store = layout.skill_store_scope(run_id, policy);
+    // it, and two writers to one working tree is the collision. The path is a
+    // function of the run id alone, because contract 7.7's read-time
+    // re-evaluation has to reach the same answer from the record.
+    let skill_checkout = (policy == "curate").then(|| layout.skill_checkout(run_id));
+
+    // 7.5 denies the parent repo's `.git` to every policy, and this is the one
+    // denied path that is not under `~/hydra`. The common directory rather than
+    // `<repo>/.git`, because when a human launches from inside a linked worktree
+    // that name is a file and the directory holding every branch is elsewhere. A
+    // run outside a repo has no parent to protect, which is the same `None` that
+    // leaves it without a worktree.
+    let parent_git_dir = repo.and_then(crate::worktree::git_common_dir);
 
     // 6.4 and 7.2: the run's links resolve into its own snapshot, so a read
     // through one lands inside this and a write to the same path lands nowhere,
@@ -1000,10 +1010,11 @@ pub fn write_spawn_config(
         &crate::policy::Spawn {
             provider,
             policy,
+            layout,
             worktree: worktree.unwrap_or(&no_worktree),
-            skill_store: &skill_store,
             skill_snapshot: &skill_snapshot,
-            runs: &layout.runs(),
+            skill_checkout: skill_checkout.as_deref(),
+            parent_git_dir: parent_git_dir.as_deref(),
             gate_script: &gate,
             floor_lifted,
         },

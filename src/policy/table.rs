@@ -184,7 +184,8 @@ pub const CURSOR_MCP_PREFIX: &str = "MCP:";
 pub const AGY: &[Tool] = &[
     // Measured on the hook payload, 2026-09-06. **No `path_field`, because a
     // command line is not a path.** The command rides in `command_field` below,
-    // which is what the seven path denials and the floor read it out of;
+    // which is what the denied paths, their carve-outs and the floor read it
+    // out of;
     // `path_fields` is the map the gate resolves a path from, and putting a
     // whole shell command in it would have the gate calling `realpath` on
     // `echo hi && rm -rf /`. `claude`'s `Bash` and Cursor's `Shell` are plain

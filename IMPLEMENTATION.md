@@ -89,11 +89,14 @@ apart. `denied_write_paths` and `own_write_paths` in `src/policy/mod.rs` are the
 `Spawn` carries `layout: &Layout`, `skill_checkout: Option<&Path>` and `parent_git_dir:
 Option<&Path>` so the deny list can be built from what the run actually has. `~/hydra/spawn/` is
 one of the denied parents now rather than just this run's own script inside it, which closes the
-hole a `permissive` run had into a concurrent run's live gate script.
+hole a `permissive` run had into a concurrent run's live gate script. A run outside a repo has
+`spawn/<run-id>/no-worktree` as its `worktree` scope, and `own_write_paths` carves a worktree out
+only when it is not under `~/hydra/spawn/`, so that run writes nowhere, which is what `src/run.rs`
+always said it did; `tests/gate.rs::a_run_with_no_checkout_writes_nowhere_at_all` pins it.
 
 Ticket 40's hand-measured matrix is two tests in `tests/gate.rs` now,
-`the_loss_matrix_of_ticket_40_reads_denied_where_a_write_read_allow` and
-`..._where_a_shell_read_allow`: 13 write probes across all five policies and a shell table for
+`a_write_the_matrix_allowed_on_2026_09_06_is_protected_now` and
+`a_shell_command_the_matrix_allowed_is_refused_now_unless_it_is_the_runs_own_scratch`: 13 write probes across all five policies and a shell table for
 `standard` and `permissive`. Every row that read `ALLOW` under `standard` or `permissive` on
 2026-09-06 reads `protected-path` now: `rm -rf` on `~/hydra/pruned/`, on a sibling's worktree, on
 `~/hydra/skills/.git`, on the snapshots, on the parent repo's `.git`, and a `Write` into a
@@ -189,8 +192,10 @@ there stops the spawn directory removal the same way a failed worktree commit al
 `git branch -d` follows, `-D` only under `--delete-branch`, so an empty pass's branch goes
 and a real proposal's stays.
 
-`Done` gained a `checkout: Option<Checkout>` field, and `report()` prints its lines
-prefixed `skill store checkout`. The sweep with no run id walks `skill-worktrees/` with the
+`Done` is `worktree`, `store_checkout` and `spawn_removed` now, one `Checkout` per directory,
+and `report()` prints one block per checkout labelled `worktree` or `skill store checkout`. The
+commit half is `commit_everything` in `src/worktree.rs`, shared with the curate pass's `propose`,
+so the two places Hydra commits a model's work spell it once. The sweep with no run id walks `skill-worktrees/` with the
 same three filters `orphan_spawns` applies to the spawn directory, and a live run's
 checkout is left alone by name and by sweep, the rule the worktree already had. Five tests
 in `tests/cleanup.rs` cover it: a proposal reaches its branch before the checkout goes, an
@@ -1326,10 +1331,16 @@ the disagreement check, never the decision.
 **Five scopes are rebuilt now, not three.** `worktree` comes off `run_start`; `corpus`,
 `skill_store` and `skill_snapshot` are Hydra's own directories, recomputable because
 they never move per run. `skill_checkout` and `parent_git_dir`, added by build ticket
-14, are the two with a per-run answer: each normalizer decides whether this run gets a
-checkout at all from the record's `policy` field, `Some` on `curate` alone, then asks
-`Layout::skill_checkout(run_id)` for the path, and derives `parent_git_dir` from
-`crate::worktree::repo_root` on the record's `cwd`. `Layout::skill_store_scope`, which
+14, are the two with a per-run answer. `ReplaySpawn` in `src/normalize/mod.rs` rebuilds them
+once for all three adapters: it decides whether this run gets a checkout at all from the
+record's `policy` field, `Some` on `curate` alone, asks `Layout::skill_checkout(run_id)` for the
+path, and asks `git rev-parse --git-common-dir` inside the record's worktree for the parent's
+`.git`, through the same `crate::worktree::git_common_dir` the launch calls from the parent. Not
+`repo_root` on the record's `cwd`: that `cwd` is the worktree itself, `--show-toplevel` answers
+with the worktree there, and `.git` under it is a pointer file the carve-out then owns, which is
+what the first version did until the spec review caught it. A worktree `hydra reap` has taken
+answers nothing, so that record replays with one denied path fewer, which loses a `GateLeak`
+and never invents one. It is the one scope only the record can keep, and build ticket 15 stores it. `Layout::skill_store_scope`, which
 used to make that `curate`-or-not decision by itself, is gone, and `skill_store` means
 the same path under every policy on both sides now, so a curator's record does not come
 back as a gate that leaked for the store's sake, only for its checkout's.
@@ -2257,13 +2268,6 @@ Out of scope for this slice, and each one has a document that already says what 
   `run_end.error`. It has not happened; `claude` writes JSON through Node.
 - **The tee has no line-length cap.** A provider that streams one enormous frame
   would grow the buffer without limit. Frames of 200 KB are tested and fine.
-- **A run outside a repo carves `spawn/<run-id>/no-worktree` out of its own denied spawn
-  directory.** That path is the run's `worktree` scope when it has no checkout, and the
-  carve-out lets the run write there the way any run writes its own worktree. Nothing
-  creates the path, it sits inside the run's own spawn directory, which `hydra reap`
-  removes whole, and it is what the code allowed before this ticket too. It is still a
-  hair off 7.5's rule that the run's own spawn directory is not carved out: this one
-  path is, because it doubles as the `worktree` scope.
 - **A gate compiled before build ticket 14 has no `own_write_paths` key, and `gate.py`
   reads it with an empty default rather than failing.** A `KeyError` there would exit
   non-zero printing nothing on stdout, and 6.6 measured `claude` treating exactly that

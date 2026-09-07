@@ -1,11 +1,12 @@
 {
   "name": "curate",
-  "allows": "reads the corpus and its skill snapshot, invokes linked skills, writes only inside the skill store",
+  "allows": "reads the corpus, the skill store, its own checkout and its skill snapshot, invokes linked skills, writes only inside that checkout",
   "allow": [
     { "capability": "file_read", "scope": "corpus" },
     { "capability": "file_read", "scope": "skill_store" },
+    { "capability": "file_read", "scope": "skill_checkout" },
     { "capability": "file_read", "scope": "skill_snapshot" },
-    { "capability": "file_write", "scope": "skill_store" },
+    { "capability": "file_write", "scope": "skill_checkout" },
     { "capability": "skill_invoke" }
   ]
 }

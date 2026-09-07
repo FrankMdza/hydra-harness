@@ -213,6 +213,22 @@ fn as_done(reaped: &Reaped) -> &hydra::reap::Done {
     }
 }
 
+/// The run's own checkout of the parent repo, or a panic saying there was none.
+fn worktree_of(reaped: &Reaped) -> &hydra::reap::Checkout {
+    as_done(reaped)
+        .worktree
+        .as_ref()
+        .expect("the worktree was not swept")
+}
+
+/// A curate pass's checkout of the skill store, same shape and same panic.
+fn store_checkout_of(reaped: &Reaped) -> &hydra::reap::Checkout {
+    as_done(reaped)
+        .store_checkout
+        .as_ref()
+        .expect("the store checkout was not swept")
+}
+
 /// Reaps one run. The grace period is a launch window and a named run skips it,
 /// so this passes zero and the sweeps below say which of the two they mean.
 fn reap_one(layout: &Layout, run_id: &str, delete_branch: bool) -> Vec<Reaped> {
@@ -242,9 +258,9 @@ fn the_childs_work_is_on_the_branch_before_the_checkout_goes() {
     std::fs::write(checkout.join("committed.txt"), "one\ntwo\n").unwrap();
 
     let reaped = reap_one(&layout, run, false);
-    let done = as_done(&reaped[0]);
+    let swept = worktree_of(&reaped[0]);
 
-    assert!(done.committed.is_some(), "reap removed without committing");
+    assert!(swept.committed.is_some(), "reap removed without committing");
     assert!(!checkout.exists(), "the checkout is still there");
     assert!(
         !layout.spawn(run).exists(),
@@ -267,7 +283,7 @@ fn the_childs_work_is_on_the_branch_before_the_checkout_goes() {
         "the branch holding the commit was deleted: {}",
         fixture.branches()
     );
-    assert!(!done.branch_removed);
+    assert!(!swept.branch_removed);
 }
 
 #[test]
@@ -287,10 +303,10 @@ fn a_branch_with_nothing_on_it_goes_and_one_with_a_commit_stays() {
     let quiet_done = reap_one(&layout, quiet, false);
     let busy_done = reap_one(&layout, busy, false);
 
-    assert!(as_done(&quiet_done[0]).committed.is_none());
-    assert!(as_done(&quiet_done[0]).branch_removed);
-    assert!(as_done(&busy_done[0]).committed.is_some());
-    assert!(!as_done(&busy_done[0]).branch_removed);
+    assert!(worktree_of(&quiet_done[0]).committed.is_none());
+    assert!(worktree_of(&quiet_done[0]).branch_removed);
+    assert!(worktree_of(&busy_done[0]).committed.is_some());
+    assert!(!worktree_of(&busy_done[0]).branch_removed);
 
     let branches = fixture.branches();
     assert!(!branches.contains(quiet), "{branches}");
@@ -313,10 +329,10 @@ fn the_flag_is_what_drops_a_branch_holding_work() {
 
     let reaped = reap_one(&layout, run, true);
     assert!(
-        as_done(&reaped[0]).committed.is_some(),
+        worktree_of(&reaped[0]).committed.is_some(),
         "the flag skipped the commit"
     );
-    assert!(as_done(&reaped[0]).branch_removed);
+    assert!(worktree_of(&reaped[0]).branch_removed);
     assert!(!fixture.branches().contains(run), "{}", fixture.branches());
 }
 
@@ -378,7 +394,7 @@ fn a_worktree_with_no_spawn_directory_still_reaps() {
     std::fs::remove_dir_all(layout.spawn(run)).unwrap();
 
     let reaped = reap_one(&layout, run, false);
-    assert!(as_done(&reaped[0]).worktree_removed);
+    assert!(worktree_of(&reaped[0]).removed);
     assert!(!as_done(&reaped[0]).spawn_removed);
     assert!(!layout.worktree(run).exists());
 }
@@ -398,7 +414,7 @@ fn a_spawn_directory_with_no_checkout_is_reaped_on_its_own() {
     let reaped = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
     assert_eq!(reaped.len(), 1);
     assert!(as_done(&reaped[0]).spawn_removed);
-    assert!(!as_done(&reaped[0]).worktree_removed);
+    assert!(as_done(&reaped[0]).worktree.is_none());
     assert!(!layout.spawn(run).exists());
 }
 
@@ -553,7 +569,7 @@ fn reaping_a_run_that_was_never_there_does_nothing_and_says_so() {
     let fixture = Fixture::new("absent");
     let reaped = reap_one(&fixture.layout(), "nobody", false);
     let done = as_done(&reaped[0]);
-    assert!(!done.worktree_removed && !done.spawn_removed);
+    assert!(done.worktree.is_none() && !done.spawn_removed);
     assert_eq!(hydra::reap::failures(&reaped), 0);
 }
 
@@ -575,8 +591,7 @@ fn a_curate_proposal_is_on_its_branch_before_the_checkout_goes() {
     std::fs::write(checkout.join("proposal.md"), "a skill the curator wrote\n").unwrap();
 
     let reaped = reap_one(&layout, run, false);
-    let done = as_done(&reaped[0]);
-    let swept = done.checkout.as_ref().expect("the checkout was not swept");
+    let swept = store_checkout_of(&reaped[0]);
 
     assert!(
         swept.committed.is_some(),
@@ -623,10 +638,7 @@ fn a_checkout_nothing_wrote_to_goes_and_takes_its_branch() {
     let checkout = fixture.store_checkout(run);
 
     let reaped = reap_one(&layout, run, false);
-    let swept = as_done(&reaped[0])
-        .checkout
-        .as_ref()
-        .expect("the checkout was not swept");
+    let swept = store_checkout_of(&reaped[0]);
 
     assert!(swept.committed.is_none(), "an empty checkout was committed");
     assert!(swept.removed);
@@ -640,7 +652,7 @@ fn a_checkout_nothing_wrote_to_goes_and_takes_its_branch() {
 }
 
 #[test]
-fn a_live_passs_checkout_is_never_reaped() {
+fn a_live_curate_runs_checkout_of_the_store_is_never_reaped() {
     // A pass whose run outlived its call is exactly this shape: the curator is
     // still writing and the checkout holds half a proposal. Ouroboros spec 3.5
     // commits nothing in that case, and neither may a reap typed beside it.
@@ -675,9 +687,9 @@ fn the_sweep_finds_a_checkout_with_no_worktree_and_no_spawn_directory() {
 
     let reaped = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
     assert_eq!(reaped.len(), 1);
+    assert!(store_checkout_of(&reaped[0]).removed);
     let done = as_done(&reaped[0]);
-    assert!(done.checkout.as_ref().is_some_and(|swept| swept.removed));
-    assert!(!done.worktree_removed && !done.spawn_removed);
+    assert!(done.worktree.is_none() && !done.spawn_removed);
     assert!(!checkout.exists());
 }
 

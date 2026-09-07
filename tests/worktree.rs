@@ -82,6 +82,42 @@ fn a_directory_outside_a_repo_has_no_root() {
     std::fs::create_dir_all(&plain).unwrap();
     // std::env::temp_dir() on macOS is under /var/folders, which is not a repo.
     assert!(hydra::worktree::repo_root(&plain).is_none());
+    assert!(hydra::worktree::git_common_dir(&plain).is_none());
+}
+
+#[test]
+fn a_linked_worktree_names_the_parents_git_directory_and_not_its_own() {
+    // The path harness spec 7.5 denies is the one every checkout of a repo
+    // shares, because it holds every run's branch. `git rev-parse
+    // --show-toplevel` inside a linked worktree answers with the worktree, so
+    // `<toplevel>/.git` there names a file in the child's own checkout and the
+    // directory that matters goes undenied. `--git-common-dir` answers with the
+    // shared one from either side.
+    let repo = a_repo("common-dir");
+    let dest = repo.parent().unwrap().join("common-dir-wt");
+    let _ = std::fs::remove_dir_all(&dest);
+    hydra::worktree::create(
+        &repo,
+        &dest,
+        "hydra/common-dir",
+        &index(&repo, "common-dir"),
+    )
+    .unwrap();
+
+    let shared = std::fs::canonicalize(repo.join(".git")).unwrap();
+    let common = |dir: &Path| {
+        hydra::worktree::git_common_dir(dir).map(|path| std::fs::canonicalize(path).unwrap())
+    };
+    assert_eq!(common(&repo), Some(shared.clone()));
+    assert_eq!(
+        common(&dest),
+        Some(shared),
+        "a launch from inside a checkout left the parent's history undenied"
+    );
+    assert!(
+        dest.join(".git").is_file(),
+        "the checkout's own .git is a pointer file, which is what makes the join wrong"
+    );
 }
 
 /// A scratch index path outside the checkout it stages.

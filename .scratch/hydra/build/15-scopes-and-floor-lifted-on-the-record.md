@@ -58,3 +58,20 @@ stays and should pass on the stored path rather than the rebuilt one.
 - `IMPLEMENTATION.md`'s three ticket 42 paragraphs say built rather than pending: "Reading a record
   back" on the scopes and on `policy_sha`, the `--allow-floor-escape` paragraph, and the "Rough
   edges" entry on scope paths.
+
+## What ticket 14 found, added 2026-09-06
+
+**`parent_git_dir` is a sixth key.** The launch denies the parent repo's `.git` and asks
+`git rev-parse --git-common-dir` from the parent for the path. The read side can only ask the same
+question inside the record's worktree, and once `hydra reap` has taken the worktree the answer is
+nothing, so every reaped run replays with that denial missing. It is the one scope nothing on the
+record can recover, and the case for a stored path over a rebuilt one is sharpest here. Store it
+beside the five above, absent on a run outside a repo.
+
+**The no-repo divergence is gone already.** 14 made the reader fall back to
+`<spawn dir>/no-worktree`, the launch's own placeholder, rather than to `cwd`, so the `Write` that
+disagreed under ticket 42 agrees now. The stored path still wins on a moved layout, which is what
+the test should show instead.
+
+**The rebuild lives in one place.** `ReplaySpawn::of` in `src/normalize/mod.rs` is what the three
+adapters call, so the read half of this ticket is one function rather than three.

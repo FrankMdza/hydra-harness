@@ -15,12 +15,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use hydra::paths::Layout;
 use hydra::policy::{PolicySet, Spawn, write_gate};
 use hydra::provider::Provider;
 use serde_json::{Value, json};
 
 /// What the gate script's shebang names, and what every test below runs it on.
 const SHEBANG_PYTHON: &str = "/usr/bin/python3";
+
+/// The run every fixture path is keyed by.
+const RUN: &str = "own";
+
+/// A sibling run, whose worktree, spawn directory and store checkout this run
+/// owns nothing of. Half the deny list of 7.5 exists to keep these apart.
+const OTHER: &str = "other";
 
 struct Decision {
     allowed: bool,
@@ -35,6 +43,10 @@ impl Decision {
 }
 
 /// A compiled gate plus the directories its scopes point at.
+///
+/// Every path comes off a [`Layout`] rooted at `root`, so a probe naming
+/// `worktrees/other` names what a real sibling run would hold and the deny list
+/// of 7.5 is checked against the layout it was written for.
 struct Gate {
     root: PathBuf,
     script: PathBuf,
@@ -44,6 +56,12 @@ struct Gate {
     /// The run's own snapshot of the store, `~/hydra/skills-snapshots/<sha>/` on
     /// a real launch. The links inside the worktree point here.
     snapshot: PathBuf,
+    /// The `curate` pass's own checkout of the store, and `None` under every
+    /// other policy, which is what makes the carve-out of 7.5 per spawn.
+    checkout: Option<PathBuf>,
+    /// The parent repo's `.git`, which a real launch knows because it ran
+    /// `git worktree add` from it.
+    parent_git: PathBuf,
 }
 
 impl Gate {
@@ -52,6 +70,17 @@ impl Gate {
     }
 
     fn compile_for(provider: Provider, policy: &str, floor_lifted: bool) -> Self {
+        Self::build(provider, policy, floor_lifted, true)
+    }
+
+    /// The gate a run outside a repo gets. It has no checkout, so `hydra run`
+    /// points its `worktree` scope at `spawn/<run-id>/no-worktree`, a path
+    /// nothing creates and nothing carves out of the denials.
+    fn without_a_checkout(policy: &str) -> Self {
+        Self::build(Provider::Claude, policy, false, false)
+    }
+
+    fn build(provider: Provider, policy: &str, floor_lifted: bool, has_checkout: bool) -> Self {
         // A root per Gate, never per policy: the suite runs in parallel and two
         // tests on the same policy would otherwise share a directory, and the
         // first to drop would delete the other's script.
@@ -63,15 +92,31 @@ impl Gate {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = std::fs::remove_dir_all(&root);
-        let worktree = root.join("worktree");
-        let runs = root.join("runs");
-        let skills = root.join("skills");
-        let snapshot = root.join("skills-snapshots/deadbeef");
-        let spawn_dir = root.join("spawn");
-        for dir in [&worktree, &runs, &skills, &snapshot, &spawn_dir] {
+        let layout = Layout::at(&root);
+        let worktree = if has_checkout {
+            layout.worktree(RUN)
+        } else {
+            layout.spawn(RUN).join("no-worktree")
+        };
+        let runs = layout.runs();
+        let skills = layout.skills();
+        let snapshot = layout.snapshot("deadbeef");
+        let script = layout.gate_script(RUN);
+        // Only a `curate` pass gets one, which is the whole of the difference
+        // between the last two rows of the matrix in ticket 40.
+        let checkout = (policy == "curate").then(|| layout.skill_checkout(RUN));
+        let parent_git = root.join("parent/.git");
+        for dir in [&runs, &skills, &snapshot, &layout.spawn(RUN), &parent_git] {
             std::fs::create_dir_all(dir).unwrap();
         }
-        let script = spawn_dir.join("gate");
+        // The placeholder is a path nothing creates, so a gate without a
+        // checkout gets none made for it either.
+        if has_checkout {
+            std::fs::create_dir_all(&worktree).unwrap();
+        }
+        if let Some(checkout) = &checkout {
+            std::fs::create_dir_all(checkout).unwrap();
+        }
 
         let set = PolicySet::discover().unwrap();
         write_gate(
@@ -79,10 +124,11 @@ impl Gate {
             &Spawn {
                 provider,
                 policy,
+                layout: &layout,
                 worktree: &worktree,
-                skill_store: &skills,
                 skill_snapshot: &snapshot,
-                runs: &runs,
+                skill_checkout: checkout.as_deref(),
+                parent_git_dir: Some(&parent_git),
                 gate_script: &script,
                 floor_lifted,
             },
@@ -96,7 +142,15 @@ impl Gate {
             runs,
             skills,
             snapshot,
+            checkout,
+            parent_git,
         }
+    }
+
+    /// The layout every path above came off, for a probe that needs one this
+    /// struct does not hold.
+    fn layout(&self) -> Layout {
+        Layout::at(&self.root)
     }
 
     /// One skill in the snapshot, linked into the checkout the way `inject`
@@ -393,7 +447,7 @@ fn a_payload_that_is_not_json_is_denied() {
 }
 
 // ---------------------------------------------------------------------------
-// The seven path denials, harness spec 7.5
+// The path denials, harness spec 7.5
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -452,11 +506,29 @@ fn the_mcp_document_is_denied_under_all_five_policies() {
 }
 
 #[test]
-fn curate_writes_inside_the_skill_store_and_nowhere_else() {
+fn curate_writes_inside_its_own_checkout_and_nowhere_else() {
+    // 7.2 and ouroboros spec 3.6. The pass writes into its own git checkout of
+    // the store and never into `~/hydra/skills/`, which 7.5 denies to every
+    // policy since ticket 40: a curator writing the live working tree hands its
+    // half-finished proposal to whichever run launches next.
     let gate = Gate::new("curate");
+    let checkout = gate.checkout.clone().expect("a curate gate carries one");
     assert!(
-        gate.write_to(&gate.skills.join("naming/SKILL.md")).allowed,
-        "curate's whole write surface is the skill store"
+        gate.write_to(&checkout.join("proposal.md")).allowed,
+        "curate's whole write surface is its own checkout"
+    );
+    assert!(
+        gate.read_from(&checkout.join("naming/SKILL.md")).allowed,
+        "a curator that cannot read what it wrote cannot revise it"
+    );
+    assert!(
+        gate.write_to(&gate.skills.join("naming/SKILL.md"))
+            .denied_for("hydra/protected-path"),
+        "the store's working tree is denied to every policy, curate included"
+    );
+    assert!(
+        gate.read_from(&gate.skills.join("naming/SKILL.md")).allowed,
+        "the deny list is a write list, and curate reads the store it proposes against"
     );
     assert!(
         gate.write_to(&gate.worktree.join("notes.md"))
@@ -470,6 +542,297 @@ fn curate_writes_inside_the_skill_store_and_nowhere_else() {
         )
         .allowed
     );
+}
+
+#[test]
+fn a_run_with_no_checkout_writes_nowhere_at_all() {
+    // 7.5 leaves the run's own spawn directory denied and carves nothing out of
+    // it, and a run outside a repo is scoped to `no-worktree` inside that
+    // directory. So the `worktree` scope resolves, the write lands under a
+    // denied parent, and nothing carves it back out. `src/run.rs` says such a
+    // run can read and shell out and write nowhere, and this is that sentence
+    // as an assertion.
+    let gate = Gate::without_a_checkout("standard");
+    let decision = gate.write_to(&gate.worktree.join("out.txt"));
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "a run with no checkout wrote inside its own spawn directory: {}",
+        decision.reason
+    );
+    // Reading is untouched, which is the half of the sentence that stays true.
+    assert!(gate.read_from(&gate.worktree.join("out.txt")).allowed);
+}
+
+// ---------------------------------------------------------------------------
+// The data-loss matrix of map ticket 40
+// ---------------------------------------------------------------------------
+
+/// The five, in the order the matrix writes its columns.
+const MATRIX_POLICIES: [&str; 5] = ["judge", "curate", "read-only", "standard", "permissive"];
+
+/// Asserts one cell. `want` is `allow` or the code the refusal carries after
+/// `hydra/`, because a deny for the wrong reason is a deny the next edit moves
+/// back.
+fn matrix_cell(policy: &str, probe: &str, want: &str, decision: &Decision) {
+    if want == "allow" {
+        assert!(
+            decision.allowed,
+            "{policy} refused {probe}, which ticket 40 decision 11 keeps allowed: {}",
+            decision.reason
+        );
+    } else {
+        assert!(
+            decision.denied_for(&format!("hydra/{want}")),
+            "{policy} on {probe} wanted {want} and answered: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_write_the_matrix_allowed_on_2026_09_06_is_protected_now() {
+    // Ticket 40 measured 32 probes per policy on 2026-09-06 and this is that
+    // matrix after decision 9. Everything under `~/hydra` that belongs to
+    // another run, to the corpus or to the store is denied before the policy is
+    // consulted, and the two cells that stay allowed are the carve-out: a run
+    // writes only inside what Hydra created for it.
+    for (column, policy) in MATRIX_POLICIES.iter().enumerate() {
+        let gate = Gate::new(policy);
+        let layout = gate.layout();
+        let protected = "protected-path";
+        let rows: [(&str, PathBuf, [&str; 5]); 13] = [
+            ("runs/r.jsonl", gate.runs.join("r.jsonl"), [protected; 5]),
+            (
+                "pruned/r.jsonl",
+                layout.pruned().join("r.jsonl"),
+                [protected; 5],
+            ),
+            (
+                "worktrees/other/x",
+                layout.worktree(OTHER).join("x"),
+                [protected; 5],
+            ),
+            (
+                "worktrees/own/x",
+                gate.worktree.join("x"),
+                ["capability", "out-of-scope", "capability", "allow", "allow"],
+            ),
+            ("spawn/own/gate", gate.script.clone(), [protected; 5]),
+            (
+                "spawn/own/seed-index",
+                layout.seed_index(RUN),
+                [protected; 5],
+            ),
+            (
+                "spawn/other/gate",
+                layout.gate_script(OTHER),
+                [protected; 5],
+            ),
+            (
+                "skills/naming/SKILL.md",
+                gate.skills.join("naming/SKILL.md"),
+                [protected; 5],
+            ),
+            (
+                "skills/.git/HEAD",
+                gate.skills.join(".git/HEAD"),
+                [protected; 5],
+            ),
+            (
+                "skills-snapshots/deadbeef/SKILL.md",
+                gate.snapshot.join("SKILL.md"),
+                [protected; 5],
+            ),
+            (
+                "skill-worktrees/other/p.md",
+                layout.skill_checkout(OTHER).join("p.md"),
+                [protected; 5],
+            ),
+            (
+                // The one row the carve-out turns on: `curate` owns this
+                // checkout and the other four policies were never given one.
+                "skill-worktrees/own/p.md",
+                layout.skill_checkout(RUN).join("p.md"),
+                [protected, "allow", protected, protected, protected],
+            ),
+            (
+                "parent/.git/HEAD",
+                gate.parent_git.join("HEAD"),
+                [protected; 5],
+            ),
+        ];
+        for (probe, path, want) in rows {
+            matrix_cell(policy, probe, want[column], &gate.write_to(&path));
+        }
+    }
+}
+
+/// What one shell probe has to come back as.
+///
+/// `Refused` is the row where the path check and the pattern floor both apply
+/// and which of them answers first is not worth pinning. Everywhere else the
+/// code is the assertion, because a deny for the wrong reason is a deny the next
+/// edit moves back.
+#[derive(Clone, Copy)]
+enum Want {
+    Code(&'static str),
+    Refused,
+}
+
+#[test]
+fn a_shell_command_the_matrix_allowed_is_refused_now_unless_it_is_the_runs_own_scratch() {
+    // The same matrix through the capability that carries no path. `standard`
+    // was measured deleting a sibling's worktree, the store's `.git`, the
+    // snapshots and the parent repo's `.git`, and running `git gc`,
+    // `git prune` and `git worktree remove --force`. None of that loses the
+    // record and every one of them loses something a record cannot rebuild.
+    //
+    // The last five rows are decision 11. The run's own scratch stays
+    // discardable, because those lose only the run's own uncommitted edits and
+    // the record carries every tool call either way.
+    for policy in ["standard", "permissive"] {
+        let gate = Gate::new(policy);
+        let layout = gate.layout();
+        let runs = gate.runs.display().to_string();
+        let protected = Want::Code("protected-path");
+        let floor = Want::Code("floor");
+        let allow = Want::Code("allow");
+        let rows: [(&str, String, Want); 27] = [
+            ("the corpus", format!("rm -rf {runs}"), protected),
+            (
+                "the corpus by rename",
+                format!("mv {runs} {runs}.old"),
+                protected,
+            ),
+            (
+                "the corpus by find",
+                format!("find {runs} -delete"),
+                protected,
+            ),
+            (
+                "the pruned records",
+                format!("rm -rf {}", layout.pruned().display()),
+                protected,
+            ),
+            (
+                "a sibling's worktree",
+                format!("rm -rf {}", layout.worktree(OTHER).display()),
+                protected,
+            ),
+            (
+                "every worktree",
+                format!("rm -rf {}", layout.worktrees().display()),
+                protected,
+            ),
+            (
+                "a sibling's spawn directory",
+                format!("rm -rf {}", layout.spawn(OTHER).display()),
+                protected,
+            ),
+            (
+                "its own spawn directory",
+                format!("rm -rf {}", layout.spawn(RUN).display()),
+                protected,
+            ),
+            (
+                "the store's git directory",
+                format!("rm -rf {}", gate.skills.join(".git").display()),
+                protected,
+            ),
+            (
+                "the snapshots",
+                format!("rm -rf {}", layout.snapshots().display()),
+                protected,
+            ),
+            (
+                "a sibling's store checkout",
+                format!("rm -rf {}", layout.skill_checkout(OTHER).display()),
+                protected,
+            ),
+            (
+                "the parent repo's git directory",
+                format!("rm -rf {}", gate.parent_git.display()),
+                protected,
+            ),
+            (
+                "a sibling's worktree through git",
+                format!(
+                    "git worktree remove --force {}",
+                    layout.worktree(OTHER).display()
+                ),
+                Want::Refused,
+            ),
+            ("git gc", "git gc --prune=now".to_string(), floor),
+            ("git prune", "git prune --expire=now".to_string(), floor),
+            (
+                "git worktree remove --force",
+                "git worktree remove --force /somewhere/else".to_string(),
+                floor,
+            ),
+            (
+                "git worktree prune",
+                "git worktree prune".to_string(),
+                floor,
+            ),
+            (
+                "git worktree add",
+                "git worktree add /somewhere/else".to_string(),
+                floor,
+            ),
+            (
+                "git branch -D",
+                "git branch -D hydra/other".to_string(),
+                floor,
+            ),
+            ("git reset --hard", "git reset --hard".to_string(), floor),
+            ("git clean -fdx", "git clean -fdx".to_string(), floor),
+            (
+                "git update-ref -d",
+                "git update-ref -d refs/heads/x".to_string(),
+                floor,
+            ),
+            ("git worktree list", "git worktree list".to_string(), allow),
+            ("git checkout -- .", "git checkout -- .".to_string(), allow),
+            ("git stash drop", "git stash drop".to_string(), allow),
+            ("git clean -f", "git clean -f".to_string(), allow),
+            (
+                "its own worktree",
+                format!("rm -rf {}", gate.worktree.display()),
+                allow,
+            ),
+        ];
+        for (probe, command, want) in rows {
+            let decision = gate.shell(&command);
+            match want {
+                Want::Code(code) => matrix_cell(policy, probe, code, &decision),
+                Want::Refused => assert!(
+                    !decision.allowed,
+                    "{policy} reached {probe}: {}",
+                    decision.reason
+                ),
+            }
+        }
+    }
+
+    // The three policies with no shell refuse every one of those, and the
+    // reason is capability or a path denial depending on which the command
+    // names first. Only the refusal is asserted.
+    for policy in ["judge", "curate", "read-only"] {
+        let gate = Gate::new(policy);
+        for command in [
+            "rm -rf",
+            "git gc --prune=now",
+            "git worktree list",
+            "git clean -f",
+        ] {
+            let decision = gate.shell(command);
+            assert!(
+                !decision.allowed,
+                "{policy} has no shell and ran {command}: {}",
+                decision.reason
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -523,8 +886,8 @@ fn standard_writes_inside_the_worktree_and_refuses_outside_it() {
     );
     assert!(
         gate.write_to(&gate.skills.join("naming/SKILL.md"))
-            .denied_for("hydra/out-of-scope"),
-        "the skill store is curate's surface, not standard's"
+            .denied_for("hydra/protected-path"),
+        "the store's working tree is denied to every policy since ticket 40"
     );
     assert!(
         gate.write_to(Path::new("/tmp/somewhere-else.txt"))
@@ -553,8 +916,17 @@ fn a_symlink_out_of_the_worktree_does_not_widen_the_scope() {
 #[test]
 fn a_dotdot_path_does_not_widen_the_scope() {
     let gate = Gate::new("standard");
+    // Out of the run's own worktree, up past the directory that holds every
+    // run's worktree, and into the corpus.
     assert!(
-        gate.write_to(&gate.worktree.join("../runs/stolen.jsonl"))
+        gate.write_to(&gate.worktree.join("../../runs/stolen.jsonl"))
+            .denied_for("hydra/protected-path")
+    );
+    // One level up is a sibling's ground rather than the corpus, and the deny
+    // list names the parent for exactly this reason: siblings appear and
+    // disappear while a run is live.
+    assert!(
+        gate.write_to(&gate.worktree.join("../stolen"))
             .denied_for("hydra/protected-path")
     );
 }
@@ -660,19 +1032,26 @@ fn a_read_through_a_skill_link_lands_in_the_snapshot() {
 }
 
 #[test]
-fn a_write_through_a_skill_link_is_still_out_of_scope() {
+fn a_write_through_a_skill_link_lands_on_a_denied_snapshot() {
     // The snapshot is a read scope and appears on no policy's `file_write`. A
     // run that could edit it could edit its own instructions mid-session.
-    let gate = Gate::new("standard");
-    let link = gate.link_skill("hydra-sentinel");
-    assert!(
-        gate.write_to(&link.join("SKILL.md"))
-            .denied_for("hydra/out-of-scope")
-    );
-    assert!(
-        gate.write_to(&link.join("new-file.md"))
-            .denied_for("hydra/out-of-scope")
-    );
+    //
+    // Ticket 40 moved the refusal from the policy's scope check to 7.5's deny
+    // list, which is what closes the same write under `permissive`: `anywhere`
+    // used to reach a snapshot and now stops at the denial.
+    for policy in ["standard", "permissive"] {
+        let gate = Gate::new(policy);
+        let link = gate.link_skill("hydra-sentinel");
+        assert!(
+            gate.write_to(&link.join("SKILL.md"))
+                .denied_for("hydra/protected-path"),
+            "{policy} rewrote its own instructions mid-session"
+        );
+        assert!(
+            gate.write_to(&link.join("new-file.md"))
+                .denied_for("hydra/protected-path")
+        );
+    }
 }
 
 #[test]
@@ -842,7 +1221,7 @@ fn cursor_names_an_mcp_tool_with_a_prefix_of_its_own() {
 }
 
 #[test]
-fn the_seven_path_denials_hold_through_cursors_shell_too() {
+fn the_path_denials_hold_through_cursors_shell_too() {
     let gate = Gate::cursor("permissive");
     let target = gate.runs.join("r.jsonl");
     let decision = gate.cursor_tool(
@@ -1109,10 +1488,10 @@ fn the_written_script_is_executable_and_runs_on_its_own_shebang() {
 
 #[test]
 fn shell_is_refused_when_it_names_a_protected_path() {
-    // 7.5 states the seven denials as delivered outright: "a hook sees the path
+    // 7.5 states the denials as delivered outright: "a hook sees the path
     // and refuses the write before it reaches disk". `Bash` carries no path, so
     // until this landed the deny list was consulted for `file_write` alone and
-    // every one of the seven was reachable by redirect under any policy granting
+    // every entry on it was reachable by redirect under any policy granting
     // shell. The gate script's own denial is 7.5's induction base case, and an
     // emptied script makes `claude` fail open (6.6), so that one composed into a
     // full bypass in two tool calls.
@@ -1352,7 +1731,7 @@ fn agy_names_its_mcp_tool_and_carries_no_prefix() {
 }
 
 #[test]
-fn the_seven_path_denials_hold_through_agys_shell_too() {
+fn the_path_denials_hold_through_agys_shell_too() {
     let gate = Gate::agy("permissive");
     let target = gate.runs.join("r.jsonl");
     let decision = gate.agy_tool(
@@ -1409,7 +1788,8 @@ fn a_read_through_an_agy_skill_link_lands_in_the_snapshot() {
     // 6.4 and ticket 39, on this provider's root. The provider names the link
     // path as the skill's base directory, and the gate resolves the link before
     // comparing, so a sibling opened through it is inside the snapshot scope
-    // and the same path opened for writing is not.
+    // and the same path opened for writing is denied outright, since ticket 40
+    // put the snapshots on 7.5's list.
     let gate = Gate::agy("read-only");
     let link = gate.link_agy_skill("t10-skill");
     let read = gate.agy_tool(
@@ -1428,7 +1808,7 @@ fn a_read_through_an_agy_skill_link_lands_in_the_snapshot() {
         }),
     );
     assert!(
-        refused.denied_for("hydra/out-of-scope"),
+        refused.denied_for("hydra/protected-path"),
         "a run may read its own skills and write nowhere near them: {}",
         refused.reason
     );
