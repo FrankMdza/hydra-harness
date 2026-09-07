@@ -378,7 +378,8 @@ open a sibling file carrying a second. Both came back.
    what it lacked was the invoke, and that is one more line in the list above.
 4. **The preamble stands as written.** Its third sentence promised what the gate now delivers.
 5. **`ToolSearch` stays in `provider_native` for now.** If MCP tools arrive deferred in print mode,
-   it moves for the same reason `Skill` did; ticket 43 measures that.
+   it moves for the same reason `Skill` did; ticket 43 measures that. Measured 2026-09-06: they do,
+   and 43 moved it to `skill_invoke`. Build ticket 16 carries it.
 6. **Build ticket 13 carries the code**, blocked by build ticket 09 because both edit the policy
    table, and it runs before ticket 40's build, so 40 starts from the `Scope` this adds.
 7. **The human authorized the edit to `policies/`.** Four policy files gain the capability and the

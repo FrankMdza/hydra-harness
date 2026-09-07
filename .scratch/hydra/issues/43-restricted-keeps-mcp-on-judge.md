@@ -1,7 +1,7 @@
 # 43 - `--restricted` no longer drops MCP, so a `judge` run keeps the human's servers
 
 Type: grilling
-Status: open
+Status: resolved
 
 ## Question
 
@@ -65,3 +65,52 @@ the MCP tools load deferred and need `ToolSearch` before they can be called. If 
 same on a run with `--mcp-config`, an injected server's tools are unreachable under every policy but
 `permissive`, whatever the `init` frame lists, and `ToolSearch` moves to `skill_invoke`'s side for
 the same reason `Skill` did. One run, and look at the `init` frame's `tools` for `mcp__` names.
+
+## Answer
+
+Resolved 2026-09-06 with the human, one round, after the measurement the ticket said needed the
+human's config turned out not to. Four decisions and one correction.
+
+**The correction first: the hole is not live.** Build ticket 08 measured `--restricted` keeping a
+server passed on `--mcp-config` and inferred that settings-defined servers ride the same path. They
+do not. Measured today on 2.1.263 with the free probe (unknown model, no API call, the
+`deferred_tools_delta` attachment in the transcript as the signal), a stub user-scope server in a
+scratch `HOME`'s `.claude.json` and a stub project-scope server in the cwd's `.mcp.json`:
+
+| Server defined in | no flags | `--restricted` | `--restricted --strict-mcp-config` |
+|---|---|---|---|
+| `~/.claude.json`, user scope | loads | dropped | dropped |
+| `.mcp.json` in the cwd, project scope | loads | dropped | dropped |
+| `--mcp-config <file>` | loads | loads | loads |
+
+`--restricted` drops what settings define and keeps what the argv passes. A `judge` run passes
+nothing, so it gets an empty set on this version, and the scratch `HOME` made the measurement
+without writing into the human's config.
+
+**1. `judge` gains `--strict-mcp-config`, with no `--mcp-config` beside it.** Not to close a hole
+but because the vendor's help text ties skipping MCP to `--strict-mcp-config` and not to
+`--restricted`, so the argv should carry the flag that names the guarantee rather than rest on how
+`--restricted` reads settings this month. 6.7's "which `--restricted` drops anyway" is replaced.
+
+**2. The probe runs under `judge`'s own flags and `mcp.resolved` becomes a measured `[]`.** The
+human asked whether an empty answer wastes tokens through the judge. It does not: the probe is free,
+the field is on line 0 and no model reads it, and the empty set is the saving the ticket was
+worried about losing, since no tool description reaches the judge's context.
+
+**3. `ToolSearch` answers to `skill_invoke`.** The fixture server's tool landed in print mode's
+`deferred_tools_delta.addedNames` beside the fifteen deferred built-ins, so MCP tools are deferred
+and need `ToolSearch` before a call. `mcp_call` and `provider_native` are both `permissive`-only
+today, so nothing observable changes until a policy admits a server without `provider_native`, and
+that day it is ticket 39's failure again. Caveat: read off the transcript attachment before any
+model turn, which is the same listing the probe already trusts for `mcp.resolved`, not off a model
+calling the tool.
+
+**4. The drift note gets one mechanism.** A test that runs the free probe under `judge`'s flags with
+stub servers in both settings scopes and asserts the empty set, skipping when `claude` is off the
+path. Build ticket work.
+
+**Also re-measured.** 6.7's `--verbose` requirement holds on 2.1.263. `< /dev/null` was re-measured
+on 2.1.261 under ticket 16 and was not repeated.
+
+**What moved.** Harness spec 6.5, 6.7 and 7.1; two paragraphs in `IMPLEMENTATION.md`; ticket 39's
+decision 5 gets its answer. Build ticket 16 carries the code. No source changed.

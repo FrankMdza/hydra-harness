@@ -26,15 +26,14 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map is open again at 44 of 46, and nothing open blocks the build.** It reached its
+**The map is open again at 45 of 46, and nothing open blocks the build.** It reached its
 destination on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a
 decision rather than an implementation, which is the one condition for reopening it. Tickets 39 to
 43 are those, three of them about what a policy scope is and who gets to know, one about provider
 drift. Ticket 39 closed on 2026-09-06 and build ticket 13 carries its code; 44 and 45 closed the
 same day, one ruling out a TUI of Hydra's own and one measuring Herdr and Hunk against what it
-assumed; 40, 41 and 42 closed on 2026-09-06 too. **Every open ticket is now a grilling, so every
-one of them needs the human.** The map's own paragraph under `## Destination` says where each
-stands.
+assumed; 40 to 43 closed on 2026-09-06 too. **Ticket 46 is the one open ticket, a grilling that
+needs the human.** The map's own paragraph under `## Destination` says where it stands.
 
 **Wayfinder is still not how the build continues**: it charts decisions, its tickets resolve
 questions rather than execute slices, and its own instructions say the pull to just do the work is
@@ -115,7 +114,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 44 of 46 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 45 of 46 resolved
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 

@@ -59,7 +59,7 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
   2026-09-06.
 - [43](issues/43-restricted-keeps-mcp-on-judge.md) `--restricted` no longer drops MCP on `claude`
   2.1.263, so a `judge` run keeps the human's own servers. Provider drift under 6.5 and 6.7, and the
-  fix is one flag on an argv the design writes.
+  fix is one flag on an argv the design writes. Closed 2026-09-06, and the premise was wrong.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
@@ -96,6 +96,12 @@ open, all grillings.
 the human. The record gains `scopes` and `floor_lifted`, the reader prefers them and reports a limit
 where they are absent, and no version bump. Build ticket 15 carries the code. Tickets 43 and 46 are
 what is open, both grillings.
+
+**Ticket 43 closed on 2026-09-06 in one round, and the map stands at 45 of 46.** The measurement
+the ticket said needed the human's config was made under a scratch `HOME` instead, and it showed
+the hole was never live: `--restricted` drops settings-defined servers and keeps only `--mcp-config`.
+The flag goes on `judge` anyway, the probe follows, `ToolSearch` moves beside `skill_invoke`, and a
+drift test guards the claim. Build ticket 16 carries the code. Ticket 46 is what is open.
 
 ## Notes
 
@@ -189,6 +195,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [40 - Where the `skill_store` scope points, now that two documents disagree](issues/40-where-the-skill-store-scope-points.md): the run's own checkout wins and harness spec 7.2 moved; `skill_store` and `skill_checkout` are two names; `hydra reap` sweeps a leftover checkout commit-first. The human then asked which policies can lose data, and a measured matrix found a `standard` run's shell allowed to delete a sibling's worktree, the pruned records, the parent repo's `.git` and the store's history. The deny list became two kinds of entry, denied parents and own-path carve-outs, and the floor gained `gc`, `prune` and `worktree`. Build ticket 14 carries the code and two lines under `policies/` are the human's.
 - [41 - The curate checkout happens before the launch commits the store](issues/41-curate-checkout-against-the-store-pin.md): the store is committed before the checkout. `hydra curate` calls `Store::pin` with its own run id and checks out at the sha it gets back, and the launch's pin then finds a clean store and returns the same sha. Chosen because ticket 40 left the store two writers, a human and `Store::pin`, which makes this Hydra's own write one launch earlier rather than a curate pass in the store's history. The trailer naming a run that has not started is accepted. Built and tested in the same change, no launch.
 - [42 - A record pins the policy and not the paths it resolved to](issues/42-a-record-carries-no-scopes.md): harness spec 5's test applies to the compiled gate, so `run_start` gains `scopes`, the resolved paths under five keys, and `floor_lifted`. The reader prefers the stored paths, rebuilds them on older records and reports a limit rather than a disagreement, because a disagreement reaches the curator's brief as a clean-looking failure. Not a version bump, and contract 15 now says what is. Contract 5.1's false sentence on the gate sha is rewritten. Build ticket 15 carries the code.
+- [43 - `--restricted` no longer drops MCP, so a `judge` run keeps the human's servers](issues/43-restricted-keeps-mcp-on-judge.md): the premise was wrong. Measured on 2.1.263 under a scratch `HOME`, `--restricted` drops user-scope and project-scope servers and keeps only what `--mcp-config` passes, so `judge` already gets an empty set. The flag goes on the `judge` argv anyway because the vendor's help text names it as the guarantee, the probe runs under `judge`'s flags so `mcp.resolved` is a measured `[]`, `ToolSearch` moves to `skill_invoke` because MCP tools arrive deferred in print mode, and one skip-if-absent test guards the claim against the next version. Build ticket 16 carries the code.
 
 ## Not yet specified
 

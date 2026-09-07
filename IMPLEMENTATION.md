@@ -31,8 +31,8 @@ and the hole arrived in the same change.
 Two mechanisms now stand where none did. They are worth telling apart, because one is a
 floor and one is not.
 
-**A shell command that names a denied path it does not own is refused whole.** Every token of every
-segment is expanded and resolved before the comparison: `~` and the variables the
+**A shell command that names a denied path it does not own is refused whole.** Every
+token of every segment is expanded and resolved before the comparison: `~` and the variables the
 child's own environment carries, the tail of a `--flag=/path` option, and the tail of a
 `D=/path` assignment, which is where a variable the command sets itself is written down.
 Measured on run `01a07340-67a3-7c41-8c69-8d1e28bb58a7`, `standard`, on a real `claude`:
@@ -336,16 +336,19 @@ change.
 
 **`standard` still denies `ToolSearch`.** That follows from the paragraph above and it is
 a real capability loss on ordinary coding runs, in the direction 7.1 chose on purpose: an
-allowlist fails toward a run that cannot do its job, which someone notices. Ticket 43 is
-where it gets decided, and it turns on whether MCP tools arrive deferred in print mode.
+allowlist fails toward a run that cannot do its job, which someone notices. Ticket 43
+decided it on 2026-09-06: MCP tools do arrive deferred in print mode, measured off the
+probe's `deferred_tools_delta`, so `ToolSearch` moves beside `skill_invoke`. Build ticket
+16 carries it, and until then `standard` denies it as described.
 
 **Two protected configs are still paths rather than files.** 7.5 denied seven paths under
 every policy before ticket 40 grew the list to the full deny list the section above
 describes. Five of the original seven are real files or directories: `policies/`,
 `~/hydra/runs/`, the per-spawn gate script, `config/preamble.md` from ticket 02 and
 `config/mcp.md` from ticket 08. The other two are named at `config/env-allowlist.json`
-and `config/export-allowlist.json`, and **neither of those files exists**. The environment allowlist is still Rust code in
-`src/env.rs`, which 15.2 protects at admission rather than at run time, so the config
+and `config/export-allowlist.json`, and **neither of those files exists**. The
+environment allowlist is still Rust code in `src/env.rs`, which 15.2 protects at
+admission rather than at run time, so the config
 the table means has no file. Denying a write to a path that holds nothing is the same
 denial it will be the day the file lands, which is why the names went in early rather
 than being added later and forgotten. `tests/gate.rs` asks the compiled gate about all
@@ -709,6 +712,15 @@ theirs. It is not taken here because 6.7 writes the `judge` command line and cha
 is a design decision. Whoever takes it should also decide what a `judge` run's
 `mcp.resolved` becomes, since with the flag the probe could answer for it and today it
 is null.
+
+**Map ticket 43 took it on 2026-09-06, and the inference above was wrong.** The same
+free probe, run under a scratch `HOME` holding a stub user-scope server and in a directory
+holding a stub `.mcp.json`: both load with no flags and neither loads under `--restricted`.
+Only a server passed on `--mcp-config` survives the flag. So a `judge` run on 2.1.263 gets
+an empty set already, and "same code path" was two paths. The flag goes on the argv anyway,
+the probe runs under `judge`'s flags so `mcp.resolved` is `[]`, and build ticket 16 carries
+both. Until it lands, this section's "keeps whatever the human has configured" is false
+and the code it describes is unchanged.
 
 ### Asking `claude` which servers it got
 
@@ -1288,7 +1300,7 @@ knows is missing.
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a
 `/usr/bin/python3` process per tool call, and that interpreter is now a read-time
 dependency as well as a run-time one. A second implementation of the rules in Rust was
-the alternative and it is the wrong trade. The gate decides with the seven path denials,
+the alternative and it is the wrong trade. The gate decides with the deny list,
 the scope resolution, the `mcp__` prefix rule and a floor that tokenizes shell with
 `shlex`, and a Rust copy that answered `allow` where the gate answered `deny` would
 report a gate leak that never happened.
@@ -1311,16 +1323,28 @@ single assistant frame share a `seq` and so share a window, and they are handed 
 in hook order, which is an assumption and not a measurement. That last part reaches only
 the disagreement check, never the decision.
 
-**Two of the three scopes are rebuilt from the layout and the third from the
-record.** `worktree` comes off `run_start`, and `corpus` and `skill_store` are
-Hydra's own directories, which is what makes them recomputable at all. The store
-is the one with a per-run answer: a curate run's writes are scoped to its own
-checkout, and `Layout::skill_store_scope` is the rule both the launch and this
-re-evaluation read, so a curator's record does not come back as a gate that leaked.
+**Five scopes are rebuilt now, not three.** `worktree` comes off `run_start`; `corpus`,
+`skill_store` and `skill_snapshot` are Hydra's own directories, recomputable because
+they never move per run. `skill_checkout` and `parent_git_dir`, added by build ticket
+14, are the two with a per-run answer: each normalizer decides whether this run gets a
+checkout at all from the record's `policy` field, `Some` on `curate` alone, then asks
+`Layout::skill_checkout(run_id)` for the path, and derives `parent_git_dir` from
+`crate::worktree::repo_root` on the record's `cwd`. `Layout::skill_store_scope`, which
+used to make that `curate`-or-not decision by itself, is gone, and `skill_store` means
+the same path under every policy on both sides now, so a curator's record does not come
+back as a gate that leaked for the store's sake, only for its checkout's.
 Map ticket 42 replaced the rebuilding on 2026-09-06: `run_start.scopes` carries the
 paths the gate was compiled against, the reader prefers them, and a record without
 them is rebuilt as above and reports a limit. Build ticket 15 carries it; until it
 lands, every record on this machine is rebuilt.
+
+**The replay's no-worktree fallback used to disagree with the launch's, and the
+carve-out is why that now matters.** A run outside a repo has no checkout, and the live
+gate scopes `worktree` at `~/hydra/spawn/<run-id>/no-worktree`, a path nothing creates.
+The normalizers used to fall back to the record's own `cwd` instead, which cost nothing
+while `worktree` was the only thing a run owned outright, but a fallback that wide would
+let a replay treat the whole working directory as the run's own now that a spawn can own
+a checkout too. The three normalizers mirror the launch's fallback since build ticket 14.
 
 **`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
 that read a policy live in `src/policy/gate.py`. Nor did it cover the paths the script
@@ -1873,31 +1897,45 @@ build at all, human rejection and the retry loop, and the brief names them as
 that rather than printing a zero somebody could read as a measurement.
 
 **The curator writes into a git worktree of the store and never into
-`~/hydra/skills/`** (ouroboros spec 3.6), so the run's `skill_store` scope points
-at the checkout rather than at the store. `hydra::run::Request` gained one field
-for it, `run_id`: the checkout is named after the run, so the id has to exist
-before the gate is compiled, which is the one thing `hydra run` mints for itself
-and this caller cannot.
+`~/hydra/skills/`** (ouroboros spec 3.6), so the run's `skill_checkout` scope
+points at that checkout, a scope of its own since build ticket 14 rather than a
+second meaning for `skill_store`. `hydra::run::Request` gained one field for it,
+`run_id`: the checkout is named after the run, so the id has to exist before the
+gate is compiled, which is the one thing `hydra run` mints for itself and this
+caller cannot.
 
-**Where that scope points is a rule on the layout rather than an argument, and a
-real record is why.** `Layout::skill_store_scope` takes a run id and a policy name
-and answers with the checkout for `curate` and the store for everything else. Both
-sides read it: the launch compiles the gate against it, and contract 7.7's
-read-time re-evaluation rebuilds it. The first version passed the path in at launch
+**Where that scope pointed was a rule on the layout rather than an argument, and a
+real record is why.** `Layout::skill_store_scope` took a run id and a policy name
+and answered with the checkout for `curate` and the store for everything else.
+Both sides read it: the launch compiled the gate against it, and contract 7.7's
+read-time re-evaluation rebuilt it. The first version passed the path in at launch
 and left the reader to guess, and the pass measured below came back with ten
 `Finding::GateLeak`, one per file the curator wrote or probed inside its own
 checkout, because the reader was still resolving `skill_store` to `~/hydra/skills/`.
-Nothing on the record carries a scope and inventing a field is a contract change,
-so the fix is a rule both sides derive from the run id. The corpus-wide gate-leak
-check in `tests/normalize.rs` is what caught it, and `tests/curate.rs` now pins the
-round trip.
+Nothing on the record carried a scope and inventing a field was a contract change,
+so the fix was a rule both sides derived from the run id. The corpus-wide
+gate-leak check in `tests/normalize.rs` is what caught it, and `tests/curate.rs`
+pinned the round trip.
+
+**Build ticket 14 split that one rule into two, on 2026-09-06.** `skill_store`
+means `~/hydra/skills/` on every spawn now, no exceptions, and the policy-name
+match inside `src/paths.rs` is gone with it. `Layout::skill_checkout(run_id)`
+answers the checkout's path as a pure function of the layout and the run id, and
+whether a spawn gets one at all is a decision each caller makes from the policy
+name: `src/run.rs`, `src/ouroboros/curate.rs` and the three normalizers all pass
+`Some` on `curate` and `None` on everything else. `Spawn` carries the result as
+`skill_checkout: Option<&Path>`, and the deny list denies the store outright under
+every policy, `curate` included, which is what makes the two scopes different
+names for different places rather than one name that used to move.
 
 **The checkout lives at `~/hydra/skill-worktrees/<run-id>/`, which is a sixth
 place and a choice.** Section 9.1 leaves the location open and says the spawn
 directory would do. It will not: `hydra reap` removes that directory whole, and a
 pass whose run outlived its call leaves an uncommitted proposal in the checkout.
-Work is not something a cleanup command should be able to take. Nothing but
-`hydra curate` creates or removes one.
+Work is not something a cleanup command should be able to take. `hydra curate`
+was the only thing that created or removed one until build ticket 14; `hydra reap`
+sweeps a leftover checkout now too, committing to `ouroboros/curate/<run-id>`
+first, so a proposal a curator never came back to collect is not lost.
 
 **The commit is the pass's only post-run action, which is why the pass gets no run
 record of its own** (contract 5.5). Its order is git's guarantee rather than a
@@ -2219,16 +2257,18 @@ Out of scope for this slice, and each one has a document that already says what 
   `run_end.error`. It has not happened; `claude` writes JSON through Node.
 - **The tee has no line-length cap.** A provider that streams one enormous frame
   would grow the buffer without limit. Frames of 200 KB are tested and fine.
-- **`~/hydra/spawn/` is not denied as a whole, only this run's own script.** 7.5 names
-  "the generated gate script", singular, and `denied_write_paths` follows it literally.
-  A `permissive` run could therefore rewrite a concurrent run's live script, which 7.5
-  says is read fresh on every invocation. This is live now rather than latent: ticket 05
-  detached the spawn, so eight runs can be in flight at once and a `permissive` one among
-  them can reach the other seven's scripts. It is smaller than the shell hole above only
-  because shell already reaches
-  every one of these paths. Ticket 04 put two more files in there, the diff stat's
-  scratch indexes, and the section above says what a `permissive` run rewriting one
-  costs: the stat, and nothing else.
+- **A run outside a repo carves `spawn/<run-id>/no-worktree` out of its own denied spawn
+  directory.** That path is the run's `worktree` scope when it has no checkout, and the
+  carve-out lets the run write there the way any run writes its own worktree. Nothing
+  creates the path, it sits inside the run's own spawn directory, which `hydra reap`
+  removes whole, and it is what the code allowed before this ticket too. It is still a
+  hair off 7.5's rule that the run's own spawn directory is not carved out: this one
+  path is, because it doubles as the `worktree` scope.
+- **A gate compiled before build ticket 14 has no `own_write_paths` key, and `gate.py`
+  reads it with an empty default rather than failing.** A `KeyError` there would exit
+  non-zero printing nothing on stdout, and 6.6 measured `claude` treating exactly that
+  shape as permission for the call to proceed. The empty default is what keeps an
+  old gate answering rather than failing open the day the deny list grows again.
 - **A gate that fails to start still fails open on `claude`.** 6.6 measured it. The
   shebang is absolute and the script imports nothing outside the standard library,
   which is what that risk is spent on, and the sha check now catches a script that

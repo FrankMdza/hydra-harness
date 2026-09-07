@@ -342,7 +342,7 @@ capability allowlist and the admission sits in the document pointing at a policy
 
 | Provider | Where the config goes | Launch flags |
 |---|---|---|
-| `claude` | `~/hydra/spawn/<run-id>/mcp.json` | `--mcp-config <file>`, plus `--strict-mcp-config` on recorded runs only |
+| `claude` | `~/hydra/spawn/<run-id>/mcp.json` | `--mcp-config <file>`, plus `--strict-mcp-config` on recorded runs only; `judge` carries the second flag and no file |
 | `cursor-agent` | `<worktree>/.cursor/mcp.json` | cwd or `--workspace`, plus `CURSOR_DATA_DIR` and a per-server `mcp enable` |
 | `agy` | `<worktree>/.agents/mcp_config.json` | `--add-dir <worktree>` |
 
@@ -404,7 +404,14 @@ error message rather than a lost session.
 servers on all three providers. The gate blocks every call, so nothing executes, but on `agy` the
 server process still starts and its tool descriptions still reach the model's context. `claude`
 closes this with `--strict-mcp-config`, which stops the inherited servers starting at all, and
-Cursor closes it with a per-run `mcp disable` under the redirect. `agy` has neither, and **Hydra
+Cursor closes it with a per-run `mcp disable` under the redirect. On `claude` the claim was
+re-measured under ticket 43 on 2.1.263, 2026-09-06, with the free probe and a stub server in each
+scope: a user-scope server in `~/.claude.json` and a project-scope one in `.mcp.json` both load with
+no flags, and neither loads under `--restricted`, with or without `--strict-mcp-config`. A server
+passed on `--mcp-config` loads under `--restricted`. So `--restricted` drops what settings define and
+keeps what the argv passes, and a `judge` run, which passes nothing, gets an empty set on this
+version. The flag is on the `judge` argv anyway, because the vendor's help text ties skipping MCP to
+`--strict-mcp-config` rather than to `--restricted`, and the argv should say what it means. `agy` has neither, and **Hydra
 never calls `agy mcp disable`**, because it is global rather than per run: one delegated child would
 turn a server off for every future run and for the human's own interactive use.
 
@@ -487,8 +494,11 @@ builds nothing on it, which is section 2's rule applied to protection the user o
 
 **`--restricted` is used for `judge` and nowhere else.** It ignores user, project and local settings
 while honouring `--settings`, refuses `bypassPermissions`, gates writes to settings and
-tool-configuration files, and drops MCP entirely. Stripping Bash and dropping MCP is the point for a
-policy that allows nothing and a cost everywhere else.
+tool-configuration files, and drops every MCP server the settings define while keeping one passed on
+`--mcp-config`. Ticket 23 measured "drops MCP entirely" on 2.1.257 and ticket 43 measured the
+narrower reading on 2.1.263, which is why `judge` carries `--strict-mcp-config` as well (6.5).
+Stripping Bash and dropping MCP is the point for a policy that allows nothing and a cost everywhere
+else.
 
 **`--setting-sources project` is measured and deliberately unused.** It drops the user's hooks while
 keeping all 25 tools, `bypassPermissions` and Hydra's own `--settings` hooks, so isolation on
@@ -553,16 +563,21 @@ claude --print \
   --verbose \
   --include-hook-events \
   --restricted \
+  --strict-mcp-config \
   --settings ~/hydra/spawn/<run-id>/settings.json \
   --model <model> \
   <task string with preamble>
 ```
 
-No `--permission-mode`, which `--restricted` refuses. No `--mcp-config`, which `--restricted` drops
-anyway. No `--forward-subagent-text`, because `judge` allows nothing and spawns nothing.
+No `--permission-mode`, which `--restricted` refuses. No `--mcp-config`, and `--strict-mcp-config`
+beside its absence, so the server set is empty by argument rather than by what `--restricted`
+happens to drop this version. No `--forward-subagent-text`, because `judge` allows nothing and
+spawns nothing. The pre-flight probe carries both flags on a `judge` run, so `mcp.resolved` is a
+measured `[]` rather than null (ticket 43).
 
 **`--verbose` is not optional.** `--print --output-format=stream-json` refuses to start without it:
-`When using --print, --output-format=stream-json requires --verbose`. Measured on 2.1.257.
+`When using --print, --output-format=stream-json requires --verbose`. Measured on 2.1.257 and again
+on 2.1.263, 2026-09-06.
 
 **`< /dev/null` came off, because it was a finding about a pipe.** Through a pipe on 2.1.257,
 `claude` waits three seconds for stdin and writes `no stdin data received in 3s, proceeding without
@@ -668,14 +683,17 @@ as a step and `write_file` as a permission rule, so the table needs both.
 `provider_native`.** A run that is linked a skill and cannot invoke it was given a listing entry
 rather than a skill. Ticket 39 measured the delivery on `claude`: an allowed `Skill` call brings the
 body into context with no file read the gate sees, so the capability carries that tier on its own.
-`ToolSearch` stays in `provider_native` until ticket 43 says whether MCP tools arrive deferred.
+`ToolSearch` answers to `skill_invoke` too, for the same reason. Ticket 43 measured on 2.1.263 that
+an MCP tool passed on `--mcp-config` lands in print mode's `deferred_tools_delta` listing, so a
+policy that admits a server and denies `ToolSearch` has admitted a listing entry the model cannot
+call. `ToolSearch` fetches schemas and executes nothing; the gate judges the call that follows.
 
 ### 7.2 The five policies
 
 | Name | What it allows |
 |---|---|
 | `judge` | nothing |
-| `curate` | reads the corpus, the skill store and its skill snapshot, invokes linked skills, writes only inside its own checkout of the store |
+| `curate` | reads the corpus, the skill store, its skill snapshot and its own checkout of the store, invokes linked skills, writes only inside its own checkout of the store |
 | `read-only` | reads inside the worktree and its skill snapshot, invokes linked skills, no shell, no writes |
 | `standard` | reads, writes, shell and network reads inside the worktree, reads its skill snapshot, invokes linked skills |
 | `permissive` | everything, and the only policy that may spawn in-process subagents |
