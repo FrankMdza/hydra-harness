@@ -970,11 +970,11 @@ fn the_provider_native_tools_belong_to_permissive_alone() {
     // after the gate script was written still reaches the compiled gate.
     //
     // `Skill` used to be here. Map ticket 39 moved it to `skill_invoke` on
-    // 2026-09-06, and the test below is where it lives now.
+    // 2026-09-06, and the test below is where it lives now. `ToolSearch`
+    // followed it on map ticket 43, same day, and sits in the same test.
     for tool in [
         "CronCreate",
         "SendMessage",
-        "ToolSearch",
         "TaskCreate",
         "TaskGet",
         "TaskList",
@@ -1005,6 +1005,34 @@ fn every_policy_that_reads_at_all_may_invoke_a_linked_skill() {
         );
     }
     let judge = Gate::new("judge").ask("Skill", json!({ "skill": "hydra-sentinel" }));
+    assert!(
+        judge.denied_for("hydra/capability"),
+        "judge allows nothing, and the refusal is a capability one: {}",
+        judge.reason
+    );
+}
+
+#[test]
+fn every_policy_that_may_invoke_a_skill_may_also_fetch_a_tool_schema() {
+    // Map ticket 43, 2026-09-06. `claude` 2.1.263 hands MCP tools to a print-mode
+    // run deferred: the probe's `deferred_tools_delta` listed
+    // `mcp__hydra-probe__ping` beside fifteen deferred built-ins, and a deferred
+    // tool needs `ToolSearch` before anything can call it. A policy that admits a
+    // server and denies `ToolSearch` has admitted a listing entry the model
+    // cannot reach, which is ticket 39's failure on a second tool.
+    //
+    // `ToolSearch` fetches schemas and executes nothing. The gate judges the call
+    // that follows, which is why this sits beside `Skill` rather than beside
+    // `mcp_call`.
+    for policy in ["read-only", "standard", "curate", "permissive"] {
+        let decision = Gate::new(policy).ask("ToolSearch", json!({ "query": "select:Read" }));
+        assert!(
+            decision.allowed,
+            "{policy} may invoke a skill and cannot fetch a tool schema: {}",
+            decision.reason
+        );
+    }
+    let judge = Gate::new("judge").ask("ToolSearch", json!({ "query": "select:Read" }));
     assert!(
         judge.denied_for("hydra/capability"),
         "judge allows nothing, and the refusal is a capability one: {}",

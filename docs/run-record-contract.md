@@ -267,10 +267,14 @@ worktree and model, one run with nine injected links and one without: bare entri
 injection changes what the model sees of skills Hydra never touched, and only the provider's own
 listing records it. `claude` and `agy` both expose it for free. On `cursor-agent` it costs a paid
 run or a read of the vendor's session store, so the field is optional there and a reader must handle
-its absence rather than treating it as an empty listing.
+its absence rather than treating it as an empty listing. It is absent on a `claude` `judge` run too,
+because that run's probe is `--restricted` and a restricted probe lists no skill the filesystem
+offers (ticket 43).
 
 **`mcp.injected` and `mcp.resolved` are identical on a recorded `claude` run and can differ
-everywhere else.** `--strict-mcp-config` makes the set an argument Hydra wrote rather than the state
+everywhere else.** That holds for all five policies since ticket 43: `judge` passes
+`--strict-mcp-config` with no file, so both are empty and both are measured.
+`--strict-mcp-config` makes the set an argument Hydra wrote rather than the state
 of five directories at spawn time. An interactive `claude` run keeps the human's servers, and `agy`
 has no per-run off switch at all, so on those two the difference is the record's only account of
 what the run actually got.

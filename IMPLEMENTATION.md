@@ -77,7 +77,7 @@ Provider versions this build has been measured against:
 
 | Provider | Version | Read |
 |---|---|---|
-| `claude` | 2.1.263 | 2026-09-06. The specs were written against 2.1.257. Every flag in 6.7 still runs, and one claim about a flag has expired: `--restricted` no longer drops MCP, which the section on `judge` below has |
+| `claude` | 2.1.263 | 2026-09-06. The specs were written against 2.1.257. Every flag in 6.7 still runs, and one claim about a flag was half wrong: `--restricted` drops what settings define and keeps what `--mcp-config` passes, which the section on `judge` below has. `tests/drift.rs` re-measures it per suite run |
 | `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-06, unchanged since 2026-09-02. Routed by ticket 09 on this build; the section on it below says what was measured and what was read off the bundle |
 | `agy` | 1.1.26, then 1.1.27 | 2026-09-06. Routed by ticket 10, and **it self-updated in the middle of that ticket**: the probes below were measured on 1.1.26 and the recorded run an hour later reported 1.1.27. Every measured claim held across the move, and the section on it says which came from which build |
 
@@ -327,24 +327,26 @@ name and body framed by its length.** `README.md` is left out: it is prose about
 policies rather than one of them, and a wording fix should not move a value every run
 record carries. The framing is what stops two directories colliding by concatenation.
 
-**Twenty of `claude`'s twenty-nine tools answer to no capability the five policies speak
+**Nineteen of `claude`'s twenty-nine tools answer to no capability the five policies speak
 in.** 7.1 denies a tool name the table does not recognise, so a table holding only the
 nine names that answer to the seven capabilities of the coverage matrix would deny the
-other twenty under `permissive`, which is supposed to allow everything. They map to one
-capability, `provider_native`, granted by `permissive` alone. One row rather than twenty
+other nineteen under `permissive`, which is supposed to allow everything. They map to one
+capability, `provider_native`, granted by `permissive` alone. One row rather than nineteen
 invented categories, and 7.1's drift check still fires on a thirtieth name.
 
-**It was twenty-one until map ticket 39 split `Skill` out on 2026-09-06.** That is what
+**It was twenty-one until 2026-09-06, when two moved out in one day.** Map ticket 39 split
+`Skill` off to `skill_invoke` and ticket 43 sent `ToolSearch` after it. That is what
 splitting one of them costs: a row in `src/policy/table.rs`, an entry in four policy
-files, and a `policy_sha` that moves. The section on the skill store below has the whole
-change.
+files, and a `policy_sha` that moves. `ToolSearch` cost only the row, because every policy
+granting `skill_invoke` already grants what it needed. The section on the skill store
+below has the first change in full.
 
-**`standard` still denies `ToolSearch`.** That follows from the paragraph above and it is
-a real capability loss on ordinary coding runs, in the direction 7.1 chose on purpose: an
-allowlist fails toward a run that cannot do its job, which someone notices. Ticket 43
-decided it on 2026-09-06: MCP tools do arrive deferred in print mode, measured off the
-probe's `deferred_tools_delta`, so `ToolSearch` moves beside `skill_invoke`. Build ticket
-16 carries it, and until then `standard` denies it as described.
+**`standard` allows `ToolSearch` since build ticket 16.** MCP tools arrive deferred in
+print mode on 2.1.263, measured off the probe's `deferred_tools_delta`, so a policy that
+admits a server and denies `ToolSearch` has admitted a listing entry the model cannot
+call. The tool fetches schemas and executes nothing, and the gate judges the call that
+follows, which is why it answers to `skill_invoke` rather than to `mcp_call`. `judge`
+still refuses it with `hydra/capability`, along with everything else.
 
 **Two protected configs are still paths rather than files.** 7.5 denied seven paths under
 every policy before ticket 40 grew the list to the full deny list the section above
@@ -563,8 +565,9 @@ Harness spec 6.4's "a run may invoke what it was linked and may read it", 7.1's
 build ticket 13 the same day. Frank authorized the edit to protected config #1 that carries it.
 
 `Skill` answers to `Capability::SkillInvoke` in `src/policy/table.rs`, out of the twenty-one
-that answer to `provider_native` and now twenty. `read-only`, `standard`, `curate` and
-`permissive` grant it; `judge` grants nothing and refuses it with `hydra/capability`.
+that answered to `provider_native` and now nineteen, `ToolSearch` having followed it out under
+build ticket 16. `read-only`, `standard`, `curate` and
+`permissive` grant both; `judge` grants nothing and refuses them with `hydra/capability`.
 
 `Scope::SkillSnapshot` is the run's own checkout of the store,
 `~/hydra/skills-snapshots/<sha>/`, on `file_read` for those same four and on no policy's
@@ -648,7 +651,8 @@ as written, and it is the same shape as the linked-skill finding above, which is
 ticket 39. Nothing here was changed to fix it and the document says it out loud instead.
 
 **`judge` is the one launch shape that can be handed no server**, so 6.1 item 6's check
-has exactly one instance today. 6.7's `judge` argv carries no `--mcp-config`, so a
+has exactly one instance today. 6.7's `judge` argv carries `--strict-mcp-config` and no
+`--mcp-config`, so a
 document admitting a server to `judge` is a launch that cannot deliver, and the run is
 refused with `mcp_unavailable` before anything spawns. Everything else delivers what it
 admits, and a policy that admits nothing proceeds untouched, which is what keeps `judge`
@@ -683,53 +687,82 @@ ships.** The server was added by hand for the measurement and taken out again, s
 record's `doc_sha` names a document no longer on disk, which is the honest thing for a
 record to do and worth knowing before anyone tries to reproduce it.
 
-### `--restricted` no longer drops MCP, so a `judge` run inherits the human's servers
-
-This is the edge of the design rather than a gap in the code, and it needs a decision
-rather than an implementation. Nothing was changed for it.
+### `--restricted` drops what settings define, and `judge` says so on the argv
 
 Ticket 23 measured `claude` 2.1.257 dropping all MCP under `--restricted` "despite the
-help text saying otherwise", and 6.5 and 6.7 were both written from that: 6.7 leaves
+help text saying otherwise", and 6.5 and 6.7 were both written from that: 6.7 left
 `--mcp-config` off the `judge` argv because "`--restricted` drops it anyway", and 6.5
 says `claude` closes ticket 27's inherited-server residue.
 
-Measured 2026-09-06 on 2.1.263 with the free probe, no API call: `claude --restricted
---mcp-config <file>` resolved the server in that file. 2.1.263's own `--help` now says
+Build ticket 08 found half of that expiring on 2.1.263. `claude --restricted --mcp-config
+<file>` resolved the server in that file, and 2.1.263's own `--help` now says
 `--restricted` ignores user, project and local settings files and "add
---strict-mcp-config to skip MCP servers too". Both point the same way, so the claim has
-expired rather than being wrong when it was made.
+--strict-mcp-config to skip MCP servers too". From one measurement it inferred another,
+that settings-defined servers ride the same path and a `judge` run therefore inherits the
+human's. **That inference was wrong**, and map ticket 43 measured the rest on 2026-09-06
+rather than reasoning about it. The free probe, a stub user-scope server in a scratch
+`HOME`'s `.claude.json` and a stub project-scope server in the cwd's `.mcp.json`:
 
-What follows for this build. A `judge` run carries neither MCP flag, so on 2.1.263 it
-keeps whatever the human has configured in `~/.claude.json`. The gate refuses every
-`mcp__` call under `judge`, which allows nothing at all, so what is left is server
-processes starting and their tool descriptions reaching the model's context. That is
-ticket 27's residue, arriving on the one provider 6.5 says is free of it.
+| Server defined in | no flags | `--restricted` | `--restricted --strict-mcp-config` |
+|---|---|---|---|
+| `~/.claude.json`, user scope | loads | dropped | dropped |
+| `.mcp.json` in the cwd, project scope | loads | dropped | dropped |
+| `--mcp-config <file>` | loads | loads | loads |
 
-**Unmeasurable on this machine, and said out loud rather than assumed.** Nobody has a
-user-scope MCP server configured here, so the inheritance itself was not observed. What
-was observed is that `--restricted` keeps servers passed on `--mcp-config`, which is the
-same code path in the binary. Measuring the other half means writing a server into the
-human's own config, which is theirs to do.
+So `--restricted` drops what settings define and keeps what the argv passes. A `judge`
+run passes nothing, and got an empty set on 2.1.263 before this ticket touched anything.
+The scratch `HOME` is what made the measurement possible without writing a server into
+the human's own config.
 
-The fix is one flag: `--strict-mcp-config` on the `judge` argv, with no `--mcp-config`
-beside it, which would give that policy an empty server set the way the other four get
-theirs. It is not taken here because 6.7 writes the `judge` command line and changing it
-is a design decision. Whoever takes it should also decide what a `judge` run's
-`mcp.resolved` becomes, since with the flag the probe could answer for it and today it
-is null.
+**Build ticket 16 carries the code, 2026-09-06.** Three things landed, and a fourth
+turned up on the way.
 
-**Map ticket 43 took it on 2026-09-06, and the inference above was wrong.** The same
-free probe, run under a scratch `HOME` holding a stub user-scope server and in a directory
-holding a stub `.mcp.json`: both load with no flags and neither loads under `--restricted`.
-Only a server passed on `--mcp-config` survives the flag. So a `judge` run on 2.1.263 gets
-an empty set already, and "same code path" was two paths. The flag goes on the argv anyway,
-the probe runs under `judge`'s flags so `mcp.resolved` is `[]`, and build ticket 16 carries
-both. Until it lands, this section's "keeps whatever the human has configured" is false
-and the code it describes is unchanged.
+**`judge` gains `--strict-mcp-config`, with no `--mcp-config` beside it.** Not to close a
+hole, since there is none on this build, but because the vendor's help ties skipping MCP
+to that flag rather than to `--restricted`, so the argv names the guarantee instead of
+resting on how `--restricted` reads settings this month.
+
+**The probe carries the launch's own MCP flags, from one function.**
+`claude::mcp_flags` answers what a shape does about `--restricted`, `--mcp-config` and
+`--strict-mcp-config`, and `claude::argv` and `claude::probe_argv` both read it, so the
+probe cannot answer for a server set the run will not have. `crate::mcp::Probe` used to
+be `Strict(file)` or `Unanswerable` and is now the policy name and the file, which is
+what those flags come from. A `judge` record's `mcp.resolved` is `[]` and no longer null.
+
+**`tests/drift.rs` re-measures the vendor per suite run.** Two tests, both free, and the
+only two in the suite that launch a provider. The first drives the launch's own producer,
+`claude::resolve_in`, with a `judge` `Probe` and reads its `Resolved` back: `mcp` is
+`Some([])` and `skills` is `None`. The second runs the same stubs with the flags off and
+gets both servers, which is what keeps the first from passing because a stub was
+unreadable. They skip with a printed reason when `claude` is not on the PATH, and every
+call they make, the version check included, runs under a scratch `HOME` and a scratch cwd
+that a passing test deletes. The failure message carries the version string, so the day
+the answer moves the failure says which build moved it. The pair costs 0.7s to 1.3s here.
+
+`resolve_in` is `resolve` with the home and the environment as arguments, and that test is
+why it exists. `ChildEnv::build` drops a `HOME` that disagrees with the passwd entry,
+which is right for a launch and wrong for measuring the binary, so the test sets it back
+with `ChildEnv::set` and passes the same path for the transcript.
+
+**A restricted probe reports no skills either, which the ticket did not anticipate.**
+Measured the same evening on 2.1.263, a scratch `HOME` with one user-scope skill and a
+cwd with one project-scope skill: the `skill_listing` attachment held 14 names with no
+flags and the binary's own 12 under `--restricted`. Filesystem-discovered skills are
+dropped along with the servers. Left alone, that would have told the launch-time collision
+check that every skill Hydra linked had lost to something else, and refused every `judge`
+run on a machine with a non-empty store. So `claude::resolve` answers `None` for
+`skills.resolved` when the probe ran restricted, which is the stance contract 5.3 already
+takes on an unanswered listing, and prints one line on stderr saying it did. That line is
+for parity: a probe that fell over already prints, and without it the two nulls read the
+same on the way past. **The finding underneath it reaches no field.** A
+`judge` run reads none of the skills Hydra linked into its checkout. Nothing is lost
+today, because `judge` grants no `skill_invoke` and could not have called them, and the
+question of whether a `judge` run should be linked skills at all belongs on the map.
 
 ### Asking `claude` which servers it got
 
-**One probe answers both `resolved` fields.** Ticket 07's free probe already ran per
+**One probe answers both `resolved` fields**, except under `judge`, where it answers the
+MCP one and the section above says why. Ticket 07's free probe already ran per
 launch; it now carries the run's own `--mcp-config` and `--strict-mcp-config`, and its
 transcript's `deferred_tools_delta` attachment is the answer. Measured 2026-09-06 on
 2.1.263 against `tests/fixtures/mcp-probe-server.py`, a stdio server written for this:
@@ -745,13 +778,12 @@ reached for as a speed lever, which is the decision ticket 07 left open. The cos
 that every admitted server starts twice per launch, once for the probe and once for the
 run.
 
-**A `judge` run's `resolved` is null rather than empty**, and it is one of three producers
-of that null. The probe is not `--restricted`, so it cannot reproduce what a `judge` run
-resolves, and an empty array there would be a claim rather than a measurement. The other
-two are a probe that failed, and a run with no checkout, where the probe never runs because
-it is the same process that answers `skills.resolved` and 6.4 gives that run no worktree to
-ask in. Contract 5.3 already requires a reader to tell all three apart from an empty
-listing.
+**A `judge` run's `resolved` is a measured `[]`** since build ticket 16. The probe carries
+that policy's own `--restricted --strict-mcp-config`, so the empty array is what the
+binary reported rather than what Hydra assumed. Two producers of null are left: a probe
+that failed, and a run with no checkout, where the probe never runs because it is the same
+process that answers `skills.resolved` and 6.4 gives that run no worktree to ask in.
+Contract 5.3 already requires a reader to tell both apart from an empty listing.
 
 **A server that connects and offers no tool is invisible to this reading**, since the
 answer is derived from tool names. Nothing on this machine has one, and the run's own
@@ -1775,8 +1807,9 @@ asks for still works.
 
 **`--mcp-config` and `--strict-mcp-config` are passed together on every non-`judge`
 recorded run**, which is how 6.7 pairs them, and the section on MCP below says what the
-file they point at holds. A `judge` run carries neither, which is 6.7's own argv and is
-now the reason its policy can be handed no server.
+file they point at holds. A `judge` run carries the strict flag alone, which is what makes
+its empty server set an argument rather than a side effect of `--restricted`, and the
+absent file is why its policy can be handed no server.
 
 **`< /dev/null` is dropped**, and harness spec 6.7 now says why.
 
@@ -1834,7 +1867,9 @@ the skill store above has the other half, which is that the link resolves outsid
 `skill_invoke` and the `skill_snapshot` scope, and run
 `01a078bc-420f-7b23-8e67-2dfc9f98f859` is the same probe under `standard` with both calls
 allowed. The two paragraphs above stand as what the records said before that, which is
-the point of keeping them. `ToolSearch` is the half still denied.
+the point of keeping them. `ToolSearch` followed the same day, on map ticket 43 and build
+ticket 16, so neither half is denied under `standard` now. No run has exercised it: the
+gate answers it in `tests/gate.rs` and nothing has asked a model for it.
 
 ## What the first slice measured
 

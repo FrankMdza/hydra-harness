@@ -38,11 +38,15 @@ pub enum Capability {
     McpCall,
     SubagentSpawn,
     /// Invoking a skill the run was linked (7.1). Its own capability rather than
-    /// one of the twenty that answer to [`Capability::ProviderNative`], because
+    /// one of the nineteen that answer to [`Capability::ProviderNative`], because
     /// a run that is linked a skill and cannot invoke it was given a
     /// listing entry rather than a skill. Ticket 39 measured the delivery on
     /// `claude`: an allowed `Skill` call brings the body into context with no
     /// file read the gate sees, so this carries that tier on its own.
+    ///
+    /// `ToolSearch` answers here too, since ticket 43. A deferred tool needs it
+    /// before anything can call the tool, so denying it to a run that was handed
+    /// a server hands that run a listing entry the same way.
     SkillInvoke,
     /// The tools that exist only inside one provider's own product surface and
     /// that no policy in 7.2 grants. See `table.rs` for why this row exists.

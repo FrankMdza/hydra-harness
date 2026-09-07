@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use hydra::mcp::{self, Checkout, Document};
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
-use hydra::provider::Provider;
+use hydra::provider::{Provider, claude};
 use hydra::record::Refusal;
 use hydra::run::Call;
 
@@ -103,6 +103,36 @@ fn a_policy_that_admits_nothing_still_gets_a_file() {
 }
 
 #[test]
+fn the_probe_a_judge_launch_would_run_is_the_shape_that_answers_for_servers() {
+    // Ticket 43, the argv half. This checks the flags a `judge` launch hands the
+    // probe and Hydra's rule about when a probe's answer may be recorded. It
+    // launches nothing, so it says nothing about what the binary does with those
+    // flags: `tests/drift.rs` runs them and reads the empty set back.
+    let document = Document::parse(DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::Claude, "judge", Checkout::Hydra);
+    assert!(
+        plan.undeliverable.is_some(),
+        "the launch writes no file for this policy, so the probe passes none"
+    );
+
+    let shape = mcp::Probe {
+        policy: "judge",
+        config: None,
+    };
+    let probe = claude::probe_argv("01a07600-0000-7000-8000-00000000000b", shape);
+    assert!(probe.iter().any(|a| a == "--restricted"), "{probe:?}");
+    assert!(
+        probe.iter().any(|a| a == "--strict-mcp-config"),
+        "{probe:?}"
+    );
+    assert!(!probe.iter().any(|a| a == "--mcp-config"), "{probe:?}");
+    assert!(
+        claude::mcp_flags(shape).answers_for_servers(),
+        "with the strict flag the set is what the argv says, so the record claims it"
+    );
+}
+
+#[test]
 fn the_launch_check_refuses_a_judge_run_that_admits_a_server() {
     // 6.1 item 6. `verdicts` is admitted to `judge`, and 6.7's `judge` argv
     // carries no `--mcp-config`, so this launch cannot deliver it.
@@ -163,7 +193,12 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
         "depth": 0,
         "pid": null,
         "process_start_time": null,
-        "mcp": { "doc_sha": document.sha, "injected": [], "resolved": null },
+        // `resolved` is `[]` and not null on this policy since ticket 43. The
+        // probe runs before this refusal, under the run's own
+        // `--restricted --strict-mcp-config`, and measures the empty set. This
+        // line is written by hand, so what follows checks that the validator and
+        // the reader take that shape, not that the probe produces it.
+        "mcp": { "doc_sha": document.sha, "injected": [], "resolved": [] },
         "subscription": "anthropic",
     });
 
@@ -198,6 +233,15 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
         text.lines().count(),
         2,
         "run_start, run_end, nothing between"
+    );
+
+    let start: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(
+        start["hydra"]["mcp"]["resolved"],
+        serde_json::json!([]),
+        "an empty array survived the round trip as an empty array. Contract 5.3 \
+         needs a reader to tell it from null, and `tests/drift.rs` is what checks \
+         that a judge probe produces the empty one"
     );
 
     let end: serde_json::Value = serde_json::from_str(text.lines().next_back().unwrap()).unwrap();

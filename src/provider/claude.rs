@@ -9,16 +9,21 @@
 //! set an argument Hydra wrote rather than the state of five directories at spawn
 //! time. Without the strict flag the record could report only what Hydra intended.
 //!
-//! **`--restricted` does not drop MCP on 2.1.263, and the design says it does.**
-//! Measured 2026-09-06 with the free probe below: `--restricted --mcp-config <file>`
-//! resolved the server in the file, and 2.1.263's own `--help` now says "add
-//! --strict-mcp-config to skip MCP servers too". Ticket 23 measured the opposite on
-//! 2.1.257 and 6.5 and 6.7 were written from it, so `judge` gets neither flag and, on
-//! this version, keeps whatever the human configured. The gate refuses every
-//! `mcp__` call under `judge`, so what is left is tool descriptions reaching the
-//! model's context, which is ticket 27's residue arriving on the provider that was
-//! supposed to be free of it. Nothing was changed here: 6.7 fixes the `judge` argv,
-//! adding a flag to it is a design decision, and `IMPLEMENTATION.md` records it.
+//! **`--restricted` drops what settings define and keeps what the argv passes.**
+//! Ticket 23 measured 2.1.257 dropping all MCP under the flag, and 6.5 and 6.7
+//! were written from that. Re-measured 2026-09-06 on 2.1.263 with the free probe
+//! below, a stub server in each settings scope: a user-scope server in a scratch
+//! `HOME`'s `.claude.json` and a project-scope one in the cwd's `.mcp.json` both
+//! load with no flags, and neither loads under `--restricted`. A server passed on
+//! `--mcp-config` loads either way. So a `judge` run, which passes no file, gets
+//! an empty set on this version.
+//!
+//! **`judge` carries `--strict-mcp-config` anyway**, ticket 43. Not to close a
+//! hole, since there is none on 2.1.263, but because the vendor's help ties
+//! skipping MCP to that flag rather than to `--restricted`, so the argv names the
+//! guarantee instead of resting on how `--restricted` reads settings this month.
+//! `tests/drift.rs` runs the probe under both shapes and fails the day either
+//! moves.
 //!
 //! **`< /dev/null` is dropped, because a pty is not a pipe.** 6.7 adds it so
 //! `claude` does not wait three seconds for stdin and write `no stdin data received
@@ -50,15 +55,84 @@ pub struct Launch<'a> {
 
 /// `judge` takes `--restricted` and a shorter line than the other four.
 ///
-/// 6.7: no `--permission-mode`, which `--restricted` refuses; no `--mcp-config`,
-/// which it drops anyway; no `--forward-subagent-text`, because `judge` allows
-/// nothing and spawns nothing. The cost of `--restricted` everywhere else is that
-/// it strips Bash and drops MCP, which is the point for a policy that allows
-/// nothing and unaffordable for the rest.
+/// 6.7: no `--permission-mode`, which `--restricted` refuses; `--strict-mcp-config`
+/// with no `--mcp-config` beside it; no `--forward-subagent-text`, because `judge`
+/// allows nothing and spawns nothing. The cost of `--restricted` everywhere else is
+/// that it strips Bash and drops every server settings define, which is the point
+/// for a policy that allows nothing and unaffordable for the rest.
 pub const RESTRICTED_POLICY: &str = "judge";
 
+/// The three flags 6.7 gives one invocation that decide what MCP it reads.
+///
+/// **The launch and the probe both derive them from [`mcp_flags`]**, so the
+/// probe cannot answer for a server set the run will not have. Before ticket 43
+/// the probe decided its own flags from whether a config file existed, which
+/// left `judge` unanswerable: the run was `--restricted` and the probe was not.
+pub struct McpFlags<'a> {
+    /// `--restricted`. `judge` alone takes it, and it drops every server the
+    /// human's settings define.
+    pub restricted: bool,
+    /// The file `--mcp-config` names, when this shape carries one.
+    pub config: Option<&'a Path>,
+    /// `--strict-mcp-config`, which makes the server set an argument Hydra wrote
+    /// rather than the state of five directories at spawn time.
+    pub strict: bool,
+}
+
+/// What one launch shape does about MCP, from the policy name and the file.
+///
+/// One function, because two answers to one question is how a later edit to
+/// either half goes unnoticed. [`argv`] writes the launch from it and
+/// [`probe_argv`] writes the probe.
+pub fn mcp_flags<'a>(shape: crate::mcp::Probe<'a>) -> McpFlags<'a> {
+    let restricted = shape.policy == RESTRICTED_POLICY;
+    McpFlags {
+        restricted,
+        // 6.7's `judge` argv carries no file, and this refuses one even when a
+        // caller hands it one. `mcp::plan` never does, and the two halves answer
+        // the same question on purpose.
+        config: if restricted { None } else { shape.config },
+        // `judge` gets the strict flag on its own (ticket 43). Everywhere else
+        // the two ride together: `--mcp-config` alone would add Hydra's servers
+        // to whatever the human has, and the record could then report only what
+        // Hydra intended.
+        strict: restricted || shape.config.is_some(),
+    }
+}
+
+impl McpFlags<'_> {
+    /// The flags as argv, in 6.7's order.
+    pub fn argv(&self) -> Vec<String> {
+        let mut argv = Vec::new();
+        if self.restricted {
+            argv.push("--restricted".to_string());
+        }
+        if let Some(config) = self.config {
+            argv.push("--mcp-config".to_string());
+            argv.push(config.display().to_string());
+        }
+        if self.strict {
+            argv.push("--strict-mcp-config".to_string());
+        }
+        argv
+    }
+
+    /// Whether a probe carrying these flags answers for the run's servers.
+    ///
+    /// The strict flag is the whole of it. With it the set is what the argv says,
+    /// and without it the answer is whatever five directories held at spawn time,
+    /// which is the machine's answer rather than this run's.
+    pub fn answers_for_servers(&self) -> bool {
+        self.strict
+    }
+}
+
 pub fn argv(launch: &Launch<'_>) -> Vec<String> {
-    let restricted = launch.policy == RESTRICTED_POLICY;
+    let flags = mcp_flags(crate::mcp::Probe {
+        policy: launch.policy,
+        config: launch.mcp,
+    });
+    let restricted = flags.restricted;
 
     let mut argv = vec![
         "--print".to_string(),
@@ -72,29 +146,21 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
         "--include-hook-events".to_string(),
     ];
 
-    if restricted {
-        argv.push("--restricted".to_string());
-    } else {
+    if !restricted {
         argv.push("--forward-subagent-text".to_string());
     }
+
+    // The MCP block, and `--restricted` inside it because that flag is one of the
+    // three that decide what a run reads. 6.7 prints it before `--settings` on a
+    // `judge` line and after it on the other four; argv order is not semantic and
+    // one block is worth more than matching both spellings.
+    argv.extend(flags.argv());
 
     // 6.6: Hydra writes the config, so the gate reaches the child on this flag.
     // The user's own settings still load and their hooks still run, which is
     // composition rather than isolation and is what 6.6 chose on purpose.
     argv.push("--settings".to_string());
     argv.push(launch.settings.display().to_string());
-
-    // 6.7: both flags or neither, on a non-`judge` recorded run. The strict flag
-    // is what makes the set an argument Hydra wrote, which is what lets
-    // `run_start.mcp.injected` claim it. A `judge` run gets no file to point at,
-    // so the branch above and this one answer the same question twice on purpose.
-    if let Some(mcp) = launch.mcp
-        && !restricted
-    {
-        argv.push("--mcp-config".to_string());
-        argv.push(mcp.display().to_string());
-        argv.push("--strict-mcp-config".to_string());
-    }
 
     if !restricted {
         // 6.7: safe because a hook deny beats it, measured, and because a detached
@@ -117,15 +183,15 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
 /// nothing Hydra writes can reach that run whatever the document admits.
 /// [`crate::mcp::Plan::shortfall`] turns that into 6.1 item 6's refusal.
 ///
-/// **The reason is the argv and no longer the flag.** 6.7 justifies the omission
-/// with "`--restricted` drops MCP anyway", measured by ticket 23 on 2.1.257. That
-/// is false on 2.1.263, measured 2026-09-06, and the module comment above has the
-/// probe. The omission still holds because 6.7 writes the argv, which is why this
-/// answers on the policy name rather than on what the flag does.
+/// **The reason is the argv and not what a flag happens to do this month.** 6.7
+/// used to justify the omission with "`--restricted` drops MCP anyway", which
+/// ticket 23 measured on 2.1.257 and ticket 43 re-measured as half true on
+/// 2.1.263. Either way the argv carries no file, which is why this answers on the
+/// policy name.
 pub fn mcp_undeliverable(policy: &str) -> Option<&'static str> {
     (policy == RESTRICTED_POLICY).then_some(
-        "harness spec 6.7 gives a judge run --restricted and no --mcp-config, so no \
-         server Hydra writes can reach it",
+        "harness spec 6.7 gives a judge run no --mcp-config and --strict-mcp-config \
+         beside its absence, so no server Hydra writes can reach it",
     )
 }
 
@@ -233,11 +299,22 @@ const PROBE_MODEL: &str = "hydra-skill-preflight-not-a-model";
 /// objects with a `name` and an error string. **A server that connects and offers
 /// no tool is invisible to this reading**, which is the one thing it cannot see.
 ///
-/// **The probe carries the run's own MCP flags.** Without them it would resolve
-/// the human's servers and the record would claim them for a run that will not
-/// have them. `--strict-mcp-config` on the probe is chosen for that reason rather
-/// than reached for as a speed lever, and it means the probe starts every server
-/// the run will start, once more per launch.
+/// **The probe carries the run's own MCP flags**, [`mcp_flags`]'s and not its
+/// own. Without them it would resolve the human's servers and the record would
+/// claim them for a run that will not have them. `--strict-mcp-config` on the
+/// probe is chosen for that reason rather than reached for as a speed lever, and
+/// it means the probe starts every server the run will start, once more per
+/// launch. On `judge` that is no server at all and the answer is a measured `[]`.
+///
+/// **A `judge` probe answers nothing about skills.** It runs `--restricted`,
+/// which drops every skill the filesystem offers: measured 2026-09-06 on 2.1.263
+/// with a scratch `HOME`, the listing fell from 14 names to the binary's own 12
+/// when a user-scope and a project-scope skill were both on disk. So the listing
+/// a restricted probe reports cannot hold a name Hydra linked, and reporting it
+/// would tell the collision check that every linked skill lost to something else.
+/// Absent is the honest answer, and contract 5.3 already asks a reader to handle
+/// it. What that leaves unsaid is that a `judge` run reads none of the skills
+/// Hydra linked into its checkout, which no field carries today.
 ///
 /// Three details are load-bearing. `--session-id` names the transcript, so this
 /// reads a file it can predict rather than the newest one in a directory a
@@ -252,24 +329,37 @@ const PROBE_MODEL: &str = "hydra-skill-preflight-not-a-model";
 /// exposure a recorded run already has and is worth knowing about here, where
 /// nothing was asked of a model.
 pub fn resolve(worktree: &Path, mcp: crate::mcp::Probe<'_>) -> anyhow::Result<Resolved> {
-    use anyhow::Context;
-
     let env = crate::env::ChildEnv::build(crate::provider::Provider::Claude)?;
     let home = crate::env::real_home()?;
-    let session = uuid::Uuid::now_v7().to_string();
+    resolve_in(worktree, mcp, &home, &env)
+}
 
-    let mut args: Vec<String> = ["-p", "x", "--model", PROBE_MODEL, "--session-id", &session]
-        .iter()
-        .map(|arg| (*arg).to_string())
-        .collect();
-    if let crate::mcp::Probe::Strict(config) = mcp {
-        args.push("--mcp-config".to_string());
-        args.push(config.display().to_string());
-        args.push("--strict-mcp-config".to_string());
-    }
+/// [`resolve`], with the home and the environment named rather than discovered.
+///
+/// **One caller passes something other than the machine's own, and it is a
+/// test.** `tests/drift.rs` has to run this under a scratch `HOME` holding stub
+/// servers, because the alternative is writing a server into the human's
+/// `~/.claude.json`. [`crate::env::ChildEnv::build`] drops a `HOME` that
+/// disagrees with the passwd entry, which is the right rule for a launch and the
+/// wrong one for measuring the binary, so that test sets the variable afterwards
+/// through [`crate::env::ChildEnv::set`] and passes the same path here.
+///
+/// The two arguments travel together on purpose. A transcript is read out of the
+/// `HOME` the child was given, so a caller that moved one and not the other would
+/// look for the file in the wrong place.
+pub fn resolve_in(
+    worktree: &Path,
+    mcp: crate::mcp::Probe<'_>,
+    home: &Path,
+    env: &crate::env::ChildEnv,
+) -> anyhow::Result<Resolved> {
+    use anyhow::Context;
+
+    let session = uuid::Uuid::now_v7().to_string();
+    let flags = mcp_flags(mcp);
 
     let out = std::process::Command::new("claude")
-        .args(&args)
+        .args(probe_argv(&session, mcp))
         .current_dir(worktree)
         .env_clear()
         .envs(env.vars())
@@ -279,10 +369,7 @@ pub fn resolve(worktree: &Path, mcp: crate::mcp::Probe<'_>) -> anyhow::Result<Re
         .output()
         .context("running the skill listing probe")?;
 
-    let transcript = home
-        .join(".claude/projects")
-        .join(project_slug(worktree))
-        .join(format!("{session}.jsonl"));
+    let transcript = transcript_path(home, worktree, &session);
 
     // **The exit status says nothing and the output says everything.** The probe
     // is a run the binary is meant to refuse, so it exits however it likes and a
@@ -299,19 +386,75 @@ pub fn resolve(worktree: &Path, mcp: crate::mcp::Probe<'_>) -> anyhow::Result<Re
         )
     })?;
 
-    let tools = tool_listing(&text);
+    // **A null this side produces says so on stderr, like the other two.** A
+    // failed probe already prints, and without this line a `judge` run's null
+    // `skills.resolved` reads identically to a probe that fell over. The record
+    // cannot tell them apart yet, which is the map question the section on
+    // `--restricted` in `IMPLEMENTATION.md` writes up.
+    if flags.restricted {
+        eprintln!(
+            "hydra: the probe ran --restricted, which lists no skill the filesystem \
+             offers, so skills.resolved is null on this run by design"
+        );
+    }
+
+    // Two passes over the same transcript, because the servers come back through
+    // the reader `tests/drift.rs` uses too and the failures do not.
     Ok(Resolved {
-        skills: skill_listing(&text),
+        skills: if flags.restricted {
+            None
+        } else {
+            skill_listing(&text)
+        },
         // A probe that was not asked the run's own question answers nothing about
         // servers, whatever its own transcript says.
-        mcp: match mcp {
-            crate::mcp::Probe::Strict(_) => {
-                tools.as_ref().map(|listing| mcp_servers(&listing.added))
-            }
-            crate::mcp::Probe::Unanswerable => None,
+        mcp: if flags.answers_for_servers() {
+            resolved_servers(&text)
+        } else {
+            None
         },
-        failed_mcp: tools.map(|listing| listing.failed).unwrap_or_default(),
+        failed_mcp: tool_listing(&text)
+            .map(|listing| listing.failed)
+            .unwrap_or_default(),
     })
+}
+
+/// The whole free probe's argv, which [`resolve`] runs and a drift test repeats.
+///
+/// **One caller matters and it is not `resolve`.** The probe's flags have to be
+/// the launch's, and the only way to check that against the binary is to run this
+/// argv under a scratch `HOME` where stub servers can be written without touching
+/// the human's own config. `tests/drift.rs` does exactly that, so this is public.
+pub fn probe_argv(session: &str, mcp: crate::mcp::Probe<'_>) -> Vec<String> {
+    let mut argv: Vec<String> = ["-p", "x", "--model", PROBE_MODEL, "--session-id", session]
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect();
+    argv.extend(mcp_flags(mcp).argv());
+    argv
+}
+
+/// Where `--session-id` puts a probe's transcript.
+///
+/// **The cwd is canonicalized first.** Claude Code slugs the path it resolved,
+/// not the one it was handed: a probe run in `/tmp/x` on macOS writes to
+/// `-private-tmp-x`, measured 2026-09-06 on 2.1.263. A run's own worktree lives
+/// under `~/hydra/` and crosses no link, so this changes nothing there and makes
+/// the scratch directories a test uses reachable.
+pub fn transcript_path(home: &Path, cwd: &Path, session: &str) -> std::path::PathBuf {
+    let resolved = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    home.join(".claude/projects")
+        .join(project_slug(&resolved))
+        .join(format!("{session}.jsonl"))
+}
+
+/// The servers a probe's transcript says resolved, contract 5.3's `mcp.resolved`.
+///
+/// `None` when the transcript carries no tool listing at all, which is unanswered
+/// rather than empty. An empty list is a real answer and the one a `judge` probe
+/// gives.
+pub fn resolved_servers(transcript: &str) -> Option<Vec<String>> {
+    tool_listing(transcript).map(|listing| mcp_servers(&listing.added))
 }
 
 /// The first line the probe printed on either stream, for an error message.
@@ -541,13 +684,86 @@ mod tests {
     }
 
     #[test]
-    fn judge_carries_neither_mcp_flag_even_when_a_file_exists() {
-        // 6.7's `judge` shape. `mcp::plan` never hands this policy a file, and
-        // the argv refuses one anyway, because two answers to one question is
-        // how a later edit to either half goes unnoticed.
+    fn judge_carries_the_strict_flag_and_never_a_file() {
+        // 6.7's `judge` shape since ticket 43. `mcp::plan` never hands this
+        // policy a file, and the argv refuses one anyway, because two answers to
+        // one question is how a later edit to either half goes unnoticed. The
+        // strict flag rides alone, which is the one shape that means "no servers
+        // at all" rather than "these servers".
         let argv = argv(&launch("judge", Path::new("/tmp/s.json")));
         assert!(!argv.iter().any(|a| a == "--mcp-config"));
-        assert!(!argv.iter().any(|a| a == "--strict-mcp-config"));
+        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+        assert!(argv.iter().any(|a| a == "--restricted"));
+    }
+
+    #[test]
+    fn the_probe_carries_the_launchs_own_mcp_flags() {
+        // Ticket 43. The probe's answer is the run's answer only when the two
+        // argvs agree about MCP, so they come off one function and this is where
+        // that is checked.
+        for (policy, config) in [("judge", None), ("standard", Some(Path::new(MCP)))] {
+            let shape = crate::mcp::Probe { policy, config };
+            let probe = probe_argv("01a07600-0000-7000-8000-000000000001", shape);
+            let launched = argv(&Launch {
+                task: "hi",
+                model: None,
+                settings: Path::new("/tmp/s.json"),
+                policy,
+                mcp: config,
+            });
+            for flag in ["--restricted", "--mcp-config", "--strict-mcp-config"] {
+                assert_eq!(
+                    probe.iter().any(|a| a == flag),
+                    launched.iter().any(|a| a == flag),
+                    "{policy} passes {flag} on one of the two argvs and not the other"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_strict_probe_may_claim_the_runs_server_set() {
+        // Without the flag the set is whatever five directories held at spawn
+        // time, so an answer would be the machine's rather than this run's.
+        let judge = mcp_flags(crate::mcp::Probe {
+            policy: "judge",
+            config: None,
+        });
+        assert!(
+            judge.answers_for_servers(),
+            "an empty set is still a measurement"
+        );
+
+        let injected = mcp_flags(crate::mcp::Probe {
+            policy: "standard",
+            config: Some(Path::new(MCP)),
+        });
+        assert!(injected.answers_for_servers());
+
+        let nothing = mcp_flags(crate::mcp::Probe {
+            policy: "standard",
+            config: None,
+        });
+        assert!(!nothing.answers_for_servers());
+    }
+
+    #[test]
+    fn a_judge_probe_reads_no_servers_off_a_listing_that_holds_none() {
+        // A trimmed copy of what `tests/drift.rs` gets from the real binary, read
+        // through the same function `resolve` uses. That probe, 2026-09-06 on
+        // 2.1.263 under `--restricted --strict-mcp-config` with a stub server in
+        // each settings scope, listed fourteen deferred built-ins and no `mcp__`
+        // name at all.
+        let transcript = concat!(
+            "{\"type\":\"attachment\",\"attachment\":{\"type\":\"deferred_tools_delta\",",
+            "\"addedNames\":[\"WebSearch\",\"TaskCreate\"],\"failedMcpServers\":[]}}\n",
+        );
+        assert_eq!(resolved_servers(transcript), Some(Vec::new()));
+        assert_eq!(
+            resolved_servers("{\"type\":\"user\"}\n"),
+            None,
+            "no listing is unanswered, which is not the same as an empty set"
+        );
     }
 
     #[test]

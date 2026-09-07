@@ -245,9 +245,9 @@ pub fn run(request: Request) -> Result<Call> {
             &run_id,
             request.provider,
             std::path::Path::new(&worktree.path),
-            match &mcp_file {
-                Some(file) => crate::mcp::Probe::Strict(file),
-                None => crate::mcp::Probe::Unanswerable,
+            crate::mcp::Probe {
+                policy: &request.policy,
+                config: mcp_file.as_deref(),
             },
         )?),
         None => None,

@@ -1,0 +1,228 @@
+//! Does `claude` still drop the servers a human's settings define?
+//!
+//! Every other test in this suite launches no provider. This one does, and it is
+//! worth the exception: harness spec 6.5's account of what a `judge` run gets is
+//! a measurement of one build, ticket 23 read 2.1.257 one way and ticket 43 read
+//! 2.1.263 the other, and nothing in Hydra notices when the answer moves. This
+//! runs the free pre-flight probe under the `judge` argv and asserts the empty
+//! set that argv is supposed to buy.
+//!
+//! **It costs no quota.** The probe passes a model name no catalog holds, so the
+//! binary refuses before it calls the API and still writes the transcript that
+//! carries the answer.
+//!
+//! **It never reads or writes the human's own config.** Both stub servers go
+//! under a scratch `HOME` and a scratch cwd, and every `claude` call here gets
+//! that `HOME`, the version check included. That is also what makes the
+//! measurement possible: a user-scope server in the real `~/.claude.json` is the
+//! human's to add, and ticket 43 refused to add one.
+//!
+//! **It skips rather than fails when `claude` is not on the path**, with the
+//! reason on stdout, because a machine without the binary has nothing to say
+//! about the binary.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use hydra::env::ChildEnv;
+use hydra::mcp::Probe;
+use hydra::provider::{Provider, claude};
+
+/// The stdio server both scopes point at, one tool and no dependencies.
+fn fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mcp-probe-server.py")
+}
+
+/// A `HOME` and a cwd with one stub server each, in the two scopes settings
+/// define.
+struct Scratch {
+    root: PathBuf,
+    home: PathBuf,
+    cwd: PathBuf,
+}
+
+fn scratch() -> Scratch {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "hydra-drift-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let scratch = Scratch {
+        home: root.join("home"),
+        cwd: root.join("cwd"),
+        root,
+    };
+    std::fs::create_dir_all(&scratch.home).unwrap();
+    std::fs::create_dir_all(&scratch.cwd).unwrap();
+
+    let server = |name: &str| {
+        serde_json::json!({
+            "mcpServers": {
+                name: {
+                    "command": "/usr/bin/python3",
+                    "args": [fixture().display().to_string()],
+                }
+            }
+        })
+    };
+    // User scope and project scope, which are the two `--restricted` is supposed
+    // to drop. A server on `--mcp-config` is the third and it survives the flag,
+    // which is the whole reason `judge` carries `--strict-mcp-config` instead.
+    std::fs::write(
+        scratch.home.join(".claude.json"),
+        serde_json::to_string_pretty(&server("hydra-user-scope")).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.cwd.join(".mcp.json"),
+        serde_json::to_string_pretty(&server("hydra-project-scope")).unwrap(),
+    )
+    .unwrap();
+    scratch
+}
+
+impl Scratch {
+    /// The version string a failure message carries, or `None` when there is no
+    /// binary to measure.
+    ///
+    /// Under the scratch `HOME` like every other call here, so a machine whose
+    /// real home is unreadable behaves the same as one whose home is fine.
+    fn version(&self) -> Option<String> {
+        let out = Command::new("claude")
+            .arg("--version")
+            .env("HOME", &self.home)
+            .output()
+            .ok()?;
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    /// The environment the probe runs under: the launch's own allowlist with the
+    /// scratch `HOME` put back.
+    ///
+    /// `ChildEnv::build` drops a `HOME` that disagrees with the passwd entry,
+    /// which is the right rule for a launch and the wrong one here, so the
+    /// variable goes on afterwards.
+    fn env(&self) -> ChildEnv {
+        let mut env = ChildEnv::build(Provider::Claude).unwrap();
+        env.set("HOME", self.home.display().to_string());
+        env
+    }
+
+    /// A passing test leaves nothing behind. A failing one leaves the transcript,
+    /// which is the evidence.
+    fn clean(self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Runs Hydra's own probe for this launch shape and returns what it resolved.
+///
+/// The argv, the transcript path and both readers are the launch's, so a passing
+/// test measures the pair a record depends on rather than a command written
+/// twice.
+fn resolve(scratch: &Scratch, shape: Probe<'_>) -> hydra::provider::Resolved {
+    claude::resolve_in(&scratch.cwd, shape, &scratch.home, &scratch.env())
+        .expect("the probe left no transcript")
+}
+
+#[test]
+fn a_judge_run_still_starts_none_of_the_servers_settings_define() {
+    let scratch = scratch();
+    let Some(version) = scratch.version() else {
+        println!("skipped: `claude` is not on the PATH, so there is nothing to measure");
+        return;
+    };
+
+    let resolved = resolve(
+        &scratch,
+        Probe {
+            policy: "judge",
+            config: None,
+        },
+    );
+    assert_eq!(
+        resolved.mcp,
+        Some(Vec::new()),
+        "{version} resolved a server on the `judge` argv. Harness spec 6.5 says \
+         that argv starts none, contract 5.3's `mcp.resolved` claims the empty \
+         set on every `judge` record, and the gate refuses `mcp__` calls under \
+         that policy, so what a server would add is tool descriptions in a \
+         judge's context. Re-measure 6.5 and 6.7 against this build."
+    );
+    // The absence is Hydra's rule and not a missing attachment: a restricted probe
+    // still writes a `skill_listing`, measured 2026-09-06 as the binary's own
+    // twelve bundled skills with a user-scope and a project-scope skill on disk
+    // and neither of them in it.
+    assert!(
+        resolved.skills.is_none(),
+        "{version} answered the skill question on a `--restricted` probe, which \
+         lists none of the skills a run is linked, so the answer would tell the \
+         collision check that every one of them lost to something else"
+    );
+    scratch.clean();
+}
+
+#[test]
+fn the_same_stubs_load_when_the_flags_come_off() {
+    // The other half of the measurement, and the one that keeps the first from
+    // passing for the wrong reason: a probe that resolved nothing because the
+    // stubs were never readable would look identical.
+    //
+    // **`standard` with no config file is a shape no launch produces**, since
+    // every non-`judge` `claude` launch writes a file even when it admits
+    // nothing. That is fine here. This control measures the binary rather than a
+    // launch, and it is the only shape `mcp_flags` has that passes no MCP flag at
+    // all, which is what the vendor's default needs to be asked through.
+    let scratch = scratch();
+    let Some(version) = scratch.version() else {
+        println!("skipped: `claude` is not on the PATH, so there is nothing to measure");
+        return;
+    };
+
+    let servers = claude::resolved_servers(&transcript(&scratch));
+    assert_eq!(
+        servers,
+        Some(vec![
+            "hydra-project-scope".to_string(),
+            "hydra-user-scope".to_string()
+        ]),
+        "{version} did not load the stub servers with no flags passed, so the \
+         test above proves nothing about the flags"
+    );
+    scratch.clean();
+}
+
+/// The unflagged probe's transcript, read raw.
+///
+/// `resolve` would answer `None` here whatever the transcript said, because a
+/// probe carrying no flags does not answer for a run's servers. That rule is the
+/// thing under test one level up, so this control reads the file instead.
+fn transcript(scratch: &Scratch) -> String {
+    let session = "01a07600-0000-7000-8000-00000000000d";
+    let shape = Probe {
+        policy: "standard",
+        config: None,
+    };
+    let out = Command::new("claude")
+        .args(claude::probe_argv(session, shape))
+        .current_dir(&scratch.cwd)
+        .env_clear()
+        .envs(scratch.env().vars())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("running the probe");
+
+    let path = claude::transcript_path(&scratch.home, &scratch.cwd, session);
+    std::fs::read_to_string(&path).unwrap_or_else(|err| {
+        panic!(
+            "the probe left no transcript at {}: {err}. It exited {} and said: {}{}",
+            path.display(),
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim(),
+            String::from_utf8_lossy(&out.stdout).trim(),
+        )
+    })
+}

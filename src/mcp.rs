@@ -155,18 +155,25 @@ impl Document {
     }
 }
 
-/// What the launch's free pre-flight probe is told about MCP.
+/// The run's own MCP shape, which the free pre-flight probe reproduces.
 ///
-/// The probe asks the provider what it resolved, and its answer is only the
-/// run's answer when it ran under the run's own MCP shape.
-pub enum Probe<'a> {
-    /// The run's own `--mcp-config`, which the probe passes with
-    /// `--strict-mcp-config` so the servers it resolves are exactly the run's.
-    Strict(&'a Path),
-    /// A run whose MCP shape the probe cannot reproduce, so it carries no MCP
-    /// flags and answers nothing about servers. `judge` is that shape: the run
-    /// is `--restricted` and the probe is not.
-    Unanswerable,
+/// **A probe's answer is the run's answer only when it ran under the run's own
+/// flags.** So this carries the two things those flags come from and decides
+/// none of them itself. [`crate::provider::claude::mcp_flags`] turns it into an
+/// argv, for the launch and for the probe both.
+///
+/// **It used to be `Strict` or `Unanswerable`**, which made `judge` the
+/// unanswerable one: the run was `--restricted` and the probe was not, so
+/// `mcp.resolved` was null. Ticket 43 gave `judge` the flags that make its empty
+/// set a measurement, and the shape a probe cannot reproduce no longer exists on
+/// this provider.
+#[derive(Clone, Copy)]
+pub struct Probe<'a> {
+    /// The run's policy name, which picks between 6.7's two argv shapes.
+    pub policy: &'a str,
+    /// The file `--mcp-config` will name, or `None` on a launch shape that
+    /// carries none.
+    pub config: Option<&'a Path>,
 }
 
 /// Whose tree the run stands in, which is a fact about the launch rather than
