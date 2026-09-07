@@ -22,6 +22,17 @@
 //! section 4.11 already expects the leftover to be removed with `git branch -D`;
 //! the flag is that sentence, typed through the command.
 //!
+//! **A curate pass's checkout of the skill store is swept the same way, and it
+//! is the only other directory here a model writes into.** Map ticket 40's
+//! decision 5, on 2026-09-06: reap used to take the worktree, the spawn directory
+//! and the snapshot and leave `~/hydra/skill-worktrees/<run-id>/` behind with the
+//! proposal it held. Nothing else swept it, because `hydra curate` only removes
+//! the checkout of a pass it watched to the end. The commit is what makes
+//! removing it safe: whatever the curator wrote goes to
+//! `ouroboros/curate/<run-id>` in the store first, which is the branch the pass
+//! would have committed to itself. Neither the store's working tree nor any run
+//! record is written on the way.
+//!
 //! **Nothing in this crate calls into here except `main`.** Harness spec 7.5 is
 //! explicit that the gate does not keep a run away from `hydra reap`, because the
 //! binary is reached through `shell` and any rule against it is an argv match with
@@ -66,6 +77,28 @@ pub struct Done {
     pub branch_kept: Option<String>,
     pub worktree_removed: bool,
     pub spawn_removed: bool,
+    /// What became of a curate pass's checkout of the skill store, and `None`
+    /// when there was none. Every run but a curate pass leaves none.
+    pub checkout: Option<Checkout>,
+}
+
+/// What committing and removing one git worktree did.
+///
+/// **Two directories have this shape and the fields say the same thing for
+/// both**: the run's checkout of the parent repo, whose branch is
+/// `hydra/<run-id>`, and a curate pass's checkout of the skill store, whose
+/// branch is `ouroboros/curate/<run-id>`. [`Done`] carries the first one flat,
+/// because that is the shape it had before the second existed and a caller
+/// reading `done.worktree_removed` should keep reading it.
+pub struct Checkout {
+    /// The commit reap made, or `None` when the directory was already clean.
+    pub committed: Option<String>,
+    /// The branch the directory was on, which is what the commit landed on.
+    pub branch: String,
+    pub branch_removed: bool,
+    /// Why the branch survived, in git's own words where git decided it.
+    pub branch_kept: Option<String>,
+    pub removed: bool,
 }
 
 /// Reaps one run, or every checkout no live run is using.
@@ -111,6 +144,15 @@ pub fn reap(
             ids.push(orphan);
         }
     }
+
+    // A curate pass takes its checkout before it calls the launch, so a pass
+    // whose launch failed leaves a checkout with no worktree and no spawn
+    // directory beside it, and neither list above holds its id.
+    for orphan in orphan_checkouts(layout, &views, grace)? {
+        if !ids.contains(&orphan) {
+            ids.push(orphan);
+        }
+    }
     ids.sort();
 
     Ok(ids
@@ -121,6 +163,7 @@ pub fn reap(
 
 fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) -> Reaped {
     let worktree = layout.worktree(run_id);
+    let checkout = layout.skill_checkout(run_id);
 
     if let Some(view) = views.iter().find(|view| view.run_id == run_id)
         && view.state == State::Live
@@ -136,11 +179,16 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
 
     // Removing the directory this process is standing in leaves the shell in a
     // path that no longer exists, and the human reads the confusion as a bug in
-    // reap. `hydra reap <run-id>` typed from somewhere else does it.
-    if std::env::current_dir().is_ok_and(|cwd| cwd.starts_with(&worktree)) {
+    // reap. `hydra reap <run-id>` typed from somewhere else does it. Both
+    // directories count: a human reading a proposal is standing in the checkout.
+    if let Ok(cwd) = std::env::current_dir()
+        && let Some(inside) = [&worktree, &checkout]
+            .into_iter()
+            .find(|path| cwd.starts_with(path))
+    {
         return Reaped::Left {
             run_id: run_id.to_string(),
-            why: format!("this shell is inside {}", worktree.display()),
+            why: format!("this shell is inside {}", inside.display()),
         };
     }
 
@@ -152,15 +200,47 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
         branch_kept: None,
         worktree_removed: false,
         spawn_removed: false,
+        checkout: None,
     };
 
     if worktree.is_dir() {
-        match remove_checkout(&worktree, run_id, delete_branch, &mut done) {
-            Ok(()) => {}
+        match commit_then_remove(
+            &worktree,
+            &format!("hydra/{run_id}"),
+            &format!("hydra reap: what run {run_id} left uncommitted"),
+            delete_branch,
+        ) {
+            Ok(swept) => {
+                done.committed = swept.committed;
+                done.branch = Some(swept.branch);
+                done.branch_removed = swept.branch_removed;
+                done.branch_kept = swept.branch_kept;
+                done.worktree_removed = swept.removed;
+            }
             Err(why) => {
                 return Reaped::Failed {
                     run_id: run_id.to_string(),
                     why: format!("{why:#}"),
+                };
+            }
+        }
+    }
+
+    // Between the worktree and the spawn directory, because a failure here has
+    // to stop the spawn directory the way a failure above does: the pair goes
+    // together or not at all, and a proposal reap could not commit is work.
+    if checkout.is_dir() {
+        match commit_then_remove(
+            &checkout,
+            &format!("ouroboros/curate/{run_id}"),
+            &format!("hydra reap: what curate run {run_id} left uncommitted"),
+            delete_branch,
+        ) {
+            Ok(swept) => done.checkout = Some(swept),
+            Err(why) => {
+                return Reaped::Failed {
+                    run_id: run_id.to_string(),
+                    why: format!("the skill store checkout: {why:#}"),
                 };
             }
         }
@@ -184,73 +264,77 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     Reaped::Done(done)
 }
 
-/// Commits what the checkout holds, then removes it and maybe its branch.
+/// Commits what one checkout holds, then removes it and maybe its branch.
 ///
 /// The order is the guarantee. Nothing below the commit runs if the commit did
 /// not, and `git worktree remove` without `--force` is what enforces that: it
 /// refuses a checkout with modified or untracked files, so a commit this function
 /// only claimed to make would stop the removal rather than precede it.
-fn remove_checkout(
-    worktree: &Path,
-    run_id: &str,
+///
+/// **One sequence for the two directories a model writes into.** The run's
+/// checkout of the parent repo and a curate pass's checkout of the skill store
+/// differ in the repository they came off, the branch Hydra made for them and the
+/// commit message, so those are the arguments. `made` is that branch,
+/// `hydra/<run-id>` for the one and `ouroboros/curate/<run-id>` for the other, and
+/// everything below runs against whichever repository the checkout belongs to,
+/// which [`main_worktree`] reads off the checkout itself.
+fn commit_then_remove(
+    checkout: &Path,
+    made: &str,
+    message: &str,
     delete_branch: bool,
-    done: &mut Done,
-) -> Result<()> {
-    let main = main_worktree(worktree)?;
-    let branch = current_branch(worktree)?;
+) -> Result<Checkout> {
+    let main = main_worktree(checkout)?;
 
     // A commit on a detached HEAD is reachable from nothing once the checkout is
     // gone, which is the one shape where committing first would not save the work
     // it claims to. Reap leaves it and says so.
-    let Some(branch) = branch else {
+    let Some(branch) = current_branch(checkout)? else {
         anyhow::bail!(
             "{} is on a detached HEAD, so a commit would be reachable from nothing. \
              Give it a branch and reap it again.",
-            worktree.display()
+            checkout.display()
         );
     };
-    done.branch = Some(branch.clone());
+    let mut swept = Checkout {
+        committed: None,
+        branch: branch.clone(),
+        branch_removed: false,
+        branch_kept: None,
+        removed: false,
+    };
 
-    if !git(worktree, &["status", "--porcelain"])?.trim().is_empty() {
-        git(worktree, &["add", "-A"])?;
+    if !git(checkout, &["status", "--porcelain"])?.trim().is_empty() {
+        git(checkout, &["add", "-A"])?;
         // `--no-verify`, because a pre-commit hook that refuses would leave reap
         // unable to keep its promise, and this commit is a snapshot of what a
         // checkout held rather than a contribution anyone reviews.
-        git(
-            worktree,
-            &[
-                "commit",
-                "-q",
-                "--no-verify",
-                "-m",
-                &format!("hydra reap: what run {run_id} left uncommitted"),
-            ],
-        )?;
-        done.committed = Some(git(worktree, &["rev-parse", "HEAD"])?.trim().to_string());
+        git(checkout, &["commit", "-q", "--no-verify", "-m", message])?;
+        swept.committed = Some(git(checkout, &["rev-parse", "HEAD"])?.trim().to_string());
     }
 
-    git(&main, &["worktree", "remove", &worktree.to_string_lossy()])?;
-    done.worktree_removed = true;
+    git(&main, &["worktree", "remove", &checkout.to_string_lossy()])?;
+    swept.removed = true;
 
     // Only the branch Hydra made for this run. A child that checked out one of the
     // human's own branches gets its work committed there and the branch left
     // alone, which is the difference between cleaning up after a run and deleting
     // somebody's work.
-    if branch != format!("hydra/{run_id}") {
-        done.branch_kept = Some(format!(
+    if branch != made {
+        swept.branch_kept = Some(format!(
             "{branch} is not the branch Hydra made for this run"
         ));
-        return Ok(());
+        return Ok(swept);
     }
     match drop_branch(&main, &branch, false) {
-        Ok(()) => done.branch_removed = true,
+        Ok(()) => swept.branch_removed = true,
         Err(_) if delete_branch => match drop_branch(&main, &branch, true) {
-            Ok(()) => done.branch_removed = true,
-            Err(forced) => done.branch_kept = Some(forced),
+            Ok(()) => swept.branch_removed = true,
+            Err(forced) => swept.branch_kept = Some(forced),
         },
-        Err(gentle) => done.branch_kept = Some(gentle),
+        Err(gentle) => swept.branch_kept = Some(gentle),
     }
-    Ok(())
+    Ok(swept)
 }
 
 /// `git branch -d`, or `-D` when the human typed the flag, with git's reason.
@@ -486,6 +570,36 @@ fn orphan_spawns(
         .collect())
 }
 
+/// Checkouts of the skill store with no live run behind them.
+///
+/// The same three filters [`orphan_spawns`] applies, for the same reasons: a
+/// directory, older than the launch grace, and no live run to pull it out from
+/// under. A pass creates its checkout before the run that writes into it exists,
+/// so the grace is what keeps a sweep off a pass that is starting.
+fn orphan_checkouts(
+    layout: &Layout,
+    views: &[RunView],
+    grace: std::time::Duration,
+) -> Result<Vec<String>> {
+    let entries = match std::fs::read_dir(layout.skill_worktrees()) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .filter(|path| !crate::status::just_created(path, grace))
+        .filter_map(|path| path.file_name().map(|n| n.to_string_lossy().to_string()))
+        .filter(|run_id| {
+            !views
+                .iter()
+                .any(|view| view.run_id == *run_id && view.state == State::Live)
+        })
+        .collect())
+}
+
 /// What a human reads back. One line per run, and the commit sha where there is
 /// one, because that sha is the whole of the promise reap makes.
 pub fn report(reaped: &[Reaped]) -> String {
@@ -518,6 +632,30 @@ pub fn report(reaped: &[Reaped]) -> String {
                         out.push_str(&format!("  branch {branch} kept: {why}\n"));
                     }
                     _ => {}
+                }
+                // Named rather than called "the checkout", because the run's own
+                // checkout is what the four lines above are about and a human
+                // reading a curate pass back has two of them.
+                if let Some(swept) = &done.checkout {
+                    if let Some(sha) = &swept.committed {
+                        out.push_str(&format!(
+                            "  skill store checkout committed {} to {}\n",
+                            &sha[..12.min(sha.len())],
+                            swept.branch
+                        ));
+                    }
+                    if swept.removed {
+                        out.push_str("  skill store checkout removed\n");
+                    }
+                    match &swept.branch_kept {
+                        _ if swept.branch_removed => {
+                            out.push_str(&format!("  branch {} removed\n", swept.branch))
+                        }
+                        Some(why) => {
+                            out.push_str(&format!("  branch {} kept: {why}\n", swept.branch))
+                        }
+                        None => {}
+                    }
                 }
             }
             Reaped::Left { run_id, why } => out.push_str(&format!("left {run_id}: {why}\n")),

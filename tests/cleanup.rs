@@ -90,9 +90,51 @@ impl Fixture {
         dest
     }
 
+    /// The skill store as ticket 07 will leave it: a git repository with one
+    /// commit in it. The shape `tests/curate.rs` builds, plus one difference: a
+    /// second call hands back the store it already made, because a test that
+    /// wants a checkout wants the store it came off too.
+    fn store(&self) -> PathBuf {
+        let store = self.layout().skills();
+        if store.join(".git").is_dir() {
+            return store;
+        }
+        std::fs::create_dir_all(&store).unwrap();
+        git(&store, &["init", "-q", "-b", "main"]);
+        git(&store, &["config", "user.email", "test@example.invalid"]);
+        git(&store, &["config", "user.name", "hydra tests"]);
+        std::fs::write(store.join("README.md"), "the skill store\n").unwrap();
+        git(&store, &["add", "-A"]);
+        git(&store, &["commit", "-qm", "the store"]);
+        store
+    }
+
+    /// A curate pass's checkout of the store, made by the code that makes the
+    /// real one. Ouroboros spec 3.6: a git worktree of the store on
+    /// `ouroboros/curate/<run-id>`, never the store's own working tree.
+    fn store_checkout(&self, run_id: &str) -> PathBuf {
+        let store = self.store();
+        let checkout = self.layout().skill_checkout(run_id);
+        hydra::ouroboros::curate::check_out(
+            &store,
+            &checkout,
+            &format!("ouroboros/curate/{run_id}"),
+            "HEAD",
+        )
+        .unwrap();
+        checkout
+    }
+
     fn branches(&self) -> String {
         git(
             &self.repo,
+            &["branch", "--list", "--format=%(refname:short)"],
+        )
+    }
+
+    fn store_branches(&self) -> String {
+        git(
+            &self.store(),
             &["branch", "--list", "--format=%(refname:short)"],
         )
     }
@@ -513,6 +555,164 @@ fn reaping_a_run_that_was_never_there_does_nothing_and_says_so() {
     let done = as_done(&reaped[0]);
     assert!(!done.worktree_removed && !done.spawn_removed);
     assert_eq!(hydra::reap::failures(&reaped), 0);
+}
+
+// --- reap and a curate pass's checkout -----------------------------------
+
+#[test]
+fn a_curate_proposal_is_on_its_branch_before_the_checkout_goes() {
+    // Map ticket 40 decision 5. The store checkout is the other directory a
+    // model writes into that reap removes, so it gets the guarantee the
+    // worktree has: the commit lands first, and `git worktree remove` without
+    // `--force` is what stops a removal the commit did not precede. Measured
+    // before this ticket: reap took the worktree, the spawn directory and the
+    // snapshot, and left the checkout with its uncommitted `proposal.md`.
+    let fixture = Fixture::new("curate-checkout");
+    let layout = fixture.layout();
+    let run = "01a07615-4c11-7a53-9d1e-2b7a51c0d3f1";
+    let worktree = fixture.checkout(run);
+    let checkout = fixture.store_checkout(run);
+    std::fs::write(checkout.join("proposal.md"), "a skill the curator wrote\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let done = as_done(&reaped[0]);
+    let swept = done.checkout.as_ref().expect("the checkout was not swept");
+
+    assert!(
+        swept.committed.is_some(),
+        "reap removed the checkout without committing"
+    );
+    assert!(swept.removed);
+    assert!(!checkout.exists(), "the checkout is still there");
+
+    // The bytes, read back off the branch in the store.
+    let branch = format!("ouroboros/curate/{run}");
+    assert_eq!(
+        git(
+            &fixture.store(),
+            &["show", &format!("{branch}:proposal.md")]
+        ),
+        "a skill the curator wrote\n"
+    );
+    assert!(
+        fixture.store_branches().contains(&branch),
+        "the branch holding the proposal was deleted: {}",
+        fixture.store_branches()
+    );
+    assert!(!swept.branch_removed);
+
+    // The run's own pair goes in the same call. A curate run has all three, and
+    // a human who typed one run id should not have to type it again.
+    assert!(!worktree.exists());
+    assert!(!layout.spawn(run).exists());
+
+    // And the human is told where the proposal went, because that branch is the
+    // whole of what reap saved.
+    let said = hydra::reap::report(&reaped);
+    assert!(said.contains(&branch), "{said}");
+}
+
+#[test]
+fn a_checkout_nothing_wrote_to_goes_and_takes_its_branch() {
+    // A pass whose curator proposed nothing leaves a clean checkout on a branch
+    // with nothing on it. `git branch -d` decides that rather than this module,
+    // which is what `curate::propose` already does to an empty pass.
+    let fixture = Fixture::new("curate-empty");
+    let layout = fixture.layout();
+    let run = "01a07616-9d02-7b84-8f2c-6e0d84a1b7c2";
+    let checkout = fixture.store_checkout(run);
+
+    let reaped = reap_one(&layout, run, false);
+    let swept = as_done(&reaped[0])
+        .checkout
+        .as_ref()
+        .expect("the checkout was not swept");
+
+    assert!(swept.committed.is_none(), "an empty checkout was committed");
+    assert!(swept.removed);
+    assert!(swept.branch_removed);
+    assert!(!checkout.exists());
+    assert!(
+        !fixture.store_branches().contains(run),
+        "an empty branch stayed: {}",
+        fixture.store_branches()
+    );
+}
+
+#[test]
+fn a_live_passs_checkout_is_never_reaped() {
+    // A pass whose run outlived its call is exactly this shape: the curator is
+    // still writing and the checkout holds half a proposal. Ouroboros spec 3.5
+    // commits nothing in that case, and neither may a reap typed beside it.
+    let fixture = Fixture::new("curate-live");
+    let layout = fixture.layout();
+    let run = "01a07617-2ea3-7cd5-b013-3f9b62d5e8a3";
+    let checkout = fixture.store_checkout(run);
+    write_run(&layout, run, Some(std::process::id()), false);
+
+    let named = reap_one(&layout, run, false);
+    assert!(
+        matches!(named[0], Reaped::Left { .. }),
+        "a live pass's checkout was reaped"
+    );
+    assert!(checkout.is_dir());
+
+    // And the sweep leaves it out rather than reporting it as skipped.
+    let swept = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
+    assert!(swept.is_empty(), "the sweep picked up a live pass");
+    assert!(checkout.is_dir());
+}
+
+#[test]
+fn the_sweep_finds_a_checkout_with_no_worktree_and_no_spawn_directory() {
+    // `hydra curate` mints the run id and takes the checkout before it calls
+    // the launch, so a launch that failed leaves this and nothing else. A sweep
+    // that walked only `worktrees/` and `spawn/` would never see it.
+    let fixture = Fixture::new("curate-sweep");
+    let layout = fixture.layout();
+    let run = "01a07618-7b44-7de6-a124-4c8d73e6f9b4";
+    let checkout = fixture.store_checkout(run);
+
+    let reaped = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
+    assert_eq!(reaped.len(), 1);
+    let done = as_done(&reaped[0]);
+    assert!(done.checkout.as_ref().is_some_and(|swept| swept.removed));
+    assert!(!done.worktree_removed && !done.spawn_removed);
+    assert!(!checkout.exists());
+}
+
+#[test]
+fn the_stores_own_working_tree_is_never_written_by_a_reap() {
+    // Ouroboros spec 3.6: the store's working tree is where a concurrent
+    // `Store::pin` commits without asking, so reap runs `git worktree remove`
+    // and `git branch -d` from it and puts nothing in it. The registration goes
+    // with the directory, or `git worktree list` keeps naming a path that is not
+    // there.
+    let fixture = Fixture::new("curate-store");
+    let layout = fixture.layout();
+    let run = "01a07619-1c85-7ef7-8235-5daf84f70ac5";
+    let store = fixture.store();
+    let head = git(&store, &["rev-parse", "HEAD"]);
+    let checkout = fixture.store_checkout(run);
+    std::fs::write(checkout.join("proposal.md"), "a proposal\n").unwrap();
+
+    reap_one(&layout, run, false);
+
+    assert_eq!(
+        git(&store, &["status", "--porcelain"]),
+        "",
+        "reap left changes in the store's working tree"
+    );
+    assert_eq!(
+        git(&store, &["rev-parse", "HEAD"]),
+        head,
+        "the store's own branch moved"
+    );
+    let listed = git(&store, &["worktree", "list"]);
+    assert!(
+        !listed.contains(run),
+        "the checkout is still registered: {listed}"
+    );
 }
 
 // --- prune ---------------------------------------------------------------
