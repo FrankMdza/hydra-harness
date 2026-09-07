@@ -1,7 +1,7 @@
 # 15 - `scopes` and `floor_lifted` on the record
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 14
 
 ## Goal

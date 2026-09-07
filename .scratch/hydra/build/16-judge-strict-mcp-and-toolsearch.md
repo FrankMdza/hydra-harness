@@ -1,7 +1,7 @@
 # 16 - `judge` gets `--strict-mcp-config`, the probe follows, and `ToolSearch` moves
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## Goal

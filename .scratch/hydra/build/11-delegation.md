@@ -1,7 +1,7 @@
 # 11 - Delegation and the MCP delegate face
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 05, 09, 10
 
 ## Goal
