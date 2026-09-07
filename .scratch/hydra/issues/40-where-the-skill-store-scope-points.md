@@ -1,7 +1,7 @@
 # 40 - Where the `skill_store` scope points, now that two documents disagree
 
 Type: grilling
-Status: open
+Status: resolved
 
 ## Question
 
@@ -406,3 +406,113 @@ struct there instead, this is the change that earns it.
 18 of which report `StalePolicy`, 3 of which carry no `policy_sha` at all, and 1 of which is current.
 So option C's "one number" cost is already paid for this round, and a second edit under `policies/`
 adds no new class of reader problem, only one more sha.
+
+## Answer
+
+Resolved 2026-09-06 with the human, in three rounds from the brief above, plus a fourth the human
+asked for: which policies can lose data. Eleven decisions. The first seven are the ticket as posed,
+the last four are the data-loss review, and one of the seven was superseded by it.
+
+**1. The scope is the run's own checkout**, `~/hydra/skill-worktrees/<run-id>/`. `docs/ouroboros-spec.md`
+3.6 stands and harness spec 7.2 moved. The reason is the one 3.6 was written for and 7.2 predates:
+`~/hydra/skills/` is the one directory a concurrent `Store::pin` commits without asking, so a
+curator writing there hands its half-finished proposal to whichever run launches next. The code was
+already right, so nothing in `src/` changes for this decision alone. The cost the other way was
+measured at about 150 lines deleted, two tests inverted, and ten `Finding::GateLeak` on the one real
+curate record.
+
+**2. `~/hydra/skills/` is denied to every policy at the gate**, the way `~/hydra/runs/` is. Measured
+before the decision: `permissive` allowed `Write` into the store, and `standard` and `permissive`
+both allowed `echo x > ~/hydra/skills/naming/SKILL.md` through `shell`. Harness spec 865 claimed the
+opposite in both directions. D11 says rung one proposes rather than lands, and a `permissive` run
+writing a skill file lands one with no proposal. `Store::pin` and a human are the only writers the
+store's working tree has left. The deny list is `denied_write_paths` in `src/policy/mod.rs`, not a
+file under `policies/`, so this moves no `policy_sha`; the brief's costing of that was wrong and was
+corrected mid-grilling.
+
+**3. Harness spec 5 is the full list of what Hydra owns under `~/hydra`.** Retitled to drop "per
+run", opened with the honest count, and given rows for `skills/`, `skill-worktrees/<run-id>/` and
+`pruned/<run-id>.jsonl`. It said "Three places" over a four-row table while `Layout` created seven
+directories, and `pruned/` appeared nowhere in the spec even though the same section said
+`hydra prune` moves rather than deletes.
+
+**4. Two scope names.** `file_write` on `curate` moves from `skill_store` to a new `skill_checkout`,
+and `skill_store` goes back to meaning `~/hydra/skills/` under every policy, which `curate` keeps on
+`file_read`. `Scope::SkillStore` was named by exactly one policy file, so the per-policy branch at
+`src/paths.rs:116` existed to serve one caller and goes. This is one line in `policies/curate.json`,
+protected config #1, typed by the human, and it moves `policy_sha`, taking the one current record
+to stale: 19 of 22 report `StalePolicy` instead of 18. Spent on purpose, because one name resolving
+to two directories is what created this ticket.
+
+**5. `hydra reap` sweeps a leftover checkout, commit first.** Commit to
+`ouroboros/curate/<run-id>`, then `git worktree remove` without `--force`, so a commit that did not
+happen stops the removal. Same guarantee reap already gives a run's worktree, same shape as
+`remove_checkout`. Measured before: reap removed the worktree, the spawn directory and the snapshot
+and left the checkout with its uncommitted `proposal.md`. Reap stays a command a human types.
+
+**6. `~/hydra/skills-snapshots/` and `~/hydra/skill-worktrees/` join the deny list too.** The
+snapshot on the authorship argument: it is where a run's injected links resolve, so a run writing
+into one edits its own instructions, and `src/policy/mod.rs:699` already said out loud that the
+containment test could only assert nobody wrote the scope down. The checkouts because decision 5 is
+about to make reap commit them.
+
+**7. `.gitignore` gains `/skill-worktrees/`.** Done in this change. A checkout there showed as
+`?? skill-worktrees/` and `git add -A` warned `adding embedded git repository`.
+
+**8. Superseded.** Decision 6 as first stated would deny the curator its own checkout, because
+`src/policy/gate.py:494` checks the deny list before the policy is consulted. The human first chose
+a per-spawn list that omits the checkouts directory under `curate`. The data-loss review below
+replaced that with decision 9, which handles it the same way it handles `standard`'s worktree.
+
+### The data-loss review
+
+The human asked which policies can make Hydra lose data. Measured on a compiled gate per policy,
+`claude` dialect, 32 probes each, no provider launched. The matrix is in the session's job
+directory and the probe file was deleted.
+
+`judge`, `read-only` and `curate` refused every destructive route. `~/hydra/runs/` was refused
+under all five by `Write`, `rm -rf`, `mv` and `find -delete`. Everything else under `~/hydra` was
+open to `standard` through `shell` and to `permissive` through `shell` and file tools:
+`~/hydra/pruned/`, a sibling's worktree, the parent repo's `.git`, the store's `.git`, a sibling's
+gate script, and the snapshots. `git gc --prune=now`, `git prune --expire=now` and
+`git worktree remove --force` were allowed. The floor caught `reset --hard`, `clean -fdx`,
+`branch -D` and `update-ref`, and not `checkout -- .`, `stash drop` or `clean -f`.
+
+**9. The deny list has two kinds of entry.** Denied under every policy, before the policy is
+consulted: the seven of before, plus `~/hydra/worktrees/`, `~/hydra/spawn/`,
+`~/hydra/skill-worktrees/`, `~/hydra/pruned/`, `~/hydra/skills/`, `~/hydra/skills-snapshots/`, and
+the parent repo's `.git`, which `src/run.rs:132` already discovers. Carved out per spawn: the run's
+own worktree, and on `curate` its own checkout. The check is "inside a denied path and not inside
+an own path". The own spawn directory is not carved out. The rule is one sentence, a run writes
+only inside what Hydra created for it, and the parents are denied rather than the siblings
+enumerated because siblings appear and disappear while a run is live.
+
+**10. `policies/floor.json` gains `git gc`, `git prune` and `git worktree` in every form but
+`list`.** Protected config #1, typed by the human, and it moves `policy_sha` alongside decision 4.
+
+**11. The run's own scratch stays discardable.** `git checkout -- .`, `git restore .`,
+`git stash drop` and `git clean -f` stay allowed. They lose only the run's own uncommitted edits,
+and the record carries every tool call either way.
+
+### What landed in this change
+
+`docs/harness-spec.md`: section 5 retitled and completed; the 7.2 row and the paragraph under it;
+7.4's git row and two new paragraphs; 7.5's deny list rewritten around two kinds of entry with the
+measurements; the clause in section 8 that claimed the store was denied to every policy but
+`curate`. `docs/ouroboros-spec.md`: 3.6 now names the path and the branch, 9.1 is closed, and the
+seam-check sentence at line 103 stops saying seven. `.gitignore`. Tickets 41 and 42 each carry a
+section on what this changed for them. The map.
+
+### What this hands to the build
+
+Build ticket 14 carries the code: the `skill_checkout` scope and the removal of the policy-name
+match; the two-kind deny list in `denied_write_paths` and `gate.py`, with the parent `.git` on
+`Spawn`; the reap sweep; the tests, including the loss matrix above as a test rather than a probe;
+and the comments in `src/policy/mod.rs` and `src/paths.rs` that still carry the losing reading.
+Two lines are the human's: `file_write` in `policies/curate.json` and the three git forms in
+`policies/floor.json`.
+
+### What this does not cover
+
+Anything outside `~/hydra` and the parent's `.git`. A `standard` run's shell can still `rm -rf` the
+home directory. Section 18 rules interpreting shell out and 7.4 says the floor is a floor.

@@ -398,3 +398,26 @@ replay deny a call the old gate allowed, and that reads as a leak that never hap
 today because this edit only widened. Whatever you decide about storing scopes, a record that
 carried its own resolved paths would not fix this: the paths are not the part that moved, the rules
 are.
+
+## What ticket 40 left you, added 2026-09-06
+
+**Your question 8 no longer bears on ticket 40.** You asked whether `command: "run"` on the curate
+record is 40's, since `command` is the field a scope rule would key on if not the policy name. 40
+removed the keying entirely: `skill_store` and `skill_checkout` are two names now, each resolving one
+way under every policy, so `src/paths.rs`'s match on the string `"curate"` goes. No scope keys on a
+policy name or on `command` any more. The `command: "run"` contradiction with contract 5.1 is still
+real and it is a build ticket's.
+
+**Your second bullet gets easier to write.** The property is now "every scope is a pure function of
+`Layout`, the run id, the scope name and, for `skill_snapshot`, the store sha off the record". No
+policy name in it. Whether that guard is worth writing instead of a `scopes` object is still yours.
+
+**The vocabulary is five scope names, not three.** `worktree`, `skill_store`, `skill_checkout`,
+`skill_snapshot`, `corpus`. Your byte costing counted three at 213 bytes; a curate run would carry
+four of the five and the others three, since a run with no checkout has no `skill_checkout`.
+
+**Three of the five are now denied paths as well as scopes.** Ticket 40 put `~/hydra/skills/` and
+`~/hydra/skills-snapshots/` into harness spec 7.5's deny list, which is `denied_write_paths` in
+`src/policy/mod.rs` rather than anything under `policies/`, so no sha moved. That does not change
+what you decide, but a reader of a replayed record now sees a `protected-path` refusal where it used
+to see an `out-of-scope` one, and the two carry different reason strings.

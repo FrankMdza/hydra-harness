@@ -47,3 +47,26 @@ wonder.
 
 `IMPLEMENTATION.md`, the paragraph named above, and build ticket 12's `## Outcome`, which
 flagged this before ticket 07 wired the pinning that made it real.
+
+## What ticket 40 settled, added 2026-09-06
+
+**The checkout stays, so both your orderings stay live.** Ticket 40 closed with the run's own
+checkout as the design and `~/hydra/skills/` as a path no policy writes. Nothing here dissolves.
+
+**The objection to the second ordering was measured and it does not hold.** A gate compiled while
+`skill-worktrees/` does not exist yet produces a byte-identical `scopes` block to one compiled after
+the checkout is there, and both allow a write inside it. So "the gate names a directory that does not
+exist yet" costs nothing at compile time. The one caveat is `resolved()`'s: it canonicalizes the
+longest existing ancestor and appends the rest, so a symlinked component appearing only after
+compilation would leave the two strings apart. `Layout::discover` reads the passwd home and
+`/Users/USER/hydra` has no such component.
+
+**The scope you are writing against has a different name now.** `file_write` on `curate` moves from
+`skill_store` to a new `skill_checkout` scope, and `skill_store` goes back to meaning
+`~/hydra/skills/` under every policy. `policies/curate.json` is protected config #1 and a human
+types that line. Build ticket 14 carries the change.
+
+**One thing that bears on your first option.** `~/hydra/skills/` is now denied to every policy at the
+gate, so a curate pass calling `Store::pin` itself is Hydra doing the commit rather than the child,
+which is the only writer the store has left besides a human. That makes the first ordering the one
+that composes with the deny list rather than around it.

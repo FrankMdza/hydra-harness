@@ -80,6 +80,21 @@ Provider versions this build has been measured against:
 | `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-06, unchanged since 2026-09-02. Routed by ticket 09 on this build; the section on it below says what was measured and what was read off the bundle |
 | `agy` | 1.1.26, then 1.1.27 | 2026-09-06. Routed by ticket 10, and **it self-updated in the middle of that ticket**: the probes below were measured on 1.1.26 and the recorded run an hour later reported 1.1.27. Every measured claim held across the move, and the section on it says which came from which build |
 
+
+**Measured on 2026-09-06 for map ticket 40, and open until build ticket 14 lands.** A gate per
+policy, `claude` dialect, 32 destructive routes each. `judge`, `read-only` and `curate` refused all
+of them. `~/hydra/runs/` was refused under every policy by `Write`, `rm -rf`, `mv` and
+`find -delete`. Everything else under `~/hydra` is reachable today from `standard` through `shell`
+and from `permissive` through `shell` and file tools: `rm -rf` on `~/hydra/pruned/`, on a sibling
+run's worktree, on `~/hydra/skills/.git`, on the snapshots, and on the parent repo's `.git`, all
+allowed; `git gc --prune=now`, `git prune --expire=now` and `git worktree remove --force`, all
+allowed; a `Write` into a sibling's gate script under `permissive`, allowed, which kills that
+sibling rather than bypassing it because its hook command checks the sha first. The floor catches
+`reset --hard`, `clean -fdx`, `branch -D` and `update-ref` and not `checkout -- .`, `stash drop` or
+`clean -f`, which the ticket decided to leave. Harness spec 7.5 now describes a deny list with two
+kinds of entry, denied parents and own-path carve-outs, and 7.4 names the three git forms the floor
+gains. The code still compiles the flat list of seven, so this paragraph is what is real.
+
 ## The commands
 
 ```

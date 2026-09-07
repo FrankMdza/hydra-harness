@@ -97,10 +97,11 @@ nothing else places it, so section 15.3 gives its wording.
 **A reader must not assume the third population is gated on the strength of shared phrasing.** The
 three deliveries say similar things and only the first is backed by a mechanism.
 
-## 5. What Hydra writes per run, and where
+## 5. What Hydra writes under `~/hydra`, and where
 
-Three places. The answer used to be one, and a reader who assumes it is still one will look for the
-gate script in the wrong directory.
+Seven directories, four of them per run. The answer used to be one, and a reader who assumes it is
+still one will look for the gate script in the wrong directory. This table is the whole list, so a
+reader who cannot find a path here has found a bug rather than an omission.
 
 | Path | Holds | Created | Reaped |
 |---|---|---|---|
@@ -108,6 +109,15 @@ gate script in the wrong directory.
 | `~/hydra/skills-snapshots/<sha>/` | an immutable git worktree of the skill store at the sha the run pinned | per sha, shared and refcounted | when no live run references it |
 | `~/hydra/spawn/<run-id>/` | the compiled gate script, the `--mcp-config` file for `claude`, Cursor's data root at `cursor-data/` | per run | with the worktree |
 | `~/hydra/runs/<run-id>.jsonl` | the run record | per run | `hydra prune`, which moves rather than deletes |
+| `~/hydra/skills/` | the skill store, with its own git history | once, and it outlives every run | never |
+| `~/hydra/skill-worktrees/<run-id>/` | a `curate` pass's own checkout of the store, where it writes its proposal | per curate pass | `hydra reap`, after committing to `ouroboros/curate/<run-id>` |
+| `~/hydra/pruned/<run-id>.jsonl` | where `hydra prune` moves a record, because it moves rather than deletes | per pruned record | never |
+
+The last three are not per run and are here anyway. A reader asking where a pruned record went, or
+where a curator's proposal is before a human sees it, had nowhere in this spec to look. Ticket 40
+settled the checkout's location: it is a sibling of `worktrees/` rather than a subdirectory of the
+spawn directory, because `hydra reap` removes a spawn directory whole and an uncommitted proposal is
+work.
 
 `~/hydra/spawn/` is a sibling of `runs/` and not a subdirectory of it. Ticket 13 derives liveness
 from the run file's opening envelope and forbids anything but the owning process from appending to
@@ -662,7 +672,7 @@ body into context with no file read the gate sees, so the capability carries tha
 | Name | What it allows |
 |---|---|
 | `judge` | nothing |
-| `curate` | reads the corpus and its skill snapshot, invokes linked skills, writes only inside the skill store |
+| `curate` | reads the corpus, the skill store and its skill snapshot, invokes linked skills, writes only inside its own checkout of the store |
 | `read-only` | reads inside the worktree and its skill snapshot, invokes linked skills, no shell, no writes |
 | `standard` | reads, writes, shell and network reads inside the worktree, reads its skill snapshot, invokes linked skills |
 | `permissive` | everything, and the only policy that may spawn in-process subagents |
@@ -677,8 +687,18 @@ and `permissive` has both through `anywhere` and its own grant.
 a child's inputs fully reconstructable from the record, and it would break ordinary coding work, at
 which point people route around `standard` and the strictness buys nothing.
 
-`curate` writes to `~/hydra/skills/`, outside its own worktree. It and `permissive` are the two
-policies that break the worktree-write assumption, which section 7.5 handles.
+`curate` writes into its own git checkout of the skill store, at
+`~/hydra/skill-worktrees/<run-id>/`, outside both the store's working tree and the run's own
+worktree. It and `permissive` are the two policies that break the worktree-write assumption, which
+section 7.5 handles.
+
+**No policy writes into `~/hydra/skills/` itself.** The store's working tree is one of the paths
+section 7.5 denies under every policy, and the only things that write it are `Store::pin`, which
+commits a dirty store before a launch pins it, and a human. Ticket 40 settled this: a curator writing
+into the live working tree would hand its half-finished proposal to whichever run launches next, and
+`docs/ouroboros-spec.md` 3.6 is the paragraph that says so. The two scope names are separate,
+`skill_store` for the store and `skill_checkout` for the pass's checkout, so neither name resolves
+two ways.
 
 **The caller passes a name, never a list.** A name is something a human wrote once. A list is
 security composed at call time by the least accountable party in the chain, and on the MCP face that
@@ -724,12 +744,23 @@ The initial patterns, which are spec work rather than a decision inherited from 
 
 | Target | Patterns |
 |---|---|
-| Destructive git | `git push` carrying `--force`, `-f`, `--force-with-lease`, `--force-if-includes`, `--all`, `--mirror`, or a refspec beginning `+`; `git push` to a protected branch; `git branch -D`; `git update-ref`; `git symbolic-ref` in write form; `git reflog expire`; `git reset --hard`; `git clean` carrying `-f` with `-d` or `-x` |
+| Destructive git | `git push` carrying `--force`, `-f`, `--force-with-lease`, `--force-if-includes`, `--all`, `--mirror`, or a refspec beginning `+`; `git push` to a protected branch; `git branch -D`; `git update-ref`; `git symbolic-ref` in write form; `git reflog expire`; `git reset --hard`; `git clean` carrying `-f` with `-d` or `-x`; `git gc`; `git prune`; `git worktree` in every form but `list` |
 | AWS | `aws configure`, `aws sso`, and `aws s3` with `cp`, `mv`, `rm`, `sync` or `rb` |
 | Slack | any `hooks.slack.com` URL, and the API methods `chat.*`, `files.upload`, `conversations.create` |
 
 Each pattern consumes `-C` and `--git-dir` before reading the subcommand, and refuses a subcommand
-that arrives from a shell substitution rather than trying to evaluate it. That is the shape the
+that arrives from a shell substitution rather than trying to evaluate it.
+
+The last three git forms arrived with ticket 40, which measured a `standard` run's shell allowed to
+run all of them. `gc` and `prune` delete unreachable objects in the parent repo, and the tree a run's
+`diff_stat` is measured against is exactly that. `worktree remove --force` discards a sibling run's
+uncommitted work. A child has no business running any of the three, and none names a path the gate
+could see, so the floor is the only place they can be refused.
+
+**What the floor leaves alone on purpose: the run's own scratch.** `git checkout -- .`,
+`git restore .`, `git stash drop` and `git clean -f` discard only the run's own uncommitted edits, and
+a run reverting its own changes is ordinary work. The record carries every tool call whether or not
+the working tree survives. Ticket 40 looked at drawing that line tighter and did not. That is the shape the
 user's own `guard_git.py` uses across 231 lines, and this floor is a thinner version of it rather
 than a replacement.
 
@@ -758,10 +789,36 @@ original script, which is what denies the write that would have replaced it. The
 `judge`, `read-only` and `standard`, and breaks for `permissive` and `curate`, which write outside
 their worktree. Those two need the base case below.
 
-**The gate denies writes to seven paths under every policy, `permissive` and `curate` included:** the
-five protected configs of section 15.1, the generated gate script, and everything under
-`~/hydra/runs/`. That is where `permissive` stops being permissive, and each of the three groups earns
-it differently.
+**The gate denies writes to a fixed set of paths under every policy, `permissive` and `curate`
+included, before the policy is consulted at all.** That is where `permissive` stops being
+permissive. The list has two kinds of entry since ticket 40, and both are compiled into the script
+per spawn.
+
+**Denied outright:** the five protected configs of section 15.1; the generated gate script;
+everything under `~/hydra/runs/` and `~/hydra/pruned/`; the skill store at `~/hydra/skills/` and its
+snapshots at `~/hydra/skills-snapshots/`; the parent repo's `.git`, which `hydra run` knows because
+it ran `git worktree add` from it; and the three per-run parents, `~/hydra/worktrees/`,
+`~/hydra/spawn/` and `~/hydra/skill-worktrees/`.
+
+**Carved out of those denials, per spawn:** the run's own worktree, and on a `curate` run its own
+checkout of the store. The check is "inside a denied path and not inside an own path". The run's own
+spawn directory is not carved out, because nothing a gated tool call does has business there: Hydra
+writes it at spawn and the vendor process writes its own data root through no tool the gate sees.
+
+The rule behind the list is one sentence. **A run writes only inside what Hydra created for it.**
+Everything else under `~/hydra` belongs to another run, to the corpus, or to the store, and the
+parent directories are denied rather than the siblings enumerated because siblings appear and
+disappear while the run is live. A directory Hydra adds later under `~/hydra` is covered the day it
+exists only if it is added here, which is why section 5's table and this list are meant to be read
+against each other.
+
+Ticket 40 measured why the flat list of seven was not enough. Under `standard`, whose `shell` carries
+no scope, `rm -rf` on a sibling's worktree, on `~/hydra/pruned/`, on the store's `.git` and on the
+parent repo's `.git` all came back allowed, and a `Write` into a sibling's gate script came back
+allowed under `permissive`. None of those loses the record, and every one of them loses something a
+record cannot rebuild, or kills a sibling run: its hook command checks the script's sha before
+running it, so a replaced gate fails closed as `hydra/gate-tampered` on every call that follows. Each group earns its place
+differently.
 
 The **delegation policy directory** and the **generated script** earn it twice over: without them a
 child under `permissive` can rewrite the policy constraining its siblings, and the induction above
@@ -773,11 +830,26 @@ preamble and the canonical MCP document are read by every run and writable by a 
 each has a failure mode section 15.1 already names. An MCP server definition is a command Hydra
 spawns, so a run that edits that document runs code of its choosing inside every future run.
 
-**`~/hydra/runs/` earns it because the record is the evidence.** A loop that learns from the corpus
-must not be able to edit the corpus, and D10 makes the record the source of truth for everything else
-besides. This denial is a path block like the six above it, so the gate delivers it outright: a hook
-sees the path and refuses the write before it reaches disk, measured on all three providers
-(ticket 26).
+**`~/hydra/runs/` and `~/hydra/pruned/` earn it because the record is the evidence.** A loop that
+learns from the corpus must not be able to edit the corpus, and D10 makes the record the source of
+truth for everything else besides. `hydra prune` moves a record rather than deleting it, and that
+promise is empty if a child can delete the moved copy. This denial is a path block like the ones
+above it, so the gate delivers it outright: a hook sees the path and refuses the write before it
+reaches disk, measured on all three providers (ticket 26).
+
+**The store and its snapshots earn it because they are the other half of D5's seam.** The record
+and the skill store are the two things that cross between the harness and Ouroboros, and rung one
+proposes rather than lands. A `permissive` run writing a skill into `~/hydra/skills/` lands one with
+no proposal, which is not a leak in the curator but a second door beside it. A snapshot is where a
+run's injected links resolve, so a run that writes into one edits its own instructions, which ticket
+28's authorship test says cannot happen. Both were reachable before ticket 40, through `shell` under
+`standard` and through `anywhere` under `permissive`.
+
+**The per-run parents and the parent repo's `.git` earn it because a run's blast radius is its own
+run.** A sibling's worktree holds uncommitted work `hydra reap` has not yet committed; a sibling's
+checkout holds a proposal no human has seen; a sibling's spawn directory holds the gate its every call
+runs through, and a replaced one ends that run. The parent repo's `.git` is shared by every worktree, so it holds every run's branch
+and, on a machine where the parent is Hydra's own checkout, Hydra's own history.
 
 **What the gate does not do is stop a run invoking `hydra` itself.** `hydra export`, `hydra prune`
 and `hydra reap` are a binary reached through `shell`, so any rule against them is an argv match with
@@ -862,8 +934,8 @@ while it was running. Marking is advice too. What Hydra guarantees is that the m
 **Hydra gates actions, never beliefs.** The spec promises that a run's actions are bounded by its own
 policy. It promises nothing about what a model can be convinced of. The worked example: a delegated
 `cursor-agent` child returns a result asking the orchestrator to grant write access to
-`~/hydra/skills`. It is refused because the gate denies writes to the store under every policy but
-`curate`, and to the seven paths in section 7.5 under every policy without exception. The layer that
+`~/hydra/skills`. It is refused because the store's working tree is one of the paths
+section 7.5 denies under every policy without exception, `curate` included. The layer that
 stops it is the one that never read the text.
 
 ## 9. `hydra run` and the delegate face

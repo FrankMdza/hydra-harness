@@ -7,6 +7,7 @@ target/
 /spawn/
 /skills/
 /skills-snapshots/
+/skill-worktrees/
 /pruned/
 # Where the Claude Code harness puts a subagent's isolated checkout of this repo.
 /.claude/worktrees/

@@ -100,7 +100,7 @@ It does not, and the seam check caught it.
 
 **Rows three, four and five are path blocks, and the gate delivers them outright.** A hook sees the
 path and refuses the write before it reaches disk, measured on all three providers, so these hold for
-any run rather than only for Ouroboros'. Harness spec section 7.5 lists the seven paths as one set.
+any run rather than only for Ouroboros'. Harness spec section 7.5 lists the denied paths as one set, and since ticket 40 the store, its snapshots and the pruned records are on it beside the corpus.
 
 **Rows one and two are not a gate's job at all.** `hydra prune`, `hydra reap` and `hydra export` are a
 binary reached through `shell`, so a gate rule against them is an argv match, with the failure mode
@@ -264,9 +264,10 @@ This is the hardest line in rung one's design and it should read as one.
 **The curator writes into its own git worktree of the store, never into `~/hydra/skills/` itself.**
 A run pins the store at a sha and links into an immutable snapshot, so the live working tree is only
 ever read at launch, where a dirty store is committed before pinning. A curator writing into that
-same working tree would collide with the next launch's commit. Its worktree is created per run and
-its commits land on a branch in the store's own repo. This is a refinement rather than a decision
-from a closed ticket, and it is flagged in section 9.1.
+same working tree would collide with the next launch's commit. Its worktree is created per run at
+`~/hydra/skill-worktrees/<run-id>/` and its commits land on `ouroboros/curate/<run-id>` in the
+store's own repo. Ticket 40 settled this on 2026-09-06 and harness spec 7.2 was the paragraph that
+moved.
 
 **Every limit above lives at the tool-dispatch layer and the gate, and none of it lives in a
 prompt.**
@@ -858,16 +859,22 @@ table would be invented rather than measured. Each row names the evidence its nu
 
 Each of these is a ticket rather than a paragraph.
 
-### 9.1 The curator's store worktree is a refinement
+### 9.1 The curator's store worktree, closed
 
-Section 3.6 gives the curator its own git worktree of the skill store rather than letting it write
-into `~/hydra/skills/`. No closed ticket says this. It follows from two that do: a run pins the store
-at a sha and links into an immutable snapshot, and a dirty store is committed before pinning, so a
-curator writing into the live working tree would collide with the next launch's commit.
+Section 3.6 gave the curator its own git worktree of the skill store rather than letting it write
+into `~/hydra/skills/`, and no closed ticket said so. Ticket 40 closed it on 2026-09-06 and 3.6 won:
+harness spec 7.2 had been claiming the opposite for as long as both documents existed.
 
-The refinement should be confirmed rather than assumed, and it carries one open detail: where that
-worktree lives. The spawn directory is reaped with the run, which is fine for the checkout and
-irrelevant to the branch, since the branch lives in the store's own repo.
+The open detail was where that worktree lives, and it is `~/hydra/skill-worktrees/<run-id>/`, a
+sibling of `worktrees/` rather than a place inside the spawn directory. The spawn directory is the
+one `hydra reap` removes whole, and an uncommitted proposal is work. `hydra reap` now sweeps a
+leftover checkout too, committing to the branch first, so a proposal survives on
+`ouroboros/curate/<run-id>` rather than being thrown away.
+
+The store's working tree gained a stronger guarantee on the way. It is one of the paths harness spec
+7.5 denies under every policy, so no gated run writes into it by any route, the way no gated run
+writes into `~/hydra/runs/`. The record and the store are the two things that cross D5's seam and
+now both are protected.
 
 ### 9.2 The proposer's policy has no name
 
