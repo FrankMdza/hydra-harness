@@ -672,7 +672,7 @@ different strengths worth knowing before anyone leans on it:
 
 | Provider | What the stream says about who denied |
 |---|---|
-| `claude` | `--include-hook-events` gives `hook_started` and `hook_response` frames naming the hook, with `exit_code`, `outcome` and stdout. Strong, and independent |
+| `claude` | `--include-hook-events` gives `hook_started` and `hook_response` frames naming the hook, with `exit_code`, `outcome` and stdout. Strong, and independent. The same frame is where a `UserPromptSubmit` hook's `additionalContext` lands, which is run content the model read (section 13) |
 | `agy` | the tool error names the hook by a generated id, `jsonhook__<name>_<event>_<group>_<handler>`, and carries Hydra's own reason string verbatim. Strong, with the short-circuit caveat above |
 | `cursor-agent` | every hook's message concatenated. Not usable for attribution |
 
@@ -1144,6 +1144,11 @@ harvest-at-exit is the contract and live tailing is a per-provider optimisation.
 
 **Nothing is dropped, reordered or rewritten at write time.** The raw frame is stored verbatim. This
 is the rule the rest of the contract leans on, and it has exactly one exception and one addition.
+It is also why text a user hook adds to the model's context is on the record without a field of its
+own: `claude` returns it as `additionalContext` inside a `hook_response` frame, the frame is stored
+verbatim, and ticket 46 decided it stays there rather than becoming an eleventh event type for one
+hook on one machine. A reader that wants what the model was told beyond the task string reads the
+`hook_response` frames before the first assistant frame.
 
 **The exception: Hydra strips its own injected values.** The exact string Hydra put in the child's
 environment for that run, which in v1 means `GEMINI_API_KEY` on a run carrying `--allow-billed` and

@@ -492,6 +492,17 @@ written for it and `~/.gemini/config/hooks.json` does not exist. **That is a fac
 rather than a property of Hydra**, and it changes the day someone writes one. The spec states it and
 builds nothing on it, which is section 2's rule applied to protection the user owns.
 
+**The price of loading the user's file is that the same file can add context.** The user's
+`UserPromptSubmit` hook fires inside every recorded `claude` run and its `additionalContext` reaches
+the model before the first turn, measured under ticket 46. Hydra keeps loading the file anyway.
+`--setting-sources project,local` beside `--settings` was measured to drop the user's hooks while
+Hydra's own gate hook still fired, so the isolation is one flag away, and it is not taken because
+the four `PreToolUse` guards live in the same file and go with it. Section 8 says what the added
+text is. `judge` never sees it, because `--restricted` ignores user settings. On `cursor-agent` the
+same thing can happen through `beforeSubmitPrompt`, and `hookAdditionalContexts` rides every tool
+call in its stream, but no `~/.cursor/hooks.json` exists on this machine and a Cursor run is paid,
+so it is unmeasured. Build ticket 09's drift note carries it to the next Cursor run.
+
 **`--restricted` is used for `judge` and nowhere else.** It ignores user, project and local settings
 while honouring `--settings`, refuses `bypassPermissions`, gates writes to settings and
 tool-configuration files, and drops every MCP server the settings define while keeping one passed on
@@ -915,12 +926,20 @@ Three things are instructions:
 - the skills linked at the pinned sha
 
 **Authorship is the test and timing is the proxy.** The two give the same answer in every case but
-one. Inherited MCP tool descriptions load at process start, so timing would call them instructions,
-and a server author wrote them, so authorship rules them out. They are data.
+two. Inherited MCP tool descriptions load at process start, so timing would call them instructions,
+and a server author wrote them, so authorship rules them out. They are data. The second case is
+below.
 
-The user's own hooks are not an instruction source at all. A hook config never enters the model's
-context. It is a second gate with a human owner, which is coherent under one principal, and it can
-only ever subtract.
+**The user's own hooks are not an instruction source, and they can add text.** A hook config never
+enters the model's context, but a hook's stdout can: `claude`'s `UserPromptSubmit` returns
+`additionalContext` and the provider appends it before the first turn. Measured under ticket 46 on
+2.1.263, 2026-09-06, on a recorded run whose sequences 1 and 2 are the hook firing and the user's
+standing reminder arriving. That text is data. A human wrote it and Hydra did not write it at spawn,
+which is the whole test, and it lands in the record through the `hook_response` frame under
+`--include-hook-events`, so the record shows it the way it shows everything else the run read. The
+hook config itself is still a second gate with a human owner, coherent under one principal, and its
+denials still only subtract. An earlier draft said the hooks could only ever subtract, which was true
+of the guards on this machine and not of the mechanism.
 
 Do not call these channels. D5 uses that word for the two crossings between the harness and
 Ouroboros, and a second meaning inside one spec is a reader's error waiting to happen.

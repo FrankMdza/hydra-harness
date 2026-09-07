@@ -200,3 +200,11 @@ possible `Skill` split lands on `Read` here rather than on a row of this table, 
 Cursor has no `Skill` tool and a linked skill is read through the file tool from a path
 under `~/hydra/skills-snapshots/`, which is the same out-of-worktree link ticket 39 is
 already about.
+
+## Added by map ticket 46, 2026-09-06
+
+On the next paid Cursor run, check whether a `beforeSubmitPrompt` hook in the user's config adds
+context, and whether `hookAdditionalContexts` on a tool call ever carries anything. Ticket 46 found
+`claude`'s `UserPromptSubmit` adding the user's standing reminder to every recorded run and decided
+it is data and stays in `raw`. Nothing on this machine defines a Cursor hook today, so the claim in
+harness spec 6.6 is stated as unmeasured.

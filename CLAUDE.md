@@ -26,14 +26,13 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map is open again at 45 of 46, and nothing open blocks the build.** It reached its
-destination on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a
-decision rather than an implementation, which is the one condition for reopening it. Tickets 39 to
-43 are those, three of them about what a policy scope is and who gets to know, one about provider
-drift. Ticket 39 closed on 2026-09-06 and build ticket 13 carries its code; 44 and 45 closed the
-same day, one ruling out a TUI of Hydra's own and one measuring Herdr and Hunk against what it
-assumed; 40 to 43 closed on 2026-09-06 too. **Ticket 46 is the one open ticket, a grilling that
-needs the human.** The map's own paragraph under `## Destination` says where it stands.
+**The map is closed again at 46 of 46, and nothing blocks the build.** It reached its destination
+on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
+rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
+those, three of them about what a policy scope is and who gets to know, one about provider drift.
+All of them, plus 44 to 46, closed on 2026-09-06, and build tickets 13 to 16 carry their code. The
+map's own paragraph under `## Destination` says what each left. **If a build ticket finds a
+decision rather than an implementation, it reopens the map with a new ticket rather than deciding.**
 
 **Wayfinder is still not how the build continues**: it charts decisions, its tickets resolve
 questions rather than execute slices, and its own instructions say the pull to just do the work is
@@ -114,7 +113,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 45 of 46 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 46 of 46 resolved
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 
