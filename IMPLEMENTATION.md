@@ -1212,6 +1212,26 @@ provider alone, because `claude` puts `subtype` in the same role and it says `su
 a 429. `SUCCESS` on its own is worth nothing: ticket 26 measured a run reporting it with
 every tool call denied and exit 0, which is why `refused_everything` is checked first.
 
+**The provider aborts its own turn with "timeout waiting for response", and the run
+derives `failed`.** Measured 2026-09-08 on 1.1.27, twice, the second time on purpose. Run
+01a07ffe-4808, `gemini-3.8-flash-high` under `standard` on build ticket 31, read fifty-five
+steps and 3.2M tokens of source, then ran `cargo test --release` in a cold worktree; 104
+seconds into that step the `result` frame arrived with `status: ERROR`, `error: "timeout
+waiting for response"`, an empty response, exit 1, and the tool's step never reached `DONE`.
+The cutoff is not the tool's wall clock: run 01a08004-c497, the same binary asked to run
+`sleep 150 && echo slept`, waited 150 seconds on the one step and came back `SUCCESS`. Nor is
+it `--print-timeout`, which the run argv does not pass and defaults to five minutes. What
+differed was the context: a quarter of a million input tokens with a compile's output on the
+way in. The honest reading is a model-response wait the binary does not expose as a flag.
+Two things follow for whoever launches this provider. A Rust ticket that has to run the
+suite is out of its reach on this build, whatever the model, and the two `agy` failures on
+this map's memory, one on `gemini-3.1-pro-high` on 2026-09-07 and this one, are the same
+death. And a short closed probe is well within it: run 01a08008-cb50 measured a field name
+in 48K tokens and two calls. The outcome is `failed`, which is correct in the sense that the
+provider's own status says so and wrong in the sense that rung one will learn a skill lesson
+from a wait, the same shape contract 8 warns about for a rate limit; no rule keys on the
+sentence yet, and it is written down here so the next reader recognizes it.
+
 **A rate-limited or logged-out `agy` run has no measured shape.** `provider_refused`
 keys on `api_error_status`, which this provider does not write, and nothing was measured
 on either path. So a run refused for quota comes out `failed` today, which is the
