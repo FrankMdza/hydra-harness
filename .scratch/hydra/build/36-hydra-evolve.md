@@ -109,3 +109,10 @@ contract walk, which was reading the pass's own open harness record and refusing
 one line where 5.5 says two. Every pass would have failed its own gate. An open harness record
 is a pass still running now, contract 6's rule, and a proposer that could not run ends the pass
 before any `cargo` command. Still no judge has answered.
+
+**The fourth pass, 01a0822e-bc48.** Its haiku proposer, 8.07M tokens, invented a lowercase
+`bash` and `claude` refused it with "No such tool available"; the replay called that a leak,
+the leak walk failed inside the worktree, and the admission gate blocked the patch. A
+provider-refused call is a limit on both the ungated and the leak path now. Four passes, four
+real reading bugs, all found because the admission gate runs a suite that walks the corpus and
+the proposer's own live record is in it. Still no judge has answered.

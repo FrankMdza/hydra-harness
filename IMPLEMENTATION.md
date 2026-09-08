@@ -2523,6 +2523,23 @@ Beside it, a proposer that could not run at all now ends the pass before the gat
 aborts a review a judge cannot answer, and an empty diff from a rate-limited or logged-out
 proposer is the same shape, so the branch carries the reason and no `cargo` command runs.
 
+**The fourth pass, 01a0822e-bc48, was blocked by its own proposer's trajectory.** The haiku
+proposer spent 8.07M tokens, invented a lowercase `bash` tool, and `claude` answered "No such
+tool available: bash". The gate was never asked, the table is right not to know an invented
+name, and the replay filed the call as both `Ungated` and a `GateLeak` for the unknown tool;
+the leak walk then failed inside the worktree and the admission gate blocked the patch. A call
+the provider refused on its own is a limit on both paths now, the third spelling of a rule that
+already covered `InputValidationError` and the binary's own `Blocked:`.
+
+**That is the structural fact worth writing down, rather than the third spelling.** The
+admission gate runs `cargo test`, this suite walks every record under `~/hydra/runs/`, and the
+proposer's own record is one of them, live, while the gate reads it. So a pass judges its
+proposer's trajectory as well as its patch, and a model that types something odd blocks a
+patch it never touched. Three of the four passes so far died there: the open harness record,
+the invented tool, and the walk that had no branch for a harness run. Each was a real reading
+bug worth fixing, which is the argument for leaving it as it is; the argument against is that
+the corpus grows with every run and the gate's failure surface grows with it.
+
 **Two things the brief shows that are worth knowing.** It lists every run rung one may learn
 from with its outcome and `outcome_source`, and on this machine that second column reads
 `unknown` for a run carrying one unclassified tool result, contract 8.2. On the day the

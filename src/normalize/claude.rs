@@ -545,16 +545,19 @@ impl Walk {
                 || refusal
                     .as_ref()
                     .is_some_and(|refusal| refusal.by == Decider::HydraPolicy);
-            // A call Claude Code refused on its own never reached a hook. Two
-            // spellings measured: `InputValidationError`, 2026-09-07 on run
-            // 01a07f37-8a67, where haiku passed `offset` as an array five times;
-            // and `<tool_use_error>Blocked: ...`, 2026-09-08 on run 01a0812a-ad31,
-            // the binary's own guard refusing `sleep 70 && tail ...` before any
-            // hook frame. The gate was never asked, so its silence is not a
-            // finding.
+            // A call Claude Code refused on its own never reached a hook. Three
+            // spellings measured, all on haiku: `InputValidationError`,
+            // 2026-09-07 on run 01a07f37-8a67, where it passed `offset` as an
+            // array five times; `<tool_use_error>Blocked: ...`, 2026-09-08 on run
+            // 01a0812a-ad31, the binary's own guard refusing `sleep 70 && tail
+            // ...`; and `No such tool available: bash`, the same day on run
+            // 01a0822f-9e37, where it invented a lowercase `bash`. The gate was
+            // never asked, so neither its silence nor the table's ignorance of an
+            // invented name is a finding.
             let refused_on_input = results.get(&call_id).is_some_and(|(status, output)| {
                 *status == ResultStatus::Error
                     && (output.contains("InputValidationError")
+                        || output.contains("No such tool available")
                         || output.starts_with("<tool_use_error>Blocked:"))
             });
             if !hydra_spoke && !refused_on_input {
@@ -611,6 +614,15 @@ impl Walk {
                         self.findings.push(Finding::Limit(format!(
                             "{call_id} ({tool}) is the last thing the record says, so \
                              whether the gate refused a call the policy denies is unknown"
+                        )));
+                    } else if refused_on_input {
+                        // The provider refused the call on its own, so the gate
+                        // never spoke and its verdict is about a call that never
+                        // ran. An invented tool name lands here, denied
+                        // `unknown-tool` by a table that is right to not know it.
+                        self.findings.push(Finding::Limit(format!(
+                            "{call_id} ({tool}) was refused by the provider itself, so the \
+                             policy's answer is about a call that never ran"
                         )));
                     } else if verdict.code() == Some("no-path")
                         && results
