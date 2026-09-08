@@ -15,7 +15,7 @@
 //! test, which is the only thing that tells the two apart afterwards.
 //!
 //! [`ouroboros`] is the other half of the design and reads what the router wrote.
-//! Rung one is built, as `hydra curate`; rung two is not.
+//! Rung one is `hydra curate`; rung two is `hydra evolve`.
 
 pub mod cli;
 pub mod env;

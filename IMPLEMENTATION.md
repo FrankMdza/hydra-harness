@@ -128,6 +128,7 @@ hydra show <run-id> [--events]
 hydra usage recount [<run-id>]
 hydra export --out <file> | --dry-run
 hydra resume <run-id> [--task "..."] [--timeout <dur>]
+hydra evolve [--model <id>] [--timeout <dur>] [--dry-run]
 ```
 
 A launch builds the child's environment from the allowlist, reads the provider's
@@ -149,9 +150,10 @@ each belong to a ticket that is not built: `--files` is on the delegate face and
 the command line, `--shared-tree` answers a worktree question nothing has asked yet, and
 `--allow-billed` belongs to the raw-model plane.
 
-Harness spec 17 lists eleven commands. Ten are built, `show` since build ticket 18,
-`usage recount` since build ticket 31, `export` since build ticket 34, which has a
-section of its own below, and `resume` since build ticket 32, which has one too. That last one walks the corpus, or one record, and
+Harness spec 17 lists eleven commands and all eleven are built: `show` since build ticket
+18, `usage recount` since build ticket 31, `export` since build ticket 34, `resume` since
+build ticket 32 and `evolve` since build ticket 36, the last three with sections of their own
+below. That last one walks the corpus, or one record, and
 prints how many runs carry each `usage_source`, then says there is nothing to recount, which
 spec 17 already promised for v1: no provider produces `estimated`, and the command exists so
 the tool is here the day one does. On this machine on 2026-09-08 it said `provider: 58`,
@@ -966,15 +968,30 @@ the second means logging out. A signal death reports the same exit code 1 throug
 pty, which is why the detached half now writes the signal into `run_end.error` and the
 derivation reads that note first.
 
-**Two tool names this build did not know arrived on 2026-09-08.** `awaitToolCall`, with
-`taskId` and `blockUntilMs`, is Cursor waiting on a background task it started, seen on run
-01a0801d-7811; the gate at run time refused it with an out-of-scope `file_read` reason, so
-whatever `tool_name` the hook carried mapped onto a pathed row with no path, and the
-normalizer reports it as `unknown_tool`. And an `editToolCall` completed frame arrived
-with no `args` at all and "Invalid arguments: old_string: Required" as its result, which
-the replay used to file as a `Write` gate leak; it is a limit now, since a call the
-provider refused on its own arguments never ran and the record cannot say what path it
-would have taken. `ReadLints` is map ticket 51.
+**Three tools Cursor runs without asking the hook, and the table says so, since build
+ticket 35.** Map ticket 51 measured it three times on 2026-09-08: `ReadLints` with a
+list-valued `paths`, `getMcpToolsToolCall` listing an MCP server's tools, and
+`awaitToolCall` waiting on a background task, all completed with results under
+`read-only` and `standard`, none with a `hydra gate:` line in the spawn's `cursor-data`,
+while a `Read` outside the worktree in the same runs was refused with Hydra's reason. They
+are `unhooked(name)` rows now, `Capability::Unhooked`, which the compiler leaves out of
+`gate.py`'s config so the gate is unchanged, and the replay records a call to one as a
+`permission_decision` with `decision: allow`, `decider: provider` and the reason
+`hydra/unhooked: <tool> is run by cursor-agent without asking the hook`: not a leak,
+because no gate was asked, and not `external`, because nothing denied. If the hook ever
+fires for one, the gate's own answer stands and the replay reports a `Disagreement`.
+**The risk per tool today.** `ReadLints` returns `totalFiles: 0` for every path, `/etc/hosts`
+and a file that cannot parse included, in print mode and in the interactive TUI: there is no
+language server behind the CLI, so it reads nothing. `getMcpToolsToolCall` names the tools
+of a server the run's own MCP document admitted, which the run could call anyway. `awaitToolCall`
+blocks on a task whose `Shell` call the gate already answered. A fourth unhooked tool shows
+up the way these did, `unknown_tool` beside a completed result. The two corpus walks pass
+with no skip.
+
+**One more shape from the same day.** An `editToolCall` completed frame arrived with no `args`
+at all and "Invalid arguments: old_string: Required" as its result, which the replay used to
+file as a `Write` gate leak; it is a limit now, since a call the provider refused on its own
+arguments never ran and the record cannot say what path it would have taken.
 
 **Two noise lines per run, and one of them is new.** Cursor writes the same bare
 show-cursor escape `claude` does after its last frame, and before its first frame it
@@ -2391,6 +2408,53 @@ over every output line and one hit aborts the whole export with nothing written.
 normalized vocabulary, to `--out <file>`. Nothing on this machine has been exported: the
 allowlist does not exist, and `hydra export --dry-run` says so.
 
+## Ouroboros rung two: `hydra evolve`, since build ticket 36
+
+Ouroboros spec 4 as written, with the three details map ticket 52 closed. `src/ouroboros/evolve.rs`
+and `src/ouroboros/review.rs`, `tests/evolve.rs`, written by Composer 2.5 on run 01a08053-3d85,
+launched into a Herdr pane. **No pass has run to the end on this machine**: `--dry-run` has
+printed the proposer's brief, and everything below past the brief is exercised by synthetic
+patches and answers only.
+
+**A pass is a harness run with four children.** `evolve` mints a run id with `command: evolve`,
+writes contract 5.5's two-line record, and every child carries it as `parent_run_id`: one proposer
+and three judges. The proposer is a recorded `claude` run under `standard` in a worktree of this
+repo, its task the brief spec 4.1 describes, composed by `brief()` from the same corpus selection
+rung one reads. `--model` names the proposer's model and nothing chooses one on the human's behalf.
+
+**Three refusals happen before any judge runs, in this order.** The proposer's diff is read
+against `base_tree` the way `hydra reap` reads one; a diff over `PATCH_LINE_CAP`, 400 lines
+changed, insertions plus deletions, is rejected for size and the proposer is told to split it. A
+diff naming a path under harness spec 15.1, `policies/` or `config/`, checked relative to the repo
+root, is refused at admission. Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
+and `test` in the worktree, and a failure is a rejection carrying the output. Each refusal lands
+on `ouroboros/blocked/<pass-id>` with its reason in the commit message, spec 4.9.
+
+**The panel is one `judge` run per provider**, `claude`, `cursor-agent` and `agy`, each handed the
+whole diff and the checklist of spec 5 in the prompt, no skills and no MCP as `judge` already
+runs. Each answers one closed JSON shape, `{"verdict", "findings": [{"item", "severity",
+"note"}]}`, and `review::parse_judge_answer` takes the whole response as that object: prose
+outside it, a missing field or a wrong value is a block carrying the parse error, never a pass
+and never a retry. Spec 5.1's ceiling clamps a reported severity to the checklist item's own, and
+one critical finding blocks whatever the `verdict` field says. Spec 4.7's abort on a rate-limited
+judge reads the corpus for a fresh `rate_limit_event` before spawning.
+
+**The verdict lives in the commit message**, spec 4.9, on `ouroboros/<pass-id>` when the panel
+passed and `ouroboros/blocked/<pass-id>` when it did not, naming the pass, the proposer and the
+three judges by run id, with the three answers in the body. A pass constructs `ApprovedPatch`
+only through `panel_verdict`, which is the one function that can build it, and nothing merges:
+the human does, spec 4.11. A pass's outcome describes the pass and not the patch, spec 4.10, so
+a refused or blocked patch is a `completed` pass and `failed` is git or the worktree breaking.
+
+**Two things the brief shows that are worth knowing.** It lists every run rung one may learn
+from with its outcome and `outcome_source`, and on this machine that second column reads
+`unknown` for most runs, because a run carrying one unclassified tool result has an unknown
+source under contract 8.2, and the Sonnet run 01a07f37-9cab carries ninety-two of them. That
+is a `claude` normalizer gap rather than a rung-two fact, and it is written down here because
+the brief is where it became visible. And the brief hands the proposer run ids it
+cannot open, since `~/hydra/runs/` is denied under every policy; that is the read-only brief of
+spec 4.3 as a convention, which map ticket 52 kept.
+
 ## Ouroboros rung one: `hydra curate`
 
 Ticket 12. `src/ouroboros/` is the whole of it. `corpus.rs` decides which runs the
@@ -2743,12 +2807,11 @@ Out of scope for this slice, and each one has a document that already says what 
   under any other policy has been made, so `standard` and `permissive` on that provider
   are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
 - Interactive runs and harvest. 5.6, 12.
-- One of harness spec 17's eleven commands: `evolve`.
-- Ouroboros rung two. `hydra evolve`, the protected-path refusal, the admission
-  gate, the panel of three and the `ApprovedPatch` type are all absent, and so is
-  the harness run a pass would write (contract 5.5). Rung one is built and the
-  section above says what it does. The review checklist of ouroboros spec 5 is a
-  document rather than code: nothing reads it, because nothing reviews yet.
+- Ouroboros rung two has never run a pass to the end. `hydra evolve` is built, since
+  build ticket 36, with the protected-path refusal, the admission gate, the panel of
+  three, the `ApprovedPatch` type and the harness run of contract 5.5, and its section
+  above says what it does; `--dry-run` has printed a brief on this machine and nothing
+  more has been spent on it.
 
 ## Rough edges worth knowing
 

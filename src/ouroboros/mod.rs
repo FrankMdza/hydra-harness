@@ -1,10 +1,8 @@
 //! Ouroboros: the loops that read what the router recorded.
 //!
-//! `docs/ouroboros-spec.md` is the design. Rung one, the curator, is built and
-//! lives in [`curate`] over the corpus selection in [`corpus`]. Rung two, reviewed
-//! core evolution, is specified in that document's section 4 and is not built:
-//! `hydra evolve`, the admission gate, the panel of three and the `ApprovedPatch`
-//! type are all absent, and `IMPLEMENTATION.md` says so.
+//! `docs/ouroboros-spec.md` is the design. Rung one, the curator, is built in
+//! [`curate`] over the corpus selection in [`corpus`]. Rung two, reviewed core
+//! evolution, is built in [`evolve`] with the panel in [`review`].
 //!
 //! **Neither rung may call `hydra reap`, `hydra prune` or `hydra export`, and the
 //! gate is not what stops it.** Those are a binary reached through `shell`, so a
@@ -25,3 +23,5 @@
 
 pub mod corpus;
 pub mod curate;
+pub mod evolve;
+pub mod review;

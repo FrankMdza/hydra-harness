@@ -143,6 +143,18 @@ fn main() -> Result<()> {
             })?;
             print!("{}", hydra::ouroboros::curate::report(&done));
         }
+        Command::Evolve {
+            model,
+            timeout,
+            dry_run,
+        } => {
+            let done = hydra::ouroboros::evolve::evolve(hydra::ouroboros::evolve::Pass {
+                model,
+                timeout,
+                dry_run,
+            })?;
+            print!("{}", hydra::ouroboros::evolve::report(&done));
+        }
         Command::Usage { command } => match command {
             UsageCommand::Recount { run_id } => {
                 let mut out = std::io::stdout().lock();

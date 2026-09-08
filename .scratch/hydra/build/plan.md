@@ -71,6 +71,7 @@ it.
 - [34 - `hydra export`](34-hydra-export.md)
 - [35 - An `unhooked` row in the capability table](35-unhooked-tools.md)
 - [36 - `hydra evolve`, Ouroboros rung two](36-hydra-evolve.md)
+- [37 - A `claude` tool result with no `is_error` is classified from `tool_use_result`](37-claude-results-without-is-error.md)
 
 ## Out of scope
 

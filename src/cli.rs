@@ -1,9 +1,6 @@
 //! The command surface.
 //!
-//! Harness spec 17 lists eleven commands. Eight are here: `run`, `status`, `logs`,
-//! `show`, `resume`, `reap`, `prune` and `curate`. Section 9 gives `hydra run` eight optional flags
-//! and five are here. The three that are not each belong to a ticket that is not
-//! built.
+//! Harness spec 17 lists eleven commands. All eleven are here.
 //!
 //! **`reap` and `prune` are typed by a human and reachable from no run.** Nothing
 //! in the library calls either, which is the only mechanism there is: harness spec
@@ -154,6 +151,21 @@ pub enum Command {
         timeout: Duration,
 
         /// Print what the curator would be told and launch nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// One rung-two pass: proposer, admission gate, panel of three, branch.
+    Evolve {
+        /// A model inside the provider. Never chosen on your behalf.
+        #[arg(long)]
+        model: Option<String>,
+
+        /// How long to wait before degrading to a handle on each child run.
+        #[arg(long, default_value = "10m", value_parser = parse_duration)]
+        timeout: Duration,
+
+        /// Compose the proposer's brief and launch nothing.
         #[arg(long)]
         dry_run: bool,
     },

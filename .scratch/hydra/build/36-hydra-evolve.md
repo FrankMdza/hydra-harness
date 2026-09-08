@@ -1,7 +1,7 @@
 # 36 - `hydra evolve`, Ouroboros rung two
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 12, 34
 
 ## Goal
@@ -73,3 +73,21 @@ test or a visibility assertion).
 - The tests above pass and the rest of the suite is untouched.
 - If any slice needs a decision the documents and map ticket 52 do not make, stop at that
   slice, finish the others, and say so in the report.
+
+## Outcome
+
+Resolved 2026-09-08. `cursor-agent` on Composer 2.5, run 01a08053-3d85 under `standard`: 5.77M
+tokens, seven files, 941 lines of Rust across `evolve.rs` and `review.rs`, seven tests, fifty
+minutes, in a Herdr pane. Every slice landed and the model reported no decision needed. Its
+stated assumptions: the proposer runs on `claude`, the protected-path check reads `policies/`
+and `config/` relative to the repo root, the cap counts insertions plus deletions from the diff
+stat, and the verdict lives in the branch commit message rather than on the harness record,
+which is what spec 4.9 says and what the ticket had loosely misstated. `hydra evolve --dry-run`
+on this machine prints a brief naming 55 learnable runs and spawns nothing.
+
+**What is not measured.** No pass has run to the end: no proposer has been spawned, no judge has
+answered, no branch of either name exists. The next real step is one `hydra evolve` on haiku
+with a fresh Claude window, which spends one proposer run and three judge runs and produces the
+first `ouroboros/` branch. The launch from a Herdr pane through `hydra-in-pane` failed twice
+today before the worktree seeding and the launcher deleted the error; the run above was launched
+from the orchestrating session's shell and its pane labelled by hand.

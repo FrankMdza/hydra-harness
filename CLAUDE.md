@@ -6,8 +6,7 @@ fourth until ticket 22 unrouted it; its guardrail rules are still copied, its bi
 
 This repo holds a finished design, three documents in `docs/`, written from a wayfinder map that
 closed on 2026-09-05 with 38 of 38 tickets resolved and all four seam checks passing. It also holds
-the Rust that implements ten of that design's eleven commands: `run`, `status`, `logs`, `reap`,
-`prune`, `curate`, `show`, `usage recount`, `export` and `resume`. Only `evolve` is missing.
+the Rust that implements all eleven of that design's commands, `evolve` last, on 2026-09-08.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
 design and the code. The code is deliberately not spec-complete: all three providers are routed and
@@ -26,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 50 of 50 and the build at 28 of 28, both closed on 2026-09-08.** It reached its destination
+**The map stands at 52 of 52, closed on 2026-09-08, and the build at 36 tickets.** It reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -95,7 +94,7 @@ document and there should not be one.
 - `integrations/herdr/`, the Herdr plugin: a launcher that puts the run id on the pane, a poller
   that labels the pane from the record, a graph of one run in the terminal, and a smoke test
   against a live Herdr. Nothing under `src/` imports it, and its README says how to link it.
-- `tests/`, twenty-one files. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, twenty-two files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
   hook payloads, launching nothing; `spawn.rs` checks that a run writes that gate where the run will
@@ -113,7 +112,9 @@ document and there should not be one.
   reads its refusals back as tool results; `show.rs` and `harvest.rs` read a normalized record and a harvested one back; `usage.rs` tallies
   two synthetic records and reads a missing one's error back; `export.rs` audits four synthetic
   records against a two-entry allowlist and aborts on a planted secret; `resume.rs` builds each
-  provider's resume argv and drives the four refusals, launching nothing;
+  provider's resume argv and drives the four refusals, launching nothing; `evolve.rs` drives the
+  size cap, the protected-path refusal, the closed-shape parser and the harness record on
+  synthetic patches and answers, launching nothing;
   `drift.rs` runs `claude`'s free probe under `judge`'s
   flags with stub servers in a scratch `HOME`, skips without the binary, and holds the only
   tests in the suite that launch a provider.
