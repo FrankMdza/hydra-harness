@@ -76,3 +76,12 @@ interactive `cursor-agent` run with a real language server behind the tool, to s
 a Herdr session rather than a print-mode run, and the interactive mode is built on `claude`
 only, so it waits on either an interactive launch for Cursor or a hand-driven session whose
 transcript is read by hand.
+
+## Two more of the same, 2026-09-08
+
+Build ticket 32's Composer run 01a0801d-7382 called `getMcpToolsToolCall` with `server:
+hydra`, listing the delegate face's tools, and `awaitToolCall` with a `taskId`, waiting on a
+background shell task it had started; ticket 34's run called the second too. Neither name is
+in the table, the replay derives `hydra/unknown-tool`, and both completed with results. So the
+question is not one tool but a class: Cursor's own bookkeeping tools, listing, waiting and
+linting, run without the hook. The two corpus walks pass over all three by name.

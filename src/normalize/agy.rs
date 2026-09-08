@@ -131,6 +131,8 @@ struct Walk {
     /// The names the `init` frame offered, for 7.1's table check.
     offered: Vec<String>,
     unknown_tools: Vec<String>,
+    /// Contract 9.2: a resumed run's `result` usage covers earlier turns.
+    resumed: bool,
 }
 
 pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
@@ -187,6 +189,7 @@ impl Walk {
                 self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
                 self.cwd = body["cwd"].as_str().map(PathBuf::from);
                 self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
+                self.resumed = body["command"].as_str() == Some("resume");
                 self.gate = RecordedGate::of(body);
                 self.events.push(Event::RunStart(RunStart {
                     seq,
@@ -444,6 +447,7 @@ impl Walk {
 
     fn finish(mut self, policies: &PolicySet, layout: &Layout) -> Result<Run> {
         super::note_missing_run_start(&self.events, &mut self.findings);
+        super::note_capped_lines(&self.events, &mut self.findings);
         super::note_policy_sha(
             self.policy.as_deref(),
             self.policy_sha.as_deref(),
@@ -451,6 +455,13 @@ impl Walk {
             &mut self.findings,
         );
         self.check_table();
+        if self.resumed {
+            self.findings.push(Finding::Limit(
+                "this run's command is resume, so the result frame's usage covers earlier turns \
+                 in the conversation and is not this run's own token count"
+                    .to_string(),
+            ));
+        }
         let decisions = self.decide(policies, layout);
 
         let events = splice(self.events, decisions);

@@ -378,6 +378,7 @@ impl Walk {
 
     fn finish(mut self, policies: &PolicySet, layout: &Layout) -> Result<Run> {
         super::note_missing_run_start(&self.events, &mut self.findings);
+        super::note_capped_lines(&self.events, &mut self.findings);
         super::note_policy_sha(
             self.policy.as_deref(),
             self.policy_sha.as_deref(),
@@ -1197,6 +1198,7 @@ mod harvest {
 
         fn finish(mut self, policies: &PolicySet) -> Result<Run> {
             super::super::note_missing_run_start(&self.events, &mut self.findings);
+            super::super::note_capped_lines(&self.events, &mut self.findings);
             super::super::note_policy_sha(
                 self.policy.as_deref(),
                 self.policy_sha.as_deref(),

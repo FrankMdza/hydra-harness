@@ -45,6 +45,7 @@ fn minimal_run_start(pid: u32, start: Option<String>) -> RunStart {
         auth: None,
         env_allowlist: Some(vec!["PATH".into()]),
         subscription: Some("none".into()),
+        resumed_from: None,
     }
 }
 
@@ -137,4 +138,62 @@ fn a_long_frame_survives_being_split_across_reads() {
     spawned.wait().unwrap();
 
     assert_eq!(seen, 1);
+}
+
+#[test]
+fn a_line_past_the_cap_becomes_two_frames_and_is_named_on_run_end() {
+    let path = scratch("capped.jsonl");
+    let total = 20 * 1024 * 1024;
+    let script = format!("dd if=/dev/zero bs={total} count=1 2>/dev/null | tr '\\0' 'x'");
+
+    let mut spawned = hydra::pty::spawn(
+        "/bin/sh",
+        &["-c".to_string(), script],
+        std::path::Path::new("/tmp"),
+        [("PATH".to_string(), "/usr/bin:/bin".to_string())].into_iter(),
+    )
+    .unwrap();
+
+    let start = hydra::procinfo::start_time(spawned.pid)
+        .unwrap()
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
+    let mut writer = Writer::create(&path, RUN_ID, None, Some("claude"), None).unwrap();
+    writer
+        .hydra_line(&minimal_run_start(spawned.pid, start))
+        .unwrap();
+
+    let mut lines = Vec::new();
+    spawned
+        .tee(|line| {
+            lines.push(line.to_string());
+            writer.provider_line(line)?;
+            Ok(())
+        })
+        .unwrap();
+    let exit = spawned.wait().unwrap();
+    assert_eq!(spawned.capped_lines, 1);
+    assert_eq!(spawned.lossy_lines, 0);
+    writer
+        .hydra_line(&RunEnd::streamed(
+            exit,
+            Some(hydra::pty::capped_line_note(spawned.capped_lines)),
+        ))
+        .unwrap();
+
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].len(), hydra::pty::LINE_CAP);
+    assert_eq!(lines[1].len(), total - hydra::pty::LINE_CAP);
+    assert!(
+        lines.iter().all(|line| line.bytes().all(|b| b == b'x')),
+        "a byte was dropped or rewritten"
+    );
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    check(&text, Some(RUN_ID)).assert_ok();
+    let last = text.lines().last().unwrap();
+    let end: serde_json::Value = serde_json::from_str(last).unwrap();
+    assert_eq!(
+        end["hydra"]["error"].as_str(),
+        Some(hydra::pty::capped_line_note(1).as_str())
+    );
 }

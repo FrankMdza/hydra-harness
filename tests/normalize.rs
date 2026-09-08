@@ -137,6 +137,31 @@ fn a_line_that_is_not_json_normalizes_to_nothing_and_is_not_an_error() {
     assert!(run.findings.is_empty(), "{:?}", run.findings);
 }
 
+#[test]
+fn a_run_whose_error_names_capped_lines_carries_a_limit_finding() {
+    let sandbox = Sandbox::new("capped");
+    let text = Record::opened(&sandbox.worktree(), None, None)
+        .noise(&"x".repeat(64))
+        .noise(&"x".repeat(32))
+        .closed_with(json!({
+            "exit_code": 0,
+            "error": hydra::pty::capped_line_note(1),
+        }));
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_eq!(run.noise.len(), 2);
+    let limits: Vec<_> = run
+        .findings
+        .iter()
+        .filter_map(|finding| match finding {
+            Finding::Limit(said) => Some(said.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(limits.len(), 1, "{:?}", run.findings);
+    assert_eq!(limits[0], "1 frames were split by the tee");
+}
+
 // --- usage ---------------------------------------------------------------
 
 #[test]
@@ -1309,11 +1334,16 @@ fn no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent() {
             .iter()
             // Map ticket 51: Cursor runs `ReadLints` without asking the hook,
             // measured on 2026-09-08 under `read-only` against `/etc/hosts`,
-            // and its `paths` argument is a list the table does not know. Every
-            // Composer run carries one. Those records are the evidence and stay
-            // in the corpus; the walk passes over that one tool's leaks until
-            // the ticket says what a tool the provider runs unchecked means.
-            .filter(|finding| !matches!(finding, Finding::GateLeak { tool, .. } if tool == "ReadLints"))
+            // and its `paths` argument is a list the table does not know. The
+            // same day's runs showed two more it runs unhooked, its MCP tool
+            // listing and its wait on a background task. Those records are
+            // the evidence and stay in the corpus; the walk passes over those
+            // tools' leaks until the ticket says what a tool the provider runs
+            // unchecked means.
+            .filter(|finding| {
+                !matches!(finding, Finding::GateLeak { tool, .. }
+                    if matches!(tool.as_str(), "ReadLints" | "getMcpToolsToolCall" | "awaitToolCall"))
+            })
             .filter(|finding| {
                 matches!(
                     finding,

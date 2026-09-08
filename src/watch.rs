@@ -219,6 +219,14 @@ pub fn watch(spec: &Path) -> Result<()> {
         });
     }
 
+    if spawned.capped_lines > 0 {
+        let note = crate::pty::capped_line_note(spawned.capped_lines);
+        tee_error = Some(match tee_error {
+            Some(existing) => format!("{existing}; {note}"),
+            None => note,
+        });
+    }
+
     writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;
     Ok(())
 }

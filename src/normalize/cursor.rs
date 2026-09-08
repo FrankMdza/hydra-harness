@@ -420,6 +420,7 @@ impl Walk {
 
     fn finish(mut self, policies: &PolicySet, layout: &Layout) -> Result<Run> {
         super::note_missing_run_start(&self.events, &mut self.findings);
+        super::note_capped_lines(&self.events, &mut self.findings);
         super::note_policy_sha(
             self.policy.as_deref(),
             self.policy_sha.as_deref(),
@@ -532,6 +533,20 @@ impl Walk {
                             self.findings.push(Finding::Limit(format!(
                                 "{call_id} ({tool}) is the last thing the record says, so \
                                  whether the gate refused a call the policy denies is unknown"
+                            )));
+                        } else if verdict.code() == Some("no-path")
+                            && result.is_some_and(|(status, _)| *status == ResultStatus::Error)
+                        {
+                            // The replay saw no path, so it could not judge, and
+                            // the provider answered an error of its own. Measured
+                            // 2026-09-08 on run 01a0801d-7811: an `editToolCall`
+                            // frame with no `args` at all and "Invalid arguments:
+                            // old_string: Required" as the result. The tool did
+                            // not run and the record cannot say what path it
+                            // would have taken, which is a limit and not a leak.
+                            self.findings.push(Finding::Limit(format!(
+                                "{call_id} ({tool}) named no path the replay could judge and \
+                                 the provider answered an error, so whether it ran is unknown"
                             )));
                         } else if let Some(limit) = spawn.stood_in(&format!(
                             "the policy denies {call_id} ({tool}) and nothing in the record \

@@ -1,7 +1,7 @@
 # 33 - The tee caps a line
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 05
 
 ## Goal
@@ -39,3 +39,16 @@ with one limit finding.
 - The tests above pass and the rest of the suite is untouched.
 - The orchestrating session removes the rough-edge bullet and says in the detached-spawn
   section what the cap is and what a capped frame looks like.
+
+## Outcome
+
+Resolved 2026-09-08. `cursor-agent` on Cursor Grok 4.6 high fast, run 01a0801d-7832 under
+`standard`: 2.97M tokens, eight files, 177 insertions, two tests, forty minutes, launched in
+a Herdr pane the bridge labelled from the record. `LINE_CAP` is 16 MiB in `src/pty.rs`, the
+split lands on `run_end.error` in the lossy-UTF-8 sentence shape, and every adapter pushes
+the limit finding. Two assumptions the ticket made turned out false: a 20 MiB payload cannot
+ride argv, so the stub is `dd | tr`; and the normalize test reads the finding off a synthetic
+`run_end.error` rather than replaying the 20 MiB record. The model reported the corpus walk
+failing on record 01a07efb-de49 inside its worktree, which master does not reproduce; every
+agent run from a worktree has said the same since ticket 31, and the launch text now tells
+them to ignore that one test.

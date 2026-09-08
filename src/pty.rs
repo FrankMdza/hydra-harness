@@ -15,6 +15,31 @@ use std::io::Read;
 use anyhow::{Context, Result};
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+/// 16 MiB per line. Frames of 200 KB are tested and fine; a provider that
+/// streams one enormous frame with no newline would otherwise grow the tee
+/// buffer without limit. When `pending` reaches this with no newline, the tee
+/// writes what it holds as a frame, counts it, and keeps reading so the rest
+/// of the line becomes the next frame. Nothing is dropped.
+pub const LINE_CAP: usize = 16 * 1024 * 1024;
+
+/// Trailing half of the `run_end.error` clause for lines split at [`LINE_CAP`].
+/// The count and a space precede it, the same shape as the lossy UTF-8 note:
+/// `"1 line(s) the child wrote were split by the tee"`.
+pub const CAPPED_CLAUSE: &str = "line(s) the child wrote were split by the tee";
+
+/// The `run_end.error` sentence for `count` lines the tee split.
+pub fn capped_line_note(count: usize) -> String {
+    format!("{count} {CAPPED_CLAUSE}")
+}
+
+/// How many capped lines `run_end.error` names, if it names any.
+pub fn capped_count(error: &str) -> Option<usize> {
+    error.split("; ").find_map(|part| {
+        let rest = part.strip_suffix(CAPPED_CLAUSE)?;
+        rest.trim().parse().ok()
+    })
+}
+
 pub struct Spawned {
     pub pid: u32,
     child: Box<dyn portable_pty::Child + Send + Sync>,
@@ -23,6 +48,8 @@ pub struct Spawned {
     _master: Box<dyn MasterPty + Send>,
     /// Lines the child wrote that were not valid UTF-8.
     pub lossy_lines: usize,
+    /// Times the tee split a line at [`LINE_CAP`] because no newline had arrived.
+    pub capped_lines: usize,
     /// The signal the child died on, once [`Spawned::wait`] has returned, or
     /// `None` for a child that exited.
     ///
@@ -85,6 +112,7 @@ pub fn spawn(
         reader,
         _master: pair.master,
         lossy_lines: 0,
+        capped_lines: 0,
         signal: None,
     })
 }
@@ -109,11 +137,7 @@ impl Spawned {
                 Err(err) => return Err(err).context("reading the child's pty"),
             };
             pending.extend_from_slice(&chunk[..read]);
-
-            while let Some(at) = pending.iter().position(|b| *b == b'\n') {
-                let line: Vec<u8> = pending.drain(..=at).collect();
-                self.deliver(&line[..line.len() - 1], &mut on_line)?;
-            }
+            self.flush_pending(&mut pending, &mut on_line)?;
         }
 
         if !pending.is_empty() {
@@ -121,6 +145,36 @@ impl Spawned {
             self.deliver(&trailing, &mut on_line)?;
         }
         Ok(())
+    }
+
+    /// Emits complete lines and any prefix that has hit [`LINE_CAP`] with no
+    /// newline. Leftover bytes stay in `pending` for the next read.
+    fn flush_pending(
+        &mut self,
+        pending: &mut Vec<u8>,
+        on_line: &mut impl FnMut(&str) -> Result<()>,
+    ) -> Result<()> {
+        loop {
+            match pending.iter().position(|b| *b == b'\n') {
+                Some(at) if at >= LINE_CAP => self.emit_capped(pending, on_line)?,
+                Some(at) => {
+                    let line: Vec<u8> = pending.drain(..=at).collect();
+                    self.deliver(&line[..line.len() - 1], on_line)?;
+                }
+                None if pending.len() >= LINE_CAP => self.emit_capped(pending, on_line)?,
+                None => return Ok(()),
+            }
+        }
+    }
+
+    fn emit_capped(
+        &mut self,
+        pending: &mut Vec<u8>,
+        on_line: &mut impl FnMut(&str) -> Result<()>,
+    ) -> Result<()> {
+        let held: Vec<u8> = pending.drain(..LINE_CAP).collect();
+        self.capped_lines += 1;
+        self.deliver(&held, on_line)
     }
 
     fn deliver(&mut self, line: &[u8], on_line: &mut impl FnMut(&str) -> Result<()>) -> Result<()> {

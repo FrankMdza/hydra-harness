@@ -20,6 +20,7 @@
 pub mod agy;
 pub mod claude;
 pub mod cursor;
+pub mod paths;
 
 use std::path::{Path, PathBuf};
 
@@ -769,6 +770,29 @@ pub(crate) fn note_missing_run_start(events: &[Event], findings: &mut Vec<Findin
                 .into(),
         ));
     }
+}
+
+/// A run whose `run_end.error` names lines the tee split at [`crate::pty::LINE_CAP`].
+///
+/// The frames themselves are ordinary provider lines: a piece that is not JSON
+/// lands in `noise`, which is what any other non-JSON line already does. The
+/// finding is the count, read off the error sentence the detached half wrote.
+pub(crate) fn note_capped_lines(events: &[Event], findings: &mut Vec<Finding>) {
+    let Some(end) = events.iter().rev().find_map(|event| match event {
+        Event::RunEnd(end) => Some(end),
+        _ => None,
+    }) else {
+        return;
+    };
+    let Some(error) = end.body["error"].as_str() else {
+        return;
+    };
+    let Some(count) = crate::pty::capped_count(error) else {
+        return;
+    };
+    findings.push(Finding::Limit(format!(
+        "{count} frames were split by the tee"
+    )));
 }
 
 /// The policy directory moved since the run, so every decision derived below
