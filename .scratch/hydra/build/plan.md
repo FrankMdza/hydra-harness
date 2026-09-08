@@ -63,6 +63,9 @@ it.
 - [26 - The face gets its parent, and the document admits it](26-the-face-gets-its-parent.md)
 - [27 - `hydra run --interactive` on `claude`, and the harvest](27-interactive-claude-and-harvest.md)
 - [28 - `hydra run --interactive --policy <name>` on `claude`](28-interactive-with-a-policy.md)
+- [29 - A harvested run that met the rate limit derives `rate_limited`](29-harvested-rate-limit-is-rate-limited.md)
+- [30 - `hydra reap` stages nothing of Hydra's own](30-reap-stages-nothing-of-hydras.md)
+- [31 - `hydra usage recount`](31-hydra-usage-recount.md)
 
 ## Out of scope
 

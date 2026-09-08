@@ -82,6 +82,10 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
   denials reach the transcript as error tool results while allows leave nothing. Whether the
   interactive launch takes a policy was the decision it left, answered the same day: optional,
   none by default, `claude` only. Build ticket 28.
+- [51](issues/51-cursor-runs-readlints-past-a-deny.md) `cursor-agent` ran `ReadLints` with a
+  list-valued `paths` argument the table does not know, the replay derives a deny, and the stream
+  shows the tool completing anyway. Opened 2026-09-08 from build ticket 29's run. Whether the hook
+  fired, whether Cursor obeys a deny on that tool, and what a leaked tool means for the policy set.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
@@ -137,6 +141,12 @@ open again at 46 of 48, then 50 of 50 after tickets 47 to 50 closed, all on 2026
 `judge` run, which is ticket 47. Ticket 11 built the delegate face and found that the MCP document
 cannot hand it the run id, which is ticket 48. Both are grillings, and neither blocks anything on
 the build, which stands at 16 of 16.
+
+**Ticket 51 opened on 2026-09-08 from the build, and the map is open at 50 of 51.** Build ticket
+29's Composer run called `ReadLints` with a list of paths, the table knew no such field, and the
+tool ran past the deny the replay derives. Whether Cursor obeyed anything is unmeasured, and what
+a tool the provider runs unchecked means for the capability table is a decision. Nothing on the
+build is blocked by it; the corpus walk skips the one record until it closes.
 
 ## Notes
 
