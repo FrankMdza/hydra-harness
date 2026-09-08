@@ -66,6 +66,9 @@ it.
 - [29 - A harvested run that met the rate limit derives `rate_limited`](29-harvested-rate-limit-is-rate-limited.md)
 - [30 - `hydra reap` stages nothing of Hydra's own](30-reap-stages-nothing-of-hydras.md)
 - [31 - `hydra usage recount`](31-hydra-usage-recount.md)
+- [32 - `hydra resume <run-id>`](32-hydra-resume.md)
+- [33 - The tee caps a line](33-tee-line-cap.md)
+- [34 - `hydra export`](34-hydra-export.md)
 
 ## Out of scope
 

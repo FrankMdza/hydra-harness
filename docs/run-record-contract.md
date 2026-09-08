@@ -179,6 +179,7 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `worktree` | `path`, `branch` and `base_tree`, or null under `--shared-tree`. `base_tree` is the sha `git write-tree` answered against the seed index the moment the checkout was seeded from the parent's uncommitted work, before the provider started; map ticket 49 put it here on 2026-09-07 so a reader can tell a reaped run's seed from the run's own edits. It is a name and not a guarantee: the tree hangs from no ref, a `git gc --prune` may delete it, and a record written before build ticket 23 does not carry it |
 | `depth` | integer, 0 for a run a human started |
 | `parent_policy` | the policy the parent was launched under, absent on a run with no parent. Section 8.3 requires it beside the requested one on a refused spawn |
+| `resumed_from` | the run id whose provider session this run continued, present only when `command` is `resume`. Added 2026-09-08 for build ticket 32 under section 15's rule for a new `run_start` field |
 
 **`command` names what created the run, and it earns its place on the harness run.** On a provider
 run it is nearly redundant, because the provider and the task string already describe the row. On a

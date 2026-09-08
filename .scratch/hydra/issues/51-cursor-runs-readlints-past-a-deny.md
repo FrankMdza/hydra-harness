@@ -1,7 +1,7 @@
 # 51 - Cursor ran `ReadLints` past the gate, and its argument is a list
 
 Type: prototype
-Status: claimed
+Status: open
 Blocked by:
 
 ## Question
@@ -67,3 +67,12 @@ decision by the provider rather than a leak by the gate, and the risk statement 
 Cursor section of `IMPLEMENTATION.md`. Contract 7.7 has `hydra_policy`, `user` and `provider`
 as deciders; the second reading spends one of them. `tests/normalize.rs` passes over that
 one tool's leaks until this is answered.
+
+## Next measurement
+
+The human read the measurement on 2026-09-08 and asked for more before deciding: an
+interactive `cursor-agent` run with a real language server behind the tool, to see what
+`ReadLints` returns with one running and whether a diagnostic can carry file content. That is
+a Herdr session rather than a print-mode run, and the interactive mode is built on `claude`
+only, so it waits on either an interactive launch for Cursor or a hand-driven session whose
+transcript is read by hand.
