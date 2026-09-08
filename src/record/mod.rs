@@ -10,7 +10,7 @@
 //! adapter bug found next month fixes last month's records.
 
 mod lines;
-mod secrets;
+pub mod secrets;
 pub mod validate;
 
 pub use lines::{Auth, Refusal, RunEnd, RunStart, WorktreeRef};

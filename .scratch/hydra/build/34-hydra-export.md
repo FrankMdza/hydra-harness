@@ -1,7 +1,7 @@
 # 34 - `hydra export`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 31
 
 ## Goal
@@ -58,3 +58,17 @@ with nothing written.
 - The tests above pass and the rest of the suite is untouched.
 - If any slice needs a decision the documents do not make, stop at that slice, finish the
   others, and say so in the report.
+
+## Outcome
+
+Resolved 2026-09-08. `cursor-agent` on Composer 2.5, run 01a0801d-7811 under `standard`:
+4.96M tokens, eight files, four tests, thirty-two minutes, in a Herdr pane. Every slice landed
+and the model found one false assumption of its own: paths have to be canonicalized on macOS
+or every run looks out of scope. The orchestrating session corrected two things on the way
+to master. The model excluded every outcome rung one never learns from, and contract 16.2
+excludes one outcome, `auth_failed`; `Reason::AuthFailed` replaced `NeverOutcome`. And the
+run's own record carried a `Write` gate leak that was an `editToolCall` with no `args` and
+"Invalid arguments" as its result, so the cursor normalizer now files a `no-path` deny with a
+provider error as a limit rather than a leak. The run also used `awaitToolCall`, a Cursor
+tool the table did not know, refused by the gate at run time; noted in the Cursor section.
+No decision surfaced: the allowlist stays a human's file and does not exist on this machine.
