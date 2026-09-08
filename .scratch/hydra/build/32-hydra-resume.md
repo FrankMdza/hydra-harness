@@ -70,5 +70,10 @@ its lineage, and wrote the finding into `IMPLEMENTATION.md`'s rough edges: a run
 suite reaches the harness through `shell`, and only a test author's layout argument stands
 between a worktree and the corpus. The run also used two Cursor tools the table does not
 know, `getMcpToolsToolCall` and `awaitToolCall`, both run without the hook; map ticket 51
-now covers the class. Not measured on a live launch: the done-when's haiku continuation
-waits on a session Frank chooses to continue.
+now covers the class. 
+**Measured on a live launch the same day.** Run 01a08042-7cf1 resumed 01a07f3f-3241, the
+haiku run once asked "what is 6+6?", and answered that it had been asked 6+6 and said 12, for
+23K tokens: `command: resume`, `resumed_from`, the same session id on both records, the flag
+on the argv, `completed`. It ran with `worktree: null`, since the source's cwd was its own
+reaped worktree; the orchestrating session changed `resume` to seed from the source's repo,
+read off `scopes.parent_git_dir`, and a second resume of the same source seeded a worktree.

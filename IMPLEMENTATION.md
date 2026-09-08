@@ -2331,10 +2331,17 @@ string on the first two and at the front of the argv on `agy`. The default task 
 `agy` run carries one `Finding::Limit` saying its `result` usage covers earlier turns, which
 is the map's fog on usage scope left as it is.
 
-**Not yet measured on a live launch.** `tests/resume.rs` builds the argv each provider would
-get and drives the four refusals against synthetic records, launching nothing. Whether
-`cursor-agent`'s recorded session id is the `chatId` its flag wants is stated in the outcome
-as unverified.
+**Measured on `claude`, 2026-09-08.** Run 01a08042-7cf1 resumed run 01a07f3f-3241, a haiku
+run that had been asked "what is 6+6?", with the question "what arithmetic question were you
+asked earlier and what did you answer?", and the model said 6+6 and 12: `command: resume`,
+`resumed_from` set, the same `session_id` on both records, `--resume <id>` on the argv,
+`completed`, 23K tokens. It also came back `worktree: null`, because the source's `cwd` is
+its own worktree and that worktree was reaped, so `resume` now seeds from the parent of the
+source's `scopes.parent_git_dir` when the source had a worktree, and falls back to `cwd`
+otherwise. `tests/resume.rs` builds the argv each provider would get and drives the four
+refusals against synthetic records, launching nothing. Whether `cursor-agent`'s recorded
+session id is the `chatId` its flag wants, and whether `agy`'s `--conversation` takes the
+recorded `conversation_id`, are not measured on a live launch.
 
 **The run that built it reached the real harness from inside the gate.** The model's first
 tests called `resume()` with `Layout::discover()`, which found `~/hydra`, and three spawn

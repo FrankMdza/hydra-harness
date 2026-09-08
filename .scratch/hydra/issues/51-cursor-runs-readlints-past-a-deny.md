@@ -85,3 +85,13 @@ background shell task it had started; ticket 34's run called the second too. Nei
 in the table, the replay derives `hydra/unknown-tool`, and both completed with results. So the
 question is not one tool but a class: Cursor's own bookkeeping tools, listing, waiting and
 linting, run without the hook. The two corpus walks pass over all three by name.
+
+## Measured again, 2026-09-08, with a file that cannot parse
+
+Run 01a08042-7721, Composer 2.5 under `standard`, wrote `broken.rs` holding `fn main( {` into
+its worktree and called `ReadLints` on it and on `src/main.rs`. Both came back
+`{"fileDiagnostics":[],"totalFiles":0,"totalDiagnostics":0}`, and the model reported "No linter
+errors found" for a file no compiler accepts. So in print mode there is no analyzer behind the
+tool at all, not merely none for this repo, and a `ReadLints` result cannot carry file content
+because it carries nothing. The interactive session with a real language server is measured
+below.

@@ -91,10 +91,21 @@ pub fn resume_in(layout: &Layout, request: Request) -> Result<Call> {
             )
         })?;
 
-    let cwd = start["cwd"]
+    // The source's `cwd` is its own worktree when it had one, and a reaped run's
+    // worktree is gone: measured 2026-09-08 on run 01a08042-7cf1, which resumed
+    // from a reaped cwd and got `worktree: null`. The repo the source was
+    // seeded from is `scopes.parent_git_dir`'s parent, so a continuation seeds
+    // a worktree of its own from there, the way the source did.
+    let cwd = start["scopes"]["parent_git_dir"]
         .as_str()
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+        .filter(|_| !start["worktree"].is_null())
+        .and_then(|git_dir| Path::new(git_dir).parent().map(Path::to_path_buf))
+        .or_else(|| {
+            start["cwd"]
+                .as_str()
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from)
+        })
         .with_context(|| format!("run {} has no cwd on its record", request.run_id))?;
 
     let model = first_envelope_model(&run_file);
