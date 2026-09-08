@@ -177,6 +177,45 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
     argv
 }
 
+/// The interactive argv, harness spec 3's second mode.
+///
+/// No `--print`, so the binary draws its own TUI instead of writing a
+/// structured stream, and no `--output-format`, `--verbose` or
+/// `--include-hook-events` beside it: nothing here is teed. `--session-id` is
+/// the one flag every mode needs, because harvest predicts the transcript path
+/// from it. No `--settings` and no `--permission-mode`: harness spec 3 gives an
+/// interactive run no gate, and a human answering their own prompts is the
+/// whole of the design there. `--mcp-config` rides alone, without
+/// `--strict-mcp-config`, contract 5.6, so the human's own servers survive
+/// beside whatever this run's file admits.
+pub struct InteractiveLaunch<'a> {
+    pub session: &'a str,
+    /// The task string, verbatim and with no preamble: harness spec 3 gives an
+    /// interactive run none. `None` opens the session with no opening prompt.
+    pub task: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub mcp: Option<&'a Path>,
+}
+
+/// `claude` takes a positional argument as its opening prompt whether or not
+/// `--print` is on the line, which is what lets [`argv`]'s trailing slot and
+/// this one agree on where the task goes.
+pub fn interactive_argv(launch: &InteractiveLaunch<'_>) -> Vec<String> {
+    let mut argv = vec!["--session-id".to_string(), launch.session.to_string()];
+    if let Some(mcp) = launch.mcp {
+        argv.push("--mcp-config".to_string());
+        argv.push(mcp.display().to_string());
+    }
+    if let Some(model) = launch.model {
+        argv.push("--model".to_string());
+        argv.push(model.to_string());
+    }
+    if let Some(task) = launch.task {
+        argv.push(task.to_string());
+    }
+    argv
+}
+
 /// Why a launch of this shape carries no MCP config at all, when it carries none.
 ///
 /// One shape on this provider: 6.7's `judge` argv has no `--mcp-config` on it, so
@@ -856,6 +895,44 @@ mod tests {
         // One `-c` argument, so exactly two closing quotes: the escape and the end.
         assert!(command.contains(r"'\''"), "got {command}");
         assert!(command.ends_with("' claude"));
+    }
+
+    #[test]
+    fn the_interactive_argv_carries_no_gate_and_no_stream_flags() {
+        let argv = interactive_argv(&InteractiveLaunch {
+            session: "s1",
+            task: Some("do the thing"),
+            model: Some("sonnet"),
+            mcp: Some(Path::new("/tmp/spawn/r1/mcp.json")),
+        });
+        assert_eq!(argv[0], "--session-id");
+        assert_eq!(argv[1], "s1");
+        assert!(argv.iter().any(|a| a == "--mcp-config"));
+        assert!(
+            !argv.iter().any(|a| a == "--strict-mcp-config"),
+            "the human's own servers have to survive beside this run's"
+        );
+        for flag in [
+            "--print",
+            "--output-format",
+            "--include-hook-events",
+            "--settings",
+            "--permission-mode",
+        ] {
+            assert!(!argv.iter().any(|a| a == flag), "{flag} rides no gate");
+        }
+        assert_eq!(argv.last().unwrap(), "do the thing");
+    }
+
+    #[test]
+    fn an_interactive_launch_with_no_task_opens_with_no_opening_prompt() {
+        let argv = interactive_argv(&InteractiveLaunch {
+            session: "s1",
+            task: None,
+            model: None,
+            mcp: None,
+        });
+        assert_eq!(argv, vec!["--session-id".to_string(), "s1".to_string()]);
     }
 
     #[test]

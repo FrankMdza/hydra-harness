@@ -17,23 +17,38 @@ fn main() -> Result<()> {
             parent,
             allow_floor_escape,
             timeout,
+            interactive,
         } => {
-            let call = run(Request {
-                provider: provider.parse::<Provider>()?,
-                task,
-                model,
-                policy,
-                floor_lifted: allow_floor_escape,
-                timeout,
-                parent,
-                run_id: None,
-            })?;
-            // D7: hydra run returns JSON on stdout. Two shapes, because harness
-            // spec 9 degrades a blocking call to a handle rather than to a thinner
-            // result.
-            match call {
-                Call::Ended(result) => println!("{}", serde_json::to_string_pretty(&result)?),
-                Call::Handle(handle) => println!("{}", serde_json::to_string_pretty(&handle)?),
+            if interactive {
+                let provider = provider.parse::<Provider>()?;
+                anyhow::ensure!(
+                    provider == Provider::Claude,
+                    "hydra run --interactive supports claude only; cursor-agent and agy are \
+                     not launched interactively yet"
+                );
+                let result = hydra::interactive::run(hydra::interactive::Request { task, model })?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let task = task.ok_or_else(|| {
+                    anyhow::anyhow!("a recorded run needs --task; only --interactive may omit it")
+                })?;
+                let call = run(Request {
+                    provider: provider.parse::<Provider>()?,
+                    task,
+                    model,
+                    policy,
+                    floor_lifted: allow_floor_escape,
+                    timeout,
+                    parent,
+                    run_id: None,
+                })?;
+                // D7: hydra run returns JSON on stdout. Two shapes, because
+                // harness spec 9 degrades a blocking call to a handle rather
+                // than to a thinner result.
+                match call {
+                    Call::Ended(result) => println!("{}", serde_json::to_string_pretty(&result)?),
+                    Call::Handle(handle) => println!("{}", serde_json::to_string_pretty(&handle)?),
+                }
             }
         }
         Command::Status { run_id } => {

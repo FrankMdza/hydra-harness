@@ -155,7 +155,30 @@ pub fn derive(run: &Run) -> Option<Derived> {
     // whose task succeeded as a lesson about a UTF-8 byte, which is contract
     // 8.4's mistake pointed the other way. With no terminator it is the only
     // thing in the file that says which side stopped.
+    let harvested = end.body["body_source"].as_str() == Some("harvest");
+
     let outcome = match run.result.as_ref() {
+        None if harvested => {
+            // A harvested body carries no result-shaped terminator at all
+            // (contract 7.2.1: `usage` rides `message.usage` rather than a
+            // `result` frame), so "no result object" is this shape's normal
+            // reading rather than evidence the process died before
+            // finishing, which is what it means on a streamed run below.
+            // This arm runs ahead of the null-exit-code check for the same
+            // reason: a run `hydra status` harvested after the fact carries
+            // `exit_code: null` because nobody waited on the process, not
+            // because none ran.
+            match end.body["exit_code"].as_i64() {
+                Some(0) => Outcome::Completed,
+                Some(_) => Outcome::Failed,
+                // Nobody watched this session exit. The transcript is on
+                // disk and nothing in the record says the session crashed,
+                // which reads closer to completed than to any other outcome
+                // here; the confidence the pair below takes off it is the
+                // honest cost of not having watched.
+                None => Outcome::Completed,
+            }
+        }
         None => {
             let error = end.body["error"].as_str();
             if end.body["exit_code"].is_null() {
@@ -217,8 +240,12 @@ pub fn derive(run: &Run) -> Option<Derived> {
     // by nothing saying otherwise is the one soft outcome in the list, so an
     // unclassified tool result is enough to take the confidence off it. Every
     // other outcome above rests on something a source said out loud, which an
-    // unreadable tool result does not weaken.
-    let source = if outcome == Outcome::Completed && has_unclassified(run) {
+    // unreadable tool result does not weaken. A harvest that never observed
+    // the exit code is the same shape from the other provider: `Completed`
+    // because nothing said otherwise, and `Unknown` because nobody watched it
+    // happen.
+    let unobserved_harvest = harvested && end.body["exit_code"].is_null();
+    let source = if outcome == Outcome::Completed && (has_unclassified(run) || unobserved_harvest) {
         Source::Unknown
     } else {
         Source::Derived

@@ -75,3 +75,13 @@ hooks out of a worktree, which an interactive run of theirs would then need too.
 and compiles a gate, with the record's `policy` set and `permission_decision` derived for
 denials only. Build ticket 27 lands the ungated version first, as the spec says, and this is the
 next question on it.
+
+**Decided 2026-09-07 with the human, in the same session.** `hydra run --interactive` takes
+`--policy` as an option and has no policy by default. Without it the launch is what spec 3
+says: the human's own session, no gate, no skills, no worktree, a thin record harvested at exit.
+With it, Hydra compiles the gate, creates and seeds a worktree, links the snapshot, hands the
+provider the same settings a recorded run gets, and the record carries the policy and its sha,
+`permission_decision` for every denial the transcript holds, and a `Finding::Limit` saying that
+allows were not recorded on this launch mode. `claude` only, since the other two read their
+hooks out of a worktree they do not get. Harness spec 3 carries the paragraph; build ticket 28
+carries the code and waits on 27.

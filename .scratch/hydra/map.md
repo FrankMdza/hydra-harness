@@ -80,7 +80,8 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
   runs are the only producer of human corrections and today the only mode without the gate. Probed
   the same day: the gate applies, two refusals with Hydra's reasons on a steered session, and the
   denials reach the transcript as error tool results while allows leave nothing. Whether the
-  interactive launch takes a policy is the decision it leaves.
+  interactive launch takes a policy was the decision it left, answered the same day: optional,
+  none by default, `claude` only. Build ticket 28.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of

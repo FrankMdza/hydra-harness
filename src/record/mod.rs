@@ -28,6 +28,18 @@ use serde_json::value::RawValue;
 /// `run_start`, versioning the normalized vocabulary rather than the file format.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// One past the last `seq` a run file already used.
+///
+/// `seq` is gapless from 0, so counting non-empty lines answers it without
+/// parsing any of them. A second writer taking the file over, which is exactly
+/// what a harvest is, needs this to continue the sequence rather than restart
+/// it.
+pub fn next_seq(path: &Path) -> Result<u64> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(text.lines().filter(|line| !line.trim().is_empty()).count() as u64)
+}
+
 /// Six fields on every line, plus the body.
 #[derive(Serialize)]
 struct Envelope<'a> {
@@ -83,6 +95,38 @@ impl Writer {
             provider: provider.map(str::to_string),
             model: model.map(str::to_string),
             seq: 0,
+        })
+    }
+
+    /// Reopens a run file to append the harvest, contract 10's "ownership
+    /// transfers to whoever proves the previous owner is dead."
+    ///
+    /// The caller has already made that proof: [`crate::live::has_run_end`] said
+    /// there is no closing line yet, which is as far as a liveness test can go
+    /// before the pid check one level up decides the owner is gone. `seq`
+    /// continues from [`next_seq`] rather than from zero, so a harvester never
+    /// repeats or skips a number the file already used.
+    pub fn resume(
+        path: impl Into<PathBuf>,
+        run_id: &str,
+        parent_run_id: Option<&str>,
+        provider: Option<&str>,
+        model: Option<&str>,
+        next_seq: u64,
+    ) -> Result<Self> {
+        let path = path.into();
+        let file = File::options()
+            .append(true)
+            .open(&path)
+            .with_context(|| format!("opening {} to append", path.display()))?;
+        Ok(Self {
+            file,
+            path,
+            run_id: run_id.to_string(),
+            parent_run_id: parent_run_id.map(str::to_string),
+            provider: provider.map(str::to_string),
+            model: model.map(str::to_string),
+            seq: next_seq,
         })
     }
 

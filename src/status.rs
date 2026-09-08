@@ -16,11 +16,14 @@
 //! closing line, and which worktrees are sitting there waiting for a `hydra reap`
 //! you type.
 //!
-//! **Harvest is the half that is not here.** Section 10 also has `hydra status`
-//! complete a dead interactive run from the vendor's transcript. No command in
-//! this build launches an interactive run, so there is no unharvested body on this
-//! machine to complete, and a harvester with no producer would be untested code
-//! guarding a case that cannot arise. `IMPLEMENTATION.md` carries the gap.
+//! **Harvest is here too, now.** Section 10 has `hydra status` complete a dead
+//! interactive run from the vendor's transcript, "any process can do it." An
+//! abandoned run whose envelope names `claude` and whose `launch_mode` is
+//! `interactive` gets one harvest attempt before this command reads it, so a
+//! session left running behind a closed terminal is completed rather than
+//! merely reported.
+
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -31,7 +34,22 @@ use crate::policy::PolicySet;
 
 /// Everything under `~/hydra/runs/`, grouped, plus the worktrees nothing is using.
 pub fn all(layout: &Layout) -> Result<String> {
-    let views = crate::live::scan(layout)?;
+    let home = crate::env::real_home()?;
+    all_in(layout, &home)
+}
+
+/// [`all`], against the home directory named rather than discovered.
+///
+/// **The one caller that needs this is a test.** [`crate::env::real_home`]
+/// reads the passwd entry and ignores `HOME`, so a suite proving that this
+/// command harvests a dead interactive run has to name a scratch directory
+/// rather than let the harvest reach into the developer's own
+/// `~/.claude/projects/`. `tests/status.rs` is the caller.
+pub fn all_in(layout: &Layout, home: &Path) -> Result<String> {
+    let mut views = crate::live::scan(layout)?;
+    if harvest_abandoned_interactive(layout, &views, home) {
+        views = crate::live::scan(layout)?;
+    }
     let mut out = String::new();
 
     let live: Vec<&RunView> = views.iter().filter(|v| v.state == State::Live).collect();
@@ -65,31 +83,69 @@ pub fn all(layout: &Layout) -> Result<String> {
     Ok(out)
 }
 
+/// Whether a view is a dead interactive `claude` run this build knows how to
+/// harvest: an abandoned pid, a `claude` envelope, `launch_mode: interactive`.
+fn is_abandoned_interactive_claude(view: &RunView) -> bool {
+    view.state == State::Abandoned
+        && view.provider.as_deref() == Some("claude")
+        && view.launch_mode.as_deref() == Some("interactive")
+}
+
+/// Harvests every dead interactive `claude` run this scan found. Returns
+/// whether anything changed, so the caller rescans only when it has to.
+fn harvest_abandoned_interactive(layout: &Layout, views: &[RunView], home: &Path) -> bool {
+    let mut any = false;
+    for view in views {
+        if !is_abandoned_interactive_claude(view) {
+            continue;
+        }
+        match crate::interactive::harvest_in(layout, &view.run_id, None, home) {
+            Ok(_) => any = true,
+            Err(err) => eprintln!("hydra: could not harvest {}: {err:#}", view.run_id),
+        }
+    }
+    any
+}
+
 /// One run, as JSON.
 ///
 /// **The projection is the same one `hydra run` returns**, off the same function,
 /// on a run this process did not launch. That is the point of contract 17 being a
 /// projection of the record rather than a summary of a launch.
 pub fn one(layout: &Layout, run_id: &str) -> Result<String> {
-    let report = build(layout, run_id)?;
+    let home = crate::env::real_home()?;
+    one_in(layout, run_id, &home)
+}
+
+/// [`one`], against the home directory named rather than discovered. See
+/// [`all_in`]'s doc comment for why a test needs this.
+pub fn one_in(layout: &Layout, run_id: &str, home: &Path) -> Result<String> {
+    let report = build(layout, run_id, home)?;
     Ok(serde_json::to_string_pretty(&report)?)
 }
 
 /// Contract 17's projection alone, the object this command prints under
 /// `result`. `hydra show <id>` prints exactly this, with no `--events`.
 pub fn projection(layout: &Layout, run_id: &str) -> Result<serde_json::Value> {
-    let report = build(layout, run_id)?;
+    let home = crate::env::real_home()?;
+    let report = build(layout, run_id, &home)?;
     Ok(serde_json::to_value(report.result)?)
 }
 
 /// The full report `one` prints, built once so `projection` can take the
 /// field it wants rather than parsing the string back apart.
-fn build(layout: &Layout, run_id: &str) -> Result<Report> {
+fn build(layout: &Layout, run_id: &str, home: &Path) -> Result<Report> {
     let path = layout.run_file(run_id);
     if !path.is_file() {
         bail!("no run record at {}", path.display());
     }
-    let view = crate::live::read_view(&path)?;
+    let mut view = crate::live::read_view(&path)?;
+    if is_abandoned_interactive_claude(&view) {
+        match crate::interactive::harvest_in(layout, run_id, None, home) {
+            Ok(_) => view = crate::live::read_view(&path)?,
+            Err(err) => eprintln!("hydra: could not harvest {run_id}: {err:#}"),
+        }
+    }
 
     let worktree_present = view
         .worktree

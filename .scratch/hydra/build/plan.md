@@ -62,6 +62,7 @@ it.
 - [25 - No skill injection on `judge`](25-no-skills-on-judge.md)
 - [26 - The face gets its parent, and the document admits it](26-the-face-gets-its-parent.md)
 - [27 - `hydra run --interactive` on `claude`, and the harvest](27-interactive-claude-and-harvest.md)
+- [28 - `hydra run --interactive --policy <name>` on `claude`](28-interactive-with-a-policy.md)
 
 ## Out of scope
 

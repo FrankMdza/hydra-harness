@@ -24,9 +24,9 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::{
-    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedGate,
-    ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage,
-    UsageSource, policy_moved, splice, verdict_decision,
+    Correction, Counts, Decider, Decision, Event, Finding, Message, PermissionDecision,
+    RecordedGate, ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall,
+    ToolResult, Usage, UsageSource, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
 use crate::policy::replay::{Replay, reason_code};
@@ -141,6 +141,14 @@ struct Walk {
 }
 
 pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
+    // Contract 5.6: line 0 is where a reader learns this run compiled no gate,
+    // and it is the first line of every file, so one parse of it decides the
+    // adapter rather than a scan of the whole text the way picking a provider
+    // does in `read_with`.
+    if is_interactive(text) {
+        return harvest::normalize(text);
+    }
+
     let mut walk = Walk::default();
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
@@ -161,6 +169,24 @@ pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
     }
     walk.close();
     walk.finish(policies, layout)
+}
+
+/// Whether line 0 says this run compiled no gate.
+///
+/// **A launch mode is a fact about the file that decides which vocabulary the
+/// rest of it is read in, and it lives on the first line.** Contract 3: a
+/// harvested line wraps a transcript record rather than a stream frame, and
+/// [`harvest::normalize`] is the reader for that vocabulary. Only line 0 is
+/// parsed, because contract 5's `run_start` is always first, and a run that has
+/// not gotten that far yet has no frames either way.
+fn is_interactive(text: &str) -> bool {
+    let Some(first) = text.lines().next() else {
+        return false;
+    };
+    let Ok(envelope) = serde_json::from_str::<Value>(first) else {
+        return false;
+    };
+    envelope["hydra"]["launch_mode"].as_str() == Some("interactive")
 }
 
 impl Walk {
@@ -253,52 +279,10 @@ impl Walk {
         let Some(blocks) = raw["message"]["content"].as_array() else {
             return;
         };
-        for (block, body) in blocks.iter().enumerate() {
-            match body["type"].as_str() {
-                Some("text") => self.events.push(Event::Message(Message {
-                    seq,
-                    role,
-                    text: body["text"].as_str().unwrap_or_default().to_string(),
-                    block,
-                })),
-                Some("thinking") => self.events.push(Event::Thinking(Thinking {
-                    seq,
-                    text: body["thinking"].as_str().unwrap_or_default().to_string(),
-                    signature: body["signature"].as_str().map(str::to_string),
-                    block,
-                })),
-                Some("tool_use") => {
-                    let name = body["name"].as_str().unwrap_or_default().to_string();
-                    let capability = claude_capability(&name);
-                    if capability.is_none() {
-                        self.note_unknown(&name);
-                    }
-                    self.events.push(Event::ToolCall(ToolCall {
-                        seq,
-                        call_id: body["id"].as_str().unwrap_or_default().to_string(),
-                        name,
-                        arguments: body["input"].clone(),
-                        capability,
-                    }));
-                }
-                Some("tool_result") => self.events.push(Event::ToolResult(ToolResult {
-                    seq,
-                    call_id: body["tool_use_id"].as_str().unwrap_or_default().to_string(),
-                    status: match body.get("is_error").and_then(Value::as_bool) {
-                        Some(true) => ResultStatus::Error,
-                        Some(false) => ResultStatus::Ok,
-                        // Measured on 2.1.261: a successful `Write` came back
-                        // with no `is_error` field at all. 7.6 forbids reading
-                        // that as success.
-                        None => ResultStatus::Unclassified,
-                    },
-                    output: result_output(body.get("content")),
-                    // `claude` reports no truncation on the stream and nothing
-                    // here cuts an output, so the marker is always false.
-                    truncated: false,
-                })),
-                _ => {}
-            }
+        let (events, unknown) = message_blocks(seq, blocks, role);
+        self.events.extend(events);
+        for name in unknown {
+            self.note_unknown(&name);
         }
     }
 
@@ -839,6 +823,67 @@ impl Walk {
     }
 }
 
+/// The content blocks of one `assistant` or `user` message, in order.
+///
+/// **A stream frame and a harvested transcript record wrap the same Anthropic
+/// message shape here**, which is what lets the stream's [`Walk::blocks`] and
+/// [`harvest::Walk::message`] read one function rather than two copies of the
+/// same four-way match drifting apart. Unknown tool names come back rather
+/// than being noted directly, because the two callers keep their own
+/// deduplicated list.
+fn message_blocks(seq: u64, blocks: &[Value], role: Role) -> (Vec<Event>, Vec<String>) {
+    let mut events = Vec::new();
+    let mut unknown = Vec::new();
+    for (block, body) in blocks.iter().enumerate() {
+        match body["type"].as_str() {
+            Some("text") => events.push(Event::Message(Message {
+                seq,
+                role,
+                text: body["text"].as_str().unwrap_or_default().to_string(),
+                block,
+            })),
+            Some("thinking") => events.push(Event::Thinking(Thinking {
+                seq,
+                text: body["thinking"].as_str().unwrap_or_default().to_string(),
+                signature: body["signature"].as_str().map(str::to_string),
+                block,
+            })),
+            Some("tool_use") => {
+                let name = body["name"].as_str().unwrap_or_default().to_string();
+                let capability = claude_capability(&name);
+                if capability.is_none() {
+                    unknown.push(name.clone());
+                }
+                events.push(Event::ToolCall(ToolCall {
+                    seq,
+                    call_id: body["id"].as_str().unwrap_or_default().to_string(),
+                    name,
+                    arguments: body["input"].clone(),
+                    capability,
+                }));
+            }
+            Some("tool_result") => events.push(Event::ToolResult(ToolResult {
+                seq,
+                call_id: body["tool_use_id"].as_str().unwrap_or_default().to_string(),
+                status: match body.get("is_error").and_then(Value::as_bool) {
+                    Some(true) => ResultStatus::Error,
+                    Some(false) => ResultStatus::Ok,
+                    // Measured on 2.1.261: a successful `Write` came back with
+                    // no `is_error` field at all. 7.6 forbids reading that as
+                    // success.
+                    None => ResultStatus::Unclassified,
+                },
+                output: result_output(body.get("content")),
+                // `claude` reports no truncation on the stream and nothing
+                // here cuts an output, so the marker is always false.
+                truncated: false,
+            })),
+            _ => {}
+        }
+    }
+    (events, unknown)
+}
+
 /// A tool result's body, which is a string on most calls and a block list on the
 /// ones that return structured content.
 fn result_output(content: Option<&Value>) -> String {
@@ -900,5 +945,431 @@ fn usage_of(seq: u64, result: &Value) -> Usage {
             cache_write_tokens: usage["cache_creation_input_tokens"].as_u64(),
             thinking_tokens: usage["output_tokens_details"]["thinking_tokens"].as_u64(),
         }),
+    }
+}
+
+/// The harvest reader, contract 7.2.1 and 7.9.
+///
+/// **The vocabulary is the vendor's own transcript, not the stream's.** A
+/// `run_start`/`run_end` line is a Hydra line exactly as it is on a recorded
+/// run, but every provider line in between wraps one record of
+/// `~/.claude/projects/<slug>/<session>.jsonl` rather than a `stream-json`
+/// frame, and that record carries fields no frame ever will: `uuid`,
+/// `parentUuid`, and on a rejection, `toolDenialKind`, `entrypoint` and
+/// `sourceToolAssistantUUID`. `message`, `tool_call` and `tool_result` still
+/// come off `message.content`, because that half of the shape is the Anthropic
+/// API's own and both vocabularies wrap it, which is what lets
+/// [`super::message_blocks`] read both.
+///
+/// **No policy, so no `permission_decision`.** Contract 5.6: an interactive
+/// run compiles no gate, so there is nothing to re-evaluate a call against, and
+/// the type has no producer here at all rather than an empty list of them.
+mod harvest {
+    use std::collections::HashMap;
+
+    use serde_json::Value;
+
+    use super::{
+        Correction, Counts, Event, Message, Role, Run, RunEnd, RunStart, Usage, UsageSource,
+        message_blocks,
+    };
+    use anyhow::Result;
+
+    /// The `result.usage` keys this walk also accumulates, one assistant
+    /// record at a time rather than one terminator frame (contract 7.2.1: "
+    /// `usage` rides `message.usage` on the assistant records rather than a
+    /// `result` frame").
+    const COUNT_FIELDS: [&str; 4] = [
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ];
+
+    /// How many hops the `parentUuid` chain walk takes before it gives up.
+    ///
+    /// The chain is a session's own linear history, so the walk answers in a
+    /// handful of steps on every measured transcript; this is a backstop
+    /// against a malformed file rather than a bound anyone expects to hit.
+    const MAX_CHAIN_HOPS: usize = 500;
+
+    pub fn normalize(text: &str) -> Result<Run> {
+        let mut walk = Walk::default();
+        for (index, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<Value>(line) {
+                Ok(envelope) => walk.line(&envelope),
+                Err(err) => walk.findings.push(super::Finding::Limit(format!(
+                    "line {} did not parse, so whatever it carried is unread: {err}",
+                    index + 1
+                ))),
+            }
+        }
+        walk.finish()
+    }
+
+    /// One tool call's name and input, read off a `tool_use` block, which is
+    /// the shape both halves of a correction pair share.
+    struct ToolUse {
+        name: String,
+        input: Value,
+    }
+
+    #[derive(Default)]
+    struct Walk {
+        run_id: String,
+        parent_run_id: Option<String>,
+        provider: Option<String>,
+        events: Vec<Event>,
+        findings: Vec<super::Finding>,
+        noise: Vec<String>,
+        /// Every transcript record, `seq` beside it, in file order. Kept
+        /// whole rather than folded into `events` as it arrives, because
+        /// deriving a correction needs to look both ways along the chain:
+        /// backward to the call a denial rejected, forward to the retry a
+        /// human asked for.
+        records: Vec<(u64, Value)>,
+        usage: Counts,
+        usage_emitted: bool,
+        usage_seen: bool,
+        last_usage_seq: Option<u64>,
+    }
+
+    impl Walk {
+        fn line(&mut self, envelope: &Value) {
+            let seq = envelope["seq"].as_u64().unwrap_or_default();
+            if self.run_id.is_empty() {
+                self.run_id = envelope["run_id"].as_str().unwrap_or_default().to_string();
+            }
+            if self.provider.is_none() {
+                self.provider = envelope["provider"].as_str().map(str::to_string);
+            }
+            if self.parent_run_id.is_none() {
+                self.parent_run_id = envelope["parent_run_id"].as_str().map(str::to_string);
+            }
+
+            if let Some(hydra) = envelope.get("hydra") {
+                match hydra["type"].as_str() {
+                    Some("run_start") => self.events.push(Event::RunStart(RunStart {
+                        seq,
+                        body: hydra.clone(),
+                    })),
+                    Some("run_end") => {
+                        self.emit_usage();
+                        self.events.push(Event::RunEnd(RunEnd {
+                            seq,
+                            body: hydra.clone(),
+                        }));
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            let Some(raw) = envelope.get("raw") else {
+                return;
+            };
+            let Some(record) = raw.as_object() else {
+                // Contract 3: a line the provider wrote that is not JSON is
+                // kept as a string and normalizes to nothing.
+                if let Some(text) = raw.as_str() {
+                    self.noise.push(text.to_string());
+                }
+                return;
+            };
+            self.record(seq, record, raw);
+        }
+
+        /// One transcript record. `mode`, `permission-mode`, `attachment`,
+        /// `file-history-snapshot`, `ai-title`, `last-prompt`, `bridge-session`
+        /// and `atis-latch` stay verbatim in `raw` (contract 7.2.1's "eight
+        /// transcript record types no stream has") and normalize to nothing
+        /// here, the same as `summary` and the transcript's own `system`
+        /// entries.
+        fn record(&mut self, seq: u64, record: &serde_json::Map<String, Value>, raw: &Value) {
+            match record.get("type").and_then(Value::as_str) {
+                Some("assistant") => self.message(seq, raw, Role::Assistant),
+                Some("user") => self.message(seq, raw, Role::User),
+                _ => {}
+            }
+            self.records.push((seq, raw.clone()));
+        }
+
+        /// A `user` or `assistant` record's `message.content`, which is a bare
+        /// string on a human's own typed turn and a block array everywhere
+        /// else (7.9's step 4 traversal relies on exactly this split).
+        fn message(&mut self, seq: u64, raw: &Value, role: Role) {
+            match &raw["message"]["content"] {
+                Value::String(text) => self.events.push(Event::Message(Message {
+                    seq,
+                    role,
+                    text: text.clone(),
+                    block: 0,
+                })),
+                Value::Array(blocks) => {
+                    let (events, unknown) = message_blocks(seq, blocks, role);
+                    self.events.extend(events);
+                    // No run-time tool table to check a name against here
+                    // (7.1's check reads `system/init`'s tool list, which no
+                    // transcript record carries), so an unrecognised name is
+                    // still worth a finding rather than a silent capability
+                    // of `None`.
+                    for name in unknown {
+                        self.findings.push(super::Finding::UnknownTool { name });
+                    }
+                }
+                _ => {}
+            }
+            if role == Role::Assistant {
+                self.accumulate_usage(seq, &raw["message"]["usage"]);
+            }
+        }
+
+        /// One assistant turn's `message.usage`, folded into a running total.
+        ///
+        /// **Summed rather than kept per turn.** Contract 7.8 scopes `usage`
+        /// to a run, and an interactive session is many API calls, one per
+        /// turn; the number that answers "what did this run cost" is every
+        /// turn's input, output and cache movement added together, the same
+        /// total a single `result.usage` would have named on a recorded run.
+        fn accumulate_usage(&mut self, seq: u64, usage: &Value) {
+            if !usage.is_object() {
+                return;
+            }
+            let has_any = COUNT_FIELDS
+                .iter()
+                .any(|field| usage.get(*field).and_then(Value::as_u64).is_some());
+            if !has_any {
+                return;
+            }
+            self.usage.input_tokens += usage["input_tokens"].as_u64().unwrap_or_default();
+            self.usage.output_tokens += usage["output_tokens"].as_u64().unwrap_or_default();
+            self.usage.cache_read_tokens += usage["cache_read_input_tokens"]
+                .as_u64()
+                .unwrap_or_default();
+            self.usage.cache_write_tokens = Some(
+                self.usage.cache_write_tokens.unwrap_or_default()
+                    + usage["cache_creation_input_tokens"]
+                        .as_u64()
+                        .unwrap_or_default(),
+            );
+            if let Some(thinking) = usage["output_tokens_details"]["thinking_tokens"].as_u64() {
+                self.usage.thinking_tokens =
+                    Some(self.usage.thinking_tokens.unwrap_or_default() + thinking);
+            }
+            self.usage_seen = true;
+            self.last_usage_seq = Some(seq);
+        }
+
+        fn emit_usage(&mut self) {
+            if self.usage_emitted {
+                return;
+            }
+            self.usage_emitted = true;
+            self.events.push(Event::Usage(if self.usage_seen {
+                Usage {
+                    seq: self.last_usage_seq,
+                    source: UsageSource::Provider,
+                    estimator: None,
+                    counts: Some(self.usage),
+                }
+            } else {
+                Usage {
+                    seq: None,
+                    source: UsageSource::Unavailable,
+                    estimator: None,
+                    counts: None,
+                }
+            }));
+        }
+
+        fn finish(mut self) -> Result<Run> {
+            super::super::note_missing_run_start(&self.events, &mut self.findings);
+            self.emit_usage();
+            let corrections = self.derive_corrections();
+            self.splice_corrections(corrections);
+            Ok(Run {
+                run_id: self.run_id,
+                parent_run_id: self.parent_run_id,
+                provider: self.provider,
+                // Contract 5.6: null, always. No gate was compiled, so there
+                // is no policy for 7.7's re-evaluation to read.
+                policy: None,
+                events: self.events,
+                findings: self.findings,
+                // No `result` frame exists in a transcript at all (7.2.1);
+                // `usage` above is what stands in for the fields 8.5 keeps on
+                // it.
+                result: None,
+                noise: self.noise,
+            })
+        }
+
+        /// 7.9's rule, over every denial the transcript carries.
+        fn derive_corrections(&self) -> Vec<(u64, Correction)> {
+            let mut by_uuid: HashMap<&str, &Value> = HashMap::new();
+            let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+            for (_, record) in &self.records {
+                let Some(uuid) = record["uuid"].as_str() else {
+                    continue;
+                };
+                by_uuid.insert(uuid, record);
+                if let Some(parent) = record["parentUuid"].as_str() {
+                    children.entry(parent).or_default().push(uuid);
+                }
+            }
+
+            let mut out = Vec::new();
+            for (seq, record) in &self.records {
+                if record["type"].as_str() != Some("user") {
+                    continue;
+                }
+                // Step 2, ticket 35's corrected conjunction: both conditions,
+                // never one field alone. `user-rejected` alone also means the
+                // ask path answered under `sdk-cli`, which is code rather
+                // than a human.
+                if record["toolDenialKind"].as_str() != Some("user-rejected")
+                    || record["entrypoint"].as_str() != Some("cli")
+                {
+                    continue;
+                }
+                let Some(source_uuid) = record["sourceToolAssistantUUID"].as_str() else {
+                    continue;
+                };
+                let Some(tool_use_id) = denied_tool_use_id(record) else {
+                    continue;
+                };
+                let Some(source_record) = by_uuid.get(source_uuid).copied() else {
+                    continue;
+                };
+                let Some(rejected) = tool_use_by_id(source_record, tool_use_id) else {
+                    continue;
+                };
+                let Some(uuid) = record["uuid"].as_str() else {
+                    continue;
+                };
+
+                // Steps 4 and 5: walk the chain once for the human's words and
+                // once more, from wherever that left off, for the retry.
+                let (words, chosen) = walk_for_reply(uuid, &by_uuid, &children);
+                let Some(chosen) = chosen else {
+                    continue;
+                };
+                // Step 6: a pair is emitted only when the retry names the
+                // same tool. A text reply means the agent argued instead of
+                // retrying, which step 5 already turned into `None`.
+                if chosen.name != rejected.name {
+                    continue;
+                }
+
+                out.push((
+                    *seq,
+                    Correction {
+                        corrects: *seq,
+                        rejected: rejected.input,
+                        chosen: chosen.input,
+                        words,
+                    },
+                ));
+            }
+            out
+        }
+
+        /// Inserts each correction right after the `tool_result` event of the
+        /// denial it corrects, so `hydra show --events` still reads in file
+        /// order. Reverse order, so an earlier insertion never shifts the
+        /// index a later one already found.
+        fn splice_corrections(&mut self, mut corrections: Vec<(u64, Correction)>) {
+            corrections.sort_by_key(|(seq, _)| std::cmp::Reverse(*seq));
+            for (seq, correction) in corrections {
+                let at = self.events.iter().position(
+                    |event| matches!(event, Event::ToolResult(result) if result.seq == seq),
+                );
+                match at {
+                    Some(index) => self.events.insert(index + 1, Event::Correction(correction)),
+                    None => self.events.push(Event::Correction(correction)),
+                }
+            }
+        }
+    }
+
+    /// The `tool_use_id` a denial's own `tool_result` block names, which is
+    /// the join key back to the call it rejected.
+    fn denied_tool_use_id(record: &Value) -> Option<&str> {
+        record["message"]["content"]
+            .as_array()?
+            .iter()
+            .find(|block| block["type"] == "tool_result")
+            .and_then(|block| block["tool_use_id"].as_str())
+    }
+
+    /// The `tool_use` block on `record` whose `id` matches, if any.
+    fn tool_use_by_id(record: &Value, id: &str) -> Option<ToolUse> {
+        record["message"]["content"]
+            .as_array()?
+            .iter()
+            .find(|block| block["type"] == "tool_use" && block["id"].as_str() == Some(id))
+            .map(tool_use_of)
+    }
+
+    /// The first `tool_use` block on `record`, if it holds one at all.
+    fn first_tool_use(record: &Value) -> Option<ToolUse> {
+        record["message"]["content"]
+            .as_array()?
+            .iter()
+            .find(|block| block["type"] == "tool_use")
+            .map(tool_use_of)
+    }
+
+    fn tool_use_of(block: &Value) -> ToolUse {
+        ToolUse {
+            name: block["name"].as_str().unwrap_or_default().to_string(),
+            input: block["input"].clone(),
+        }
+    }
+
+    /// Ticket 35's steps 4 and 5: walk `parentUuid`'s children from the
+    /// denial forward, first for a plain-string human turn, then for the
+    /// first assistant record holding a `tool_use`.
+    ///
+    /// **The interrupt marker and a `tool_result` echo both fail the
+    /// plain-string test on purpose.** `[Request interrupted by user for
+    /// tool use]` and a `tool_result` block both arrive as a block array, not
+    /// a bare string, which is the split step 4 measured rather than a
+    /// special case for either one.
+    ///
+    /// **The walk stops at the first assistant record, whatever it holds.**
+    /// One that carries no `tool_use` is a text reply: the model argued
+    /// instead of retrying, which is a rejection without a correction, and
+    /// nothing forces the walk to keep looking for one further on.
+    fn walk_for_reply<'a>(
+        start: &'a str,
+        by_uuid: &HashMap<&'a str, &'a Value>,
+        children: &HashMap<&'a str, Vec<&'a str>>,
+    ) -> (Option<String>, Option<ToolUse>) {
+        let mut words = None;
+        let mut current = start;
+        for _ in 0..MAX_CHAIN_HOPS {
+            let Some(next) = children.get(current).and_then(|kids| kids.first()).copied() else {
+                break;
+            };
+            let Some(record) = by_uuid.get(next).copied() else {
+                break;
+            };
+            current = next;
+            match record["type"].as_str() {
+                Some("user") if words.is_none() => {
+                    if let Value::String(text) = &record["message"]["content"] {
+                        words = Some(text.clone());
+                    }
+                }
+                Some("assistant") => {
+                    return (words, first_tool_use(record));
+                }
+                _ => {}
+            }
+        }
+        (words, None)
     }
 }

@@ -144,6 +144,22 @@ impl RunEnd {
         }
     }
 
+    /// The closing line an interactive run gets, contract 12: the vendor's own
+    /// transcript stood in for a stream nobody teed. `exit_code` is `None` when
+    /// harvest ran after the fact and the process that exited was never waited
+    /// on, and `error` is what says so.
+    pub fn harvested(exit_code: Option<i32>, error: Option<String>) -> Self {
+        Self {
+            kind: "run_end",
+            exit_code,
+            error,
+            refusal: None,
+            remediation: None,
+            body_source: Some("harvest"),
+            ended_at: now(),
+        }
+    }
+
     /// A run Hydra refused. No child ever started, so there is no exit code and
     /// no body, and contract 8.3 requires the file all the same: without it the
     /// attempt is invisible, and under D10 anything not in a run record did not

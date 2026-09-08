@@ -1,7 +1,7 @@
 # 27 - `hydra run --interactive` on `claude`, and the harvest
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Goal
@@ -63,3 +63,27 @@ by the orchestrating session in a Herdr pane, since it needs a terminal.
 - The tests above pass and the suite is untouched.
 - `IMPLEMENTATION.md` gains a section on the interactive mode saying what is harvested, what
   is not, and that `cursor-agent` and `agy` are not launched interactively yet.
+
+## Outcome
+
+Resolved 2026-09-07. `claude` on Sonnet 5, run 01a07f37-9cab under `standard`, the largest run
+of the build: 54.7M tokens, 54.0M of them cache reads, 169k output, 113k thinking, eleven files
+touched plus `src/interactive.rs` at 260 lines and `tests/harvest.rs` at 364, four harvest tests
+and fourteen status tests green. `run_end.body_source` is `harvest`, the contract's word, where
+this ticket wrote `transcript`; the ticket was wrong and the code is right. The run spent its
+last quarter bisecting a corpus-walk failure that master had already fixed and its worktree
+could not see, stashing and unstashing its own work to do it, the third run today to lose time
+that way.
+
+**Measured in a Herdr pane.** `hydra run --interactive --provider claude --model haiku` through
+`herdr pane run`: Herdr detected `claude idle` on its own, which no recorded run ever produced,
+because the vendor's interface was in the pane this time. One prompt through `herdr agent
+prompt`, `/exit` through `send-text`, and the record went from one line to 24 with `run_end`
+`body_source: harvest`, `launch_mode: interactive`, `policy` and `worktree` null, outcome
+`completed`, and `hydra show --events` reading `message`, `thinking` and `usage` off it. So a
+session a human steers is now in Herdr's own state machine and in Hydra's corpus at once, which
+is what fase 2 was for.
+
+**Two things worth knowing.** A `/exit` sent as key names through `herdr agent send-keys` did
+not submit; `pane send-text` followed by `send-keys Enter` did. And `hydra-graph` fell over on
+an event with no `seq`, since `show` gives `correction` none; it sorts them last now.

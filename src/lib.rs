@@ -20,6 +20,7 @@
 pub mod cli;
 pub mod env;
 pub mod face;
+pub mod interactive;
 pub mod live;
 pub mod logs;
 pub mod mcp;

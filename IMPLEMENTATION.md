@@ -2131,6 +2131,26 @@ the ids its starts carried. A record with no `hook_started` frames keeps the old
 finding is what would have reached Ouroboros as a policy lesson, and 153 hook pairs for 60
 calls on the same run say the count of hooks per call is not a join key either.
 
+## The interactive mode, on `claude`, since build ticket 27
+
+`hydra run --interactive --provider claude [--task ...] [--model ...]` is harness spec 3's
+second launch mode. Hydra mints a run id and a `claude` session id, writes `run_start` with
+`launch_mode: interactive`, `policy`, `policy_sha` and `worktree` null and no `skills`, and
+starts `claude --session-id <id>` on the caller's own terminal in the caller's cwd, inheriting
+stdio, under the child environment 6.2 gives every provider, with `--mcp-config` and no strict
+flag. No pty of Hydra's, no detached half, no gate, no preamble, no timeout. When the process
+exits, `interactive::harvest` reads the transcript at the path `claude::transcript_path`
+predicts, wraps every record of it as one line under `raw`, and writes `run_end` with
+`body_source: harvest`; `hydra status` does the same for a dead run whose body nobody harvested,
+and a second harvest writes nothing. `normalize` reads the harvested shape by contract 7.2.1,
+`correction` included, and derives no `permission_decision`.
+
+Measured 2026-09-07 in a Herdr pane on haiku: Herdr detected the session as `claude idle` on
+its own, the first time any run Hydra launched registered with Herdr's detection, and the
+record ended at 24 lines with outcome `completed`. `cursor-agent` and `agy` are not launched
+interactively; the launch refuses them by name. An interactive run may take a policy since map
+ticket 50, which is build ticket 28.
+
 ## `judge` is not injected, and the face is admitted
 
 **A `judge` run is linked no skills, since build ticket 25.** Map ticket 47 decided it: the

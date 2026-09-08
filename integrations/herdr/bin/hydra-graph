@@ -88,7 +88,7 @@ def index_by_call(events):
 
 def render_events(data, seen=None):
     seen = seen if seen is not None else set()
-    events = sorted(data.get("events", []), key=lambda e: e["seq"])
+    events = sorted(data.get("events", []), key=lambda e: e.get("seq") if e.get("seq") is not None else -1)
     decisions, results = index_by_call(events)
     printed_calls = {
         e["call_id"] for e in events
@@ -96,8 +96,8 @@ def render_events(data, seen=None):
     }
     lines, new_seen = [], set(seen)
     for event in events:
-        seq, typ = event["seq"], event["type"]
-        if seq in seen or seq in new_seen:
+        seq, typ = event.get("seq"), event["type"]
+        if seq is None or seq in seen or seq in new_seen:
             continue
         if typ == "permission_decision":
             new_seen.add(seq)

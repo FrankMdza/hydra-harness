@@ -80,6 +80,15 @@ The consequence is worth stating plainly rather than leaving in the mechanics: *
 from run records, and a thin record teaches it little.** A TUI is what would let the structured
 transport become the interactive path too, and that is deferred with the TUI (D3).
 
+**An interactive `claude` run may carry a policy, since map ticket 50.** `hydra run --interactive
+--policy <name>` compiles the gate, seeds a worktree, links the snapshot and hands `claude` the
+same settings a recorded run gets; `claude` takes `--settings` interactively and the hooks
+apply, measured on 2026-09-07 with two refusals in Hydra's own words on a session a human was
+steering. What the transcript then holds is every denial, as an error tool result carrying the
+reason, and nothing for an allow, so the record carries `permission_decision` for denials and
+says out loud that allows were not recorded. No policy is the default, and the other two
+providers cannot take one this way because they read their hooks out of a worktree.
+
 ## 4. Three populations, and only one is gated
 
 Ticket 28 found three, not two. The gate exists for the first one only.

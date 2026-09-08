@@ -87,6 +87,10 @@ pub struct RunView {
     pub worktree: Option<crate::record::WorktreeRef>,
     pub provider: Option<String>,
     pub policy: Option<String>,
+    /// `recorded` or `interactive` (contract 5.1). `None` on a record too torn
+    /// to say. This is what tells `hydra status` an abandoned run is one it can
+    /// harvest rather than one it can only report.
+    pub launch_mode: Option<String>,
     /// The store sha this run pinned, contract 5.3. It is the refcount on
     /// `~/hydra/skills-snapshots/<sha>/`: a snapshot is referenced while a live
     /// run's record names it, and nothing else counts.
@@ -132,38 +136,40 @@ pub fn read_view(path: &Path) -> Result<RunView> {
     let start = first_line(path)?.and_then(|line| serde_json::from_str::<Value>(&line).ok());
     let ended = has_run_end(path)?;
 
-    let (run_id, started_at, provider, pid, process_start_time, policy, worktree) = match &start {
-        Some(envelope) => {
-            let body = &envelope["hydra"];
-            let pid = body["pid"].as_u64().and_then(|p| u32::try_from(p).ok());
-            let process_start_time = body["process_start_time"].as_str().and_then(parse_time);
-            let worktree = match (
-                body["worktree"]["path"].as_str(),
-                body["worktree"]["branch"].as_str(),
-            ) {
-                (Some(path), Some(branch)) => Some(crate::record::WorktreeRef {
-                    path: path.to_string(),
-                    branch: branch.to_string(),
-                    base_tree: body["worktree"]["base_tree"].as_str().map(str::to_string),
-                }),
-                _ => None,
-            };
-            (
-                envelope["run_id"]
-                    .as_str()
-                    .filter(|id| !id.is_empty())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| run_id_from_name.clone()),
-                envelope["ts"].as_str().and_then(parse_time),
-                envelope["provider"].as_str().map(str::to_string),
-                pid,
-                process_start_time,
-                body["policy"].as_str().map(str::to_string),
-                worktree,
-            )
-        }
-        None => (run_id_from_name, None, None, None, None, None, None),
-    };
+    let (run_id, started_at, provider, pid, process_start_time, policy, worktree, launch_mode) =
+        match &start {
+            Some(envelope) => {
+                let body = &envelope["hydra"];
+                let pid = body["pid"].as_u64().and_then(|p| u32::try_from(p).ok());
+                let process_start_time = body["process_start_time"].as_str().and_then(parse_time);
+                let worktree = match (
+                    body["worktree"]["path"].as_str(),
+                    body["worktree"]["branch"].as_str(),
+                ) {
+                    (Some(path), Some(branch)) => Some(crate::record::WorktreeRef {
+                        path: path.to_string(),
+                        branch: branch.to_string(),
+                        base_tree: body["worktree"]["base_tree"].as_str().map(str::to_string),
+                    }),
+                    _ => None,
+                };
+                (
+                    envelope["run_id"]
+                        .as_str()
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| run_id_from_name.clone()),
+                    envelope["ts"].as_str().and_then(parse_time),
+                    envelope["provider"].as_str().map(str::to_string),
+                    pid,
+                    process_start_time,
+                    body["policy"].as_str().map(str::to_string),
+                    worktree,
+                    body["launch_mode"].as_str().map(str::to_string),
+                )
+            }
+            None => (run_id_from_name, None, None, None, None, None, None, None),
+        };
 
     // Read beside the tuple rather than inside it. It is the one field here that
     // no other field is derived from, and a nine-way tuple is worse than a second
@@ -191,6 +197,7 @@ pub fn read_view(path: &Path) -> Result<RunView> {
         worktree,
         provider,
         policy,
+        launch_mode,
         skills_sha,
     })
 }
@@ -549,6 +556,7 @@ mod tests {
                 worktree: None,
                 provider: None,
                 policy: None,
+                launch_mode: None,
                 skills_sha: None,
             })
             .collect();
@@ -575,6 +583,7 @@ mod tests {
             worktree: None,
             provider: None,
             policy: None,
+            launch_mode: None,
             skills_sha: None,
         }];
         assert!(guard(1, &views).is_ok());

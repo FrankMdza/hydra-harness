@@ -338,3 +338,135 @@ fn following_an_abandoned_run_ends_rather_than_waiting_forever() {
     hydra::logs::logs(&layout, "aaa", true, &mut out).unwrap();
     assert_eq!(String::from_utf8(out).unwrap().lines().count(), 1);
 }
+
+// --- interactive harvest, section 10's "any process can do it" ----------
+
+/// A pid that is certainly gone, with the start time it had while it still
+/// lived. Contract 5.2 fills both together at launch, before either can be
+/// null, so a run file that means "the process died since" needs a real
+/// timestamp rather than the one a query against a dead pid answers with.
+fn dead_pid_with_start() -> (u32, chrono::DateTime<chrono::Utc>) {
+    let mut child = std::process::Command::new("sleep")
+        .arg("5")
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let start = hydra::procinfo::start_time(pid).unwrap().unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    (pid, start)
+}
+
+/// A dead interactive `claude` run, no `run_end`: harness spec 10's scenario,
+/// a closed terminal on a session that kept running until it did not.
+fn write_dead_interactive_run(
+    layout: &Layout,
+    run_id: &str,
+    pid: u32,
+    start: chrono::DateTime<chrono::Utc>,
+    session: &str,
+    cwd: &std::path::Path,
+) {
+    let text = envelope(
+        run_id,
+        0,
+        json!({
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "interactive",
+            "provider_version": "2.1.261 (Claude Code)",
+            "provider_session_id": session,
+            "task": "probe",
+            "policy": null,
+            "policy_sha": null,
+            "cwd": cwd.display().to_string(),
+            "worktree": null,
+            "depth": 0,
+            "pid": pid,
+            "process_start_time": start.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            "subscription": "anthropic",
+        }),
+    );
+    std::fs::write(layout.run_file(run_id), text).unwrap();
+}
+
+fn write_transcript_fixture(home: &std::path::Path, cwd: &std::path::Path, session: &str) {
+    let path = hydra::provider::claude::transcript_path(home, cwd, session);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let line = json!({
+        "type": "assistant",
+        "uuid": "u1",
+        "parentUuid": null,
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "done"}],
+            "usage": {"input_tokens": 1, "output_tokens": 2},
+        },
+    });
+    std::fs::write(&path, format!("{line}\n")).unwrap();
+}
+
+#[test]
+fn a_dead_interactive_run_is_harvested_by_status_all() {
+    let layout = sandbox("interactive-dead-all");
+    let root = std::env::temp_dir().join(format!(
+        "hydra-status-interactive-{}-all",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    let cwd = root.join("cwd");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&cwd).unwrap();
+
+    let run_id = "01a07901-0000-7000-8000-000000000001";
+    let session = "01a07901-0000-7000-8000-000000000002";
+    let (pid, start) = dead_pid_with_start();
+    write_dead_interactive_run(&layout, run_id, pid, start, session, &cwd);
+    write_transcript_fixture(&home, &cwd, session);
+
+    // Abandoned before the harvest: no `run_end`, and the pid is gone.
+    let before = live::scan(&layout).unwrap();
+    assert_eq!(
+        before.iter().find(|v| v.run_id == run_id).unwrap().state,
+        State::Abandoned
+    );
+
+    let report = hydra::status::all_in(&layout, &home).unwrap();
+    assert!(report.contains("ended 1"), "{report}");
+    assert!(!report.contains("abandoned 1"), "{report}");
+
+    let text = std::fs::read_to_string(layout.run_file(run_id)).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+    assert!(text.contains("\"body_source\":\"harvest\""), "{text}");
+}
+
+#[test]
+fn a_dead_interactive_run_is_harvested_by_status_one() {
+    let layout = sandbox("interactive-dead-one");
+    let root = std::env::temp_dir().join(format!(
+        "hydra-status-interactive-{}-one",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    let cwd = root.join("cwd");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&cwd).unwrap();
+
+    let run_id = "01a07902-0000-7000-8000-000000000001";
+    let session = "01a07902-0000-7000-8000-000000000002";
+    let (pid, start) = dead_pid_with_start();
+    write_dead_interactive_run(&layout, run_id, pid, start, session, &cwd);
+    write_transcript_fixture(&home, &cwd, session);
+
+    let report: Value =
+        serde_json::from_str(&hydra::status::one_in(&layout, run_id, &home).unwrap()).unwrap();
+    assert_eq!(report["state"], "ended");
+    // Nobody watched this session exit, which is exactly what makes the
+    // outcome's confidence, rather than the outcome itself, the honest cost.
+    assert_eq!(report["result"]["outcome"], "completed");
+    assert_eq!(report["result"]["outcome_source"], "unknown");
+}

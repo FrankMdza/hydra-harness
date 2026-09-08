@@ -42,9 +42,11 @@ pub enum Command {
         #[arg(long)]
         provider: String,
 
-        /// The task string, passed to the provider verbatim.
+        /// The task string, passed to the provider verbatim. Optional only
+        /// with `--interactive`, which opens with no prompt when it is
+        /// absent.
         #[arg(long)]
-        task: String,
+        task: Option<String>,
 
         /// A model inside the provider. Never chosen on your behalf.
         #[arg(long)]
@@ -69,6 +71,14 @@ pub enum Command {
         /// `2h`. The child is never killed, so `0` means launch and return.
         #[arg(long, default_value = "10m", value_parser = parse_duration)]
         timeout: Duration,
+
+        /// Harness spec 3's second launch mode: the vendor draws its own
+        /// interface in this pane and Hydra waits for it to exit, rather than
+        /// owning a pty and streaming the frames into the record. No policy,
+        /// no skill injection, no preamble, and `--policy`, `--parent` and
+        /// `--allow-floor-escape` above are ignored. `claude` only today.
+        #[arg(long)]
+        interactive: bool,
     },
 
     /// Reconcile live pids against open run files, and report abandoned worktrees.
