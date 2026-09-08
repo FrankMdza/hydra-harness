@@ -147,6 +147,17 @@ pub fn derive(run: &Run) -> Option<Derived> {
         });
     }
 
+    let harvested = end.body["body_source"].as_str() == Some("harvest");
+
+    if harvested {
+        if let Some(outcome) = claude_harvest_limit_refusal(run) {
+            return Some(Derived {
+                outcome,
+                source: Source::Derived,
+            });
+        }
+    }
+
     // **`run_end.error` is read on one side of this match and not the other**,
     // and the asymmetry is the whole of it. That field holds what Hydra caught
     // off the stream, which in this build is a tee that broke or a count of lines
@@ -155,8 +166,6 @@ pub fn derive(run: &Run) -> Option<Derived> {
     // whose task succeeded as a lesson about a UTF-8 byte, which is contract
     // 8.4's mistake pointed the other way. With no terminator it is the only
     // thing in the file that says which side stopped.
-    let harvested = end.body["body_source"].as_str() == Some("harvest");
-
     let outcome = match run.result.as_ref() {
         None if harvested => {
             // A harvested body carries no result-shaped terminator at all
@@ -325,6 +334,29 @@ fn cursor_stderr_refusal(run: &Run) -> Option<Outcome> {
         if line.contains("Authentication required") {
             return Some(Outcome::AuthFailed);
         }
+    }
+    None
+}
+
+/// The session-limit sentence a harvested `claude` interactive run reports.
+///
+/// Interactive runs are harvested from the vendor transcript at exit (harness
+/// spec 10), which carries no `result` frame and therefore no
+/// `api_error_status: 429`. The limit sentence is the only signal left.
+///
+/// **This is a text match, and it is written down as one.** It is here because
+/// the alternative files an exhausted quota as `completed`, which rung one
+/// learns a skill lesson from, and contract 8 exists to prevent exactly that. A
+/// provider that rewords the sentence sends the run back to `completed`, which
+/// is the safe direction only in the sense that nothing worse happens: rung one
+/// would then learn from it again.
+fn claude_harvest_limit_refusal(run: &Run) -> Option<Outcome> {
+    if run.provider.as_deref() != Some("claude") {
+        return None;
+    }
+    let text = final_assistant_text(run)?;
+    if text.starts_with("You've hit your") && text.contains("limit") {
+        return Some(Outcome::RateLimited);
     }
     None
 }

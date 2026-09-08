@@ -517,3 +517,70 @@ fn an_ungated_harvest_derives_no_denial_and_no_limit_finding() {
         run.findings
     );
 }
+
+#[test]
+fn a_harvested_session_limit_is_rate_limited() {
+    let (layout, home, cwd) = scratch("rate-limit");
+    let run_id = "01a07900-0000-7000-8000-0000000000g1";
+    let session = "01a07900-0000-7000-8000-0000000000g2";
+    open_interactive_run(&layout, run_id, session, &cwd);
+
+    let limit_text = "You've hit your session limit · resets 1:50am (America/Bogota)";
+    let lines = vec![
+        record(
+            "j1",
+            Some("root"),
+            "assistant",
+            json!({
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": limit_text}],
+                },
+            }),
+        ),
+    ];
+    write_transcript(&home, &cwd, session, &lines);
+
+    harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+
+    let derived = hydra::outcome::derive(&run).unwrap();
+    assert_eq!(derived.outcome, hydra::outcome::Outcome::RateLimited);
+    assert_eq!(derived.source, hydra::outcome::Source::Derived);
+    assert_eq!(
+        hydra::outcome::final_assistant_text(&run).as_deref(),
+        Some(limit_text)
+    );
+}
+
+#[test]
+fn a_harvested_run_with_ordinary_assistant_text_is_completed() {
+    let (layout, home, cwd) = scratch("completed-harvest");
+    let run_id = "01a07900-0000-7000-8000-0000000000h1";
+    let session = "01a07900-0000-7000-8000-0000000000h2";
+    open_interactive_run(&layout, run_id, session, &cwd);
+
+    let lines = vec![
+        record(
+            "k1",
+            Some("root"),
+            "assistant",
+            json!({
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Done. Here's what I found."}],
+                },
+            }),
+        ),
+    ];
+    write_transcript(&home, &cwd, session, &lines);
+
+    harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+
+    let derived = hydra::outcome::derive(&run).unwrap();
+    assert_eq!(derived.outcome, hydra::outcome::Outcome::Completed);
+    assert_eq!(derived.source, hydra::outcome::Source::Derived);
+}

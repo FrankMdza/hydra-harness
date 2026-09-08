@@ -1894,6 +1894,18 @@ reader until rung two's early abort, so nothing is broken today. Whoever builds 
 reads the shape here rather than 8.5's sentence, and the `resetsAt` staleness test 8.5
 asks for still works.
 
+**A harvested `claude` run has no `result` frame, so the sentence is the signal, since
+build ticket 29.** Run 01a07f6c-ba21, an interactive session harvested on 2026-09-08, had
+one assistant turn, "You've hit your session limit · resets 1:50am (America/Bogota)", and
+derived `completed` with it as `result_text`. `outcome::claude_harvest_limit_refusal` now
+files a harvested `claude` run whose last assistant text starts with `You've hit your` and
+contains `limit` as `rate_limited`, after the gate-refused-everything check and before the
+`completed` fallback, so a gated run that then met the limit stays `gated`. It is a text
+match written down as one, the same standing `cursor_stderr_refusal` has: a reworded
+sentence sends the run back to `completed`, and rung one would learn from it again. A
+recorded run keeps reading the 429 off its frame; `tests/outcome.rs` pins that the sentence
+alone does nothing on a streamed body.
+
 ## What the command line does not carry
 
 **`--mcp-config` and `--strict-mcp-config` are passed together on every non-`judge`
@@ -2620,11 +2632,6 @@ Out of scope for this slice, and each one has a document that already says what 
   reading the override from somewhere a run cannot write, and today the honest statement
   is that a delegated run's record is where its own environment says.
 
-- **A harvested run that met a rate limit derives `completed`.** Contract 8 reads
-  `rate_limited` off a stream frame, and a harvested `claude` record has none: its only
-  assistant turn is the sentence "You've hit your session limit", and the outcome comes out
-  `completed` with that sentence as `result_text`. Seen 2026-09-08 on run 01a07f6c-ba21. Rung
-  one skips interactive runs, so nothing learns from it yet, and export would carry it.
 - **An interactive session that exits before its first turn writes no transcript**, and the
   harvest writes a `run_end` with an error naming the path it looked for, since 2026-09-08.
   Before that the run sat with no `run_end` and `hydra status` re-reported the missing file.

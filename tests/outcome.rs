@@ -96,6 +96,51 @@ fn a_rate_limited_run_is_not_the_success_its_subtype_claims() {
 }
 
 #[test]
+fn a_recorded_claude_run_with_a_limit_sentence_still_reads_429_not_text() {
+    // The harvested text match must not apply to a streamed body that carries a
+    // `result` frame: contract 8 reads `rate_limited` off `api_error_status`
+    // there, and the assistant sentence beside it is not consulted.
+    let sandbox = Sandbox::new("429-with-limit-text");
+    let limit_text = "You've hit your session limit · resets 1:50am (America/Bogota)";
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    )
+    .assistant(json!([{"type": "text", "text": limit_text}]))
+    .result(json!({
+        "is_error": true,
+        "api_error_status": 429,
+        "result": limit_text,
+    }))
+    .closed();
+
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::RateLimited, Source::Derived))
+    );
+
+    // Without the 429 the same sentence on a streamed run is not a limit refusal.
+    let sandbox = Sandbox::new("stream-limit-text");
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    )
+    .assistant(json!([{"type": "text", "text": limit_text}]))
+    .result(json!({
+        "is_error": true,
+        "result": limit_text,
+    }))
+    .closed();
+
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Failed, Source::Derived))
+    );
+}
+
+#[test]
 fn a_login_that_lapsed_mid_run_is_auth_failed() {
     let sandbox = Sandbox::new("401");
     let text = Record::opened(
