@@ -50,7 +50,7 @@ into the spawn directory the way a recorded one does, launching nothing.
 
 ## Outcome
 
-Resolved 2026-09-08, with one measurement still owed. `cursor-agent` on Composer 2.5, run
+Resolved 2026-09-08. `cursor-agent` on Composer 2.5, run
 01a07f62-7061 under `standard`, the first Rust ticket given to that model because Claude's
 five-hour window stood at 95 percent: 5.65M tokens, 5.5M cache reads, eight files, 628
 insertions, every test green. `interactive::prepare_policy_launch` reuses the recorded launch's
@@ -68,19 +68,21 @@ a missing transcript now writes a `run_end` with an error naming the path.
 **Measured on the second launch.** `hydra run --interactive --provider claude --model haiku
 --policy read-only` in a Herdr pane came up `claude idle`, wrote `run_start` with the policy,
 the worktree with `base_tree` and the linked skills, and harvested 23 lines with the `limit`
-finding on the record. **The denial itself is unmeasured on a real launch**: the prompt that
-should have been refused met "You've hit your session limit · resets 1:50am" instead, so no
-tool call was made. Map ticket 50 measured the same settings refusing a write on the same binary
-the day before, and `tests/harvest.rs` derives the denial from that result shape, so the gap is
-one prompt wide. The check to run after the window opens:
+finding on the record. That launch never reached the denial: the prompt that should have
+been refused met "You've hit your session limit · resets 1:50am" instead, and no tool call
+was made.
 
-```
-hydra run --interactive --provider claude --model haiku --policy read-only
-# in the session: ask it to Write a file, then /exit
-hydra show <run-id> --events   # expect one permission_decision deny by hydra_policy
-```
+**The denial, measured on the third launch after the window reset.** Run 01a07ff5-2389, the
+same command in a Herdr pane driven over the socket, was asked to Write `probe28.txt` in its
+worktree. The record carries the `Write` tool call with capability `file_write`, one
+`permission_decision` with `decision: deny` and `decider: hydra_policy`, the reason exactly
+`hydra/capability: policy read-only does not allow file_write (Write).`, and the error
+`tool_result` that reason was derived from. The model's one-line answer quoted the refusal
+back, the worktree gained no file, `diff_stat` says zero files changed, and the outcome derived
+`gated` with the `limit` finding beside it. Haiku 4.5 spent 165K tokens on it, all but 800 of
+them cache traffic. Reaped with the branch deleted.
 
-**What the same record showed on the way.** A harvested run whose only assistant turn is the
+**What the second launch's record showed on the way.** A harvested run whose only assistant turn is the
 provider's rate-limit sentence derives `completed`. Contract 8's `rate_limited` reads a stream
 frame, and the harvest path has no rule for the sentence yet. Rough edge, noted in
 `IMPLEMENTATION.md`.

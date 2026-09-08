@@ -2159,9 +2159,9 @@ flag opens a consent dialog with nobody to answer it; a human answers the vendor
 for an allow and a hook deny beats the prompt either way. The harvest reader derives a `deny` by
 `hydra_policy` from every error `tool_result` whose text starts with `hydra/` and pushes one
 `limit` finding saying allows were not recorded, so a reader tells the two record shapes apart
-by `policy` being null or not. Measured on 2026-09-08 up to the harvest with the finding on the
-record; the denial on a real launch is one prompt short, because the session met Claude's
-five-hour limit first, and ticket 28's outcome names the command that closes it.
+by `policy` being null or not. Measured on 2026-09-08 on run 01a07ff5-2389: a `Write` asked
+for under `read-only` came back as one `permission_decision` denied by `hydra_policy` with the
+gate's own reason, the worktree gained no file, and the outcome derived `gated`.
 
 ## `judge` is not injected, and the face is admitted
 
