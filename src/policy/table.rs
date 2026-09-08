@@ -534,7 +534,11 @@ mod tests {
         assert_eq!(agy_capability("mcp__hydra__ping"), None);
         assert_eq!(agy_capability("MCP:ping"), None);
         assert_eq!(agy_capability("run_command"), Some(Capability::Shell));
-        assert!(Table::of(crate::provider::Provider::Agy).mcp_prefix.is_none());
+        assert!(
+            Table::of(crate::provider::Provider::Agy)
+                .mcp_prefix
+                .is_none()
+        );
     }
 
     #[test]

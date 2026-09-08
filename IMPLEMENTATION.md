@@ -2436,9 +2436,8 @@ allowlist does not exist, and `hydra export --dry-run` says so.
 
 Ouroboros spec 4 as written, with the three details map ticket 52 closed. `src/ouroboros/evolve.rs`
 and `src/ouroboros/review.rs`, `tests/evolve.rs`, written by Composer 2.5 on run 01a08053-3d85,
-launched into a Herdr pane. **No pass has run to the end on this machine**: `--dry-run` has
-printed the proposer's brief, and everything below past the brief is exercised by synthetic
-patches and answers only.
+launched into a Herdr pane. **One pass has run on this machine and it ended at the admission gate**, blocked by master's
+own formatting; the paragraph on it below says what it found. No judge has answered yet.
 
 **A pass is a harness run with four children.** `evolve` mints a run id with `command: evolve`,
 writes contract 5.5's two-line record, and every child carries it as `parent_run_id`: one proposer
@@ -2469,6 +2468,34 @@ three judges by run id, with the three answers in the body. A pass constructs `A
 only through `panel_verdict`, which is the one function that can build it, and nothing merges:
 the human does, spec 4.11. A pass's outcome describes the pass and not the patch, spec 4.10, so
 a refused or blocked patch is a `completed` pass and `failed` is git or the worktree breaking.
+
+**The first real pass, 01a08129-de0c on 2026-09-08, found five things before any judge ran.**
+The human chose a haiku proposer. The pass before it, 01a08127-6f58, never spawned the
+proposer: `Lineage::of` refused a parent with no policy, and a harness run has none, so a
+harness parent now bounds nothing, its authority being the human's who typed the pass, and
+`tests/delegation.rs` pins it. The second pass spawned the proposer and `hydra status`
+reported the pass abandoned while its process was alive, because the pass wrote its start
+time at millisecond precision and `procinfo::is_alive` compares exact equality against the
+microseconds `watch.rs` writes; microseconds now, and no fallback to the clock. The proposer
+was seeded with the orchestrating session's uncommitted edits, read them as the patch under
+review, and undid them, which left its tree equal to HEAD; `commit_everything` found nothing,
+and the blocked branch pointed at master with the verdict nowhere, so the pass now makes an
+empty commit carrying the message when the tree is clean, spec 4.9's one branch. The
+admission gate then failed, on `cargo fmt --check` and `clippy -D warnings` against master's
+own code rather than the proposer's: master did not pass the four commands spec 4.5 names, so
+no patch could have. Master is formatted and clippy-clean since that pass. And the closed
+pass record derived `crashed`, the streamed reading of a missing terminator, where spec 4.10
+says a pass whose gate did its job is `completed`; a harness run now derives `completed` from
+its own `run_end`, `failed` when that carries an error. The proposer's own record then failed both corpus walks
+on master: a `Bash` the binary's own guard refused with `<tool_use_error>Blocked: sleep 70
+...` before any hook, read as `Ungated`, and an `Edit` sent with no `file_path` that
+`InputValidationError` refused, read as a `GateLeak`; the `claude` adapter now treats the
+`Blocked:` spelling like the validation error it already knew, and a `no-path` deny with a
+provider error as a limit, the rule the Cursor adapter gained the same day. And the walk
+that checks every record normalizes had no branch for a harness run. Two lessons for whoever
+types the next pass: commit first, because the proposer inherits the uncommitted tree as its
+seed and reads it as work in progress; and the pass cost 5.77M tokens on haiku for a patch
+that undid a diff, which is what a proposer given no task beyond the corpus brief does.
 
 **Two things the brief shows that are worth knowing.** It lists every run rung one may learn
 from with its outcome and `outcome_source`, and on this machine that second column reads

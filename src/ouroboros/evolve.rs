@@ -230,7 +230,9 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             Some(patch.clone()),
             verdict_body(&outcomes, true),
         ),
-        PanelVerdict::Blocked { .. } => (blocked_branch.clone(), None, verdict_body(&outcomes, false)),
+        PanelVerdict::Blocked { .. } => {
+            (blocked_branch.clone(), None, verdict_body(&outcomes, false))
+        }
     };
     let message = commit_message(&pass_run_id, &proposer_run_id, &judge_run_ids, &body);
     commit_pass_branch(&repo, &proposer, &branch, &message)?;
@@ -332,7 +334,10 @@ pub fn read_proposer_patch(
     let base_tree = run
         .run_start()
         .and_then(|start| start.body["worktree"]["base_tree"].as_str())
-        .or(result.diff_stat.as_ref().map(|stat| stat.base_tree.as_str()))
+        .or(result
+            .diff_stat
+            .as_ref()
+            .map(|stat| stat.base_tree.as_str()))
         .context("the proposer record has no base_tree")?;
     let worktree = PathBuf::from(worktree_path);
     let index = layout.stat_index(&result.run_id);
@@ -440,7 +445,10 @@ fn verdict_body(outcomes: &[JudgeOutcome], offered: bool) -> String {
                 review::Severity::Major => "major",
                 review::Severity::Minor => "minor",
             };
-            text.push_str(&format!("- {} ({}) — {}\n", finding.item, sev, finding.note));
+            text.push_str(&format!(
+                "- {} ({}) — {}\n",
+                finding.item, sev, finding.note
+            ));
         }
         text.push('\n');
     }
@@ -460,9 +468,7 @@ fn commit_message(
     } else {
         text.push_str(&format!(
             "judges: {}, {}, {}\n\n",
-            judge_run_ids[0],
-            judge_run_ids[1],
-            judge_run_ids[2]
+            judge_run_ids[0], judge_run_ids[1], judge_run_ids[2]
         ));
     }
     text.push_str(body);
@@ -483,7 +489,25 @@ fn commit_pass_branch(
         .context("proposer worktree missing")?;
     let checkout = PathBuf::from(worktree_path);
     let exclude = crate::provider::own_worktree_paths();
-    crate::worktree::commit_everything(&checkout, message, &exclude)?;
+    // Spec 4.9: every pass ends with exactly one branch and the verdict lives in
+    // its commit message, so a pass whose proposer left the tree equal to HEAD
+    // still gets a commit, an empty one carrying the message. The first real
+    // pass, 01a08129-de0c on 2026-09-08, had a proposer that undid the seeded
+    // uncommitted work and nothing else, `commit_everything` found nothing, and
+    // the blocked branch pointed at master with no verdict anywhere.
+    if crate::worktree::commit_everything(&checkout, message, &exclude)?.is_none() {
+        git(
+            &checkout,
+            &[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "--no-verify",
+                "-m",
+                message,
+            ],
+        )?;
+    }
     let current = git(&checkout, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     if current.trim() != branch {
         git(repo, &["branch", "-f", branch, "HEAD"])?;
@@ -494,9 +518,13 @@ fn commit_pass_branch(
 pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> Result<()> {
     layout.ensure()?;
     let pid = std::process::id();
+    // Microseconds, the precision `watch.rs` writes and `procinfo::is_alive`
+    // compares by exact equality: the first real pass, 01a08129-de0c on
+    // 2026-09-08, wrote milliseconds and `hydra status` reported the pass
+    // abandoned while its process was alive. No fallback to the clock either,
+    // for the same reason: a time that is not the process's is worse than null.
     let start_time = crate::procinfo::start_time(pid)?
-        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
     let start = RunStart {
         kind: "run_start",
         schema_version: SCHEMA_VERSION,
@@ -517,7 +545,7 @@ pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> R
         depth: 0,
         parent_policy: None,
         pid: Some(pid),
-        process_start_time: Some(start_time),
+        process_start_time: start_time,
         skills: None,
         mcp: None,
         auth: None,
@@ -533,9 +561,7 @@ pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> R
 pub fn write_harness_end(path: &Path, exit_code: Option<i32>, error: Option<&str>) -> Result<()> {
     let mut writer = Writer::resume(
         path,
-        path.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(""),
+        path.file_stem().and_then(|s| s.to_str()).unwrap_or(""),
         None,
         None,
         None,
@@ -611,9 +637,9 @@ fn diff_patch(worktree: &Path, index: &Path, base: &str) -> Result<String> {
 pub fn report(done: &Done) -> String {
     match done {
         Done::Considered { brief } => format!("{brief}\n--\nNothing was launched.\n"),
-        Done::Handed { pass_run_id } => format!(
-            "pass {pass_run_id} outlived the call; watch children with `hydra status`\n"
-        ),
+        Done::Handed { pass_run_id } => {
+            format!("pass {pass_run_id} outlived the call; watch children with `hydra status`\n")
+        }
         Done::Finished(finished) => {
             let mut text = format!(
                 "evolve pass {}\n  proposer {}\n  record {}\n  branch {}\n",

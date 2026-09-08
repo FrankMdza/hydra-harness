@@ -972,10 +972,7 @@ mod tests {
         // Interactively the bypass flag opens a consent dialog with nobody to
         // answer it, and a human at the keyboard answers the vendor's own
         // prompt for an allow while a hook deny beats it either way.
-        assert!(
-            !argv.iter().any(|a| a == "--permission-mode"),
-            "{argv:?}"
-        );
+        assert!(!argv.iter().any(|a| a == "--permission-mode"), "{argv:?}");
         assert!(argv.iter().any(|a| a == "--mcp-config"));
         assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
     }

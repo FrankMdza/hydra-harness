@@ -363,7 +363,12 @@ fn read_only_judge_and_curate_write_none_of_the_face() {
 // cursor-agent: the config lives in the worktree, and the pre-flight is fatal
 // ---------------------------------------------------------------------------
 
-fn cursor_written(layout: &Layout, run_id: &str, policy: &str, worktree: &Path) -> serde_json::Value {
+fn cursor_written(
+    layout: &Layout,
+    run_id: &str,
+    policy: &str,
+    worktree: &Path,
+) -> serde_json::Value {
     let document = Document::parse(DOCUMENT).unwrap();
     let plan = mcp::plan(&document, Provider::CursorAgent, policy, Checkout::Hydra);
     let file = mcp::write_config(
@@ -374,7 +379,11 @@ fn cursor_written(layout: &Layout, run_id: &str, policy: &str, worktree: &Path) 
         Some(worktree),
     )
     .unwrap();
-    assert_eq!(file, worktree.join(".cursor/mcp.json"), "6.5's table names this path");
+    assert_eq!(
+        file,
+        worktree.join(".cursor/mcp.json"),
+        "6.5's table names this path"
+    );
     serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap()
 }
 
@@ -417,7 +426,12 @@ fn a_checkout_that_already_holds_an_mcp_config_is_refused_rather_than_overwritte
     std::fs::write(worktree.join(".cursor/mcp.json"), "{\"mcpServers\":{}}").unwrap();
 
     let document = Document::parse(DOCUMENT).unwrap();
-    let plan = mcp::plan(&document, Provider::CursorAgent, "standard", Checkout::Hydra);
+    let plan = mcp::plan(
+        &document,
+        Provider::CursorAgent,
+        "standard",
+        Checkout::Hydra,
+    );
     let err = mcp::write_config(
         &layout,
         "r1",
@@ -530,8 +544,14 @@ fn the_shipped_document_admits_the_face_to_standard_and_permissive_only() {
 fn agy_written(layout: &Layout, run_id: &str, policy: &str, worktree: &Path) -> serde_json::Value {
     let document = Document::parse(DOCUMENT).unwrap();
     let plan = mcp::plan(&document, Provider::Agy, policy, Checkout::Hydra);
-    let file = mcp::write_config(layout, run_id, Provider::Agy, plan.injected(), Some(worktree))
-        .unwrap();
+    let file = mcp::write_config(
+        layout,
+        run_id,
+        Provider::Agy,
+        plan.injected(),
+        Some(worktree),
+    )
+    .unwrap();
     assert_eq!(
         file,
         worktree.join(".agents/mcp_config.json"),
@@ -589,7 +609,11 @@ fn an_agy_checkout_that_already_holds_an_mcp_config_is_refused() {
     let (layout, root) = layout();
     let worktree = root.join("worktree");
     std::fs::create_dir_all(worktree.join(".agents")).unwrap();
-    std::fs::write(worktree.join(".agents/mcp_config.json"), "{\"mcpServers\":{}}").unwrap();
+    std::fs::write(
+        worktree.join(".agents/mcp_config.json"),
+        "{\"mcpServers\":{}}",
+    )
+    .unwrap();
 
     let document = Document::parse(DOCUMENT).unwrap();
     let plan = mcp::plan(&document, Provider::Agy, "standard", Checkout::Hydra);

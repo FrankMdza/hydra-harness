@@ -334,7 +334,8 @@ fn a_claude_run_still_writes_its_thinking_text() {
                 }
             }
         } else if val["type"] == "result" {
-            if let Some(tokens) = val["usage"]["output_tokens_details"]["thinking_tokens"].as_u64() {
+            if let Some(tokens) = val["usage"]["output_tokens_details"]["thinking_tokens"].as_u64()
+            {
                 thinking_tokens = Some(tokens);
             }
         }

@@ -63,8 +63,18 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
     let worktree = root.join("worktree");
     std::fs::create_dir_all(&worktree).unwrap();
 
-    let spawn =
-        write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", Some(&worktree), None, None, false).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
 
     assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
     assert_eq!(spawn.hook_config, root.join("spawn/r1/settings.json"));
@@ -86,7 +96,18 @@ fn a_spawn_writes_a_gate_and_a_config_that_points_at_it() {
 fn the_gate_is_executable_and_is_a_real_file() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, None, false).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
 
     // 6.6: real files, never links. `cursor-agent` refuses a symlinked project
     // config silently and runs the command anyway, so this holds for all three.
@@ -115,8 +136,30 @@ fn the_gate_is_executable_and_is_a_real_file() {
 fn every_spawn_gets_its_own_directory() {
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let one = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, None, false).unwrap();
-    let two = write_spawn_config(&layout, "r2", &set, Provider::Claude, "read-only", None, None, None, false).unwrap();
+    let one = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let two = write_spawn_config(
+        &layout,
+        "r2",
+        &set,
+        Provider::Claude,
+        "read-only",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
 
     assert_ne!(one.gate, two.gate);
     let first = std::fs::read_to_string(&one.gate).unwrap();
@@ -137,7 +180,18 @@ fn the_gate_denies_writes_to_the_script_it_is_about_to_become() {
     let set = PolicySet::discover().unwrap();
     // 7.5's base case. The script is compiled before it is written, so a
     // placeholder path here would deny a file nothing ever writes to.
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "permissive", None, None, None, false).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "permissive",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
     let resolved = std::fs::canonicalize(&spawn.gate)
         .unwrap()
@@ -217,7 +271,18 @@ fn the_parent_repos_git_directory_reaches_the_deny_list() {
 fn a_run_with_no_worktree_scopes_writes_to_a_path_nothing_creates() {
     let (layout, root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "standard", None, None, None, false).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
     let text = std::fs::read_to_string(&spawn.gate).unwrap();
 
     assert!(
@@ -256,8 +321,18 @@ fn the_hook_command_runs_the_gate_and_answers() {
     let set = PolicySet::discover().unwrap();
     let worktree = root.join("worktree");
     std::fs::create_dir_all(&worktree).unwrap();
-    let spawn =
-        write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", Some(&worktree), None, None, false).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "read-only",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
 
     let payload = format!(
         r#"{{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{{"file_path":"{}/x.txt","content":"x"}},"cwd":"{}"}}"#,
@@ -321,7 +396,10 @@ fn a_cursor_spawn_writes_the_hook_config_into_the_worktree() {
     assert_eq!(config["version"], 1);
     for event in ["preToolUse", "beforeReadFile"] {
         let command = cursor_hook(&config, event);
-        assert!(command.contains(spawn.gate.to_str().unwrap()), "{event}: {command}");
+        assert!(
+            command.contains(spawn.gate.to_str().unwrap()),
+            "{event}: {command}"
+        );
         assert!(command.ends_with(" cursor"), "{event}: {command}");
         assert_eq!(config["hooks"][event][0]["failClosed"], true, "{event}");
     }
@@ -364,7 +442,11 @@ fn a_checkout_that_already_holds_a_hook_config_is_refused_rather_than_overwritte
     let set = PolicySet::discover().unwrap();
     let worktree = root.join("worktree");
     std::fs::create_dir_all(worktree.join(".cursor")).unwrap();
-    std::fs::write(worktree.join(".cursor/hooks.json"), "{\"version\":1,\"hooks\":{}}").unwrap();
+    std::fs::write(
+        worktree.join(".cursor/hooks.json"),
+        "{\"version\":1,\"hooks\":{}}",
+    )
+    .unwrap();
 
     let err = write_spawn_config(
         &layout,
@@ -572,7 +654,18 @@ fn a_rewritten_gate_fails_closed() {
     // permission to proceed.
     let (layout, _root) = layout();
     let set = PolicySet::discover().unwrap();
-    let spawn = write_spawn_config(&layout, "r1", &set, Provider::Claude, "read-only", None, None, None, false).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "read-only",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
 
     let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi"},"cwd":"/tmp"}"#;
     assert!(

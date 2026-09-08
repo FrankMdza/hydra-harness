@@ -770,7 +770,10 @@ impl<'a> ReplaySpawn<'a> {
 /// reader a run with a null policy and no permission decisions, which is a real
 /// and different thing (5.6).
 pub(crate) fn note_missing_run_start(events: &[Event], findings: &mut Vec<Finding>) {
-    if !events.iter().any(|event| matches!(event, Event::RunStart(_))) {
+    if !events
+        .iter()
+        .any(|event| matches!(event, Event::RunStart(_)))
+    {
         findings.push(Finding::Limit(
             "the file carries no run_start, so the policy, the cwd and the scopes a \
              decision would be re-evaluated against are all unknown"

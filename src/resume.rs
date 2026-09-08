@@ -33,8 +33,8 @@ pub fn resume(request: Request) -> Result<Call> {
 /// already discovered one.
 pub fn resume_in(layout: &Layout, request: Request) -> Result<Call> {
     let run_file = layout.run_file(&request.run_id);
-    let view = live::read_view(&run_file)
-        .with_context(|| format!("reading {}", run_file.display()))?;
+    let view =
+        live::read_view(&run_file).with_context(|| format!("reading {}", run_file.display()))?;
 
     if view.is_live() {
         bail!(
@@ -148,9 +148,7 @@ pub fn provider_session_id(path: &Path, provider: Provider, start: &Value) -> Op
         };
         let observed = match envelope.get("raw") {
             Some(Value::String(text)) => provider.observe(text),
-            Some(value) => provider.observe(
-                &serde_json::to_string(value).unwrap_or_default(),
-            ),
+            Some(value) => provider.observe(&serde_json::to_string(value).unwrap_or_default()),
             None => continue,
         };
         if let Some(id) = observed.session_id {

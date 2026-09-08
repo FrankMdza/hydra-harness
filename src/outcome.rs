@@ -149,13 +149,28 @@ pub fn derive(run: &Run) -> Option<Derived> {
 
     let harvested = end.body["body_source"].as_str() == Some("harvest");
 
-    if harvested {
-        if let Some(outcome) = claude_harvest_limit_refusal(run) {
-            return Some(Derived {
-                outcome,
-                source: Source::Derived,
-            });
-        }
+    // A harness run, contract 5.5: no provider, no terminator frame, two lines.
+    // Spec 4.10 says its outcome describes the pass and not the patch, so a
+    // closed pass is `completed` whatever the panel said, and `failed` only when
+    // the pass itself broke, which is what `run_end.error` carries on this kind
+    // of run. Before this rule the first real pass, 01a08129-de0c on 2026-09-08,
+    // read `crashed`, the streamed reading of "no terminator" below.
+    if run.provider.is_none() {
+        return Some(Derived {
+            outcome: if end.body["error"].is_null() {
+                Outcome::Completed
+            } else {
+                Outcome::Failed
+            },
+            source: Source::Derived,
+        });
+    }
+
+    if harvested && let Some(outcome) = claude_harvest_limit_refusal(run) {
+        return Some(Derived {
+            outcome,
+            source: Source::Derived,
+        });
     }
 
     // **`run_end.error` is read on one side of this match and not the other**,

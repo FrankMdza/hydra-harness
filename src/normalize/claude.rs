@@ -545,13 +545,17 @@ impl Walk {
                 || refusal
                     .as_ref()
                     .is_some_and(|refusal| refusal.by == Decider::HydraPolicy);
-            // A call Claude Code refused on its own input schema never reached
-            // a hook: measured 2026-09-07 on run 01a07f37-8a67, where haiku
-            // passed `offset` as an array five times and each came back as an
-            // `InputValidationError` result with no hook frame beside it. The
-            // gate was never asked, so its silence is not a finding.
+            // A call Claude Code refused on its own never reached a hook. Two
+            // spellings measured: `InputValidationError`, 2026-09-07 on run
+            // 01a07f37-8a67, where haiku passed `offset` as an array five times;
+            // and `<tool_use_error>Blocked: ...`, 2026-09-08 on run 01a0812a-ad31,
+            // the binary's own guard refusing `sleep 70 && tail ...` before any
+            // hook frame. The gate was never asked, so its silence is not a
+            // finding.
             let refused_on_input = results.get(&call_id).is_some_and(|(status, output)| {
-                *status == ResultStatus::Error && output.contains("InputValidationError")
+                *status == ResultStatus::Error
+                    && (output.contains("InputValidationError")
+                        || output.starts_with("<tool_use_error>Blocked:"))
             });
             if !hydra_spoke && !refused_on_input {
                 self.findings.push(Finding::Ungated {
@@ -607,6 +611,22 @@ impl Walk {
                         self.findings.push(Finding::Limit(format!(
                             "{call_id} ({tool}) is the last thing the record says, so \
                              whether the gate refused a call the policy denies is unknown"
+                        )));
+                    } else if verdict.code() == Some("no-path")
+                        && results
+                            .get(&call_id)
+                            .is_some_and(|(status, _)| *status == ResultStatus::Error)
+                    {
+                        // The replay saw no path, so it could not judge, and the
+                        // provider answered an error of its own: measured
+                        // 2026-09-08 on run 01a0812a-ad31, an `Edit` whose
+                        // `file_path` the model sent as nothing and `claude`
+                        // refused with `InputValidationError` before any hook.
+                        // The tool did not run and the record cannot say what
+                        // path it would have taken: a limit, not a leak.
+                        self.findings.push(Finding::Limit(format!(
+                            "{call_id} ({tool}) named no path the replay could judge and \
+                             the provider answered an error, so whether it ran is unknown"
                         )));
                     } else if let Some(limit) = spawn.stood_in(&format!(
                         "the policy denies {call_id} ({tool}) and nothing in the record refused it"

@@ -161,7 +161,10 @@ impl Replay {
                     specific["permissionDecisionReason"].as_str(),
                 )
             }
-            Dialect::Cursor => (answer["permission"].as_str(), answer["user_message"].as_str()),
+            Dialect::Cursor => (
+                answer["permission"].as_str(),
+                answer["user_message"].as_str(),
+            ),
             Dialect::Agy => (answer["decision"].as_str(), answer["reason"].as_str()),
         };
         let reason = reason.unwrap_or_default().to_string();

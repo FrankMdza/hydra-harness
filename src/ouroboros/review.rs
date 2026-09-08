@@ -105,8 +105,12 @@ pub const CHECKLIST_IDS: &[&str] = &[
 
 fn ceiling(item: &str) -> Option<Severity> {
     match item {
-        "code_quality" | "cross_platform" | "changelog_accuracy" | "export_losslessness"
-        | "provider_claim_dated" | "spec_matches_code" => Some(Severity::Minor),
+        "code_quality"
+        | "cross_platform"
+        | "changelog_accuracy"
+        | "export_losslessness"
+        | "provider_claim_dated"
+        | "spec_matches_code" => Some(Severity::Minor),
         _ if CHECKLIST_IDS.contains(&item) => Some(Severity::Critical),
         _ => None,
     }
@@ -160,7 +164,10 @@ pub fn parse_judge_answer(provider: &'static str, text: &str) -> JudgeOutcome {
                     provider,
                     verdict: VerdictField::Block,
                     findings: Vec::new(),
-                    parse_error: Some(format!("severity {:?} is not critical, major or minor", other)),
+                    parse_error: Some(format!(
+                        "severity {:?} is not critical, major or minor",
+                        other
+                    )),
                 };
             }
         };
@@ -235,9 +242,7 @@ pub fn panel_verdict(pass_run_id: &str, outcomes: &[JudgeOutcome]) -> PanelVerdi
             if finding.severity == Severity::Critical {
                 reasons.push(format!(
                     "{}: critical {} — {}",
-                    outcome.provider,
-                    finding.item,
-                    finding.note
+                    outcome.provider, finding.item, finding.note
                 ));
             }
         }

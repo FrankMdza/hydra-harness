@@ -164,9 +164,12 @@ pub struct Lineage {
 #[derive(Debug)]
 struct Parent {
     run_id: String,
-    /// Never null. A parent whose record states no policy states no bound, and
-    /// [`Lineage::of`] refuses it rather than reading the absence as permission.
-    policy: String,
+    /// `None` only for a harness parent, contract 5.5: a `hydra evolve` pass has
+    /// no policy because no gate was compiled for it, and its children are the
+    /// proposer and the judges the human's own command spawns. Any other record
+    /// that states no policy states no bound, and [`Lineage::of`] refuses it
+    /// rather than reading the absence as permission.
+    policy: Option<String>,
 }
 
 impl Lineage {
@@ -194,13 +197,24 @@ impl Lineage {
             );
         };
 
-        let Some(policy) = start["policy"].as_str() else {
-            anyhow::bail!(
+        // A harness run, contract 5.5: `command: evolve`, no provider, no policy,
+        // because nothing was gated. Spec 4.10 makes it the parent of the proposer
+        // and the three judges so a pass can be grouped and a Ctrl-C leaves no
+        // orphans, and 7.3's bound is the human's who typed the pass, which is no
+        // bound. Measured 2026-09-08 on the first real pass, 01a08127-6f58, which
+        // this refusal ended before the proposer existed.
+        let harness_parent = start["command"].as_str() == Some("evolve")
+            && start["launch_mode"].is_null()
+            && start["policy"].is_null();
+        let policy = match start["policy"].as_str() {
+            Some(policy) => Some(policy.to_string()),
+            None if harness_parent => None,
+            None => anyhow::bail!(
                 "run {parent} has no policy on its record, which is a run written before \
                  the gate reached a provider or an interactive one (contract 5.6). Harness \
                  spec 7.3 bounds a child by its parent's policy and this parent states \
                  none, so it cannot delegate. Start the work at depth 0 with `hydra run`."
-            );
+            ),
         };
 
         let depth = start["depth"].as_u64().and_then(|d| u32::try_from(d).ok());
@@ -226,7 +240,7 @@ impl Lineage {
         Ok(Self {
             parent: Some(Parent {
                 run_id: parent.to_string(),
-                policy: policy.to_string(),
+                policy,
             }),
             depth: depth + 1,
         })
@@ -237,7 +251,9 @@ impl Lineage {
     }
 
     pub fn parent_policy(&self) -> Option<&str> {
-        self.parent.as_ref().map(|parent| parent.policy.as_str())
+        self.parent
+            .as_ref()
+            .and_then(|parent| parent.policy.as_deref())
     }
 
     /// 6.1 item 3, the containment test. `None` when the child may run, and the
@@ -256,7 +272,11 @@ impl Lineage {
         let Some(parent) = &self.parent else {
             return Ok(None);
         };
-        let bound = policies.get(&parent.policy).with_context(|| {
+        // A harness parent bounds nothing: see [`Parent::policy`].
+        let Some(parent_policy) = parent.policy.as_deref() else {
+            return Ok(None);
+        };
+        let bound = policies.get(parent_policy).with_context(|| {
             format!(
                 "run {} names a policy this binary does not have, so there is nothing for \
                  7.3 to compare against",
@@ -272,19 +292,18 @@ impl Lineage {
         // whoever reads them: one is an attempted escalation, the other is 7.3's
         // accepted cost showing up in a legitimate request.
         let relation = if asked.contains(bound) {
-            format!("`{child}` is wider than `{}`", parent.policy)
+            format!("`{child}` is wider than `{parent_policy}`")
         } else {
             format!(
-                "`{child}` and `{}` are incomparable, because each grants something the \
-                 other does not",
-                parent.policy
+                "`{child}` and `{parent_policy}` are incomparable, because each grants \
+                 something the other does not"
             )
         };
         Ok(Some(format!(
             "{relation}, and harness spec 7.3 never lets a child hold a capability its \
-             parent does not. Run {} is the parent. Ask for `{}` or a policy it contains, \
-             or start this work at depth 0 yourself.",
-            parent.run_id, parent.policy
+             parent does not. Run {} is the parent. Ask for `{parent_policy}` or a policy \
+             it contains, or start this work at depth 0 yourself.",
+            parent.run_id
         )))
     }
 }
@@ -489,9 +508,7 @@ pub fn run(request: Request) -> Result<Call> {
             &run_id,
             request.provider,
             mcp_plan.injected(),
-            worktree_ref
-                .as_ref()
-                .map(|w| std::path::Path::new(&w.path)),
+            worktree_ref.as_ref().map(|w| std::path::Path::new(&w.path)),
         )?),
     };
 
@@ -585,7 +602,11 @@ pub fn run(request: Request) -> Result<Call> {
     // nothing spawned, and the record says why.
     let preflight = match (request.provider, &worktree_ref, mcp_plan.undeliverable) {
         (Provider::CursorAgent, Some(worktree), None) => {
-            match cursor::preflight(std::path::Path::new(&worktree.path), &child_env, &injected_names) {
+            match cursor::preflight(
+                std::path::Path::new(&worktree.path),
+                &child_env,
+                &injected_names,
+            ) {
                 Ok(preflight) => Some(Ok(preflight)),
                 Err(err) => Some(Err(format!(
                     "the Cursor MCP pre-flight could not run, so whether the injected \
@@ -721,10 +742,7 @@ pub fn run(request: Request) -> Result<Call> {
             eprintln!("hydra: {err:#}");
             eprintln!("hydra: record {}", run_file.display());
             if let Some(worktree) = &worktree_ref {
-                eprintln!(
-                    "hydra: worktree {} on {}",
-                    worktree.path, worktree.branch
-                );
+                eprintln!("hydra: worktree {} on {}", worktree.path, worktree.branch);
             }
             if let Err(second) = never_started(
                 &run_file,

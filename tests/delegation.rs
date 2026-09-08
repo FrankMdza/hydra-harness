@@ -303,6 +303,56 @@ fn a_parent_whose_record_has_no_policy_cannot_delegate() {
 }
 
 #[test]
+fn a_harness_parent_bounds_nothing_and_its_child_is_depth_one() {
+    // Contract 5.5: a `hydra evolve` pass is a harness run, `command: evolve`,
+    // no provider, no launch mode, no policy, and spec 4.10 makes it the parent
+    // of the proposer and the judges. Its authority is the human's who typed the
+    // pass, so 7.3 has nothing to compare against and the child runs under the
+    // policy it asks for. Measured 2026-09-08 on the first real pass, which the
+    // no-policy refusal above ended before the proposer existed.
+    let (layout, _root) = layout();
+    let mut text = envelope(
+        PARENT,
+        0,
+        json!({
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "evolve",
+            "launch_mode": null,
+            "provider_version": null,
+            "provider_session_id": null,
+            "task": null,
+            "policy": null,
+            "policy_sha": null,
+            "cwd": "/tmp",
+            "worktree": null,
+            "depth": 0,
+            "pid": 1,
+            "process_start_time": null,
+            "subscription": null,
+        }),
+    );
+    text.push_str(&envelope(
+        PARENT,
+        1,
+        json!({"type": "run_end", "exit_code": null, "body_source": "stream"}),
+    ));
+    std::fs::write(layout.run_file(PARENT), text).unwrap();
+
+    let policies = PolicySet::discover().unwrap();
+    let lineage = Lineage::of(&layout, Some(PARENT)).unwrap();
+    assert_eq!(lineage.depth, 1);
+    assert_eq!(lineage.parent_policy(), None);
+    for child in ["standard", "judge"] {
+        assert!(
+            lineage.narrowing(&policies, child).unwrap().is_none(),
+            "{child}"
+        );
+    }
+}
+
+#[test]
 fn a_permissive_parent_delegating_read_only_passes_both_checks() {
     // The pair that runs. It stops at `write_spawn_config`, the last step before
     // an argv, and the gate it wrote is compiled under the child's own policy
@@ -361,8 +411,7 @@ admit = ["standard"]
     )
     .unwrap();
     let plan = mcp::plan(&document, Provider::Claude, "standard", Checkout::Hydra);
-    let file =
-        mcp::write_config(&layout, PARENT, Provider::Claude, plan.injected(), None).unwrap();
+    let file = mcp::write_config(&layout, PARENT, Provider::Claude, plan.injected(), None).unwrap();
     let config: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     let args = config["mcpServers"]["delegate"]["args"].as_array().unwrap();
     assert_eq!(

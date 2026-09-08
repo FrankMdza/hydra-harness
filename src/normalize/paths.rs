@@ -162,13 +162,9 @@ fn split_shell_segments(command: &str) -> Vec<Vec<String>> {
             continue;
         }
         if matches!(ch, ';' | '|' | '&' | '\n') {
-            if ch == '|' && i + 1 < bytes.len() && bytes[i + 1] as char == '|' {
-                i += 2;
-            } else if ch == '&' && i + 1 < bytes.len() && bytes[i + 1] as char == '&' {
-                i += 2;
-            } else {
-                i += 1;
-            }
+            let doubled =
+                matches!(ch, '|' | '&') && i + 1 < bytes.len() && bytes[i + 1] as char == ch;
+            i += if doubled { 2 } else { 1 };
             if !word.is_empty() {
                 current.push(word.clone());
                 word.clear();
@@ -205,15 +201,15 @@ fn token_path_candidates(token: &str) -> Vec<String> {
 }
 
 fn expand_token(token: &str) -> String {
-    if let Some(rest) = token.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest).to_string_lossy().to_string();
-        }
+    if let Some(rest) = token.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest).to_string_lossy().to_string();
     }
-    if token == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home.to_string_lossy().to_string();
-        }
+    if token == "~"
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.to_string_lossy().to_string();
     }
     token.to_string()
 }

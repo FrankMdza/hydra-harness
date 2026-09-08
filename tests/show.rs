@@ -19,14 +19,21 @@ use common::{RUN_ID, Record, Sandbox, policies};
 fn write_fixture(sandbox: &Sandbox, closed: bool) -> hydra::paths::Layout {
     let layout = sandbox.layout();
     let path = sandbox.worktree().join("secret.txt");
-    let mut record =
-        Record::opened(&sandbox.worktree(), Some("read-only"), Some(policies().sha()));
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("read-only"),
+        Some(policies().sha()),
+    );
     record
         .assistant(json!([
             {"type": "text", "text": "Let me try that."},
             {"type": "thinking", "thinking": "This will get denied.", "signature": "SIGXYZ"},
         ]))
-        .tool_use("toolu_01", "Write", json!({"file_path": path, "content": "secret\n"}))
+        .tool_use(
+            "toolu_01",
+            "Write",
+            json!({"file_path": path, "content": "secret\n"}),
+        )
         .hook_response(
             "Write",
             "deny",
@@ -37,7 +44,11 @@ fn write_fixture(sandbox: &Sandbox, closed: bool) -> hydra::paths::Layout {
             "hydra/capability: policy read-only does not allow file_write (Write).",
             true,
         );
-    let text = if closed { record.closed() } else { record.unclosed() };
+    let text = if closed {
+        record.closed()
+    } else {
+        record.unclosed()
+    };
     std::fs::write(layout.run_file(RUN_ID), text).unwrap();
     layout
 }

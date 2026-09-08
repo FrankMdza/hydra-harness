@@ -699,7 +699,10 @@ Prose below it too.
         assert_eq!(owned.injected_names(), vec!["fs".to_string()]);
 
         let judge = plan(&doc, Provider::CursorAgent, "judge", Checkout::Hydra);
-        assert!(judge.shortfall().is_none(), "judge is claude's shape, not this one");
+        assert!(
+            judge.shortfall().is_none(),
+            "judge is claude's shape, not this one"
+        );
 
         let shared = plan(&doc, Provider::CursorAgent, "standard", Checkout::None);
         assert!(shared.shortfall().is_some());
@@ -756,7 +759,11 @@ Prose below it too.
         let bare = with_parent(&stdio("hydra"), "01a07610-0000-7000-8000-0000000000e1");
         assert_eq!(
             bare.args,
-            vec!["delegate-face", "--parent", "01a07610-0000-7000-8000-0000000000e1"]
+            vec![
+                "delegate-face",
+                "--parent",
+                "01a07610-0000-7000-8000-0000000000e1"
+            ]
         );
 
         let absolute = with_parent(
@@ -785,10 +792,17 @@ Prose below it too.
         // `PATH` does not carry it. Anything beyond that is a new decision, and
         // this test is where it gets written down.
         let doc = Document::load().unwrap();
-        assert_eq!(doc.servers.len(), 1, "config/mcp.md declares a server this test does not know");
+        assert_eq!(
+            doc.servers.len(),
+            1,
+            "config/mcp.md declares a server this test does not know"
+        );
         let face = &doc.servers[0];
         assert_eq!(face.name, "hydra");
-        assert_eq!(face.command.as_deref(), Some("/Users/USER/hydra/target/release/hydra"));
+        assert_eq!(
+            face.command.as_deref(),
+            Some("/Users/USER/hydra/target/release/hydra")
+        );
         let mut admit = face.admit.clone();
         admit.sort();
         assert_eq!(admit, ["permissive", "standard"]);

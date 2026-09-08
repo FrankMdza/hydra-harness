@@ -119,8 +119,7 @@ fn a_written_records_base_tree_is_what_seed_tree_answered_at_launch() {
 
     let dest = root.join("worktree");
     let index = root.join("seed-index");
-    let worktree =
-        hydra::worktree::create(&repo, &dest, "hydra/base-tree", &index).unwrap();
+    let worktree = hydra::worktree::create(&repo, &dest, "hydra/base-tree", &index).unwrap();
     let base_tree = worktree
         .seed_tree
         .clone()

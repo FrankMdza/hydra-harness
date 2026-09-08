@@ -117,7 +117,10 @@ pub fn commit_everything(
 
 /// Whether `git status` reports anything at a path not in `exclude`.
 fn dirty_outside(checkout: &Path, exclude: &[&str]) -> Result<bool> {
-    let status = git(checkout, &["status", "--porcelain", "--untracked-files=all"])?;
+    let status = git(
+        checkout,
+        &["status", "--porcelain", "--untracked-files=all"],
+    )?;
     Ok(status.lines().any(|line| {
         // `XY path`, or `XY old -> new` for a rename, where the new name is
         // what would be committed.
@@ -136,8 +139,7 @@ fn remove_untracked(checkout: &Path, exclude: &[&str]) -> Result<()> {
             continue;
         }
         if git(checkout, &["ls-files", "--", path])?.trim().is_empty() {
-            std::fs::remove_file(&file)
-                .with_context(|| format!("removing {}", file.display()))?;
+            std::fs::remove_file(&file).with_context(|| format!("removing {}", file.display()))?;
         }
     }
     Ok(())

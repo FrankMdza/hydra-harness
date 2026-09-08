@@ -786,7 +786,8 @@ pub fn hook_command(gate_script: &Path, gate_sha: &str, dialect: Dialect) -> Str
         }),
         Dialect::Agy => serde_json::json!({ "decision": "deny", "reason": reason }),
     };
-    let refusal = serde_json::to_string(&refusal.to_string()).unwrap_or_else(|_| "\"\"".to_string());
+    let refusal =
+        serde_json::to_string(&refusal.to_string()).unwrap_or_else(|_| "\"\"".to_string());
     let source = format!(
         r#"import hashlib, sys
 GATE = {path}
@@ -951,7 +952,10 @@ mod tests {
             let snapshot = policy.allow.iter().any(|a| {
                 a.capability == Capability::FileRead && a.scope == Some(Scope::SkillSnapshot)
             });
-            let anywhere = policy.allow.iter().any(|a| a.scope == Some(Scope::Anywhere));
+            let anywhere = policy
+                .allow
+                .iter()
+                .any(|a| a.scope == Some(Scope::Anywhere));
             assert_eq!(
                 snapshot || anywhere,
                 reads,

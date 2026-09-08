@@ -9,7 +9,7 @@ use hydra::ouroboros::evolve::{
     PATCH_LINE_CAP, patch_over_cap, protected_path_hit, write_harness_end, write_harness_start,
 };
 use hydra::ouroboros::review::{
-    ApprovedPatch, PanelVerdict, VerdictField, parse_judge_answer, panel_verdict,
+    ApprovedPatch, PanelVerdict, VerdictField, panel_verdict, parse_judge_answer,
 };
 use hydra::paths::Layout;
 use hydra::record::validate::check;

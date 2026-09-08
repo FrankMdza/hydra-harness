@@ -85,9 +85,14 @@ stat, and the verdict lives in the branch commit message rather than on the harn
 which is what spec 4.9 says and what the ticket had loosely misstated. `hydra evolve --dry-run`
 on this machine prints a brief naming 55 learnable runs and spawns nothing.
 
-**What is not measured.** No pass has run to the end: no proposer has been spawned, no judge has
-answered, no branch of either name exists. The next real step is one `hydra evolve` on haiku
-with a fresh Claude window, which spends one proposer run and three judge runs and produces the
-first `ouroboros/` branch. The launch from a Herdr pane through `hydra-in-pane` failed twice
-today before the worktree seeding and the launcher deleted the error; the run above was launched
-from the orchestrating session's shell and its pane labelled by hand.
+**The first real pass, the same evening, with the human's go-ahead and a haiku proposer.** Pass
+01a08127-6f58 died before the proposer existed: the containment check refused a parent with no
+policy. Pass 01a08129-de0c spawned proposer 01a0812a-ad31, 5.77M tokens, which undid the
+orchestrating session's uncommitted edits seeded into its tree and called that the patch; the
+tree came out equal to HEAD, the verdict commit was never made, `hydra status` called the live
+pass abandoned over a millisecond-versus-microsecond start time, the admission gate blocked on
+master's own `cargo fmt --check` and `clippy`, and the closed pass derived `crashed`. Five fixes
+by the orchestrating session, all in `IMPLEMENTATION.md`'s rung-two section: a harness parent
+bounds nothing, microseconds on the pass record, an empty verdict commit on a clean tree,
+master formatted and clippy-clean, and a harness run's outcome derived from its own end. No
+judge has answered yet.

@@ -135,8 +135,7 @@ fn cursor_argv_carries_resume_and_the_chat_id() {
     });
     append_resume_args(&mut argv, Provider::CursorAgent, "chat-9");
     assert!(
-        argv.windows(2)
-            .any(|pair| pair == ["--resume", "chat-9"]),
+        argv.windows(2).any(|pair| pair == ["--resume", "chat-9"]),
         "{argv:?}"
     );
     assert_eq!(argv.last().unwrap(), "continue");
@@ -183,11 +182,14 @@ fn a_record_with_no_session_id_is_refused() {
     let (layout, _root) = layout();
     let run_id = "01a07357-58a5-79e2-a25a-3df578a750b4";
     closed_record(&layout, run_id, "claude", "recorded", None, None, true);
-    match hydra::resume::resume_in(&layout, hydra::resume::Request {
-        run_id: run_id.to_string(),
-        task: None,
-        timeout: Duration::from_secs(600),
-    }) {
+    match hydra::resume::resume_in(
+        &layout,
+        hydra::resume::Request {
+            run_id: run_id.to_string(),
+            task: None,
+            timeout: Duration::from_secs(600),
+        },
+    ) {
         Err(err) => assert!(
             err.to_string().contains("no provider_session_id"),
             "{err:#}"
@@ -235,11 +237,14 @@ fn a_live_record_is_refused() {
             .unwrap()
             .is_live()
     );
-    match hydra::resume::resume_in(&layout, hydra::resume::Request {
-        run_id: run_id.to_string(),
-        task: None,
-        timeout: Duration::from_secs(600),
-    }) {
+    match hydra::resume::resume_in(
+        &layout,
+        hydra::resume::Request {
+            run_id: run_id.to_string(),
+            task: None,
+            timeout: Duration::from_secs(600),
+        },
+    ) {
         Err(err) => assert!(err.to_string().contains("still live"), "{err:#}"),
         Ok(_) => panic!("expected resume to refuse a live record"),
     }
@@ -258,11 +263,14 @@ fn an_interactive_record_is_refused() {
         None,
         true,
     );
-    match hydra::resume::resume_in(&layout, hydra::resume::Request {
-        run_id: run_id.to_string(),
-        task: None,
-        timeout: Duration::from_secs(600),
-    }) {
+    match hydra::resume::resume_in(
+        &layout,
+        hydra::resume::Request {
+            run_id: run_id.to_string(),
+            task: None,
+            timeout: Duration::from_secs(600),
+        },
+    ) {
         Err(err) => assert!(err.to_string().contains("interactive"), "{err:#}"),
         Ok(_) => panic!("expected resume to refuse an interactive record"),
     }
@@ -302,12 +310,7 @@ fn session_id_is_read_off_the_stream_when_line_zero_is_null() {
         + "\n";
     std::fs::write(&path, text).unwrap();
 
-    let id = hydra::resume::provider_session_id(
-        &path,
-        Provider::Claude,
-        &opening(&path),
-    )
-    .unwrap();
+    let id = hydra::resume::provider_session_id(&path, Provider::Claude, &opening(&path)).unwrap();
     assert_eq!(id, "from-stream");
 }
 

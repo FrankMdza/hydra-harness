@@ -317,17 +317,15 @@ fn a_sidecar_that_admits_agy_alone_is_linked_for_agy_and_nobody_else() {
     let layout = fixture.layout();
     let store = Store::open(&layout).unwrap();
     fixture.store_skill("shared", "For everyone.", None);
-    fixture.store_skill("google-only", "For one binary.", Some("providers = [\"agy\"]\n"));
+    fixture.store_skill(
+        "google-only",
+        "For one binary.",
+        Some("providers = [\"agy\"]\n"),
+    );
     let sha = store.pin(RUN_A).unwrap();
     let snapshot = store.snapshot(&layout, &sha).unwrap();
 
-    let for_agy = skills::inject(
-        &fixture.checkout(RUN_A),
-        Provider::Agy,
-        &snapshot,
-        &sha,
-    )
-    .unwrap();
+    let for_agy = skills::inject(&fixture.checkout(RUN_A), Provider::Agy, &snapshot, &sha).unwrap();
     assert_eq!(
         for_agy.linked,
         vec!["google-only".to_string(), "shared".to_string()]
@@ -594,13 +592,20 @@ fn a_judge_run_against_a_nonempty_store_links_nothing() {
     std::fs::write(&run_file, line_str).unwrap();
 
     let report = hydra::record::validate::check_file(&run_file).unwrap();
-    assert!(report.ok(), "judge record should validate: {}", report.problems.join(", "));
+    assert!(
+        report.ok(),
+        "judge record should validate: {}",
+        report.problems.join(", ")
+    );
 
     let text = std::fs::read_to_string(&run_file).unwrap();
     let parsed: Value = serde_json::from_str(&text).unwrap();
     let run_obj = &parsed["hydra"];
-    assert!(!run_obj.get("skills").map_or(false, |v| v.is_object()),
-            "skills should be absent or null on judge, got {:?}", run_obj.get("skills"));
+    assert!(
+        !run_obj.get("skills").map_or(false, |v| v.is_object()),
+        "skills should be absent or null on judge, got {:?}",
+        run_obj.get("skills")
+    );
 }
 
 #[test]

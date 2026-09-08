@@ -122,7 +122,10 @@ pub fn prepare_policy_launch(
     if let Some(injected) = &injected
         && !injected.collisions.is_empty()
     {
-        anyhow::bail!("{}", crate::skills::collision::remediation(&injected.collisions));
+        anyhow::bail!(
+            "{}",
+            crate::skills::collision::remediation(&injected.collisions)
+        );
     }
 
     let store_sha = injected.as_ref().map(|i| i.store_sha.as_str());
@@ -211,7 +214,11 @@ fn run_gated(request: Request) -> Result<RunResult> {
         .args(&argv)
         .current_dir(&prep.cwd)
         .env_clear()
-        .envs(child_env.vars().map(|(k, v)| (k.to_string(), v.to_string())))
+        .envs(
+            child_env
+                .vars()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        )
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
@@ -268,8 +275,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
     eprintln!("hydra: record {}", run_file.display());
     eprintln!(
         "hydra: worktree {} on {}",
-        prep.worktree.path,
-        prep.worktree.branch
+        prep.worktree.path, prep.worktree.branch
     );
 
     let status = child.wait().context("waiting for claude to exit")?;
@@ -322,7 +328,11 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         .args(&argv)
         .current_dir(&cwd)
         .env_clear()
-        .envs(child_env.vars().map(|(k, v)| (k.to_string(), v.to_string())))
+        .envs(
+            child_env
+                .vars()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        )
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
@@ -458,9 +468,9 @@ pub fn harvest_in(
     let session = start["provider_session_id"]
         .as_str()
         .with_context(|| format!("run {run_id} carries no provider_session_id to harvest with"))?;
-    let cwd = start["cwd"]
-        .as_str()
-        .with_context(|| format!("run {run_id} carries no cwd to predict a transcript path from"))?;
+    let cwd = start["cwd"].as_str().with_context(|| {
+        format!("run {run_id} carries no cwd to predict a transcript path from")
+    })?;
     let parent_run_id = envelope["parent_run_id"].as_str();
     let model = envelope["model"].as_str();
 
@@ -529,9 +539,9 @@ pub fn harvest_in(
         records += 1;
     }
 
-    let error = exit_code
-        .is_none()
-        .then(|| "harvested after the run already exited, so the exit code was not observed".to_string());
+    let error = exit_code.is_none().then(|| {
+        "harvested after the run already exited, so the exit code was not observed".to_string()
+    });
     writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, error))?;
 
     Ok(HarvestOutcome::Harvested { records })

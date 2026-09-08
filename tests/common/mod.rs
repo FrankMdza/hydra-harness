@@ -315,7 +315,12 @@ impl Record {
     /// A `PreToolUse` response in the shape `--include-hook-events` writes,
     /// under the fixed `hook_id` every fixture but a ticket 22 test shares.
     pub fn hook_response(&mut self, tool: &str, decision: &str, reason: &str) -> &mut Self {
-        self.hook_response_id(tool, decision, reason, "4f041c03-db30-4ae0-96dd-be3022a64b1e")
+        self.hook_response_id(
+            tool,
+            decision,
+            reason,
+            "4f041c03-db30-4ae0-96dd-be3022a64b1e",
+        )
     }
 
     /// The same, under the `hook_id` the caller names, for a test that joins a
@@ -446,7 +451,13 @@ impl Record {
     /// A `tool_call` frame. `kind` is the oneof key, `readToolCall` and the
     /// like; `result` is `None` on the `started` frame and the oneof result
     /// object on the `completed` one.
-    pub fn cursor_tool(&mut self, call_id: &str, kind: &str, args: Value, result: Option<Value>) -> &mut Self {
+    pub fn cursor_tool(
+        &mut self,
+        call_id: &str,
+        kind: &str,
+        args: Value,
+        result: Option<Value>,
+    ) -> &mut Self {
         let mut inner = json!({ "args": args });
         if let Some(result) = &result {
             inner["result"] = result.clone();
@@ -457,7 +468,11 @@ impl Record {
             "startedAtMs": "1788720518123",
         });
         object[kind] = inner;
-        let subtype = if result.is_some() { "completed" } else { "started" };
+        let subtype = if result.is_some() {
+            "completed"
+        } else {
+            "started"
+        };
         if result.is_some() {
             object["completedAtMs"] = json!("1788720518321");
         }
@@ -474,7 +489,13 @@ impl Record {
 
     /// `started` then `completed` for one call, which is how every call the
     /// probe made arrived.
-    pub fn cursor_call(&mut self, call_id: &str, kind: &str, args: Value, result: Value) -> &mut Self {
+    pub fn cursor_call(
+        &mut self,
+        call_id: &str,
+        kind: &str,
+        args: Value,
+        result: Value,
+    ) -> &mut Self {
         self.cursor_tool(call_id, kind, args.clone(), None);
         self.cursor_tool(call_id, kind, args, Some(result))
     }
@@ -553,7 +574,12 @@ impl Record {
             None => (&"", &[] as &[&str]),
         };
         for delta in rest {
-            self.agy_step(step, "ACTIVE", "agent_response", json!({ "text_delta": delta }));
+            self.agy_step(
+                step,
+                "ACTIVE",
+                "agent_response",
+                json!({ "text_delta": delta }),
+            );
         }
         let mut done = json!({ "duration_seconds": 2.74 });
         if !last.is_empty() {
@@ -601,13 +627,25 @@ impl Record {
     }
 
     /// A tool step that succeeded, with the output the provider reported.
-    pub fn agy_tool_ok(&mut self, step: u64, name: &str, parameters: Value, output: &str) -> &mut Self {
+    pub fn agy_tool_ok(
+        &mut self,
+        step: u64,
+        name: &str,
+        parameters: Value,
+        output: &str,
+    ) -> &mut Self {
         self.agy_tool(step, name, parameters, "DONE", json!({ "output": output }))
     }
 
     /// A tool step that failed, with the `TOOL_ERROR` this provider gives a
     /// refusal and a missing file alike.
-    pub fn agy_tool_error(&mut self, step: u64, name: &str, parameters: Value, message: &str) -> &mut Self {
+    pub fn agy_tool_error(
+        &mut self,
+        step: u64,
+        name: &str,
+        parameters: Value,
+        message: &str,
+    ) -> &mut Self {
         self.agy_tool(
             step,
             name,

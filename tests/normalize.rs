@@ -1448,9 +1448,25 @@ fn every_record_on_this_machine_normalizes() {
     let policies = policies();
     let mut gated = 0;
     let mut pre_gate = 0;
+    let mut harness = 0;
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies)
             .unwrap_or_else(|err| panic!("{} did not normalize: {err:#}", path.display()));
+        assert!(run.run_start().is_some(), "{}", path.display());
+        // Contract 5.5: a harness run has no provider, two lines and no decision
+        // to derive. The first ones landed on 2026-09-08 with `hydra evolve`.
+        if run.provider.is_none() {
+            let start = run.run_start().unwrap();
+            assert_eq!(
+                start.body["command"].as_str(),
+                Some("evolve"),
+                "{}",
+                path.display()
+            );
+            assert_eq!(run.tool_calls().count(), 0, "{}", path.display());
+            harness += 1;
+            continue;
+        }
         assert!(
             matches!(
                 run.provider.as_deref(),
@@ -1460,7 +1476,6 @@ fn every_record_on_this_machine_normalizes() {
             path.display(),
             run.provider
         );
-        assert!(run.run_start().is_some(), "{}", path.display());
 
         match run.policy {
             // 7.2.1 and 5.6: a run with no policy has nothing to re-evaluate.
@@ -1486,7 +1501,7 @@ fn every_record_on_this_machine_normalizes() {
         // 7.8: never a bare null, on every record.
         assert!(run.usage().is_some(), "{}", path.display());
     }
-    eprintln!("normalized {gated} gated and {pre_gate} pre-gate record(s)");
+    eprintln!("normalized {gated} gated, {pre_gate} pre-gate and {harness} harness record(s)");
 }
 
 #[test]

@@ -34,15 +34,13 @@ pub struct Allowlist {
 impl Allowlist {
     pub fn load(path: &Path) -> Result<Self> {
         if !path.is_file() {
-            bail!(
-                "Write the export allowlist at config/export-allowlist.json before exporting."
-            );
+            bail!("Write the export allowlist at config/export-allowlist.json before exporting.");
         }
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let sha = format!("{:x}", Sha256::digest(text.as_bytes()));
-        let repos: Vec<PathBuf> = serde_json::from_str(&text)
-            .with_context(|| format!("parsing {}", path.display()))?;
+        let repos: Vec<PathBuf> =
+            serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         for repo in &repos {
             if !repo.is_absolute() {
                 bail!(
@@ -107,11 +105,7 @@ impl Verdict {
 }
 
 /// Walks the corpus and answers export eligibility for every run.
-pub fn audit(
-    layout: &Layout,
-    allowlist: &Allowlist,
-    policies: &PolicySet,
-) -> Result<Vec<Verdict>> {
+pub fn audit(layout: &Layout, allowlist: &Allowlist, policies: &PolicySet) -> Result<Vec<Verdict>> {
     let mut curator_passes: Vec<String> = Vec::new();
     let mut runs: BTreeMap<String, (String, crate::normalize::Run)> = BTreeMap::new();
     let mut live: BTreeSet<String> = BTreeSet::new();
@@ -153,14 +147,7 @@ pub fn audit(
     }
 
     for (run_id, (text, run)) in &runs {
-        let reasons = reasons_for(
-            run,
-            &text,
-            allowlist,
-            &curator_passes,
-            &children,
-            &runs,
-        );
+        let reasons = reasons_for(run, text, allowlist, &curator_passes, &children, &runs);
         verdicts.push(Verdict {
             run_id: run_id.clone(),
             reasons,
@@ -198,10 +185,10 @@ fn reasons_for(
         reasons.push(Reason::SecretFlag);
     }
 
-    if let Some(parent) = &run.parent_run_id {
-        if curator_passes.iter().any(|pass| pass == parent) {
-            reasons.push(Reason::CuratorsChild);
-        }
+    if let Some(parent) = &run.parent_run_id
+        && curator_passes.iter().any(|pass| pass == parent)
+    {
+        reasons.push(Reason::CuratorsChild);
     }
 
     if let Some(derived) = derive(run) {
@@ -326,8 +313,8 @@ pub fn export(
         allowlist.sha
     );
 
-    let mut file = std::fs::File::create(out)
-        .with_context(|| format!("creating {}", out.display()))?;
+    let mut file =
+        std::fs::File::create(out).with_context(|| format!("creating {}", out.display()))?;
     writeln!(file, "{header}")?;
     for line in lines {
         writeln!(file, "{line}")?;
@@ -365,7 +352,10 @@ fn repo_names_to_redact(repos: &[PathBuf], own_repo: Option<&Path>) -> Vec<Strin
     repos
         .iter()
         .filter(|repo| own_repo != Some(repo.as_path()))
-        .filter_map(|repo| repo.file_name().map(|name| name.to_string_lossy().to_string()))
+        .filter_map(|repo| {
+            repo.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
         .collect()
 }
 
@@ -376,49 +366,49 @@ fn export_event(event: &Event, repo_names: &[String]) -> Option<Value> {
         }
         Event::MessageDelta(_) => None,
         other => Some(match other {
-                Event::Message(e) => json!({
-                    "seq": e.seq,
-                    "type": "message",
-                    "role": role_str(e.role),
-                    "text": redact_string(&e.text, repo_names),
-                    "block": e.block,
-                }),
-                Event::Thinking(e) => json!({
-                    "seq": e.seq,
-                    "type": "thinking",
-                    "text": redact_string(&e.text, repo_names),
-                    "signed": e.signature.is_some(),
-                    "block": e.block,
-                }),
-                Event::ToolCall(e) => json!({
-                    "seq": e.seq,
-                    "type": "tool_call",
-                    "call_id": redact_string(&e.call_id, repo_names),
-                    "name": redact_string(&e.name, repo_names),
-                    "arguments": redact_value(&e.arguments, repo_names),
-                    "capability": e.capability.map(Capability::as_str),
-                }),
-                Event::ToolResult(e) => json!({
-                    "seq": e.seq,
-                    "type": "tool_result",
-                    "call_id": redact_string(&e.call_id, repo_names),
-                    "status": status_str(e.status),
-                    "output": redact_string(&e.output, repo_names),
-                    "truncated": e.truncated,
-                }),
-                Event::Correction(e) => json!({
-                    "type": "correction",
-                    "corrects": e.corrects,
-                    "rejected": redact_value(&e.rejected, repo_names),
-                    "chosen": redact_value(&e.chosen, repo_names),
-                    "words": e.words.as_ref().map(|w| redact_string(w, repo_names)),
-                }),
-                Event::RunStart(_)
-                | Event::RunEnd(_)
-                | Event::MessageDelta(_)
-                | Event::PermissionDecision(_)
-                | Event::Usage(_) => return None,
+            Event::Message(e) => json!({
+                "seq": e.seq,
+                "type": "message",
+                "role": role_str(e.role),
+                "text": redact_string(&e.text, repo_names),
+                "block": e.block,
             }),
+            Event::Thinking(e) => json!({
+                "seq": e.seq,
+                "type": "thinking",
+                "text": redact_string(&e.text, repo_names),
+                "signed": e.signature.is_some(),
+                "block": e.block,
+            }),
+            Event::ToolCall(e) => json!({
+                "seq": e.seq,
+                "type": "tool_call",
+                "call_id": redact_string(&e.call_id, repo_names),
+                "name": redact_string(&e.name, repo_names),
+                "arguments": redact_value(&e.arguments, repo_names),
+                "capability": e.capability.map(Capability::as_str),
+            }),
+            Event::ToolResult(e) => json!({
+                "seq": e.seq,
+                "type": "tool_result",
+                "call_id": redact_string(&e.call_id, repo_names),
+                "status": status_str(e.status),
+                "output": redact_string(&e.output, repo_names),
+                "truncated": e.truncated,
+            }),
+            Event::Correction(e) => json!({
+                "type": "correction",
+                "corrects": e.corrects,
+                "rejected": redact_value(&e.rejected, repo_names),
+                "chosen": redact_value(&e.chosen, repo_names),
+                "words": e.words.as_ref().map(|w| redact_string(w, repo_names)),
+            }),
+            Event::RunStart(_)
+            | Event::RunEnd(_)
+            | Event::MessageDelta(_)
+            | Event::PermissionDecision(_)
+            | Event::Usage(_) => return None,
+        }),
     }
 }
 

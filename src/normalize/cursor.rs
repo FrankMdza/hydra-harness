@@ -906,8 +906,9 @@ mod tests {
     fn a_result_is_one_of_three_cases_and_a_fourth_is_unclassified() {
         let (status, case, _) = classify(Some(&json!({ "success": { "stdout": "x" } })));
         assert_eq!((status, case), (ResultStatus::Ok, Some("success")));
-        let (status, case, output) =
-            classify(Some(&json!({ "rejected": { "command": "exit 3", "reason": "" } })));
+        let (status, case, output) = classify(Some(
+            &json!({ "rejected": { "command": "exit 3", "reason": "" } }),
+        ));
         assert_eq!((status, case), (ResultStatus::Error, Some("rejected")));
         assert!(output.contains("exit 3"));
         let (status, case, _) = classify(Some(&json!({ "somethingNew": {} })));

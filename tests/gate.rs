@@ -277,7 +277,10 @@ impl Gate {
         );
         Decision {
             allowed: permission == "allow",
-            reason: value["user_message"].as_str().unwrap_or_default().to_string(),
+            reason: value["user_message"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
             exit,
         }
     }
@@ -1222,12 +1225,18 @@ fn cursors_tool_names_answer_to_the_capabilities_the_policies_speak_in() {
     );
     assert!(
         read_only
-            .cursor_tool("Shell", json!({ "command": "echo hi", "cwd": "", "timeout": 30000 }))
+            .cursor_tool(
+                "Shell",
+                json!({ "command": "echo hi", "cwd": "", "timeout": 30000 })
+            )
             .denied_for("hydra/capability")
     );
     assert!(
         read_only
-            .cursor_tool("Write", json!({ "file_path": "/etc/hosts", "content": "x" }))
+            .cursor_tool(
+                "Write",
+                json!({ "file_path": "/etc/hosts", "content": "x" })
+            )
             .denied_for("hydra/capability")
     );
 }
@@ -1319,15 +1328,13 @@ fn a_cursor_run_may_read_its_own_cursor_data() {
 
         let spawn_root = gate.layout().spawns();
         assert!(
-            gate.cursor_read(&spawn_root).denied_for("hydra/out-of-scope"),
+            gate.cursor_read(&spawn_root)
+                .denied_for("hydra/out-of-scope"),
             "{policy} should refuse ~/hydra/spawn/ itself"
         );
         assert!(
-            gate.cursor_tool(
-                "Read",
-                json!({ "file_path": spawn_root.to_string_lossy() })
-            )
-            .denied_for("hydra/out-of-scope"),
+            gate.cursor_tool("Read", json!({ "file_path": spawn_root.to_string_lossy() }))
+                .denied_for("hydra/out-of-scope"),
             "{policy} Read of ~/hydra/spawn/"
         );
     }
@@ -1371,7 +1378,11 @@ fn the_path_denials_hold_through_cursors_shell_too() {
         "Shell",
         json!({ "command": format!("echo x >> {}", target.display()), "cwd": "", "timeout": 30000 }),
     );
-    assert!(decision.denied_for("hydra/protected-path"), "{}", decision.reason);
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "{}",
+        decision.reason
+    );
 }
 
 #[test]
@@ -1789,7 +1800,11 @@ fn the_call_is_read_out_of_the_nested_toolcall_and_not_beside_it() {
     );
 
     let outside = gate.agy_tool("view_file", json!({ "AbsolutePath": "/etc/hosts" }));
-    assert!(outside.denied_for("hydra/out-of-scope"), "{}", outside.reason);
+    assert!(
+        outside.denied_for("hydra/out-of-scope"),
+        "{}",
+        outside.reason
+    );
 }
 
 #[test]
@@ -1837,8 +1852,14 @@ fn agys_measured_field_names_are_the_ones_the_gate_reads() {
         ("view_file", json!({ "AbsolutePath": "/etc/hosts" })),
         ("list_dir", json!({ "DirectoryPath": "/etc" })),
         ("grep_search", json!({ "Query": "x", "SearchPath": "/etc" })),
-        ("find_by_name", json!({ "Pattern": "*.conf", "SearchDirectory": "/etc" })),
-        ("replace_file_content", json!({ "TargetFile": "/etc/hosts", "ReplacementContent": "x" })),
+        (
+            "find_by_name",
+            json!({ "Pattern": "*.conf", "SearchDirectory": "/etc" }),
+        ),
+        (
+            "replace_file_content",
+            json!({ "TargetFile": "/etc/hosts", "ReplacementContent": "x" }),
+        ),
         (
             "write_to_file",
             json!({ "TargetFile": "/tmp/t10-outside.txt", "CodeContent": "x" }),
@@ -1864,7 +1885,11 @@ fn a_relative_path_resolves_against_the_workspace_the_flag_named() {
     assert!(inside.allowed, "{}", inside.reason);
 
     let outside = gate.agy_tool("view_file", json!({ "AbsolutePath": "../escape.txt" }));
-    assert!(outside.denied_for("hydra/out-of-scope"), "{}", outside.reason);
+    assert!(
+        outside.denied_for("hydra/out-of-scope"),
+        "{}",
+        outside.reason
+    );
 }
 
 #[test]

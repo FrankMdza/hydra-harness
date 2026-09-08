@@ -211,10 +211,22 @@ mod tests {
             .copied()
             .collect();
         for (name, _) in built.vars() {
-            assert!(allowed.contains(&name), "{name} is not on cursor's allowlist");
+            assert!(
+                allowed.contains(&name),
+                "{name} is not on cursor's allowlist"
+            );
         }
-        for leaked in ["CURSOR_AUTH_TOKEN", "CURSOR_API_KEY", "NODE_OPTIONS", "SHELL", "TMPDIR"] {
-            assert!(!built.vars.contains_key(leaked), "{leaked} reached the child");
+        for leaked in [
+            "CURSOR_AUTH_TOKEN",
+            "CURSOR_API_KEY",
+            "NODE_OPTIONS",
+            "SHELL",
+            "TMPDIR",
+        ] {
+            assert!(
+                !built.vars.contains_key(leaked),
+                "{leaked} reached the child"
+            );
         }
     }
 
@@ -238,7 +250,10 @@ mod tests {
             "SHELL",
             "TMPDIR",
         ] {
-            assert!(!built.vars.contains_key(leaked), "{leaked} reached the child");
+            assert!(
+                !built.vars.contains_key(leaked),
+                "{leaked} reached the child"
+            );
         }
     }
 
@@ -247,7 +262,10 @@ mod tests {
         let mut built = ChildEnv::build(Provider::CursorAgent).unwrap();
         built.set("CURSOR_DATA_DIR", "/tmp/spawn/r1/cursor-data");
         assert_eq!(
-            built.vars().find(|(k, _)| *k == "CURSOR_DATA_DIR").map(|(_, v)| v),
+            built
+                .vars()
+                .find(|(k, _)| *k == "CURSOR_DATA_DIR")
+                .map(|(_, v)| v),
             Some("/tmp/spawn/r1/cursor-data")
         );
         assert!(built.names().iter().any(|n| n == "CURSOR_DATA_DIR"));
