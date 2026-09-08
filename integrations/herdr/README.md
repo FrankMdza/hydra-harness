@@ -13,7 +13,7 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
   `working`, and then replaces itself with `hydra logs --follow` so the pane shows the stream.
 - `bin/hydra-bridge`, a poller. Every two seconds it lists the panes carrying a `run_id` token,
   reads `hydra status` for each, and reports on change. The state table at the top of the file
-  is the whole policy, and map ticket 49 names the two rows it may move.
+  is the whole policy. Resolved 2026-09-07, map ticket 49.
 - `tests/test_mapping.py`, the table checked without Herdr or Hydra.
 
 ## Install
@@ -50,6 +50,12 @@ name. Hydra's outcomes go on as display labels over one of those four, so the pa
 run, because the provider's interface lives on a pty Hydra owns, so this bridge is the only
 source of the pane's state rather than a correction of Herdr's.
 
+The bridge puts these tokens on every pane it watches: `run_id`, `provider`, `policy`, `state`,
+`outcome` once there is one, `alive` as `yes` or `no`, `last_tool` as the latest tool name and
+seq from `hydra show --events`, `elapsed` as seconds since `started_at`, and `tokens` as the
+projection total once the run ended. It also sets a title from the provider, the short run id,
+and the outcome or the last tool name.
+
 ## Test
 
 ```
@@ -59,3 +65,15 @@ python3 -m unittest discover -s integrations/herdr/tests
 ## Smoke test
 
 `HYDRA_BIN=$PWD/target/release/hydra integrations/herdr/tests/smoke.sh` drives the bridge against a live Herdr session. It splits a pane, launches one `claude` haiku run through `hydra-in-pane`, waits for the bridge to label the pane `completed`, and closes what it opened. It spends one haiku call and needs Herdr running.
+
+## After editing the bridge
+
+A plugin pane runs the script it was opened with. After a change to `bin/hydra-bridge`, close
+the pane and open it again:
+
+```
+herdr plugin pane close <pane_id>
+herdr plugin pane open --plugin hydra.bridge --entrypoint bridge --placement split --env HYDRA_BIN=/Users/USER/hydra/target/release/hydra
+```
+
+The smoke test opens a bridge pane only if none is open, and closes the one it opened.

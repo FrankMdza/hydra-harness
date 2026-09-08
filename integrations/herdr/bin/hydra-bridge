@@ -4,100 +4,278 @@ import subprocess
 import time
 import sys
 import os
+from datetime import datetime, timezone
 
 HYDRA = os.environ.get("HYDRA_BIN", "hydra")
 
-# Ticket 49 decisions: timed_out and abandoned map to unknown.
+# 2026-09-07: timed_out and abandoned map to unknown.
 MAPPING = {
-    # state: live
     "live": ("working", "live"),
-    
-    # state: abandoned
     "abandoned": ("unknown", "abandoned"),
-    
-    # state: ended, mapped by outcome
     "completed": ("idle", "completed"),
     "failed": ("idle", "failed"),
-    
     "gated": ("blocked", "gated"),
     "auth_failed": ("blocked", "auth_failed"),
     "rate_limited": ("blocked", "rate_limited"),
     "mcp_unavailable": ("blocked", "mcp_unavailable"),
     "skill_collision": ("blocked", "skill_collision"),
-    
-    "timed_out": ("unknown", "timed_out"),  # Ticket 49
     "crashed": ("unknown", "crashed"),
 }
 
-def get_herdr_state_and_label(hydra_status_json):
-    state = hydra_status_json.get("state")
+
+def is_alive(status_json):
+    return status_json.get("state") == "live"
+
+
+def alive_token(status_json):
+    return "yes" if is_alive(status_json) else "no"
+
+
+def timed_out_label(alive):
+    if alive:
+        return "timed out, child alive"
+    return "timed out, child gone"
+
+
+def get_herdr_state_and_label(status_json):
+    state = status_json.get("state")
     if state == "live":
         return MAPPING["live"]
-    elif state == "abandoned":
+    if state == "abandoned":
         return MAPPING["abandoned"]
-    elif state == "ended":
-        outcome = hydra_status_json.get("result", {}).get("outcome")
+    if state == "ended":
+        outcome = status_json.get("result", {}).get("outcome")
+        if outcome == "timed_out":
+            return ("unknown", timed_out_label(is_alive(status_json)))
         if outcome in MAPPING:
             return MAPPING[outcome]
         return ("unknown", outcome or "unknown")
     return ("unknown", "unknown")
 
+
+def total_tokens(projection):
+    if not projection:
+        return None
+    counts = projection.get("usage", {}).get("counts") or {}
+    if not counts:
+        return None
+    if "total_tokens" in counts:
+        return counts["total_tokens"]
+    total = sum(
+        value
+        for key, value in counts.items()
+        if key.endswith("_tokens") and isinstance(value, int)
+    )
+    return total or None
+
+
+def parse_started_at(status_json):
+    started = status_json.get("started_at")
+    if not started:
+        return None
+    text = started.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def elapsed_seconds(status_json, now=None):
+    started = parse_started_at(status_json)
+    if started is None:
+        return None
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    seconds = round((now - started).total_seconds())
+    # Reported in steps of thirty seconds, so a live run does not send Herdr
+    # a fresh report every poll for a number nobody reads to the second.
+    return seconds - seconds % 30
+
+
+def latest_tool_call(events_data):
+    events = events_data.get("events") or []
+    tool_calls = [event for event in events if event.get("type") == "tool_call"]
+    if not tool_calls:
+        return None, None
+    latest = max(tool_calls, key=lambda event: event.get("seq", -1))
+    return latest.get("name"), latest.get("seq")
+
+
+def short_run_id(run_id):
+    if not run_id:
+        return ""
+    return run_id[:8]
+
+
+def build_tokens(status_json, events_data=None, now=None):
+    tokens = {
+        "run_id": status_json.get("run_id") or "",
+        "provider": status_json.get("provider") or "",
+        "policy": status_json.get("policy") or "",
+        "state": status_json.get("state") or "",
+        "alive": alive_token(status_json),
+    }
+
+    result = status_json.get("result")
+    if result:
+        outcome = result.get("outcome")
+        if outcome:
+            tokens["outcome"] = outcome
+        token_total = total_tokens(result)
+        if token_total is not None:
+            tokens["tokens"] = str(token_total)
+
+    elapsed = elapsed_seconds(status_json, now=now)
+    if elapsed is not None:
+        tokens["elapsed"] = str(elapsed)
+
+    if events_data is not None:
+        name, seq = latest_tool_call(events_data)
+        if name is not None and seq is not None:
+            tokens["last_tool"] = f"{name}@{seq}"
+
+    return tokens
+
+
+def build_title(status_json, tokens):
+    provider = tokens.get("provider") or status_json.get("provider") or ""
+    run_id = short_run_id(tokens.get("run_id") or status_json.get("run_id"))
+    outcome = tokens.get("outcome")
+    last_tool = tokens.get("last_tool", "")
+    if last_tool:
+        tool_name = last_tool.split("@", 1)[0]
+    else:
+        tool_name = ""
+
+    if outcome:
+        detail = outcome
+    elif tool_name:
+        detail = tool_name
+    else:
+        detail = tokens.get("state") or status_json.get("state") or ""
+
+    separator = " · "
+    return f"{provider} {run_id}{separator}{detail}"
+
+
+def report_key(herdr_state, label, tokens, title):
+    return (herdr_state, label, title, tuple(sorted(tokens.items())))
+
+
 def get_hydra_status(run_id):
     try:
-        result = subprocess.run([HYDRA, "status", run_id], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            [HYDRA, "status", run_id],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         return json.loads(result.stdout)
-    except Exception as e:
-        print(f"Error reading hydra status for {run_id}: {e}", file=sys.stderr)
+    except Exception as err:
+        print(f"Error reading hydra status for {run_id}: {err}", file=sys.stderr)
         return None
+
+
+def get_hydra_events(run_id):
+    try:
+        result = subprocess.run(
+            [HYDRA, "show", run_id, "--events"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(result.stdout)
+    except Exception as err:
+        print(f"Error reading hydra events for {run_id}: {err}", file=sys.stderr)
+        return None
+
 
 def list_panes():
     try:
-        result = subprocess.run(["herdr", "pane", "list"], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            ["herdr", "pane", "list"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         return json.loads(result.stdout).get("result", {}).get("panes", [])
-    except Exception as e:
-        print(f"Error listing panes: {e}", file=sys.stderr)
+    except Exception as err:
+        print(f"Error listing panes: {err}", file=sys.stderr)
         return []
 
-def report_state(pane_id, herdr_state, label):
+
+def report_pane(pane_id, herdr_state, label, tokens, title):
     try:
-        subprocess.run([
-            "herdr", "pane", "report-agent", pane_id,
-            "--source", "hydra-bridge",
-            "--agent", "hydra",
-            "--state", herdr_state
-        ], check=True, capture_output=True)
-        
-        subprocess.run([
-            "herdr", "pane", "report-metadata", pane_id,
-            "--source", "hydra-bridge",
-            "--state-label", f"{herdr_state}={label}"
-        ], check=True, capture_output=True)
-    except Exception as e:
-        print(f"Error reporting state for {pane_id}: {e}", file=sys.stderr)
+        subprocess.run(
+            [
+                "herdr",
+                "pane",
+                "report-agent",
+                pane_id,
+                "--source",
+                "hydra-bridge",
+                "--agent",
+                "hydra",
+                "--state",
+                herdr_state,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+        cmd = [
+            "herdr",
+            "pane",
+            "report-metadata",
+            pane_id,
+            "--source",
+            "hydra-bridge",
+            "--state-label",
+            f"{herdr_state}={label}",
+            "--title",
+            title,
+        ]
+        for name, value in sorted(tokens.items()):
+            if value:
+                cmd.extend(["--token", f"{name}={value}"])
+        subprocess.run(cmd, check=True, capture_output=True)
+    except Exception as err:
+        print(f"Error reporting pane {pane_id}: {err}", file=sys.stderr)
+
 
 def main():
     last_reported = {}
-    
+
     while True:
         panes = list_panes()
         for pane in panes:
-            tokens = pane.get("tokens", {})
-            run_id = tokens.get("run_id")
+            pane_tokens = pane.get("tokens", {})
+            run_id = pane_tokens.get("run_id")
             if not run_id:
                 continue
-            
+
             pane_id = pane.get("pane_id")
             status_json = get_hydra_status(run_id)
             if not status_json:
                 continue
-                
+
+            events_data = None
+            if status_json.get("state") == "live":
+                events_data = get_hydra_events(run_id)
+
             herdr_state, label = get_herdr_state_and_label(status_json)
-            
-            if last_reported.get(pane_id) != (herdr_state, label):
-                report_state(pane_id, herdr_state, label)
-                last_reported[pane_id] = (herdr_state, label)
-                
+            tokens = build_tokens(status_json, events_data=events_data)
+            title = build_title(status_json, tokens)
+            key = report_key(herdr_state, label, tokens, title)
+
+            if last_reported.get(pane_id) != key:
+                report_pane(pane_id, herdr_state, label, tokens, title)
+                last_reported[pane_id] = key
+
         time.sleep(2)
+
 
 if __name__ == "__main__":
     main()

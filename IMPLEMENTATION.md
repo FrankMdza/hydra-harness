@@ -2127,7 +2127,10 @@ puts `run_id`, `provider` and `policy` on the pane as tokens, and replaces itsel
 logs --follow`. `bin/hydra-bridge` polls the panes carrying a `run_id`, reads `hydra status`
 for each and reports on change. Herdr holds four states and refuses any other name, so Hydra's
 outcomes ride as display labels over `idle`, `working`, `blocked` and `unknown`; the table at
-the top of the bridge is the whole mapping and map ticket 49 names the two rows it may move.
+the top of the bridge is the whole mapping. Map ticket 49 put `timed out` and an abandoned run
+on `unknown`, and since build ticket 24 the pane also carries `state`, `alive`, `outcome`,
+`tokens`, `elapsed` and `last_tool` as tokens and a title such as `claude 01a07f1a · completed`,
+so a human reads the run off the pane without Herdr classifying it.
 Driven on 2026-09-07 on herdr 0.8.2: a haiku run launched from a pane ended, and eight seconds
 later the pane read `done` with the label `completed` with nothing but the bridge having touched
 it. `README.md` in that directory says how to link it.

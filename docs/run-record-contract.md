@@ -176,7 +176,7 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `floor_lifted` | boolean, whether `--allow-floor-escape` was typed on this run (harness spec 16) |
 | `scopes` | the absolute paths the gate was compiled against, keyed by scope name; see below |
 | `cwd` | the directory the child was launched in |
-| `worktree` | path and branch name, or null under `--shared-tree` |
+| `worktree` | `path`, `branch` and `base_tree`, or null under `--shared-tree`. `base_tree` is the sha `git write-tree` answered against the seed index the moment the checkout was seeded from the parent's uncommitted work, before the provider started; map ticket 49 put it here on 2026-09-07 so a reader can tell a reaped run's seed from the run's own edits. It is a name and not a guarantee: the tree hangs from no ref, a `git gc --prune` may delete it, and a record written before build ticket 23 does not carry it |
 | `depth` | integer, 0 for a run a human started |
 | `parent_policy` | the policy the parent was launched under, absent on a run with no parent. Section 8.3 requires it beside the requested one on a refused spawn |
 

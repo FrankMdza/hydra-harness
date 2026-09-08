@@ -57,6 +57,8 @@ it.
 - [20 - A run's sequence as a graph in the terminal](20-hydra-graph-in-the-terminal.md)
 - [21 - A smoke test for the bridge, against a running Herdr](21-bridge-smoke-test.md)
 - [22 - Join a gate answer to its call when the provider pipelines calls](22-join-gate-answers-under-pipelined-calls.md)
+- [23 - `base_tree` on the record](23-base-tree-on-the-record.md)
+- [24 - The pane says what the record knows](24-the-pane-says-what-the-record-knows.md)
 
 ## Out of scope
 

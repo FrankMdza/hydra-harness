@@ -68,7 +68,9 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
   tree a document-spawned face makes is flat. Opened 2026-09-07 from the build.
 - [49](issues/49-what-the-herdr-bridge-reports.md) Which of Herdr's four states `timed out` sits
   on, and whether `base_tree` goes on the record. Two small decisions ticket 45 measured and left
-  to the human, opened 2026-09-07 before the bridge gets built around a guess.
+  to the human, opened 2026-09-07 before the bridge gets built around a guess. Closed the same
+  day: `unknown`, with the pane carrying the record's own facts as tokens, and yes, in
+  `run_start.worktree`. Build tickets 23 and 24 carry the code.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
@@ -120,7 +122,7 @@ the way it closed the first time: a session that finds a decision rather than an
 reopens it.
 
 **Build tickets 11, 15 and 16 closed on 2026-09-07 and two of them found a decision, so the map is
-open again at 46 of 48, and 46 of 49 since ticket 49 opened the same day.** Ticket 16 measured `--restricted` dropping the skills Hydra links into a
+open again at 46 of 48, then 47 of 49 after ticket 49 opened and closed the same day.** Ticket 16 measured `--restricted` dropping the skills Hydra links into a
 `judge` run, which is ticket 47. Ticket 11 built the delegate face and found that the MCP document
 cannot hand it the run id, which is ticket 48. Both are grillings, and neither blocks anything on
 the build, which stands at 16 of 16.
@@ -218,6 +220,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [41 - The curate checkout happens before the launch commits the store](issues/41-curate-checkout-against-the-store-pin.md): the store is committed before the checkout. `hydra curate` calls `Store::pin` with its own run id and checks out at the sha it gets back, and the launch's pin then finds a clean store and returns the same sha. Chosen because ticket 40 left the store two writers, a human and `Store::pin`, which makes this Hydra's own write one launch earlier rather than a curate pass in the store's history. The trailer naming a run that has not started is accepted. Built and tested in the same change, no launch.
 - [42 - A record pins the policy and not the paths it resolved to](issues/42-a-record-carries-no-scopes.md): harness spec 5's test applies to the compiled gate, so `run_start` gains `scopes`, the resolved paths under five keys, and `floor_lifted`. The reader prefers the stored paths, rebuilds them on older records and reports a limit rather than a disagreement, because a disagreement reaches the curator's brief as a clean-looking failure. Not a version bump, and contract 15 now says what is. Contract 5.1's false sentence on the gate sha is rewritten. Build ticket 15 carries the code.
 - [46 - The user's own hooks add to a run's context, and section 8 says they only subtract](issues/46-user-hooks-add-to-a-run.md): section 8 was wrong about the mechanism. The user's `UserPromptSubmit` hook adds `additionalContext` to every recorded `claude` run, measured, and it is data under the authorship test as written. Hydra keeps loading the user's settings because the four guards live in the same file, even though `--setting-sources project,local` was measured to drop the hook with the gate intact. The text stays in `raw` as a `hook_response` frame, and the Cursor case is stated as unmeasured until the next paid run.
+- [49 - What the Herdr bridge reports, and whether the record carries `base_tree`](issues/49-what-the-herdr-bridge-reports.md): `timed out` sits on Herdr's `unknown`, and the pane carries the record's own facts as tokens so a human reads the run without Herdr classifying it. `base_tree` goes on the record in `run_start.worktree`, as a name rather than a guarantee the object survives a `git gc`, so a reaped run's seed and its own edits can be told apart. Build tickets 23 and 24.
 - [43 - `--restricted` no longer drops MCP, so a `judge` run keeps the human's servers](issues/43-restricted-keeps-mcp-on-judge.md): the premise was wrong. Measured on 2.1.263 under a scratch `HOME`, `--restricted` drops user-scope and project-scope servers and keeps only what `--mcp-config` passes, so `judge` already gets an empty set. The flag goes on the `judge` argv anyway because the vendor's help text names it as the guarantee, the probe runs under `judge`'s flags so `mcp.resolved` is a measured `[]`, `ToolSearch` moves to `skill_invoke` because MCP tools arrive deferred in print mode, and one skip-if-absent test guards the claim against the next version. Build ticket 16 carries the code.
 
 ## Not yet specified

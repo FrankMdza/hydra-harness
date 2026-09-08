@@ -1,7 +1,7 @@
 # 49 - What the Herdr bridge reports, and whether the record carries `base_tree`
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -39,3 +39,27 @@ the answers were settled.
 
 Ticket 45's `## Answer`, sections 2 and 5. Ticket 44's `## Note from ticket 45`. `outcome.rs` for
 where `diff_stat` is computed and `worktree.rs` for the seed index.
+
+## Answer
+
+Resolved 2026-09-07 with the human, two questions, both answered in one round.
+
+**`timed_out` sits on `unknown`, and the pane says more than the state.** Herdr's `unknown` is
+the state it reserves for "present but unclassified", which is what a watcher giving up means.
+The bridge keeps `working` while `hydra status` says the child is live, so `timed out` is only
+ever displayed over a process that died without a `run_end`, and an abandoned run sits there
+too. The human's addition: since Herdr cannot classify a Hydra run, the pane carries what a
+human needs to understand it without Herdr's help, as tokens and title from the record:
+`outcome`, `state` as Hydra reports it, whether the pid is alive, the last tool the run called,
+and elapsed time. Build ticket 24 carries that.
+
+**`base_tree` goes on the record, in `run_start.worktree`.** Contract 5's `worktree` row gains
+`base_tree`, the sha `git write-tree` answers against the seed index the moment the worktree is
+seeded, before the provider starts. The tree it names stays unreachable from any ref, so the
+field is a name and not a guarantee that the object survives a `git gc`, and the contract says
+so. What it buys: a reader of a reaped run can separate the seed from the run's own edits by
+diffing `base_tree` against the reap commit, which today conflates the two; Hunk can open a
+run against it; and the corpus stops attributing the human's uncommitted work to the model.
+`hydra reap` stays at one commit. Build ticket 23 carries the field, and a record written
+before it has no `base_tree` and re-derives as it does today, from the seed index if the spawn
+directory still exists and as absent otherwise.

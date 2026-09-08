@@ -71,16 +71,18 @@ LAST_IDLE=""
 PASSED=0
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
     GET_JSON="$(herdr pane get "$OPENED_PANE" 2>/dev/null || true)"
-    PARSE="$(printf '%s\n' "$GET_JSON" | python3 -c 'import sys, json; run_id=""; idle=""
+    PARSE="$(printf '%s\n' "$GET_JSON" | python3 -c 'import sys, json; run_id=""; idle=""; outcome=""
 try:
-    pane=(json.load(sys.stdin).get("result") or {}).get("pane") or {}; tokens=pane.get("tokens") or {}; labels=pane.get("state_labels") or {}; run_id=tokens.get("run_id") or ""; idle=labels.get("idle") or ""
+    pane=(json.load(sys.stdin).get("result") or {}).get("pane") or {}; tokens=pane.get("tokens") or {}; labels=pane.get("state_labels") or {}; run_id=tokens.get("run_id") or ""; idle=labels.get("idle") or ""; outcome=tokens.get("outcome") or ""
 except Exception:
     pass
-print(run_id + "\t" + idle)')"
+print(run_id + "\t" + idle + "\t" + outcome)')"
     LAST_RUN_ID="${PARSE%%$'\t'*}"
-    LAST_IDLE="${PARSE#*$'\t'}"
-    echo "smoke: poll run_id=${LAST_RUN_ID:-none} idle=${LAST_IDLE:-none}"
-    if [ -n "$LAST_RUN_ID" ] && [ "$LAST_IDLE" = "completed" ]; then
+    REST="${PARSE#*$'\t'}"
+    LAST_IDLE="${REST%%$'\t'*}"
+    LAST_OUTCOME="${REST#*$'\t'}"
+    echo "smoke: poll run_id=${LAST_RUN_ID:-none} idle=${LAST_IDLE:-none} outcome=${LAST_OUTCOME:-none}"
+    if [ -n "$LAST_RUN_ID" ] && [ "$LAST_IDLE" = "completed" ] && [ "$LAST_OUTCOME" = "completed" ]; then
         PASSED=1
         break
     fi
@@ -88,7 +90,7 @@ print(run_id + "\t" + idle)')"
 done
 
 if [ "$PASSED" -eq 1 ]; then
-    echo "smoke: passed run_id=$LAST_RUN_ID idle=$LAST_IDLE"
+    echo "smoke: passed run_id=$LAST_RUN_ID idle=$LAST_IDLE outcome=$LAST_OUTCOME"
     exit 0
 fi
 
