@@ -10,13 +10,15 @@ fi
 TMP_ERR=$(mktemp)
 "$HYDRA" run --timeout 0 "$@" 2> "$TMP_ERR" > /dev/null || true
 RUN_ID=$(grep '^hydra: run ' "$TMP_ERR" | awk '{print $3}')
-rm -f "$TMP_ERR"
 
 if [ -z "$RUN_ID" ]; then
-    echo "hydra-in-pane: hydra run printed no run id" >&2
+    echo "hydra-in-pane: hydra run printed no run id; its stderr was:" >&2
+    cat "$TMP_ERR" >&2
+    rm -f "$TMP_ERR"
     exit 1
 fi
 
+rm -f "$TMP_ERR"
 STATUS_JSON=$("$HYDRA" status "$RUN_ID")
 PROVIDER=$(echo "$STATUS_JSON" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("provider", ""))')
 POLICY=$(echo "$STATUS_JSON" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("policy", ""))')
