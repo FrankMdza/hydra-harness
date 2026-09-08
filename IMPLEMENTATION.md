@@ -1103,15 +1103,19 @@ from `workspacePaths[0]`, which is the directory Hydra passed on `--add-dir`. It
 the payload rather than on the dialect, so the same script answers a live hook and
 contract 7.7's read-time replay, which sends the normalized shape for every provider.
 
-**The four measured argument names**, off real hook payloads:
+**The five measured argument names**, off real hook payloads:
 `run_command(CommandLine, Cwd)`, `view_file(AbsolutePath)`, `list_dir(DirectoryPath)`,
-`write_to_file(TargetFile, CodeContent, Overwrite)`. The rest of the table's path fields
-come off the binary's own `jsonschema` struct tags, which is the same class of evidence
-Cursor's rows come from: `SearchDirectory` for `grep_search` and `find_by_name`,
-`TargetFile` for the three editing tools, `NotebookPath` for `notebook_edit`. A wrong
-field name here is a `hydra/no-path` deny on every scoped policy, which fails closed and
-makes the provider unusable rather than unsafe, and `tests/gate.rs` drives the measured
-four both inside and outside the worktree.
+`write_to_file(TargetFile, CodeContent, Overwrite)` and, since 2026-09-08,
+`grep_search(Query, SearchPath)`. The rest of the table's path fields come off the
+binary's own `jsonschema` struct tags, which is the same class of evidence Cursor's rows
+come from: `SearchDirectory` for `find_by_name`, `TargetFile` for the three editing
+tools, `NotebookPath` for `notebook_edit`. A wrong field name here is a `hydra/no-path`
+deny on every scoped policy, which fails closed and makes the provider unusable rather
+than unsafe, and `tests/gate.rs` drives the measured five both inside and outside the
+worktree. **`grep_search` was that wrong name for two days.** The table said
+`SearchDirectory`, read off the tag on `find_by_name`'s struct, and the first `agy` run
+under `standard`, 01a07ffe-4808 on 1.1.27, had its first search denied `hydra/no-path`.
+The binary's own description of the glob filter names `SearchPath` as the search root.
 
 **Fifty-seven tools on the init frame**, against research 20's fifty-six on a Claude id
 two days earlier; `list_permissions` is the difference and whether it is new or

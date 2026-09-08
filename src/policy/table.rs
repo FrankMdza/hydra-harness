@@ -173,7 +173,7 @@ pub const CURSOR_MCP_PREFIX: &str = "MCP:";
 /// `write_to_file(TargetFile)` and `run_command(CommandLine)`. The rest come off
 /// the binary's own `jsonschema` struct tags, which is the same class of evidence
 /// Cursor's rows come from: `SearchDirectory` is "The directory to search within.
-/// Must be an absolute path", `NotebookPath` is "Absolute path to the .ipynb
+/// Must be an absolute path" on `find_by_name`, `NotebookPath` is "Absolute path to the .ipynb
 /// notebook file", and `TargetFile` on the editing tools is "The target file to
 /// modify. Must be an absolute path".
 ///
@@ -200,8 +200,13 @@ pub const AGY: &[Tool] = &[
     pathed("view_file", Capability::FileRead, "AbsolutePath"),
     pathed("list_dir", Capability::FileRead, "DirectoryPath"),
     pathed("write_to_file", Capability::FileWrite, "TargetFile"),
-    // Read off the binary's `jsonschema` tags, same build.
-    pathed("grep_search", Capability::FileRead, "SearchDirectory"),
+    // Measured on a real `PreToolUse` payload on 2026-09-08, on 1.1.27, run
+    // 01a07ffe-4808: `grep_search` sends `SearchPath`, "a directory or a single
+    // file", and the gate compiled with `SearchDirectory` denied it `hydra/no-path`
+    // on its first search. `SearchDirectory` is `find_by_name`'s field; the
+    // binary's `jsonschema` tags were read against the wrong struct.
+    pathed("grep_search", Capability::FileRead, "SearchPath"),
+    // Read off the binary's `jsonschema` tags, same build, unmeasured on a payload.
     pathed("find_by_name", Capability::FileRead, "SearchDirectory"),
     pathed("replace_file_content", Capability::FileWrite, "TargetFile"),
     pathed(
