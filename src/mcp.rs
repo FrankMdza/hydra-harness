@@ -288,6 +288,44 @@ fn undeliverable(provider: Provider, policy: &str, checkout: Checkout) -> Option
     }
 }
 
+/// The one string [`with_parent`] matches on.
+///
+/// Map ticket 48's answer: the document gains no field for this, because a
+/// field that means one thing for one server and nothing for any other is
+/// exactly what the format already refuses. A string is the alternative, and
+/// this is the string.
+const FACE_BINARY: &str = "hydra";
+
+/// A server as it goes into one run's own file: unchanged, unless its
+/// `command` is Hydra's own binary, in which case it carries `--parent
+/// <run_id>` in its args.
+///
+/// **The match is on the basename, not the whole path.** `config/mcp.md` can
+/// name the face as `command = "hydra"` or as an absolute path to the same
+/// binary, and a human who wrote the second should not have to spell out a
+/// match Hydra can compute itself; nothing here would tell the two apart on
+/// disk anyway, since both spawn the same process.
+///
+/// **This is the only place the flag exists.** The document [`Document::parse`]
+/// returns and the names [`Plan::injected_names`] reports are what was
+/// declared, never what one run happened to write, so a delegated child's
+/// `parent_run_id` traces back through the file on disk and nowhere else.
+fn with_parent(server: &Server, run_id: &str) -> Server {
+    let is_face = server
+        .command
+        .as_deref()
+        .and_then(|command| Path::new(command).file_name())
+        .and_then(|name| name.to_str())
+        == Some(FACE_BINARY);
+    if !is_face {
+        return server.clone();
+    }
+    let mut server = server.clone();
+    server.args.push("--parent".to_string());
+    server.args.push(run_id.to_string());
+    server
+}
+
 /// Writes the run's MCP config where the launch will point at it.
 ///
 /// `~/hydra/spawn/<run-id>/mcp.json` on `claude`, from 6.5's table,
@@ -308,6 +346,11 @@ fn undeliverable(provider: Provider, policy: &str, checkout: Checkout) -> Option
 /// in it is theirs: writing over it edits their work and `hydra reap` would
 /// commit the edit. [`crate::run`] checks the parent repo for the same file
 /// before a run id exists, and [`cursor::claim`] is the second line.
+///
+/// **A server named `hydra` gets `--parent <run_id>` appended here, and only
+/// here** (see [`with_parent`]). Map ticket 48 answered how the delegate face
+/// learns which run spawned it: Hydra recognizes its own binary rather than
+/// the document naming a field or a token for it.
 pub fn write_config(
     layout: &Layout,
     run_id: &str,
@@ -315,6 +358,13 @@ pub fn write_config(
     servers: &[&Server],
     worktree: Option<&Path>,
 ) -> Result<PathBuf> {
+    let owned: Vec<Server> = servers
+        .iter()
+        .map(|server| with_parent(server, run_id))
+        .collect();
+    let servers: Vec<&Server> = owned.iter().collect();
+    let servers = servers.as_slice();
+
     let (file, config) = match provider {
         Provider::Claude => {
             let file = layout.mcp_file(run_id);
@@ -688,17 +738,60 @@ Prose below it too.
         assert_eq!(nothing_resolved["resolved"].as_array().unwrap().len(), 0);
     }
 
+    fn stdio(command: &str) -> Server {
+        Server {
+            name: "face".to_string(),
+            transport: Transport::Stdio,
+            admit: vec!["standard".to_string()],
+            command: Some(command.to_string()),
+            args: vec!["delegate-face".to_string()],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        }
+    }
+
     #[test]
-    fn the_shipped_document_parses_and_ships_no_server() {
-        // Protected config #5 on this machine. A human adding a real server is a
-        // human's decision, so what ships is the format and an example in
-        // comments.
-        let doc = Document::load().unwrap();
-        assert!(
-            doc.servers.is_empty(),
-            "config/mcp.md now declares a server, which is a human's decision; \
-             update this test with what was added and why"
+    fn the_flag_lands_on_hydras_own_binary_and_nothing_else() {
+        let bare = with_parent(&stdio("hydra"), "01a07610-0000-7000-8000-0000000000e1");
+        assert_eq!(
+            bare.args,
+            vec!["delegate-face", "--parent", "01a07610-0000-7000-8000-0000000000e1"]
         );
+
+        let absolute = with_parent(
+            &stdio("/opt/homebrew/bin/hydra"),
+            "01a07610-0000-7000-8000-0000000000e1",
+        );
+        assert_eq!(absolute.args, bare.args, "the match is on the basename");
+
+        let prefixed = with_parent(&stdio("hydra-something"), "r1");
+        assert_eq!(
+            prefixed.args,
+            vec!["delegate-face"],
+            "a name that merely starts with hydra is not a path to it"
+        );
+
+        let other = with_parent(&stdio("python3"), "r1");
+        assert_eq!(other.args, vec!["delegate-face"]);
+    }
+
+    #[test]
+    fn the_shipped_document_parses_and_ships_the_face_alone() {
+        // Protected config #5 on this machine. A human adding a server is a
+        // human's decision, and the one made on 2026-09-07 under map ticket 48
+        // is the delegate face, admitted to `standard` and `permissive` and to
+        // nothing narrower, by the absolute path of the binary because a run's
+        // `PATH` does not carry it. Anything beyond that is a new decision, and
+        // this test is where it gets written down.
+        let doc = Document::load().unwrap();
+        assert_eq!(doc.servers.len(), 1, "config/mcp.md declares a server this test does not know");
+        let face = &doc.servers[0];
+        assert_eq!(face.name, "hydra");
+        assert_eq!(face.command.as_deref(), Some("/Users/USER/hydra/target/release/hydra"));
+        let mut admit = face.admit.clone();
+        admit.sort();
+        assert_eq!(admit, ["permissive", "standard"]);
         assert_eq!(doc.sha.len(), 64);
     }
 }

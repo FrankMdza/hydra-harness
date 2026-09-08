@@ -485,11 +485,13 @@ pub fn run(request: Request) -> Result<Call> {
     // 6.4: the store is pinned, snapshotted and linked into the checkout before
     // anything asks the provider a question. A run with no checkout has nowhere to
     // inject into, so it gets no links and its record leaves `skills` absent
-    // rather than null: the question does not apply. The MCP group is present
-    // either way, which is 6.5's asymmetry showing up in the record: on `claude`
-    // the servers ride the command line and need no checkout to land in.
+    // rather than null: the question does not apply. A `judge` run is not injected
+    // either, since the policy allows nothing and the diff rides the prompt, and
+    // ticket 25 stopped the links. The MCP group is present either way, which is
+    // 6.5's asymmetry showing up in the record: on `claude` the servers ride the
+    // command line and need no checkout to land in.
     let injected = match &worktree_ref {
-        Some(worktree) => Some(inject_skills(
+        Some(worktree) if request.policy != "judge" => Some(inject_skills(
             &layout,
             &run_id,
             request.provider,
@@ -499,7 +501,7 @@ pub fn run(request: Request) -> Result<Call> {
                 config: mcp_file.as_deref(),
             },
         )?),
-        None => None,
+        _ => None,
     };
 
     let injected_names = mcp_plan.injected_names();

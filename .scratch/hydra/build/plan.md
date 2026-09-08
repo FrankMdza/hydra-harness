@@ -59,6 +59,9 @@ it.
 - [22 - Join a gate answer to its call when the provider pipelines calls](22-join-gate-answers-under-pipelined-calls.md)
 - [23 - `base_tree` on the record](23-base-tree-on-the-record.md)
 - [24 - The pane says what the record knows](24-the-pane-says-what-the-record-knows.md)
+- [25 - No skill injection on `judge`](25-no-skills-on-judge.md)
+- [26 - The face gets its parent, and the document admits it](26-the-face-gets-its-parent.md)
+- [27 - `hydra run --interactive` on `claude`, and the harvest](27-interactive-claude-and-harvest.md)
 
 ## Out of scope
 

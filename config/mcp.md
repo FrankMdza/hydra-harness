@@ -46,12 +46,31 @@ server to a policy that cannot call it costs a process and some context, and buy
 `--mcp-config`, so nothing written here reaches it. A server admitted to `judge` fails the launch
 with `mcp_unavailable` rather than launching a run that quietly came up short.
 
+## Hydra's own binary as a server
+
+A server whose `command` has the basename `hydra` gets `--parent <run-id>` appended to its
+`args` in the file Hydra writes for the run, and nowhere else: this document and `mcp.injected`
+on the record stay as declared. Map ticket 48 chose this over a token or a field so the format
+here does not grow a rule a human has to know to write an ordinary server. The match is on the
+basename, so an absolute path to the binary enters too, and the block below uses one because a
+recorded run's `PATH` is the human's and `hydra` is not on it: measured 2026-09-07, a bare
+`hydra` came up `failed` in `claude`'s init frame and `mcp.resolved` said `[]`. It is a rule keyed
+on a string, which is why it is written here beside the table rather than left in the code.
+
 ## The servers
 
-There are none. Nobody has configured an MCP server on this machine, so what ships is the format
-and one example of each transport, in comments, for a human to copy.
+One, since map ticket 48 on 2026-09-07: the delegate face of harness spec 9, admitted under
+`standard` and `permissive` and under nothing narrower. Below it, the format and one example of
+each transport, in comments, for a human to copy.
 
 ```toml
+[[server]]
+name = "hydra"
+transport = "stdio"
+command = "/Users/USER/hydra/target/release/hydra"
+args = ["delegate-face"]
+admit = ["standard", "permissive"]
+
 # [[server]]
 # name = "filesystem"
 # transport = "stdio"

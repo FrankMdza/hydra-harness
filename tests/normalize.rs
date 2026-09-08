@@ -2190,3 +2190,30 @@ fn agys_stderr_lands_in_the_noise_rather_than_in_an_event() {
     assert_eq!(run.noise.len(), 1);
     assert!(run.noise[0].contains("auto-denied"));
 }
+
+#[test]
+fn a_call_the_provider_refused_on_its_input_schema_is_not_ungated() {
+    // Measured 2026-09-07 on run 01a07f37-8a67: haiku passed `offset` as an
+    // array and Claude Code answered with an `InputValidationError` result and
+    // no hook frame at all, because schema validation runs before any hook.
+    // The gate was never asked, so its silence says nothing about it.
+    let sandbox = Sandbox::new("input-validation");
+    let path = sandbox.worktree().join("a.rs");
+    let text = Record::opened(&sandbox.worktree(), Some("standard"), Some(policies().sha()))
+        .assistant(json!([{"type": "text", "text": "Let me read that."}]))
+        .tool_use("toolu_bad", "Read", json!({"file_path": path, "offset": [1, 2]}))
+        .tool_result(
+            "toolu_bad",
+            "<tool_use_error>InputValidationError: Read failed due to the following issue:\n\
+             The parameter `offset` type is expected as `number` but provided as `unknown`\
+             </tool_use_error>",
+            true,
+        )
+        .closed();
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings.iter().any(|f| matches!(f, hydra::normalize::Finding::Ungated { .. })),
+        "{:?}",
+        run.findings
+    );
+}

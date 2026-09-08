@@ -62,15 +62,25 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
   fix is one flag on an argv the design writes. Closed 2026-09-06, and the premise was wrong.
 - [47](issues/47-judge-gets-linked-skills-it-cannot-see.md) A `judge` run is linked skills it cannot
   list, read or invoke, and build ticket 16 papered over it with a null. Whether 6.4 should inject
-  on `judge` at all. Opened 2026-09-07 from the build.
+  on `judge` at all. Opened 2026-09-07 from the build and closed the same day: no, and nothing is
+  lost, because `judge` allows nothing and its diff rides the prompt. Build ticket 25.
 - [48](issues/48-the-face-needs-the-run-id-and-the-document-has-no-field.md) The delegate face
   needs `--parent <run-id>` per run and the MCP document has no field that could say so, so every
-  tree a document-spawned face makes is flat. Opened 2026-09-07 from the build.
+  tree a document-spawned face makes is flat. Opened 2026-09-07 from the build and closed the same
+  day: Hydra recognizes its own binary by basename and appends the flag, and the face is admitted
+  under `standard` and `permissive`. Build ticket 26.
 - [49](issues/49-what-the-herdr-bridge-reports.md) Which of Herdr's four states `timed out` sits
   on, and whether `base_tree` goes on the record. Two small decisions ticket 45 measured and left
   to the human, opened 2026-09-07 before the bridge gets built around a guess. Closed the same
   day: `unknown`, with the pane carrying the record's own facts as tokens, and yes, in
   `run_start.worktree`. Build tickets 23 and 24 carry the code.
+- [50](issues/50-gate-on-an-interactive-claude-session.md) Whether Hydra's hooks, handed to an
+  interactive `claude` session through `--settings`, gate it and leave their decisions in the
+  transcript the harvest reads. Opened 2026-09-07 by the human's question on fase 2: interactive
+  runs are the only producer of human corrections and today the only mode without the gate. Probed
+  the same day: the gate applies, two refusals with Hydra's reasons on a steered session, and the
+  denials reach the transcript as error tool results while allows leave nothing. Whether the
+  interactive launch takes a policy is the decision it leaves.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
@@ -122,7 +132,7 @@ the way it closed the first time: a session that finds a decision rather than an
 reopens it.
 
 **Build tickets 11, 15 and 16 closed on 2026-09-07 and two of them found a decision, so the map is
-open again at 46 of 48, then 47 of 49 after ticket 49 opened and closed the same day.** Ticket 16 measured `--restricted` dropping the skills Hydra links into a
+open again at 46 of 48, then 50 of 50 after tickets 47 to 50 closed, all on 2026-09-07, with 50 leaving one question for the human.** Ticket 16 measured `--restricted` dropping the skills Hydra links into a
 `judge` run, which is ticket 47. Ticket 11 built the delegate face and found that the MCP document
 cannot hand it the run id, which is ticket 48. Both are grillings, and neither blocks anything on
 the build, which stands at 16 of 16.
@@ -221,6 +231,9 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [42 - A record pins the policy and not the paths it resolved to](issues/42-a-record-carries-no-scopes.md): harness spec 5's test applies to the compiled gate, so `run_start` gains `scopes`, the resolved paths under five keys, and `floor_lifted`. The reader prefers the stored paths, rebuilds them on older records and reports a limit rather than a disagreement, because a disagreement reaches the curator's brief as a clean-looking failure. Not a version bump, and contract 15 now says what is. Contract 5.1's false sentence on the gate sha is rewritten. Build ticket 15 carries the code.
 - [46 - The user's own hooks add to a run's context, and section 8 says they only subtract](issues/46-user-hooks-add-to-a-run.md): section 8 was wrong about the mechanism. The user's `UserPromptSubmit` hook adds `additionalContext` to every recorded `claude` run, measured, and it is data under the authorship test as written. Hydra keeps loading the user's settings because the four guards live in the same file, even though `--setting-sources project,local` was measured to drop the hook with the gate intact. The text stays in `raw` as a `hook_response` frame, and the Cursor case is stated as unmeasured until the next paid run.
 - [49 - What the Herdr bridge reports, and whether the record carries `base_tree`](issues/49-what-the-herdr-bridge-reports.md): `timed out` sits on Herdr's `unknown`, and the pane carries the record's own facts as tokens so a human reads the run without Herdr classifying it. `base_tree` goes on the record in `run_start.worktree`, as a name rather than a guarantee the object survives a `git gc`, so a reaped run's seed and its own edits can be told apart. Build tickets 23 and 24.
+- [47 - A `judge` run is linked skills it cannot list, read or invoke](issues/47-judge-gets-linked-skills-it-cannot-see.md): stop injecting on `judge`. The policy allows nothing and the diff rides the prompt, so the links were never reachable and the record stops naming a store for a run that could touch none of it. Build ticket 25.
+- [48 - The delegate face needs `--parent <run-id>` and the MCP document cannot say so](issues/48-the-face-needs-the-run-id-and-the-document-has-no-field.md): Hydra recognizes its own binary by basename and appends `--parent <run-id>` at launch, with no new field or token in the protected document. The face is admitted under `standard` and `permissive`. Build ticket 26.
+- [50 - Can the gate ride an interactive `claude` session?](issues/50-gate-on-an-interactive-claude-session.md): opened 2026-09-07. Harness spec 3 gives an interactive run no gate. `claude` takes `--settings` interactively, so the hooks may apply and the question is whether their decisions reach the transcript the harvest reads. A prototype, not a decision. Probed the same day: the gate applies on a steered session and its denials reach the transcript as error tool results while allows leave nothing, so an interactive `claude` run can be gated and its refusals recorded. Whether the launch takes a policy is the question it leaves.
 - [43 - `--restricted` no longer drops MCP, so a `judge` run keeps the human's servers](issues/43-restricted-keeps-mcp-on-judge.md): the premise was wrong. Measured on 2.1.263 under a scratch `HOME`, `--restricted` drops user-scope and project-scope servers and keeps only what `--mcp-config` passes, so `judge` already gets an empty set. The flag goes on the `judge` argv anyway because the vendor's help text names it as the guarantee, the probe runs under `judge`'s flags so `mcp.resolved` is a measured `[]`, `ToolSearch` moves to `skill_invoke` because MCP tools arrive deferred in print mode, and one skip-if-absent test guards the claim against the next version. Build ticket 16 carries the code.
 
 ## Not yet specified

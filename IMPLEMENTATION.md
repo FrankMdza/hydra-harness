@@ -2131,6 +2131,27 @@ the ids its starts carried. A record with no `hook_started` frames keeps the old
 finding is what would have reached Ouroboros as a policy lesson, and 153 hook pairs for 60
 calls on the same run say the count of hooks per call is not a join key either.
 
+## `judge` is not injected, and the face is admitted
+
+**A `judge` run is linked no skills, since build ticket 25.** Map ticket 47 decided it: the
+policy allows nothing and the diff rides the prompt, so the links were never reachable and the
+`skills` group is absent on a `judge` record the way it is on a run with no checkout. The probe
+under `judge` is not asked about skills.
+
+**The delegate face is admitted under `standard` and `permissive`, since build ticket 26.**
+`config/mcp.md` carries the block, and a server whose `command` has the basename `hydra` gets
+`--parent <run-id>` appended in the file Hydra writes for the run, so a delegated child's depth
+is its parent's plus one and section 9's cap holds. The command in the document is the absolute
+path to the binary, because a recorded run's `PATH` is the human's and `hydra` is not on it:
+measured on 2026-09-07, a bare `hydra` came up `failed` in the init frame and the absolute path
+came up `connected` with `mcp__hydra__delegate` on the tool list. Nothing before the spawn
+checks that a server's command exists.
+
+**A call Claude Code refused on its input schema is not `Ungated`.** Five `Read` calls on a
+haiku run passed `offset` as an array and came back as `InputValidationError` results with no
+hook frame beside them, because validation runs before any hook. The normalizer reads that
+result shape and does not count the gate's silence against it.
+
 ## The Herdr bridge, on Herdr's side
 
 Map ticket 44 made Herdr the interactive layer and said nothing crosses from Hydra to it, and

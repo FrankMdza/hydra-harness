@@ -329,6 +329,12 @@ stripped were the user's own plugin skills, and nothing warned. So the run recor
 its linked-name list does not reproduce what a run's model saw, which is why the record also carries
 the resolved listing the provider reported.
 
+**`judge` is the exception, since map ticket 47.** A `judge` run is linked nothing: the policy
+allows no read and no invoke, the diff it judges rides its prompt, and `--restricted` hides every
+skill on the filesystem regardless, so the links were never reachable. The `skills` group is
+absent on its record the way it is on a run with no checkout, and the probe under `judge` is not
+asked about skills. Build ticket 25.
+
 ### 6.5 MCP
 
 One canonical document generates the per-provider files and is none of them. The stdio server body

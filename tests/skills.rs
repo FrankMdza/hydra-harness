@@ -527,6 +527,99 @@ fn the_write_check_refuses_a_name_the_index_already_holds_and_a_broken_descripti
     skills::admit(&store, "fine", &user, &fixture.home).unwrap();
 }
 
+#[test]
+fn a_judge_run_against_a_nonempty_store_links_nothing() {
+    let fixture = Fixture::new("judge-no-inject");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let _sha = store.pin(RUN_A).unwrap();
+
+    let worktree = fixture.checkout(RUN_A);
+
+    let line = json!({
+        "run_id": RUN_A,
+        "parent_run_id": null,
+        "seq": 0,
+        "ts": "2026-09-05T20:51:39.370Z",
+        "provider": "claude",
+        "model": "claude-3-5-sonnet-20241022",
+        "secret_flag": null,
+        "hydra": {
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "2.1.263",
+            "provider_session_id": null,
+            "task": "probe",
+            "policy": "judge",
+            "policy_sha": "abc123",
+            "cwd": worktree.display().to_string(),
+            "worktree": {
+                "path": worktree.display().to_string(),
+                "branch": "hydra/01a07357-58a5-79e2-a25a-3df578a750b4",
+                "base_tree": null
+            },
+            "depth": 0,
+            "pid": null,
+            "process_start_time": null,
+            "floor_lifted": false,
+            "mcp": {
+                "doc_sha": "def456",
+                "injected": [],
+                "resolved": []
+            },
+            "env_allowlist": ["HOME", "USER", "PATH", "TERM", "SHELL", "TMPDIR"],
+            "auth": {
+                "mechanism": "subscription-oauth",
+                "source": "keychain",
+                "allow_billed": false,
+                "gated": true
+            },
+            "subscription": "claude-pro",
+            "scopes": {
+                "worktree": worktree.display().to_string(),
+                "skill_snapshot": "/tmp/fake",
+                "skill_store": "/tmp/fake",
+                "corpus": "/tmp/fake"
+            }
+        },
+    });
+
+    let mut line_str = line.to_string();
+    line_str.push('\n');
+    let run_file = layout.run_file(RUN_A);
+    std::fs::write(&run_file, line_str).unwrap();
+
+    let report = hydra::record::validate::check_file(&run_file).unwrap();
+    assert!(report.ok(), "judge record should validate: {}", report.problems.join(", "));
+
+    let text = std::fs::read_to_string(&run_file).unwrap();
+    let parsed: Value = serde_json::from_str(&text).unwrap();
+    let run_obj = &parsed["hydra"];
+    assert!(!run_obj.get("skills").map_or(false, |v| v.is_object()),
+            "skills should be absent or null on judge, got {:?}", run_obj.get("skills"));
+}
+
+#[test]
+fn a_standard_run_against_a_nonempty_store_still_links_skills() {
+    let fixture = Fixture::new("standard-links");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+
+    let worktree = fixture.checkout(RUN_A);
+    let injected = skills::inject(&worktree, Provider::Claude, &snapshot, &sha).unwrap();
+
+    assert_eq!(injected.linked, vec!["alpha".to_string()]);
+    assert_eq!(injected.store_sha, sha);
+    assert!(injected.root.join("alpha/SKILL.md").exists());
+}
+
 // --- reaping the snapshot ------------------------------------------------
 
 #[test]

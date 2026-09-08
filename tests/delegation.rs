@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use hydra::mcp::{self, Checkout, Document};
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
 use hydra::provider::Provider;
@@ -333,6 +334,39 @@ fn a_permissive_parent_delegating_read_only_passes_both_checks() {
     let gate = std::fs::read_to_string(&spawn.gate).unwrap();
     assert!(gate.contains("\\\"policy\\\":\\\"read-only\\\""), "{gate}");
     assert!(spawn.hook_config.is_file());
+}
+
+#[test]
+fn the_written_config_carries_the_parent_id_the_face_needs_for_its_own_depth() {
+    // Map ticket 48. The document has no field for this, so the flag exists
+    // only in the file one run writes for itself: without it, a face spawned
+    // from the document would hand every child depth 0, and the cap the tests
+    // above drive by hand would bound nothing beneath it.
+    let (layout, _root) = layout();
+    let document = Document::parse(
+        r#"
+```toml
+[[server]]
+name = "delegate"
+transport = "stdio"
+command = "hydra"
+args = ["delegate-face"]
+admit = ["standard"]
+```
+"#,
+    )
+    .unwrap();
+    let plan = mcp::plan(&document, Provider::Claude, "standard", Checkout::Hydra);
+    let file =
+        mcp::write_config(&layout, PARENT, Provider::Claude, plan.injected(), None).unwrap();
+    let config: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let args = config["mcpServers"]["delegate"]["args"].as_array().unwrap();
+    assert_eq!(
+        args,
+        &vec![json!("delegate-face"), json!("--parent"), json!(PARENT)],
+        "the face reads this id back with --parent and hands it to `Lineage::of` \
+         on every call it makes in turn"
+    );
 }
 
 #[test]

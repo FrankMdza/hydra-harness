@@ -1,7 +1,7 @@
 # 47 - A `judge` run is linked skills it cannot list, read or invoke
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -36,3 +36,14 @@ from a crashed probe without the stderr line ticket 16 added.
 Build ticket 16's `## Outcome`, "What the ticket assumed that turned out false". `src/provider/claude.rs`,
 `resolve_in`, the branch that answers `None` when the probe ran restricted. `IMPLEMENTATION.md`,
 the rewritten `--restricted` section. Harness spec 6.4 and 6.7.
+
+## Answer
+
+Resolved 2026-09-07 with the human. **Stop injecting on `judge`.** The policy allows nothing, the
+diff a judge reads arrives in its prompt, and `skill_invoke` and `file_read` are both absent, so
+the links were never reachable and a record that names a `store_sha` for such a run says
+something false. 6.4 gains the exception, `skills` is absent on a `judge` record the way it is on
+a run with no checkout, and the probe under `judge` has nothing to answer for. The human's
+question, whether `judge` loses anything, has the answer no: a judge that needs guidance gets it
+in the task string, which is where the review checklist of ouroboros spec 5 belongs the day
+something reads it. Build ticket 25.

@@ -256,6 +256,110 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
 }
 
 // ---------------------------------------------------------------------------
+// the delegate face: map ticket 48's rule, and only in the file one run writes
+// ---------------------------------------------------------------------------
+
+/// Four servers that could be the delegate face, admitted to the two policies
+/// the human named for it. Only the first two are `hydra`'s own binary; the
+/// other two are close enough in spelling to prove the match is exact.
+const FACE_DOCUMENT: &str = r#"
+```toml
+[[server]]
+name = "face-bare"
+transport = "stdio"
+command = "hydra"
+args = ["delegate-face"]
+admit = ["standard", "permissive"]
+
+[[server]]
+name = "face-absolute"
+transport = "stdio"
+command = "/opt/homebrew/bin/hydra"
+args = ["delegate-face"]
+admit = ["standard", "permissive"]
+
+[[server]]
+name = "not-hydra"
+transport = "stdio"
+command = "hydra-something"
+args = ["delegate-face"]
+admit = ["standard", "permissive"]
+
+[[server]]
+name = "python"
+transport = "stdio"
+command = "python3"
+args = ["-m", "some_server"]
+admit = ["standard", "permissive"]
+```
+"#;
+
+#[test]
+fn a_server_named_hydra_carries_the_parent_flag_and_a_lookalike_does_not() {
+    let (layout, _root) = layout();
+    let document = Document::parse(FACE_DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::Claude, "standard", Checkout::Hydra);
+    let run_id = "01a07610-0000-7000-8000-0000000000f1";
+    let file = mcp::write_config(&layout, run_id, Provider::Claude, plan.injected(), None).unwrap();
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let servers = config["mcpServers"].as_object().unwrap();
+
+    for name in ["face-bare", "face-absolute"] {
+        let args = servers[name]["args"].as_array().unwrap();
+        assert_eq!(
+            args,
+            &vec![
+                serde_json::json!("delegate-face"),
+                serde_json::json!("--parent"),
+                serde_json::json!(run_id),
+            ],
+            "{name} is hydra's own binary, matched on the basename"
+        );
+    }
+
+    for name in ["not-hydra", "python"] {
+        let args = servers[name]["args"].as_array().unwrap();
+        assert!(
+            !args.iter().any(|a| a == "--parent"),
+            "{name} is not hydra's binary and should be untouched: {args:?}"
+        );
+    }
+
+    // The document itself carries what was declared, never what one run
+    // happened to write into its own file.
+    let declared = document
+        .servers
+        .iter()
+        .find(|s| s.name == "face-bare")
+        .unwrap();
+    assert_eq!(declared.args, vec!["delegate-face".to_string()]);
+}
+
+#[test]
+fn read_only_judge_and_curate_write_none_of_the_face() {
+    // The human admitted the face to `standard` and `permissive` alone (map
+    // ticket 48). This is the document saying so, not a special case in the
+    // writer: a policy that admits none of these four servers gets an empty
+    // file the same way any other policy would.
+    let (layout, _root) = layout();
+    let document = Document::parse(FACE_DOCUMENT).unwrap();
+    for policy in ["read-only", "judge", "curate"] {
+        let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
+        assert!(plan.admitted.is_empty(), "{policy}");
+        let run_id = format!("r-{policy}");
+        let file =
+            mcp::write_config(&layout, &run_id, Provider::Claude, plan.injected(), None).unwrap();
+        let config: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert!(
+            config["mcpServers"].as_object().unwrap().is_empty(),
+            "{policy}: {config}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // cursor-agent: the config lives in the worktree, and the pre-flight is fatal
 // ---------------------------------------------------------------------------
 
@@ -398,18 +502,24 @@ fn the_pre_flight_refusal_writes_a_record_that_derives_mcp_unavailable() {
 }
 
 #[test]
-fn the_shipped_document_admits_nothing_to_anybody() {
-    // Protected config #5 as it stands on this machine: no server is configured
-    // here, so the document ships with the format and an example in comments.
-    // Every policy therefore launches with an empty `mcpServers` object.
+fn the_shipped_document_admits_the_face_to_standard_and_permissive_only() {
+    // Protected config #5 as it stands on this machine since map ticket 48:
+    // one server, the delegate face, admitted to the two policies a human
+    // chose and to nothing narrower. Every other policy still launches with an
+    // empty `mcpServers` object and refuses nothing.
     let document = Document::load().unwrap();
-    for policy in ["judge", "curate", "read-only", "standard", "permissive"] {
+    for policy in ["judge", "curate", "read-only"] {
         let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
         assert!(plan.admitted.is_empty(), "{policy}");
         assert!(
             plan.shortfall().is_none(),
-            "a document that admits nothing refuses nothing, {policy} included"
+            "a policy the face is not admitted to refuses nothing, {policy} included"
         );
+    }
+    for policy in ["standard", "permissive"] {
+        let plan = mcp::plan(&document, Provider::Claude, policy, Checkout::Hydra);
+        let names: Vec<&str> = plan.admitted.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["hydra"], "{policy}");
     }
 }
 

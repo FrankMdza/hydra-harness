@@ -1,7 +1,7 @@
 # 48 - The delegate face needs `--parent <run-id>` and the MCP document cannot say so
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -38,3 +38,18 @@ Each is a document change and a code change together, which is why ticket 11 lef
 Build ticket 11's `## Outcome` and `IMPLEMENTATION.md`'s section "Delegation, and the face",
 the paragraph beginning "Nothing injects". `src/mcp.rs`, `write_config`. `config/mcp.md`, the
 field table. Harness spec 6.5 and 9.
+
+## Answer
+
+Resolved 2026-09-07 with the human. **Hydra recognizes its own binary.** A server in the
+canonical document whose `command` has the basename `hydra` gets `--parent <run-id>` appended
+to its args at launch, and nothing else in the document changes: no token, no field, no new
+rule a human has to know to write a server. The match is on the basename so an absolute path
+to the binary enters too, and the appended flag lands in the run's own `mcp.json`, which the
+record already names. The cost named above stands: it is a rule keyed on a string, and it is
+written down in `config/mcp.md` beside the field table so the string is not a secret.
+
+The human also answered the question this ticket did not ask, which policies admit the face:
+`standard` and `permissive`, not `read-only`, `judge` or `curate`. The orchestrating session
+writes the `[[server]]` block and the human reviews it in the commit, which is the protected
+config rule met with the human present. Build ticket 26 carries the code and the block.

@@ -560,7 +560,17 @@ impl Walk {
                 || refusal
                     .as_ref()
                     .is_some_and(|refusal| refusal.by == Decider::HydraPolicy);
-            if !hydra_spoke {
+            // A call Claude Code refused on its own input schema never reached
+            // a hook: measured 2026-09-07 on run 01a07f37-8a67, where haiku
+            // passed `offset` as an array five times and each came back as an
+            // `InputValidationError` result with no hook frame beside it. The
+            // gate was never asked, so its silence is not a finding.
+            let refused_on_input = results
+                .get(&call_id)
+                .is_some_and(|(status, output)| {
+                    *status == ResultStatus::Error && output.contains("InputValidationError")
+                });
+            if !hydra_spoke && !refused_on_input {
                 self.findings.push(Finding::Ungated {
                     call_id: call_id.clone(),
                     tool: tool.clone(),
