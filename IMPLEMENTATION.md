@@ -1312,6 +1312,29 @@ is what every record on this machine does.
 same `git push --force` derives allow on a record that carries the flag and `hydra/floor`
 on one that does not.
 
+**Every `claude` thinking block written before build ticket 17 is empty, and the count
+beside it is right.** Contract 7.5 says `claude` gives thinking text with a signature, and
+43 blocks across the 27 records on this machine on 2026-09-07 held a signature and an empty
+string, while the 35 `cursor-agent` blocks all held text. Claude Code 2.1.72 started
+sending a `redact-thinking-2026-02-12` header that empties the block before it reaches
+the stream. Four probes on haiku on 2.1.263, same task, `--print --output-format
+stream-json --verbose`:
+
+| argv | text chars | `thinking_tokens` |
+|---|---|---|
+| nothing | 0 | 190 |
+| `--settings '{"showThinkingSummaries":true}'` | 504 | 266 |
+| `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1` | 0 | 181 |
+| both | 272 | 173 |
+
+The env var does nothing and the key is the whole fix, so `claude::settings` carries it
+beside the hook config on every policy. Two caveats travel with it. The text is the
+summary Anthropic generates and not the trace, which is all any Claude 4 model emits.
+And it is per model: issue 56356 on anthropics/claude-code reports Opus 4.7 returning
+no thinking block under the same setting, unmeasured here. The setting has regressed
+twice in the binary's history, at 2.1.8 and 2.1.72, which is why `tests/drift.rs` runs
+a paid probe behind `HYDRA_DRIFT_PAID=1` and names the version in its failure.
+
 Everything else in contract sections 2 to 6 is met, and `tests/record_contract.rs`
 checks it rather than asserting it. That test also walks every record under
 `~/hydra/runs/` on this machine and fails if any of them drifted.

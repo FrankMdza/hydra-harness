@@ -226,3 +226,133 @@ fn transcript(scratch: &Scratch) -> String {
         )
     })
 }
+
+/// Returns the version string printed by `claude --version`, or `None` when `claude`
+/// is not on the PATH.
+fn claude_version() -> Option<String> {
+    let out = Command::new("claude").arg("--version").output().ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+struct CleanDir(PathBuf);
+
+impl Drop for CleanDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Does `claude` still write thinking text when the run's own settings ask for it?
+///
+/// Build ticket 17. Claude Code 2.1.72 started emptying every thinking block on
+/// the stream, and `claude::settings` carries `showThinkingSummaries` to turn the
+/// text back on. The setting has regressed twice in the binary's history and one
+/// model has been reported ignoring it, so this runs the real thing rather than
+/// reading the argv. It costs a few hundred tokens on haiku, which is why it runs
+/// only under `HYDRA_DRIFT_PAID=1` and skips otherwise, unlike the two free probes
+/// above it. The failure names the version so a regression says which build.
+#[test]
+fn a_claude_run_still_writes_its_thinking_text() {
+    if std::env::var("HYDRA_DRIFT_PAID").as_deref() != Ok("1") {
+        println!("skipped: HYDRA_DRIFT_PAID is not set to 1");
+        return;
+    }
+    let Some(version) = claude_version() else {
+        println!("skipped: `claude` is not on the PATH, so there is nothing to measure");
+        return;
+    };
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let scratch_dir = std::env::temp_dir().join(format!(
+        "hydra-drift-thinking-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&scratch_dir);
+    std::fs::create_dir_all(&scratch_dir).unwrap();
+    let _clean = CleanDir(scratch_dir.clone());
+
+    let settings_file = scratch_dir.join("settings.json");
+    let settings = hydra::provider::claude::settings(Path::new("/tmp/hydra-drift-gate.py"), "0000");
+    std::fs::write(
+        &settings_file,
+        serde_json::to_string_pretty(&settings).unwrap(),
+    )
+    .unwrap();
+
+    let child = Command::new("claude")
+        .arg("--print")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--verbose")
+        .arg("--model")
+        .arg("haiku")
+        .arg("--settings")
+        .arg(&settings_file)
+        .arg("Think hard step by step, then answer: what is 17*23?")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("running claude");
+
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    let output = match rx.recv_timeout(std::time::Duration::from_secs(120)) {
+        Ok(res) => res.expect("waiting for claude"),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+            let _ = waiter.join();
+            let _ = std::fs::remove_dir_all(&scratch_dir);
+            panic!("{version} timed out after 120 seconds");
+        }
+        Err(err) => {
+            let _ = std::fs::remove_dir_all(&scratch_dir);
+            panic!("channel error: {err}");
+        }
+    };
+
+    let _ = std::fs::remove_dir_all(&scratch_dir);
+
+    let mut thinking_blocks = Vec::new();
+    let mut thinking_tokens: Option<u64> = None;
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if val["type"] == "assistant" {
+            if let Some(blocks) = val["message"]["content"].as_array() {
+                for block in blocks {
+                    if block["type"] == "thinking" {
+                        thinking_blocks.push(block.clone());
+                    }
+                }
+            }
+        } else if val["type"] == "result" {
+            if let Some(tokens) = val["usage"]["output_tokens_details"]["thinking_tokens"].as_u64() {
+                thinking_tokens = Some(tokens);
+            }
+        }
+    }
+
+    let count_str = match thinking_tokens {
+        Some(count) => format!("{count}"),
+        None => "absent".to_string(),
+    };
+
+    assert!(
+        !thinking_blocks.is_empty(),
+        "{version} wrote no thinking blocks (thinking_tokens: {count_str})"
+    );
+    assert!(
+        thinking_blocks
+            .iter()
+            .any(|b| b["thinking"].as_str().map_or(false, |s| !s.is_empty())),
+        "{version} wrote thinking blocks but none had non-empty thinking text (thinking_tokens: {count_str})"
+    );
+}

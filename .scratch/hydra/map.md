@@ -66,6 +66,9 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
 - [48](issues/48-the-face-needs-the-run-id-and-the-document-has-no-field.md) The delegate face
   needs `--parent <run-id>` per run and the MCP document has no field that could say so, so every
   tree a document-spawned face makes is flat. Opened 2026-09-07 from the build.
+- [49](issues/49-what-the-herdr-bridge-reports.md) Which of Herdr's four states `timed out` sits
+  on, and whether `base_tree` goes on the record. Two small decisions ticket 45 measured and left
+  to the human, opened 2026-09-07 before the bridge gets built around a guess.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
@@ -117,7 +120,7 @@ the way it closed the first time: a session that finds a decision rather than an
 reopens it.
 
 **Build tickets 11, 15 and 16 closed on 2026-09-07 and two of them found a decision, so the map is
-open again at 46 of 48.** Ticket 16 measured `--restricted` dropping the skills Hydra links into a
+open again at 46 of 48, and 46 of 49 since ticket 49 opened the same day.** Ticket 16 measured `--restricted` dropping the skills Hydra links into a
 `judge` run, which is ticket 47. Ticket 11 built the delegate face and found that the MCP document
 cannot hand it the run id, which is ticket 48. Both are grillings, and neither blocks anything on
 the build, which stands at 16 of 16.

@@ -589,6 +589,18 @@ So `claude` gives both, `cursor-agent` gives text alone, `agy` gives a count alo
 event carries text and the count rides on `usage`, which keeps a provider that reports one from
 implying the other.
 
+**`claude`'s text is a summary, and it is off unless the launch turns it on.** Since Claude Code
+2.1.72 the binary sends a `redact-thinking-2026-02-12` beta header, and every thinking block on the
+stream arrives with its `signature` and an empty `thinking` string while `thinking_tokens` stays
+non-zero. The text comes back through `"showThinkingSummaries": true` in the settings file the run
+already passes on `--settings`, measured 2026-09-07 on 2.1.263: 504 characters with the key, 0
+without, and `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` changes nothing. Build ticket 17 put the key
+on every recorded `claude` run. **A record written before it has the empty blocks**, and its count
+was always right. What comes back is the summary Anthropic generates rather than the model's own
+trace, which is the only thinking text a Claude 4 model ever emits, and one model has been reported
+ignoring the setting altogether, so the row above is a per-model claim that `tests/drift.rs` checks
+on the binary rather than a property of the provider.
+
 **`cursor-agent`'s text is provider-reported reasoning and the record claims no more.** Whether it
 is the model's own trace or a provider summary is not answerable from the CLI, and `model` reports
 the display name `Auto` rather than an id. Its binary carries a `reasoningTokens` field internally

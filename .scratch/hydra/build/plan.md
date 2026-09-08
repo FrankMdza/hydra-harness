@@ -51,6 +51,7 @@ it.
 - [14 - Two scope names, the two-kind deny list, and the reap sweep](14-two-scope-names-and-the-deny-list.md)
 - [15 - `scopes` and `floor_lifted` on the record](15-scopes-and-floor-lifted-on-the-record.md)
 - [16 - `judge` gets `--strict-mcp-config`, the probe follows, and `ToolSearch` moves](16-judge-strict-mcp-and-toolsearch.md)
+- [17 - `claude` runs record their thinking text again](17-thinking-text-on-claude-records.md)
 
 ## Out of scope
 

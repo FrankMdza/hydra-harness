@@ -252,6 +252,12 @@ pub fn mcp_config(servers: &[&crate::mcp::Server]) -> serde_json::Value {
 /// answer fails open here, and inventing a shorter budget than the default only
 /// moves the same failure closer. The script imports nothing outside the standard
 /// library and answers in milliseconds.
+///
+/// **`showThinkingSummaries` puts the thinking text back on the stream.** Since
+/// Claude Code 2.1.72 the binary sends a `redact-thinking-2026-02-12` beta header
+/// that empties every thinking block before it is written. Measured 2026-09-07 on
+/// 2.1.263 with haiku: 504 characters of thinking text with the key and 0 without,
+/// and `thinking_tokens` non-zero either way. Build ticket 17.
 pub fn settings(gate_script: &Path, gate_sha: &str) -> serde_json::Value {
     let command = crate::policy::hook_command(gate_script, gate_sha, Dialect::Claude);
     serde_json::json!({
@@ -264,7 +270,8 @@ pub fn settings(gate_script: &Path, gate_sha: &str) -> serde_json::Value {
                     ]
                 }
             ]
-        }
+        },
+        "showThinkingSummaries": true
     })
 }
 
@@ -642,6 +649,16 @@ mod tests {
         let argv = argv(&launch("standard", path));
         let at = argv.iter().position(|a| a == "--settings").unwrap();
         assert_eq!(argv[at + 1], "/tmp/spawn/r1/settings.json");
+    }
+
+    #[test]
+    fn thinking_text_is_turned_back_on_in_the_settings() {
+        let value = settings(Path::new("/tmp/spawn/r1/gate.py"), "abc");
+        assert_eq!(
+            value["showThinkingSummaries"],
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(value["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
     }
 
     #[test]
