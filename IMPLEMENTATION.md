@@ -124,6 +124,8 @@ hydra logs <run-id> [--follow]
 hydra reap [<run-id>] [--delete-branch]
 hydra prune [<run-id>...] [--delete] [--dry-run]
 hydra curate [--model <id>] [--timeout <dur>] [--dry-run]
+hydra show <run-id> [--events]
+hydra usage recount [<run-id>]
 ```
 
 A launch builds the child's environment from the allowlist, reads the provider's
@@ -145,7 +147,12 @@ each belong to a ticket that is not built: `--files` is on the delegate face and
 the command line, `--shared-tree` answers a worktree question nothing has asked yet, and
 `--allow-billed` belongs to the raw-model plane.
 
-Harness spec 17 lists eleven commands. Seven are built, `show` since build ticket 18. `hydra watch` is a twelfth and
+Harness spec 17 lists eleven commands. Eight are built, `show` since build ticket 18 and
+`usage recount` since build ticket 31. That last one walks the corpus, or one record, and
+prints how many runs carry each `usage_source`, then says there is nothing to recount, which
+spec 17 already promised for v1: no provider produces `estimated`, and the command exists so
+the tool is here the day one does. On this machine on 2026-09-08 it said `provider: 58`,
+`unavailable: 5`, `estimated: 0`. `hydra watch` is a twelfth and
 is not one of them: it is the detached half of a launch, `hydra run` is the only thing
 that types it, and `clap` hides it from the help for that reason. `hydra delegate-face`
 is a thirteenth, hidden the same way: it is the MCP delegate face of section 9, a run's
@@ -2623,8 +2630,7 @@ Out of scope for this slice, and each one has a document that already says what 
   under any other policy has been made, so `standard` and `permissive` on that provider
   are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
 - Interactive runs and harvest. 5.6, 12.
-- Five of harness spec 17's eleven commands: `show`, `resume`, `evolve`, `export`
-  and `usage recount`.
+- Three of harness spec 17's eleven commands: `resume`, `evolve` and `export`.
 - Ouroboros rung two. `hydra evolve`, the protected-path refusal, the admission
   gate, the panel of three and the `ApprovedPatch` type are all absent, and so is
   the harness run a pass would write (contract 5.5). Rung one is built and the

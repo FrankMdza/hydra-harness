@@ -1,7 +1,7 @@
 # 51 - Cursor ran `ReadLints` past the gate, and its argument is a list
 
 Type: prototype
-Status: open
+Status: claimed
 Blocked by:
 
 ## Question
@@ -43,3 +43,27 @@ Harness spec 6.6 says what a hook that fires looks like on this provider.
 `tests/normalize.rs::no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent` skips
 record 01a07ffe-372a by id, naming this ticket, so a build run does not spend its last third
 bisecting a leak it did not cause. The skip comes out when the ticket does.
+
+## Measured
+
+Run 01a0800f-1fa4, Composer 2.5 under `read-only`, 2026-09-08, asked for three `ReadLints`
+calls: `src/main.rs` inside the worktree, `/etc/hosts`, and no paths. All three ran and all
+three returned `{"fileDiagnostics":[],"totalFiles":0,"totalDiagnostics":0}`, the model read
+each as "No linter errors found", and nothing was refused. The raw argument is
+`readLintsToolCall.args.paths`, a list, relative or absolute, empty allowed. The spawn
+directory's `cursor-data` holds no `hydra gate:` line, which every other deny writes there
+through the hook's stderr, and a `Read` outside the worktree in the same build is refused
+with Hydra's reason in the result. So `preToolUse` does not fire for `ReadLints` on
+2026.09.02-c22c1a3: the provider runs it without asking. The replay derives `hydra/no-path`
+and reports each call as a `GateLeak`, three on this record, one on each of build tickets 29
+and 31's Composer runs. In print mode there is no language server behind the tool, which is
+why every call returns zero files: what it would read with one running, and whether a
+diagnostic can carry file content, is not measured.
+
+What is left is the decision. The tool reads nothing today and cannot be refused on any
+policy. The capability table can say `file_read` on `paths` and keep reporting a leak it
+cannot close, or say the provider runs the tool unhooked, so the replay records that as a
+decision by the provider rather than a leak by the gate, and the risk statement moves to the
+Cursor section of `IMPLEMENTATION.md`. Contract 7.7 has `hydra_policy`, `user` and `provider`
+as deciders; the second reading spends one of them. `tests/normalize.rs` passes over that
+one tool's leaks until this is answered.

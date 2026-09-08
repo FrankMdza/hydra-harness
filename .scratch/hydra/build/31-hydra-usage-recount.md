@@ -1,7 +1,7 @@
 # 31 - `hydra usage recount`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 18
 
 ## Goal
@@ -47,3 +47,22 @@ naming a run id that does not exist fails with an error that names the path.
 - The tests above pass and the rest of the suite is untouched.
 - The orchestrating session amends `IMPLEMENTATION.md`'s command list and `CLAUDE.md`'s test
   file count.
+
+## Outcome
+
+Resolved 2026-09-08, on the second launch. The first, run 01a07ffe-4808 on `agy`
+`gemini-3.8-flash-high` under `standard`, the first `agy` run under that policy ever, read
+fifty-five steps and 3.2M tokens without writing a file and died on the provider's own
+"timeout waiting for response" while `cargo test --release` compiled a cold worktree; it
+found the `grep_search` field name wrong on the way, fixed in master the same hour. The
+second, run 01a08008-ba33 on `cursor-agent` Composer 2.5 under `standard`: 1.21M tokens, five
+files, three tests, thirteen minutes, every slice as written. `src/usage.rs` reads each record
+through `normalize::read_with` and `outcome::Usage::of`, the same path `show` takes. On this
+machine: `provider: 58`, `estimated: 0`, `unavailable: 5`, nothing to recount. Nineteen test
+files now. The orchestrating session amended the command list, the not-built list and
+`CLAUDE.md`'s counts.
+
+**What the second run found on the way.** One more `ReadLints` past the gate, the same leak as
+ticket 29's run, so map ticket 51's skip in the corpus walk is by tool rather than by record.
+The model also tried to `tail` its own provider's log under `~/hydra/spawn/`, and the protected
+path refused it.

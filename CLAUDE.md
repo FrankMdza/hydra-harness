@@ -6,8 +6,8 @@ fourth until ticket 22 unrouted it; its guardrail rules are still copied, its bi
 
 This repo holds a finished design, three documents in `docs/`, written from a wayfinder map that
 closed on 2026-09-05 with 38 of 38 tickets resolved and all four seam checks passing. It also holds
-the Rust that implements six of that design's eleven commands: `run`, `status`, `logs`, `reap`,
-`prune` and `curate`.
+the Rust that implements eight of that design's eleven commands: `run`, `status`, `logs`, `reap`,
+`prune`, `curate`, `show` and `usage recount`.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
 design and the code. The code is deliberately not spec-complete: all three providers are routed and
@@ -95,7 +95,7 @@ document and there should not be one.
 - `integrations/herdr/`, the Herdr plugin: a launcher that puts the run id on the pane, a poller
   that labels the pane from the record, a graph of one run in the terminal, and a smoke test
   against a live Herdr. Nothing under `src/` imports it, and its README says how to link it.
-- `tests/`, eighteen files. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, nineteen files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
   hook payloads, launching nothing; `spawn.rs` checks that a run writes that gate where the run will
@@ -110,7 +110,8 @@ document and there should not be one.
   which runs rung one is told about, and commits a proposal into a throwaway store;
   `delegation.rs` builds parent records by hand and drives the depth cap and the containment
   refusal, launching nothing; `face.rs` drives the built binary's delegate face over stdin and
-  reads its refusals back as tool results; `show.rs` and `harvest.rs` read a normalized record and a harvested one back;
+  reads its refusals back as tool results; `show.rs` and `harvest.rs` read a normalized record and a harvested one back; `usage.rs` tallies
+  two synthetic records and reads a missing one's error back;
   `drift.rs` runs `claude`'s free probe under `judge`'s
   flags with stub servers in a scratch `HOME`, skips without the binary, and holds the only
   tests in the suite that launch a provider.

@@ -40,5 +40,6 @@ pub mod run;
 pub mod show;
 pub mod skills;
 pub mod status;
+pub mod usage;
 pub mod watch;
 pub mod worktree;

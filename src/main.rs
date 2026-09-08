@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 
-use hydra::cli::{Cli, Command};
+use hydra::cli::{Cli, Command, UsageCommand};
 use hydra::paths::Layout;
 use hydra::provider::Provider;
 use hydra::run::{Call, Request, run};
@@ -124,6 +124,12 @@ fn main() -> Result<()> {
             })?;
             print!("{}", hydra::ouroboros::curate::report(&done));
         }
+        Command::Usage { command } => match command {
+            UsageCommand::Recount { run_id } => {
+                let mut out = std::io::stdout().lock();
+                hydra::usage::recount(&Layout::discover()?, run_id.as_deref(), &mut out)?;
+            }
+        },
         Command::Prune {
             run_id,
             delete,

@@ -141,6 +141,12 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// Token usage across the corpus.
+    Usage {
+        #[command(subcommand)]
+        command: UsageCommand,
+    },
+
     /// Move run files out of `runs/`. Deletes only behind a flag.
     Prune {
         /// The runs to prune. Without any, every run that is not live.
@@ -170,6 +176,15 @@ pub enum Command {
         /// depth 0, which is what a human's own session gets.
         #[arg(long)]
         parent: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum UsageCommand {
+    /// Tally each run's usage source and report whether anything needs recounting.
+    Recount {
+        /// One run. Without it, every record under `~/hydra/runs/`.
+        run_id: Option<String>,
     },
 }
 
