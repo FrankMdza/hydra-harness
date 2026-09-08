@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::interactive::{HarvestOutcome, harvest_in};
-use hydra::normalize::{Event, Role};
+use hydra::normalize::{Event, Finding, Role};
 use hydra::paths::Layout;
 use hydra::provider::claude::transcript_path;
-use hydra::record::{Auth, RunStart, SCHEMA_VERSION, Writer};
+use hydra::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
 use serde_json::{Value, json};
 
 fn scratch(name: &str) -> (Layout, PathBuf, PathBuf) {
@@ -72,6 +72,82 @@ fn open_interactive_run(layout: &Layout, run_id: &str, session: &str, cwd: &Path
     let mut writer =
         Writer::create(layout.run_file(run_id), run_id, None, Some("claude"), None).unwrap();
     writer.hydra_line(&start).unwrap();
+}
+
+/// The `run_start` a gated interactive launch writes: policy, worktree and
+/// scopes on the envelope, with the session id known up front.
+fn open_gated_interactive_run(
+    layout: &Layout,
+    run_id: &str,
+    session: &str,
+    cwd: &Path,
+    policy: &str,
+) {
+    let pid = std::process::id();
+    let start_time = hydra::procinfo::start_time(pid).unwrap();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let start = RunStart {
+        kind: "run_start",
+        schema_version: SCHEMA_VERSION,
+        hydra_version: "0.2.0".into(),
+        command: "run".into(),
+        launch_mode: Some("interactive".into()),
+        provider_version: Some("2.1.261 (Claude Code)".into()),
+        provider_session_id: Some(session.to_string()),
+        task: Some("probe".into()),
+        policy: Some(policy.to_string()),
+        policy_sha: Some(policies.sha().to_string()),
+        floor_lifted: Some(false),
+        scopes: Some(std::collections::BTreeMap::from([(
+            "worktree".to_string(),
+            cwd.display().to_string(),
+        )])),
+        cwd: cwd.display().to_string(),
+        worktree: Some(WorktreeRef {
+            path: cwd.display().to_string(),
+            branch: format!("hydra/{run_id}"),
+            base_tree: Some("abc123".to_string()),
+        }),
+        depth: 0,
+        parent_policy: None,
+        pid: Some(pid),
+        process_start_time: start_time
+            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
+        skills: None,
+        mcp: Some(json!({"doc_sha": "abc", "injected": [], "resolved": null})),
+        auth: Some(Auth {
+            mechanism: "subscription-oauth",
+            source: "keychain",
+            allow_billed: false,
+            gated: true,
+        }),
+        env_allowlist: Some(vec!["HOME".into(), "PATH".into()]),
+        subscription: Some("anthropic".into()),
+    };
+    let mut writer =
+        Writer::create(layout.run_file(run_id), run_id, None, Some("claude"), None).unwrap();
+    writer.hydra_line(&start).unwrap();
+}
+
+/// A gate refusal in the vendor transcript: an error `tool_result` whose text
+/// starts with `hydra/`, map ticket 50's measured shape.
+fn gate_denial(uuid: &str, parent: &str, tool_use_id: &str, reason: &str) -> String {
+    record(
+        uuid,
+        Some(parent),
+        "user",
+        json!({
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": reason,
+                    "is_error": true,
+                }],
+            },
+        }),
+    )
 }
 
 /// One record of the vendor's own transcript, in the shape research 34 and 35
@@ -360,5 +436,84 @@ fn an_agent_that_argued_instead_of_retrying_produces_no_pair() {
     assert!(
         !run.events.iter().any(|event| matches!(event, Event::Correction(_))),
         "an argued reply is a rejection without a correction"
+    );
+}
+
+#[test]
+fn a_gated_harvest_derives_one_denial_and_one_limit_finding() {
+    let (layout, home, cwd) = scratch("gated-deny");
+    let run_id = "01a07900-0000-7000-8000-0000000000e1";
+    let session = "01a07900-0000-7000-8000-0000000000e2";
+    open_gated_interactive_run(&layout, run_id, session, &cwd, "read-only");
+
+    let reason = "hydra/capability: policy read-only does not allow file_write (Write).";
+    let lines = vec![
+        assistant_tool_use(
+            "h1",
+            "root",
+            "toolu_1",
+            "Write",
+            json!({"file_path": "/tmp/x.txt", "content": "x"}),
+        ),
+        gate_denial("h2", "h1", "toolu_1", reason),
+    ];
+    write_transcript(&home, &cwd, session, &lines);
+
+    harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+
+    assert_eq!(run.policy.as_deref(), Some("read-only"));
+    assert_eq!(run.permission_decisions().count(), 1);
+    let decision = run.permission_decisions().next().unwrap();
+    assert_eq!(decision.decision, hydra::normalize::Decision::Deny);
+    assert_eq!(decision.decider, hydra::normalize::Decider::HydraPolicy);
+    assert_eq!(decision.reason, reason);
+    assert!(
+        run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Limit(text) if text == "allows were not recorded on this launch mode")),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn an_ungated_harvest_derives_no_denial_and_no_limit_finding() {
+    let (layout, home, cwd) = scratch("ungated");
+    let run_id = "01a07900-0000-7000-8000-0000000000f1";
+    let session = "01a07900-0000-7000-8000-0000000000f2";
+    open_interactive_run(&layout, run_id, session, &cwd);
+
+    let lines = vec![
+        assistant_tool_use(
+            "i1",
+            "root",
+            "toolu_1",
+            "Write",
+            json!({"file_path": "/tmp/x.txt", "content": "x"}),
+        ),
+        gate_denial(
+            "i2",
+            "i1",
+            "toolu_1",
+            "hydra/capability: policy read-only does not allow file_write (Write).",
+        ),
+    ];
+    write_transcript(&home, &cwd, session, &lines);
+
+    harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+
+    assert_eq!(run.policy, None);
+    assert_eq!(run.permission_decisions().count(), 0);
+    assert!(
+        !run
+            .findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Limit(_))),
+        "{:?}",
+        run.findings
     );
 }

@@ -710,3 +710,60 @@ fn the_agy_hook_command_gates_a_call_in_the_shape_the_provider_sends() {
         "{tampered}"
     );
 }
+
+#[test]
+fn an_interactive_policy_launch_writes_a_gate_and_settings() {
+    let (layout, root) = layout();
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    let config = |key: &str, value: &str| {
+        let out = std::process::Command::new("git")
+            .args(["config", key, value])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+    };
+    config("user.email", "test@example.invalid");
+    config("user.name", "hydra tests");
+    std::fs::write(repo.join("README"), "seed\n").unwrap();
+    let out = std::process::Command::new("git")
+        .args(["add", "README"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git add failed");
+    let out = std::process::Command::new("git")
+        .args(["commit", "-qm", "seed", "README"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git commit failed");
+
+    let policies = PolicySet::discover().unwrap();
+    let prep = hydra::interactive::prepare_policy_launch(
+        &layout,
+        "r1",
+        "read-only",
+        &policies,
+        &repo,
+        &repo,
+    )
+    .unwrap();
+
+    assert_eq!(prep.spawn.gate, root.join("spawn/r1/gate"));
+    assert_eq!(prep.spawn.hook_config, root.join("spawn/r1/settings.json"));
+    assert!(prep.spawn.gate.is_file());
+    assert!(prep.spawn.hook_config.is_file());
+
+    let command = hook_command(&settings_of(&prep.spawn.hook_config));
+    assert!(
+        command.contains(prep.spawn.gate.to_str().unwrap()),
+        "--settings must point at the script this spawn wrote, got {command}"
+    );
+    assert!(
+        command.ends_with(" claude"),
+        "the dialect is argv[1] and is never inferred, got {command}"
+    );
+}

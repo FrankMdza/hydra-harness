@@ -53,9 +53,10 @@ pub enum Command {
         model: Option<String>,
 
         /// One of the five policies. `standard` is reads, writes, shell and
-        /// network reads inside the worktree.
-        #[arg(long, default_value = "standard")]
-        policy: String,
+        /// network reads inside the worktree. On a recorded run it defaults to
+        /// `standard` when omitted. On an interactive run it defaults to none.
+        #[arg(long)]
+        policy: Option<String>,
 
         /// The run id this one is a child of. Its depth plus one is this run's,
         /// and its policy is the widest this one may ask for (7.3).
@@ -74,9 +75,12 @@ pub enum Command {
 
         /// Harness spec 3's second launch mode: the vendor draws its own
         /// interface in this pane and Hydra waits for it to exit, rather than
-        /// owning a pty and streaming the frames into the record. No policy,
-        /// no skill injection, no preamble, and `--policy`, `--parent` and
-        /// `--allow-floor-escape` above are ignored. `claude` only today.
+        /// owning a pty and streaming the frames into the record. Without
+        /// `--policy` there is no gate, no skill injection and no preamble.
+        /// With `--policy` on `claude` the launch compiles a gate, seeds a
+        /// worktree and links the snapshot the way a recorded run does.
+        /// `--parent` and `--allow-floor-escape` are ignored. `claude` only
+        /// today.
         #[arg(long)]
         interactive: bool,
     },

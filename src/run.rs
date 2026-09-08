@@ -927,17 +927,17 @@ fn worktree_preconditions(
 /// What the injection half of the launch produced: the `skills` group, the
 /// verdict of 6.1's fifth pre-flight check, and the MCP half of the one answer
 /// the probe gave.
-struct InjectedSkills {
-    record: serde_json::Value,
-    collisions: Vec<crate::skills::collision::Collision>,
+pub(crate) struct InjectedSkills {
+    pub(crate) record: serde_json::Value,
+    pub(crate) collisions: Vec<crate::skills::collision::Collision>,
     /// The sha this run pinned, contract 5.3's `skills.store_sha`. The gate's
     /// `skill_snapshot` scope is derived from it through
     /// [`Layout::skill_snapshot_scope`], which is the same function contract
     /// 7.7's re-evaluation calls with the sha read back off the record.
-    store_sha: String,
+    pub(crate) store_sha: String,
     /// Contract 5.3's `mcp.resolved`, from the same probe. `None` is unanswered,
     /// never an empty listing.
-    mcp_resolved: Option<Vec<String>>,
+    pub(crate) mcp_resolved: Option<Vec<String>>,
 }
 
 /// Pins the store, snapshots it, links it into the checkout and asks the provider
@@ -956,7 +956,7 @@ struct InjectedSkills {
 /// reader to treat an absent `resolved` as unanswered rather than as an empty
 /// listing. The cost is that the third of the three collision tests does not
 /// run, which is said out loud rather than swallowed: the other two still do.
-fn inject_skills(
+pub(crate) fn inject_skills(
     layout: &Layout,
     run_id: &str,
     provider: Provider,

@@ -26,7 +26,11 @@ fn main() -> Result<()> {
                     "hydra run --interactive supports claude only; cursor-agent and agy are \
                      not launched interactively yet"
                 );
-                let result = hydra::interactive::run(hydra::interactive::Request { task, model })?;
+                let result = hydra::interactive::run(hydra::interactive::Request {
+                    task,
+                    model,
+                    policy,
+                })?;
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 let task = task.ok_or_else(|| {
@@ -36,7 +40,7 @@ fn main() -> Result<()> {
                     provider: provider.parse::<Provider>()?,
                     task,
                     model,
-                    policy,
+                    policy: policy.unwrap_or_else(|| "standard".to_string()),
                     floor_lifted: allow_floor_escape,
                     timeout,
                     parent,

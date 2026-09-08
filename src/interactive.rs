@@ -3,12 +3,13 @@
 //!
 //! **The vendor owns the terminal.** Hydra mints a run id and a `claude`
 //! session id, writes `run_start`, execs the provider inheriting stdio in the
-//! caller's own cwd, and waits for it to exit. No pty of Hydra's, no detached
-//! half, no gate, no preamble: harness spec 4's second population. When the
-//! process exits, [`harvest`] converts its own transcript into `run_end`, and
-//! the same function is what `hydra status` calls on a dead run whose body
-//! nobody harvested yet (section 10, "harvest is idempotent and any process
-//! can do it").
+//! caller's own cwd or in a worktree when `--policy` is set, and waits for it
+//! to exit. No pty of Hydra's, no detached half, no preamble: harness spec 4's
+//! second population when no policy is named, and a gated run with a human at
+//! the keyboard when one is. When the process exits, [`harvest`] converts its
+//! own transcript into `run_end`, and the same function is what `hydra status`
+//! calls on a dead run whose body nobody harvested yet (section 10, "harvest is
+//! idempotent and any process can do it").
 //!
 //! **`claude` only.** Harness spec 10: it is the one provider confirmed to
 //! write an append-only transcript during the run, and the one whose
@@ -16,7 +17,7 @@
 //! `--session-id` the pre-flight probe already mints
 //! ([`crate::provider::claude::transcript_path`]).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use uuid::Uuid;
@@ -25,14 +26,135 @@ use crate::env::ChildEnv;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
 use crate::provider::{Provider, claude};
-use crate::record::{Auth, RunEnd, RunStart, SCHEMA_VERSION, Writer};
+use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
+use crate::run::{SpawnFiles, inject_skills, write_spawn_config};
 
-/// What a human typed. Nothing here is gated, so there is no policy, no
-/// parent and no timeout: harness spec 3 gives this mode none of them, and
-/// [`run`] blocks on the child until it exits whatever that takes.
+/// What a human typed. Without `--policy` nothing here is gated. With it the
+/// launch compiles a gate, seeds a worktree and links the snapshot the way a
+/// recorded run does before the spawn.
 pub struct Request {
     pub task: Option<String>,
     pub model: Option<String>,
+    /// One of the five names when this run should be gated, and none by default.
+    pub policy: Option<String>,
+}
+
+/// What a gated interactive launch writes before it execs the provider.
+///
+/// Public so `tests/spawn.rs` can read the gate and the settings without
+/// launching anything.
+pub struct PolicyLaunch {
+    pub cwd: PathBuf,
+    pub worktree: WorktreeRef,
+    pub spawn: SpawnFiles,
+    pub mcp_file: Option<PathBuf>,
+    pub skills: Option<serde_json::Value>,
+    pub mcp: serde_json::Value,
+    pub seed_tree: Option<String>,
+    pub scopes: std::collections::BTreeMap<String, String>,
+}
+
+/// Compiles the gate, seeds a worktree and links the snapshot, harness spec 3
+/// with map ticket 50's paragraph.
+///
+/// Split out of [`run`] because `tests/spawn.rs` checks what it writes without
+/// launching a provider, and because the gated and ungated halves of
+/// [`run`] share nothing below this point except the harvest.
+pub fn prepare_policy_launch(
+    layout: &Layout,
+    run_id: &str,
+    policy: &str,
+    policies: &crate::policy::PolicySet,
+    repo: &Path,
+    _invoked_in: &Path,
+) -> Result<PolicyLaunch> {
+    policies.get(policy)?;
+
+    let mcp_document = crate::mcp::Document::load()?;
+
+    let worktree = crate::worktree::create(
+        repo,
+        &layout.worktree(run_id),
+        &format!("hydra/{run_id}"),
+        &layout.seed_index(run_id),
+    )?;
+    let seed_tree = worktree.seed_tree.clone();
+    let cwd = worktree.path.clone();
+    let worktree_ref = WorktreeRef {
+        path: worktree.path.display().to_string(),
+        branch: worktree.branch.clone(),
+        base_tree: worktree.seed_tree.clone(),
+    };
+
+    let mcp_plan = crate::mcp::plan(
+        &mcp_document,
+        Provider::Claude,
+        policy,
+        crate::mcp::Checkout::Hydra,
+    );
+    if mcp_plan.shortfall().is_some() {
+        anyhow::bail!("{}", mcp_plan.remediation());
+    }
+    let mcp_file = crate::mcp::write_config(
+        layout,
+        run_id,
+        Provider::Claude,
+        mcp_plan.injected(),
+        Some(&worktree.path),
+    )?;
+    let injected_names = mcp_plan.injected_names();
+
+    let injected = if policy != "judge" {
+        Some(inject_skills(
+            layout,
+            run_id,
+            Provider::Claude,
+            &worktree.path,
+            crate::mcp::Probe {
+                policy,
+                config: Some(&mcp_file),
+            },
+        )?)
+    } else {
+        None
+    };
+
+    if let Some(injected) = &injected
+        && !injected.collisions.is_empty()
+    {
+        anyhow::bail!("{}", crate::skills::collision::remediation(&injected.collisions));
+    }
+
+    let store_sha = injected.as_ref().map(|i| i.store_sha.as_str());
+    let spawn = write_spawn_config(
+        layout,
+        run_id,
+        policies,
+        Provider::Claude,
+        policy,
+        Some(&worktree.path),
+        Some(repo),
+        store_sha,
+        false,
+    )?;
+
+    let scopes = spawn.scopes.clone();
+    Ok(PolicyLaunch {
+        cwd,
+        worktree: worktree_ref,
+        spawn,
+        mcp_file: Some(mcp_file),
+        skills: injected.as_ref().map(|i| i.record.clone()),
+        mcp: crate::mcp::record(
+            &mcp_document.sha,
+            &injected_names,
+            injected
+                .as_ref()
+                .and_then(|injected| injected.mcp_resolved.as_deref()),
+        ),
+        seed_tree,
+        scopes,
+    })
 }
 
 /// Launches `claude` interactively and returns contract 17's projection once
@@ -44,6 +166,129 @@ pub struct Request {
 /// is the caller's own terminal, and giving up on it would leave the vendor's
 /// TUI running with nobody home to read what it prints next.
 pub fn run(request: Request) -> Result<RunResult> {
+    if request.policy.is_some() {
+        run_gated(request)
+    } else {
+        run_ungated(request)
+    }
+}
+
+fn run_gated(request: Request) -> Result<RunResult> {
+    let layout = Layout::discover()?;
+    layout.ensure()?;
+
+    let invoked_in = std::env::current_dir().context("reading the working directory")?;
+    let repo = crate::worktree::repo_root(&invoked_in).with_context(|| {
+        "a gated interactive run needs a git repo to seed a worktree from. \
+         Run it from inside a repository."
+    })?;
+
+    let policy = request
+        .policy
+        .as_deref()
+        .context("run_gated called without a policy")?;
+    let policies = crate::policy::PolicySet::discover()?;
+
+    let run_id = Uuid::now_v7().to_string();
+    let session = Uuid::now_v7().to_string();
+    let run_file = layout.run_file(&run_id);
+
+    let prep = prepare_policy_launch(&layout, &run_id, policy, &policies, &repo, &invoked_in)?;
+
+    let provider_version = Provider::Claude.version()?;
+    let child_env = ChildEnv::build(Provider::Claude)?;
+
+    let argv = claude::interactive_argv(&claude::InteractiveLaunch {
+        session: &session,
+        task: request.task.as_deref(),
+        model: request.model.as_deref(),
+        mcp: prep.mcp_file.as_deref(),
+        settings: Some(&prep.spawn.hook_config),
+        policy: Some(policy),
+    });
+
+    let mut child = std::process::Command::new(Provider::Claude.binary())
+        .args(&argv)
+        .current_dir(&prep.cwd)
+        .env_clear()
+        .envs(child_env.vars().map(|(k, v)| (k.to_string(), v.to_string())))
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .with_context(|| format!("starting {}", Provider::Claude.binary()))?;
+
+    let pid = child.id();
+    let process_start_time = crate::procinfo::start_time(pid)?;
+
+    let start = RunStart {
+        kind: "run_start",
+        schema_version: SCHEMA_VERSION,
+        hydra_version: env!("CARGO_PKG_VERSION").to_string(),
+        command: "run".to_string(),
+        launch_mode: Some("interactive".to_string()),
+        provider_version: Some(provider_version),
+        provider_session_id: Some(session.clone()),
+        task: request.task.clone(),
+        policy: Some(policy.to_string()),
+        policy_sha: Some(policies.sha().to_string()),
+        floor_lifted: Some(false),
+        scopes: Some(prep.scopes.clone()),
+        cwd: prep.cwd.display().to_string(),
+        worktree: Some(prep.worktree.clone()),
+        depth: 0,
+        parent_policy: None,
+        pid: Some(pid),
+        process_start_time: process_start_time
+            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
+        skills: prep.skills.clone(),
+        mcp: Some(prep.mcp.clone()),
+        auth: Some(Auth {
+            mechanism: "subscription-oauth",
+            source: "keychain",
+            allow_billed: false,
+            gated: true,
+        }),
+        env_allowlist: Some(child_env.names()),
+        subscription: Some(Provider::Claude.subscription().to_string()),
+    };
+
+    let mut writer = Writer::create(
+        &run_file,
+        &run_id,
+        None,
+        Some(Provider::Claude.binary()),
+        request.model.as_deref(),
+    )?;
+    writer.hydra_line(&start)?;
+    drop(writer);
+
+    eprintln!("hydra: run {run_id}");
+    eprintln!("hydra: record {}", run_file.display());
+    eprintln!(
+        "hydra: worktree {} on {}",
+        prep.worktree.path,
+        prep.worktree.branch
+    );
+
+    let status = child.wait().context("waiting for claude to exit")?;
+
+    if let Err(err) = harvest(&layout, &run_id, status.code()) {
+        eprintln!("hydra: run {run_id} exited but did not harvest: {err:#}");
+        eprintln!("hydra: `hydra status {run_id}` will retry it");
+    }
+
+    let run = crate::normalize::read_file(&run_file, &policies)?;
+    Ok(crate::run::result(
+        &run,
+        &run_file,
+        Some(&prep.worktree),
+        prep.seed_tree.as_deref(),
+        &layout,
+    ))
+}
+
+fn run_ungated(request: Request) -> Result<RunResult> {
     let layout = Layout::discover()?;
     layout.ensure()?;
 
@@ -68,6 +313,8 @@ pub fn run(request: Request) -> Result<RunResult> {
         task: request.task.as_deref(),
         model: request.model.as_deref(),
         mcp: Some(&mcp_file),
+        settings: None,
+        policy: None,
     });
 
     let mut child = std::process::Command::new(Provider::Claude.binary())
@@ -215,13 +462,42 @@ pub fn harvest_in(
     let parent_run_id = envelope["parent_run_id"].as_str();
     let model = envelope["model"].as_str();
 
+    // A session that exits before its first turn writes no transcript at all,
+    // measured 2026-09-08 on a consent dialog answered with exit. That run is
+    // over and has nothing to harvest, and a `run_end` saying so is what keeps
+    // `hydra status` from re-reporting the same missing file forever.
     let transcript_path = claude::transcript_path(home, Path::new(cwd), session);
-    let transcript = std::fs::read_to_string(&transcript_path).with_context(|| {
-        format!(
-            "reading the transcript hydra predicted for run {run_id} at {}",
-            transcript_path.display()
-        )
-    })?;
+    let transcript = match std::fs::read_to_string(&transcript_path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let next_seq = crate::record::next_seq(&run_file)?;
+            let mut writer = Writer::resume(
+                &run_file,
+                run_id,
+                parent_run_id,
+                envelope["provider"].as_str(),
+                model,
+                next_seq,
+            )?;
+            if crate::live::has_run_end(&run_file)? {
+                return Ok(HarvestOutcome::AlreadyDone);
+            }
+            let error = format!(
+                "the session wrote no transcript at {}, so there is nothing to harvest",
+                transcript_path.display()
+            );
+            writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, Some(error)))?;
+            return Ok(HarvestOutcome::Harvested { records: 0 });
+        }
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!(
+                    "reading the transcript hydra predicted for run {run_id} at {}",
+                    transcript_path.display()
+                )
+            });
+        }
+    };
 
     let next_seq = crate::record::next_seq(&run_file)?;
     let mut writer = Writer::resume(
@@ -254,7 +530,7 @@ pub fn harvest_in(
     let error = exit_code
         .is_none()
         .then(|| "harvested after the run already exited, so the exit code was not observed".to_string());
-    writer.hydra_line(&RunEnd::harvested(exit_code, error))?;
+    writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, error))?;
 
     Ok(HarvestOutcome::Harvested { records })
 }

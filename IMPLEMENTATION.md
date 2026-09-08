@@ -2151,6 +2151,18 @@ record ended at 24 lines with outcome `completed`. `cursor-agent` and `agy` are 
 interactively; the launch refuses them by name. An interactive run may take a policy since map
 ticket 50, which is build ticket 28.
 
+**With `--policy <name>`, since build ticket 28, an interactive `claude` run is gated.** The
+launch reuses the recorded pre-flight: worktree seeded with `base_tree`, snapshot linked, gate
+compiled, `settings.json` handed to `claude` on `--settings`, `run_start` carrying the policy and
+its sha. The argv carries no `--permission-mode bypassPermissions`, because interactively that
+flag opens a consent dialog with nobody to answer it; a human answers the vendor's own prompt
+for an allow and a hook deny beats the prompt either way. The harvest reader derives a `deny` by
+`hydra_policy` from every error `tool_result` whose text starts with `hydra/` and pushes one
+`limit` finding saying allows were not recorded, so a reader tells the two record shapes apart
+by `policy` being null or not. Measured on 2026-09-08 up to the harvest with the finding on the
+record; the denial on a real launch is one prompt short, because the session met Claude's
+five-hour limit first, and ticket 28's outcome names the command that closes it.
+
 ## `judge` is not injected, and the face is admitted
 
 **A `judge` run is linked no skills, since build ticket 25.** Map ticket 47 decided it: the
@@ -2604,6 +2616,14 @@ Out of scope for this slice, and each one has a document that already says what 
   reading the override from somewhere a run cannot write, and today the honest statement
   is that a delegated run's record is where its own environment says.
 
+- **A harvested run that met a rate limit derives `completed`.** Contract 8 reads
+  `rate_limited` off a stream frame, and a harvested `claude` record has none: its only
+  assistant turn is the sentence "You've hit your session limit", and the outcome comes out
+  `completed` with that sentence as `result_text`. Seen 2026-09-08 on run 01a07f6c-ba21. Rung
+  one skips interactive runs, so nothing learns from it yet, and export would carry it.
+- **An interactive session that exits before its first turn writes no transcript**, and the
+  harvest writes a `run_end` with an error naming the path it looked for, since 2026-09-08.
+  Before that the run sat with no `run_end` and `hydra status` re-reported the missing file.
 - **A run with no `run_end` is not corrupt.** Contract section 6 says so. Killing the
   detached half mid-run produces one, and nothing completes it: `hydra status` reports it
   as abandoned and stops there, because completing it means harvest and no run on this

@@ -183,11 +183,15 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
 /// structured stream, and no `--output-format`, `--verbose` or
 /// `--include-hook-events` beside it: nothing here is teed. `--session-id` is
 /// the one flag every mode needs, because harvest predicts the transcript path
-/// from it. No `--settings` and no `--permission-mode`: harness spec 3 gives an
-/// interactive run no gate, and a human answering their own prompts is the
-/// whole of the design there. `--mcp-config` rides alone, without
-/// `--strict-mcp-config`, contract 5.6, so the human's own servers survive
-/// beside whatever this run's file admits.
+/// from it. Without `--policy` there is no `--settings` and no
+/// `--permission-mode`: harness spec 3 gives an ungated interactive run no
+/// gate, and a human answering their own prompts is the whole of the design
+/// there. With `--policy`, `--settings` names the same hook config a recorded
+/// run gets and `--permission-mode bypassPermissions` rides beside it for
+/// every policy except `judge`. `--mcp-config` rides alone on an ungated run,
+/// without `--strict-mcp-config`, contract 5.6, so the human's own servers
+/// survive beside whatever this run's file admits. With a policy it follows
+/// 6.7 the way a recorded run does.
 pub struct InteractiveLaunch<'a> {
     pub session: &'a str,
     /// The task string, verbatim and with no preamble: harness spec 3 gives an
@@ -195,6 +199,12 @@ pub struct InteractiveLaunch<'a> {
     pub task: Option<&'a str>,
     pub model: Option<&'a str>,
     pub mcp: Option<&'a Path>,
+    /// The hook config, `~/hydra/spawn/<run-id>/settings.json`, when this run
+    /// compiled a gate. `None` on an ungated interactive launch.
+    pub settings: Option<&'a Path>,
+    /// The policy name when this run compiled a gate. `None` on an ungated
+    /// interactive launch.
+    pub policy: Option<&'a str>,
 }
 
 /// `claude` takes a positional argument as its opening prompt whether or not
@@ -202,10 +212,26 @@ pub struct InteractiveLaunch<'a> {
 /// this one agree on where the task goes.
 pub fn interactive_argv(launch: &InteractiveLaunch<'_>) -> Vec<String> {
     let mut argv = vec!["--session-id".to_string(), launch.session.to_string()];
-    if let Some(mcp) = launch.mcp {
+    if let Some(policy) = launch.policy {
+        let flags = mcp_flags(crate::mcp::Probe {
+            policy,
+            config: launch.mcp,
+        });
+        argv.extend(flags.argv());
+    } else if let Some(mcp) = launch.mcp {
         argv.push("--mcp-config".to_string());
         argv.push(mcp.display().to_string());
     }
+    if let Some(settings) = launch.settings {
+        argv.push("--settings".to_string());
+        argv.push(settings.display().to_string());
+    }
+    // No `--permission-mode bypassPermissions` here, unlike the recorded argv.
+    // Interactively that flag opens a consent dialog before the first prompt,
+    // measured 2026-09-08 on 2.1.263, and Herdr read the pane as `blocked`
+    // with nobody to answer it. A human is at this keyboard, so the vendor's
+    // own prompt is the right answer for an allow, and a hook deny beats the
+    // prompt either way, which is what the gate needs.
     if let Some(model) = launch.model {
         argv.push("--model".to_string());
         argv.push(model.to_string());
@@ -904,6 +930,8 @@ mod tests {
             task: Some("do the thing"),
             model: Some("sonnet"),
             mcp: Some(Path::new("/tmp/spawn/r1/mcp.json")),
+            settings: None,
+            policy: None,
         });
         assert_eq!(argv[0], "--session-id");
         assert_eq!(argv[1], "s1");
@@ -925,12 +953,37 @@ mod tests {
     }
 
     #[test]
+    fn a_gated_interactive_argv_carries_settings_and_no_bypass() {
+        let argv = interactive_argv(&InteractiveLaunch {
+            session: "s1",
+            task: Some("probe"),
+            model: None,
+            mcp: Some(Path::new(MCP)),
+            settings: Some(Path::new("/tmp/spawn/r1/settings.json")),
+            policy: Some("read-only"),
+        });
+        let at = argv.iter().position(|a| a == "--settings").unwrap();
+        assert_eq!(argv[at + 1], "/tmp/spawn/r1/settings.json");
+        // Interactively the bypass flag opens a consent dialog with nobody to
+        // answer it, and a human at the keyboard answers the vendor's own
+        // prompt for an allow while a hook deny beats it either way.
+        assert!(
+            !argv.iter().any(|a| a == "--permission-mode"),
+            "{argv:?}"
+        );
+        assert!(argv.iter().any(|a| a == "--mcp-config"));
+        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    #[test]
     fn an_interactive_launch_with_no_task_opens_with_no_opening_prompt() {
         let argv = interactive_argv(&InteractiveLaunch {
             session: "s1",
             task: None,
             model: None,
             mcp: None,
+            settings: None,
+            policy: None,
         });
         assert_eq!(argv, vec!["--session-id".to_string(), "s1".to_string()]);
     }

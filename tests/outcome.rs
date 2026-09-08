@@ -1133,6 +1133,19 @@ fn the_one_unclassified_result_on_this_machine_is_the_only_unknown() {
             continue;
         };
         let source = derived.source;
+        // A harvested run with no body at all, a session that exited before its
+        // first turn and wrote no transcript, has nothing to read an outcome
+        // from and says so on `run_end.error`. Its source is unknown for a
+        // different reason than the rule below tests, so it steps out. First
+        // one landed 2026-09-08, run 01a07f6b-147d.
+        let empty_harvest = run
+            .run_end()
+            .is_some_and(|end| end.body["error"].is_string())
+            && run.messages().next().is_none()
+            && run.tool_results().next().is_none();
+        if empty_harvest {
+            continue;
+        }
         let unclassified = run
             .tool_results()
             .any(|r| r.status == hydra::normalize::ResultStatus::Unclassified);

@@ -1,7 +1,7 @@
 # 28 - `hydra run --interactive --policy <name>` on `claude`
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 27
 
 ## Goal
@@ -47,3 +47,40 @@ into the spawn directory the way a recorded one does, launching nothing.
 - The tests above pass and the suite is untouched.
 - `IMPLEMENTATION.md`'s interactive section says which of the two shapes a record is in and how
   a reader tells.
+
+## Outcome
+
+Resolved 2026-09-08, with one measurement still owed. `cursor-agent` on Composer 2.5, run
+01a07f62-7061 under `standard`, the first Rust ticket given to that model because Claude's
+five-hour window stood at 95 percent: 5.65M tokens, 5.5M cache reads, eight files, 628
+insertions, every test green. `interactive::prepare_policy_launch` reuses the recorded launch's
+pre-flight, worktree, snapshot, gate and settings rather than copying them, and the harvest
+reader derives a `deny` by `hydra_policy` from every error `tool_result` whose text starts with
+`hydra/`, with one `Finding::Limit` per gated interactive run saying allows were not recorded.
+
+**Two things the first real launch found, fixed by the orchestrating session.** The gated argv
+carried `--permission-mode bypassPermissions` like a recorded run, and interactively that flag
+opens a consent dialog before the first prompt; Herdr read the pane as `blocked` and nobody was
+there to answer. The flag is gone from the interactive argv. That session exited on the dialog
+and wrote no transcript, and the harvest then failed on the missing file at every `hydra status`;
+a missing transcript now writes a `run_end` with an error naming the path.
+
+**Measured on the second launch.** `hydra run --interactive --provider claude --model haiku
+--policy read-only` in a Herdr pane came up `claude idle`, wrote `run_start` with the policy,
+the worktree with `base_tree` and the linked skills, and harvested 23 lines with the `limit`
+finding on the record. **The denial itself is unmeasured on a real launch**: the prompt that
+should have been refused met "You've hit your session limit · resets 1:50am" instead, so no
+tool call was made. Map ticket 50 measured the same settings refusing a write on the same binary
+the day before, and `tests/harvest.rs` derives the denial from that result shape, so the gap is
+one prompt wide. The check to run after the window opens:
+
+```
+hydra run --interactive --provider claude --model haiku --policy read-only
+# in the session: ask it to Write a file, then /exit
+hydra show <run-id> --events   # expect one permission_decision deny by hydra_policy
+```
+
+**What the same record showed on the way.** A harvested run whose only assistant turn is the
+provider's rate-limit sentence derives `completed`. Contract 8's `rate_limited` reads a stream
+frame, and the harvest path has no rule for the sentence yet. Rough edge, noted in
+`IMPLEMENTATION.md`.

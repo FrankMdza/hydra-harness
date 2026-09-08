@@ -146,7 +146,7 @@ pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
     // adapter rather than a scan of the whole text the way picking a provider
     // does in `read_with`.
     if is_interactive(text) {
-        return harvest::normalize(text);
+        return harvest::normalize(text, policies);
     }
 
     let mut walk = Walk::default();
@@ -961,19 +961,24 @@ fn usage_of(seq: u64, result: &Value) -> Usage {
 /// API's own and both vocabularies wrap it, which is what lets
 /// [`super::message_blocks`] read both.
 ///
-/// **No policy, so no `permission_decision`.** Contract 5.6: an interactive
-/// run compiles no gate, so there is nothing to re-evaluate a call against, and
-/// the type has no producer here at all rather than an empty list of them.
+/// **No policy on an ungated run, so no `permission_decision`.** Contract 5.6:
+/// an interactive run that compiled no gate has nothing to re-evaluate a call
+/// against. Map ticket 50's gated shape is different: denials arrive as error
+/// `tool_result` blocks whose text starts with `hydra/`, and those become
+/// `permission_decision` rows of `deny` under `hydra_policy` with the reason
+/// verbatim. Allows leave no row, and one `Finding::Limit` says that out loud.
 mod harvest {
     use std::collections::HashMap;
 
     use serde_json::Value;
 
     use super::{
-        Correction, Counts, Event, Message, Role, Run, RunEnd, RunStart, Usage, UsageSource,
-        message_blocks,
+        Correction, Counts, Decider, Decision, Event, Message, PermissionDecision, Role, Run,
+        RunEnd, RunStart, ResultStatus, Usage, UsageSource, message_blocks, splice,
     };
     use anyhow::Result;
+
+    use crate::policy::PolicySet;
 
     /// The `result.usage` keys this walk also accumulates, one assistant
     /// record at a time rather than one terminator frame (contract 7.2.1: "
@@ -993,7 +998,7 @@ mod harvest {
     /// against a malformed file rather than a bound anyone expects to hit.
     const MAX_CHAIN_HOPS: usize = 500;
 
-    pub fn normalize(text: &str) -> Result<Run> {
+    pub fn normalize(text: &str, policies: &PolicySet) -> Result<Run> {
         let mut walk = Walk::default();
         for (index, line) in text.lines().enumerate() {
             if line.trim().is_empty() {
@@ -1007,7 +1012,7 @@ mod harvest {
                 ))),
             }
         }
-        walk.finish()
+        walk.finish(policies)
     }
 
     /// One tool call's name and input, read off a `tool_use` block, which is
@@ -1022,6 +1027,8 @@ mod harvest {
         run_id: String,
         parent_run_id: Option<String>,
         provider: Option<String>,
+        policy: Option<String>,
+        policy_sha: Option<String>,
         events: Vec<Event>,
         findings: Vec<super::Finding>,
         noise: Vec<String>,
@@ -1052,10 +1059,14 @@ mod harvest {
 
             if let Some(hydra) = envelope.get("hydra") {
                 match hydra["type"].as_str() {
-                    Some("run_start") => self.events.push(Event::RunStart(RunStart {
-                        seq,
-                        body: hydra.clone(),
-                    })),
+                    Some("run_start") => {
+                        self.policy = hydra["policy"].as_str().map(str::to_string);
+                        self.policy_sha = hydra["policy_sha"].as_str().map(str::to_string);
+                        self.events.push(Event::RunStart(RunStart {
+                            seq,
+                            body: hydra.clone(),
+                        }));
+                    }
                     Some("run_end") => {
                         self.emit_usage();
                         self.events.push(Event::RunEnd(RunEnd {
@@ -1184,19 +1195,30 @@ mod harvest {
             }));
         }
 
-        fn finish(mut self) -> Result<Run> {
+        fn finish(mut self, policies: &PolicySet) -> Result<Run> {
             super::super::note_missing_run_start(&self.events, &mut self.findings);
+            super::super::note_policy_sha(
+                self.policy.as_deref(),
+                self.policy_sha.as_deref(),
+                policies,
+                &mut self.findings,
+            );
             self.emit_usage();
             let corrections = self.derive_corrections();
             self.splice_corrections(corrections);
+            let decisions = self.derive_policy_decisions();
+            if self.policy.is_some() {
+                self.findings.push(super::Finding::Limit(
+                    "allows were not recorded on this launch mode".to_string(),
+                ));
+            }
+            let events = splice(self.events, decisions);
             Ok(Run {
                 run_id: self.run_id,
                 parent_run_id: self.parent_run_id,
                 provider: self.provider,
-                // Contract 5.6: null, always. No gate was compiled, so there
-                // is no policy for 7.7's re-evaluation to read.
-                policy: None,
-                events: self.events,
+                policy: self.policy,
+                events,
                 findings: self.findings,
                 // No `result` frame exists in a transcript at all (7.2.1);
                 // `usage` above is what stands in for the fields 8.5 keeps on
@@ -1204,6 +1226,47 @@ mod harvest {
                 result: None,
                 noise: self.noise,
             })
+        }
+
+        /// Map ticket 50: every error `tool_result` whose text starts with
+        /// `hydra/` becomes one `permission_decision` of `deny` under
+        /// `hydra_policy`, joined to its call by `tool_use_id`.
+        fn derive_policy_decisions(&self) -> Vec<Option<PermissionDecision>> {
+            if self.policy.is_none() {
+                return Vec::new();
+            }
+            let results = self.results_by_call();
+            let mut decisions = Vec::new();
+            for event in &self.events {
+                if let Event::ToolCall(call) = event {
+                    let decision = results.get(&call.call_id).and_then(|(status, output)| {
+                        (*status == ResultStatus::Error && output.starts_with("hydra/")).then(
+                            || PermissionDecision {
+                                seq: call.seq,
+                                call_id: call.call_id.clone(),
+                                decision: Decision::Deny,
+                                decider: Decider::HydraPolicy,
+                                reason: output.clone(),
+                            },
+                        )
+                    });
+                    decisions.push(decision);
+                }
+            }
+            decisions
+        }
+
+        fn results_by_call(&self) -> HashMap<String, (ResultStatus, String)> {
+            self.events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::ToolResult(result) if !result.call_id.is_empty() => Some((
+                        result.call_id.clone(),
+                        (result.status, result.output.clone()),
+                    )),
+                    _ => None,
+                })
+                .collect()
         }
 
         /// 7.9's rule, over every denial the transcript carries.
