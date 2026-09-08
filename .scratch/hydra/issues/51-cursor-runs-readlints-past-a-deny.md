@@ -122,3 +122,16 @@ is how these three did. Build ticket 35.
 
 The alternatives, a known leak the walks skip forever and an upstream request, were rejected
 for the noise they leave on every Composer record and for waiting on a vendor.
+
+## Amended the same evening: `awaitToolCall` is hooked after all
+
+Runs 01a0801d-7811, 01a08067-548b and the probe 01a08111-1e5e all show the same result on
+`awaitToolCall`: Hydra's `out-of-scope` refusal for `file_read`. The probe shows why. Cursor
+answers the call by reading the background task's output file under the run's own
+`cursor-data/` in the spawn directory, and fires the hook on that read; the spawn directory is
+a denied parent since build ticket 14. So the tool is not unhooked, it is a file read of a
+path the record does not carry, and under `standard` a Cursor run can start a background task
+and never await it. The `unhooked` row stays for the replay, which sees no path, and the
+runtime answer stands as a `Disagreement` whenever the two differ. Build ticket 38 carves out
+the run's own `cursor-data/` for reads. The first measurement, on run 01a0801d-7382, saw a
+completed result because that run's task file was still being written when the model waited.

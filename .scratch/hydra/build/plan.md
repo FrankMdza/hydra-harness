@@ -72,6 +72,7 @@ it.
 - [35 - An `unhooked` row in the capability table](35-unhooked-tools.md)
 - [36 - `hydra evolve`, Ouroboros rung two](36-hydra-evolve.md)
 - [37 - A `claude` tool result with no `is_error` is classified from `tool_use_result`](37-claude-results-without-is-error.md)
+- [38 - A Cursor run may read its own `cursor-data/`, so it can await a background task](38-a-run-reads-its-own-cursor-data.md)
 
 ## Out of scope
 
