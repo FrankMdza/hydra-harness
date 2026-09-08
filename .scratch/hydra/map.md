@@ -86,6 +86,13 @@ Ticket 39 closed on 2026-09-06 and the other four are open:
   list-valued `paths` argument the table does not know, the replay derives a deny, and the stream
   shows the tool completing anyway. Opened 2026-09-08 from build ticket 29's run. Whether the hook
   fired, whether Cursor obeys a deny on that tool, and what a leaked tool means for the policy set.
+  Measured three times the same day, print mode and interactive, down to a file that cannot
+  parse: no hook, no analyzer, no content. Closed the same day: an `unhooked` row for three
+  tools. Build ticket 35.
+- [52](issues/52-rung-two-build-details.md) Rung two's three open details from Ouroboros spec 9:
+  the proposer's policy, fitting a review prompt, tolerant parsing. Opened and closed 2026-09-08
+  with the human: `standard`, a size cap on the proposer's diff so nothing is reviewed blind, and
+  one fixed JSON shape where any deviation is a block. Build ticket 36 carries `hydra evolve`.
 
 Three of the first four are one question seen from different sides: what a scope is, and who gets
 to know. The fifth is the first flag claim to expire under the build plan's drift note. None of
@@ -142,11 +149,13 @@ open again at 46 of 48, then 50 of 50 after tickets 47 to 50 closed, all on 2026
 cannot hand it the run id, which is ticket 48. Both are grillings, and neither blocks anything on
 the build, which stands at 16 of 16.
 
-**Ticket 51 opened on 2026-09-08 from the build, and the map is open at 50 of 51.** Build ticket
-29's Composer run called `ReadLints` with a list of paths, the table knew no such field, and the
-tool ran past the deny the replay derives. Whether Cursor obeyed anything is unmeasured, and what
-a tool the provider runs unchecked means for the capability table is a decision. Nothing on the
-build is blocked by it; the corpus walk skips the one record until it closes.
+**Tickets 51 and 52 opened and closed on 2026-09-08, and the map is closed again at 52 of 52.**
+Build ticket 29's Composer run called `ReadLints` with a list of paths, the table knew no such
+field, and the tool ran past the deny the replay derives; three measurements the same day showed
+Cursor never asks the hook for that tool, nor for its MCP listing or its background-task wait,
+and that nothing sits behind `ReadLints` in either mode. The human chose an `unhooked` row kind.
+Ticket 52 took the three details Ouroboros spec 9 left open, once every other command was built
+and `evolve` was the last, and the human closed all three in one round. Build tickets 35 and 36.
 
 ## Notes
 
@@ -246,6 +255,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [48 - The delegate face needs `--parent <run-id>` and the MCP document cannot say so](issues/48-the-face-needs-the-run-id-and-the-document-has-no-field.md): Hydra recognizes its own binary by basename and appends `--parent <run-id>` at launch, with no new field or token in the protected document. The face is admitted under `standard` and `permissive`. Build ticket 26.
 - [50 - Can the gate ride an interactive `claude` session?](issues/50-gate-on-an-interactive-claude-session.md): opened 2026-09-07. Harness spec 3 gives an interactive run no gate. `claude` takes `--settings` interactively, so the hooks may apply and the question is whether their decisions reach the transcript the harvest reads. A prototype, not a decision. Probed the same day: the gate applies on a steered session and its denials reach the transcript as error tool results while allows leave nothing, so an interactive `claude` run can be gated and its refusals recorded. Whether the launch takes a policy is the question it leaves.
 - [43 - `--restricted` no longer drops MCP, so a `judge` run keeps the human's servers](issues/43-restricted-keeps-mcp-on-judge.md): the premise was wrong. Measured on 2.1.263 under a scratch `HOME`, `--restricted` drops user-scope and project-scope servers and keeps only what `--mcp-config` passes, so `judge` already gets an empty set. The flag goes on the `judge` argv anyway because the vendor's help text names it as the guarantee, the probe runs under `judge`'s flags so `mcp.resolved` is a measured `[]`, `ToolSearch` moves to `skill_invoke` because MCP tools arrive deferred in print mode, and one skip-if-absent test guards the claim against the next version. Build ticket 16 carries the code.
+- [51 - Cursor ran `ReadLints` past the gate, and its argument is a list](issues/51-cursor-runs-readlints-past-a-deny.md): the table gains an `unhooked` row kind for tools the provider runs without asking the hook, three on Cursor today, recorded as the provider's decision rather than a leak, with the per-tool risk written in `IMPLEMENTATION.md` and zero for all three. Build ticket 35.
+- [52 - Rung two's three open details](issues/52-rung-two-build-details.md): the proposer runs as `standard`; a patch over a line cap is rejected for size before any reviewer sees it, so a judge sees a whole diff or none; the reviewer answers one closed JSON shape and any deviation is a block. Build ticket 36.
 
 ## Not yet specified
 

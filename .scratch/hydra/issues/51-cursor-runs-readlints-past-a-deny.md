@@ -1,7 +1,7 @@
 # 51 - Cursor ran `ReadLints` past the gate, and its argument is a list
 
 Type: prototype
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -95,3 +95,30 @@ errors found" for a file no compiler accepts. So in print mode there is no analy
 tool at all, not merely none for this repo, and a `ReadLints` result cannot carry file content
 because it carries nothing. The interactive session with a real language server is measured
 below.
+
+## The interactive session, 2026-09-08
+
+`cursor-agent` 2026.09.02-c22c1a3 on Composer 2.5, interactive in a Herdr pane, in a scratch
+Cargo repo holding the same `fn main( {` file, outside Hydra because the interactive mode is
+built on `claude` only. Asked for `ReadLints` on `broken.rs` and on `src/main.rs`, it answered
+"No linter errors found" for both and reported no line of file content in either. So the CLI
+has no language server behind the tool in its interactive mode either; the diagnostics come
+from the editor, and the CLI is not the editor. The measurement the human asked for is done
+and the decision is the one the first measurement posed.
+
+## Answer
+
+Decided with the human on 2026-09-08, after three measurements. The capability table gains a
+third kind of row beside `tool` and `pathed`: **unhooked**, a tool the provider runs without
+asking the hook. On `cursor-agent` 2026.09.02-c22c1a3 the three are `ReadLints`,
+`getMcpToolsToolCall` and `awaitToolCall`. The replay records a call to one as a
+`permission_decision` with `decider: provider` and a reason naming the row, never as a
+`GateLeak`, and the two corpus walks stop passing over those names. The risk statement per
+tool lives in the Cursor section of `IMPLEMENTATION.md`, and today it is zero for all three:
+`ReadLints` has no analyzer behind it in either mode and returns nothing, the MCP listing names
+tools the run's own document admitted, and the wait blocks on a task the gate already saw
+start. A fourth unhooked tool arriving shows up as `unknown_tool` plus a completed result, which
+is how these three did. Build ticket 35.
+
+The alternatives, a known leak the walks skip forever and an upstream request, were rejected
+for the noise they leave on every Composer record and for waiting on a vendor.

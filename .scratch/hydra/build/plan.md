@@ -69,6 +69,8 @@ it.
 - [32 - `hydra resume <run-id>`](32-hydra-resume.md)
 - [33 - The tee caps a line](33-tee-line-cap.md)
 - [34 - `hydra export`](34-hydra-export.md)
+- [35 - An `unhooked` row in the capability table](35-unhooked-tools.md)
+- [36 - `hydra evolve`, Ouroboros rung two](36-hydra-evolve.md)
 
 ## Out of scope
 

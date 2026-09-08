@@ -686,6 +686,13 @@ policy denied, which on this machine means the user's own 418 lines of `PreToolU
 `agy` means nothing today because no user-scope hook config exists for it. That is a fact about this
 machine rather than a property of Hydra, and it changes the day someone writes one.
 
+A third value, `provider`, since 2026-09-08 and map ticket 51: the call went to a tool the
+provider runs without asking the hook, an `unhooked` row in the capability table, so no policy
+answered and none could. The decision is `allow`, the reason names the row, and the per-tool
+risk is stated in `IMPLEMENTATION.md`'s section on that provider. It is not a leak, because a
+leak is a gate that was asked and disobeyed, and it is not `external`, because nothing denied.
+Three Cursor tools carry it today.
+
 **Provider reason text is recorded verbatim in `raw` and is corroboration only**, with three
 different strengths worth knowing before anyone leans on it:
 

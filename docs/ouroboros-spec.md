@@ -889,6 +889,9 @@ The read-only brief in section 4.3 is the part that would justify a name, becaus
 is not a policy at all under the current shape: it is the supervisor choosing what to put in a prompt.
 Whether that stays a convention or becomes a mechanism is unsettled.
 
+Closed by map ticket 52 on 2026-09-08: the proposer runs as `standard`, and the brief stays a
+convention the supervisor keeps. A sixth policy arrives with the first reason.
+
 ### 9.3 Nobody has fitted a review prompt
 
 The reference implementation injects whole governance documents and budgets 920K tokens per reviewer.
@@ -903,6 +906,10 @@ outlived a 24-hour evidence TTL made a healthy install read its own scope review
 forever, blocking every commit for the rest of that process's life. The design answer they landed on
 transfers whatever Hydra builds: sizing may be optimistic, blocking authority may not.
 
+Closed by map ticket 52 on 2026-09-08: nothing is fitted. The proposer's patch has a line cap,
+a patch over it is recorded as rejected for size before any reviewer runs, and a reviewer sees
+the whole diff or none. The fit note, the manifest and the binary representation are not built.
+
 ### 9.4 Tolerant parsing is thirty lines nobody has written
 
 Telling a refusal from a clean pass is the one genuinely hard piece of rung two that Rust does not
@@ -911,3 +918,6 @@ fence and an optional sentinel. Section 2.1 chooses a type over a sentinel, beca
 something the model must remember and a type is something it cannot get wrong, but the parse in front
 of that type is still the thirty lines you do not think to write until it bites you. When it bites,
 the failure is a self-edit that was never reviewed being recorded as reviewed.
+
+Closed by map ticket 52 on 2026-09-08: the reviewer answers one closed JSON shape, parsed whole,
+and a response that does not parse is a block carrying the parse error. No sentinel.
