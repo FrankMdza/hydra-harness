@@ -287,6 +287,88 @@ fn the_childs_work_is_on_the_branch_before_the_checkout_goes() {
 }
 
 #[test]
+fn reap_does_not_commit_hydras_own_files_when_the_checkout_already_has_an_ignore() {
+    // A repo that tracks its own `.cursor/.gitignore` is the shape `claim`
+    // warns about: Hydra leaves that file alone, so `hooks.json` and
+    // `mcp.json` sit untracked. Reap must still keep them off the branch.
+    let fixture = Fixture::new("hydra-own-files");
+    std::fs::create_dir_all(fixture.repo.join(".cursor")).unwrap();
+    std::fs::write(fixture.repo.join(".cursor/.gitignore"), "rules/\n").unwrap();
+    git(&fixture.repo, &["add", "-A"]);
+    git(
+        &fixture.repo,
+        &["commit", "-qm", "the checkout's own ignore file"],
+    );
+
+    let layout = fixture.layout();
+    let run = "01a07730-a1b2-7c3d-8e4f-500000000001";
+    let checkout = fixture.checkout(run);
+    std::fs::write(checkout.join("child.txt"), "the edit\n").unwrap();
+    std::fs::write(checkout.join(".cursor/hooks.json"), "{}\n").unwrap();
+    std::fs::write(checkout.join(".cursor/mcp.json"), "{}\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let swept = worktree_of(&reaped[0]);
+    assert!(swept.committed.is_some(), "reap removed without committing");
+    assert!(!checkout.exists());
+
+    let branch = format!("hydra/{run}");
+    assert_eq!(
+        git(&fixture.repo, &["show", &format!("{branch}:child.txt")]),
+        "the edit\n"
+    );
+    let stat = git(&fixture.repo, &["show", "--stat", &branch]);
+    assert!(
+        !stat.contains("hooks.json") && !stat.contains("mcp.json"),
+        "Hydra's files landed on the branch: {stat}"
+    );
+    let tree = git(&fixture.repo, &["ls-tree", "-r", "--name-only", &branch]);
+    assert!(
+        !tree
+            .lines()
+            .any(|line| line == ".cursor/hooks.json" || line == ".cursor/mcp.json"),
+        "Hydra's files are in the tree: {tree}"
+    );
+    assert!(
+        tree.lines().any(|line| line == ".cursor/.gitignore"),
+        "the checkout's own ignore file was dropped: {tree}"
+    );
+}
+
+#[test]
+fn a_checkout_holding_only_hydras_own_files_commits_nothing_and_drops_the_branch() {
+    let fixture = Fixture::new("only-hydra-files");
+    std::fs::create_dir_all(fixture.repo.join(".cursor")).unwrap();
+    std::fs::write(fixture.repo.join(".cursor/.gitignore"), "rules/\n").unwrap();
+    git(&fixture.repo, &["add", "-A"]);
+    git(
+        &fixture.repo,
+        &["commit", "-qm", "the checkout's own ignore file"],
+    );
+
+    let layout = fixture.layout();
+    let run = "01a07730-a1b2-7c3d-8e4f-500000000002";
+    let checkout = fixture.checkout(run);
+    std::fs::write(checkout.join(".cursor/hooks.json"), "{}\n").unwrap();
+    std::fs::write(checkout.join(".cursor/mcp.json"), "{}\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let swept = worktree_of(&reaped[0]);
+    assert!(
+        swept.committed.is_none(),
+        "a checkout holding only Hydra's files was committed"
+    );
+    assert!(swept.removed);
+    assert!(swept.branch_removed);
+    assert!(!checkout.exists());
+    assert!(
+        !fixture.branches().contains(run),
+        "an empty branch stayed: {}",
+        fixture.branches()
+    );
+}
+
+#[test]
 fn a_branch_with_nothing_on_it_goes_and_one_with_a_commit_stays() {
     // The difference is `git branch -d` and not a rule of ours, which is what
     // makes it hold: the branch survives exactly when deleting it would lose the

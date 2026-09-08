@@ -244,7 +244,8 @@ pub fn propose(
         left: Vec::new(),
     };
 
-    proposal.commit = commit_everything(checkout, &message(run_id, result))?;
+    let exclude = crate::provider::own_worktree_paths();
+    proposal.commit = commit_everything(checkout, &message(run_id, result), &exclude)?;
 
     match git(store, &["worktree", "remove", &checkout.to_string_lossy()]) {
         Ok(_) => proposal.checkout_removed = true,

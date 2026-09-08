@@ -289,7 +289,8 @@ fn commit_then_remove(
         removed: false,
     };
 
-    swept.committed = commit_everything(checkout, message)?;
+    let exclude = crate::provider::own_worktree_paths();
+    swept.committed = commit_everything(checkout, message, &exclude)?;
 
     git(&main, &["worktree", "remove", &checkout.to_string_lossy()])?;
     swept.removed = true;

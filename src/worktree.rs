@@ -65,6 +65,27 @@ pub fn git_common_dir(dir: &Path) -> Option<PathBuf> {
 /// `None` when the tree was already clean, which is what tells a checkout
 /// holding work from one holding none.
 ///
+/// `exclude` is relative paths that are never committed. `hydra reap` and the
+/// curate-store sweep pass Hydra's own files, the ones `provider::own_worktree_paths`
+/// lists; any other caller passes an empty list and this is `git add -A` as it was.
+///
+/// **Excluding is done after staging, not with a pathspec.** `git add -A -- .
+/// ':(exclude)<path>'` refuses the whole command when one of the named paths is
+/// ignored, with "The following paths are ignored by one of your .gitignore
+/// files", and on a real worktree they always are: Hydra drops the ignore file
+/// that names them. Measured on 2026-09-08 on the first two reaps after build
+/// ticket 30 landed. So the sequence is `git add -A`, then `git reset -- <path>...`
+/// to take Hydra's own files back out of the index, which exits 0 whether or not
+/// a path exists. The emptiness check lists every untracked file by name, since
+/// the default porcelain collapses an untracked directory to one line that no
+/// path list can match.
+///
+/// **Untracked files at those paths are then removed**, so a caller that runs
+/// `git worktree remove` without `--force` is not stopped by files it was told
+/// not to commit. A tracked file at one of those paths, a repo's own
+/// `.cursor/.gitignore`, is left alone; so is an ignored one, since `git worktree
+/// remove` does not count it as dirt.
+///
 /// **`--no-verify`**, because a pre-commit hook that refuses would leave the
 /// caller unable to keep the work the checkout holds, and this commit is a
 /// snapshot of what a directory held rather than a contribution anyone reviews.
@@ -72,15 +93,54 @@ pub fn git_common_dir(dir: &Path) -> Option<PathBuf> {
 /// Two callers, and both remove the checkout afterwards: `hydra reap` and the
 /// curate pass's own `propose`. The removal is what differs between them, so it
 /// stays with each.
-pub fn commit_everything(checkout: &Path, message: &str) -> Result<Option<String>> {
-    if git(checkout, &["status", "--porcelain"])?.trim().is_empty() {
+pub fn commit_everything(
+    checkout: &Path,
+    message: &str,
+    exclude: &[&str],
+) -> Result<Option<String>> {
+    if !dirty_outside(checkout, exclude)? {
+        remove_untracked(checkout, exclude)?;
         return Ok(None);
     }
     git(checkout, &["add", "-A"])?;
+    if !exclude.is_empty() {
+        let mut args = vec!["reset", "-q", "--"];
+        args.extend(exclude);
+        git(checkout, &args)?;
+    }
     git(checkout, &["commit", "-q", "--no-verify", "-m", message])?;
+    remove_untracked(checkout, exclude)?;
     Ok(Some(
         git(checkout, &["rev-parse", "HEAD"])?.trim().to_string(),
     ))
+}
+
+/// Whether `git status` reports anything at a path not in `exclude`.
+fn dirty_outside(checkout: &Path, exclude: &[&str]) -> Result<bool> {
+    let status = git(checkout, &["status", "--porcelain", "--untracked-files=all"])?;
+    Ok(status.lines().any(|line| {
+        // `XY path`, or `XY old -> new` for a rename, where the new name is
+        // what would be committed.
+        let path = line.get(3..).unwrap_or("");
+        let path = path.rsplit(" -> ").next().unwrap_or(path);
+        !exclude.contains(&path)
+    }))
+}
+
+/// Removes the untracked files at `exclude`, and only those: a path `git
+/// ls-files` knows is the repo's own and stays.
+fn remove_untracked(checkout: &Path, exclude: &[&str]) -> Result<()> {
+    for path in exclude {
+        let file = checkout.join(path);
+        if !file.is_file() {
+            continue;
+        }
+        if git(checkout, &["ls-files", "--", path])?.trim().is_empty() {
+            std::fs::remove_file(&file)
+                .with_context(|| format!("removing {}", file.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// Creates the run's worktree and seeds it from the parent's working tree.

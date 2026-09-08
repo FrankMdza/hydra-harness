@@ -156,30 +156,67 @@ impl Provider {
     }
 }
 
+/// The relative paths Hydra writes into a checkout that `hydra reap` must not
+/// stage.
+///
+/// Built from each provider's `gitignore` so a file added there is excluded
+/// here without a second list. The dummy worktree is empty, which makes the
+/// paths `gitignore` returns relative.
+pub fn own_worktree_paths() -> Vec<&'static str> {
+    static PATHS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    PATHS
+        .get_or_init(|| {
+            [cursor::gitignore, agy::gitignore]
+                .into_iter()
+                .flat_map(paths_listed_by)
+                .collect()
+        })
+        .clone()
+}
+
+fn paths_listed_by(gitignore: fn(&Path) -> (PathBuf, &'static str)) -> Vec<&'static str> {
+    let (ignore_path, body) = gitignore(Path::new(""));
+    let dir = match ignore_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::new(),
+    };
+    body.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let name = line.trim_start_matches('/');
+            let relative = dir
+                .join(name)
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            Box::leak(relative.into_boxed_str()) as &'static str
+        })
+        .collect()
+}
+
 /// The path one of Hydra's per-run files will be written to inside the checkout,
 /// once the checkout has been checked for the human's own copy and the ignore
 /// file is in place.
 ///
 /// **A file the checkout already holds is refused rather than overwritten.** The
 /// worktree is seeded from the human's repo (6.3), so a hook or MCP config in it
-/// is theirs: writing over it edits their work and `hydra reap` would commit the
-/// edit, and loading theirs instead of Hydra's launches an ungated run.
-/// [`crate::run`] checks the parent repo for the same files before a run id
-/// exists; this is the second line, on the checkout itself.
+/// is theirs: writing over it edits their work and loading theirs instead of
+/// Hydra's launches an ungated run. [`crate::run`] checks the parent repo for
+/// the same files before a run id exists; this is the second line, on the
+/// checkout itself.
 ///
 /// **An existing `.gitignore` is left alone**, the same rule the skill root
 /// follows: a repo that tracks its own would see the overwrite as an edit to the
 /// human's checkout.
 ///
-/// **And when that happens the human is told, because the cost is worse than
-/// visible.** `hydra reap` commits the run's work with `git add -A`, so a
-/// Hydra file that is neither tracked nor ignored is a file reap puts on
-/// `hydra/<run-id>` for the human to merge: the run's gate pointer, or its MCP
-/// server list. Refusing the launch was the alternative and it is too harsh for
-/// a repo that merely has a `.gitignore` of its own, so this warns and names
-/// the file. Excluding Hydra's own paths inside reap is the real fix and it
-/// belongs to that command rather than to this one; `IMPLEMENTATION.md` carries
-/// it as a rough edge.
+/// **And when that happens the human is told, because they will see the file.**
+/// `hydra reap` excludes Hydra's own paths from what it stages, so the file
+/// does not land on `hydra/<run-id>`. It still sits untracked in the checkout
+/// while the run is live. Refusing the launch was the alternative and it is too
+/// harsh for a repo that merely has a `.gitignore` of its own, so this warns
+/// and names the file.
 ///
 /// Two providers reach this and the parts that differ are arguments: the
 /// directory the files live in, and which names the ignore file lists.
@@ -208,8 +245,9 @@ pub(crate) fn claim(
     let (ignore, body) = ignore(worktree);
     match std::fs::read_to_string(&ignore) {
         Ok(existing) if !covers(&existing, &file) => eprintln!(
-            "hydra: {} is the checkout's own and does not ignore {}, so `hydra reap` will \
-             commit Hydra's {what} onto this run's branch. Add /{} to that file to stop it.",
+            "hydra: {} is the checkout's own and does not ignore {}, so that file stays \
+             untracked in the checkout while the run is live. `hydra reap` will not commit \
+             Hydra's {what}. Add /{} to that file if you want git to ignore it.",
             ignore.display(),
             file.display(),
             basename(&file),
@@ -295,10 +333,11 @@ mod tests {
 
     #[test]
     fn an_ignore_file_the_checkout_owns_is_read_rather_than_replaced() {
-        // `hydra reap` stages with `git add -A`, so a Hydra file that is neither
-        // tracked nor ignored lands on the run's branch. An existing ignore file
-        // that already names it is fine; one that does not gets a warning, and
-        // either way the human's file is untouched.
+        // `hydra reap` excludes Hydra's own paths, so a file that is neither
+        // tracked nor ignored stays untracked in the live checkout rather than
+        // landing on the run's branch. An existing ignore file that already
+        // names it is fine; one that does not gets a warning, and either way
+        // the human's file is untouched.
         let file = std::path::Path::new("/wt/.agents/hooks.json");
         assert!(covers("/.gitignore\n/hooks.json\n/mcp_config.json\n", file));
         assert!(covers("*\n", file));
@@ -308,6 +347,21 @@ mod tests {
         assert!(!covers("# hooks.json\n", file));
         assert!(!covers("/rules\n/plugins\n", file));
         assert!(!covers("", file));
+    }
+
+    #[test]
+    fn own_worktree_paths_are_the_names_each_gitignore_lists() {
+        assert_eq!(
+            own_worktree_paths(),
+            vec![
+                ".cursor/.gitignore",
+                ".cursor/hooks.json",
+                ".cursor/mcp.json",
+                ".agents/.gitignore",
+                ".agents/hooks.json",
+                ".agents/mcp_config.json",
+            ]
+        );
     }
 
     #[test]

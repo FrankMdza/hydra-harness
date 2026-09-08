@@ -198,7 +198,24 @@ and a real proposal's stays.
 `Done` is `worktree`, `store_checkout` and `spawn_removed` now, one `Checkout` per directory,
 and `report()` prints one block per checkout labelled `worktree` or `skill store checkout`. The
 commit half is `commit_everything` in `src/worktree.rs`, shared with the curate pass's `propose`,
-so the two places Hydra commits a model's work spell it once. The sweep with no run id walks `skill-worktrees/` with the
+so the two places Hydra commits a model's work spell it once.
+
+**Reap commits nothing of Hydra's own, since build ticket 30.** `provider::own_worktree_paths`
+lists the six files Hydra writes into a checkout, built from the two providers' `gitignore`
+functions rather than retyped: `.cursor/.gitignore`, `.cursor/hooks.json`, `.cursor/mcp.json`,
+`.agents/.gitignore`, `.agents/hooks.json`, `.agents/mcp_config.json`. `commit_everything`
+takes that list from reap and from the curate sweep, stages with `git add -A`, then takes
+those paths back out of the index with `git reset`, commits, and removes whichever of them
+are untracked so `git worktree remove` without `--force` still takes the checkout. A repo that
+tracks its own `.cursor/.gitignore` keeps it, and an ignored file is left where it is, since
+the removal does not count it as dirt. The emptiness check lists untracked files by name, so a
+checkout holding only Hydra's files commits nothing and drops its empty branch.
+`provider::claim` still warns when it finds the human's ignore file, now saying reap will not
+commit the run's gate pointer or server list. **The first cut used `:(exclude)` pathspecs and
+failed on the first real reap**: `git add` refuses the whole command when a named path is
+ignored, and on a real worktree Hydra's own files always are. The model's test repo ignored
+nothing, so its tests passed; the orchestrating session rewrote the staging after two reaps
+failed. The sweep with no run id walks `skill-worktrees/` with the
 same three filters `orphan_spawns` applies to the spawn directory, and a live run's
 checkout is left alone by name and by sweep, the rule the worktree already had. Five tests
 in `tests/cleanup.rs` cover it: a proposal reaches its branch before the checkout goes, an
@@ -2595,15 +2612,6 @@ Out of scope for this slice, and each one has a document that already says what 
   document rather than code: nothing reads it, because nothing reviews yet.
 
 ## Rough edges worth knowing
-
-- **`hydra reap` stages with `git add -A`, so a Hydra file the checkout does not ignore
-  reaches the human's branch.** Hydra drops a `.gitignore` naming its own files into
-  `.cursor/` and `.agents/`, and leaves an existing one alone rather than editing the
-  human's file. A repo that carries its own ignore file in either directory therefore
-  gets Hydra's hook config and MCP server list committed onto `hydra/<run-id>` by reap.
-  `provider::claim` now reads that file and warns, naming the line to add, and the real
-  fix is for reap to exclude Hydra's own paths from what it stages. Nothing has hit this
-  on this machine, because neither directory exists in this repo.
 
 - **`~/hydra` is this checkout on the machine this is developed on**, so everything
   harness spec 5 writes lands inside the source repo and `.gitignore` is what keeps it
