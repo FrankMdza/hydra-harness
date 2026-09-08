@@ -1,7 +1,7 @@
 //! The command surface.
 //!
-//! Harness spec 17 lists eleven commands. Seven are here: `run`, `status`, `logs`,
-//! `show`, `reap`, `prune` and `curate`. Section 9 gives `hydra run` eight optional flags
+//! Harness spec 17 lists eleven commands. Eight are here: `run`, `status`, `logs`,
+//! `show`, `resume`, `reap`, `prune` and `curate`. Section 9 gives `hydra run` eight optional flags
 //! and five are here. The three that are not each belong to a ticket that is not
 //! built.
 //!
@@ -110,6 +110,23 @@ pub enum Command {
         events: bool,
     },
 
+    /// Continue a finished run's provider session under a fresh run id.
+    Resume {
+        /// The run whose `provider_session_id` this launch hands back to the
+        /// provider on its own resume flag.
+        run_id: String,
+
+        /// The task string for the continuation turn. Without it, a one-line
+        /// default is used.
+        #[arg(long)]
+        task: Option<String>,
+
+        /// How long to wait before degrading to a handle. The child is never
+        /// killed, so `0` means launch and return.
+        #[arg(long, default_value = "10m", value_parser = parse_duration)]
+        timeout: Duration,
+    },
+
     /// Commit a worktree's uncommitted changes to the child's branch, then remove
     /// the worktree and the run's spawn directory.
     Reap {
@@ -157,6 +174,17 @@ pub enum Command {
         delete: bool,
 
         /// Print what would happen and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// The one path by which anything leaves this machine, harness spec 14.
+    Export {
+        /// Where the header and one JSON line per eligible run are written.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+
+        /// Print one line per run with its eligibility reasons and write nothing.
         #[arg(long)]
         dry_run: bool,
     },

@@ -84,6 +84,16 @@ pub struct Request {
     /// to exist before either. Nothing else about the launch changes, and the id
     /// still reaches the record the same way.
     pub run_id: Option<String>,
+    /// `run` or `resume`. Harness spec 17's ninth command mints `resume`.
+    pub command: String,
+    /// The run whose provider session this launch continues, when `command` is
+    /// `resume`.
+    pub resumed_from: Option<String>,
+    /// The provider's own session id, passed on its resume flag when set.
+    pub resume_session_id: Option<String>,
+    /// Where to seed the worktree from, when the caller is not the cwd Hydra was
+    /// invoked in. `hydra resume` passes the source run's `cwd`.
+    pub working_dir: Option<PathBuf>,
 }
 
 /// What a call gets back: the run, or a way to come back to it.
@@ -321,7 +331,10 @@ pub fn run(request: Request) -> Result<Call> {
     // start. Reading the version first would turn a child reaching for `permissive`
     // on a binary nobody installed into an error with nothing written, which is the
     // invisible attempt the containment check exists to prevent.
-    let invoked_in = std::env::current_dir().context("reading the working directory")?;
+    let invoked_in = match &request.working_dir {
+        Some(dir) => dir.clone(),
+        None => std::env::current_dir().context("reading the working directory")?,
+    };
     let repo = crate::worktree::repo_root(&invoked_in);
 
     // Read before a run id exists: a policy name that is not one of the five, or a
@@ -727,7 +740,7 @@ pub fn run(request: Request) -> Result<Call> {
         }
     }
 
-    let argv = match request.provider {
+    let mut argv = match request.provider {
         Provider::Claude => claude::argv(&claude::Launch {
             task: &task,
             model: request.model.as_deref(),
@@ -754,6 +767,9 @@ pub fn run(request: Request) -> Result<Call> {
                 .context("an agy run needs a checkout and this one has none")?,
         }),
     };
+    if let Some(session_id) = &request.resume_session_id {
+        append_resume_args(&mut argv, request.provider, session_id);
+    }
 
     let spec_path = layout.launch_spec(&run_id);
 
@@ -1392,7 +1408,7 @@ pub fn run_start(
         kind: "run_start",
         schema_version: SCHEMA_VERSION,
         hydra_version: env!("CARGO_PKG_VERSION").to_string(),
-        command: "run".to_string(),
+        command: request.command.clone(),
         launch_mode: Some("recorded".to_string()),
         provider_version: provider_version.map(str::to_string),
         // Late on every provider. It lands on `claude`'s init frame, and a reader
@@ -1441,6 +1457,28 @@ pub fn run_start(
         }),
         env_allowlist,
         subscription: Some(request.provider.subscription().to_string()),
+        resumed_from: request.resumed_from.clone(),
+    }
+}
+
+/// Inserts the provider's resume flag before the task, harness spec section 5.
+pub fn append_resume_args(argv: &mut Vec<String>, provider: Provider, session_id: &str) {
+    let resume = match provider {
+        Provider::Claude => claude::resume_args(session_id),
+        Provider::CursorAgent => cursor::resume_args(session_id),
+        Provider::Agy => agy::resume_args(session_id),
+    };
+    match provider {
+        Provider::Agy => {
+            argv.splice(0..0, resume);
+        }
+        _ => {
+            let task = argv
+                .pop()
+                .expect("every recorded argv ends with the task string");
+            argv.extend(resume);
+            argv.push(task);
+        }
     }
 }
 

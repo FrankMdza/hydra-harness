@@ -74,6 +74,10 @@ pub struct RunStart {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_allowlist: Option<Vec<String>>,
     pub subscription: Option<String>,
+    /// The run id whose provider session this run continued, present only when
+    /// `command` is `resume` (contract 5.1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resumed_from: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]

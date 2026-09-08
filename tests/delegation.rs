@@ -98,6 +98,10 @@ fn request(policy: &str, parent: Option<&str>) -> Request {
         timeout: Duration::from_secs(600),
         run_id: None,
         parent: parent.map(str::to_string),
+        command: "run".to_string(),
+        resumed_from: None,
+        resume_session_id: None,
+        working_dir: None,
     }
 }
 

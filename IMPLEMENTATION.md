@@ -126,6 +126,8 @@ hydra prune [<run-id>...] [--delete] [--dry-run]
 hydra curate [--model <id>] [--timeout <dur>] [--dry-run]
 hydra show <run-id> [--events]
 hydra usage recount [<run-id>]
+hydra export --out <file> | --dry-run
+hydra resume <run-id> [--task "..."] [--timeout <dur>]
 ```
 
 A launch builds the child's environment from the allowlist, reads the provider's
@@ -147,8 +149,9 @@ each belong to a ticket that is not built: `--files` is on the delegate face and
 the command line, `--shared-tree` answers a worktree question nothing has asked yet, and
 `--allow-billed` belongs to the raw-model plane.
 
-Harness spec 17 lists eleven commands. Eight are built, `show` since build ticket 18 and
-`usage recount` since build ticket 31. That last one walks the corpus, or one record, and
+Harness spec 17 lists eleven commands. Ten are built, `show` since build ticket 18,
+`usage recount` since build ticket 31, `export` since build ticket 34, which has a
+section of its own below, and `resume` since build ticket 32, which has one too. That last one walks the corpus, or one record, and
 prints how many runs carry each `usage_source`, then says there is nothing to recount, which
 spec 17 already promised for v1: no provider produces `estimated`, and the command exists so
 the tool is here the day one does. On this machine on 2026-09-08 it said `provider: 58`,
@@ -963,6 +966,16 @@ the second means logging out. A signal death reports the same exit code 1 throug
 pty, which is why the detached half now writes the signal into `run_end.error` and the
 derivation reads that note first.
 
+**Two tool names this build did not know arrived on 2026-09-08.** `awaitToolCall`, with
+`taskId` and `blockUntilMs`, is Cursor waiting on a background task it started, seen on run
+01a0801d-7811; the gate at run time refused it with an out-of-scope `file_read` reason, so
+whatever `tool_name` the hook carried mapped onto a pathed row with no path, and the
+normalizer reports it as `unknown_tool`. And an `editToolCall` completed frame arrived
+with no `args` at all and "Invalid arguments: old_string: Required" as its result, which
+the replay used to file as a `Write` gate leak; it is a limit now, since a call the
+provider refused on its own arguments never ran and the record cannot say what path it
+would have taken. `ReadLints` is map ticket 51.
+
 **Two noise lines per run, and one of them is new.** Cursor writes the same bare
 show-cursor escape `claude` does after its last frame, and before its first frame it
 writes a coloured tip, `Tip: You can start the Cursor CLI with 'agent' (same as
@@ -1646,6 +1659,17 @@ finish, and it comes out `failed` rather than `crashed`, because contract 8 defi
 shape where the child ended without its terminator and Hydra has nothing to say about
 why.
 
+**The tee caps a line at 16 MiB, since build ticket 33.** `pty::LINE_CAP`. A provider
+that streams one frame with no newline used to grow `pending` without limit; now the tee
+writes what it holds as a frame of its own when the cap is reached and keeps reading, so
+the remainder becomes the next frame and nothing is dropped. The count lands in
+`run_end.error` beside the lossy UTF-8 count, in the same sentence shape, and stays null
+when nothing was capped; a piece that is not JSON normalizes as `noise` the way any other
+non-JSON line does, and every adapter pushes one `Finding::Limit` naming how many frames
+the tee split. `tests/pty_tee.rs` drives a 20 MiB line from a `dd | tr` stub, since a
+payload that size cannot ride argv the way the 200 KB one does, and gets two frames, one
+capped line named on `run_end`, and a record that validates.
+
 **The final assistant text is the final turn, not the final block.** Contract 7.3 gives
 one `message` event per content block, which is what `Message::block` numbers, so a frame
 that interleaves thinking with prose arrives as `[text, thinking, text]`. Taking the last
@@ -2286,6 +2310,80 @@ is on the `PATH`, and the `agy` run that built the bridge proved it by putting a
 the human's own pane. Harness spec 7.5 already says the gate cannot keep a shell away from a
 binary, and this is that hole with a new name rather than a new one.
 
+## `hydra resume`, since build ticket 32
+
+Harness spec 5's session identity and spec 17's ninth row. `src/resume.rs`, written by
+Composer 2.5 on run 01a0801d-7382, launched from a Herdr pane.
+
+**A resume is a `hydra run` with three more fields on the request.** `resume_in` reads the
+source record, refuses in one sentence a run that is still live, one with no
+`provider_session_id` on line 0 or on its stream, an interactive one, and a provider with no
+resume concept, then calls `run::run` with the source's provider, policy, model, cwd and
+`floor_lifted`, `command: "resume"`, `resumed_from` set to the source id, and the provider's
+own session id. `run_start` carries `command` and `resumed_from`, the row contract 5.1 gained
+on 2026-09-08. The source record is never rewritten, and the continuation is a run of its own
+with a fresh id, worktree and gate.
+
+**The flags are measured on the three binaries**: `claude --resume <session-id>`,
+`cursor-agent --resume <chatId>`, `agy --conversation <id>`, inserted before the task
+string on the first two and at the front of the argv on `agy`. The default task when
+`--task` is omitted is one line, "Continue from where the previous run left off." A resumed
+`agy` run carries one `Finding::Limit` saying its `result` usage covers earlier turns, which
+is the map's fog on usage scope left as it is.
+
+**Not yet measured on a live launch.** `tests/resume.rs` builds the argv each provider would
+get and drives the four refusals against synthetic records, launching nothing. Whether
+`cursor-agent`'s recorded session id is the `chatId` its flag wants is stated in the outcome
+as unverified.
+
+**The run that built it reached the real harness from inside the gate.** The model's first
+tests called `resume()` with `Layout::discover()`, which found `~/hydra`, and three spawn
+directories with a compiled gate, a `settings.json` and a `launch.json` naming `claude
+--resume <fake-id>` appeared under `~/hydra/spawn/` before the tests gained a scratch
+layout; no record and no provider process followed, because the seeded cwd was a reaped
+worktree, and `hydra reap` swept the three directories. Harness spec 7.5 already says the
+gate cannot keep a run from the binary it reaches through `shell`, and `cargo test` is that
+binary with its own arguments. The rough-edge list carries it.
+
+## `hydra export`, since build ticket 34
+
+Harness spec 14 as the audit it says is implementable today. `src/export.rs` and
+`src/normalize/paths.rs`, `tests/export.rs`, written by Composer 2.5 on run 01a0801d-7811
+and corrected twice by the orchestrating session.
+
+**The allowlist is protected config #3 and a human writes it.** `config/export-allowlist.json`
+is a JSON array of absolute repo paths, read at export time only, and `hydra export`
+refuses in one sentence naming the file when it is missing. Nothing creates it. Its sha
+rides the output header.
+
+**Eligibility is a list of named reasons per run**, and `--dry-run` prints them:
+`harness_run`, `path_outside_allowlist`, `unclassified_path`, `unknown_outcome`,
+`attachment`, `secret_flag`, `no_run_end`, `auth_failed`, `curators_child`,
+`child_ineligible`, `still_running`. The path check reads every tool call through the
+capability table's path field, a shell command's tokens coarsely the way the floor reads
+them, and canonicalizes both sides, which was the model's one false assumption: on this
+machine `/var` is `/private/var`, and without canonicalizing every run looked out of scope
+and the export wrote zero lines. A raw Cursor name the normalizer could not map is
+`unclassified` and the run stays home. A child's reasons are its parent's.
+
+**One correction on outcome.** The model excluded every outcome rung one never learns from.
+Contract 16.2 keys three exclusions on outcome and only one of them is an outcome:
+`auth_failed`, in which no task happened. Everything else exports with its outcome
+attached, gated and rate-limited runs included, because the exporter judges validity and
+never quality. `Reason::AuthFailed` replaced `NeverOutcome`.
+
+**Redaction is the four classes and nothing else.** Repository names taken from the
+allowlist entries that are not the exported run's own, replaced by a labelled marker;
+secrets by the same five prefixes the write-time sweep uses; the user's own hook stdout
+dropped as the `hook_response` frames; and customer data inside a fixture named in the
+header as the residue no pattern reaches. Section 5.2's fields are dropped with
+`run_start`, `run_end`, `permission_decision` and `usage`. The same prefix sweep runs again
+over every output line and one hit aborts the whole export with nothing written.
+
+**The output is one header line and one JSON line per run**, `{"events": [...]}` in the
+normalized vocabulary, to `--out <file>`. Nothing on this machine has been exported: the
+allowlist does not exist, and `hydra export --dry-run` says so.
+
 ## Ouroboros rung one: `hydra curate`
 
 Ticket 12. `src/ouroboros/` is the whole of it. `corpus.rs` decides which runs the
@@ -2638,7 +2736,7 @@ Out of scope for this slice, and each one has a document that already says what 
   under any other policy has been made, so `standard` and `permissive` on that provider
   are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
 - Interactive runs and harvest. 5.6, 12.
-- Three of harness spec 17's eleven commands: `resume`, `evolve` and `export`.
+- One of harness spec 17's eleven commands: `evolve`.
 - Ouroboros rung two. `hydra evolve`, the protected-path refusal, the admission
   gate, the panel of three and the `ApprovedPatch` type are all absent, and so is
   the harness run a pass would write (contract 5.5). Rung one is built and the
@@ -2663,6 +2761,13 @@ Out of scope for this slice, and each one has a document that already says what 
   store, and its run's ten in-scope reads re-derived on this branch as ten `GateLeak`
   findings. Nothing was wrong with either build. Moving a scope now rewrites the reading
   of records written before the move and of nothing written after it.
+- **A run's own test suite can drive the real harness.** Build ticket 32's Composer run
+  called `hydra::resume::resume` from a test with `Layout::discover()`, which read `~/hydra`
+  from inside the gate, and wrote three spawn directories there before the test learned to
+  take a scratch layout. Nothing launched, by luck of a dead cwd. The gate sees tool calls
+  and `cargo test` is one `shell` call; the only thing between a worktree's tests and the
+  corpus is a test author who passes a layout. Every launch text now says so, and a
+  reviewer reads a new test file for `Layout::discover()` before applying the diff.
 - **A run that can run a shell can set `HYDRA_ROOT` and move where its own children are
   recorded.** The variable never reaches a child through 6.2's allowlist, so nothing
   inherits it. What a child can do is export it itself and then invoke `hydra run`, which
@@ -2688,8 +2793,6 @@ Out of scope for this slice, and each one has a document that already says what 
   signals a child, and the design gives removal to `hydra reap`, which a human types.
 - **A frame that is not valid UTF-8 is stored lossily** and the count lands in
   `run_end.error`. It has not happened; `claude` writes JSON through Node.
-- **The tee has no line-length cap.** A provider that streams one enormous frame
-  would grow the buffer without limit. Frames of 200 KB are tested and fine.
 - **A gate compiled before build ticket 14 has no `own_write_paths` key, and `gate.py`
   reads it with an empty default rather than failing.** A `KeyError` there would exit
   non-zero printing nothing on stdout, and 6.6 measured `claude` treating exactly that

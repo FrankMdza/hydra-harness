@@ -19,6 +19,7 @@
 
 pub mod cli;
 pub mod env;
+pub mod export;
 pub mod face;
 pub mod interactive;
 pub mod live;
@@ -36,6 +37,7 @@ pub mod prune;
 pub mod pty;
 pub mod reap;
 pub mod record;
+pub mod resume;
 pub mod run;
 pub mod show;
 pub mod skills;

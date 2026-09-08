@@ -177,6 +177,11 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
     argv
 }
 
+/// Harness spec 17: `--resume <session-id>`, measured on 2.1.263.
+pub fn resume_args(session_id: &str) -> Vec<String> {
+    vec!["--resume".to_string(), session_id.to_string()]
+}
+
 /// The interactive argv, harness spec 3's second mode.
 ///
 /// No `--print`, so the binary draws its own TUI instead of writing a

@@ -62,6 +62,7 @@ fn a_run_start() -> RunStart {
         }),
         env_allowlist: Some(vec!["HOME".into(), "PATH".into(), "USER".into()]),
         subscription: Some("anthropic".into()),
+        resumed_from: None,
     }
 }
 

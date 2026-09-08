@@ -65,6 +65,11 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
     argv
 }
 
+/// Harness spec 17: `--resume <chatId>`, measured on 2026.09.02-c22c1a3.
+pub fn resume_args(session_id: &str) -> Vec<String> {
+    vec!["--resume".to_string(), session_id.to_string()]
+}
+
 /// Where the hook config goes, 6.6's table: inside the worktree, a real file.
 pub fn hooks_file(worktree: &Path) -> PathBuf {
     worktree.join(".cursor/hooks.json")

@@ -146,6 +146,12 @@ impl Provider {
         }
     }
 
+    /// Whether harness spec 17's resume command can continue this provider's
+    /// sessions. Every routed provider in v1 can; there is no third branch.
+    pub fn supports_resume(self) -> bool {
+        true
+    }
+
     /// What the provider reported about this frame that the envelope needs.
     pub fn observe(self, raw: &str) -> Observed {
         match self {

@@ -251,6 +251,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
         }),
         env_allowlist: Some(child_env.names()),
         subscription: Some(Provider::Claude.subscription().to_string()),
+        resumed_from: None,
     };
 
     let mut writer = Writer::create(
@@ -369,6 +370,7 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         }),
         env_allowlist: Some(child_env.names()),
         subscription: Some(Provider::Claude.subscription().to_string()),
+        resumed_from: None,
     };
 
     let mut writer = Writer::create(

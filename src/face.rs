@@ -332,6 +332,10 @@ fn read(arguments: &Value, parent: Option<&str>) -> Result<Request> {
         timeout: TIMEOUT,
         parent: parent.map(str::to_string),
         run_id: None,
+        command: "run".to_string(),
+        resumed_from: None,
+        resume_session_id: None,
+        working_dir: None,
     })
 }
 

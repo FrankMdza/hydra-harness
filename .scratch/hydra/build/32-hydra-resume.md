@@ -1,7 +1,7 @@
 # 32 - `hydra resume <run-id>`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 31
 
 ## Goal
@@ -50,3 +50,25 @@ refused with their sentence. Nothing launches; build the argv the way `tests/spa
   says `command: resume` and `resumed_from`, and the old record is untouched.
 - The tests above pass and the rest of the suite is untouched.
 - The orchestrating session adds the row to contract 5.1 and the command to `IMPLEMENTATION.md`.
+
+## Outcome
+
+Resolved 2026-09-08. `cursor-agent` on Composer 2.5, run 01a0801d-7382 under `standard`:
+6.58M tokens, twenty files, eight tests, fifty minutes, in a Herdr pane the bridge labelled.
+Every slice landed: `resume_in`, the four refusals, `resumed_from` and `command` on
+`run_start`, one `resume_args` per provider, the `agy` usage limit. The model's stated
+assumptions: the default task wording is its own; session ids pass through as recorded, so
+whether Cursor's recorded id is the `chatId` its flag wants is unverified; `provider` is read
+off the envelope because line 0's body has no such field.
+
+**What the run did that the gate could not see.** Its first tests called `resume()` through
+`Layout::discover()`, which found the real `~/hydra`, and three spawn directories appeared
+there with a compiled gate and a `launch.json` naming `claude --resume <fake-id>`; the seeded
+cwd was a reaped worktree, so nothing launched and no record was written, and `hydra reap`
+swept them. The orchestrating session changed one test that still read the real layout for
+its lineage, and wrote the finding into `IMPLEMENTATION.md`'s rough edges: a run's test
+suite reaches the harness through `shell`, and only a test author's layout argument stands
+between a worktree and the corpus. The run also used two Cursor tools the table does not
+know, `getMcpToolsToolCall` and `awaitToolCall`, both run without the hook; map ticket 51
+now covers the class. Not measured on a live launch: the done-when's haiku continuation
+waits on a session Frank chooses to continue.

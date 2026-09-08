@@ -124,6 +124,10 @@ pub fn curate(pass: Pass) -> Result<Done> {
         // depth 0 and bounded by nothing above it (ouroboros spec 3.6).
         parent: None,
         run_id: Some(run_id.clone()),
+        command: "run".to_string(),
+        resumed_from: None,
+        resume_session_id: None,
+        working_dir: None,
     });
 
     let call = match call {

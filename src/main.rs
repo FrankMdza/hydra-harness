@@ -45,6 +45,10 @@ fn main() -> Result<()> {
                     timeout,
                     parent,
                     run_id: None,
+                    command: "run".to_string(),
+                    resumed_from: None,
+                    resume_session_id: None,
+                    working_dir: None,
                 })?;
                 // D7: hydra run returns JSON on stdout. Two shapes, because
                 // harness spec 9 degrades a blocking call to a handle rather
@@ -70,6 +74,21 @@ fn main() -> Result<()> {
         Command::Show { run_id, events } => {
             let mut out = std::io::stdout().lock();
             hydra::show::show(&Layout::discover()?, &run_id, events, &mut out)?;
+        }
+        Command::Resume {
+            run_id,
+            task,
+            timeout,
+        } => {
+            let call = hydra::resume::resume(hydra::resume::Request {
+                run_id,
+                task,
+                timeout,
+            })?;
+            match call {
+                Call::Ended(result) => println!("{}", serde_json::to_string_pretty(&result)?),
+                Call::Handle(handle) => println!("{}", serde_json::to_string_pretty(&handle)?),
+            }
         }
         Command::Reap {
             run_id,
@@ -146,6 +165,11 @@ fn main() -> Result<()> {
             if failed > 0 {
                 anyhow::bail!("{failed} of {} could not be pruned", pruned.len());
             }
+        }
+        Command::Export { out, dry_run } => {
+            let layout = Layout::discover()?;
+            let allowlist = hydra::export::allowlist_path();
+            hydra::export::export(&layout, &allowlist, out.as_deref(), dry_run)?;
         }
         Command::Watch { spec } => hydra::watch::watch(&spec)?,
         // Stdout belongs to the protocol from here on, so nothing below prints.

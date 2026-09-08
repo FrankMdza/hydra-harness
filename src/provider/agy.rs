@@ -88,6 +88,11 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
     argv
 }
 
+/// Harness spec 17: `--conversation <id>`, measured on 1.1.26.
+pub fn resume_args(session_id: &str) -> Vec<String> {
+    vec!["--conversation".to_string(), session_id.to_string()]
+}
+
 const HOOKS: &str = ".agents/hooks.json";
 const MCP: &str = ".agents/mcp_config.json";
 

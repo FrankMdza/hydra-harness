@@ -68,6 +68,7 @@ fn open_interactive_run(layout: &Layout, run_id: &str, session: &str, cwd: &Path
         }),
         env_allowlist: Some(vec!["HOME".into(), "PATH".into()]),
         subscription: Some("anthropic".into()),
+        resumed_from: None,
     };
     let mut writer =
         Writer::create(layout.run_file(run_id), run_id, None, Some("claude"), None).unwrap();
@@ -123,6 +124,7 @@ fn open_gated_interactive_run(
         }),
         env_allowlist: Some(vec!["HOME".into(), "PATH".into()]),
         subscription: Some("anthropic".into()),
+        resumed_from: None,
     };
     let mut writer =
         Writer::create(layout.run_file(run_id), run_id, None, Some("claude"), None).unwrap();
