@@ -880,12 +880,17 @@ fn every_record_on_this_machine_derives_an_outcome() {
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies)
             .unwrap_or_else(|err| panic!("{}: {err:#}", path.display()));
-        let derived = derive(&run).unwrap_or_else(|| {
-            panic!(
+        // A run still being written has no `run_end`, and contract 6 says it is
+        // not corrupt. A walk that runs while a child works skips it rather than
+        // failing on it, which it did on 2026-09-07 with two runs live.
+        let Some(derived) = derive(&run) else {
+            assert!(
+                run.run_end().is_none(),
                 "{} has a run_end and no outcome came out of it",
                 path.display()
-            )
-        });
+            );
+            continue;
+        };
         seen.push((
             run.run_id.clone(),
             derived.outcome.as_str(),
@@ -909,7 +914,9 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
     let mut gated = 0;
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
-        let derived = derive(&run).unwrap();
+        let Some(derived) = derive(&run) else {
+            continue;
+        };
         let outcome = derived.outcome;
 
         // A launch Hydra refused has no stream at all, so the per-call rule below
@@ -941,6 +948,14 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
             continue;
         }
 
+        // A provider that refused in prose on the pty never wrote a terminator,
+        // which is what `cursor-agent` does on its monthly limit: one sentence,
+        // exit 1, no frame. Contract 8 reads that off `noise`, and the per-call
+        // rule has nothing to read. Three of these landed on 2026-09-07.
+        if run.result.is_none() && !outcome.rung_one_learns() {
+            continue;
+        }
+
         // A run Hydra refused before the spawn has no calls for the per-call rule
         // to read, and contract 8.2 makes `refusal` the source anyway: `derive`
         // reads it ahead of anything on the stream. Ticket 07's skill collision
@@ -960,6 +975,21 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
             assert_eq!(
                 derive(&run).unwrap().source,
                 hydra::outcome::Source::Refusal
+            );
+            continue;
+        }
+
+        // A provider that ran the task and then died on it is `failed`, contract
+        // 12's second row, and the per-call rule says nothing about it. The first
+        // one landed on 2026-09-07: `agy` timed out waiting for its own model at
+        // 292 seconds, exit 1, with 41 calls answered by the gate before that.
+        if outcome == Outcome::Failed {
+            let exit = run.run_end().map(|end| end.body["exit_code"].clone());
+            assert_ne!(
+                exit,
+                Some(serde_json::json!(0)),
+                "{}: failed with exit 0",
+                path.display()
             );
             continue;
         }
@@ -994,7 +1024,10 @@ fn the_one_unclassified_result_on_this_machine_is_the_only_unknown() {
     let policies = policies();
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
-        let source = derive(&run).unwrap().source;
+        let Some(derived) = derive(&run) else {
+            continue;
+        };
+        let source = derived.source;
         let unclassified = run
             .tool_results()
             .any(|r| r.status == hydra::normalize::ResultStatus::Unclassified);
