@@ -1358,13 +1358,21 @@ fn normalizing_writes_nothing() {
         hydra::normalize::read_file(path, &policies).unwrap();
     }
 
-    assert_eq!(
-        corpus().len(),
-        before.len(),
-        "normalizing added or removed a file under runs/"
+    // A child may be writing while this runs, and a launch may add a file, so
+    // the check is that nothing this read owns changed: no file went away, and
+    // every byte that was there is still there in its place. A writer appending
+    // to a live record is the one other process allowed to touch the corpus.
+    assert!(
+        corpus().len() >= before.len(),
+        "normalizing removed a file under runs/"
     );
     for (path, bytes) in &before {
-        assert_eq!(&std::fs::read(path).unwrap(), bytes, "{}", path.display());
+        let after = std::fs::read(path).unwrap();
+        assert!(
+            after.starts_with(bytes),
+            "{}: bytes that were there before the read are not there after it",
+            path.display()
+        );
     }
 }
 
@@ -1559,6 +1567,97 @@ fn an_external_deny_belongs_to_the_call_it_answered() {
     assert_eq!(
         decisions[1].reason,
         "Rejected: t30 CUR-PROJ says no second echo"
+    );
+}
+
+#[test]
+fn a_pipelined_calls_hook_is_placed_by_where_it_started_not_where_it_answered() {
+    // Ticket 22: run 01a07efe-97f4 on 2026-09-07 measured `claude-sonnet-5`
+    // issuing a second `Read` before the first one's result or hook answer
+    // arrived. Seq 23 to 30 there is exactly this shape, two `Read` calls with
+    // their `hook_started` and `hook_response` frames interleaved, and the old
+    // seq-window join handed the first call's answer to the second because the
+    // first response landed after the second call's own frame.
+    let sandbox = Sandbox::new("pipelined");
+    let a = sandbox.worktree().join("a.txt");
+    let b = sandbox.worktree().join("b.txt");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use("toolu_01", "Read", json!({"file_path": a}));
+    record.hook_started("Read", "hook-a");
+    record.tool_use("toolu_02", "Read", json!({"file_path": b}));
+    record.hook_started("Read", "hook-b");
+    record.hook_response_id(
+        "Read",
+        "allow",
+        "hydra/allow: policy standard allows file_read.",
+        "hook-a",
+    );
+    record.tool_result("toolu_01", "A", false);
+    record.hook_response_id(
+        "Read",
+        "allow",
+        "hydra/allow: policy standard allows file_read.",
+        "hook-b",
+    );
+    record.tool_result("toolu_02", "B", false);
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. })),
+        "{:?}",
+        run.findings
+    );
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 2);
+    assert_eq!(decisions[0].call_id, "toolu_01");
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[1].call_id, "toolu_02");
+    assert_eq!(decisions[1].decision, Decision::Allow);
+}
+
+#[test]
+fn two_hook_pairs_on_one_call_still_join_to_one_decision() {
+    // The real record's `Bash` calls each fired four `PreToolUse` hooks, of
+    // which Hydra wrote one. Grouping by tool and order has to keep every
+    // `hook_started` between this call and the next in the same group, so a
+    // second pair on the same call does not read as a second call.
+    let sandbox = Sandbox::new("two-hooks-one-call");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use("toolu_01", "Bash", json!({"command": "echo HELLO"}));
+    record.hook_started("Bash", "hook-guard");
+    record.hook_started("Bash", "hook-hydra");
+    record.hook_response_id("Bash", "allow", "t30 CUR-PROJ says allow", "hook-guard");
+    record.hook_response_id(
+        "Bash",
+        "allow",
+        "hydra/allow: policy standard allows shell.",
+        "hook-hydra",
+    );
+    record.tool_result("toolu_01", "HELLO", false);
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Disagreement { .. })),
+        "{:?}",
+        run.findings
     );
 }
 

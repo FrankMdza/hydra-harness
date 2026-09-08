@@ -2118,6 +2118,19 @@ read in `src/paths.rs` and nowhere else, and it never reaches a child provider, 
 6.2 builds that environment from an allowlist this name is not on. The rough edge below
 says what is left of it.
 
+## A gate answer is joined to its call by `hook_id`, since build ticket 22
+
+The normalizer used to join a `PreToolUse` answer to its call by tool name and seq order,
+because the frame carries no `tool_use_id`. Sonnet 5 broke that on 2026-09-07 in run
+01a07efe-97f4: it issues the next call before the previous result arrives, so a first call's
+answer lands inside what order alone reads as the second call's window, and three of sixty
+calls came out `Ungated` with their answers sitting in the record. `hook_started` and
+`hook_response` share a `hook_id`, and a start fires the moment a call is emitted, so the
+normalizer now groups starts to calls per tool in seq order and takes each call's answer by
+the ids its starts carried. A record with no `hook_started` frames keeps the old join. That
+finding is what would have reached Ouroboros as a policy lesson, and 153 hook pairs for 60
+calls on the same run say the count of hooks per call is not a join key either.
+
 ## The Herdr bridge, on Herdr's side
 
 Map ticket 44 made Herdr the interactive layer and said nothing crosses from Hydra to it, and

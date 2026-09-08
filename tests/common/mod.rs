@@ -305,8 +305,21 @@ impl Record {
         }))
     }
 
-    /// A `PreToolUse` response in the shape `--include-hook-events` writes.
+    /// A `PreToolUse` response in the shape `--include-hook-events` writes,
+    /// under the fixed `hook_id` every fixture but a ticket 22 test shares.
     pub fn hook_response(&mut self, tool: &str, decision: &str, reason: &str) -> &mut Self {
+        self.hook_response_id(tool, decision, reason, "4f041c03-db30-4ae0-96dd-be3022a64b1e")
+    }
+
+    /// The same, under the `hook_id` the caller names, for a test that joins a
+    /// response to the `hook_started` frame it answers.
+    pub fn hook_response_id(
+        &mut self,
+        tool: &str,
+        decision: &str,
+        reason: &str,
+        hook_id: &str,
+    ) -> &mut Self {
         let output = json!({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -318,12 +331,24 @@ impl Record {
         self.raw(json!({
             "type": "system",
             "subtype": "hook_response",
-            "hook_id": "4f041c03-db30-4ae0-96dd-be3022a64b1e",
+            "hook_id": hook_id,
             "hook_name": format!("PreToolUse:{tool}"),
             "hook_event": "PreToolUse",
             "output": output,
             "exit_code": 0,
             "outcome": "success",
+        }))
+    }
+
+    /// A `PreToolUse` hook starting, the frame `--include-hook-events` writes
+    /// before the matching `hook_response`, sharing its `hook_id`.
+    pub fn hook_started(&mut self, tool: &str, hook_id: &str) -> &mut Self {
+        self.raw(json!({
+            "type": "system",
+            "subtype": "hook_started",
+            "hook_id": hook_id,
+            "hook_name": format!("PreToolUse:{tool}"),
+            "hook_event": "PreToolUse",
         }))
     }
 

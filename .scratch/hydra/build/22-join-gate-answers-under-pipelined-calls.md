@@ -1,7 +1,7 @@
 # 22 - Join a gate answer to its call when the provider pipelines calls
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Goal
@@ -55,3 +55,20 @@ on this machine with run 01a07efe-97f4 on disk.
 - Both new tests pass, the walk passes, and the rest of the suite is untouched.
 - The doc comment on `take_gate_answer` says what the join key is now and why order alone
   stopped holding, with the run id and the date.
+
+## Outcome
+
+Resolved 2026-09-07. `claude` on Sonnet 5, run 01a07f0d-2d90 under `standard`: 11.9M tokens,
+11.6M of them cache reads, 77k output. The join is what the ticket described. `hook_started`
+frames are kept per `PreToolUse:<Tool>` with their `hook_id`, grouped to calls per tool in seq
+order, and a response is taken by the `hook_id` its start carried, wherever the response landed.
+A record with no `hook_started` frames keeps the seq window, so every record written before
+Claude Code emitted them reads as before. Two synthetic tests cover the pipelined pair and the
+double hook pair, `tests/common` gained a helper that emits a start with a hook id, and the walk
+over this machine's records passes with run 01a07efe-97f4 on disk.
+
+The run spent its last third on five test failures that were not its own: the three
+`tests/outcome.rs` walks and `normalizing_writes_nothing`, which broke on any live run and on
+two outcomes the corpus had never held. Master had fixed three of them while the run worked,
+and its worktree could not see that. The fourth is fixed beside this ticket: the walk now
+allows a writer to append to a live record and a launch to add a file during the read.

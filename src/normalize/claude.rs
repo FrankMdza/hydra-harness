@@ -36,12 +36,15 @@ use crate::provider::Provider;
 
 /// What a `PreToolUse` hook answered.
 ///
-/// Joined to a call by tool name and order, because the frame carries no
-/// `tool_use_id`. `claude` names the tool in `hook_name` as `PreToolUse:<Tool>`,
-/// and a run fires several hooks per call: the 2026-09-05 measurement caught
-/// four responses for one `Bash` call, of which one was Hydra's.
+/// `claude` names the tool in `hook_name` as `PreToolUse:<Tool>`, and a run
+/// fires several hooks per call: the 2026-09-05 measurement caught four
+/// responses for one `Bash` call, of which one was Hydra's. The frame carries
+/// no `tool_use_id`, so a response is joined to its call by the `hook_id` it
+/// shares with a `hook_started` frame, or by tool name and order on a record
+/// old enough to carry no `hook_started` frames at all.
 struct HookAnswer {
     seq: u64,
+    hook_id: String,
     tool: String,
     decision: Decision,
     reason: String,
@@ -49,6 +52,18 @@ struct HookAnswer {
     /// Hydra's own gate from the user's guards on the same event.
     from_hydra: bool,
     taken: bool,
+}
+
+/// A `PreToolUse` hook's own start, kept to place its later `hook_response` in
+/// the call it belongs to.
+///
+/// The response can land anywhere once Claude Code pipelines calls, but the
+/// start cannot: 6.6 measured it firing the moment the call is emitted, before
+/// the next call of the same tool. `hook_id` is what joins it to its response.
+struct HookStart {
+    seq: u64,
+    tool: String,
+    hook_id: String,
 }
 
 /// The stretch of a run in which a hook answer can belong to one tool call.
@@ -59,6 +74,9 @@ struct HookAnswer {
 /// come out wrong. Two calls in a single assistant frame share a `seq` and
 /// therefore share a window, and the `taken` flag is what keeps them from
 /// claiming the same answer.
+///
+/// This is the fallback join now, used only on a record with no `hook_started`
+/// frames to join a response through instead (ticket 22).
 #[derive(Clone, Copy)]
 struct Window {
     after: u64,
@@ -106,6 +124,10 @@ struct Walk {
     events: Vec<Event>,
     findings: Vec<Finding>,
     hooks: Vec<HookAnswer>,
+    /// `hook_started` frames, `PreToolUse` only, in file order. Empty on a
+    /// record written before Claude Code emitted them, which is what tells
+    /// `decide` to fall back to the seq window.
+    starts: Vec<HookStart>,
     /// `system`/`permission_denied`, keyed by `tool_use_id`. The provider's own
     /// refusal, which appears only on a run launched without the permissive flag.
     provider_denied: HashMap<String, String>,
@@ -207,6 +229,7 @@ impl Walk {
                             .extend(tools.iter().filter_map(Value::as_str).map(str::to_string));
                     }
                 }
+                Some("hook_started") => self.hook_started(seq, raw),
                 Some("hook_response") => self.hook_response(seq, raw),
                 Some("permission_denied") => {
                     if let Some(id) = raw["tool_use_id"].as_str() {
@@ -279,12 +302,37 @@ impl Walk {
         }
     }
 
+    /// A `PreToolUse` hook starting, before it has answered anything.
+    ///
+    /// Kept only to place the matching `hook_response` in a call's window by
+    /// where it actually began, since the response itself can arrive after the
+    /// next call once Claude Code pipelines them.
+    fn hook_started(&mut self, seq: u64, raw: &Value) {
+        if raw["hook_event"].as_str() != Some("PreToolUse") {
+            return;
+        }
+        let Some(hook_id) = raw["hook_id"].as_str() else {
+            return;
+        };
+        let tool = raw["hook_name"]
+            .as_str()
+            .and_then(|name| name.split_once(':'))
+            .map(|(_, tool)| tool.to_string())
+            .unwrap_or_default();
+        self.starts.push(HookStart {
+            seq,
+            tool,
+            hook_id: hook_id.to_string(),
+        });
+    }
+
     fn hook_response(&mut self, seq: u64, raw: &Value) {
         // The user's own hooks fire on the same event, so this filters on the
         // event name rather than assuming every hook frame is Hydra's.
         if raw["hook_event"].as_str() != Some("PreToolUse") {
             return;
         }
+        let hook_id = raw["hook_id"].as_str().unwrap_or_default().to_string();
         let tool = raw["hook_name"]
             .as_str()
             .and_then(|name| name.split_once(':'))
@@ -310,6 +358,7 @@ impl Walk {
             .to_string();
         self.hooks.push(HookAnswer {
             seq,
+            hook_id,
             tool,
             from_hydra: reason_code(&reason).is_some(),
             decision,
@@ -468,6 +517,9 @@ impl Walk {
 
         let results = self.results_by_call();
         let seqs: Vec<u64> = calls.iter().map(|call| call.0).collect();
+        // Empty on a record with no `hook_started` frames, which is what tells
+        // the loop below to keep using the seq window instead.
+        let groups = Self::group_starts(&calls, &self.starts);
         for (index, (seq, call_id, tool, arguments)) in calls.into_iter().enumerate() {
             let window = Window {
                 after: seq,
@@ -477,6 +529,7 @@ impl Walk {
                     .find(|later| *later > seq)
                     .unwrap_or(u64::MAX),
             };
+            let group = (!self.starts.is_empty()).then(|| groups[index].as_slice());
             if call_id.is_empty() {
                 // Nothing to join a result or a hook answer to. The policy still
                 // answers for the call, so the decision is derived and this says
@@ -496,8 +549,8 @@ impl Walk {
                     continue;
                 }
             };
-            let gate_said = self.take_gate_answer(window, &tool);
-            let refusal = self.refusal(&call_id, window, &tool, results.get(&call_id));
+            let gate_said = self.take_gate_answer(window, group, &tool);
+            let refusal = self.refusal(&call_id, window, group, &tool, results.get(&call_id));
 
             // 6.6: a hook that fails to start fails open on this provider, and
             // `--include-hook-events` is on for every recorded run, so a call
@@ -623,15 +676,65 @@ impl Walk {
             .collect()
     }
 
+    /// Every `hook_started` frame assigned to the call it belongs to.
+    ///
+    /// The n-th `PreToolUse:<Tool>` start group belongs to the n-th `<Tool>`
+    /// call, a call's group being every start between its own frame and the
+    /// next call of the same tool. `calls` is already in seq order, which is
+    /// what lets this walk each tool's calls and starts together in one pass.
+    fn group_starts(
+        calls: &[(u64, String, String, Value)],
+        starts: &[HookStart],
+    ) -> Vec<Vec<String>> {
+        let mut groups = vec![Vec::new(); calls.len()];
+        let mut by_tool: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (index, call) in calls.iter().enumerate() {
+            by_tool.entry(call.2.as_str()).or_default().push(index);
+        }
+        for indices in by_tool.values() {
+            for (position, &index) in indices.iter().enumerate() {
+                let after = calls[index].0;
+                let before = indices
+                    .get(position + 1)
+                    .map(|&next| calls[next].0)
+                    .unwrap_or(u64::MAX);
+                let tool = calls[index].2.as_str();
+                groups[index] = starts
+                    .iter()
+                    .filter(|start| start.tool == tool && start.seq > after && start.seq < before)
+                    .map(|start| start.hook_id.clone())
+                    .collect();
+            }
+        }
+        groups
+    }
+
     /// Hydra's own gate answer for this call, if the record kept one.
     ///
-    /// Ordering is the join key, because the frame carries no `tool_use_id`. Two
-    /// calls to one tool in a single assistant frame are answered in the order
-    /// the hooks ran, and if that ever stops holding the disagreement check is
-    /// what reports it.
-    fn take_gate_answer(&mut self, window: Window, tool: &str) -> Option<(Decision, String)> {
+    /// Joined by `hook_id` when `group` names one: every `hook_id` a
+    /// `hook_started` frame in this call's own window carries. The response
+    /// itself is not where a pipelined call is placed, because run 01a07efe-97f4
+    /// on 2026-09-07 showed `claude-sonnet-5` issuing a second `Read` before the
+    /// first one's result or hook answer arrived, so the first response landed
+    /// inside what an order-only join would have called the second call's
+    /// window. `group` is `None` on a record with no `hook_started` frames at
+    /// all, and there ordering is still the join key: two calls to one tool in
+    /// a single assistant frame are answered in the order the hooks ran, and if
+    /// that ever stops holding the disagreement check is what reports it.
+    fn take_gate_answer(
+        &mut self,
+        window: Window,
+        group: Option<&[String]>,
+        tool: &str,
+    ) -> Option<(Decision, String)> {
         let answer = self.hooks.iter_mut().find(|hook| {
-            !hook.taken && hook.from_hydra && hook.tool == tool && window.holds(hook.seq)
+            if hook.taken || !hook.from_hydra || hook.tool != tool {
+                return false;
+            }
+            match group {
+                Some(ids) => ids.contains(&hook.hook_id),
+                None => window.holds(hook.seq),
+            }
         })?;
         answer.taken = true;
         Some((answer.decision, answer.reason.clone()))
@@ -642,13 +745,21 @@ impl Walk {
     /// This looks for a deny rather than for the next answer of any kind. A hook
     /// outside Hydra that allowed decides nothing, and consuming its slot would
     /// push a real deny onto the following call.
-    fn take_external_deny(&mut self, window: Window, tool: &str) -> Option<String> {
+    fn take_external_deny(
+        &mut self,
+        window: Window,
+        group: Option<&[String]>,
+        tool: &str,
+    ) -> Option<String> {
         let answer = self.hooks.iter_mut().find(|hook| {
-            !hook.taken
-                && !hook.from_hydra
-                && hook.decision == Decision::Deny
-                && hook.tool == tool
-                && window.holds(hook.seq)
+            if hook.taken || hook.from_hydra || hook.decision != Decision::Deny || hook.tool != tool
+            {
+                return false;
+            }
+            match group {
+                Some(ids) => ids.contains(&hook.hook_id),
+                None => window.holds(hook.seq),
+            }
         })?;
         answer.taken = true;
         Some(answer.reason.clone())
@@ -660,6 +771,7 @@ impl Walk {
         &mut self,
         call_id: &str,
         window: Window,
+        group: Option<&[String]>,
         tool: &str,
         result: Option<&(ResultStatus, String)>,
     ) -> Option<Refusal> {
@@ -674,7 +786,7 @@ impl Walk {
         // A hook outside Hydra that denied. Hydra's own answer is taken
         // separately, because it is the corroboration rather than a second
         // decider.
-        if let Some(reason) = self.take_external_deny(window, tool) {
+        if let Some(reason) = self.take_external_deny(window, group, tool) {
             return Some(Refusal {
                 by: Decider::External,
                 reason,
