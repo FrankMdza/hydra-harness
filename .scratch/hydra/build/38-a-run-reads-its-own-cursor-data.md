@@ -1,7 +1,7 @@
 # 38 - A Cursor run may read its own `cursor-data/`, so it can await a background task
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 35
 
 ## Goal
@@ -54,3 +54,15 @@ launch carries the entry and a `claude` launch carries none.
 - The tests above pass and the rest of the suite is untouched.
 - The orchestrating session rewrites the `awaitToolCall` sentence in `IMPLEMENTATION.md` and
   appends the finding to map ticket 51.
+
+## Outcome
+
+Resolved 2026-09-08. `cursor-agent` on Cursor Grok 4.6 high fast, run 01a08112-fe30 under
+`standard`, launched through `hydra-in-pane`: 2.89M tokens, five files, three tests, twenty
+minutes. `own_read_paths` in the compiled config, one entry on `cursor-agent`, read by `gate.py`
+before the denied-parent check and only when the policy grants `file_read`; no policy-file line
+was needed, which the ticket had left open. The model could not do the done-when's real launch
+from inside the gate and said so. The orchestrating session did it: run 01a0811e-d401, Composer
+under `standard`, started `sleep 8 && echo slept` in the background, awaited it, and reported
+`slept` with exit 0, the await result a success and no finding on the record. The same probe
+before the carve-out, 01a08111-1e5e, had been refused and guessed.

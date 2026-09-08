@@ -566,9 +566,10 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
 /// parents be denied while a run still writes in its own worktree, and a
 /// `curate` pass in its own checkout of the store.
 ///
-/// **The run's own spawn directory is deliberately not here.** Nothing a gated
-/// tool call does has business in it: Hydra writes it at spawn and the vendor
-/// process writes its own data root through no tool the gate sees.
+/// **The run's own spawn directory is deliberately not here.** Hydra writes it
+/// at spawn, and a write into a sibling's copy is how a `permissive` run
+/// replaces that sibling's gate. The vendor's own data root under it is a read
+/// carve-out, not a write one: see [`own_read_paths`].
 pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     // A run outside a repo has no checkout, and `hydra run` scopes it to
@@ -584,6 +585,28 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
         paths.push(checkout.to_path_buf());
     }
     paths
+}
+
+/// What this one spawn may read outside the scopes the policy named.
+///
+/// A second kind of carve-out, beside [`own_write_paths`]. The spawn directory
+/// is a denied parent, and no policy names it as a read scope, so a `file_read`
+/// of a file the provider itself wrote there is refused as out-of-scope unless
+/// this list names it. On `cursor-agent` it is the run's own `cursor-data/`,
+/// which is where `CURSOR_DATA_DIR` points and where Cursor writes the terminal
+/// files it then reads to answer `awaitToolCall`. No other provider adds an
+/// entry: their binaries do not ask the hook to read a path under the spawn
+/// directory.
+pub fn own_read_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
+    if spawn.provider != crate::provider::Provider::CursorAgent {
+        return Vec::new();
+    }
+    // The gate lives at `<spawn>/<run-id>/gate`; `cursor-data/` sits beside it,
+    // which is what [`crate::paths::Layout::cursor_data_dir`] names.
+    match spawn.gate_script.parent() {
+        Some(dir) => vec![dir.join("cursor-data")],
+        None => Vec::new(),
+    }
 }
 
 /// Turns a policy name into the gate script of 7.5.
@@ -656,6 +679,13 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         // 7.5's carve-out. The gate reads a write as protected when it is inside
         // a denied path and inside none of these.
         "own_write_paths": own_write_paths(spawn)
+            .iter()
+            .map(|p| resolved(p))
+            .collect::<Vec<_>>(),
+        // The matching read carve-out. Empty on every provider but
+        // `cursor-agent`, whose own `cursor-data/` is the one path under the
+        // spawn directory a gated tool call has reason to open.
+        "own_read_paths": own_read_paths(spawn)
             .iter()
             .map(|p| resolved(p))
             .collect::<Vec<_>>(),
@@ -1139,6 +1169,37 @@ mod tests {
             floor_lifted: false,
         };
         assert!(own_write_paths(&spawn).is_empty());
+    }
+
+    #[test]
+    fn only_a_cursor_spawn_carves_out_its_cursor_data_for_reads() {
+        let layout = crate::paths::Layout::at("/tmp/hydra-own-read");
+        let worktree = layout.worktree("r1");
+        let gate = layout.gate_script("r1");
+        let base = Spawn {
+            provider: crate::provider::Provider::Claude,
+            policy: "standard",
+            layout: &layout,
+            worktree: &worktree,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
+            skill_snapshot: &layout.snapshot("abc"),
+            skill_checkout: None,
+            parent_git_dir: None,
+            gate_script: &gate,
+            floor_lifted: false,
+        };
+        assert!(own_read_paths(&base).is_empty());
+        let cursor = Spawn {
+            provider: crate::provider::Provider::CursorAgent,
+            ..base
+        };
+        assert_eq!(own_read_paths(&cursor), vec![layout.cursor_data_dir("r1")]);
+        let agy = Spawn {
+            provider: crate::provider::Provider::Agy,
+            ..cursor
+        };
+        assert!(own_read_paths(&agy).is_empty());
     }
 
     fn tempdir() -> PathBuf {

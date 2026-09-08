@@ -1273,6 +1273,83 @@ fn the_cursor_gate_config_carries_no_unhooked_tool() {
     assert_eq!(config["path_fields"]["Read"], "file_path");
 }
 
+#[test]
+fn a_cursor_run_may_read_its_own_cursor_data() {
+    // Build ticket 38: Cursor answers `awaitToolCall` by reading the
+    // background task's output under the run's own `cursor-data/`, and that
+    // read fires the hook. Spawn is a denied parent, so without the carve-out
+    // the await is refused as out-of-scope.
+    for policy in ["standard", "read-only"] {
+        let gate = Gate::cursor(policy);
+        let own = gate
+            .layout()
+            .cursor_data_dir(RUN)
+            .join("projects/slug/terminals/1.txt");
+        std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+        std::fs::write(&own, "slept\n").unwrap();
+
+        let before = gate.cursor_read(&own);
+        assert!(
+            before.allowed,
+            "{policy} beforeReadFile of own cursor-data: {}",
+            before.reason
+        );
+        let read = gate.cursor_tool("Read", json!({ "file_path": own.to_string_lossy() }));
+        assert!(
+            read.allowed,
+            "{policy} Read of own cursor-data: {}",
+            read.reason
+        );
+
+        let sibling = gate
+            .layout()
+            .spawn(OTHER)
+            .join("cursor-data/projects/slug/terminals/1.txt");
+        std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
+        std::fs::write(&sibling, "slept\n").unwrap();
+        assert!(
+            gate.cursor_read(&sibling).denied_for("hydra/out-of-scope"),
+            "{policy} should refuse a sibling's spawn"
+        );
+        assert!(
+            gate.cursor_tool("Read", json!({ "file_path": sibling.to_string_lossy() }))
+                .denied_for("hydra/out-of-scope"),
+            "{policy} Read of a sibling's spawn"
+        );
+
+        let spawn_root = gate.layout().spawns();
+        assert!(
+            gate.cursor_read(&spawn_root).denied_for("hydra/out-of-scope"),
+            "{policy} should refuse ~/hydra/spawn/ itself"
+        );
+        assert!(
+            gate.cursor_tool(
+                "Read",
+                json!({ "file_path": spawn_root.to_string_lossy() })
+            )
+            .denied_for("hydra/out-of-scope"),
+            "{policy} Read of ~/hydra/spawn/"
+        );
+    }
+
+    let judge = Gate::cursor("judge");
+    let own = judge
+        .layout()
+        .cursor_data_dir(RUN)
+        .join("projects/slug/terminals/1.txt");
+    std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+    std::fs::write(&own, "slept\n").unwrap();
+    assert!(
+        judge.cursor_read(&own).denied_for("hydra/capability"),
+        "judge still refuses a read of own cursor-data"
+    );
+    assert!(
+        judge
+            .cursor_tool("Read", json!({ "file_path": own.to_string_lossy() }))
+            .denied_for("hydra/capability")
+    );
+}
+
 fn compiled_config(script: &Path) -> Value {
     let text = std::fs::read_to_string(script).unwrap();
     let line = text

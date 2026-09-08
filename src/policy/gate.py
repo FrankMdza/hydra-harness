@@ -529,6 +529,22 @@ def evaluate(payload):
 
     path = target_path(tool, tool_input, cwd)
 
+    # Own-read carve-out, before the denied-parent check. A Cursor run's
+    # `cursor-data/` sits under the spawn directory, a denied parent since
+    # ticket 40, and is not a read scope, so without this a `file_read` of
+    # the files the provider wrote there (the terminal files `awaitToolCall`
+    # is answered from) is refused as out-of-scope. Every policy that grants
+    # `file_read` at all is covered; `judge` grants none and falls through.
+    # A gate compiled before this key existed reads it as empty, the same
+    # default `own_write_paths` uses, so a missing key cannot crash the
+    # script open on `claude`.
+    if capability == "file_read" and path is not None:
+        for own in HYDRA_CONFIG.get("own_read_paths", []):
+            if inside(path, own) and scopes_for(capability):
+                return True, "hydra/allow: policy {} allows {}.".format(
+                    HYDRA_CONFIG["policy"], capability
+                )
+
     # The path denials of 7.5, before the policy is consulted at all. This is
     # where `permissive` stops being permissive.
     if capability == "file_write" and path is not None:

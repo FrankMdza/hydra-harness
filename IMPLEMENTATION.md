@@ -983,10 +983,20 @@ fires for one, the gate's own answer stands and the replay reports a `Disagreeme
 **The risk per tool today.** `ReadLints` returns `totalFiles: 0` for every path, `/etc/hosts`
 and a file that cannot parse included, in print mode and in the interactive TUI: there is no
 language server behind the CLI, so it reads nothing. `getMcpToolsToolCall` names the tools
-of a server the run's own MCP document admitted, which the run could call anyway. `awaitToolCall`
-blocks on a task whose `Shell` call the gate already answered. A fourth unhooked tool shows
-up the way these did, `unknown_tool` beside a completed result. The two corpus walks pass
-with no skip.
+of a server the run's own MCP document admitted, which the run could call anyway.
+`awaitToolCall` turned out to be hooked after all, the same evening: Cursor answers it by
+reading the background task's output file under the run's own `cursor-data/` and fires the
+hook on that read, which three runs and then the probe 01a08111-1e5e showed refused
+`out-of-scope`, since the spawn directory is a denied parent. The row stays `unhooked` for
+the replay, which sees a `taskId` and no path, and the runtime answer stands as a
+`Disagreement` when the two differ. **Build ticket 38 carved the run's own `cursor-data/`
+out for reads**: `own_read_paths` beside `own_write_paths` in the compiled config, one entry
+on `cursor-agent` and none elsewhere, checked in `gate.py` before the denied-parent check
+and only when the policy grants `file_read` at all, so `judge` still refuses and a sibling's
+spawn directory stays denied. Measured on run 01a0811e-d401 the same evening: a `standard`
+Composer run started `sleep 8 && echo slept` in the background, awaited it, and got `slept`
+and exit 0 back, with no disagreement on the record. A fourth unhooked tool shows up the way
+these did, `unknown_tool` beside a completed result. The two corpus walks pass with no skip.
 
 **One more shape from the same day.** An `editToolCall` completed frame arrived with no `args`
 at all and "Invalid arguments: old_string: Required" as its result, which the replay used to

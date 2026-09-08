@@ -147,11 +147,16 @@ pub const CURSOR: &[Tool] = &[
     // Read off the bundle's `createToolInput` table, same build.
     pathed("List", Capability::FileRead, "file_path"),
     // Map ticket 51: Cursor runs these without asking `preToolUse`. ReadLints
-    // was measured 2026-09-08 under `read-only`; the other two arrived the
-    // same day as unknown names with completed results. The compiler skips
-    // the rows, so the gate's compiled config does not name them.
+    // was measured 2026-09-08 under `read-only`; getMcpToolsToolCall arrived
+    // the same day as an unknown name with a completed result. The compiler
+    // skips the rows, so the gate's compiled config does not name them.
     unhooked("ReadLints"),
     unhooked("getMcpToolsToolCall"),
+    // Stays an unhooked row for the replay: the record carries no path. The
+    // hook that fires is a `Read` of the task's output under the run's own
+    // `cursor-data/` (`beforeReadFile`, or `preToolUse` on `Read`), which
+    // `own_read_paths` carves out; if that answer and this row differ, the
+    // replay records a Disagreement. Build ticket 38.
     unhooked("awaitToolCall"),
     tool("Fetch", Capability::NetworkRead),
     // Feeds stdin to a background shell command. It is shell, and the floor

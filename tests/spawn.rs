@@ -491,6 +491,78 @@ fn the_cursor_hook_command_gates_a_read_through_before_read_file() {
 }
 
 #[test]
+fn a_cursor_gate_carves_out_its_own_cursor_data_for_reads() {
+    // Build ticket 38: the compiled config, not the policy file, is what names
+    // the run's own `cursor-data/`. A `claude` launch carries the key and an
+    // empty list.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let cursor = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::CursorAgent,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let config = compiled_config(&cursor.gate);
+    let expected = std::fs::canonicalize(layout.spawn("r1"))
+        .unwrap()
+        .join("cursor-data")
+        .to_string_lossy()
+        .to_lowercase();
+    let own = config["own_read_paths"]
+        .as_array()
+        .unwrap_or_else(|| panic!("own_read_paths missing from {config}"));
+    assert!(
+        own.iter().any(|v| v.as_str() == Some(expected.as_str())),
+        "cursor-agent should carve out {expected}, got {own:?}"
+    );
+
+    let claude = write_spawn_config(
+        &layout,
+        "r2",
+        &set,
+        Provider::Claude,
+        "standard",
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let config = compiled_config(&claude.gate);
+    let own = config["own_read_paths"]
+        .as_array()
+        .unwrap_or_else(|| panic!("own_read_paths missing from {config}"));
+    assert!(
+        own.is_empty(),
+        "a claude launch should carry no own_read_paths entry, got {own:?}"
+    );
+}
+
+/// The policy the compiler wrote into a gate script, read back.
+fn compiled_config(gate: &Path) -> serde_json::Value {
+    let script = std::fs::read_to_string(gate).unwrap();
+    let line = script
+        .lines()
+        .find(|line| line.starts_with("HYDRA_CONFIG = json.loads("))
+        .expect("the compiled gate carries a config line");
+    let literal = line
+        .trim_start_matches("HYDRA_CONFIG = json.loads(")
+        .trim_end_matches(')');
+    let inner: String = serde_json::from_str(literal).unwrap();
+    serde_json::from_str(&inner).unwrap()
+}
+
+#[test]
 fn a_rewritten_gate_fails_closed() {
     // 7.5's induction base case, and the half of it that does not depend on
     // reading argv. The provider snapshots the hook config at process start
