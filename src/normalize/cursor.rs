@@ -36,6 +36,7 @@ use super::{
     UsageSource, hydra_voice, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
+use crate::policy::Capability;
 use crate::policy::PolicySet;
 use crate::policy::replay::Replay;
 use crate::policy::table::cursor_capability;
@@ -112,7 +113,12 @@ fn as_hook_call(kind: &str, args: &Value) -> Option<(String, Value)> {
         ),
         // Read off the bundle's `createToolInput` table, unmeasured on a run.
         "lsToolCall" => ("List".into(), pathed("path")),
-        "readLintsToolCall" => ("ReadLints".into(), pathed("path")),
+        // Map ticket 51: the provider runs these without asking the hook, so
+        // the rebuilt input is the stream's own args. `paths` is a list;
+        // `file_path` was the field the table used to pretend to scope.
+        "readLintsToolCall" => ("ReadLints".into(), args.clone()),
+        "getMcpToolsToolCall" => ("getMcpToolsToolCall".into(), args.clone()),
+        "awaitToolCall" => ("awaitToolCall".into(), args.clone()),
         "webFetchToolCall" => ("Fetch".into(), json!({ "url": args["url"] })),
         "taskToolCall" => ("task".into(), args.clone()),
         "writeShellStdinToolCall" => ("WriteShellStdin".into(), args.clone()),
@@ -508,6 +514,40 @@ impl Walk {
                      joined to it"
                 )));
             }
+            let result = results.get(&call_id);
+            let refusal = result.and_then(|(status, output)| {
+                refusal_in(*status, output, self.cases.get(&call_id).copied())
+            });
+
+            if cursor_capability(&tool) == Some(Capability::Unhooked) {
+                // The provider ran this without asking the hook. The table
+                // says so, so the derived decision is the provider's, not a
+                // leak. If the hook ever does fire, the gate's own answer is
+                // in the result and the two sources disagree.
+                if let Some(refusal) = &refusal
+                    && let Some(code) = hydra_voice(&refusal.reason)
+                    && code != "allow"
+                {
+                    self.findings.push(Finding::Disagreement {
+                        call_id: call_id.clone(),
+                        derived: Decision::Allow,
+                        derived_code: Some("unhooked".into()),
+                        gate_said: Decision::Deny,
+                        gate_code: Some(code.to_string()),
+                    });
+                }
+                decisions.push(Some(PermissionDecision {
+                    seq,
+                    call_id: call_id.clone(),
+                    decision: Decision::Allow,
+                    decider: Decider::Provider,
+                    reason: format!(
+                        "hydra/unhooked: {tool} is run by cursor-agent without asking the hook"
+                    ),
+                }));
+                continue;
+            }
+
             let verdict = match replay.decide(&tool, &arguments, spawn.cwd()) {
                 Ok(verdict) => verdict,
                 Err(err) => {
@@ -518,10 +558,6 @@ impl Walk {
                     continue;
                 }
             };
-            let result = results.get(&call_id);
-            let refusal = result.and_then(|(status, output)| {
-                refusal_in(*status, output, self.cases.get(&call_id).copied())
-            });
 
             let derived = if !verdict.allowed {
                 match &refusal {
@@ -845,6 +881,23 @@ mod tests {
         .unwrap();
         assert_eq!(name, "Grep", "the listing tool is gated as Grep");
         assert_eq!(input["file_path"], "/ws");
+
+        let (name, input) = as_hook_call(
+            "readLintsToolCall",
+            &json!({ "paths": ["/ws/src/main.rs", "/etc/hosts"] }),
+        )
+        .unwrap();
+        assert_eq!(name, "ReadLints");
+        assert_eq!(input["paths"], json!(["/ws/src/main.rs", "/etc/hosts"]));
+
+        let (name, input) = as_hook_call("awaitToolCall", &json!({ "taskId": "bg-1" })).unwrap();
+        assert_eq!(name, "awaitToolCall");
+        assert_eq!(input["taskId"], "bg-1");
+
+        let (name, input) =
+            as_hook_call("getMcpToolsToolCall", &json!({ "server": "hydra" })).unwrap();
+        assert_eq!(name, "getMcpToolsToolCall");
+        assert_eq!(input["server"], "hydra");
 
         assert!(as_hook_call("semSearchToolCall", &json!({})).is_none());
     }

@@ -1,7 +1,7 @@
 # 35 - An `unhooked` row in the capability table
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 29
 
 ## Goal
@@ -55,3 +55,20 @@ three, or the same entry it carried before, so nothing at run time changes.
   no gate leak.
 - The orchestrating session rewrites the Cursor paragraph in `IMPLEMENTATION.md` with the
   per-tool risk statement and amends contract 7.7.
+
+## Outcome
+
+Resolved 2026-09-08. `cursor-agent` on Cursor Grok 4.6 high fast, run 01a08052-ccdc under
+`standard`: 7.71M tokens, seven files, 232 insertions, four tests, fifty minutes. Every slice
+as written: `unhooked(name)`, `Capability::Unhooked` left out of the compiled gate config,
+`Decider::Provider`, the raw-name map, the replay rule with a `Disagreement` if the hook ever
+fires, the skips gone from both walks, and `hydra show 01a0800f-1fa4 --events` showing three
+provider decisions and no finding. The model found one thing the ticket got wrong: with the
+skips gone, the outcome walk passes on this machine and the leak walk still fails inside a
+worktree on record 01a07efb-de49, an `agy` run written before `scopes` existed, whose shell
+commands name `~/hydra/worktrees/`. On master the same walk passes. The record carries
+`scopes`, so the cause is not the pre-`scopes` re-derivation ticket 15 warned about, and it is
+not measured: every agent run since ticket 31 has reported the same record from inside its
+worktree, and the launch text tells them to ignore that one test. Whatever the walk reads
+differently from a worktree is a rough edge in its own right and waits for someone to run the
+walk from one by hand.

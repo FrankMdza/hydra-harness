@@ -51,6 +51,10 @@ pub enum Capability {
     /// The tools that exist only inside one provider's own product surface and
     /// that no policy in 7.2 grants. See `table.rs` for why this row exists.
     ProviderNative,
+    /// A tool the provider runs without asking the hook. No policy grants it,
+    /// and the compiler skips the row so `gate.py` never sees a name it cannot
+    /// answer for. Map ticket 51.
+    Unhooked,
 }
 
 impl Capability {
@@ -74,6 +78,7 @@ impl Capability {
             Capability::SubagentSpawn => "subagent_spawn",
             Capability::SkillInvoke => "skill_invoke",
             Capability::ProviderNative => "provider_native",
+            Capability::Unhooked => "unhooked",
         }
     }
 }
@@ -596,6 +601,12 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     let mut tools = serde_json::Map::new();
     let mut path_fields = serde_json::Map::new();
     for t in table.tools {
+        // Unhooked rows exist for the replay, not for the hook. Compiling one
+        // would add a capability `gate.py` does not know, and the hook never
+        // asks.
+        if matches!(t.capability, Capability::Unhooked) {
+            continue;
+        }
         tools.insert(t.name.to_string(), t.capability.as_str().into());
         if let Some(field) = t.path_field {
             path_fields.insert(t.name.to_string(), field.into());

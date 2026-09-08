@@ -47,6 +47,17 @@ const fn pathed(name: &'static str, capability: Capability, field: &'static str)
     }
 }
 
+/// A tool the provider runs without asking the hook. The replay records the
+/// provider's own decision; the compiler skips the row, so the gate never
+/// sees a name it cannot answer for.
+const fn unhooked(name: &'static str) -> Tool {
+    Tool {
+        name,
+        capability: Capability::Unhooked,
+        path_field: None,
+    }
+}
+
 /// `claude` 2.1.263's twenty-nine tools, read off the `system`/`init` frame on
 /// 2026-09-06. 2.1.261 offered twenty-five on 2026-09-05, and the four
 /// `Task*` list tools arrived between the two.
@@ -135,7 +146,13 @@ pub const CURSOR: &[Tool] = &[
     pathed("Grep", Capability::FileRead, "file_path"),
     // Read off the bundle's `createToolInput` table, same build.
     pathed("List", Capability::FileRead, "file_path"),
-    pathed("ReadLints", Capability::FileRead, "file_path"),
+    // Map ticket 51: Cursor runs these without asking `preToolUse`. ReadLints
+    // was measured 2026-09-08 under `read-only`; the other two arrived the
+    // same day as unknown names with completed results. The compiler skips
+    // the rows, so the gate's compiled config does not name them.
+    unhooked("ReadLints"),
+    unhooked("getMcpToolsToolCall"),
+    unhooked("awaitToolCall"),
     tool("Fetch", Capability::NetworkRead),
     // Feeds stdin to a background shell command. It is shell, and the floor
     // cannot see it, which is 7.4's failure mode on a second spelling.
@@ -554,6 +571,22 @@ mod tests {
             "claude's prefix is not Cursor's"
         );
         assert_eq!(cursor_capability("Bash"), None);
+    }
+
+    #[test]
+    fn unhooked_cursor_rows_are_known_and_carry_no_path() {
+        for name in ["ReadLints", "getMcpToolsToolCall", "awaitToolCall"] {
+            assert_eq!(
+                cursor_capability(name),
+                Some(Capability::Unhooked),
+                "{name}"
+            );
+            let row = CURSOR.iter().find(|t| t.name == name).unwrap();
+            assert!(
+                row.path_field.is_none(),
+                "{name} has no field the gate could read"
+            );
+        }
     }
 
     #[test]

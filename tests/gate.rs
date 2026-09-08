@@ -1251,6 +1251,42 @@ fn cursor_names_an_mcp_tool_with_a_prefix_of_its_own() {
 }
 
 #[test]
+fn the_cursor_gate_config_carries_no_unhooked_tool() {
+    // Map ticket 51: the three tools Cursor runs without asking the hook stay
+    // out of the compiled config, so a hook that never fires is not a config
+    // the gate would answer differently for. ReadLints used to sit here as
+    // `file_read` on `file_path`; dropping it changes nothing at run time
+    // because the hook does not fire.
+    let gate = Gate::cursor("standard");
+    let config = compiled_config(&gate.script);
+    for name in ["ReadLints", "getMcpToolsToolCall", "awaitToolCall"] {
+        assert!(
+            config["tools"].get(name).is_none(),
+            "{name} is unhooked and the gate never sees it"
+        );
+        assert!(
+            config["path_fields"].get(name).is_none(),
+            "{name} has no path field in the compiled config"
+        );
+    }
+    assert_eq!(config["tools"]["Read"], "file_read");
+    assert_eq!(config["path_fields"]["Read"], "file_path");
+}
+
+fn compiled_config(script: &Path) -> Value {
+    let text = std::fs::read_to_string(script).unwrap();
+    let line = text
+        .lines()
+        .find(|line| line.starts_with("HYDRA_CONFIG = json.loads("))
+        .expect("the compiled gate carries a config line");
+    let literal = line
+        .trim_start_matches("HYDRA_CONFIG = json.loads(")
+        .trim_end_matches(')');
+    let inner: String = serde_json::from_str(literal).unwrap();
+    serde_json::from_str(&inner).unwrap()
+}
+
+#[test]
 fn the_path_denials_hold_through_cursors_shell_too() {
     let gate = Gate::cursor("permissive");
     let target = gate.runs.join("r.jsonl");

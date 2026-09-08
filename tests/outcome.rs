@@ -1144,17 +1144,6 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
             continue;
         }
 
-        // Map ticket 51: Cursor runs `ReadLints` without asking the hook, so the
-        // replay's deny on that tool is a leak rather than a refusal, and a run
-        // whose only calls were `ReadLints` ran everything it asked. Skipped
-        // by tool until the ticket says what the leak means.
-        if run.findings.iter().any(|finding| {
-            matches!(finding, hydra::normalize::Finding::GateLeak { tool, .. }
-                if matches!(tool.as_str(), "ReadLints" | "getMcpToolsToolCall" | "awaitToolCall"))
-        }) {
-            continue;
-        }
-
         let refused = run
             .permission_decisions()
             .filter(|d| d.decision == hydra::normalize::Decision::Deny)

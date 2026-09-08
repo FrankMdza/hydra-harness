@@ -1248,6 +1248,92 @@ fn a_cursor_refusal_without_hydras_voice_under_a_denying_policy_is_ungated() {
     );
 }
 
+#[test]
+fn a_cursor_readlints_call_is_the_providers_decision() {
+    // Map ticket 51: Cursor runs ReadLints without asking the hook. The
+    // argument is `paths`, a list, and a success is the provider's own
+    // decision rather than a leak.
+    let sandbox = Sandbox::new("cursor-unhooked-lints");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("read-only"), Some(policies().sha()))
+        .cursor_call(
+            "c1",
+            "readLintsToolCall",
+            json!({"paths": [ws.join("src/main.rs"), "/etc/hosts"]}),
+            json!({"success": {
+                "fileDiagnostics": [],
+                "totalFiles": 0,
+                "totalDiagnostics": 0
+            }}),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let calls: Vec<_> = run.tool_calls().collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].name, "ReadLints");
+    assert_eq!(
+        calls[0].capability,
+        Some(hydra::policy::Capability::Unhooked)
+    );
+    assert_eq!(
+        calls[0].arguments["paths"],
+        json!([ws.join("src/main.rs"), "/etc/hosts"])
+    );
+
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].call_id, "c1");
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::Provider);
+    assert_eq!(
+        decisions[0].reason,
+        "hydra/unhooked: ReadLints is run by cursor-agent without asking the hook"
+    );
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_cursor_await_call_is_the_providers_decision() {
+    let sandbox = Sandbox::new("cursor-unhooked-await");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("standard"), Some(policies().sha()))
+        .cursor_call(
+            "c1",
+            "awaitToolCall",
+            json!({"taskId": "bg-1"}),
+            json!({"success": {"taskId": "bg-1"}}),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let calls: Vec<_> = run.tool_calls().collect();
+    assert_eq!(calls[0].name, "awaitToolCall");
+    assert_eq!(
+        calls[0].capability,
+        Some(hydra::policy::Capability::Unhooked)
+    );
+    assert_eq!(calls[0].arguments["taskId"], "bg-1");
+
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::Provider);
+    assert_eq!(
+        decisions[0].reason,
+        "hydra/unhooked: awaitToolCall is run by cursor-agent without asking the hook"
+    );
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+}
+
 // --- the corpus ----------------------------------------------------------
 
 #[test]
@@ -1332,18 +1418,6 @@ fn no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent() {
         let leaks: Vec<_> = run
             .findings
             .iter()
-            // Map ticket 51: Cursor runs `ReadLints` without asking the hook,
-            // measured on 2026-09-08 under `read-only` against `/etc/hosts`,
-            // and its `paths` argument is a list the table does not know. The
-            // same day's runs showed two more it runs unhooked, its MCP tool
-            // listing and its wait on a background task. Those records are
-            // the evidence and stay in the corpus; the walk passes over those
-            // tools' leaks until the ticket says what a tool the provider runs
-            // unchecked means.
-            .filter(|finding| {
-                !matches!(finding, Finding::GateLeak { tool, .. }
-                    if matches!(tool.as_str(), "ReadLints" | "getMcpToolsToolCall" | "awaitToolCall"))
-            })
             .filter(|finding| {
                 matches!(
                     finding,

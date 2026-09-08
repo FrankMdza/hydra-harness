@@ -178,6 +178,9 @@ impl Decision {
 }
 
 /// Which policy accounts for the decision, not which process fired (7.7).
+///
+/// `provider` is the exception: the tool never reached a policy, because the
+/// provider ran it without asking the hook.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decider {
     /// The run's own policy answers for it.
@@ -186,6 +189,9 @@ pub enum Decider {
     /// something outside Hydra denied. On this machine that means the user's own
     /// `PreToolUse` guards.
     External,
+    /// The call went to a tool the provider runs without asking the hook
+    /// (contract 7.7, map ticket 51). No policy answered and none could.
+    Provider,
 }
 
 impl Decider {
@@ -193,6 +199,7 @@ impl Decider {
         match self {
             Decider::HydraPolicy => "hydra_policy",
             Decider::External => "external",
+            Decider::Provider => "provider",
         }
     }
 }
