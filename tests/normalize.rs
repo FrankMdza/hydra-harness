@@ -125,6 +125,87 @@ fn a_result_joins_its_call_and_nothing_upgrades_what_the_adapter_cannot_tell() {
 }
 
 #[test]
+fn a_read_with_no_is_error_and_an_object_tool_use_result_is_ok() {
+    // 2.1.263, 2026-09-08: Read, Edit and Write success omit `is_error` and
+    // carry `tool_use_result` as an object on the user frame.
+    let sandbox = Sandbox::new("tur-object");
+    let text = Record::opened(&sandbox.worktree(), None, None)
+        .raw(json!({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_01", "content": "hello"}
+            ]},
+            "tool_use_result": {"type": "text", "file": {"filePath": "/tmp/x"}},
+        }))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let result = run.tool_results().next().expect("one result");
+    assert_eq!(result.status, ResultStatus::Ok);
+    assert_eq!(result.call_id, "toolu_01");
+}
+
+#[test]
+fn a_read_with_no_is_error_and_an_error_string_tool_use_result_is_error() {
+    let sandbox = Sandbox::new("tur-error-string");
+    let text = Record::opened(&sandbox.worktree(), None, None)
+        .raw(json!({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_01", "content": "denied"}
+            ]},
+            "tool_use_result": "Error: x",
+        }))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let result = run.tool_results().next().expect("one result");
+    assert_eq!(result.status, ResultStatus::Error);
+}
+
+#[test]
+fn a_read_with_no_is_error_and_no_tool_use_result_stays_unclassified() {
+    let sandbox = Sandbox::new("tur-absent");
+    let text = Record::opened(&sandbox.worktree(), None, None)
+        .raw(json!({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_01", "content": "who knows"}
+            ]},
+        }))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let result = run.tool_results().next().expect("one result");
+    assert_eq!(result.status, ResultStatus::Unclassified);
+}
+
+#[test]
+fn is_error_false_wins_over_a_string_tool_use_result() {
+    // Bash on 2.1.263 always sets `is_error`. A string `tool_use_result` is
+    // the failure shape, but the flag is the one that decides when present.
+    let sandbox = Sandbox::new("tur-is-error-wins");
+    let text = Record::opened(&sandbox.worktree(), None, None)
+        .raw(json!({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_01",
+                    "content": "hello",
+                    "is_error": false
+                }
+            ]},
+            "tool_use_result": "Error: this string would classify Error if is_error were absent",
+        }))
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let result = run.tool_results().next().expect("one result");
+    assert_eq!(result.status, ResultStatus::Ok);
+}
+
+#[test]
 fn a_line_that_is_not_json_normalizes_to_nothing_and_is_not_an_error() {
     let sandbox = Sandbox::new("noise");
     let text = Record::opened(&sandbox.worktree(), None, None)
@@ -925,7 +1006,12 @@ fn a_cursor_tool_call_is_named_as_the_hook_saw_it() {
     let sandbox = Sandbox::new("cursor-calls");
     let ws = sandbox.worktree();
     let text = Record::cursor(&ws, None, None)
-        .cursor_tool("c1", "readToolCall", json!({"path": ws.join("a.txt")}), None)
+        .cursor_tool(
+            "c1",
+            "readToolCall",
+            json!({"path": ws.join("a.txt")}),
+            None,
+        )
         .cursor_tool(
             "c2",
             "shellToolCall",
@@ -944,7 +1030,12 @@ fn a_cursor_tool_call_is_named_as_the_hook_saw_it() {
             json!({"targetDirectory": ws, "globPattern": "*"}),
             None,
         )
-        .cursor_tool("c5", "deleteToolCall", json!({"path": ws.join("b.txt")}), None)
+        .cursor_tool(
+            "c5",
+            "deleteToolCall",
+            json!({"path": ws.join("b.txt")}),
+            None,
+        )
         .cursor_tool("c6", "semSearchToolCall", json!({"query": "x"}), None)
         .closed();
 
@@ -1008,7 +1099,11 @@ fn a_cursor_result_joins_its_call_by_id_and_names_its_case() {
     assert_eq!(results[0].status, ResultStatus::Ok);
     assert!(results[0].output.contains("hi\\n"));
     assert_eq!(results[1].status, ResultStatus::Error);
-    assert_eq!(results[2].status, ResultStatus::Error, "a rejection is not ok");
+    assert_eq!(
+        results[2].status,
+        ResultStatus::Error,
+        "a rejection is not ok"
+    );
     assert_eq!(results[3].status, ResultStatus::Unclassified);
     assert!(!results[0].truncated);
 }
@@ -1029,7 +1124,11 @@ fn a_cursor_run_with_no_result_frame_is_unavailable_never_estimated() {
     assert_eq!(usage.source, UsageSource::Unavailable);
     assert!(usage.counts.is_none());
     assert!(usage.estimator.is_none());
-    assert_eq!(run.noise.len(), 1, "the stderr sentence is kept for the outcome");
+    assert_eq!(
+        run.noise.len(),
+        1,
+        "the stderr sentence is kept for the outcome"
+    );
 
     // A `result` frame with no usage block, which the emitter permits on the
     // success path too, is the same answer.
@@ -1065,7 +1164,11 @@ fn a_cursor_read_the_policy_denies_and_the_hook_refused_is_hydras_deny() {
         assert_eq!(decisions[0].call_id, "c1");
         assert_eq!(decisions[0].decision, Decision::Deny);
         assert_eq!(decisions[0].decider, Decider::HydraPolicy);
-        assert!(decisions[0].reason.starts_with("hydra/out-of-scope:"), "{}", decisions[0].reason);
+        assert!(
+            decisions[0].reason.starts_with("hydra/out-of-scope:"),
+            "{}",
+            decisions[0].reason
+        );
         assert!(
             common::other_findings(&run).is_empty(),
             "{name}: {:?}",
@@ -1127,7 +1230,11 @@ fn a_cursor_frame_with_no_call_id_still_yields_a_call_and_says_what_it_lost() {
     }
     let text = record.closed();
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
-    assert_eq!(run.tool_calls().count(), 2, "two starts are two calls, id or no id");
+    assert_eq!(
+        run.tool_calls().count(),
+        2,
+        "two starts are two calls, id or no id"
+    );
 }
 
 #[test]
@@ -1974,7 +2081,12 @@ fn a_response_step_that_only_called_a_tool_produces_no_message() {
     let text = Record::agy(&sandbox.worktree(), None, None)
         .agy_user()
         .agy_response(1, &[], Some(agy_usage(5950, 89, 8131, 0)))
-        .agy_tool_ok(2, "list_dir", json!({ "DirectoryPath": "/tmp/ws" }), "a.txt")
+        .agy_tool_ok(
+            2,
+            "list_dir",
+            json!({ "DirectoryPath": "/tmp/ws" }),
+            "a.txt",
+        )
         .agy_result("SUCCESS", "", None)
         .closed();
 
@@ -2086,9 +2198,10 @@ fn a_hook_block_is_an_error_and_carries_hydras_reason_verbatim() {
     // The gate refused and the derivation agrees, so there is no disagreement
     // and no leak.
     assert!(
-        !run.findings
-            .iter()
-            .any(|finding| matches!(finding, Finding::Disagreement { .. } | Finding::GateLeak { .. })),
+        !run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Disagreement { .. } | Finding::GateLeak { .. }
+        )),
         "{:?}",
         run.findings
     );
@@ -2183,9 +2296,9 @@ fn a_call_the_policy_denies_that_this_provider_ran_is_a_leak() {
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(
-        run.findings
-            .iter()
-            .any(|finding| matches!(finding, Finding::GateLeak { tool, .. } if tool == "run_command")),
+        run.findings.iter().any(
+            |finding| matches!(finding, Finding::GateLeak { tool, .. } if tool == "run_command")
+        ),
         "{:?}",
         run.findings
     );
@@ -2201,7 +2314,12 @@ fn usage_is_the_sum_of_the_steps_and_no_frame_names_it() {
     let text = Record::agy(&sandbox.worktree(), None, None)
         .agy_user()
         .agy_response(1, &["a"], Some(agy_usage(5950, 89, 8131, 0)))
-        .agy_tool_ok(2, "list_dir", json!({ "DirectoryPath": "/tmp/ws" }), "a.txt")
+        .agy_tool_ok(
+            2,
+            "list_dir",
+            json!({ "DirectoryPath": "/tmp/ws" }),
+            "a.txt",
+        )
         .agy_response(3, &["b"], Some(agy_usage(14351, 93, 0, 0)))
         .agy_response(5, &["c"], Some(agy_usage(6565, 152, 8123, 0)))
         .agy_response(7, &["d"], Some(agy_usage(15079, 121, 0, 0)))
@@ -2258,9 +2376,9 @@ fn a_tool_agys_init_frame_offered_that_the_table_does_not_know_is_a_finding() {
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(
-        run.findings
-            .iter()
-            .any(|finding| matches!(finding, Finding::UnknownTool { name } if name == "teleport_file")),
+        run.findings.iter().any(
+            |finding| matches!(finding, Finding::UnknownTool { name } if name == "teleport_file")
+        ),
         "{:?}",
         run.findings
     );
@@ -2310,20 +2428,30 @@ fn a_call_the_provider_refused_on_its_input_schema_is_not_ungated() {
     // The gate was never asked, so its silence says nothing about it.
     let sandbox = Sandbox::new("input-validation");
     let path = sandbox.worktree().join("a.rs");
-    let text = Record::opened(&sandbox.worktree(), Some("standard"), Some(policies().sha()))
-        .assistant(json!([{"type": "text", "text": "Let me read that."}]))
-        .tool_use("toolu_bad", "Read", json!({"file_path": path, "offset": [1, 2]}))
-        .tool_result(
-            "toolu_bad",
-            "<tool_use_error>InputValidationError: Read failed due to the following issue:\n\
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    )
+    .assistant(json!([{"type": "text", "text": "Let me read that."}]))
+    .tool_use(
+        "toolu_bad",
+        "Read",
+        json!({"file_path": path, "offset": [1, 2]}),
+    )
+    .tool_result(
+        "toolu_bad",
+        "<tool_use_error>InputValidationError: Read failed due to the following issue:\n\
              The parameter `offset` type is expected as `number` but provided as `unknown`\
              </tool_use_error>",
-            true,
-        )
-        .closed();
+        true,
+    )
+    .closed();
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(
-        !run.findings.iter().any(|f| matches!(f, hydra::normalize::Finding::Ungated { .. })),
+        !run.findings
+            .iter()
+            .any(|f| matches!(f, hydra::normalize::Finding::Ungated { .. })),
         "{:?}",
         run.findings
     );

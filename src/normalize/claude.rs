@@ -279,7 +279,7 @@ impl Walk {
         let Some(blocks) = raw["message"]["content"].as_array() else {
             return;
         };
-        let (events, unknown) = message_blocks(seq, blocks, role);
+        let (events, unknown) = message_blocks(seq, raw, blocks, role);
         self.events.extend(events);
         for name in unknown {
             self.note_unknown(&name);
@@ -550,11 +550,9 @@ impl Walk {
             // passed `offset` as an array five times and each came back as an
             // `InputValidationError` result with no hook frame beside it. The
             // gate was never asked, so its silence is not a finding.
-            let refused_on_input = results
-                .get(&call_id)
-                .is_some_and(|(status, output)| {
-                    *status == ResultStatus::Error && output.contains("InputValidationError")
-                });
+            let refused_on_input = results.get(&call_id).is_some_and(|(status, output)| {
+                *status == ResultStatus::Error && output.contains("InputValidationError")
+            });
             if !hydra_spoke && !refused_on_input {
                 self.findings.push(Finding::Ungated {
                     call_id: call_id.clone(),
@@ -832,7 +830,12 @@ impl Walk {
 /// same four-way match drifting apart. Unknown tool names come back rather
 /// than being noted directly, because the two callers keep their own
 /// deduplicated list.
-fn message_blocks(seq: u64, blocks: &[Value], role: Role) -> (Vec<Event>, Vec<String>) {
+fn message_blocks(
+    seq: u64,
+    frame: &Value,
+    blocks: &[Value],
+    role: Role,
+) -> (Vec<Event>, Vec<String>) {
     let mut events = Vec::new();
     let mut unknown = Vec::new();
     for (block, body) in blocks.iter().enumerate() {
@@ -866,14 +869,7 @@ fn message_blocks(seq: u64, blocks: &[Value], role: Role) -> (Vec<Event>, Vec<St
             Some("tool_result") => events.push(Event::ToolResult(ToolResult {
                 seq,
                 call_id: body["tool_use_id"].as_str().unwrap_or_default().to_string(),
-                status: match body.get("is_error").and_then(Value::as_bool) {
-                    Some(true) => ResultStatus::Error,
-                    Some(false) => ResultStatus::Ok,
-                    // Measured on 2.1.261: a successful `Write` came back with
-                    // no `is_error` field at all. 7.6 forbids reading that as
-                    // success.
-                    None => ResultStatus::Unclassified,
-                },
+                status: result_status(body, frame),
                 output: result_output(body.get("content")),
                 // `claude` reports no truncation on the stream and nothing
                 // here cuts an output, so the marker is always false.
@@ -883,6 +879,49 @@ fn message_blocks(seq: u64, blocks: &[Value], role: Role) -> (Vec<Event>, Vec<St
         }
     }
     (events, unknown)
+}
+
+/// What a `tool_result` block's `status` is, from `is_error` and then from the
+/// frame's `tool_use_result`.
+///
+/// **`is_error` present decides.** True is `Error`, false is `Ok`. Absent, the
+/// sibling field on the user frame is the second source: an object is `Ok`, a
+/// string starting `Error:` is `Error`, and anything else, including absence,
+/// stays `Unclassified`. Contract 7.6 forbids reading a missing `is_error` as
+/// success; the object is presence, not absence.
+///
+/// Measured on 2.1.261: a successful `Write` came back with no `is_error` field
+/// at all. On 2.1.263, 2026-09-08, runs 01a07f37-9cab and 01a07f18-910f, the
+/// same absence still happens on `Read`, `Edit` and `Write`, and the user frame
+/// carries `tool_use_result` beside `message`:
+///
+/// - `Bash`: `is_error: false` on every success, `tool_use_result` an object
+///   with `stdout`, `stderr`, `interrupted`, `isImage`, `noOutputExpected` and
+///   sometimes `returnCodeInterpretation` or `persistedOutputPath`;
+///   `is_error: true` on failure with `tool_use_result` a string starting
+///   `Error: `.
+/// - `Read`: `is_error` absent on success, `tool_use_result` an object
+///   `{"type": "text", "file": {"filePath": ..., ...}}`; `is_error: true` on a
+///   refusal with the string `Error: hydra/...`.
+/// - `Edit`: `is_error` absent on success, `tool_use_result` an object with
+///   `filePath`, `oldString`, `newString`, `originalFile`, `replaceAll`,
+///   `structuredPatch`.
+/// - `Write`: `is_error` absent on success, `tool_use_result` an object with
+///   `type: "create"`, `filePath`, `content`, `originalFile`,
+///   `structuredPatch`.
+///
+/// No success was seen with `tool_use_result` as a string and no error with it
+/// as an object.
+fn result_status(block: &Value, frame: &Value) -> ResultStatus {
+    match block.get("is_error").and_then(Value::as_bool) {
+        Some(true) => ResultStatus::Error,
+        Some(false) => ResultStatus::Ok,
+        None => match frame.get("tool_use_result") {
+            Some(Value::Object(_)) => ResultStatus::Ok,
+            Some(Value::String(text)) if text.starts_with("Error:") => ResultStatus::Error,
+            _ => ResultStatus::Unclassified,
+        },
+    }
 }
 
 /// A tool result's body, which is a string on most calls and a block list on the
@@ -974,8 +1013,8 @@ mod harvest {
     use serde_json::Value;
 
     use super::{
-        Correction, Counts, Decider, Decision, Event, Message, PermissionDecision, Role, Run,
-        RunEnd, RunStart, ResultStatus, Usage, UsageSource, message_blocks, splice,
+        Correction, Counts, Decider, Decision, Event, Message, PermissionDecision, ResultStatus,
+        Role, Run, RunEnd, RunStart, Usage, UsageSource, message_blocks, splice,
     };
     use anyhow::Result;
 
@@ -1120,7 +1159,7 @@ mod harvest {
                     block: 0,
                 })),
                 Value::Array(blocks) => {
-                    let (events, unknown) = message_blocks(seq, blocks, role);
+                    let (events, unknown) = message_blocks(seq, raw, blocks, role);
                     self.events.extend(events);
                     // No run-time tool table to check a name against here
                     // (7.1's check reads `system/init`'s tool list, which no
@@ -1436,5 +1475,47 @@ mod harvest {
             }
         }
         (words, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn block(is_error: Option<bool>) -> Value {
+        match is_error {
+            Some(flag) => json!({"type": "tool_result", "is_error": flag}),
+            None => json!({"type": "tool_result"}),
+        }
+    }
+
+    #[test]
+    fn is_error_present_decides_and_absent_reads_tool_use_result() {
+        let object = json!({"type": "user", "tool_use_result": {"type": "text"}});
+        let error_string = json!({"type": "user", "tool_use_result": "Error: x"});
+        let none = json!({"type": "user"});
+        let string_on_ok = json!({
+            "type": "user",
+            "tool_use_result": "Error: this would be Error if is_error were absent",
+        });
+
+        assert_eq!(result_status(&block(None), &object), ResultStatus::Ok);
+        assert_eq!(
+            result_status(&block(None), &error_string),
+            ResultStatus::Error
+        );
+        assert_eq!(
+            result_status(&block(None), &none),
+            ResultStatus::Unclassified
+        );
+        assert_eq!(
+            result_status(&block(Some(false)), &string_on_ok),
+            ResultStatus::Ok
+        );
+        assert_eq!(
+            result_status(&block(Some(true)), &object),
+            ResultStatus::Error
+        );
     }
 }

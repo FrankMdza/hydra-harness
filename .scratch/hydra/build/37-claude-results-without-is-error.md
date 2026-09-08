@@ -1,7 +1,7 @@
 # 37 - A `claude` tool result with no `is_error` is classified from `tool_use_result`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 03
 
 ## Goal
@@ -63,3 +63,23 @@ no `is_error` and an object `tool_use_result` classifies `Ok`; the same with a s
   `hydra evolve --dry-run` lists it as `completed/derived`.
 - The tests above pass and the rest of the suite is untouched.
 - The orchestrating session amends the `claude` normalizer section of `IMPLEMENTATION.md`.
+
+## Outcome
+
+Resolved 2026-09-08. `cursor-agent` on Cursor Grok 4.6 high fast, run 01a08067-548b under
+`standard`, launched through `hydra-in-pane` on the first try after the launcher fix: 2.57M
+tokens, two files, five tests, twenty-five minutes. `result_status` in `src/normalize/claude.rs`
+reads `is_error` when present and the user frame's `tool_use_result` when not, an object as
+`Ok`, a string starting `Error:` as `Error`, anything else `Unclassified`; `message_blocks`
+takes the frame so the field one level up is visible, and harvest shares it. On master,
+`hydra show 01a07f37-9cab` prints `outcome_source: derived` where it printed `unknown`, and
+`hydra evolve --dry-run` still lists twelve runs as `/unknown`, which are the Cursor runs
+carrying an `unknown_tool` and the older records, not this rule. The model could not run the
+done-when's two commands itself because `~/hydra/runs/` is denied under every policy, and said
+so rather than guessing.
+
+**What its own record showed.** One `Disagreement` on `awaitToolCall`: the replay derives
+`allow` from ticket 35's `unhooked` row, and the gate at run time said `out-of-scope` for
+`file_read`, the third run in which that tool's result carried Hydra's refusal. So that tool
+is hooked after all, and the row is wrong for it; the probe run 01a08111-1e5e measures what
+the hook sees.

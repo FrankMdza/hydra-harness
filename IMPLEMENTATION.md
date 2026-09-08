@@ -1600,6 +1600,20 @@ they denied under every policy, `permissive` included, which is what the check i
 They are `provider_native` now, so it is quiet again and the next rename breaks the first
 record written after it.
 
+**A `claude` result with no `is_error` is classified from `tool_use_result`, since build
+ticket 37.** On 2.1.263 a successful `Read`, `Edit` or `Write` result carries no `is_error`
+at all, while `Bash` always does, and the normalizer filed every one of those `unclassified`
+under contract 7.6: half the results of every Sonnet run that did real work, and with them
+`outcome_source: unknown`, an export refusal and a `completed/unknown` line in the evolve
+brief. The `user` frame that carries the result also carries a top-level `tool_use_result`,
+measured on runs 01a07f37-9cab and 01a07f18-910f: an object on success (`{"type": "text",
+"file": {...}}` for `Read`, `filePath` with `structuredPatch` for `Edit`, `type: "create"` for
+`Write`, `stdout` and `stderr` for `Bash`), and a string starting `Error:` on failure. So
+`result_status` reads `is_error` when present and that field when not, an object as `Ok`, an
+`Error:` string as `Error`, anything else still `Unclassified`. Absence is never read as
+success; the object is presence. Harvest shares the function and the field is absent on a
+transcript, so nothing changes there.
+
 ## Deriving an outcome, and what `hydra run` returns
 
 Ticket 04. `src/outcome.rs` turns a normalized run into contract 8's nine outcomes and
@@ -2448,10 +2462,10 @@ a refused or blocked patch is a `completed` pass and `failed` is git or the work
 
 **Two things the brief shows that are worth knowing.** It lists every run rung one may learn
 from with its outcome and `outcome_source`, and on this machine that second column reads
-`unknown` for most runs, because a run carrying one unclassified tool result has an unknown
-source under contract 8.2, and the Sonnet run 01a07f37-9cab carries ninety-two of them. That
-is a `claude` normalizer gap rather than a rung-two fact, and it is written down here because
-the brief is where it became visible. And the brief hands the proposer run ids it
+`unknown` for a run carrying one unclassified tool result, contract 8.2. On the day the
+brief first printed, the Sonnet run 01a07f37-9cab read that way with ninety-two of them, a
+`claude` normalizer gap build ticket 37 closed the same day; twelve runs still read `unknown`,
+the Cursor ones carrying an `unknown_tool` and the oldest records. And the brief hands the proposer run ids it
 cannot open, since `~/hydra/runs/` is denied under every policy; that is the read-only brief of
 spec 4.3 as a convention, which map ticket 52 kept.
 
