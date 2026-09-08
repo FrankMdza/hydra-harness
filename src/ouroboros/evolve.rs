@@ -186,10 +186,20 @@ pub fn evolve(pass: Pass) -> Result<Done> {
 
     for (provider, name) in judges {
         let judge_run_id = Uuid::now_v7().to_string();
+        // `--model` names a model inside one provider, and the pass's flag was
+        // typed for the proposer, which is `claude`. The `claude` judge takes it
+        // too, so a haiku pass gets a haiku judge rather than the human's
+        // default model; the other two providers run their own defaults, since
+        // `cursor-agent --model haiku` names nothing there.
+        let judge_model = if provider == Provider::Claude {
+            proposer_model.clone()
+        } else {
+            None
+        };
         let call = run(Request {
             provider,
             task: judge_prompt.clone(),
-            model: proposer_model.clone(),
+            model: judge_model,
             policy: "judge".to_string(),
             floor_lifted: false,
             timeout: pass.timeout,
@@ -389,7 +399,10 @@ pub fn protected_path_hit(paths: &[String], repo: &Path) -> Option<String> {
 pub fn admission_gate(worktree: &Path) -> Result<(), String> {
     let steps: &[(&str, &[&str])] = &[
         ("cargo", &["fmt", "--check"]),
-        ("cargo", &["clippy", "-D", "warnings"]),
+        // `--` before `-D`: without it cargo reads the flag as its own and
+        // refuses, which is what blocked the second real pass, 01a0814a-c730 on
+        // 2026-09-08, on a patch nobody had judged.
+        ("cargo", &["clippy", "--", "-D", "warnings"]),
         ("cargo", &["build"]),
         ("cargo", &["test"]),
     ];
@@ -508,10 +521,13 @@ fn commit_pass_branch(
             ],
         )?;
     }
-    let current = git(&checkout, &["rev-parse", "--abbrev-ref", "HEAD"])?;
-    if current.trim() != branch {
-        git(repo, &["branch", "-f", branch, "HEAD"])?;
-    }
+    // The verdict commit is the checkout's HEAD, on `hydra/<proposer>`. The
+    // pass branch has to point at that commit, not at the parent repo's HEAD:
+    // the second real pass, 01a0814a-c730 on 2026-09-08, made the commit and
+    // then named master, and the blocked branch carried master's last message
+    // as its verdict.
+    let verdict_commit = git(&checkout, &["rev-parse", "HEAD"])?;
+    git(repo, &["branch", "-f", branch, verdict_commit.trim()])?;
     Ok(())
 }
 

@@ -96,3 +96,9 @@ by the orchestrating session, all in `IMPLEMENTATION.md`'s rung-two section: a h
 bounds nothing, microseconds on the pass record, an empty verdict commit on a clean tree,
 master formatted and clippy-clean, and a harness run's outcome derived from its own end. No
 judge has answered yet.
+
+**The second real pass, 01a0814a-c730.** Committed tree, haiku proposer, 5.18M tokens, a real
+fifty-line patch to the three normalizers, and the admission gate blocked it on its own
+misspelled clippy command, `-D warnings` without the `--`. The verdict commit landed where spec
+4.9 puts it and the blocked branch pointed at the wrong HEAD; both fixed by the orchestrating
+session, the branch re-pointed by hand. Still no judge has answered.

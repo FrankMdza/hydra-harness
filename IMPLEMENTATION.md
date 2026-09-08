@@ -2497,6 +2497,20 @@ types the next pass: commit first, because the proposer inherits the uncommitted
 seed and reads it as work in progress; and the pass cost 5.77M tokens on haiku for a patch
 that undid a diff, which is what a proposer given no task beyond the corpus brief does.
 
+**The second real pass, 01a0814a-c730 the same night, reached the admission gate with a
+real patch and was blocked by the gate's own spelling.** With the tree committed first, the
+haiku proposer (5.18M tokens) read the brief, found the leak walk failing on two old records
+inside its worktree, the same failure every agent since ticket 31 had reported, and wrote
+fifty lines across the three normalizers to make the replay refuse a shell command naming a
+protected path. `cargo fmt --check` passed. `cargo clippy -D warnings` failed with "unexpected
+argument '-D'", because the gate ran it without the `--` cargo needs before clippy's own
+flags; fixed. The verdict commit landed on `hydra/<proposer>` as designed, and the blocked
+branch then named master's HEAD instead of it, because `commit_pass_branch` resolved `HEAD`
+in the parent repo; it resolves the checkout's now. The pass record read `completed` and
+`hydra status` reported it live while it ran, so two of the first pass's fixes held. Haiku's
+patch is on `ouroboros/blocked/01a0814a-c730` for whoever wants to read what a proposer does
+with the corpus brief and no task: it went after the one red test it could see.
+
 **Two things the brief shows that are worth knowing.** It lists every run rung one may learn
 from with its outcome and `outcome_source`, and on this machine that second column reads
 `unknown` for a run carrying one unclassified tool result, contract 8.2. On the day the
