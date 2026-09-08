@@ -15,7 +15,7 @@ use serde_json::json;
 
 mod common;
 use common::{
-    Record, Sandbox, corpus, cursor_read_blocked, cursor_usage, policies, usage_frame,
+    Record, Sandbox, Shape, corpus, cursor_read_blocked, cursor_usage, policies, usage_frame,
 };
 
 /// The derivation, off a synthetic record.
@@ -653,6 +653,7 @@ fn a_record_with_no_run_id_writes_no_shared_scratch_index() {
         Some(&hydra::record::WorktreeRef {
             path: worktree.display().to_string(),
             branch: "hydra/probe".into(),
+            base_tree: None,
         }),
         // The empty tree, which every repo has, so git gets as far as the index.
         Some("4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
@@ -667,6 +668,109 @@ fn a_record_with_no_run_id_writes_no_shared_scratch_index() {
         !sandbox.layout().spawns().join("stat-index").exists(),
         "the scratch index every empty-run-id record would share was written"
     );
+}
+
+/// A freshly initialized repository with one untracked file and no commit yet.
+/// `write-tree` answers for a checkout in this shape the same way it does for
+/// a seeded one, which is all the diff stat below needs.
+fn git_repo_with_untracked_file(worktree: &std::path::Path) {
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["config", "user.email", "test@example.invalid"][..],
+        &["config", "user.name", "hydra tests"][..],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(worktree)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    }
+    std::fs::write(worktree.join("a.txt"), "one\n").unwrap();
+}
+
+#[test]
+fn a_recorded_base_tree_derives_the_diff_stat_with_no_spawn_directory() {
+    // Map ticket 49: `worktree.base_tree` is on the record from build ticket 23
+    // on, and a reader with it needs no seed index in the spawn directory to
+    // answer contract 17's diff stat. The empty tree is what every repository
+    // has already, so it stands in for a real seed and the file above counts as
+    // the whole of what the run added.
+    let sandbox = Sandbox::new("recorded-base-tree");
+    let worktree = sandbox.worktree();
+    git_repo_with_untracked_file(&worktree);
+    let base = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+    let text = Record::shaped(Shape {
+        worktree: Some(&worktree),
+        base_tree: Some(base),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        ..Shape::default()
+    })
+    .assistant(json!([{"type": "text", "text": "done"}]))
+    .result(usage_frame())
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !sandbox.layout().spawn(&run.run_id).exists(),
+        "a spawn directory exists before the derivation touched anything"
+    );
+
+    let result = hydra::run::result(
+        &run,
+        &worktree.join("record.jsonl"),
+        Some(&hydra::record::WorktreeRef {
+            path: worktree.display().to_string(),
+            branch: "hydra/probe".into(),
+            base_tree: Some(base.to_string()),
+        }),
+        // No fallback offered, so a correct answer can only have come from the
+        // record.
+        None,
+        &sandbox.layout(),
+    );
+    let json: serde_json::Value = serde_json::to_value(&result).unwrap();
+    assert_eq!(json["diff_stat"]["base_tree"], base);
+    assert_eq!(json["diff_stat"]["files_changed"], 1);
+}
+
+#[test]
+fn no_base_tree_and_no_spawn_directory_derives_no_diff_stat() {
+    // The other half of the same seam: a record with neither the field nor a
+    // spawn directory to recompute one from has no base to diff against, and
+    // the field is absent rather than a guess.
+    let sandbox = Sandbox::new("no-base-tree");
+    let worktree = sandbox.worktree();
+    git_repo_with_untracked_file(&worktree);
+
+    let text = Record::shaped(Shape {
+        worktree: Some(&worktree),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        ..Shape::default()
+    })
+    .assistant(json!([{"type": "text", "text": "done"}]))
+    .result(usage_frame())
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(!sandbox.layout().spawn(&run.run_id).exists());
+
+    let result = hydra::run::result(
+        &run,
+        &worktree.join("record.jsonl"),
+        Some(&hydra::record::WorktreeRef {
+            path: worktree.display().to_string(),
+            branch: "hydra/probe".into(),
+            base_tree: None,
+        }),
+        None,
+        &sandbox.layout(),
+    );
+    let json: serde_json::Value = serde_json::to_value(&result).unwrap();
+    assert!(json.get("diff_stat").is_none(), "{json}");
 }
 
 // --- what `hydra run` returns, contract 17 -------------------------------
@@ -693,6 +797,7 @@ fn the_returned_json_is_the_contracts_field_list_and_nothing_else() {
         Some(&hydra::record::WorktreeRef {
             path: sandbox.worktree().display().to_string(),
             branch: "hydra/probe".into(),
+            base_tree: None,
         }),
         // No seed tree, so the diff stat is absent rather than zeroed.
         None,

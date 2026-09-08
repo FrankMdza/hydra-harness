@@ -1,7 +1,7 @@
 # 23 - `base_tree` on the record
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Goal
@@ -43,3 +43,18 @@ derives none. The walk over this machine's records still passes.
 - A fresh recorded run's line 0 carries `worktree.base_tree`, checked on a real record.
 - The two tests above pass and the suite is untouched.
 - `IMPLEMENTATION.md`'s note on `base_tree` under the Herdr section says written since ticket 23.
+
+## Outcome
+
+Resolved 2026-09-07. `claude` on Sonnet 5, run 01a07f18-910f under `standard`: 10.6M tokens,
+10.4M cache reads, 49k output. Six files, 205 insertions. `WorktreeRef` carries `base_tree`,
+filled from the worktree's `seed_tree` at launch; `live::read_view` reads it back; the diff stat
+in `run::result` takes the record's sha first and the seed index only when the record says
+nothing; the writer's validator needed no change because it never enumerated `worktree`'s keys.
+Three tests: a record written through the real seeding path carries the sha `write-tree`
+recomputes against a second index, a synthetic record with the field derives a diff stat with no
+spawn directory on disk, and one without the field and without a spawn directory derives none.
+
+Checked on a real run after the rebuild, 01a07f27-1683 on haiku: line 0 carries
+`worktree.base_tree` equal to the `diff_stat.base_tree` the projection printed. The corpus
+walks pass with the new records on disk.

@@ -46,6 +46,7 @@ fn a_run_start() -> RunStart {
         worktree: Some(WorktreeRef {
             path: "/Users/USER/hydra/worktrees/x".into(),
             branch: "hydra/x".into(),
+            base_tree: None,
         }),
         depth: 0,
         parent_policy: None,
@@ -89,6 +90,72 @@ fn a_record_the_writer_produced_meets_the_contract() {
     let text = std::fs::read_to_string(&path).unwrap();
     check(&text, Some(RUN_ID)).assert_ok();
     assert_eq!(text.lines().count(), 5);
+}
+
+#[test]
+fn a_written_records_base_tree_is_what_seed_tree_answered_at_launch() {
+    // Map ticket 49: `worktree.base_tree` is the sha `worktree::create` reads off
+    // its own seeding, the same one `run.rs` puts on `WorktreeRef` at launch. This
+    // drives the real seeding path rather than a hand-built sha, so the test fails
+    // if the two ever disagree.
+    let root = std::env::temp_dir().join(format!("hydra-base-tree-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let repo = root.join("parent");
+    std::fs::create_dir_all(&repo).unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["config", "user.email", "test@example.invalid"][..],
+        &["config", "user.name", "hydra tests"][..],
+        &["commit", "--allow-empty", "-q", "-m", "root"][..],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    }
+
+    let dest = root.join("worktree");
+    let index = root.join("seed-index");
+    let worktree =
+        hydra::worktree::create(&repo, &dest, "hydra/base-tree", &index).unwrap();
+    let base_tree = worktree
+        .seed_tree
+        .clone()
+        .expect("write-tree answered for a checkout with no uncommitted work");
+    assert_eq!(base_tree.len(), 40, "{base_tree} is not a sha");
+    assert!(
+        base_tree.chars().all(|c| c.is_ascii_hexdigit()),
+        "{base_tree} is not hex"
+    );
+
+    let path = scratch("base-tree.jsonl");
+    let _ = std::fs::remove_file(&path);
+    let mut start = a_run_start();
+    start.worktree = Some(WorktreeRef {
+        path: dest.display().to_string(),
+        branch: "hydra/base-tree".into(),
+        base_tree: Some(base_tree.clone()),
+    });
+    let mut writer = Writer::create(&path, RUN_ID, None, Some("claude"), None).unwrap();
+    writer.hydra_line(&start).unwrap();
+    writer.hydra_line(&RunEnd::streamed(Some(0), None)).unwrap();
+    drop(writer);
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    check(&text, Some(RUN_ID)).assert_ok();
+
+    let line: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(line["hydra"]["worktree"]["base_tree"], base_tree);
+
+    // A second `write-tree` against a fresh index, the way a reader with no
+    // `Worktree` left in memory recomputes it, answers with the same sha: the
+    // tree hash depends on content and not on which index staged it.
+    let recomputed = hydra::worktree::seed_tree(&dest, &root.join("second-index")).unwrap();
+    assert_eq!(recomputed, base_tree);
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

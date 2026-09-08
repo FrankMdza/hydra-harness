@@ -144,6 +144,7 @@ pub fn read_view(path: &Path) -> Result<RunView> {
                 (Some(path), Some(branch)) => Some(crate::record::WorktreeRef {
                     path: path.to_string(),
                     branch: branch.to_string(),
+                    base_tree: body["worktree"]["base_tree"].as_str().map(str::to_string),
                 }),
                 _ => None,
             };

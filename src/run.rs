@@ -455,6 +455,7 @@ pub fn run(request: Request) -> Result<Call> {
     let worktree_ref = worktree.as_ref().map(|w| WorktreeRef {
         path: w.path.display().to_string(),
         branch: w.branch.clone(),
+        base_tree: w.seed_tree.clone(),
     });
 
     // 6.5: the document decides which servers this run's policy admits and the
@@ -1181,7 +1182,18 @@ pub fn result(
     // `Finding::Limit` rather than failing the read, and `Layout::spawn("")` is
     // `~/hydra/spawn/` itself, so the scratch index would be one shared file for
     // every such record. Two of them at once would stage into each other.
-    let diff_stat = match (worktree, seed_tree, !run.run_id.is_empty()) {
+    //
+    // The base itself comes from the record before it comes from the caller.
+    // Map ticket 49 put `base_tree` on `run_start.worktree`, and a record that
+    // carries it needs no spawn directory to answer this question. `seed_tree`
+    // is what a caller recomputed from the seed index, the only source a record
+    // written before build ticket 23 has, and it is tried only when the record
+    // itself says nothing.
+    let recorded_base_tree = run
+        .run_start()
+        .and_then(|start| start.body["worktree"]["base_tree"].as_str());
+    let base_tree = recorded_base_tree.or(seed_tree);
+    let diff_stat = match (worktree, base_tree, !run.run_id.is_empty()) {
         (Some(worktree), Some(base), true) => crate::worktree::diff_stat(
             std::path::Path::new(&worktree.path),
             &layout.stat_index(&run.run_id),

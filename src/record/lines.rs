@@ -80,6 +80,17 @@ pub struct RunStart {
 pub struct WorktreeRef {
     pub path: String,
     pub branch: String,
+    /// The sha `git write-tree` answered against the seed index the moment the
+    /// worktree was seeded, before the provider started, map ticket 49's
+    /// decision. Null only when `write-tree` did not answer, which is what the
+    /// existing `Option` on [`crate::worktree::Worktree::seed_tree`] already
+    /// models and costs the diff stat and nothing else.
+    ///
+    /// The tree it names is reachable from no ref, so a `git gc` on the parent
+    /// repository can collect it. This field is a name rather than a guarantee
+    /// that the object survives, and a reader that wants the number to keep
+    /// working has to keep the object alive itself.
+    pub base_tree: Option<String>,
 }
 
 #[derive(Serialize)]

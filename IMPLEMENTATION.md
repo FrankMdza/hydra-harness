@@ -2153,6 +2153,13 @@ line per event with a call joined to its result and its gate decision, and `--fo
 it every two seconds. Written by `cursor-agent` on Composer 2.5 against the JSON shape ticket 18
 specified, before ticket 18 landed.
 
+**`run_start.worktree.base_tree` is on the record since build ticket 23.** Map ticket 49 put
+it there: the sha `write-tree` answered against the seed index at launch, so a reader of a
+reaped run can tell the seed from the run's own edits, and `hydra run`'s diff stat no longer
+needs the spawn directory to name its base. It is a name and not a guarantee, since the tree
+hangs from no ref. Every record written before 2026-09-07 lacks it and re-derives from the seed
+index while the spawn directory exists, and carries no diff stat after a reap, as before.
+
 **A `standard` run reaches the human's live Herdr session.** The socket is a file and `herdr`
 is on the `PATH`, and the `agy` run that built the bridge proved it by putting a test token on
 the human's own pane. Harness spec 7.5 already says the gate cannot keep a shell away from a

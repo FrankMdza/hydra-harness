@@ -103,6 +103,11 @@ pub struct Shape<'a> {
     /// record written before build ticket 15 has, and the reader reads that as
     /// false.
     pub floor_lifted: Option<bool>,
+    /// Map ticket 49's `worktree.base_tree`, the sha `git write-tree` answered
+    /// against the seed index at launch. `None` is what every record written
+    /// before build ticket 23 looks like, and what a run with no worktree
+    /// writes.
+    pub base_tree: Option<&'a str>,
 }
 
 impl Default for Shape<'_> {
@@ -121,6 +126,7 @@ impl Default for Shape<'_> {
             store_sha: None,
             scopes: None,
             floor_lifted: None,
+            base_tree: None,
         }
     }
 }
@@ -215,6 +221,7 @@ impl Record {
             Some(path) => json!({
                 "path": path.to_string_lossy(),
                 "branch": format!("hydra/{}", shape.run_id),
+                "base_tree": shape.base_tree,
             }),
             None => Value::Null,
         };
