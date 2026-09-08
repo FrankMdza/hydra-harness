@@ -1681,7 +1681,7 @@ fn the_call_is_read_out_of_the_nested_toolcall_and_not_beside_it() {
 
 #[test]
 fn agys_measured_field_names_are_the_ones_the_gate_reads() {
-    // The five measured on a real hook payload, each with the field the gate
+    // The six measured on a real hook payload, each with the field the gate
     // scopes on. A wrong field name here is a `hydra/no-path` deny on every
     // scoped policy, which fails closed and makes the provider unusable.
     let gate = Gate::agy("standard");
@@ -1705,6 +1705,11 @@ fn agys_measured_field_names_are_the_ones_the_gate_reads() {
             "grep_search",
             json!({ "Query": "usage", "SearchPath": gate.worktree.to_string_lossy() }),
         ),
+        // Measured the same day on run 01a08008-cb50.
+        (
+            "find_by_name",
+            json!({ "Pattern": "*.rs", "SearchDirectory": gate.worktree.to_string_lossy() }),
+        ),
     ] {
         let decision = gate.agy_tool(tool, args);
         assert!(decision.allowed, "{tool}: {}", decision.reason);
@@ -1714,6 +1719,7 @@ fn agys_measured_field_names_are_the_ones_the_gate_reads() {
         ("view_file", json!({ "AbsolutePath": "/etc/hosts" })),
         ("list_dir", json!({ "DirectoryPath": "/etc" })),
         ("grep_search", json!({ "Query": "x", "SearchPath": "/etc" })),
+        ("find_by_name", json!({ "Pattern": "*.conf", "SearchDirectory": "/etc" })),
         (
             "write_to_file",
             json!({ "TargetFile": "/tmp/t10-outside.txt", "CodeContent": "x" }),

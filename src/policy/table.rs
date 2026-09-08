@@ -206,7 +206,8 @@ pub const AGY: &[Tool] = &[
     // on its first search. `SearchDirectory` is `find_by_name`'s field; the
     // binary's `jsonschema` tags were read against the wrong struct.
     pathed("grep_search", Capability::FileRead, "SearchPath"),
-    // Read off the binary's `jsonschema` tags, same build, unmeasured on a payload.
+    // Measured on a real payload the same day, run 01a08008-cb50: inside the
+    // worktree allowed, `/etc` denied out-of-scope.
     pathed("find_by_name", Capability::FileRead, "SearchDirectory"),
     pathed("replace_file_content", Capability::FileWrite, "TargetFile"),
     pathed(
