@@ -160,6 +160,10 @@ A design ticket on the closed map:
 
 ## Nothing here is enforced
 
+**Unless your cwd is under `~/hydra/worktrees/`.** Then Hydra launched you, you are the first
+population, and the gate is real: a shell command naming `~/hydra/runs/` is refused under every
+policy, and that refusal is the design working. The rest of this section is for the third.
+
 Hydra's gate applies to runs Hydra launches, not to you. You are an agent working on Hydra's own
 source, which is the one population the harness does not gate: no compiled policy, no hook config,
 no injected skills, no preamble. Ticket 28 found three populations rather than two, and this is the

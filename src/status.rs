@@ -71,6 +71,20 @@ pub fn all(layout: &Layout) -> Result<String> {
 /// on a run this process did not launch. That is the point of contract 17 being a
 /// projection of the record rather than a summary of a launch.
 pub fn one(layout: &Layout, run_id: &str) -> Result<String> {
+    let report = build(layout, run_id)?;
+    Ok(serde_json::to_string_pretty(&report)?)
+}
+
+/// Contract 17's projection alone, the object this command prints under
+/// `result`. `hydra show <id>` prints exactly this, with no `--events`.
+pub fn projection(layout: &Layout, run_id: &str) -> Result<serde_json::Value> {
+    let report = build(layout, run_id)?;
+    Ok(serde_json::to_value(report.result)?)
+}
+
+/// The full report `one` prints, built once so `projection` can take the
+/// field it wants rather than parsing the string back apart.
+fn build(layout: &Layout, run_id: &str) -> Result<Report> {
     let path = layout.run_file(run_id);
     if !path.is_file() {
         bail!("no run record at {}", path.display());
@@ -144,7 +158,7 @@ pub fn one(layout: &Layout, run_id: &str) -> Result<String> {
         run_file: path.display().to_string(),
         result,
     };
-    Ok(serde_json::to_string_pretty(&report)?)
+    Ok(report)
 }
 
 /// What `hydra status <run-id>` prints.

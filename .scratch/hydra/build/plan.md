@@ -52,6 +52,11 @@ it.
 - [15 - `scopes` and `floor_lifted` on the record](15-scopes-and-floor-lifted-on-the-record.md)
 - [16 - `judge` gets `--strict-mcp-config`, the probe follows, and `ToolSearch` moves](16-judge-strict-mcp-and-toolsearch.md)
 - [17 - `claude` runs record their thinking text again](17-thinking-text-on-claude-records.md)
+- [18 - `hydra show <run-id> [--events]`](18-hydra-show.md)
+- [19 - The Herdr bridge, as a plugin on Herdr's side](19-herdr-bridge-plugin.md)
+- [20 - A run's sequence as a graph in the terminal](20-hydra-graph-in-the-terminal.md)
+- [21 - A smoke test for the bridge, against a running Herdr](21-bridge-smoke-test.md)
+- [22 - Join a gate answer to its call when the provider pipelines calls](22-join-gate-answers-under-pipelined-calls.md)
 
 ## Out of scope
 

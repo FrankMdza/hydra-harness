@@ -1,0 +1,17 @@
+id = "hydra.bridge"
+name = "Hydra bridge"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+platforms = ["macos", "linux"]
+
+[[panes]]
+id = "bridge"
+title = "Hydra bridge"
+placement = "split"
+command = ["python3", "bin/hydra-bridge"]
+
+[[actions]]
+id = "run"
+title = "Hydra run in this pane"
+contexts = ["workspace"]
+command = ["bash", "bin/hydra-in-pane"]

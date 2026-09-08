@@ -1,0 +1,31 @@
+#!/bin/bash
+set -e
+HYDRA="${HYDRA_BIN:-hydra}"
+
+if [ -z "$HERDR_ENV" ]; then
+    echo "hydra-in-pane: not inside Herdr, HERDR_ENV is unset" >&2
+    exit 1
+fi
+
+TMP_ERR=$(mktemp)
+"$HYDRA" run --timeout 0 "$@" 2> "$TMP_ERR" > /dev/null || true
+RUN_ID=$(grep '^hydra: run ' "$TMP_ERR" | awk '{print $3}')
+rm -f "$TMP_ERR"
+
+if [ -z "$RUN_ID" ]; then
+    echo "hydra-in-pane: hydra run printed no run id" >&2
+    exit 1
+fi
+
+STATUS_JSON=$("$HYDRA" status "$RUN_ID")
+PROVIDER=$(echo "$STATUS_JSON" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("provider", ""))')
+POLICY=$(echo "$STATUS_JSON" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("policy", ""))')
+
+herdr pane report-metadata "$HERDR_PANE_ID" --source hydra-bridge \
+    --token "run_id=$RUN_ID" \
+    --token "provider=$PROVIDER" \
+    --token "policy=$POLICY"
+
+herdr pane report-agent "$HERDR_PANE_ID" --source hydra-bridge --agent hydra --state working
+
+exec "$HYDRA" logs "$RUN_ID" --follow

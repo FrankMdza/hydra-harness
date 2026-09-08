@@ -48,6 +48,10 @@ fn main() -> Result<()> {
             let mut out = std::io::stdout().lock();
             hydra::logs::logs(&Layout::discover()?, &run_id, follow, &mut out)?;
         }
+        Command::Show { run_id, events } => {
+            let mut out = std::io::stdout().lock();
+            hydra::show::show(&Layout::discover()?, &run_id, events, &mut out)?;
+        }
         Command::Reap {
             run_id,
             delete_branch,

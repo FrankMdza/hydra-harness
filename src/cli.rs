@@ -1,7 +1,7 @@
 //! The command surface.
 //!
-//! Harness spec 17 lists eleven commands. Six are here: `run`, `status`, `logs`,
-//! `reap`, `prune` and `curate`. Section 9 gives `hydra run` eight optional flags
+//! Harness spec 17 lists eleven commands. Seven are here: `run`, `status`, `logs`,
+//! `show`, `reap`, `prune` and `curate`. Section 9 gives `hydra run` eight optional flags
 //! and five are here. The three that are not each belong to a ticket that is not
 //! built.
 //!
@@ -84,6 +84,16 @@ pub enum Command {
         /// Keep reading until the run closes.
         #[arg(long, short)]
         follow: bool,
+    },
+
+    /// The full record a delegation result deliberately omits, harness spec 17.
+    Show {
+        run_id: String,
+
+        /// Every event in file order, with the findings the normalizer raised,
+        /// beside the same projection printed alone without this flag.
+        #[arg(long)]
+        events: bool,
     },
 
     /// Commit a worktree's uncommitted changes to the child's branch, then remove

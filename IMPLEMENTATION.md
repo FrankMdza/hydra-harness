@@ -145,7 +145,7 @@ each belong to a ticket that is not built: `--files` is on the delegate face and
 the command line, `--shared-tree` answers a worktree question nothing has asked yet, and
 `--allow-billed` belongs to the raw-model plane.
 
-Harness spec 17 lists eleven commands. Six are built. `hydra watch` is a twelfth and
+Harness spec 17 lists eleven commands. Seven are built, `show` since build ticket 18. `hydra watch` is a twelfth and
 is not one of them: it is the detached half of a launch, `hydra run` is the only thing
 that types it, and `clap` hides it from the help for that reason. `hydra delegate-face`
 is a thirteenth, hidden the same way: it is the MCP delegate face of section 9, a run's
@@ -1330,8 +1330,10 @@ stream-json --verbose`:
 The env var does nothing and the key is the whole fix, so `claude::settings` carries it
 beside the hook config on every policy. Two caveats travel with it. The text is the
 summary Anthropic generates and not the trace, which is all any Claude 4 model emits.
-And it is per model: issue 56356 on anthropics/claude-code reports Opus 4.7 returning
-no thinking block under the same setting, unmeasured here. The setting has regressed
+And it is per model: run 01a07efe-97f4 on `claude-sonnet-5` on 2026-09-07, with the key in
+force, wrote 35 thinking blocks and every one of them empty, while Haiku 4.5 wrote text on
+every run since. Issue 56356 on anthropics/claude-code reports the same on Opus 4.7. So the
+text is measured on Haiku 4.5 and on nothing else, and the drift test runs on haiku. The setting has regressed
 twice in the binary's history, at 2.1.8 and 2.1.72, which is why `tests/drift.rs` runs
 a paid probe behind `HYDRA_DRIFT_PAID=1` and names the version in its failure.
 
@@ -2102,10 +2104,12 @@ field for, so it is a document change and a code change together rather than a t
 patch. Until then a face with no `--parent` is what a human's own `claude` session gets,
 which is the honest reading of what it is: a way to hand work to a fresh run at depth 0.
 
-**`hydra show` is still not built**, so a parent that wants more than contract 17's nine
-fields has `hydra logs <run-id>`, which prints the record's lines. Harness spec 9 points at
-`hydra show <run-id> --events` for exactly this, and the result stays small on purpose:
-delegation exists to keep a child's trajectory out of the orchestrator's context.
+**`hydra show <run-id> [--events]` is built, since build ticket 18.** Without the flag it
+prints contract 17's projection alone, the object `hydra status <id>` prints under `result`.
+With it, one object: `run_id`, `projection`, `events` with every normalized event by `seq` and
+`type` and that type's fields, and `findings`. `run_start` and `run_end` carry the body the
+record holds under `body`. A parent that wants more than contract 17's nine fields asks here,
+which is what section 9 meant by explicitly.
 
 **`HYDRA_ROOT` overrides `Layout::discover`, and it exists for one test file.** Every other
 test builds a `Layout::at` a temporary directory and calls the library; `tests/face.rs`
@@ -2113,6 +2117,30 @@ drives the built binary as a subprocess, and the binary is what calls `discover`
 read in `src/paths.rs` and nowhere else, and it never reaches a child provider, because
 6.2 builds that environment from an allowlist this name is not on. The rough edge below
 says what is left of it.
+
+## The Herdr bridge, on Herdr's side
+
+Map ticket 44 made Herdr the interactive layer and said nothing crosses from Hydra to it, and
+build ticket 19 built the other direction: `integrations/herdr/` is a Herdr plugin that nothing
+under `src/` imports. `bin/hydra-in-pane` runs inside a pane, launches `hydra run --timeout 0`,
+puts `run_id`, `provider` and `policy` on the pane as tokens, and replaces itself with `hydra
+logs --follow`. `bin/hydra-bridge` polls the panes carrying a `run_id`, reads `hydra status`
+for each and reports on change. Herdr holds four states and refuses any other name, so Hydra's
+outcomes ride as display labels over `idle`, `working`, `blocked` and `unknown`; the table at
+the top of the bridge is the whole mapping and map ticket 49 names the two rows it may move.
+Driven on 2026-09-07 on herdr 0.8.2: a haiku run launched from a pane ended, and eight seconds
+later the pane read `done` with the label `completed` with nothing but the bridge having touched
+it. `README.md` in that directory says how to link it.
+
+`bin/hydra-graph`, build ticket 20, draws one run from `hydra show <id> --events` JSON as one
+line per event with a call joined to its result and its gate decision, and `--follow` regrows
+it every two seconds. Written by `cursor-agent` on Composer 2.5 against the JSON shape ticket 18
+specified, before ticket 18 landed.
+
+**A `standard` run reaches the human's live Herdr session.** The socket is a file and `herdr`
+is on the `PATH`, and the `agy` run that built the bridge proved it by putting a test token on
+the human's own pane. Harness spec 7.5 already says the gate cannot keep a shell away from a
+binary, and this is that hole with a new name rather than a new one.
 
 ## Ouroboros rung one: `hydra curate`
 

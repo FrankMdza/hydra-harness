@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import subprocess
+import sys
+import time
+
+SEQ_W = 4
+TYPE_W = 11
+ARG_CUT = 60
+GLYPH = "│ "
+
+def first_line(text):
+    if not text:
+        return ""
+    return str(text).splitlines()[0]
+
+def cut_args(arguments):
+    if isinstance(arguments, dict):
+        raw = json.dumps(arguments, separators=(",", ":"))
+    else:
+        raw = str(arguments)
+    if len(raw) <= ARG_CUT:
+        return raw
+    return raw[: ARG_CUT - 3] + "..."
+
+def total_tokens(counts):
+    if not counts:
+        return 0
+    if "total_tokens" in counts:
+        return counts["total_tokens"]
+    return sum(v for k, v in counts.items() if k.endswith("_tokens") and isinstance(v, int))
+
+def header_line(data):
+    projection = data.get("projection", {})
+    tokens = total_tokens(projection.get("usage", {}).get("counts"))
+    return (
+        f"{data.get('run_id', '')}  {projection.get('provider', '')}  "
+        f"{projection.get('policy', '')}  {projection.get('outcome', '')}  "
+        f"tokens={tokens}"
+    )
+
+def event_line(seq, typ, summary, glyph="  "):
+    return f"{glyph}{seq:>{SEQ_W}}  {typ:<{TYPE_W}}  {summary}"
+
+def summarize_event(event):
+    typ = event["type"]
+    if typ == "message":
+        return f"{event.get('role', '')}: {first_line(event.get('text', ''))}"
+    if typ == "thinking":
+        text = event.get("text", "")
+        has_text = "text" if text else "empty"
+        signed = "signed" if event.get("signed") else "unsigned"
+        return f"len={len(text)} {has_text} {signed}"
+    if typ == "tool_call":
+        return f"{event.get('name', '')}({cut_args(event.get('arguments', ''))})"
+    if typ == "usage":
+        return f"total={total_tokens(event.get('counts'))}"
+    if typ == "run_start":
+        body = event.get("body", event)
+        return f"policy={body.get('policy', '')} mode={body.get('launch_mode', '')} depth={body.get('depth', '')}"
+    if typ == "run_end":
+        body = event.get("body", event)
+        return f"exit_code={body.get('exit_code', '')} refusal={body.get('refusal') or 'none'}"
+    return ""
+
+def format_tool_result(result):
+    status = result.get("status", "")
+    line = first_line(result.get("output", ""))
+    return f"{status}: {line}" if line else status
+
+def format_decision(decision):
+    if not decision:
+        return ""
+    parts = [decision.get("decision", ""), decision.get("decider", "")]
+    if decision.get("reason"):
+        parts.append(decision["reason"])
+    return "  " + " ".join(p for p in parts if p)
+
+def index_by_call(events):
+    decisions, results = {}, {}
+    for event in events:
+        if event["type"] == "permission_decision":
+            decisions[event["call_id"]] = event
+        elif event["type"] == "tool_result":
+            results[event["call_id"]] = event
+    return decisions, results
+
+def render_events(data, seen=None):
+    seen = seen if seen is not None else set()
+    events = sorted(data.get("events", []), key=lambda e: e["seq"])
+    decisions, results = index_by_call(events)
+    printed_calls = {
+        e["call_id"] for e in events
+        if e["type"] == "tool_call" and e["seq"] in seen
+    }
+    lines, new_seen = [], set(seen)
+    for event in events:
+        seq, typ = event["seq"], event["type"]
+        if seq in seen or seq in new_seen:
+            continue
+        if typ == "permission_decision":
+            new_seen.add(seq)
+            continue
+        if typ == "tool_result":
+            if event["call_id"] in printed_calls:
+                lines.append(event_line(seq, typ, format_tool_result(event), GLYPH))
+                new_seen.add(seq)
+            continue
+        if typ == "tool_call":
+            lines.append(event_line(seq, typ, summarize_event(event)
+                + format_decision(decisions.get(event["call_id"]))))
+            printed_calls.add(event["call_id"])
+            result = results.get(event["call_id"])
+            if result and result["seq"] not in seen:
+                lines.append(event_line(result["seq"], "tool_result",
+                    format_tool_result(result), GLYPH))
+                new_seen.add(result["seq"])
+            new_seen.add(seq)
+            continue
+        lines.append(event_line(seq, typ, summarize_event(event)))
+        new_seen.add(seq)
+    return lines, new_seen
+
+def render(data, seen=None):
+    seen = seen if seen is not None else set()
+    event_lines, new_seen = render_events(data, seen)
+    out = [header_line(data)] if not seen else []
+    out.extend(event_lines)
+    return out, new_seen
+
+def load_json(path):
+    if path:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    return json.load(sys.stdin)
+
+def follow(run_id):
+    seen = set()
+    while True:
+        try:
+            proc = subprocess.run(
+                ["hydra", "show", run_id, "--events"],
+                capture_output=True, text=True, check=True,
+            )
+            data = json.loads(proc.stdout)
+        except Exception as err:
+            print(f"hydra-graph: {err}", file=sys.stderr)
+            time.sleep(2)
+            continue
+        lines, seen = render(data, seen)
+        for line in lines:
+            print(line)
+        time.sleep(2)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("file", nargs="?", help="JSON file, stdin if omitted")
+    parser.add_argument("--follow", metavar="run-id")
+    args = parser.parse_args()
+    if args.follow:
+        follow(args.follow)
+        return
+    for line in render(load_json(args.file))[0]:
+        print(line)
+
+if __name__ == "__main__":
+    main()

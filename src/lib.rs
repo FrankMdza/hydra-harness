@@ -36,6 +36,7 @@ pub mod pty;
 pub mod reap;
 pub mod record;
 pub mod run;
+pub mod show;
 pub mod skills;
 pub mod status;
 pub mod watch;
