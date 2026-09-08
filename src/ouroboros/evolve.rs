@@ -153,6 +153,33 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         }));
     }
 
+    // Spec 4.7 aborts a review when a judge cannot answer; a proposer that met
+    // the limit never wrote a patch, and putting an empty diff through the
+    // admission gate blocks a pass on nothing. Measured 2026-09-08 on pass
+    // 01a08169-eb3b, whose haiku proposer hit the five-hour window with zero
+    // files changed. The pass ends `completed`, the way an admission refusal
+    // does, and its branch carries the reason.
+    if matches!(proposer.outcome, Some("rate_limited") | Some("auth_failed")) {
+        let reason = format!(
+            "the proposer could not run: {}",
+            proposer.outcome.unwrap_or("refused")
+        );
+        let message = commit_message(&pass_run_id, &proposer_run_id, &[], &reason);
+        commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
+        write_harness_end(&pass_record, Some(0), None)?;
+        return Ok(Done::Finished(Finished {
+            pass_run_id,
+            proposer_run_id,
+            judge_run_ids: Vec::new(),
+            branch: blocked_branch,
+            verdict: PanelVerdict::Blocked {
+                reasons: vec![reason],
+            },
+            approved: None,
+            pass_record,
+        }));
+    }
+
     if let Err(output) = admission_gate(&patch.worktree) {
         let message = commit_message(
             &pass_run_id,

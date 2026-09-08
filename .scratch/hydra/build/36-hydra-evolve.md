@@ -102,3 +102,10 @@ fifty-line patch to the three normalizers, and the admission gate blocked it on 
 misspelled clippy command, `-D warnings` without the `--`. The verdict commit landed where spec
 4.9 puts it and the blocked branch pointed at the wrong HEAD; both fixed by the orchestrating
 session, the branch re-pointed by hand. Still no judge has answered.
+
+**The third pass, 01a08169-eb3b, found the deadlock.** Its proposer hit the five-hour window
+with an empty diff, the pass ran the admission gate on it, and `cargo test` failed on the
+contract walk, which was reading the pass's own open harness record and refusing it for having
+one line where 5.5 says two. Every pass would have failed its own gate. An open harness record
+is a pass still running now, contract 6's rule, and a proposer that could not run ends the pass
+before any `cargo` command. Still no judge has answered.

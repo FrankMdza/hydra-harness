@@ -2511,6 +2511,18 @@ in the parent repo; it resolves the checkout's now. The pass record read `comple
 patch is on `ouroboros/blocked/01a0814a-c730` for whoever wants to read what a proposer does
 with the corpus brief and no task: it went after the one red test it could see.
 
+**The third pass, 01a08169-eb3b, found the one that made every pass impossible.** Its haiku
+proposer met the five-hour window with zero files changed, the pass put that empty diff
+through the admission gate anyway, and `cargo test` failed on `tests/record_contract.rs`. The
+cause is the pass reading its own record: the admission gate runs the suite, the suite walks
+`~/hydra/runs/`, and the pass's harness record is open at that moment with one line, which
+the validator refused because contract 5.5 says two. Contract 6 already says a run with no
+`run_end` is not corrupt, so an open harness record is a pass still running; one line is
+allowed now and three is not. Without that, no pass could ever pass its own admission gate.
+Beside it, a proposer that could not run at all now ends the pass before the gate: spec 4.7
+aborts a review a judge cannot answer, and an empty diff from a rate-limited or logged-out
+proposer is the same shape, so the branch carries the reason and no `cargo` command runs.
+
 **Two things the brief shows that are worth knowing.** It lists every run rung one may learn
 from with its outcome and `outcome_source`, and on this machine that second column reads
 `unknown` for a run carrying one unclassified tool result, contract 8.2. On the day the

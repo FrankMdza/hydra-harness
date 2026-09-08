@@ -225,7 +225,13 @@ pub fn check(text: &str, expected_run_id: Option<&str>) -> Report {
         ));
     }
 
-    if !provider_run && lines.len() != 2 {
+    // Contract 5.5 says two lines, and contract 6 says a run with no `run_end`
+    // is not corrupt. A harness run with one line is a pass still running, and
+    // during a `hydra evolve` pass that is guaranteed: its admission gate runs
+    // `cargo test`, which walks this corpus and reads the pass's own open
+    // record. Measured 2026-09-08 on pass 01a08169-eb3b, which blocked its own
+    // patch on it. So one line is allowed and three is not.
+    if !provider_run && lines.len() > 2 {
         say(format!(
             "a harness run has {} lines; contract 5.5 says run_start, run_end and nothing between",
             lines.len()

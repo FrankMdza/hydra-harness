@@ -325,6 +325,33 @@ fn the_validator_catches_null_scopes() {
     );
 }
 
+#[test]
+fn an_open_harness_run_is_a_pass_still_running_and_not_a_broken_record() {
+    // Contract 5.5 says two lines and contract 6 says a run with no `run_end` is
+    // not corrupt. A `hydra evolve` pass reads this corpus from inside its own
+    // admission gate, which runs `cargo test`, so its own record is open at that
+    // moment: pass 01a08169-eb3b blocked its own patch on this on 2026-09-08.
+    let open = start_line(0)
+        .replace(r#""provider":"claude""#, r#""provider":null"#)
+        .replace(r#""command":"run""#, r#""command":"evolve""#)
+        .replace(r#""launch_mode":"recorded""#, r#""launch_mode":null"#);
+    assert!(
+        problems(&format!("{open}\n")).is_empty(),
+        "{:?}",
+        problems(&format!("{open}\n"))
+    );
+
+    // Three lines is still wrong: a harness run has nothing between its two.
+    let three = format!("{open}\n{open}\n{open}\n");
+    assert!(
+        problems(&three)
+            .iter()
+            .any(|p| p.contains("a harness run has 3 lines")),
+        "{:?}",
+        problems(&three)
+    );
+}
+
 /// Line 0 with contract 5.3's `mcp` group on it, as a launch writes it.
 fn with_mcp(group: &str) -> String {
     format!(
