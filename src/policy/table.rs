@@ -209,12 +209,19 @@ pub const AGY: &[Tool] = &[
     // Measured on a real payload the same day, run 01a08008-cb50: inside the
     // worktree allowed, `/etc` denied out-of-scope.
     pathed("find_by_name", Capability::FileRead, "SearchDirectory"),
+    // Measured on a real payload 2026-09-08, run 01a0801d-77b1: inside the
+    // worktree allowed, `/etc/hosts` denied out-of-scope.
     pathed("replace_file_content", Capability::FileWrite, "TargetFile"),
     pathed(
         "multi_replace_file_content",
         Capability::FileWrite,
         "TargetFile",
     ),
+    // Both on the init frame's list and both answered "unknown tool" by the
+    // binary when a run called them, 2026-09-08 on 1.1.27 under
+    // `gemini-3.8-flash-high`. The rows stay: the gate answers a name before
+    // the binary does, and a tool the list advertises may exist on another
+    // model or build. Neither field name is measured.
     pathed("sed_file", Capability::FileWrite, "TargetFile"),
     pathed("notebook_edit", Capability::FileWrite, "NotebookPath"),
     // Both feed a shell facility rather than the filesystem, and neither carries

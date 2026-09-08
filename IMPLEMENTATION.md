@@ -1127,16 +1127,24 @@ from `workspacePaths[0]`, which is the directory Hydra passed on `--add-dir`. It
 the payload rather than on the dialect, so the same script answers a live hook and
 contract 7.7's read-time replay, which sends the normalized shape for every provider.
 
-**The six measured argument names**, off real hook payloads:
+**The seven measured argument names**, off real hook payloads:
 `run_command(CommandLine, Cwd)`, `view_file(AbsolutePath)`, `list_dir(DirectoryPath)`,
 `write_to_file(TargetFile, CodeContent, Overwrite)` and, since 2026-09-08,
-`grep_search(Query, SearchPath)` and `find_by_name(Pattern, SearchDirectory)`. The rest
-of the table's path fields come off the binary's own `jsonschema` struct tags, which is
-the same class of evidence Cursor's rows come from: `TargetFile` for the three editing
-tools, `NotebookPath` for `notebook_edit`. A wrong field name here is a `hydra/no-path`
-deny on every scoped policy, which fails closed and makes the provider unusable rather
-than unsafe, and `tests/gate.rs` drives the measured six both inside and outside the
-worktree. **`grep_search` was that wrong name for two days.** The table said
+`grep_search(Query, SearchPath)`, `find_by_name(Pattern, SearchDirectory)` and
+`replace_file_content(TargetFile, ...)`. The rest of the table's path fields come off the
+binary's own `jsonschema` struct tags, which is the same class of evidence Cursor's rows
+come from: `TargetFile` for `multi_replace_file_content` and `sed_file`, `NotebookPath`
+for `notebook_edit`. A wrong field name here is a `hydra/no-path` deny on every scoped
+policy, which fails closed and makes the provider unusable rather than unsafe, and
+`tests/gate.rs` drives the measured seven both inside and outside the worktree.
+**The init frame advertises tools the binary then refuses to run.** Run 01a0801d-77b1,
+`gemini-3.8-flash-high` on 1.1.27, was asked to call `sed_file` and `notebook_edit`; both
+names are on that run's own init list, the gate answered each by name, and the binary
+answered `unknown tool: "sed_file" — check spelling` and the same for the other. So the
+fifty-seven names are a superset of what a given model can call, the two rows stay in
+the table because the gate speaks before the binary does, and the payload the model
+improvised for a tool that does not exist (`sed_file` with `command`, `pattern` and a
+lowercase `path` beside `TargetFile`) is not evidence of anything. **`grep_search` was that wrong name for two days.** The table said
 `SearchDirectory`, read off the tag on `find_by_name`'s struct, and the first `agy` run
 under `standard`, 01a07ffe-4808 on 1.1.27, had its first search denied `hydra/no-path`.
 The binary's own description of the glob filter names `SearchPath` as the search root.
