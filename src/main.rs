@@ -145,11 +145,13 @@ fn main() -> Result<()> {
         }
         Command::Evolve {
             model,
+            task,
             timeout,
             dry_run,
         } => {
             let done = hydra::ouroboros::evolve::evolve(hydra::ouroboros::evolve::Pass {
                 model,
+                task,
                 timeout,
                 dry_run,
             })?;

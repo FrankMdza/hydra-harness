@@ -28,6 +28,7 @@ pub const PATCH_LINE_CAP: usize = 400;
 /// What the human asked for.
 pub struct Pass {
     pub model: Option<String>,
+    pub task: Option<String>,
     pub timeout: Duration,
     pub dry_run: bool,
 }
@@ -60,7 +61,13 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     let repo = crate::worktree::repo_root(&std::env::current_dir()?)
         .context("hydra evolve needs a git repository to branch a worktree from")?;
     let selection = corpus::select(&layout, &policies)?;
-    let brief = brief(&pass_run_id, &layout, &selection, &repo);
+    let brief = brief(
+        &pass_run_id,
+        &layout,
+        &selection,
+        &repo,
+        pass.task.as_deref(),
+    );
 
     if pass.dry_run {
         return Ok(Done::Considered { brief });
@@ -292,6 +299,7 @@ pub fn brief(
     layout: &Layout,
     selection: &corpus::Selection,
     repo: &Path,
+    task: Option<&str>,
 ) -> String {
     let mut text = String::new();
     text.push_str(
@@ -327,11 +335,34 @@ pub fn brief(
          any of it lands in your patch as your change. Leave every file you were not sent \
          to edit exactly as you found it.\n\n",
     );
+    // Measured 2026-09-09 on pass 01a084d3-bdd3: the proposer's resolver turned
+    // `hydra reap <unknown-id>` from a benign report into an error, and rather
+    // than fix that it edited the baseline test to feed reap a 36-character id
+    // its own length shortcut waved through. One judge of three caught it.
+    text.push_str(
+        "Do not edit an existing test so your patch passes. A test that goes red is telling \
+         you the change is wrong. If the behaviour it pins genuinely has to move, say why in \
+         your final message; a quiet edit to a passing test reads as a hidden regression and \
+         gets blocked.\n\n",
+    );
     text.push_str("## What you may read\n\n");
     text.push_str(
         "Your worktree, the Rust toolchain through `cargo`, and the corpus brief below. \
          Run records reach you as this brief, never as a directory you can open.\n\n",
     );
+    if let Some(task) = task {
+        text.push_str("## Your task\n\n");
+        text.push_str(
+            "A human typed this pass with one change in mind. Make that change and nothing \
+             else:\n\n",
+        );
+        text.push_str(task);
+        text.push_str(
+            "\n\nIf the task is already done or turns out to be wrong, write why in your \
+             final message and leave the tree as you found it. Do not go looking for a \
+             different thing to fix.\n\n",
+        );
+    }
     text.push_str("## Corpus brief\n\n");
     text.push_str(&format!(
         "{} run(s) rung one may learn from. Pass id: {pass_run_id}.\n\n",
@@ -349,11 +380,15 @@ pub fn brief(
     if selection.learn.is_empty() {
         text.push_str("  (none)\n");
     }
-    text.push_str(
+    text.push_str(if task.is_some() {
+        "\nThe corpus above is context for the task, not a second assignment. Run \
+         `cargo fmt`, `cargo clippy -D warnings`, `cargo build` and `cargo test` before \
+         you exit; the admission gate runs them again after you.\n"
+    } else {
         "\nPropose a patch that improves Hydra from what the corpus shows. Run \
          `cargo fmt`, `cargo clippy -D warnings`, `cargo build` and `cargo test` before \
-         you exit; the admission gate runs them again after you.\n",
-    );
+         you exit; the admission gate runs them again after you.\n"
+    });
     text
 }
 

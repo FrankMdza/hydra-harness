@@ -161,6 +161,11 @@ pub enum Command {
         #[arg(long)]
         model: Option<String>,
 
+        /// What to change. Without it the proposer picks its own target from
+        /// the corpus, which is what the spec's brief asks for.
+        #[arg(long)]
+        task: Option<String>,
+
         /// How long to wait before degrading to a handle on each child run.
         #[arg(long, default_value = "10m", value_parser = parse_duration)]
         timeout: Duration,
