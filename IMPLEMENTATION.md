@@ -2436,8 +2436,8 @@ allowlist does not exist, and `hydra export --dry-run` says so.
 
 Ouroboros spec 4 as written, with the three details map ticket 52 closed. `src/ouroboros/evolve.rs`
 and `src/ouroboros/review.rs`, `tests/evolve.rs`, written by Composer 2.5 on run 01a08053-3d85,
-launched into a Herdr pane. **One pass has run on this machine and it ended at the admission gate**, blocked by master's
-own formatting; the paragraph on it below says what it found. No judge has answered yet.
+launched into a Herdr pane. **Six passes have run on this machine**, the last of them through
+the full panel; the paragraphs below say what each one found.
 
 **A pass is a harness run with four children.** `evolve` mints a run id with `command: evolve`,
 writes contract 5.5's two-line record, and every child carries it as `parent_run_id`: one proposer
@@ -2927,11 +2927,10 @@ Out of scope for this slice, and each one has a document that already says what 
   under any other policy has been made, so `standard` and `permissive` on that provider
   are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
 - Interactive runs and harvest. 5.6, 12.
-- Ouroboros rung two has never run a pass to the end. `hydra evolve` is built, since
-  build ticket 36, with the protected-path refusal, the admission gate, the panel of
-  three, the `ApprovedPatch` type and the harness run of contract 5.5, and its section
-  above says what it does; `--dry-run` has printed a brief on this machine and nothing
-  more has been spent on it.
+- No `hydra evolve` pass has produced an offerable patch. The command is built, since
+  build ticket 36, and six passes have run: the panel answered on the last one and
+  blocked, so `ouroboros/<pass-id>` and an `ApprovedPatch` built from a real verdict do
+  not exist yet. The section above says what each pass found.
 
 ## Rough edges worth knowing
 
