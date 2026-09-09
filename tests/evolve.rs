@@ -139,3 +139,33 @@ fn approved_patch_cannot_be_built_outside_the_review_module() {
     assert_eq!(patch.pass_run_id(), "01a08000-0000-7000-8000-00000000ev05");
     let _proof: ApprovedPatch = patch;
 }
+
+#[test]
+fn one_fence_comes_off_and_everything_else_still_blocks() {
+    // Map ticket 52's answer, amended 2026-09-08 after the first real panel:
+    // the `claude` judge returned the exact object inside a ```json fence and
+    // was recorded as a block for a syntax error. One wrapping fence comes off.
+    let object = r#"{"verdict": "pass", "findings": []}"#;
+    for wrapped in [
+        format!("```json\n{object}\n```"),
+        format!("```\n{object}\n```"),
+        format!("```JSON\n{object}\n```\n"),
+    ] {
+        let outcome = parse_judge_answer("claude", &wrapped);
+        assert!(outcome.parse_error.is_none(), "{wrapped}: {outcome:?}");
+        assert_eq!(outcome.verdict, VerdictField::Pass);
+    }
+
+    // Everything else the ticket named still blocks.
+    for deviant in [
+        format!("Here is my review:\n\n```json\n{object}\n```"),
+        format!("```json\n{object}\n```\n\nLet me know if you need more."),
+        format!("```json\n{object}\n```\n```json\n{object}\n```"),
+        format!("```json\n{object}"),
+        format!("```rust\n{object}\n```"),
+    ] {
+        let outcome = parse_judge_answer("claude", &deviant);
+        assert!(outcome.parse_error.is_some(), "{deviant} parsed");
+        assert_eq!(outcome.verdict, VerdictField::Block);
+    }
+}

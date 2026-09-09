@@ -119,7 +119,7 @@ fn ceiling(item: &str) -> Option<Severity> {
 /// Parses one judge's whole response as the closed JSON shape. Any deviation is a
 /// block carrying the parse error, never retried and never read as a pass.
 pub fn parse_judge_answer(provider: &'static str, text: &str) -> JudgeOutcome {
-    let trimmed = text.trim();
+    let trimmed = strip_one_fence(text.trim());
     let parsed: RawAnswer = match serde_json::from_str(trimmed) {
         Ok(value) => value,
         Err(err) => {
@@ -185,6 +185,38 @@ pub fn parse_judge_answer(provider: &'static str, text: &str) -> JudgeOutcome {
         findings,
         parse_error: None,
     }
+}
+
+/// One code fence wrapping the whole answer, and nothing else.
+///
+/// Map ticket 52 chose one closed shape where any deviation blocks, and the
+/// first real panel, pass 01a08241-831d on 2026-09-08, showed what that costs:
+/// the `claude` judge returned exactly the object asked for inside a ```json
+/// fence and was recorded as a block for a syntax error. Wrapping JSON in a
+/// fence is what a model does by default, so the fence comes off and everything
+/// else still blocks: prose beside the object, two fences, a fence that opens
+/// and does not close. The human decided this on the same day, against the
+/// reference implementation's sentinel, which ticket 52 had already rejected.
+fn strip_one_fence(text: &str) -> &str {
+    let Some(rest) = text.strip_prefix("```") else {
+        return text;
+    };
+    // ```json, ```JSON or a bare ```: the tag runs to the first newline.
+    let Some((tag, body)) = rest.split_once('\n') else {
+        return text;
+    };
+    if !tag.trim().is_empty() && !tag.trim().eq_ignore_ascii_case("json") {
+        return text;
+    }
+    let Some(body) = body.trim_end().strip_suffix("```") else {
+        return text;
+    };
+    // A second fence anywhere inside is not one wrapper, so the answer stands
+    // as it came and the parse below refuses it.
+    if body.contains("```") {
+        return text;
+    }
+    body.trim()
 }
 
 fn clamp_severity(reported: Severity, max: Severity) -> Severity {

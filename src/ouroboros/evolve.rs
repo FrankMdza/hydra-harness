@@ -316,6 +316,17 @@ pub fn brief(
         "Keep the patch under {PATCH_LINE_CAP} lines changed. A larger diff is rejected \
          for size and you are told to split it.\n\n",
     ));
+    // Measured 2026-09-08 on pass 01a08241-831d: the proposer reverted 153 lines
+    // of the human's own uncommitted page, which Hydra seeds into every worktree,
+    // and two of the three judges spent their review on that rather than on the
+    // patch. The seed is the parent's working tree, dirt included, and the diff
+    // is read against it, so undoing that work reads as the proposer's change.
+    text.push_str(
+        "The tree you were seeded with carries the human's uncommitted work. It is not \
+         yours to revert, tidy or finish: your diff is read against that tree, so undoing \
+         any of it lands in your patch as your change. Leave every file you were not sent \
+         to edit exactly as you found it.\n\n",
+    );
     text.push_str("## What you may read\n\n");
     text.push_str(
         "Your worktree, the Rust toolchain through `cargo`, and the corpus brief below. \

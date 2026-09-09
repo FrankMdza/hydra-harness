@@ -2519,9 +2519,11 @@ cause is the pass reading its own record: the admission gate runs the suite, the
 the validator refused because contract 5.5 says two. Contract 6 already says a run with no
 `run_end` is not corrupt, so an open harness record is a pass still running; one line is
 allowed now and three is not. Without that, no pass could ever pass its own admission gate.
-Beside it, a proposer that could not run at all now ends the pass before the gate: spec 4.7
-aborts a review a judge cannot answer, and an empty diff from a rate-limited or logged-out
-proposer is the same shape, so the branch carries the reason and no `cargo` command runs.
+Beside it, a proposer that met its limit or lost its login now ends the pass before the gate:
+spec 4.7 aborts a review a judge cannot answer, and an empty diff from a rate-limited or
+logged-out proposer is the same shape, so the branch carries the reason and no `cargo` command
+runs. A `failed` or `timed_out` proposer still reaches the gate, because either may have
+written a real partial patch and the gate is what says so.
 
 **The fourth pass, 01a0822e-bc48, was blocked by its own proposer's trajectory.** The haiku
 proposer spent 8.07M tokens, invented a lowercase `bash` tool, and `claude` answered "No such
@@ -2539,6 +2541,30 @@ patch it never touched. Three of the four passes so far died there: the open har
 the invented tool, and the walk that had no branch for a harness run. Each was a real reading
 bug worth fixing, which is the argument for leaving it as it is; the argument against is that
 the corpus grows with every run and the gate's failure surface grows with it.
+
+**The fifth pass, 01a08241-831d, ran the panel.** Three judges answered for the first time:
+`claude` on haiku for 29K tokens, `cursor-agent` for 105K, `agy` for 200K, the last two coming
+out `gated` because `judge` allows nothing and their diff rode the prompt, which is ticket 47's
+design working. Both of those wrote real reviews with checklist items, severities and notes.
+The verdict was blocked and three things came out of it.
+
+**The `claude` judge returned the exact object inside a ```json fence** and the parser called
+it a syntax error, so a clean pass was recorded as a block. Map ticket 52's answer is amended:
+one fence wrapping the whole answer comes off, `review::strip_one_fence`, and prose beside the
+object, two fences, an unclosed fence and a fence tagged anything else all still block.
+
+**Both parsing judges spent their review on the human's own page.** The proposer had reverted
+153 lines of `docs/status.html`, which is uncommitted on this machine and therefore seeded into
+every worktree, and the diff read against `base_tree` counts undoing it as the proposer's
+change. The brief now tells the proposer that the seeded tree carries the human's uncommitted
+work and is not its to revert, tidy or finish. Nothing protects that file from a proposer that
+ignores the sentence; the gate cannot, because the file is inside the worktree the run owns.
+
+**And the `agy` judge read the prose against the code and found a gap.** `IMPLEMENTATION.md`
+said a proposer that could not run ends the pass before the gate, and the code checks
+`rate_limited` and `auth_failed` alone, so a `failed` or `timed_out` proposer still reaches the
+admission gate. That is deliberate, since a timed-out proposer may have written a real partial
+patch, and the sentence above now says which two outcomes it covers.
 
 **Two things the brief shows that are worth knowing.** It lists every run rung one may learn
 from with its outcome and `outcome_source`, and on this machine that second column reads

@@ -116,3 +116,12 @@ the leak walk failed inside the worktree, and the admission gate blocked the pat
 provider-refused call is a limit on both the ungated and the leak path now. Four passes, four
 real reading bugs, all found because the admission gate runs a suite that walks the corpus and
 the proposer's own live record is in it. Still no judge has answered.
+
+**The fifth pass, 01a08241-831d, reached the panel.** Three judges answered: haiku for 29K
+tokens, Composer for 105K, `agy` for 200K, the last two `gated` as `judge` intends. Blocked,
+and worth every token: the `claude` judge's answer was the right object inside a ```json fence
+and parsed as a block, which reopened map ticket 52's third answer for one amendment; both
+parsing judges spent their review on the 153 lines of the human's uncommitted `docs/status.html`
+that the proposer had reverted, so the brief now says the seeded tree is not the proposer's to
+undo; and the `agy` judge caught prose in `IMPLEMENTATION.md` claiming more than the code does
+about a proposer that could not run. Rung two is measured end to end.

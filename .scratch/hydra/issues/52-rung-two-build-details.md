@@ -45,3 +45,14 @@ Decided with the human on 2026-09-08, in one round.
 
 Build ticket 36 carries `hydra evolve` with all three. `docs/ouroboros-spec.md` section 9 says
 each is closed and points here.
+
+## Amended the same day, after the first real panel
+
+Pass 01a08241-831d ran the three judges for the first time on 2026-09-08. The `claude` judge
+returned exactly the object the prompt asked for, inside a ```json fence, and the parser
+recorded it as a block for a syntax error; `cursor-agent` and `agy` returned bare JSON and
+parsed. Wrapping JSON in a fence is a model's default, so the human amended answer 3: **one
+code fence wrapping the whole answer comes off before the parse, and nothing else changes.**
+Prose beside the object, two fences, an unclosed fence and a fence tagged anything but `json`
+all still block. The reference implementation's sentinel stays rejected. `review::strip_one_fence`
+and one test in `tests/evolve.rs` carry it.
