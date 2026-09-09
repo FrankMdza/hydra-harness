@@ -163,8 +163,10 @@ the panel blocked it on a correct critical finding. That met the exact condition
 second corpus had been waiting for since ticket 19. Ticket 54 measured where a judge finding lives
 and found the training channel built and empty, with a reader missing rather than a format. Ticket
 56 put the first skill through that channel and watched it arrive at the model's listing and stop
-there. Tickets 53 and 55 are the two grillings left, on the panel's margin and on what an SME is,
-and both need the human.
+there. Pass `01a08684-67f4` then found the first thing the new flag broke, which is ticket 57: the
+proposer obeyed both contracts its task named, and `agy` blocked it for one of them, because
+`judge_task` hands a judge the checklist and the diff and never the task. The map stands at 54
+of 57 with tickets 53, 55 and 57 open, all grillings, all needing the human.
 
 ## Notes
 

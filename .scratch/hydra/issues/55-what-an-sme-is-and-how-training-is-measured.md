@@ -2,7 +2,7 @@
 
 Type: grilling
 Status: open
-Blocked by: 54
+Blocked by: 54, 57
 
 ## Question
 
@@ -45,6 +45,13 @@ below is about turning that into something the machine does.
    twice, which is the thing 3.8 declined to build. Passes 7 and 8 ran the same target and are
    the beginning of a fixed task set by accident. Does a benchmark of repeatable tasks get built,
    and if not, what does "this SME improved" mean that is not a story told after the fact?
+
+   Sharpened by ticket 57 on the same day. Pass 8 produced two findings: one blocking the
+   proposer for obeying a contract its task named, and one claiming let-chains do not compile
+   on stable when they compile on this machine's rustc 1.94. A reader that trains on judge
+   findings would have taught a specialist to disobey its task and to avoid a stable language
+   feature. Whatever answers question 3 needs an answer for a finding that is confidently wrong,
+   and unanimity is not it, because unanimity is what carried both.
 
 5. **Nothing lands unseen, at one merge per iteration.** Section 3.7 makes every skill change a
    proposal on a branch a human merges, and calls that a graduation condition rather than a

@@ -462,6 +462,20 @@ removing it would leave a running child with dangling links.
 nothing. An existing `.gitignore` is left alone: a repo that tracks its own would see the
 overwrite as a modification to the human's checkout.
 
+**Passes 7 and 8 are the first two given a task, and the second found what the first flag
+broke.** Pass `01a084d3-bdd3` produced 131 lines across four files, the first patch a panel
+reviewed as a patch, and `agy` blocked it correctly for editing a baseline test to hide a
+regression in `hydra reap <unknown-id>`; `claude` at 26K tokens and `cursor-agent` at 84K both
+returned zero findings. Pass `01a08684-67f4` ran the same target with the test clause in the
+brief and the two broken contracts named in the task. The proposer obeyed both, put the
+resolver in its own module and wrote an `is_full_uuid` that checks hyphens and hex digits
+rather than counting to 36, and `agy` blocked it anyway on `self_consistency` for the reap and
+show asymmetry the task had ordered. `judge_task` hands a judge the checklist and the diff and
+never the task, so the judge could not know. Its second finding, that let-chains fail on stable
+Rust, is false on this machine's rustc 1.94 and the admission gate had already built and tested
+the patch. Costs: proposer 4.53M then 6.81M tokens, panels 235K then 194K, 20.8 then 45.1
+minutes. Map ticket 57 carries the decision.
+
 **The store held no skills until 2026-09-09, and `linked` was empty on every run before
 it.** Map ticket 56 wrote the first one, `hydra-self-edit`, and measured the whole channel on
 probe run `01a086aa-b63b`: the launch committed the dirty store and pinned `c44b43d`, `linked`
