@@ -462,6 +462,20 @@ removing it would leave a running child with dangling links.
 nothing. An existing `.gitignore` is left alone: a repo that tracks its own would see the
 overwrite as a modification to the human's checkout.
 
+**The store held no skills until 2026-09-09, and `linked` was empty on every run before
+it.** Map ticket 56 wrote the first one, `hydra-self-edit`, and measured the whole channel on
+probe run `01a086aa-b63b`: the launch committed the dirty store and pinned `c44b43d`, `linked`
+carried the skill, the worktree symlink resolved into the snapshot, and `claude`'s own
+discovery put it fourth in `skills.resolved` of 27. Every wire works unmodified.
+
+**A skill in `resolved` is offered to the model and not read by it.** The same probe asked
+haiku a question that matched no trigger in the skill's description. It went looking for
+`~/.claude/skills/hydra-self-edit/SKILL.md`, took the refusal `standard` owes the human's own
+skill root, and answered that the skill was unavailable. It tried neither the Skill tool nor
+the snapshot, and `standard` grants both: `skill_invoke` plus a `file_read` scoped to
+`skill_snapshot`. Nothing in Hydra is wrong here. It is the gap between a skill arriving and a
+skill being used, and it is where a training signal would go missing on a weak model.
+
 **A name the repo already carries is not linked over.** The store's copy is held back
 rather than overwriting a project skill the human's repo tracks, and the collision check
 reports it. `hydra.toml`'s `providers` is how a skill opts out of a provider; an absent
