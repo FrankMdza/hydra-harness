@@ -482,13 +482,24 @@ probe run `01a086aa-b63b`: the launch committed the dirty store and pinned `c44b
 carried the skill, the worktree symlink resolved into the snapshot, and `claude`'s own
 discovery put it fourth in `skills.resolved` of 27. Every wire works unmodified.
 
-**A skill in `resolved` is offered to the model and not read by it.** The same probe asked
-haiku a question that matched no trigger in the skill's description. It went looking for
-`~/.claude/skills/hydra-self-edit/SKILL.md`, took the refusal `standard` owes the human's own
-skill root, and answered that the skill was unavailable. It tried neither the Skill tool nor
-the snapshot, and `standard` grants both: `skill_invoke` plus a `file_read` scoped to
-`skill_snapshot`. Nothing in Hydra is wrong here. It is the gap between a skill arriving and a
-skill being used, and it is where a training signal would go missing on a weak model.
+**A skill in `resolved` is offered to the model, and whether the model opens it depends on
+the model.** Two runs on 2026-09-09, same task, same `standard` policy, same store sha, same
+worktree shape: edit `reap`'s doc comment, change no behaviour and no test, then say which
+guidance you consulted. Run `01a086b2-5102` on haiku made three tool calls, `Read`, `Edit`,
+`Bash`, never invoked the skill, and named the repo's `CLAUDE.md`. Run `01a086b3-ca7c` on
+sonnet opened with `Skill { skill: "hydra-self-edit" }` before touching a file and named the
+skill and two of its rules. An earlier haiku probe asked a question matching no trigger and
+went hunting for `~/.claude/skills/hydra-self-edit/SKILL.md`, took the refusal `standard` owes
+the human's own skill root, and reported the skill unavailable, having tried neither the Skill
+tool nor the snapshot; `standard` grants both, `skill_invoke` plus a `file_read` scoped to
+`skill_snapshot`.
+
+Nothing in Hydra is wrong in any of the three. The gap is between a skill arriving and a skill
+being used, and it is the whole question for anything built on the store: the same knowledge
+written into `brief()` changed haiku's behaviour on pass 8, and written into a linked skill it
+did not reach haiku at all. The prompt is frozen in Rust and the store is the versioned,
+proposable, mergeable thing, so that is backwards from what training wants. Map tickets 55
+and 56.
 
 **A name the repo already carries is not linked over.** The store's copy is held back
 rather than overwriting a project skill the human's repo tracks, and the collision check

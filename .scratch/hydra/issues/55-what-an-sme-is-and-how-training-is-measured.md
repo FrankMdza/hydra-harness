@@ -26,6 +26,14 @@ below is about turning that into something the machine does.
    snapshot rule, and a new gate scope. The cheap answer is that an SME is a skill and the word
    is a role rather than a type. What does a new noun buy that this does not?
 
+   Ticket 56 measured the catch on 2026-09-09. A skill reaches the model's menu on every model
+   and gets opened only by the stronger one: Sonnet's first tool call was
+   `Skill { skill: "hydra-self-edit" }`, haiku never reached for it on the same task and named
+   the repo's `CLAUDE.md` instead. So "an SME is a skill" carries a model requirement, and the
+   proposer has run on haiku for all eight passes. Does the answer name a floor for the model an
+   SME runs on, and what happens to a specialist whose training sits in a store its model
+   ignores?
+
 2. **Rung two is memoryless and training is memory.** Section 4.1 says a pass is "No loop, no
    retries, no memory," and that line is load-bearing: it is why there is no supervisor process.
    A specialist that gets better across passes has memory somewhere. The reading that keeps 4.1
