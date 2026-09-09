@@ -649,10 +649,26 @@ fn a_detached_head_is_refused_rather_than_committed_into_nothing() {
 #[test]
 fn reaping_a_run_that_was_never_there_does_nothing_and_says_so() {
     let fixture = Fixture::new("absent");
-    let reaped = reap_one(&fixture.layout(), "nobody", false);
+    // Was `"nobody"` until build ticket 39. The behaviour this pins is that an
+    // absent run is benign, and a well-formed id is now the only way to say
+    // "absent run" rather than "typo": a short string that matches no record is
+    // an error, and the test below pins that. The uuid is deliberately one no
+    // record on any machine carries.
+    let absent = "00000000-0000-7000-8000-000000000000";
+    let reaped = reap_one(&fixture.layout(), absent, false);
     let done = as_done(&reaped[0]);
     assert!(done.worktree.is_none() && !done.spawn_removed);
     assert_eq!(hydra::reap::failures(&reaped), 0);
+}
+
+#[test]
+fn reaping_a_prefix_that_names_no_run_is_an_error_rather_than_nothing_to_do() {
+    let fixture = Fixture::new("typo");
+    // `Reaped` is not `Debug`, so the Ok side is mapped away before asserting.
+    let err = hydra::reap::reap(&fixture.layout(), Some("nobody"), false, NO_GRACE)
+        .map(|_| ())
+        .expect_err("a prefix matching no record is a typo, not an absent run");
+    assert!(err.to_string().contains("no run matches"), "{err}");
 }
 
 // --- reap and a curate pass's checkout -----------------------------------

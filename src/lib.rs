@@ -37,6 +37,7 @@ pub mod prune;
 pub mod pty;
 pub mod reap;
 pub mod record;
+pub mod resolver;
 pub mod resume;
 pub mod run;
 pub mod show;

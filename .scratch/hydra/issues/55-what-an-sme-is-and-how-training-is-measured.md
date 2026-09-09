@@ -6,6 +6,14 @@ Blocked by: 54, 57
 
 ## Question
 
+**First, the word.** Harness spec 18 lists "Training. Out of scope" as a non-goal, and the
+build plan repeats it. That entry is about model weights, and the reason it gives says so:
+lossless export stays a constraint on the record so someone can train elsewhere. What this
+ticket calls training is a skill in the store getting better because a judge found something,
+which is rung one's stated job, "the curator that evolves skills". Nothing here reopens the
+non-goal. Anyone who reads the two together should come away with weights out and skills in.
+
+
 On 2026-09-09 the human asked for the first test of an SME: specialists launched one at a time,
 one of them making decisions while the judges' recommendations are collected as its training.
 Ticket 54 measured the ground. The skill store is an empty git repo, the proposer already gets

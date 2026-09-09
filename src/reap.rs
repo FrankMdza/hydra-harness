@@ -119,7 +119,11 @@ pub fn reap(
     let views = crate::live::scan(layout)?;
 
     if let Some(run_id) = run_id {
-        return Ok(vec![one(layout, &views, run_id, delete_branch)]);
+        // Build ticket 39. A full uuid reaches `one` untouched, so reaping a run
+        // whose record was pruned still works; a shorter string is resolved and
+        // a typo is an error rather than a silent "nothing to do".
+        let run_id = crate::resolver::resolve(layout, run_id)?;
+        return Ok(vec![one(layout, &views, &run_id, delete_branch)]);
     }
 
     let mut ids: Vec<String> = crate::status::abandoned_worktrees(layout, &views, grace)?

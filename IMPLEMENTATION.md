@@ -187,6 +187,20 @@ through `shell`, so any rule against it is an argv match with the pattern floor'
 mode. What holds it here is that nothing in `src/` calls `reap::reap` or `prune::prune`
 except `main`.
 
+**`hydra show` and `hydra reap` take a run-id prefix, build ticket 39.** `src/resolver.rs`
+resolves a short string against the run files: one match is that run, none or several is an
+error naming which. A full uuid is never looked up and passes through whether or not a record
+exists, because reaping a run whose record was pruned predates the ticket. `is_uuid` checks
+hyphen positions and hex digits rather than counting to 36, since counting admits 36 characters
+of anything, which is the hole a rung-two proposer walked through on pass `01a084d3-bdd3`.
+
+**One contract moved with it.** `hydra reap` on a short string that matches no record now
+errors instead of reporting nothing to do, because a typo that reports success is worse than a
+typo that fails. An absent run is still benign and the test that pins it now says so with a
+well-formed uuid. Rung two proposed this feature twice and both branches were blocked; map
+ticket 57 says why the second block was wrong, and the code was typed rather than launched
+because the seven-day Claude window stood at 0.83 that morning.
+
 **Reap also sweeps `~/hydra/skills-snapshots/`, added by ticket 07.** It is harness spec
 5's second row and it has a lifetime of its own: keyed by sha, shared between the runs
 that pinned it, and reaped when no live run references it. The sweep runs whether or not

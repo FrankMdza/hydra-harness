@@ -73,6 +73,7 @@ it.
 - [36 - `hydra evolve`, Ouroboros rung two](36-hydra-evolve.md)
 - [37 - A `claude` tool result with no `is_error` is classified from `tool_use_result`](37-claude-results-without-is-error.md)
 - [38 - A Cursor run may read its own `cursor-data/`, so it can await a background task](38-a-run-reads-its-own-cursor-data.md)
+- [39 - `hydra show` and `hydra reap` take a run-id prefix](39-run-id-prefix.md)
 
 ## Out of scope
 

@@ -24,6 +24,7 @@ use crate::policy::{Capability, PolicySet};
 /// `out` is where the JSON goes, stdout for the command and a buffer for the
 /// suite.
 pub fn show(layout: &Layout, run_id: &str, events: bool, out: &mut dyn Write) -> Result<()> {
+    let run_id = &crate::resolver::resolve(layout, run_id)?;
     let projection = crate::status::projection(layout, run_id)?;
     if !events {
         writeln!(out, "{}", serde_json::to_string_pretty(&projection)?)?;

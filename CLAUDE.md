@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 54 of 57, reopened on 2026-09-09 on training, and the build at 38 tickets.** It reached its destination
+**The map stands at 54 of 57, reopened on 2026-09-09 on training, and the build at 39 tickets.** It reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -70,7 +70,8 @@ document and there should not be one.
 - `src/`, the binary. `run.rs` is the launch sequence and the place to start reading; `watch.rs` is
   the detached half that owns the pty and the record; `live.rs` is the pid liveness test everything
   else reads; `reap.rs` and `prune.rs` are the two cleanup commands, typed by a human and
-  reached from nowhere but `main`; `record/` is the run record and the validator the tests
+  reached from nowhere but `main`; `resolver.rs` turns a run-id prefix into the run it
+  names, for `show` and `reap`, and never looks up a full uuid; `record/` is the run record and the validator the tests
   drive; `env.rs` is the allowlist; `pty.rs` owns the child's pty; `provider/claude.rs`,
   `provider/cursor.rs` and `provider/agy.rs` hold every fact that is true of one binary and
   not of a model, and the three files beside them in `normalize/` read each one's records
@@ -94,7 +95,7 @@ document and there should not be one.
 - `integrations/herdr/`, the Herdr plugin: a launcher that puts the run id on the pane, a poller
   that labels the pane from the record, a graph of one run in the terminal, and a smoke test
   against a live Herdr. Nothing under `src/` imports it, and its README says how to link it.
-- `tests/`, twenty-two files. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, twenty-three files. `record_contract.rs` checks a written record against the contract and walks
   every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
   hook payloads, launching nothing; `spawn.rs` checks that a run writes that gate where the run will
@@ -115,6 +116,7 @@ document and there should not be one.
   provider's resume argv and drives the four refusals, launching nothing; `evolve.rs` drives the
   size cap, the protected-path refusal, the closed-shape parser and the harness record on
   synthetic patches and answers, launching nothing;
+  `resolver.rs` feeds the prefix resolver a scratch corpus and launches nothing;
   `drift.rs` runs `claude`'s free probe under `judge`'s
   flags with stub servers in a scratch `HOME`, skips without the binary, and holds the only
   tests in the suite that launch a provider.
