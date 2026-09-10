@@ -187,6 +187,18 @@ through `shell`, so any rule against it is an argv match with the pattern floor'
 mode. What holds it here is that nothing in `src/` calls `reap::reap` or `prune::prune`
 except `main`.
 
+**Rung one ran against the real corpus for the first time on 2026-09-10**, run
+`01a08d66-76fd-7e10-b4f7-ae106d2dcfac`, sonnet under `curate`, 4.69M tokens, outcome
+`completed/derived`, 73 runs in its brief. It proposed one skill, `ouroboros-curate`, 70 lines
+on how the curator reads the corpus with no shell, no directory listing and nothing ToolSearch
+can hand it, attributed to run `01a07513-baa3`, a `curate` pass that made 21 tool calls and
+failed 15 before reading a record. That is the repeated-tool-errors class of spec 3.2, found
+and attributed correctly. The proposal sits on `ouroboros/curate/01a08d66-...` in the store,
+unmerged, as spec 3.7 requires. One defect surfaced at exit: the pass reported
+`left behind: git branch -d ouroboros/curate/<id> failed: not fully merged`. A proposal
+branch should never be a candidate for deletion, so that call is wrong rather than merely
+noisy, and it wants a build ticket.
+
 **`hydra show` and `hydra reap` take a run-id prefix, build ticket 39.** `src/resolver.rs`
 resolves a short string against the run files: one match is that run, none or several is an
 error naming which. A full uuid is never looked up and passes through whether or not a record
