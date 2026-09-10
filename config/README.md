@@ -7,7 +7,7 @@ earns it.
 | File | Config | Exists |
 |---|---|---|
 | `env-allowlist.json` | #2, the environment allowlist | no, it is still Rust in `src/env.rs` |
-| `export-allowlist.json` | #3, the export allowlist | no, `hydra export` is not built |
+| `export-allowlist.json` | #3, the export allowlist | no. `hydra export` has been built since build ticket 34 and refuses to run without this file |
 | `preamble.md` | #4, the instruction preamble | yes |
 | `mcp.md` | #5, the canonical MCP document | yes, and it declares no server |
 
