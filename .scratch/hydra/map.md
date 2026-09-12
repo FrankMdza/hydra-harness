@@ -166,7 +166,9 @@ and found the training channel built and empty, with a reader missing rather tha
 there. Pass `01a08684-67f4` then found the first thing the new flag broke, which is ticket 57: the
 proposer obeyed both contracts its task named, and `agy` blocked it for one of them, because
 `judge_task` hands a judge the checklist and the diff and never the task. The map stands at 54
-of 57 with tickets 53, 55 and 57 open, all grillings, all needing the human. Ticket 55 was
+of 58 with tickets 53, 55 and 57 open, all grillings, all needing the human, and 58, a
+research ticket on Codex CLI as the fourth provider, opened 2026-09-12 when the human asked
+for more providers that sign in rather than take a key. Ticket 55 was
 rewritten on 2026-09-10 after the human said an SME is a model that gets trained and skills are
 a separate thing: the session had framed it as a skill because that is what Hydra has. Spec 18's
 training non-goal is about weights and says so, so a trained specialist is what the record's
