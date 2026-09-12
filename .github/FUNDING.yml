@@ -1,5 +1,7 @@
-# Fill in before publishing. Each key takes a username or a list; delete what you do not use.
+# Fill in before publishing; delete the keys you do not use. Keys are the ones GitHub documents.
+# GitHub Sponsors: 0% fee from personal accounts and the button sits on the repo. Ko-fi: 0% on tips,
+# no account needed to give. Buy Me a Coffee: 5% plus processing. Colombia is a supported region for
+# Sponsors (Stripe Connect Express, W-8BEN, local bank).
 github: [FRANK_GITHUB_USERNAME]
+ko_fi: FRANK_KOFI_USERNAME
 buy_me_a_coffee: FRANK_BMC_USERNAME
-# ko_fi: username
-# custom: ["https://..."]
