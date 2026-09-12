@@ -2292,15 +2292,16 @@ a cargo target directory wants. `permissive` is the only admission worth writing
 `mcp_call` is granted by that policy alone (7.2), so a face admitted to `standard` would
 start, list its tool, and have every call to it refused by the gate.
 
-**Nothing injects `--parent <run-id>` into that server's arguments per run, and this is
-the gap.** The document is read once per launch and the servers it names are copied into
-the run's config as written, so a face spawned this way has no `--parent` and its children
-are depth 0: the tree is flat, and a delegated child's own delegations are bounded by
-nothing above them. Closing it means `mcp::write_config` substituting the run id into an
-argument list for this one server, which is a per-server rule the document format has no
-field for, so it is a document change and a code change together rather than a two-line
-patch. Until then a face with no `--parent` is what a human's own `claude` session gets,
-which is the honest reading of what it is: a way to hand work to a fresh run at depth 0.
+**`--parent <run-id>` is injected per run, since build ticket 26, and the paragraph that
+used to stand here said the opposite.** It described the gap ticket 11 found: the document
+is read once per launch and copied as written, so a face spawned through it had no
+`--parent` and its children were depth 0. Map ticket 48 closed that without a new field:
+Hydra recognizes its own binary by basename and appends `--parent <run-id>` to that
+server's arguments in the file it writes for the run, and nowhere else. The section "`judge`
+is not injected, and the face is admitted" below carries the current rule. This paragraph
+is rewritten on 2026-09-12 because a `cursor-agent` run reading the repo cold, run
+`01a09402-eb2e`, quoted the stale version as a reason not to adopt Hydra, which is what a
+sentence left behind by a later ticket costs.
 
 **`hydra show <run-id> [--events]` is built, since build ticket 18.** Without the flag it
 prints contract 17's projection alone, the object `hydra status <id>` prints under `result`.

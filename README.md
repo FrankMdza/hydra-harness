@@ -29,6 +29,9 @@ cargo build --release
 ./target/release/hydra run --provider claude --task "..."
 ```
 
-One provider, one recorded run, one run record at `~/hydra/runs/<run-id>.jsonl`. No
-gate yet, so the provider's own permission defaults apply and the record carries a
-null policy.
+One recorded run, one record at `~/hydra/runs/<run-id>.jsonl`. `--provider` takes `claude`,
+`cursor-agent` or `agy`; `--policy` takes one of the five in `policies/` and defaults to
+`standard`, which is reads, writes, shell and network inside the run's own worktree. All
+eleven commands of the harness spec exist: `run`, `status`, `logs`, `show`, `resume`, `reap`,
+`prune`, `curate`, `evolve`, `usage`, `export`. `hydra --help` lists them, and `hydra show`
+takes a run-id prefix.
