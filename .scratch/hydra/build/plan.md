@@ -81,6 +81,7 @@ it.
 - [44 - A run can rewrite the hook config Hydra wrote inside its worktree](44-a-run-can-rewrite-its-own-hook-config.md)
 - [45 - `agy` cuts tool parameters at 513 characters](45-agy-truncates-tool-parameters-at-513.md)
 - [46 - Parallel calls to one tool on `claude` leave the first `Ungated`](46-parallel-calls-to-one-tool-leave-one-ungated.md)
+- [47 - Snapshot creation races when several runs launch on one store sha](47-snapshot-race-on-concurrent-launch.md)
 
 ## Out of scope
 
