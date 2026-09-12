@@ -168,7 +168,11 @@ proposer obeyed both contracts its task named, and `agy` blocked it for one of t
 `judge_task` hands a judge the checklist and the diff and never the task. The map stands at 54
 of 58 with tickets 53, 55 and 57 open, all grillings, all needing the human, and 58, a
 research ticket on Codex CLI as the fourth provider, opened 2026-09-12 when the human asked
-for more providers that sign in rather than take a key. Ticket 55 was
+for more providers that sign in rather than take a key. Ticket 59, the same day, is the
+three documents audited against the code before publishing: five claims marked wrong, among
+them that admission refuses code rows (it refuses `policies/` and `config/` only), that
+`hydra export` writes TRL shapes (it writes events), and that a curate run carries
+`command: curate` (it carries `run`). Build tickets 40 to 43 carry the code half. Ticket 55 was
 rewritten on 2026-09-10 after the human said an SME is a model that gets trained and skills are
 a separate thing: the session had framed it as a skill because that is what Hydra has. Spec 18's
 training non-goal is about weights and says so, so a trained specialist is what the record's
@@ -278,6 +282,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [52 - Rung two's three open details](issues/52-rung-two-build-details.md): the proposer runs as `standard`; a patch over a line cap is rejected for size before any reviewer sees it, so a judge sees a whole diff or none; the reviewer answers one closed JSON shape and any deviation is a block. Build ticket 36.
 - [54 - Where a judge finding lives, and what would have to read it](issues/54-where-a-judge-finding-lives.md): the training channel is built and empty. The proposer already carries `skills.linked` from the store, the store holds no skills, and a judge finding is already in ticket 52's closed JSON shape on the judge's own record. Rung one cannot see it because its five classes all derive from one run's own shape while a verdict is a second run's opinion. Nothing bars it: a judge's parent is the pass, not the curator, so judge runs are already in the corpus. What is missing is a reader, not a format, which makes ticket 55 cheaper than the fog entry assumed. Caveat: two of three judges on pass 7 came out `gated` and wrote the better reviews, so a reader that filters on outcome throws away the best evidence rung two has.
 - [56 - The first SME, a skill in the store, launched and measured](issues/56-the-first-sme.md): every wire from the store to the model's available-skills list works first try. `hydra-self-edit` linked, the snapshot resolved, `claude` discovered it and offered it. The model still did not open it: asked a question that matched no trigger, it hunted for the human's own skill root, took the refusal `standard` owes that path, and reported the skill unavailable rather than trying the Skill tool or the snapshot, both of which `standard` grants. A skill that reaches the listing has not yet reached the model, and on a weak model that gap is where a training signal disappears.
+- [59 - The three documents against the code](issues/59-the-three-documents-against-the-code.md): audited 2026-09-12 by a read-only agent and checked at the cited lines. Five claims wrong, a dozen stale, the rest vague; the five fixes a first reader needs are listed, and four are build tickets 40 to 43. Two claims are more conservative than the code: rung two "shipped later", and "Hydra has run zero times".
+
 
 ## Not yet specified
 

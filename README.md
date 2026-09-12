@@ -31,8 +31,11 @@ So the record decides, not the vendor.
 - **No daemon, no database.** `~/hydra/runs/*.jsonl` is the source of truth. Nothing has to
   be running for the harness to exist, and `hydra status` reconciles live pids against open
   records on demand.
-- **Records are training data.** `hydra export` writes SFT and preference JSONL in TRL
-  format, behind a path allowlist and a secret scan that aborts the whole export on one hit.
+- **Records leave by one door.** `hydra export` is the only path anything leaves this
+  machine by: one line per eligible run, behind a repo allowlist and a secret scan that aborts
+  the whole export on one hit. The contract keeps records lossless so a training set can be
+  built from them elsewhere; the SFT and preference shapes the contract describes are not
+  written yet (map ticket 59).
 - **It reads its own records.** Ouroboros rung one proposes skill edits from the failure
   classes it finds; rung two proposes patches to Hydra's own Rust, behind an admission gate
   and a panel of three judges, one per vendor. Nothing lands without a human merge.

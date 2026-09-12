@@ -74,6 +74,10 @@ it.
 - [37 - A `claude` tool result with no `is_error` is classified from `tool_use_result`](37-claude-results-without-is-error.md)
 - [38 - A Cursor run may read its own `cursor-data/`, so it can await a background task](38-a-run-reads-its-own-cursor-data.md)
 - [39 - `hydra show` and `hydra reap` take a run-id prefix](39-run-id-prefix.md)
+- [40 - Admission refuses the code rows harness 15.2 names](40-admission-refuses-the-code-rows-too.md)
+- [41 - `rate_limit_abort` reads a field that is not there](41-the-rate-limit-abort-reads-a-field-that-is-not-there.md)
+- [42 - A `hydra curate` run writes `command: curate`](42-a-curate-run-writes-command-curate.md)
+- [43 - `propose()` deletes its own proposal branch](43-propose-deletes-its-own-proposal-branch.md)
 
 ## Out of scope
 
