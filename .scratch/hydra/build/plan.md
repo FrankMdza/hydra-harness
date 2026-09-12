@@ -78,6 +78,7 @@ it.
 - [41 - `rate_limit_abort` reads a field that is not there](41-the-rate-limit-abort-reads-a-field-that-is-not-there.md)
 - [42 - A `hydra curate` run writes `command: curate`](42-a-curate-run-writes-command-curate.md)
 - [43 - `propose()` deletes its own proposal branch](43-propose-deletes-its-own-proposal-branch.md)
+- [44 - A run can rewrite the hook config Hydra wrote inside its worktree](44-a-run-can-rewrite-its-own-hook-config.md)
 
 ## Out of scope
 

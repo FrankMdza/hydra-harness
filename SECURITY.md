@@ -21,6 +21,26 @@ Hydra made about it.
   instructions, and Ouroboros treats it that way; if you find a path by which text in a
   record changes what Hydra does, that is a vulnerability.
 
+## Known exposures, stated before someone else does
+
+- **A run can rewrite the hook config inside its worktree.** On `cursor-agent` the config Hydra
+  writes is `<worktree>/.cursor/hooks.json`, and `standard` may write anywhere in the worktree.
+  Build ticket 44 denies those paths under every policy. Until it lands, treat a `cursor-agent`
+  run under `standard` as gated by a file it could edit.
+- **The gate is only as good as the vendor build.** It lives in the vendor's own hook dialect,
+  and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
+  gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`
+  is where a confirmed change becomes a failing test.
+
+## Vendor terms
+
+Hydra spawns each vendor's unmodified binary under your own subscription and never reads,
+stores or forwards its token. That is the documented path for scripted use on all three. Two
+things the terms do forbid, and Hydra cannot enforce for you: training a competing model on a
+vendor's outputs, which is what `hydra export` could feed; and volume beyond "ordinary,
+individual usage", which is the stated reason for the 2026 cutoffs of unattended loops. Read
+the terms before running Ouroboros overnight.
+
 ## Reporting
 
 Open a private security advisory on the repository, or email the address in `NOTICE`.

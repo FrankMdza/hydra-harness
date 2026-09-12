@@ -43,7 +43,9 @@ So the record decides, not the vendor.
 ## Install
 
 macOS, a Rust toolchain, and at least one of the three CLIs installed and logged in with its
-own subscription. Hydra spawns the real binaries and never touches their credentials.
+own subscription. Hydra spawns the real binaries and never touches their credentials; that is
+the documented path for scripted use on all three, and `SECURITY.md` says what their terms
+still forbid.
 
 ```
 git clone <this repo> ~/hydra && cd ~/hydra
@@ -112,6 +114,22 @@ every record carries the sha of the set it ran under.
   if someone "closes" that. Network cannot be cut because the CLI needs its model.
 - Not a trainer. Records export losslessly; weights are trained elsewhere.
 - Not Linux yet, and not tested outside this machine.
+
+## How it compares
+
+Worktree-per-run over several vendor CLIs is a crowded shelf. What is not on it is the record.
+
+| | Runs several vendor CLIs | Worktree per run | Record per run, contract-checked | Gate compiled per run |
+|---|---|---|---|---|
+| [ccmanager](https://github.com/kbwo/ccmanager) | 9 | yes | no | container and auto-approve |
+| [vibe-kanban](https://github.com/BloopAI/vibe-kanban) | 10+ | yes | no | no |
+| [Cupcake](https://github.com/eqtylab/cupcake) | 4, via hooks | no | no | yes, OPA/Rego, richer than Hydra's |
+| [Langfuse coding-agent tracing](https://langfuse.com/resources/engineering/coding-agent-tracing) | 3 | no | traces, hosted, no outcome | no |
+| Hydra | 3 | yes | yes, outcome derived from the stream | yes, five policies, three dialects |
+
+ccmanager has the live dashboard and container isolation Hydra lacks. Cupcake has the policy
+language. Langfuse has the UI and cross-run search. None derives the outcome from what the tools
+did, which is the one thing Hydra was built around.
 
 ## Works with
 
