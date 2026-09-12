@@ -172,7 +172,9 @@ for more providers that sign in rather than take a key. Ticket 59, the same day,
 three documents audited against the code before publishing: five claims marked wrong, among
 them that admission refuses code rows (it refuses `policies/` and `config/` only), that
 `hydra export` writes TRL shapes (it writes events), and that a curate run carries
-`command: curate` (it carries `run`). Build tickets 40 to 43 carry the code half. Ticket 55 was
+`command: curate` (it carries `run`). Build tickets 40 to 43 carry the code half. Builds 40 and 43 landed the same day, and 40 found ticket 60: the hook-config
+writer of 15.2's row 4 lives inside `src/run.rs`, which is the whole launch sequence, so
+protecting it is a decision about the launch's shape rather than one more row. Ticket 55 was
 rewritten on 2026-09-10 after the human said an SME is a model that gets trained and skills are
 a separate thing: the session had framed it as a skill because that is what Hydra has. Spec 18's
 training non-goal is about weights and says so, so a trained specialist is what the record's

@@ -377,9 +377,10 @@ impl Walk {
             status,
             output,
             // This provider reports no truncation marker and this normalizer
-            // cuts nothing, so the marker is always false. The `view_file`
-            // output measured was a summary rather than the file, which is the
-            // provider summarizing rather than truncating.
+            // cuts nothing, so the marker is always false for a result. The
+            // `view_file` output measured was a summary rather than the file,
+            // which is the provider summarizing rather than truncating. Its
+            // arguments are another matter: see `AGY_PARAMETER_CAP`.
             truncated: false,
         }));
     }
@@ -562,6 +563,42 @@ impl Walk {
             };
             let result = results.get(&call_id);
             let refusal = result.and_then(|(status, output)| refusal_in(*status, output));
+
+            // Build ticket 45. The stream cuts every string parameter at
+            // `AGY_PARAMETER_CAP`, so a deny on a capped argument is a verdict
+            // about a command the hook never saw: the hook read the whole
+            // string, this replay read the cut. Measured 2026-09-12 on run
+            // 01a0902c-8d66, where two `run_command` calls the floor "could not
+            // parse" had run with output, because the cut fell inside a quote.
+            // Nothing is derived for such a call, and the record says why.
+            if !verdict.allowed
+                && refusal.is_none()
+                && matches!(result, Some((ResultStatus::Ok, _)))
+                && argument_at_cap(&arguments)
+            {
+                self.findings.push(Finding::Limit(format!(
+                    "step {call_id} ({tool}) carries an argument cut at this provider's \
+                     {AGY_PARAMETER_CAP}-character cap, so the replay judged a command the \
+                     hook never saw and cannot say whether the gate would have refused it"
+                )));
+                // Contract 7.7 owes one decision per call. The one this record
+                // can back is the hook's: it read the whole argument, nothing
+                // refused, the tool ran. The reason says the replay did not
+                // re-evaluate it, so a reader knows this line was not derived
+                // from the policy the way its neighbours were.
+                decisions.push(Some(PermissionDecision {
+                    seq,
+                    call_id: call_id.clone(),
+                    decision: Decision::Allow,
+                    decider: Decider::HydraPolicy,
+                    reason: format!(
+                        "hydra/capped-argument: the hook allowed a command this record holds \
+                         the first {AGY_PARAMETER_CAP} characters of; the replay could not \
+                         re-evaluate it"
+                    ),
+                }));
+                continue;
+            }
 
             let derived = if !verdict.allowed {
                 match &refusal {
@@ -765,6 +802,33 @@ fn classify(message: &str) -> ResultStatus {
 /// file-not-found and a provider-side argument rejection both wear, and calling
 /// it a refusal would teach rung one that the gate blocked work the gate never
 /// saw.
+/// The longest string parameter `agy` streams in a `step_update` frame.
+///
+/// Measured 2026-09-12 over every `agy` record on this machine: no parameter is
+/// longer, sixty sit exactly here, and 59 of the 71 over 300 characters end with
+/// an odd number of double quotes. The hook receives the whole argument; the
+/// record keeps this much of it.
+pub const AGY_PARAMETER_CAP: usize = 513;
+
+/// Whether any string in `arguments` reached the cap, at the top level or one
+/// level down, which is where every parameter this provider streams lives.
+fn argument_at_cap(arguments: &Value) -> bool {
+    fn at_cap(value: &Value) -> bool {
+        value
+            .as_str()
+            .is_some_and(|text| text.chars().count() >= AGY_PARAMETER_CAP)
+    }
+    match arguments {
+        Value::Object(fields) => fields.values().any(|value| {
+            at_cap(value)
+                || value
+                    .as_object()
+                    .is_some_and(|inner| inner.values().any(at_cap))
+        }),
+        other => at_cap(other),
+    }
+}
+
 fn refusal_in(status: ResultStatus, output: &str) -> Option<Refusal> {
     if status != ResultStatus::Error {
         return None;

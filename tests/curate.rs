@@ -841,6 +841,15 @@ fn the_commit_is_the_proposal_and_the_checkout_goes_after_it() {
         !proposal.branch_removed,
         "the proposal's branch was deleted"
     );
+    // Build ticket 43. The branch moved, so the pass never asks git to delete
+    // it, and nothing is reported as left behind. The first real pass ended
+    // with `git branch -d` refusing its own proposal as not fully merged.
+    assert!(proposal.left.is_empty(), "{:?}", proposal.left);
+    assert_eq!(
+        git(&store, &["rev-parse", &branch]).trim(),
+        proposal.commit.as_deref().unwrap(),
+        "the branch does not point at the commit the pass made"
+    );
     assert!(!checkout.exists());
 
     // The bytes, read back off the branch. This is what the pass exists to leave.
@@ -916,15 +925,18 @@ fn a_pass_on_a_dirty_store_checks_out_the_sha_its_own_launch_will_pin() {
 
 #[test]
 fn a_pass_that_proposed_nothing_leaves_no_branch() {
-    // An empty pass is a real answer. `git branch -d` is what decides this: it
-    // refuses a branch that is not fully merged, so a branch only goes when
-    // deleting it loses nothing.
+    // An empty pass is a real answer. The branch still points at the sha the
+    // checkout was cut from, so it holds nothing and the pass deletes it.
     let fixture = Fixture::new("empty");
     let store = fixture.store();
     let run_id = B;
     let branch = format!("ouroboros/curate/{run_id}");
     let checkout = fixture.layout().skill_checkout(run_id);
     curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
+    assert_eq!(
+        git(&checkout, &["rev-parse", "HEAD"]).trim(),
+        git(&store, &["rev-parse", "main"]).trim()
+    );
 
     let proposal = curate::propose(
         &store,

@@ -11,6 +11,10 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   and `config/` (2026-09-12, build ticket 40).
 - A curate pass no longer tries to delete the proposal branch it just made (2026-09-12,
   build ticket 43).
+- The replay no longer calls an `agy` command a gate leak when the stream cut its argument at
+  513 characters; it records a limit and the hook's own allow (2026-09-12, build ticket 45).
+- Two parallel calls to one tool on `claude` each get their own hook answer; the first used to
+  read as ungated (2026-09-12, build ticket 46).
 - README rewritten around the measurement Hydra exists for; `llms.txt` added; demo GIF
   recorded from a real `agy` run (2026-09-12).
 

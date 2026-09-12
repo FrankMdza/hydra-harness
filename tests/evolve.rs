@@ -69,6 +69,70 @@ fn a_diff_naming_a_protected_path_is_refused_at_admission() {
 }
 
 #[test]
+fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
+    // Build ticket 40. Harness spec 15.2's five code rows: the review module, the
+    // protected-path list, the hook-config writer, the run-record writer and the
+    // admission gate. Each is planted as the one path of a patch, alone, so a
+    // refusal names that row and no other. The repo is a scratch path rather than
+    // this checkout: the check is on the names, and nothing has to exist.
+    let repo = PathBuf::from("/scratch/hydra-evolve-rows");
+    let rows = [
+        "src/ouroboros/review.rs",
+        "src/ouroboros/evolve.rs",
+        "src/policy/mod.rs",
+        "src/policy/table.rs",
+        "src/policy/gate.py",
+        "src/record/mod.rs",
+        "src/record/lines.rs",
+        "src/env.rs",
+    ];
+    for row in rows {
+        let hit = protected_path_hit(&[row.to_string()], &repo);
+        assert_eq!(hit.as_deref(), Some(row), "{row} reached the panel");
+    }
+    // Case is not a way past it: `write_file(path="Review.rs")` on macOS lands
+    // on the same file.
+    let cased = protected_path_hit(&["src/Ouroboros/REVIEW.rs".into()], &repo);
+    assert_eq!(cased.as_deref(), Some("src/Ouroboros/REVIEW.rs"));
+    // An absolute path under the repo is the same patch spelled longer.
+    let absolute = repo.join("src/record/validate.rs").display().to_string();
+    let hit = protected_path_hit(&[absolute.clone()], &repo);
+    assert_eq!(hit.as_deref(), Some(absolute.as_str()));
+    // Every row is checked against every path, so a clean patch with one bad
+    // path in the middle is refused on that path.
+    let mixed = protected_path_hit(
+        &[
+            "src/lib.rs".into(),
+            "src/ouroboros/curate.rs".into(),
+            "src/record/secrets.rs".into(),
+        ],
+        &repo,
+    );
+    assert_eq!(mixed.as_deref(), Some("src/record/secrets.rs"));
+}
+
+#[test]
+fn a_diff_outside_the_protected_rows_passes_admission() {
+    // Rung two's own launch sequence, the corpus reader and the curate pass are
+    // not rows, and neither is a file whose name merely starts like one.
+    let repo = PathBuf::from("/scratch/hydra-evolve-rows");
+    let ok = protected_path_hit(
+        &[
+            "src/run.rs".into(),
+            "src/ouroboros/corpus.rs".into(),
+            "src/ouroboros/curate.rs".into(),
+            "src/policyholder.rs".into(),
+            "src/recorder.rs".into(),
+            "src/environment.rs".into(),
+            "tests/evolve.rs".into(),
+            "docs/ouroboros-spec.md".into(),
+        ],
+        &repo,
+    );
+    assert!(ok.is_none(), "{ok:?} was refused");
+}
+
+#[test]
 fn three_judge_answers_in_the_closed_shape_produce_the_expected_verdict() {
     let pass = pass_answer("pass", "[]");
     let outcomes = [

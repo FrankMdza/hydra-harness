@@ -707,6 +707,16 @@ impl Walk {
     /// call, a call's group being every start between its own frame and the
     /// next call of the same tool. `calls` is already in seq order, which is
     /// what lets this walk each tool's calls and starts together in one pass.
+    ///
+    /// **A call whose window holds no start borrows from a later window of the
+    /// same tool that holds more than one** (build ticket 46). Run
+    /// 01a095e6-626f on 2.1.268 emitted two `WebFetch` calls back to back and
+    /// both starts after them, so the first call's window held nothing and the
+    /// second's held both. Starts are emitted in call order even when responses
+    /// are not, so the earliest surplus start is the borrower's. A later window
+    /// holding exactly one keeps it: run 01a07f37-8a67 has `Read` calls the
+    /// binary refused on their input, for which no hook ever started, and
+    /// those must not take the one start the next real `Read` owns.
     fn group_starts(
         calls: &[(u64, String, String, Value)],
         starts: &[HookStart],
@@ -729,6 +739,19 @@ impl Walk {
                     .filter(|start| start.tool == tool && start.seq > after && start.seq < before)
                     .map(|start| start.hook_id.clone())
                     .collect();
+            }
+            for (position, &index) in indices.iter().enumerate() {
+                if !groups[index].is_empty() {
+                    continue;
+                }
+                let donor = indices[position + 1..]
+                    .iter()
+                    .copied()
+                    .find(|&later| groups[later].len() > 1);
+                if let Some(donor) = donor {
+                    let borrowed = groups[donor].remove(0);
+                    groups[index].push(borrowed);
+                }
             }
         }
         groups

@@ -73,8 +73,11 @@ compiled and passed, and the instruction preamble rides the task string. This is
 delegation uses and the mode Ouroboros learns from.
 
 **Interactive.** The vendor owns the terminal and draws its own interface. Hydra launches it and
-gets out of the way. No skill injection (ticket 10), no gate, no preamble. The run records thin and
-is harvested from the vendor's own transcript when the process exits (section 10).
+gets out of the way. Without `--policy`: no skill injection (ticket 10), no gate, no preamble. With
+`--policy <name>`, on `claude` only, since build ticket 28: a worktree, the skill snapshot, and a
+compiled gate passed as `--settings`, with denials harvested from the transcript (the ticket 50
+paragraph in section 3). Either way the run records thin and is harvested from the vendor's own
+transcript when the process exits (section 10).
 
 The consequence is worth stating plainly rather than leaving in the mechanics: **Ouroboros learns
 from run records, and a thin record teaches it little.** A TUI is what would let the structured
@@ -674,8 +677,10 @@ decision.
 **Do not assume `agy` writes where the parent stands.** With `--dangerously-skip-permissions` a probe
 that wrote `probe.txt` put it in `~/.gemini/antigravity-cli/scratch/`, not the launch directory.
 
-Interactive run, any provider: the vendor's own invocation, plus `--mcp-config` without the strict
-flag on `claude`, plus the Cursor pre-flight. No `--settings`, no injection, no preamble.
+Interactive run, `claude` only today (`src/interactive.rs` refuses the other two): the vendor's own
+invocation, plus `--mcp-config` without the strict flag. Without `--policy`: no `--settings`, no
+injection, no preamble. With it: `--settings` carrying the compiled gate, a worktree and the
+snapshot. No Cursor pre-flight runs here, because no interactive Cursor launch exists.
 
 ## 7. The delegation policy
 
@@ -703,7 +708,9 @@ self-update that renames a tool then breaks the next run loudly instead of quiet
 child may do. The cost is accepted in that direction on purpose.
 
 Two known table entries a reader would otherwise get wrong: `agy` names one action `write_to_file`
-as a step and `write_file` as a permission rule, so the table needs both.
+as a step and `write_file` as a permission rule, so the table was expected to need both. Measured:
+one row, `write_to_file`, is what `src/policy/table.rs` carries, and no `write_file` row has been
+needed.
 
 **`Skill` is its own capability, `skill_invoke`, rather than one of the nineteen tools that answer to
 `provider_native`.** A run that is linked a skill and cannot invoke it was given a listing entry
@@ -1337,6 +1344,11 @@ exact-case membership test misses it.
 | 11 | the canonical MCP document | config | yes | **yes, under every policy** |
 | 12 | the run records directory, `~/hydra/runs/` | data | not applicable | **yes, under every policy** |
 
+**What admission refuses, as built.** The five config rows, 3, 5, 8, 10 and 11, since build ticket
+36. The five code rows, 1, 2, 4, 6 and 7, since build ticket 40 on 2026-09-12; between the two
+tickets a patch to any of them reached the panel, and ouroboros spec 4.4's sentence about the
+opening scenario was false for every pass run in that window. Map ticket 59 found it.
+
 **Entry 12 arrived from the seam check and is the one row that is not source.** The other eleven are
 things a rung-two patch could propose changing. A patch cannot propose changing the corpus, so its
 admission column is not applicable, and it is listed here because the run-time denial is what
@@ -1401,12 +1413,12 @@ wanted.
 | `hydra run` | section 9 |
 | `hydra status [<run-id>]` | reconciles live pids against open run files, harvests dead runs with unharvested bodies, reports abandoned worktrees |
 | `hydra logs <run-id> [--follow]` | tails a run file. The only way to watch an unwatched child |
-| `hydra show <run-id> [--events]` | the full record a delegation result deliberately omits |
+| `hydra show <run-id> [--events]` | the full record a delegation result deliberately omits. Takes an unambiguous run-id prefix since build ticket 39 |
 | `hydra resume <run-id>` | hands the provider its own resume flag, mints a fresh linked run id |
-| `hydra reap [<run-id>]` | commits a worktree's uncommitted changes to the child's branch, then removes the worktree and the spawn directory |
+| `hydra reap [<run-id>]` | commits a worktree's uncommitted changes to the child's branch, then removes the worktree and the spawn directory. Takes a prefix since build ticket 39 |
 | `hydra prune` | moves run files out of `runs/`. Deletes only behind a flag |
 | `hydra curate` | invokes Ouroboros rung one as an ordinary recorded run under the `curate` policy |
-| `hydra evolve` | runs one rung-two pass: a proposer, the admission gate, a panel of three, a branch |
+| `hydra evolve [--task <text>]` | runs one rung-two pass: a proposer, the admission gate, a panel of three, a branch. `--task` hands the proposer a target; map ticket 57 asks what the judge should see of it |
 | `hydra export` | section 14 |
 | `hydra usage recount` | re-derives token counts from stored text with a better tokenizer |
 
@@ -1508,7 +1520,8 @@ exists on exactly one of the three today.
 
 ### 19.6 What an interactive run gets from sections 6.5 and 6.6
 
-An interactive run gets no worktree (6.3), and two of the three providers read their injected MCP
+An ungated interactive run gets no worktree (6.3); a gated one, `claude` only, gets one (build
+ticket 28). Two of the three providers read their injected MCP
 config out of the worktree (6.5). So on `cursor-agent` and `agy` an interactive run has nowhere to
 put one and gets no injected servers, while `claude` gets its config on the command line and does.
 The record contract's section 5.6 records that split as it stands.

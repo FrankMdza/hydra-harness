@@ -2039,6 +2039,151 @@ fn a_call_with_no_id_still_gets_a_decision_and_says_what_it_lost() {
 const AGY_TOOLS: &[&str] = &["run_command", "view_file", "list_dir", "write_to_file"];
 
 #[test]
+fn parallel_calls_to_one_tool_each_get_their_own_hook_answer() {
+    // Build ticket 46. Run 01a095e6-626f on claude 2.1.268: two `WebFetch`
+    // calls emitted back to back, then both `hook_started` frames, then both
+    // responses. Every call was answered; the window join saw no start inside
+    // the first call's window and called it ungated.
+    let sandbox = Sandbox::new("claude-parallel");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use(
+        "toolu_01",
+        "WebFetch",
+        json!({"url": "https://a.example", "prompt": "a"}),
+    );
+    record.tool_use(
+        "toolu_02",
+        "WebFetch",
+        json!({"url": "https://b.example", "prompt": "b"}),
+    );
+    record.hook_started("WebFetch", "hook-a");
+    record.hook_started("WebFetch", "hook-b");
+    record.hook_response_id(
+        "WebFetch",
+        "allow",
+        "hydra/allow: policy standard allows network_read.",
+        "hook-a",
+    );
+    record.hook_response_id(
+        "WebFetch",
+        "allow",
+        "hydra/allow: policy standard allows network_read.",
+        "hook-b",
+    );
+    record.tool_result("toolu_01", "A", false);
+    record.tool_result("toolu_02", "B", false);
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. })),
+        "{:?}",
+        run.findings
+    );
+    assert_eq!(run.permission_decisions().count(), 2, "{:?}", run.events);
+}
+
+#[test]
+fn an_agy_argument_at_the_cap_is_a_limit_and_never_a_leak() {
+    // Build ticket 45. Run 01a0902c-8d66 on agy 1.2.0: a `run_command` whose
+    // `CommandLine` the stream cut at 513 characters, inside a double quote,
+    // ran with output. The hook saw the whole command; the replay saw the cut,
+    // could not parse it, and called the run a leak. It is a limit.
+    let sandbox = Sandbox::new("agy-cap");
+    let worktree = sandbox.worktree();
+    let mut command = String::from("tools/py -c \"\nimport numpy as np\n");
+    while command.chars().count() < hydra::normalize::agy::AGY_PARAMETER_CAP {
+        command.push('x');
+    }
+    assert_eq!(
+        command.chars().count(),
+        hydra::normalize::agy::AGY_PARAMETER_CAP
+    );
+    let text = Record::agy(&worktree, Some("standard"), Some(policies().sha()))
+        .agy_user()
+        .agy_tool_ok(
+            2,
+            "run_command",
+            json!({ "CommandLine": command, "Cwd": worktree }),
+            "DataFrame shape: (500, 6)\n",
+        )
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Limit(said) if said.contains("513-character cap") && said.contains("run_command")
+        )),
+        "{:?}",
+        run.findings
+    );
+    // One decision per call (7.7), and the one the record can back: the hook
+    // allowed, and the reason says the replay did not re-evaluate it.
+    assert!(
+        run.events.iter().any(|event| matches!(
+            event,
+            Event::PermissionDecision(decision)
+                if decision.decision == Decision::Allow
+                    && decision.reason.starts_with("hydra/capped-argument")
+        )),
+        "{:?}",
+        run.events
+    );
+}
+
+#[test]
+fn a_short_unparseable_agy_command_is_still_judged() {
+    // The control for the cap: a command well under it that the floor cannot
+    // parse is one the hook did see whole, so the replay's deny stands and the
+    // cap limit must not fire.
+    let sandbox = Sandbox::new("agy-short");
+    let worktree = sandbox.worktree();
+    let text = Record::agy(&worktree, Some("standard"), Some(policies().sha()))
+        .agy_user()
+        .agy_tool_ok(
+            2,
+            "run_command",
+            json!({ "CommandLine": "echo \"unbalanced", "Cwd": worktree }),
+            "unbalanced\n",
+        )
+        .agy_result("SUCCESS", "", None)
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings.iter().any(
+            |finding| matches!(finding, Finding::Limit(said) if said.contains("character cap"))
+        ),
+        "{:?}",
+        run.findings
+    );
+    assert!(
+        run.events.iter().any(|event| matches!(
+            event,
+            Event::PermissionDecision(decision)
+                if decision.decider == Decider::HydraPolicy && decision.decision == Decision::Deny
+        )),
+        "{:?}",
+        run.events
+    );
+}
+
+#[test]
 fn an_agy_record_is_read_by_its_own_adapter() {
     // The frames measured on 1.1.26 on 2026-09-06, with the paths shortened.
     let sandbox = Sandbox::new("agy-read");

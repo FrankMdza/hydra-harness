@@ -74,9 +74,10 @@ pub struct Proposal {
     /// The commit the pass made, or `None` when the curator wrote nothing.
     pub commit: Option<String>,
     pub checkout_removed: bool,
-    /// A branch with nothing on it is litter and goes, which is `git branch -d`'s
-    /// decision rather than this module's: it refuses a branch that is not fully
-    /// merged, so the one commit a real proposal made is what keeps its branch.
+    /// A branch with nothing on it is litter and goes. The test is whether the
+    /// branch still points at the sha the checkout started from: a pass that
+    /// committed moved it, and its branch is the proposal, so nothing asks git
+    /// to delete it.
     pub branch_removed: bool,
     /// Why the checkout or the branch is still there, in git's own words.
     pub left: Vec<String>,
@@ -233,6 +234,13 @@ fn undo_checkout(store: &Path, checkout: &Path, branch: &str) -> Result<()> {
 /// commit that did not happen therefore stops the removal instead of preceding it.
 /// That is `hydra reap`'s rule, applied to the one other place Hydra removes a
 /// directory a model wrote into.
+///
+/// **The branch is deleted only when nothing was proposed.** The checkout's
+/// `HEAD` before the commit is the sha the branch was cut from; after the
+/// removal, a branch still at that sha holds nothing and goes. A branch that
+/// moved is the pass's output, and the first real pass, `01a08d66-76fd`, ended
+/// with `git branch -d` refusing it as not fully merged, which was this function
+/// asking for a deletion it never wanted.
 pub fn propose(
     store: &Path,
     checkout: &Path,
@@ -248,6 +256,8 @@ pub fn propose(
         left: Vec::new(),
     };
 
+    let started_at = git(checkout, &["rev-parse", "HEAD"])?.trim().to_string();
+
     let exclude = crate::provider::own_worktree_paths();
     proposal.commit = commit_everything(checkout, &message(run_id, result), &exclude)?;
 
@@ -257,9 +267,12 @@ pub fn propose(
     }
 
     if proposal.checkout_removed {
-        match git(store, &["branch", "-d", branch]) {
-            Ok(_) => proposal.branch_removed = true,
-            Err(err) => proposal.left.push(format!("{err:#}")),
+        let now_at = git(store, &["rev-parse", branch])?.trim().to_string();
+        if now_at == started_at {
+            match git(store, &["branch", "-d", branch]) {
+                Ok(_) => proposal.branch_removed = true,
+                Err(err) => proposal.left.push(format!("{err:#}")),
+            }
         }
     }
     Ok(proposal)

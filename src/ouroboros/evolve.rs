@@ -442,10 +442,29 @@ pub fn patch_over_cap(stat: &Stat) -> Option<usize> {
     (count > PATCH_LINE_CAP).then_some(count)
 }
 
-/// Case-insensitive check against harness spec 15.1 paths and the `policies/` and
-/// `config/` directories named in the ticket.
+/// The paths a rung-two patch may not name, relative to the repo root: the five
+/// config rows of harness spec 15.2 and the code rows that sit next to them.
+///
+/// The spec's table names the code rows by role rather than by file. This is
+/// where each one lives: the review module is row 1; `src/ouroboros/evolve.rs`
+/// is rows 2 and 7, this list and the admission gate; `src/policy/` is the deny
+/// list, the capability table, `gate.py` and the compiler that writes the hook
+/// command, rows 4 and 9; `src/record/` is the run-record writer, row 6;
+/// `src/env.rs` is the code half of the environment allowlist, row 3. Until build
+/// ticket 40 only the config rows were here, and a patch to `review.rs` reached
+/// the panel.
+pub const PROTECTED_CODE_PATHS: &[&str] = &[
+    "src/ouroboros/review.rs",
+    "src/ouroboros/evolve.rs",
+    "src/policy",
+    "src/record",
+    "src/env.rs",
+];
+
+/// Case-insensitive check against the config rows of harness spec 15.2 and the
+/// code rows [`PROTECTED_CODE_PATHS`] maps to files.
 pub fn protected_path_hit(paths: &[String], repo: &Path) -> Option<String> {
-    let protected = [
+    let mut protected = vec![
         repo.join("policies"),
         repo.join("config"),
         repo.join("config").join("preamble.md"),
@@ -453,6 +472,7 @@ pub fn protected_path_hit(paths: &[String], repo: &Path) -> Option<String> {
         repo.join("config").join("export-allowlist.json"),
         repo.join("config").join("env-allowlist.json"),
     ];
+    protected.extend(PROTECTED_CODE_PATHS.iter().map(|row| repo.join(row)));
     for path in paths {
         let file = if Path::new(path).is_absolute() {
             PathBuf::from(path)

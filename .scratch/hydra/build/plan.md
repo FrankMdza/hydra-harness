@@ -79,6 +79,8 @@ it.
 - [42 - A `hydra curate` run writes `command: curate`](42-a-curate-run-writes-command-curate.md)
 - [43 - `propose()` deletes its own proposal branch](43-propose-deletes-its-own-proposal-branch.md)
 - [44 - A run can rewrite the hook config Hydra wrote inside its worktree](44-a-run-can-rewrite-its-own-hook-config.md)
+- [45 - `agy` cuts tool parameters at 513 characters](45-agy-truncates-tool-parameters-at-513.md)
+- [46 - Parallel calls to one tool on `claude` leave the first `Ungated`](46-parallel-calls-to-one-tool-leave-one-ungated.md)
 
 ## Out of scope
 

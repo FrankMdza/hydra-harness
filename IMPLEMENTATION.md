@@ -197,7 +197,28 @@ and attributed correctly. The proposal sits on `ouroboros/curate/01a08d66-...` i
 unmerged, as spec 3.7 requires. One defect surfaced at exit: the pass reported
 `left behind: git branch -d ouroboros/curate/<id> failed: not fully merged`. A proposal
 branch should never be a candidate for deletion, so that call is wrong rather than merely
-noisy, and it wants a build ticket.
+noisy. Build ticket 43 fixed it on 2026-09-12: `propose()` reads the checkout's `HEAD`
+before it commits, and after the checkout goes it deletes the branch only if `git rev-parse`
+still gives that sha. A branch that moved is the proposal, and the pass no longer asks git
+to delete it, so a real pass ends with nothing in `left`.
+
+**`agy` cuts every string parameter it streams at 513 characters, build ticket 45.** Measured
+2026-09-12 over every `agy` record on this machine: no parameter longer, sixty at exactly 513,
+59 of the 71 over 300 characters cut inside a quote. The hook reads the whole argument and the
+record keeps the cap, so the replay of contract 7.7 was judging commands the hook never saw:
+run `01a0902c-8d66` had two `run_command` calls the floor "could not parse" that had run with
+output, and the corpus walk called them leaks. A deny on a capped argument with a clean result
+is now a `Limit` plus an `allow` decision whose reason starts `hydra/capped-argument`. The
+earlier claim in this file that the provider truncates nothing was measured on results and
+holds for them.
+
+**Two parallel calls to one tool on `claude` are each joined to their own hook start, build
+ticket 46.** On 2.1.268 a batch emits every `tool_use` first and every `hook_started` after,
+so the first call's window held no start and the second's held both; the first read as
+`Ungated` on run `01a095e6-626f`. A call with an empty window now borrows the earliest start
+from a later same-tool window holding more than one, and only from one holding more than one,
+because run `01a07f37-8a67` has `Read` calls refused on their input with no start at all and
+they must not take the next real call's.
 
 **`hydra show` and `hydra reap` take a run-id prefix, build ticket 39.** `src/resolver.rs`
 resolves a short string against the run files: one match is that run, none or several is an
@@ -2514,8 +2535,15 @@ rung one reads. `--model` names the proposer's model and nothing chooses one on 
 **Three refusals happen before any judge runs, in this order.** The proposer's diff is read
 against `base_tree` the way `hydra reap` reads one; a diff over `PATCH_LINE_CAP`, 400 lines
 changed, insertions plus deletions, is rejected for size and the proposer is told to split it. A
-diff naming a path under harness spec 15.1, `policies/` or `config/`, checked relative to the repo
-root, is refused at admission. Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
+diff naming a protected path, checked relative to the repo root and case-insensitively, is
+refused at admission. Until 2026-09-12 that meant `policies/` and `config/` only, and a patch to
+`src/ouroboros/review.rs` reached the panel; build ticket 40 added the code rows of harness spec
+15.2 as `PROTECTED_CODE_PATHS` in `evolve.rs`: `src/ouroboros/review.rs`,
+`src/ouroboros/evolve.rs`, `src/policy/`, `src/record/` and `src/env.rs`. The spec names those
+rows by role, and the doc comment on the constant says which file each role maps to. The
+hook-config writer is split between `src/policy/` and `write_spawn_config` in `src/run.rs`, and
+`src/run.rs` is not a row, since it is also the whole launch sequence; that gap is on the record
+here rather than closed. Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
 and `test` in the worktree, and a failure is a rejection carrying the output. Each refusal lands
 on `ouroboros/blocked/<pass-id>` with its reason in the commit message, spec 4.9.
 
@@ -2725,9 +2753,11 @@ record of its own** (contract 5.5). Its order is git's guarantee rather than a
 sentence here: `git worktree remove` without `--force` refuses a checkout with
 changes in it, so a commit that did not happen stops the removal instead of
 preceding it, exactly as in `hydra reap`. A pass that proposed nothing has its
-branch deleted by `git branch -d`, which refuses any branch holding a commit, so
-the mechanism that tidies an empty pass is the one that cannot touch a real
-proposal.
+branch deleted; a pass that committed keeps it, and since 2026-09-12 the pass
+decides which by comparing the branch's tip to the sha the checkout started
+from rather than by letting `git branch -d` refuse. The old way was correct in
+outcome and wrong in report: the first real pass, `01a08d66-76fd`, kept its
+branch and said `left behind: not fully merged` about its own proposal.
 
 **The commit message keeps Hydra's facts and the model's words apart.** The
 curator's rule against taking an intent declaration from a summary afterwards

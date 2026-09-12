@@ -188,7 +188,10 @@ without it an evolve pass is identifiable only by the fingerprint of having thre
 which stops being true the moment a pass dies before spawning them. A curator run reads
 `command: curate` even though a curate pass gets no record of its own, so the asymmetry in section
 5.5 is visible in the data rather than only in a document. The four values are the four commands that
-mint a run id today, and the field grows when a fifth does.
+mint a run id today, and the field grows when a fifth does. Measured 2026-09-12: the code writes
+`run` for the curator's run (`src/ouroboros/curate.rs`), so no record on this machine carries
+`curate` yet. Build ticket 42 makes the field say what this paragraph says; records before it read
+`run`.
 
 **Hydra mints the run id and the provider gets told or not.** `claude` accepts `--session-id`
 before launch, `agy` mints a `conversation_id` in its `init` event, `cursor-agent` needs a
@@ -382,6 +385,12 @@ The third shape, and the contract owed it a table. It is a provider run like any
 spec's sections 3 and 4 give an interactive run no gate, no skill injection and no preamble, which
 empties three groups of fields that read as unconditional above.
 
+That is the shape without `--policy`. Since build ticket 28 an interactive `claude` run launched
+with `--policy <name>` is gated: it seeds a worktree, links the skill snapshot, compiles the gate
+and passes it as `--settings`, and every field the table below calls null or absent is filled the
+way a recorded run fills it. The table describes the ungated shape; `policy`, null on one and set
+on the other, is how a reader tells them apart.
+
 | Field | On an interactive run |
 |---|---|
 | `provider`, `provider_version`, `model`, `provider_session_id`, `task`, `cwd`, `depth`, `pid`, `process_start_time`, `command`, `schema_version`, `hydra_version` | filled |
@@ -395,7 +404,10 @@ empties three groups of fields that read as unconditional above.
 
 **Null policy is a fact about the run rather than a missing value, and it is the field with the
 furthest reach.** Section 7.7 derives `permission_decision` by re-evaluating the run's policy against
-each call, so on an interactive run there is nothing to derive and the type is absent (7.2.1). The
+each call, so on an ungated interactive run there is nothing to derive and the type is absent
+(7.2.1). On a gated one the harvest derives a `deny` by `hydra_policy` from every error result whose
+text starts `hydra/`, with a limit saying allows were not recorded, since the transcript keeps only
+refusals (build ticket 28). The
 gate-leak check in 7.7 goes with it, since a leak is defined as the policy denying what the provider
 allowed. What still runs on an interactive `claude` or `cursor-agent` session is the user's own hooks,
 which are the human's and were never Hydra's to record a decision about.
@@ -518,8 +530,10 @@ run's field presence and 7.2.1 says which rows change.
 Two kinds of change, and only the first one alters whether a type has a producer at all.
 
 **Two rows flip.** `correction` exists only here, on `claude`, per section 7.9. `permission_decision`
-exists only on a recorded run and is absent from a harvested one, because section 7.7 derives it by
-re-evaluating the run's own policy and an interactive run has no policy to re-evaluate (section 5.6).
+exists on a recorded run and, since build ticket 28, on a harvested run that was launched with
+`--policy`, where it is derived from the transcript's refusals with allows unrecorded; it is absent
+from an ungated harvested run, because section 7.7 derives it by re-evaluating the run's own policy
+and that run has none to re-evaluate (section 5.6).
 So the two types most often quoted as a matched pair, a decision and a correction, never appear in
 the same run.
 
@@ -653,8 +667,16 @@ tried, so a silently corrected trajectory would teach the curator that the agent
 One per `tool_call` **on a recorded run**, derived, carrying `call_id`, `decision` of `allow` or
 `deny`, `decider` and `reason`.
 
-**Absent on an interactive run.** The derivation below needs a policy and section 5.6 says there is
-none, so the type has no producer there. Not null, not `external`, and not a decision attributed to
+**Two limits of the re-evaluation, measured 2026-09-12.** `agy` streams at most 513 characters
+of any string parameter, so a call whose argument sits at that cap is re-evaluated against a cut
+the hook never saw; the derivation records a limit and the hook's own allow rather than a
+decision of its own (build ticket 45). And `claude` 2.1.268 emits a batch of parallel calls
+before any of their `hook_started` frames, so a start is joined to its call by order within the
+tool when the call's own window holds none (build ticket 46).
+
+**Absent on an ungated interactive run.** The derivation below needs a policy and section 5.6 says
+there is none there, so the type has no producer. A gated interactive run has one and gets the
+type from the transcript's refusals, allows unrecorded (build ticket 28). Not null, not `external`, and not a decision attributed to
 the user's hooks: `external` means the run's policy would have allowed and something outside denied,
 which presumes a policy exists to have allowed. A reader wanting to know what the human's own guards
 did on an interactive session reads the hook frames in `raw`, which section 7.7's corroboration table
@@ -955,7 +977,7 @@ normalization layer exists to prevent. The contract names their paths so nobody 
 |---|---|---|
 | `permission_denials[]` | `result.permission_denials` | corroborating section 7.7 |
 | `subagent_stats` | `result.subagent_stats`, with `spawned`, `max_depth`, `spawned_by_subagents` and a `refused` breakdown | the gate-leak check in section 7.7 |
-| `rate_limit_event` | its own frame, with `rateLimitType`, a `status` of `allowed`, `allowed_warning` or `rejected`, a `resetsAt` epoch and a `utilization` fraction per window | rung two's early abort |
+| `rate_limit_event` | its own frame, carrying a `rate_limit_info` object with `rateLimitType`, a `status` of `allowed`, `allowed_warning` or `rejected`, a `resetsAt` epoch and a `utilization` fraction per window. Nested, measured 2026-09-08, not at the top of the frame; the early abort read the top until build ticket 41 | rung two's early abort |
 
 **The rate-limit reading drives no routing.** It appears on every `claude` turn at normal
 utilization, and rung two reads the last run's `status` to abort early rather than spend two other
@@ -1256,6 +1278,11 @@ deliberately do not, and a record that forced them across would be worse.
 
 ### 16.1 The mapping
 
+**Not built as of 2026-09-12.** `hydra export` writes one header line and one
+`{"events": [...]}` line per eligible run (`src/export.rs`), behind the allowlist and the secret
+scan this section requires. The mapping below is what the two files will contain when they are
+written, and nothing produces them yet. Map ticket 59.
+
 Two files from one traversal, in TRL's format and the explicit-prompt preference format.
 
 | Record | `sft.jsonl` | `preference.jsonl` |
@@ -1409,8 +1436,9 @@ Liveness is a pid and a start time, so a run that is alive and emitting nothing 
 from a run working hard, and none of the outcomes in section 8 covers it. Message deltas are the
 cheap heartbeat and section 7.4 turns them off for reasons that hold on their own. `agy` keeps a
 heartbeat by accident, emitting `step_update` with `state: ACTIVE` and shipping no flag to stop it,
-so the signal exists on one provider of three. Left unbuilt on this design's own principle: Hydra has
-run zero times and a timeout invented now is a guess with a decimal point on it. On the map as fog.
+so the signal exists on one provider of three. Left unbuilt on this design's own principle: Hydra had
+run zero times when this was written, and a timeout invented then was a guess with a decimal point
+on it. On the map as fog.
 
 ### 18.5 Nothing reads the policy signal
 

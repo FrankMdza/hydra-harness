@@ -30,7 +30,8 @@ commits them to a branch. Ships in v1.
 
 **Rung two, reviewed core evolution.** Proposes a patch to Hydra's own Rust, runs it past a
 deterministic gate and a panel of three provider CLIs, commits it to a branch. Fully specified here
-and shipped later, so that shipping it is not a rewrite (D11).
+and built since build ticket 36; eight passes have run as of 2026-09-12 and none has been approved,
+and `IMPLEMENTATION.md` says what each found.
 
 **Both rungs stop at a branch a human merges.** That is the single most important sentence in this
 document and it was not the original design. D11 had rung one editing skills, prompts and config in
@@ -45,7 +46,8 @@ rewriting it has to be kept correct forever. The evidence is the reference imple
 source: `preflight_runner.py` spends 1,488 lines of hermetic test running, plugin verification and
 `addopts` tamper-checking, standing in for what `cargo build && cargo test` does.
 
-**Every number this document declines to pick is declined on purpose.** Hydra has run zero times. A
+**Every number this document declines to pick is declined on purpose.** Hydra had run zero times when
+this was written. A
 threshold invented now is a guess with a decimal point on it. Where a number will eventually be
 wanted, this document names the signal it should be picked from and says who picks it.
 
@@ -444,8 +446,10 @@ an exact-case membership test misses it.
 That is what the list is for, not a gap in it.
 
 **The opening scenario is answered here rather than by the panel.** A patch that removes a check in
-the quorum touches the review module, which is entry 1. It is refused at admission. Two of three
-judges approving it is not a state this design can reach.
+the quorum touches the review module, which is entry 1. It is refused at admission since build
+ticket 40. Between build 36 and build 40 the check covered the five config rows only, so such a
+patch reached the panel and this sentence was false for every pass in that window; map ticket 59
+found it. Since ticket 40, two of three judges approving it is not a state this design can reach.
 
 ### 4.5 The admission gate
 
@@ -463,6 +467,12 @@ Two refinements the reference implementation earned the hard way:
 
 **Protected test files come from the baseline sha, not from the patched worktree.** A self-edit that
 adds its own passing test proves nothing.
+
+**Not built as of 2026-09-12.** The admission gate runs `cargo test` in the patched worktree and
+reads nothing from a baseline. The judge item `baseline_test_provenance` in 5.2 polices this
+sentence rather than a mechanism, and it was still the item that blocked pass `01a084d3-bdd3`,
+correctly, when a proposer edited a baseline test. Whether to build the mechanism or to keep the
+rule a judge item is a decision the map has not taken; map ticket 59 lists it.
 
 **The order is load-bearing and it is a checklist item.** A judge dispatched before the four commands
 pass, or an admission failure that still spends review budget, is `admission_gate_order` in section
@@ -519,6 +529,10 @@ until you log back in. That is the right cost, because nothing was landing unatt
 Before starting a review, rung two may read the last `claude` run's `rate_limit_event` status from
 the run records and abort rather than spending the other two judges' quota on a review that cannot
 reach quorum.
+
+As built, the check runs after the proposer rather than before the review, so the last `claude`
+run it reads is the proposer itself, and it reads `status` at the top of the frame where the vendor
+nests it under `rate_limit_info` (contract 8.5), so it has never fired. Build ticket 41.
 
 **It is an optimisation rather than a decision**, and it fires on the vendor's own `allowed`,
 `allowed_warning` and `rejected` enum, never on a threshold Hydra sets. Nothing keys on
@@ -712,7 +726,7 @@ paid for. That is the point of writing them from this design rather than from th
 |---|---|---|
 | `env_allowlist_intact` | critical | A variable added to the allowlist without a named reason. `NODE_OPTIONS`, `PYTHONPATH` or `GEMINI_API_KEY` reaching a child at all |
 | `hook_config_written_fresh` | critical | A hook config linked rather than copied, written once rather than per spawn, in the wrong per-provider location, or an `agy` spawn missing `--add-dir` |
-| `hook_dialect_coverage` | critical | A gate script that answers in fewer than the two dialects it must, or that infers the dialect rather than taking it as an argument. `claude` fails open on a shape it does not recognise, so a missing branch is a silent hole rather than an error |
+| `hook_dialect_coverage` | critical | A gate script that answers in fewer than the three dialects it must, or that infers the dialect rather than taking it as an argument. `claude` fails open on a shape it does not recognise, so a missing branch is a silent hole rather than an error |
 | `billed_spend_gate` | critical | A per-run human flag becoming inheritable, settable by the delegation policy, readable from the environment, or appearing on the MCP delegate face |
 | `delegation_depth_cap` | critical | The depth cap removed or made unreachable, or the MCP face gaining `--shared-tree`, a timeout override, depth or `model` |
 | `curator_write_surface` | critical | Rung one gaining a write path outside the skill store, above all to config, the policy or the allowlist |
@@ -753,9 +767,11 @@ drops its `provider` value, because no routable provider produces a run-level st
 harvest that completes an abandoned interactive run. The contract's rule is at most one writer at a
 time, with ownership transferring only after the liveness test says the recorded pid is gone.
 
-**`hook_dialect_coverage` said three dialects.** Cursor accepts Claude's response dialect on
-`preToolUse`, so the script answers in two shapes rather than three. The failure mode it guards is
-unchanged and it is the reason the item is critical.
+**`hook_dialect_coverage` says three dialects, and three is right.** This paragraph once said Cursor
+accepts Claude's response dialect on `preToolUse`, so two shapes were enough. `beforeReadFile` speaks
+its own, and the gate answers in three, `claude`, `cursor` and `agy`, which harness spec 6.6 records.
+The judge prompt names the item and carries no number, so the two lived only here. The failure
+mode the item guards is unchanged and is the reason it is critical.
 
 **`billed_spend_gate` was widened from `--allow-billed` to the pattern.** There are two per-run human
 flags now, and the harness spec names the shape once so a third costs a table row. The item follows
@@ -854,7 +870,8 @@ grows, written down so each is a decision someone makes rather than a default no
 | Rung two gains an obligation ledger | one review, no memory | thrashing appears in the run records | section 3.8's measurement |
 | Rung one gains a stall class | five classes | a stall signal exists on more than one provider | section 3.11 |
 
-**No count is picked here and that is the point.** Hydra has run zero times, so every number in this
+**No count is picked here and that is the point.** Hydra had run zero times when this was written,
+so every number in this
 table would be invented rather than measured. Each row names the evidence its number comes from.
 
 ## 9. Open questions this spec does not close
