@@ -148,6 +148,15 @@ the skill store.
 `.scratch/hydra/map.md` is the design history: 57 decision tickets with the reasoning each
 document compressed. `CLAUDE.md` is what an agent reads first.
 
+## Contributing and support
+
+`CONTRIBUTING.md` says how a change gets in and what is not open to one. `SECURITY.md` says
+what the gate promises and what it deliberately does not. The most useful thing to report is
+provider drift, and there is an issue template for it.
+
+If Hydra saves you a bad afternoon, the sponsor button on this repository is how to say so.
+Vendor tokens are the one cost this project cannot avoid.
+
 ## License
 
-Not chosen yet; will be before the first public release.
+Apache-2.0. See `LICENSE` and `NOTICE`.
