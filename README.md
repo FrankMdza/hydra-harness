@@ -112,10 +112,10 @@ every record carries the sha of the set it ran under.
 
 ## Works with
 
-- [Herdr](https://github.com/) is the terminal layer: `integrations/herdr/` is a plugin that
+- [Herdr](https://herdr.dev), an agent multiplexer that lives in your terminal, is the interactive layer: `integrations/herdr/` is a plugin that
   launches `hydra run` in a pane and labels the pane from the record, and a graph of one run in
   the terminal. Nothing under `src/` knows it exists.
-- [Hunk](https://github.com/) is the diff viewer: `hunk show hydra/<run-id>` opens what a run
+- [Hunk](https://hunk.dev), a review-first diff viewer for agent-authored changes, is how you read a run: `hunk show hydra/<run-id>` opens what a run
   changed, and the record's `diff_stat.base_tree` separates that from what was seeded.
 
 ## Roadmap
