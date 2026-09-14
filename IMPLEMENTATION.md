@@ -114,6 +114,30 @@ path denial runs before the policy is consulted, so a policy with no shell grant
 the path-shaped answer rather than the capability-shaped one. The pre-ticket-40 matrix had already
 shown this for `~/hydra/runs/`; the new one shows it everywhere.
 
+**Built for build ticket 44 on 2026-09-12: a run cannot rewrite its own hook config.** The
+worktree is the own carve-out, and on `cursor-agent` and `agy` the hook config sits inside it
+at `.cursor/hooks.json` and `.agents/hooks.json`, so until this ticket a `standard` run could
+`Write` over the file that points at its gate and the gate answered `allow`. Whether either
+provider reloads hooks mid-session is still unmeasured; the file is committed by `hydra reap`
+either way and inherited by the next run seeded from that branch. `protected_worktree_paths`
+in `src/policy/mod.rs` is the list, seven entries built from the provider modules: the two hook
+configs, the two MCP configs beside them, and the three project-scope files `claude` reads from
+cwd (`.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`). It rides into the
+gate as `protected_worktree_paths`, and `protected_root` in `gate.py` checks it before the own
+carve-out, so both the `Write` check and the shell check answer `hydra/protected-path` on it
+under every policy and on every provider's gate. The three skill roots are a second list,
+`write_denied_worktree_paths`, read by the `file_write` check alone: the first version of this
+ticket put them on the whole-command list, the corpus walk caught `ls -la .claude/skills/` on
+run `01a09405-f451` reading as a leak, and a shell command naming a skill root is how two of the
+three providers read a skill, so the roots are denied to writes and to nothing else. The
+`.gitignore` files Hydra drops beside those configs stay writable, and the tests pin that.
+`tests/gate.rs` has four tests for it: every file on every dialect under all five policies,
+the ordinary write still allowed, the compiled list resolved inside the worktree, and the
+shell forms. One consequence to know about: `hydra show` re-derives every recorded decision
+through the same compiler, so a record in which a run wrote one of these files and was allowed
+reads as a gate leak now. `policy_sha` did not move, because the list is code rather than a
+file under `policies/`.
+
 ## The commands
 
 ```
@@ -491,6 +515,31 @@ identity can still launch.
 snapshot is a detached git worktree of the store at the pinned sha, shared between every
 run on that sha. `tests/skills.rs` proves the thing this is for: a skill edited after the
 pin does not reach the run that pinned it.
+
+**The snapshot is checked out beside its target and renamed into place, since 2026-09-12.**
+Build ticket 47 watched three launches in one second on a sha with no snapshot yet. One made
+it and two died, one on "already exists" and one on an `index.lock` inside the store's
+`.git/worktrees/`, and the dead ones left checkouts under `worktrees/` with no record behind
+them. `git worktree add` straight into `skills-snapshots/<sha>` was a check-then-create with a
+window a whole checkout wide. Now each launch checks out into its own
+`skills-snapshots/<sha>.tmp-<pid>-<n>` and asks `git worktree move` to put it at `<sha>`. The
+move is one `rename(2)`, and a directory cannot be renamed onto a non-empty one, so exactly
+one launch wins; a loser removes its own staging checkout through git and takes the winner's.
+The rename alone was not enough. Every `git worktree` command starts by reading every entry
+under the store's `.git/worktrees/`, and an entry another launch is mid-way through making
+has no `commondir` yet, which git treats as fatal; four threads on unique staging paths hit
+it one time in four. So the git calls run under `flock(2)` on `skills-snapshots/.lock`, taken
+by the launch for its few calls and by the reap sweep's `remove_snapshot` for its one. The
+kernel releases the lock with the descriptor, so a launch that dies holding it wedges nobody,
+and the file carries nothing and is never read. Before any existing directory is used,
+`HEAD` in it has to be the sha and the store has to list it. A directory the store does not
+list gets `git worktree repair`, which is what a rename behind git's back needs. A directory
+at another sha is refused with an error naming what to remove, because deleting it under a
+run that might be reading it is not the launch's call. A staging checkout a crashed launch
+leaves behind is just a snapshot with an odd name to the reap sweep, which removes it once it
+is older than the grace and no live run names it. `tests/skills.rs` races four threads on one
+fresh sha and checks that all four get the one directory, the store lists exactly one worktree
+beside itself, and no staging directory survives.
 
 **`hydra reap` sweeps snapshots, and which command does that is a choice.** Harness spec
 5 says a snapshot is reaped "when no live run references it" and names no command. Reap
@@ -2092,10 +2141,11 @@ Contract 7.8's rule is about a provider that reported *nothing*, which is the
 `rateLimitType`, a `status`, a `resetsAt` epoch and a per-window `utilization` on the
 frame. Measured, they are nested one level down under `rate_limit_info`, `utilization`
 lives under `unifiedWindows.<window>`, and three fields 8.5 does not name are beside
-them: `overageStatus`, `overageDisabledReason` and `isUsingOverage`. This frame has no
-reader until rung two's early abort, so nothing is broken today. Whoever builds that
-reads the shape here rather than 8.5's sentence, and the `resetsAt` staleness test 8.5
-asks for still works.
+them: `overageStatus`, `overageDisabledReason` and `isUsingOverage`. Rung two's early
+abort became this frame's one reader and read `raw.status`, the top of the frame, so it
+never fired. Build ticket 41 pointed it at `rate_limit_info.status` on 2026-09-12, with
+the top kept as a fallback for a frame in 8.5's old shape. The `resetsAt` staleness
+test 8.5 asks for is still not written; the abort fires on the enum alone.
 
 **A harvested `claude` run has no `result` frame, so the sentence is the signal, since
 build ticket 29.** Run 01a07f6c-ba21, an interactive session harvested on 2026-09-08, had
@@ -2404,6 +2454,8 @@ haiku run passed `offset` as an array and came back as `InputValidationError` re
 hook frame beside them, because validation runs before any hook. The normalizer reads that
 result shape and does not count the gate's silence against it.
 
+**A `Write` Claude Code refuses before reading the file never reached a hook.** Measured 2026-09-12 on run `01a096ee-8791`, `claude` 2.1.268 on haiku under `standard`: a `Write` into the skill store came back `<tool_use_error>File has not been read yet. Read it first before writing to it.` with no `hook_started` for it, in a record holding 43 hook starts for everything else. It is the fourth spelling of the binary's own input refusal that `src/normalize/claude.rs` knows, beside `InputValidationError`, `No such tool available` and `<tool_use_error>Blocked:`, and the corpus walk had read it as ungated and as a leak at once. The store file it named was edited and committed by a human four minutes later, not by the run.
+
 ## The Herdr bridge, on Herdr's side
 
 Map ticket 44 made Herdr the interactive layer and said nothing crosses from Hydra to it, and
@@ -2553,8 +2605,13 @@ runs. Each answers one closed JSON shape, `{"verdict", "findings": [{"item", "se
 "note"}]}`, and `review::parse_judge_answer` takes the whole response as that object: prose
 outside it, a missing field or a wrong value is a block carrying the parse error, never a pass
 and never a retry. Spec 5.1's ceiling clamps a reported severity to the checklist item's own, and
-one critical finding blocks whatever the `verdict` field says. Spec 4.7's abort on a rate-limited
-judge reads the corpus for a fresh `rate_limit_event` before spawning.
+one critical finding blocks whatever the `verdict` field says. Spec 4.7's abort reads the newest
+`claude` record in the corpus, which is the proposer the pass just ran, and takes the `status`
+off its last `rate_limit_event` frame before any judge spawns. Until build ticket 41 closed on
+2026-09-12 it read `raw.status`, a field no frame carries, so every pass under a rate-limited
+`claude` spent a proposer to find out. `evolve::rate_limit_abort` now reads
+`rate_limit_info.status` and falls back to the top, and `tests/evolve.rs` drives both shapes,
+the `allowed` case and a run warned early and allowed later, on synthetic records.
 
 **The verdict lives in the commit message**, spec 4.9, on `ouroboros/<pass-id>` when the panel
 passed and `ouroboros/blocked/<pass-id>` when it did not, naming the pass, the proposer and the
@@ -2654,6 +2711,8 @@ change. The brief now tells the proposer that the seeded tree carries the human'
 work and is not its to revert, tidy or finish. Nothing protects that file from a proposer that
 ignores the sentence; the gate cannot, because the file is inside the worktree the run owns.
 
+**That page left the repository on 2026-09-13.** `docs/status.html` is gitignored now and untracked, and `seed_tree` stages with `git add -A`, which honours `.gitignore`, so it no longer reaches a worktree at all. The paragraph above is history: the failure it describes cannot happen again to that file, and the brief's rule about leaving the seeded tree alone stands for every other uncommitted file.
+
 **And the `agy` judge read the prose against the code and found a gap.** `IMPLEMENTATION.md`
 said a proposer that could not run ends the pass before the gate, and the code checks
 `rate_limited` and `auth_failed` alone, so a `failed` or `timed_out` proposer still reaches the
@@ -2676,6 +2735,14 @@ curator may learn from, `curate.rs` composes what it is told, launches it as an
 ordinary recorded run under `curate`, and commits whatever that run wrote into its
 checkout of the skill store onto `ouroboros/curate/<run-id>`. `tests/curate.rs`
 drives both halves and launches no provider.
+
+**The curator's run writes `command: curate`, since build ticket 42 on 2026-09-12.**
+Contract 5.1 said so from the start and `curate.rs` wrote `run`, so a curator record from
+before 2026-09-12 carries `run` and a reader has to accept both. Nothing switched on the
+old word: `validate.rs` takes all four values, `corpus.rs` keys on `provider`, `run.rs`
+keys on `evolve` and `normalize/agy.rs` on `resume`. The launch is built by
+`curate::request`, and `tests/curate.rs` reads the field off it and off the line 0 a
+launch writes from it, without launching.
 
 **The corpus is read through the normalizer and never off `raw`.** Contract 11 is
 the reason: an adapter fixed next month reads last month's records correctly

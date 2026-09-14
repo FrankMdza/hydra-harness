@@ -247,6 +247,123 @@ fn two_runs_on_one_sha_share_one_snapshot() {
     );
 }
 
+#[test]
+fn launches_racing_on_a_fresh_sha_all_end_with_the_one_snapshot() {
+    // Build ticket 47: three launches in one second on a sha with no snapshot
+    // yet, one made it and two died on the store's bookkeeping. Four threads,
+    // one sha, no snapshot to start with. Every one has to come back with a
+    // usable directory, and it has to be the same directory.
+    let fixture = Fixture::new("race");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    assert!(!layout.snapshot(&sha).exists());
+
+    let barrier = std::sync::Barrier::new(4);
+    let results: Vec<Result<PathBuf, String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    store
+                        .snapshot(&layout, &sha)
+                        .map_err(|err| format!("{err:#}"))
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    });
+
+    let expected = layout.snapshot(&sha);
+    for result in &results {
+        assert_eq!(result.as_ref().unwrap(), &expected, "{results:?}");
+    }
+
+    // One directory, at the sha, and the store lists exactly it beside itself.
+    // No staging checkout survives a loser. The one file beside it is the lock,
+    // which carries nothing.
+    let entries: Vec<String> = std::fs::read_dir(layout.snapshots())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_dir())
+        .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(entries, vec![sha.clone()]);
+    assert_eq!(
+        git(&expected, &["rev-parse", "--verify", "HEAD"]).trim(),
+        sha
+    );
+    assert!(expected.join("alpha/SKILL.md").is_file());
+
+    let listed: Vec<String> = git(store.dir(), &["worktree", "list", "--porcelain"])
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(|path| {
+            std::fs::canonicalize(path)
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert!(
+        listed.contains(
+            &std::fs::canonicalize(&expected)
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        ),
+        "{listed:?}"
+    );
+
+    // And the sequential case on top of the raced one still reuses it.
+    assert_eq!(store.snapshot(&layout, &sha).unwrap(), expected);
+}
+
+#[test]
+fn a_snapshot_the_store_lost_track_of_is_repaired_and_one_at_the_wrong_sha_is_refused() {
+    // The two states an existing directory can be in besides sound. Renamed
+    // behind git's back, the store's listing points at a path that is gone and
+    // `worktree repair` puts it right. Moved to another sha, it is not the
+    // immutable thing a run was promised, and nothing here deletes it.
+    let fixture = Fixture::new("verify");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let first = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &first).unwrap();
+
+    let aside = layout.snapshots().join("aside");
+    std::fs::rename(&snapshot, &aside).unwrap();
+    std::fs::rename(&aside, &snapshot).unwrap();
+    // Same path again, but git remembers the rename only through the file it
+    // keeps, which a plain rename never updates. Point it somewhere wrong.
+    let gitdir = std::fs::read_to_string(snapshot.join(".git")).unwrap();
+    let admin = PathBuf::from(gitdir.trim().trim_start_matches("gitdir: "));
+    std::fs::write(admin.join("gitdir"), format!("{}/.git\n", aside.display())).unwrap();
+    assert!(!git(store.dir(), &["worktree", "list"]).contains(&first));
+
+    assert_eq!(store.snapshot(&layout, &first).unwrap(), snapshot);
+    assert!(
+        git(store.dir(), &["worktree", "list"]).contains(&first),
+        "repair puts the listing right"
+    );
+
+    fixture.store_skill("beta", "Another probe.", None);
+    let second = store.pin(RUN_B).unwrap();
+    git(&snapshot, &["checkout", "-q", "--detach", &second]);
+    let err = store.snapshot(&layout, &first).unwrap_err();
+    assert!(format!("{err:#}").contains("removed by hand"), "{err:#}");
+    assert!(
+        snapshot.join("beta/SKILL.md").is_file(),
+        "nothing deleted it"
+    );
+}
+
 // --- injection -----------------------------------------------------------
 
 #[test]

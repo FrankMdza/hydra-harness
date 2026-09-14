@@ -125,3 +125,5 @@ parsing judges spent their review on the 153 lines of the human's uncommitted `d
 that the proposer had reverted, so the brief now says the seeded tree is not the proposer's to
 undo; and the `agy` judge caught prose in `IMPLEMENTATION.md` claiming more than the code does
 about a proposer that could not run. Rung two is measured end to end.
+
+That page was removed from the repository and gitignored on 2026-09-13, and `seed_tree` honours `.gitignore`, so no future run is seeded with it.

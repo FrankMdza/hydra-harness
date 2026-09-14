@@ -530,9 +530,11 @@ Before starting a review, rung two may read the last `claude` run's `rate_limit_
 the run records and abort rather than spending the other two judges' quota on a review that cannot
 reach quorum.
 
-As built, the check runs after the proposer rather than before the review, so the last `claude`
-run it reads is the proposer itself, and it reads `status` at the top of the frame where the vendor
-nests it under `rate_limit_info` (contract 8.5), so it has never fired. Build ticket 41.
+The check runs after the proposer and before any judge, so the last `claude` run it reads is the
+proposer itself, and what it reads is the `status` on that run's last `rate_limit_event` frame,
+under `rate_limit_info` where the vendor nests it (contract 8.5). Until build ticket 41 closed on
+2026-09-12 the code read the top of the frame, where nothing is, and never fired. It now reads the
+nested field and falls back to the top, so a frame in either shape counts.
 
 **It is an optimisation rather than a decision**, and it fires on the vendor's own `allowed`,
 `allowed_warning` and `rejected` enum, never on a threshold Hydra sets. Nothing keys on

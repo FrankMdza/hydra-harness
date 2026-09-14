@@ -545,20 +545,25 @@ impl Walk {
                 || refusal
                     .as_ref()
                     .is_some_and(|refusal| refusal.by == Decider::HydraPolicy);
-            // A call Claude Code refused on its own never reached a hook. Three
+            // A call Claude Code refused on its own never reached a hook. Four
             // spellings measured, all on haiku: `InputValidationError`,
             // 2026-09-07 on run 01a07f37-8a67, where it passed `offset` as an
             // array five times; `<tool_use_error>Blocked: ...`, 2026-09-08 on run
             // 01a0812a-ad31, the binary's own guard refusing `sleep 70 && tail
-            // ...`; and `No such tool available: bash`, the same day on run
-            // 01a0822f-9e37, where it invented a lowercase `bash`. The gate was
-            // never asked, so neither its silence nor the table's ignorance of an
-            // invented name is a finding.
+            // ...`; `No such tool available: bash`, the same day on run
+            // 01a0822f-9e37, where it invented a lowercase `bash`; and
+            // `<tool_use_error>File has not been read yet. Read it first before
+            // writing to it.`, 2026-09-12 on run 01a096ee-8791, a `Write` into
+            // the skill store that 2.1.268 refused before any hook, with 43
+            // `hook_started` frames in the record and none for that call. The
+            // gate was never asked, so neither its silence nor the table's
+            // ignorance of an invented name is a finding.
             let refused_on_input = results.get(&call_id).is_some_and(|(status, output)| {
                 *status == ResultStatus::Error
                     && (output.contains("InputValidationError")
                         || output.contains("No such tool available")
-                        || output.starts_with("<tool_use_error>Blocked:"))
+                        || output.starts_with("<tool_use_error>Blocked:")
+                        || output.starts_with("<tool_use_error>File has not been read yet"))
             });
             if !hydra_spoke && !refused_on_input {
                 self.findings.push(Finding::Ungated {

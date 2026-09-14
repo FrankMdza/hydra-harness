@@ -141,12 +141,22 @@ did, which is the one thing Hydra was built around.
 
 ## Roadmap
 
-- **Codex CLI as the fourth provider.** It signs in with a ChatGPT account, which is the
-  auth model Hydra routes: a vendor binary on a subscription, never an API key. Whether it
-  exposes a pre-tool hook the gate can compile into is the open question (map ticket 58).
+- **Codex CLI as the fourth provider.** Measured on 0.154.0: it signs in with a ChatGPT
+  account, streams JSONL, and has a `PreToolUse` hook in Claude Code's dialect that honours
+  the deny shape the gate already writes. Build ticket 48; the read-only policies need a
+  decision first, because Codex reads files through the shell.
 - More vendor CLIs that log in rather than take a key.
 - OpenTelemetry emission from the record, so existing viewers can read it.
 - Linux.
+
+## Ports wanted
+
+Hydra is measured on macOS and nowhere else. A Linux port is small: `setsid`, the process
+start time the liveness test reads, and the three vendor binaries all exist there, so most of
+the work is running `tests/drift.rs` and fixing what it names. A Windows port is larger: the
+pty crate supports ConPTY, but the liveness test, the gate's shell parsing (POSIX today) and the
+hook paths all assume a Unix shell. Both are welcome as forks or pull requests; open an issue
+first so the design map gets a ticket and the record contract does not fork with the code.
 
 ## Status, in numbers
 

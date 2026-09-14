@@ -852,8 +852,8 @@ their worktree. Those two need the base case below.
 
 **The gate denies writes to a fixed set of paths under every policy, `permissive` and `curate`
 included, before the policy is consulted at all.** That is where `permissive` stops being
-permissive. The list has two kinds of entry since ticket 40, and both are compiled into the script
-per spawn.
+permissive. The list has two kinds of entry since ticket 40, a third since build ticket 44, and all
+of it is compiled into the script per spawn.
 
 **Denied outright:** the five protected configs of section 15.1; the generated gate script;
 everything under `~/hydra/runs/` and `~/hydra/pruned/`; the skill store at `~/hydra/skills/` and its
@@ -865,6 +865,25 @@ it ran `git worktree add` from it; and the three per-run parents, `~/hydra/workt
 checkout of the store. The check is "inside a denied path and not inside an own path". The run's own
 spawn directory is not carved out, because nothing a gated tool call does has business there: Hydra
 writes it at spawn and the vendor process writes its own data root through no tool the gate sees.
+
+**Denied inside that carve-out, since build ticket 44 on 2026-09-12:** the hook and provider config
+the run's own binary reads out of the worktree. `.cursor/hooks.json` and `.cursor/mcp.json`,
+`.agents/hooks.json` and `.agents/mcp_config.json`, `.claude/settings.json`,
+`.claude/settings.local.json` and `.mcp.json`, all relative to the worktree. Every provider's
+files are denied on every provider's gate, because a file a `claude` run writes into `.cursor/`
+lands on the branch `hydra reap` commits all the same. `standard` grants `file_write` over the
+whole worktree and two providers read their hook config from exactly there, so before this a run
+could rewrite the file that points at its gate. The gate checks this list before the own carve-out,
+and the shell check of `protected_path_named_by` reads the same list, so a command naming one of
+these is refused whole. The three skill roots Hydra links into, `.claude/skills/`,
+`.cursor/skills/` and `.agents/skills/`, are a separate list, `write_denied_worktree_paths`,
+that only the `file_write` check reads: a write there replaces a link, and a shell command naming
+the root is how `cursor-agent` and `agy` read a skill. The first version of ticket 44 put the
+roots on the whole-command list and refused `ls -la .claude/skills/` on a run from the same
+morning, which is why the two lists are two. The `.gitignore` files Hydra drops beside them stay
+writable: a repo may track its own, and the ignore file decides what reap stages rather than what
+the gate allows.
+`protected_worktree_paths` in `src/policy/mod.rs` is the list, built from the provider modules.
 
 The rule behind the list is one sentence. **A run writes only inside what Hydra created for it.**
 Everything else under `~/hydra` belongs to another run, to the corpus, or to the store, and the
@@ -1369,6 +1388,17 @@ denial and drop the admission column for this row.
 
 **Entries 4 and 9 are different objects and are easy to collapse by mistake.** One is the writer,
 one is its output.
+
+**Row 9 reaches the config that points at the script as well, since build ticket 44 on
+2026-09-12.** On `cursor-agent` and `agy` the hook config is a file inside the worktree,
+`.cursor/hooks.json` and `.agents/hooks.json`, and the worktree is the one directory every writing
+policy grants. A run that rewrites it drops the pointer to the script row 9 protects, and the
+rewritten file is committed by `hydra reap` for the next run to inherit. So the run-time denial
+covers those two, the MCP configs beside them, the project-scope files `claude` reads from cwd
+(`.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`), and the three skill roots,
+under every policy and on every provider's gate. Section 7.5 lists them. Not a new row: it is
+generated per run like the script and reaped with the worktree, so the admission column would read
+the same way row 9's does.
 
 ### 15.3 The paragraph for `~/hydra/CLAUDE.md`
 

@@ -2039,6 +2039,42 @@ fn a_call_with_no_id_still_gets_a_decision_and_says_what_it_lost() {
 const AGY_TOOLS: &[&str] = &["run_command", "view_file", "list_dir", "write_to_file"];
 
 #[test]
+fn a_write_refused_before_it_was_read_never_reached_the_hook() {
+    // Run 01a096ee-8791 on claude 2.1.268: a `Write` into the skill store came
+    // back `<tool_use_error>File has not been read yet ...` with no hook frame
+    // for it, in a record holding 43 hook starts for everything else. The
+    // binary refused it on input; the policy would have denied it too; nothing
+    // ran. Not ungated, not a leak.
+    let sandbox = Sandbox::new("claude-unread-write");
+    let store_file = sandbox.layout().skills().join("private-skill/SKILL.md");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use(
+        "toolu_01",
+        "Write",
+        json!({"file_path": store_file, "content": "x"}),
+    );
+    record.tool_result(
+        "toolu_01",
+        "<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>",
+        true,
+    );
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. } | Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
 fn parallel_calls_to_one_tool_each_get_their_own_hook_answer() {
     // Build ticket 46. Run 01a095e6-626f on claude 2.1.268: two `WebFetch`
     // calls emitted back to back, then both `hook_started` frames, then both

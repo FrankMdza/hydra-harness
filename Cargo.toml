@@ -6,7 +6,7 @@ rust-version = "1.88"
 description = "Run coding-agent CLIs in isolated worktrees behind a policy, and record every run"
 license = "Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/OWNER/hydra-harness"
+repository = "https://github.com/FrankMdza/hydra-harness"
 keywords = ["agents", "claude-code", "cursor", "harness", "sandbox"]
 categories = ["command-line-utilities", "development-tools"]
 

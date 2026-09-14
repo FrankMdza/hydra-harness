@@ -2026,3 +2026,171 @@ fn agys_subagent_tools_belong_to_permissive_alone() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// The run's own hook and provider config, build ticket 44
+// ---------------------------------------------------------------------------
+
+/// The files inside the worktree that decide what gates the run, spelled out
+/// here rather than read off the library so a dropped entry fails a test.
+const OWN_CONFIG_FILES: [&str; 7] = [
+    ".cursor/hooks.json",
+    ".cursor/mcp.json",
+    ".agents/hooks.json",
+    ".agents/mcp_config.json",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".mcp.json",
+];
+
+/// The skill roots Hydra links into, one per provider. A write into one
+/// replaces a link, so the roots are denied whole.
+const OWN_SKILL_ROOTS: [&str; 3] = [".claude/skills", ".cursor/skills", ".agents/skills"];
+
+impl Gate {
+    /// A write in the dialect this gate was compiled for, so the same probe
+    /// asks each provider's own write tool with its own field name.
+    fn write_as(&self, provider: Provider, path: &Path) -> Decision {
+        let path = path.to_string_lossy();
+        match provider {
+            Provider::Claude => self.write_to(Path::new(path.as_ref())),
+            Provider::CursorAgent => {
+                self.cursor_tool("Write", json!({ "file_path": path, "content": "x" }))
+            }
+            Provider::Agy => self.agy_tool(
+                "write_to_file",
+                json!({ "TargetFile": path, "CodeContent": "x" }),
+            ),
+        }
+    }
+}
+
+#[test]
+fn a_run_cannot_rewrite_its_own_hook_or_provider_config_under_any_policy() {
+    // Every provider's files on every provider's gate: a `claude` run has no
+    // `.cursor/hooks.json`, and one it writes lands on the branch `hydra reap`
+    // commits all the same.
+    for provider in [Provider::Claude, Provider::CursorAgent, Provider::Agy] {
+        for policy in MATRIX_POLICIES {
+            let gate = Gate::compile_for(provider, policy, false);
+            for rel in OWN_CONFIG_FILES {
+                let decision = gate.write_as(provider, &gate.worktree.join(rel));
+                assert!(
+                    decision.denied_for("hydra/protected-path"),
+                    "{provider} under {policy} let a write reach {rel}: {}",
+                    decision.reason
+                );
+            }
+            for root in OWN_SKILL_ROOTS {
+                let target = gate.worktree.join(root).join("planted/SKILL.md");
+                let decision = gate.write_as(provider, &target);
+                assert!(
+                    decision.denied_for("hydra/protected-path"),
+                    "{provider} under {policy} let a write reach {root}: {}",
+                    decision.reason
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_config_denial_takes_nothing_else_out_of_the_worktree() {
+    // The ordinary coding case still passes on every dialect under `standard`,
+    // and so does the ignore file Hydra drops beside its config: a repo may
+    // track its own, and the ignore file decides what reap stages rather than
+    // what the gate allows.
+    for provider in [Provider::Claude, Provider::CursorAgent, Provider::Agy] {
+        let gate = Gate::compile_for(provider, "standard", false);
+        for rel in ["src/new.rs", ".cursor/.gitignore", ".agents/.gitignore"] {
+            let decision = gate.write_as(provider, &gate.worktree.join(rel));
+            assert!(
+                decision.allowed,
+                "{provider} under standard refused {rel}: {}",
+                decision.reason
+            );
+        }
+    }
+}
+
+#[test]
+fn the_compiled_gate_carries_the_config_denials_resolved_inside_the_worktree() {
+    let gate = Gate::cursor("standard");
+    let config = compiled_config(&gate.script);
+    let listed: Vec<String> = config["protected_worktree_paths"]
+        .as_array()
+        .unwrap_or_else(|| panic!("protected_worktree_paths missing from {config}"))
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(listed.len(), OWN_CONFIG_FILES.len(), "{listed:?}");
+    // The skill roots ride on their own key, read by the write check alone.
+    let roots = config["write_denied_worktree_paths"]
+        .as_array()
+        .unwrap_or_else(|| panic!("write_denied_worktree_paths missing from {config}"));
+    assert_eq!(roots.len(), OWN_SKILL_ROOTS.len(), "{roots:?}");
+    let worktree = std::fs::canonicalize(&gate.worktree)
+        .unwrap()
+        .to_string_lossy()
+        .to_lowercase();
+    for entry in &listed {
+        assert!(
+            entry.starts_with(&worktree),
+            "{entry} is not inside the resolved worktree {worktree}"
+        );
+    }
+    assert!(
+        listed
+            .iter()
+            .any(|entry| entry.ends_with(".cursor/hooks.json")),
+        "{listed:?}"
+    );
+}
+
+#[test]
+fn a_shell_command_naming_the_skill_root_is_how_two_providers_read_a_skill() {
+    // Run 01a09405-f451 ran `ls -la .claude/skills/` under standard and the
+    // gate allowed it; the first version of build ticket 44 refused it, and the
+    // corpus walk caught the difference. The roots are denied to writes only.
+    // `Gate::shell` speaks the claude dialect, which is the one the run in
+    // question ran under; the other two dialects share the floor code path.
+    let gate = Gate::new("standard");
+    for command in [
+        "ls -la .claude/skills/",
+        "cat .claude/skills/unslop/SKILL.md",
+        "cat .cursor/skills/unslop/SKILL.md",
+        "head -20 .agents/skills/unslop/SKILL.md",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.allowed,
+            "standard refused a skill read, {command}: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_shell_command_naming_the_hook_config_is_refused_whole() {
+    // The same list through the capability that carries no path, resolved
+    // against the worktree the run is in. A read is refused too, which is the
+    // coarseness 7.5 accepts on purpose.
+    let gate = Gate::new("standard");
+    for command in [
+        "cat .cursor/hooks.json",
+        "echo '{}' > .cursor/hooks.json",
+        "rm -f .agents/hooks.json",
+        "cp /dev/null .claude/settings.json",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "{command}: {}",
+            decision.reason
+        );
+    }
+    assert!(
+        gate.shell("cat .cursor/.gitignore").allowed,
+        "the ignore file is not on the list"
+    );
+}

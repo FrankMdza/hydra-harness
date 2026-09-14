@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: A design question
-    url: https://github.com/OWNER/REPO/discussions
+    url: https://github.com/FrankMdza/hydra-harness/discussions
     about: Decisions live in .scratch/hydra/map.md; a question about one belongs in a discussion, not an issue

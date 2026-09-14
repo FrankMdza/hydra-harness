@@ -31,6 +31,7 @@ pub mod frontmatter;
 pub mod index;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -131,37 +132,169 @@ impl Store {
     ///
     /// **An existing snapshot is reused rather than rebuilt.** Snapshots are keyed
     /// by sha and a git worktree at a sha holds the same bytes whoever asked for
-    /// it, so two runs on one sha are looking at one directory on purpose. That is
-    /// also what makes the concurrent case safe: a second launch that loses the
-    /// race finds the directory already there and takes it.
+    /// it, so two runs on one sha are looking at one directory on purpose.
+    ///
+    /// **The checkout is made beside the target and renamed into place.** Build
+    /// ticket 47 watched three launches in one second on a fresh sha: one made the
+    /// snapshot and two died, one on "already exists" and one on an `index.lock`
+    /// inside the store's own bookkeeping. `git worktree add` straight into the
+    /// target is a check-then-create with a window a whole checkout wide. So each
+    /// launch checks out into its own `<sha>.tmp-<pid>-<n>` and asks git to move
+    /// it onto `<sha>`. The move is one `rename(2)`, and a directory cannot be
+    /// renamed onto a non-empty one, so exactly one launch wins. A loser removes
+    /// its own checkout and takes the winner's, which holds the bytes it wanted.
+    /// A launch that dies mid-checkout leaves a staging directory and never a
+    /// half-made `<sha>`, and the reap sweep removes it like any other snapshot
+    /// nobody references.
+    ///
+    /// **The rename was not enough on its own, so git runs under `flock(2)`.**
+    /// Every `git worktree` command begins by reading every entry under the
+    /// store's `.git/worktrees/`, and an entry another launch is in the middle of
+    /// making has no `commondir` yet, which git reads as fatal. Four threads on
+    /// unique staging paths hit that one time in four. The lock is
+    /// `skills-snapshots/.lock`, held for the few git calls this function makes
+    /// and by [`remove_snapshot`] for its one. The kernel drops it with the file
+    /// descriptor, so a launch that dies holding it wedges nobody, and the file
+    /// itself carries nothing and is never read.
+    ///
+    /// **An existing directory is verified before it is used.** `HEAD` in it has
+    /// to be `sha` and the store has to list it. A directory the store does not
+    /// list is what a rename behind git's back leaves, and `git worktree repair`
+    /// puts the listing right. A directory at the wrong sha is refused, because
+    /// removing it under a run that might be reading it is not this function's
+    /// call to make; the error says what to remove by hand.
     pub fn snapshot(&self, layout: &Layout, sha: &str) -> Result<PathBuf> {
         let path = layout.snapshot(sha);
-        if path.join(".git").exists() {
-            return Ok(path);
-        }
         std::fs::create_dir_all(layout.snapshots())
             .with_context(|| format!("creating {}", layout.snapshots().display()))?;
+        let _held = lock_snapshots(&layout.snapshots())?;
+        if path.exists() {
+            return self.verify_snapshot(&path, sha).map(|()| path);
+        }
 
-        let result = git(
+        let staging = layout.snapshots().join(format!(
+            "{sha}.tmp-{}-{}",
+            std::process::id(),
+            SNAPSHOT_ATTEMPT.fetch_add(1, Ordering::Relaxed)
+        ));
+        git(
             &self.dir,
             &[
                 "worktree",
                 "add",
                 "--detach",
                 "-q",
-                &path.to_string_lossy(),
+                &staging.to_string_lossy(),
                 sha,
             ],
+        )
+        .with_context(|| format!("checking the store out at {sha} into {}", staging.display()))?;
+
+        let moved = git(
+            &self.dir,
+            &[
+                "worktree",
+                "move",
+                &staging.to_string_lossy(),
+                &path.to_string_lossy(),
+            ],
         );
-        match result {
-            Ok(_) => Ok(path),
-            // A concurrent launch on the same sha got there first. The directory
-            // it made is the one this run wants, so losing the race is not a
-            // failure.
-            Err(_) if path.join(".git").exists() => Ok(path),
-            Err(err) => Err(err).with_context(|| {
-                format!("checking the store out at {sha} into {}", path.display())
-            }),
+        match moved {
+            Ok(_) => self.verify_snapshot(&path, sha).map(|()| path),
+            Err(err) => {
+                // Whatever happened, the staging checkout is nobody's snapshot.
+                // Through git so the store stops listing it, with `remove_dir_all`
+                // and a prune behind that in case git will not.
+                if git(
+                    &self.dir,
+                    &["worktree", "remove", "--force", &staging.to_string_lossy()],
+                )
+                .is_err()
+                {
+                    let _ = std::fs::remove_dir_all(&staging);
+                    let _ = git(&self.dir, &["worktree", "prune"]);
+                }
+                if path.exists() {
+                    // A concurrent launch on the same sha got there first. The
+                    // directory it made is the one this run wants, so losing the
+                    // race is not a failure.
+                    return self.verify_snapshot(&path, sha).map(|()| path);
+                }
+                Err(err).with_context(|| {
+                    format!(
+                        "moving the checkout of {sha} into place at {}",
+                        path.display()
+                    )
+                })
+            }
+        }
+    }
+
+    /// Whether `path` is this store's worktree checked out at `sha`.
+    ///
+    /// The listing check is what catches a snapshot the store has lost track of,
+    /// and `git worktree repair` is the answer when the directory itself is sound.
+    fn verify_snapshot(&self, path: &Path, sha: &str) -> Result<()> {
+        let head = git(path, &["rev-parse", "--verify", "HEAD"])
+            .with_context(|| {
+                format!(
+                    "{} exists but is not a checkout of the store; remove it by hand and \
+                     run `git -C {} worktree prune`",
+                    path.display(),
+                    self.dir.display()
+                )
+            })?
+            .trim()
+            .to_string();
+        if head != sha {
+            bail!(
+                "{} is checked out at {head} and not at {sha}; a snapshot is immutable, so \
+                 somebody moved it, and it has to be removed by hand",
+                path.display()
+            );
+        }
+        if !self.lists_worktree(path)? {
+            git(&self.dir, &["worktree", "repair", &path.to_string_lossy()])
+                .with_context(|| format!("repairing the store's listing of {}", path.display()))?;
+        }
+        Ok(())
+    }
+
+    fn lists_worktree(&self, path: &Path) -> Result<bool> {
+        let wanted = std::fs::canonicalize(path)?;
+        let listed = git(&self.dir, &["worktree", "list", "--porcelain"])?;
+        Ok(listed
+            .lines()
+            .filter_map(|line| line.strip_prefix("worktree "))
+            .filter_map(|entry| std::fs::canonicalize(entry).ok())
+            .any(|entry| entry == wanted))
+    }
+}
+
+/// Distinguishes staging checkouts made by one process in the same second.
+static SNAPSHOT_ATTEMPT: AtomicU64 = AtomicU64::new(0);
+
+/// Takes `<snapshots>/.lock` with `flock(2)`, released when the handle drops.
+///
+/// Advisory and kernel-held: the file existing means nothing, only an open
+/// descriptor holding it does, so there is no stale lock to clear after a crash.
+fn lock_snapshots(snapshots: &Path) -> Result<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    let path = snapshots.join(".lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    loop {
+        // SAFETY: `flock` takes a descriptor this handle owns and touches no
+        // memory of ours.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(file);
+        }
+        let err = std::io::Error::last_os_error();
+        if err.kind() != std::io::ErrorKind::Interrupted {
+            return Err(err).with_context(|| format!("locking {}", path.display()));
         }
     }
 }
@@ -396,6 +529,10 @@ pub fn referenced_shas(views: &[crate::live::RunView]) -> Vec<String> {
 /// guarantee `hydra reap` leans on everywhere else. A snapshot is immutable by
 /// construction, so a refusal here means somebody edited one and it is worth
 /// hearing about rather than overruling with `--force`.
+///
+/// Under the same lock [`Store::snapshot`] takes, for the reason given there: a
+/// `git worktree` command reading a sibling entry a launch is mid-way through
+/// making dies on it.
 pub fn remove_snapshot(store_dir: &Path, snapshot: &Path) -> Result<()> {
     if !snapshot.exists() {
         bail!("{} is not there", snapshot.display());
@@ -407,6 +544,7 @@ pub fn remove_snapshot(store_dir: &Path, snapshot: &Path) -> Result<()> {
             snapshot.display()
         );
     }
+    let _held = snapshot.parent().map(lock_snapshots).transpose()?;
     git(
         store_dir,
         &["worktree", "remove", &snapshot.to_string_lossy()],

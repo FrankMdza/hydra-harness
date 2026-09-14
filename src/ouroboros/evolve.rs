@@ -680,7 +680,15 @@ pub fn write_harness_end(path: &Path, exit_code: Option<i32>, error: Option<&str
     Ok(())
 }
 
-fn rate_limit_abort(layout: &Layout) -> Result<Option<String>> {
+/// Spec 4.7's early abort. Reads the newest `claude` record in the corpus, which is
+/// the proposer this pass just ran, since the check sits after the proposer and
+/// before any judge, and takes the `status` off its last `rate_limit_event` frame.
+///
+/// The vendor nests the status under `rate_limit_info`, measured 2026-09-08 and
+/// written into contract 8.5. Until build ticket 41 this read `raw.status`, which no
+/// frame carries, so it never fired. `raw.status` is still read as a fallback so a
+/// record from a `claude` that moves the field back up still counts.
+pub fn rate_limit_abort(layout: &Layout) -> Result<Option<String>> {
     let runs_dir = layout.runs();
     if !runs_dir.is_dir() {
         return Ok(None);
@@ -704,27 +712,35 @@ fn rate_limit_abort(layout: &Layout) -> Result<Option<String>> {
         if provider.as_deref() != Some("claude") {
             continue;
         }
-        for line in text.lines() {
-            let Ok(envelope) = serde_json::from_str::<serde_json::Value>(line) else {
-                continue;
-            };
-            let Some(raw) = envelope.get("raw") else {
-                continue;
-            };
-            if raw.get("type").and_then(|v| v.as_str()) != Some("rate_limit_event") {
-                continue;
-            }
-            if let Some(status) = raw.get("status").and_then(|v| v.as_str())
-                && matches!(status, "rejected" | "allowed_warning")
-            {
-                return Ok(Some(format!(
-                    "the last claude run is rate-limited ({status}); log in or wait before reviewing"
-                )));
-            }
+        // The last frame is the one that counts: a run warned early and allowed
+        // later is not rate-limited.
+        let last_status = text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter_map(|envelope| envelope.get("raw").cloned())
+            .filter(|raw| raw.get("type").and_then(|v| v.as_str()) == Some("rate_limit_event"))
+            .filter_map(|raw| rate_limit_status(&raw))
+            .next_back();
+        if let Some(status) = last_status
+            && matches!(status.as_str(), "rejected" | "allowed_warning")
+        {
+            return Ok(Some(format!(
+                "the last claude run, the proposer, is rate-limited ({status}); log in or wait before reviewing"
+            )));
         }
         break;
     }
     Ok(None)
+}
+
+/// `rate_limit_info.status`, where `claude` writes it, or `status` at the top of the
+/// frame, where contract 8.5 once said it was.
+fn rate_limit_status(raw: &serde_json::Value) -> Option<String> {
+    raw.get("rate_limit_info")
+        .and_then(|info| info.get("status"))
+        .or_else(|| raw.get("status"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
 }
 
 fn changed_paths(worktree: &Path, index: &Path, base: &str) -> Result<Vec<String>> {

@@ -162,7 +162,19 @@ def protected_root(path):
     does not carry one. A `KeyError` here would exit non-zero with nothing on
     stdout, and 6.6 measured `claude` allowing the call in that case, so the
     missing key has to read as an empty carve-out rather than as a crash.
+
+    Since build ticket 44 there is a third kind of entry, checked first: the
+    hook and provider config the run's own binary reads out of the worktree,
+    `.cursor/hooks.json` and its siblings. The skill roots are not here; they
+    are write-denied in `evaluate` and a shell command may name them. Those sit inside the one directory the
+    run owns, so the carve-out would hand them back, and a `standard` run could
+    rewrite the file that points at this script. The Rust side names them in
+    `protected_worktree_paths`, and the same default covers a gate compiled
+    before the key existed.
     """
+    for protected in HYDRA_CONFIG.get("protected_worktree_paths", []):
+        if inside(path, protected):
+            return protected
     for own in HYDRA_CONFIG.get("own_write_paths", []):
         if inside(path, own):
             return None
@@ -554,6 +566,19 @@ def evaluate(payload):
                 "hydra/protected-path: {} writes under {}, denied under every "
                 "policy by harness spec 7.5.".format(tool, protected)
             )
+        # The skill roots Hydra linked into the worktree (6.4). A write there
+        # replaces a link, so the tool-level write is refused under every
+        # policy. The shell floor does not read this list on purpose: two of
+        # three providers read a SKILL.md with `cat`, and a command that names
+        # the root is how they do it. Build ticket 44, narrowed the same day
+        # after `ls -la .claude/skills/` on run 01a09405-f451 was refused.
+        for root in HYDRA_CONFIG.get("write_denied_worktree_paths", []):
+            if inside(path, root):
+                return False, (
+                    "hydra/protected-path: {} writes under {}, the skills Hydra "
+                    "linked for this run, denied under every policy by harness "
+                    "spec 6.4.".format(tool, root)
+                )
 
     # The same list, reached through the capability that carries no path.
     if capability == "shell":

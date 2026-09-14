@@ -114,22 +114,7 @@ pub fn curate(pass: Pass) -> Result<Done> {
     let sha = Store::open(&layout)?.pin(&run_id)?;
     check_out(&store, &checkout, &branch, &sha)?;
 
-    let call = crate::run::run(Request {
-        provider: Provider::Claude,
-        task: brief,
-        model: pass.model,
-        policy: "curate".to_string(),
-        floor_lifted: false,
-        timeout: pass.timeout,
-        // Rung one is started by a human typing `hydra curate`, so its run is
-        // depth 0 and bounded by nothing above it (ouroboros spec 3.6).
-        parent: None,
-        run_id: Some(run_id.clone()),
-        command: "run".to_string(),
-        resumed_from: None,
-        resume_session_id: None,
-        working_dir: None,
-    });
+    let call = crate::run::run(request(&run_id, brief, pass.model, pass.timeout));
 
     let call = match call {
         Ok(call) => call,
@@ -154,6 +139,29 @@ pub fn curate(pass: Pass) -> Result<Done> {
             let proposal = propose(&store, &checkout, &branch, &run_id, &result)?;
             Ok(Done::Ran { result, proposal })
         }
+    }
+}
+
+/// The launch a curate pass asks for. Its `command` is `curate`, contract 5.1:
+/// the curator gets no harness record of its own, so this field on its one
+/// recorded run is where the asymmetry with rung two shows in the data. Until
+/// build ticket 42 it read `run`, and readers keep accepting both.
+pub fn request(run_id: &str, brief: String, model: Option<String>, timeout: Duration) -> Request {
+    Request {
+        provider: Provider::Claude,
+        task: brief,
+        model,
+        policy: "curate".to_string(),
+        floor_lifted: false,
+        timeout,
+        // Rung one is started by a human typing `hydra curate`, so its run is
+        // depth 0 and bounded by nothing above it (ouroboros spec 3.6).
+        parent: None,
+        run_id: Some(run_id.to_string()),
+        command: "curate".to_string(),
+        resumed_from: None,
+        resume_session_id: None,
+        working_dir: None,
     }
 }
 

@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use hydra::normalize::Run;
 use hydra::ouroboros::corpus::{self, Selection, Why};
@@ -974,6 +975,60 @@ fn a_pass_refuses_before_it_launches_when_there_is_no_store() {
         format!("{err:#}").contains("not a git repository"),
         "{err:#}"
     );
+}
+
+#[test]
+fn a_curate_runs_own_record_says_command_curate() {
+    // Contract 5.1: a curate pass gets no harness record, so `command` on its one
+    // recorded run is where the asymmetry with rung two shows in the data. Until
+    // build ticket 42 the request said `run`, and no record on this machine said
+    // otherwise.
+    let request = curate::request(A, "the brief".to_string(), None, Duration::from_secs(1));
+    assert_eq!(request.command, "curate");
+    assert_eq!(request.policy, "curate");
+    assert_eq!(request.run_id.as_deref(), Some(A));
+    assert!(request.parent.is_none(), "rung one is depth 0");
+
+    // Line 0 as `src/run.rs` writes it from the request, and the validator's
+    // reading of it.
+    let text = Record::shaped(Shape {
+        run_id: A,
+        command: &request.command,
+        policy: Some(&request.policy),
+        policy_sha: Some(policies().sha()),
+        ..Shape::default()
+    })
+    .result(usage_frame())
+    .closed();
+    let line_zero = text.lines().next().unwrap();
+    assert!(
+        line_zero.contains(r#""command":"curate""#),
+        "line 0 does not say curate: {line_zero}"
+    );
+    hydra::record::validate::check(&text, Some(A)).assert_ok();
+}
+
+#[test]
+fn a_curator_record_written_before_ticket_42_still_reads() {
+    // Records before 2026-09-12 carry `run` for the curator's run. The validator
+    // and the corpus both accept them, because the corpus keys on `provider` and
+    // the policy, never on this word.
+    let fixture = Fixture::new("old-curator");
+    let worktree = fixture.worktree(A);
+    let text = Record::shaped(Shape {
+        run_id: A,
+        command: "run",
+        policy: Some("curate"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&worktree),
+        ..Shape::default()
+    })
+    .result(usage_frame())
+    .closed();
+    hydra::record::validate::check(&text, Some(A)).assert_ok();
+    fixture.write(A, &text);
+    let selection = fixture.select();
+    assert_eq!(learned(&selection), vec![A]);
 }
 
 // --- the mechanism that keeps the evidence read-only ---------------------

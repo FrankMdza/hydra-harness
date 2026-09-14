@@ -188,10 +188,10 @@ without it an evolve pass is identifiable only by the fingerprint of having thre
 which stops being true the moment a pass dies before spawning them. A curator run reads
 `command: curate` even though a curate pass gets no record of its own, so the asymmetry in section
 5.5 is visible in the data rather than only in a document. The four values are the four commands that
-mint a run id today, and the field grows when a fifth does. Measured 2026-09-12: the code writes
-`run` for the curator's run (`src/ouroboros/curate.rs`), so no record on this machine carries
-`curate` yet. Build ticket 42 makes the field say what this paragraph says; records before it read
-`run`.
+mint a run id today, and the field grows when a fifth does. The code wrote `run` for the
+curator's run until build ticket 42 closed on 2026-09-12 (`curate::request` in
+`src/ouroboros/curate.rs` writes `curate` now), so a curator record from before that date reads
+`run`, and a reader has to accept both.
 
 **Hydra mints the run id and the provider gets told or not.** `claude` accepts `--session-id`
 before launch, `agy` mints a `conversation_id` in its `init` event, `cursor-agent` needs a
@@ -977,7 +977,7 @@ normalization layer exists to prevent. The contract names their paths so nobody 
 |---|---|---|
 | `permission_denials[]` | `result.permission_denials` | corroborating section 7.7 |
 | `subagent_stats` | `result.subagent_stats`, with `spawned`, `max_depth`, `spawned_by_subagents` and a `refused` breakdown | the gate-leak check in section 7.7 |
-| `rate_limit_event` | its own frame, carrying a `rate_limit_info` object with `rateLimitType`, a `status` of `allowed`, `allowed_warning` or `rejected`, a `resetsAt` epoch and a `utilization` fraction per window. Nested, measured 2026-09-08, not at the top of the frame; the early abort read the top until build ticket 41 | rung two's early abort |
+| `rate_limit_event` | its own frame, carrying a `rate_limit_info` object with `rateLimitType`, a `status` of `allowed`, `allowed_warning` or `rejected`, a `resetsAt` epoch and a `utilization` fraction per window. Nested, measured 2026-09-08, not at the top of the frame; the early abort read the top until build ticket 41 closed on 2026-09-12, and reads `rate_limit_info.status` since, with the top as a fallback | rung two's early abort |
 
 **The rate-limit reading drives no routing.** It appears on every `claude` turn at normal
 utilization, and rung two reads the last run's `status` to abort early rather than spend two other

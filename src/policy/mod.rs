@@ -587,6 +587,64 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
     paths
 }
 
+/// The files inside the worktree that decide what gates the run, denied under
+/// every policy even though the worktree is the run's own. 7.5's third kind of
+/// entry, and 15.2 row 9 read to its end.
+///
+/// The worktree is carved out of the denials because a run writes inside what
+/// Hydra created for it, and two of the three providers read their hook config
+/// out of exactly that directory: `cursor-agent` from `.cursor/hooks.json`,
+/// `agy` from `.agents/hooks.json`. `standard` grants `file_write` over the whole
+/// worktree, so before build ticket 44 a run could rewrite the file that points
+/// at its gate. Whether either provider reloads hooks mid-session is not
+/// measured, and the denial does not depend on the answer: the rewritten file
+/// lands on the branch `hydra reap` commits and is the human's repo's copy on
+/// the next seed, which [`crate::provider::claim`] then refuses to write over.
+///
+/// **Every provider's files are denied on every provider's gate.** A `claude`
+/// run has no `.cursor/hooks.json`, and one it writes is committed all the same.
+/// The MCP configs are here because a server definition is a command the
+/// provider spawns (15.1 #5, one directory down). `claude`'s three are the
+/// project-scope files it reads from cwd, which add hooks rather than remove
+/// Hydra's; [`crate::provider::claude::project_config_files`] says why that is
+/// enough. The skill roots are here because the links in them are what the
+/// snapshot denial protects on the other end: a write into the root replaces a
+/// link, and a run that does that edits its own instructions mid-session.
+///
+/// **The `.gitignore` files Hydra drops beside these stay writable.** A repo may
+/// track its own, `claim` reads that copy rather than replacing it, and the
+/// ignore file decides what `hydra reap` stages, not what the gate allows.
+///
+/// The gate checks this list before the own carve-out, so it is the one place a
+/// path can be inside the worktree and still `protected-path`. The names come
+/// off the provider modules, so a provider that moves its file moves the denial.
+pub fn protected_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
+    use crate::provider::{agy, claude, cursor};
+    let mut paths = vec![
+        cursor::hooks_file(worktree),
+        cursor::mcp_file(worktree),
+        agy::hooks_file(worktree),
+        agy::mcp_file(worktree),
+    ];
+    paths.extend(claude::project_config_files(worktree));
+    paths
+}
+
+/// The skill roots Hydra links into the worktree, one per provider, denied to
+/// `file_write` under every policy and to nothing else.
+///
+/// A write there replaces a link into the snapshot. A shell command naming the
+/// root is not refused, because `cat .claude/skills/x/SKILL.md` is how
+/// `cursor-agent` and `agy` read a skill, and `ls -la .claude/skills/` on run
+/// 01a09405-f451 is what a first version of build ticket 44 refused.
+pub fn write_denied_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
+    use crate::provider::Provider;
+    [Provider::Claude, Provider::CursorAgent, Provider::Agy]
+        .into_iter()
+        .map(|provider| worktree.join(provider.skill_root()))
+        .collect()
+}
+
 /// What this one spawn may read outside the scopes the policy named.
 ///
 /// A second kind of carve-out, beside [`own_write_paths`]. The spawn directory
@@ -679,6 +737,17 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         // 7.5's carve-out. The gate reads a write as protected when it is inside
         // a denied path and inside none of these.
         "own_write_paths": own_write_paths(spawn)
+            .iter()
+            .map(|p| resolved(p))
+            .collect::<Vec<_>>(),
+        // The hole in that carve-out: the run's own hook and provider config,
+        // inside the worktree and denied anyway. Checked before the own list.
+        "protected_worktree_paths": protected_worktree_paths(spawn.worktree)
+            .iter()
+            .map(|p| resolved(p))
+            .collect::<Vec<_>>(),
+        // The skill roots, denied to writes only. The floor never reads this key.
+        "write_denied_worktree_paths": write_denied_worktree_paths(spawn.worktree)
             .iter()
             .map(|p| resolved(p))
             .collect::<Vec<_>>(),

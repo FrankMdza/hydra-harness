@@ -11,6 +11,15 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   and `config/` (2026-09-12, build ticket 40).
 - A curate pass no longer tries to delete the proposal branch it just made (2026-09-12,
   build ticket 43).
+- A run can no longer rewrite the hook or MCP config Hydra wrote inside its worktree, on any
+  provider, under any policy; the skill roots it links are denied to writes and readable by
+  shell (2026-09-12, build ticket 44).
+- Several runs launching on one skill-store sha no longer race to create the snapshot
+  (2026-09-12, build ticket 47).
+- The rate-limit abort reads the field the vendor writes and fires (build ticket 41); a curate
+  run's record says `command: curate` (build ticket 42).
+- A `Write` Claude Code refuses before reading the file is no longer read as ungated
+  (2026-09-12).
 - The replay no longer calls an `agy` command a gate leak when the stream cut its argument at
   513 characters; it records a limit and the hook's own allow (2026-09-12, build ticket 45).
 - Two parallel calls to one tool on `claude` each get their own hook answer; the first used to

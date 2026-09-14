@@ -6,7 +6,8 @@
 use std::path::PathBuf;
 
 use hydra::ouroboros::evolve::{
-    PATCH_LINE_CAP, patch_over_cap, protected_path_hit, write_harness_end, write_harness_start,
+    PATCH_LINE_CAP, patch_over_cap, protected_path_hit, rate_limit_abort, write_harness_end,
+    write_harness_start,
 };
 use hydra::ouroboros::review::{
     ApprovedPatch, PanelVerdict, VerdictField, panel_verdict, parse_judge_answer,
@@ -14,6 +15,10 @@ use hydra::ouroboros::review::{
 use hydra::paths::Layout;
 use hydra::record::validate::check;
 use hydra::worktree::Stat;
+use serde_json::{Value, json};
+
+mod common;
+use common::{Record, Shape, usage_frame};
 
 struct Fixture {
     root: PathBuf,
@@ -41,6 +46,112 @@ impl Drop for Fixture {
 
 fn pass_answer(verdict: &str, findings: &str) -> String {
     format!(r#"{{"verdict":"{verdict}","findings":{findings}}}"#)
+}
+
+/// A `rate_limit_event` frame the way `claude` writes it, contract 8.5: the status
+/// nested under `rate_limit_info`, beside the windows nothing keys on.
+fn rate_limit_frame(status: &str) -> Value {
+    json!({
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+            "rateLimitType": "seven_day",
+            "status": status,
+            "resetsAt": 1_758_000_000,
+            "overageStatus": "rejected",
+            "overageDisabledReason": null,
+            "isUsingOverage": false,
+            "unifiedWindows": { "seven_day": { "utilization": 0.24, "resetsAt": 1_758_000_000 } }
+        }
+    })
+}
+
+/// A recorded `claude` run under `standard`, the shape the proposer leaves, with
+/// the given frames in it, written where `rate_limit_abort` looks.
+fn proposer_record(fixture: &Fixture, run_id: &str, frames: &[Value]) {
+    let mut record = Record::shaped(Shape {
+        run_id,
+        policy: Some("standard"),
+        ..Shape::default()
+    });
+    for frame in frames {
+        record.raw(frame.clone());
+    }
+    let text = record.result(usage_frame()).closed();
+    std::fs::write(fixture.layout().run_file(run_id), text).unwrap();
+}
+
+#[test]
+fn a_proposer_whose_last_rate_limit_frame_is_rejected_aborts_before_any_judge() {
+    // Spec 4.7. The status is under `rate_limit_info`, and until build ticket 41
+    // the abort read the top of the frame and never fired.
+    let fixture = Fixture::new("rate-limit-rejected");
+    proposer_record(
+        &fixture,
+        "01a08000-0000-7000-8000-00000000rl01",
+        &[rate_limit_frame("allowed"), rate_limit_frame("rejected")],
+    );
+    let abort = rate_limit_abort(&fixture.layout()).unwrap();
+    let reason = abort.expect("a rejected proposer aborts the pass");
+    assert!(reason.contains("rejected"), "{reason}");
+    assert!(reason.contains("proposer"), "{reason}");
+}
+
+#[test]
+fn a_proposer_whose_last_rate_limit_frame_is_allowed_does_not_abort() {
+    // A run warned early and allowed later is not rate-limited: the last frame
+    // is the one that counts.
+    let fixture = Fixture::new("rate-limit-allowed");
+    proposer_record(
+        &fixture,
+        "01a08000-0000-7000-8000-00000000rl02",
+        &[
+            rate_limit_frame("allowed_warning"),
+            rate_limit_frame("allowed"),
+        ],
+    );
+    assert_eq!(rate_limit_abort(&fixture.layout()).unwrap(), None);
+}
+
+#[test]
+fn a_frame_carrying_status_at_the_top_still_counts() {
+    // The shape contract 8.5 described before the frame was measured. Nothing
+    // on this machine wrote it, and reading it costs one fallback.
+    let fixture = Fixture::new("rate-limit-flat");
+    proposer_record(
+        &fixture,
+        "01a08000-0000-7000-8000-00000000rl03",
+        &[json!({ "type": "rate_limit_event", "status": "rejected" })],
+    );
+    let reason = rate_limit_abort(&fixture.layout()).unwrap().unwrap();
+    assert!(reason.contains("rejected"), "{reason}");
+}
+
+#[test]
+fn a_newer_run_from_another_provider_is_not_the_one_read() {
+    // The abort reads the newest `claude` record, not the newest record. A
+    // `cursor-agent` run that came after the proposer is skipped over.
+    let fixture = Fixture::new("rate-limit-other");
+    proposer_record(
+        &fixture,
+        "01a08000-0000-7000-8000-00000000rl04",
+        &[rate_limit_frame("rejected")],
+    );
+    let text = Record::shaped(Shape {
+        run_id: "01a08000-0000-7000-8000-00000000rl05",
+        provider: Some("cursor-agent"),
+        policy: Some("standard"),
+        ..Shape::default()
+    })
+    .closed();
+    std::fs::write(
+        fixture
+            .layout()
+            .run_file("01a08000-0000-7000-8000-00000000rl05"),
+        text,
+    )
+    .unwrap();
+    let reason = rate_limit_abort(&fixture.layout()).unwrap().unwrap();
+    assert!(reason.contains("rejected"), "{reason}");
 }
 
 #[test]

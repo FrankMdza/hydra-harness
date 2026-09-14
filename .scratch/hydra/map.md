@@ -286,6 +286,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [56 - The first SME, a skill in the store, launched and measured](issues/56-the-first-sme.md): every wire from the store to the model's available-skills list works first try. `hydra-self-edit` linked, the snapshot resolved, `claude` discovered it and offered it. The model still did not open it: asked a question that matched no trigger, it hunted for the human's own skill root, took the refusal `standard` owes that path, and reported the skill unavailable rather than trying the Skill tool or the snapshot, both of which `standard` grants. A skill that reaches the listing has not yet reached the model, and on a weak model that gap is where a training signal disappears.
 - [59 - The three documents against the code](issues/59-the-three-documents-against-the-code.md): audited 2026-09-12 by a read-only agent and checked at the cited lines. Five claims wrong, a dozen stale, the rest vague; the five fixes a first reader needs are listed, and four are build tickets 40 to 43. Two claims are more conservative than the code: rung two "shipped later", and "Hydra has run zero times".
 
+- [58 - Codex CLI as the fourth provider](issues/58-codex-as-the-fourth-provider.md): measured on 0.154.0 without logging in. It has a `PreToolUse` hook in Claude's dialect, honours the exact deny shape `gate.py` writes, streams JSONL under `exec --json`, and signs in with a ChatGPT account. Routable with a compiled gate; three costs named, hook trust, no read tool, fail-open unmeasured. Build ticket 48.
+
 
 ## Not yet specified
 

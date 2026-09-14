@@ -32,7 +32,7 @@
 //! finding about a pipe, and Hydra owns a pty because it has to be the parent to
 //! tee anyway.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::policy::Dialect;
 use crate::provider::{Observed, Resolved};
@@ -305,6 +305,28 @@ pub fn mcp_config(servers: &[&crate::mcp::Server]) -> serde_json::Value {
         map.insert(server.name.clone(), serde_json::Value::Object(body));
     }
     serde_json::json!({ "mcpServers": serde_json::Value::Object(map) })
+}
+
+/// The config files `claude` reads out of its cwd and Hydra never writes.
+///
+/// Hydra's own hook config for this provider lives outside the worktree and
+/// arrives on `--settings`, so a run cannot reach it. What it can reach is the
+/// project scope: `.claude/settings.json` and `.claude/settings.local.json`
+/// add hooks and permission rules of their own, and `.mcp.json` adds MCP
+/// servers, all read from cwd on every launch that is not `--restricted`.
+/// Claude Code snapshots hooks at process start, so an edit here does not
+/// reach the run that made it. It reaches the next run seeded from the branch
+/// `hydra reap` commits, which is why [`crate::policy::protected_worktree_paths`]
+/// denies the write under every policy. Build ticket 44.
+pub fn project_config_files(worktree: &Path) -> Vec<PathBuf> {
+    [
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        ".mcp.json",
+    ]
+    .into_iter()
+    .map(|rel| worktree.join(rel))
+    .collect()
 }
 
 /// The hook config `--settings` points at, 6.6.

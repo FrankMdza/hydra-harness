@@ -82,6 +82,8 @@ it.
 - [45 - `agy` cuts tool parameters at 513 characters](45-agy-truncates-tool-parameters-at-513.md)
 - [46 - Parallel calls to one tool on `claude` leave the first `Ungated`](46-parallel-calls-to-one-tool-leave-one-ungated.md)
 - [47 - Snapshot creation races when several runs launch on one store sha](47-snapshot-race-on-concurrent-launch.md)
+- [48 - Codex CLI as the fourth provider](48-codex-as-the-fourth-provider.md)
+- [49 - A gate whose code changed reads every older record as a leak](49-the-replay-cannot-tell-a-changed-gate-from-a-leak.md)
 
 ## Out of scope
 
