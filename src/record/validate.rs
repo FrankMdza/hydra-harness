@@ -65,6 +65,79 @@ const RUN_START_FIELDS: &[&str] = &[
     "subscription",
 ];
 
+/// The `run_start` fields that landed after this contract's first records, and
+/// the type each carries when it is there.
+///
+/// Contract 15 says adding a field is not a version change, because the reader
+/// indexes line 0 by name and a field it may ignore costs nobody a migration.
+/// The cost of that rule is that a presence check here would fail a record the
+/// walk has to keep reading: measured 2026-09-15 over 213 records, `gate_sha` is
+/// absent on 205, `scopes` on 36 and `floor_lifted` on 27. So these are checked
+/// for their type when present and never for presence, which is what makes a
+/// field checkable without dating the corpus. Build ticket 54.
+/// The third column is whether null is an answer this field may give. It is true
+/// for `floor_lifted` alone: 5.5 says a harness run writes it null because no
+/// gate was compiled, and the rest are absent in that case instead.
+const LATER_RUN_START_FIELDS: &[(&str, Shape, bool)] = &[
+    ("floor_lifted", Shape::Bool, true),
+    ("gate_sha", Shape::Sha, false),
+    ("scopes", Shape::PathMap, false),
+    ("env_allowlist", Shape::Names, false),
+    ("parent_policy", Shape::Text, false),
+    ("resumed_from", Shape::Text, false),
+];
+
+/// The four leaves inside `auth`, contract 5.4. The group was checked for
+/// non-null and its contents never, which is how `allow_billed` stayed a slot
+/// nothing writes without the validator noticing.
+const AUTH_LEAVES: &[(&str, Shape)] = &[
+    ("mechanism", Shape::Text),
+    ("source", Shape::Text),
+    ("allow_billed", Shape::Bool),
+    ("gated", Shape::Bool),
+];
+
+/// What a field looks like when it is there.
+#[derive(Clone, Copy)]
+enum Shape {
+    Bool,
+    Text,
+    /// A hex sha256, which is the only string shape this contract pins.
+    Sha,
+    /// An array of strings.
+    Names,
+    /// An object whose every value is a string.
+    PathMap,
+}
+
+impl Shape {
+    fn fits(self, value: &Value) -> bool {
+        match self {
+            Self::Bool => value.is_boolean(),
+            Self::Text => value.is_string(),
+            Self::Sha => value.as_str().is_some_and(|sha| {
+                sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())
+            }),
+            Self::Names => value
+                .as_array()
+                .is_some_and(|names| names.iter().all(Value::is_string)),
+            Self::PathMap => value
+                .as_object()
+                .is_some_and(|paths| paths.values().all(Value::is_string)),
+        }
+    }
+
+    fn named(self) -> &'static str {
+        match self {
+            Self::Bool => "a boolean",
+            Self::Text => "a string",
+            Self::Sha => "a hex sha256",
+            Self::Names => "a list of names",
+            Self::PathMap => "an object of absolute paths",
+        }
+    }
+}
+
 const RUN_END_FIELDS: &[&str] = &[
     "type",
     "exit_code",
@@ -289,6 +362,39 @@ fn check_run_start(body: &serde_json::Map<String, Value>, at: &str, say: &mut im
                 }
                 Some(value) if !field.ends_with("_sha") && !value.is_array() => {
                     say(format!("{at}: {group}.{field} is not a list of names"))
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
+    // The fields section 15 let in after the first records. Type when present,
+    // never presence, and a null is the one shape none of them may take: a
+    // contract that says "absent when it does not apply" has no use for null.
+    for (field, shape, null_is_an_answer) in LATER_RUN_START_FIELDS {
+        match body.get(*field) {
+            None => {}
+            Some(Value::Null) if *null_is_an_answer => {}
+            Some(Value::Null) => say(format!(
+                "{at}: {field} is null; the contract says absent when it does not apply"
+            )),
+            Some(value) if !shape.fits(value) => {
+                say(format!("{at}: {field} is not {}", shape.named()))
+            }
+            Some(_) => {}
+        }
+    }
+
+    // Contract 5.4's four leaves. The group is absent on a harness run, and
+    // present means all four are, because each answers a different question and
+    // three of four is a record that cannot say who paid.
+    if let Some(Value::Object(auth)) = body.get("auth") {
+        for (leaf, shape) in AUTH_LEAVES {
+            match auth.get(*leaf) {
+                None => say(format!("{at}: auth is missing {leaf}")),
+                Some(Value::Null) => say(format!("{at}: auth.{leaf} is null")),
+                Some(value) if !shape.fits(value) => {
+                    say(format!("{at}: auth.{leaf} is not {}", shape.named()))
                 }
                 Some(_) => {}
             }

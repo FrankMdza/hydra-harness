@@ -139,6 +139,20 @@ read as a gate leak the day this landed. `policy_sha` did not move, because the 
 rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
 and a record written before the field now reads as a limit rather than a leak.
 
+**The validator checks three classes of field since build ticket 54.** `RUN_START_FIELDS` is what
+every record has carried since the first one and a missing name there is an error. The groups of
+contract 5.3 and 5.4 are absent when the question does not apply, so a null is the error.
+`LATER_RUN_START_FIELDS` is the third: `floor_lifted`, `gate_sha`, `scopes`, `env_allowlist`,
+`parent_policy` and `resumed_from`, each checked for its shape when present and never for presence,
+because a presence check on a field added last week fails every record from the week before and the
+walk has to keep reading those. Measured 2026-09-15 over 213 records: `gate_sha` absent on 205,
+`scopes` on 36, `floor_lifted` on 27. `floor_lifted` carries a flag saying null is an answer, which
+is what contract 5.5 has a harness run write.
+
+The four leaves inside `auth` are checked too. The group was tested for non-null and its contents
+never, which is how `allow_billed` stayed a field nothing writes and nothing noticed. All 213 records
+pass, and the walk costs 0.44 seconds because it validates structure rather than deriving anything.
+
 **Both sides fold case the same way since build ticket 60.** `src/policy/mod.rs` lowercased with
 Rust's `to_lowercase` and `gate.py` compared with Python's `casefold`, which disagree on `ß` and on
 `ﬁ`. A layout root holding one of them compiled a deny entry the gate could never match, so every

@@ -1324,11 +1324,25 @@ costs a reader's trust now.
 `permission_request` before v1 shipped cost nothing because no file exists.
 
 **Adding a `run_start` field is not a version change, and removing or re-typing one is.** The
-reader indexes into line 0 by name and the validator checks presence and never absence, both
-measured on 2026-09-06 under ticket 42, so a field a reader may ignore costs nobody a migration.
-`scopes` and `floor_lifted` landed under that rule and a reader handles their absence on every record
-written before them (section 7.7). A field whose meaning changes, or whose type changes, breaks
-readers that predate the change, and that increments the version.
+reader indexes into line 0 by name, so a field a reader may ignore costs nobody a migration.
+`scopes`, `floor_lifted`, `resumed_from` and `gate_sha` landed under that rule and a reader handles
+their absence on every record written before them (section 7.7). A field whose meaning changes, or
+whose type changes, breaks readers that predate the change, and that increments the version.
+
+**So the validator checks a later field's type and never its presence.** The two rules are the same
+rule: a presence check on a field added last week fails every record written the week before, and
+the walk has to keep reading those. Measured 2026-09-15 over 213 records: `gate_sha` is absent on
+205, `scopes` on 36, `floor_lifted` on 27. `src/record/validate.rs` holds the three classes as three
+lists. `RUN_START_FIELDS` is what every record has had since the first one, and a missing name there
+is an error. The groups of section 5.3 and 5.4 are absent when the question does not apply, so a
+null is the error. `LATER_RUN_START_FIELDS` is the third class: absent is fine, a null is an error,
+and the value is checked against the shape this document gives it. `floor_lifted` is the one
+exception and carries a flag saying so, because 5.5 has a harness run write it null.
+
+**A group's leaves are checked too, not only the group.** `auth` was tested for non-null and its
+contents never, which is how `allow_billed` stayed a field nothing writes without anything noticing
+(build ticket 54). All four leaves of 5.4 are required when `auth` is present, because each answers
+a different question and three of four is a record that cannot say who paid.
 
 **A provider version change is not a schema change.** `provider_version` is on every `run_start` for
 exactly this: a normalizer can branch on it, and a claim measured on one build does not silently
