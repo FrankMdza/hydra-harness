@@ -198,7 +198,7 @@ fn a_patch_over_the_line_cap_is_rejected_for_size() {
         insertions: PATCH_LINE_CAP as u64,
         deletions: 1,
     };
-    assert_eq!(patch_over_cap(&stat), Some(PATCH_LINE_CAP as usize + 1));
+    assert_eq!(patch_over_cap(&stat), Some(PATCH_LINE_CAP + 1));
     let under = Stat {
         files_changed: 1,
         insertions: 10,
@@ -244,7 +244,7 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
     assert_eq!(cased.as_deref(), Some("src/Ouroboros/REVIEW.rs"));
     // An absolute path under the repo is the same patch spelled longer.
     let absolute = repo.join("src/record/validate.rs").display().to_string();
-    let hit = protected_path_hit(&[absolute.clone()], &repo);
+    let hit = protected_path_hit(std::slice::from_ref(&absolute), &repo);
     assert_eq!(hit.as_deref(), Some(absolute.as_str()));
     // Every row is checked against every path, so a clean patch with one bad
     // path in the middle is refused on that path.

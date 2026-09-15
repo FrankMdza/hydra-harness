@@ -455,6 +455,9 @@ impl Walk {
             policies,
             &mut self.findings,
         );
+        // Contract 7.7's table, build ticket 55: this reader's counts are floors
+        // and `claude`'s are not, so the record says which it holds.
+        super::note_finding_bar(Some(Provider::Agy), &mut self.findings);
         self.check_table();
         if self.resumed {
             self.findings.push(Finding::Limit(
@@ -529,12 +532,14 @@ impl Walk {
         // The three adapters build it the same way and differ in the provider.
         let spawn = ReplaySpawn::of(
             layout,
-            &self.run_id,
-            &name,
-            self.cwd.as_deref(),
-            self.worktree.as_deref(),
-            self.store_sha.as_deref(),
-            &self.gate,
+            super::Recorded {
+                run_id: &self.run_id,
+                policy: &name,
+                cwd: self.cwd.as_deref(),
+                worktree: self.worktree.as_deref(),
+                store_sha: self.store_sha.as_deref(),
+                gate: &self.gate,
+            },
             policies,
             Provider::Agy,
         );

@@ -22,7 +22,7 @@ use crate::record::secrets;
 
 /// Protected config #3, harness spec 15.1.
 pub fn allowlist_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("config/export-allowlist.json")
+    crate::paths::hydra_home().join("config/export-allowlist.json")
 }
 
 /// The export allowlist and its sha.

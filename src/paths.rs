@@ -21,6 +21,35 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+/// The environment variable that overrides where `policies/` and `config/` are read from.
+pub const HYDRA_HOME_VAR: &str = "HYDRA_HOME";
+
+/// Where the shipped `policies/` and `config/` directories live.
+///
+/// Reads [`HYDRA_HOME_VAR`] when set, otherwise the compile-time
+/// `CARGO_MANIFEST_DIR`. The compile-time path stays the default because
+/// `cargo run` and the test suite both find those directories beside the source
+/// tree with no setup, and because the binary has run from its own checkout
+/// since the first slice. Build ticket 50 gave it an override; nothing gave it
+/// an install path, and `README.md` says the binary is not relocatable away
+/// from a tree that holds both directories.
+pub fn hydra_home() -> PathBuf {
+    hydra_home_from(std::env::var_os(HYDRA_HOME_VAR))
+}
+
+/// The same resolution with the variable's value passed in.
+///
+/// Split out so a test can drive the order without setting a process-wide
+/// variable: the unit tests in this crate run in one binary and in parallel, and
+/// `PolicySet::discover` in `src/policy/mod.rs` calls [`hydra_home`] from tests
+/// of its own, which a mutation here would break at random.
+fn hydra_home_from(named: Option<std::ffi::OsString>) -> PathBuf {
+    match named {
+        Some(home) if !home.is_empty() => PathBuf::from(home),
+        _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+    }
+}
+
 pub struct Layout {
     root: PathBuf,
 }
@@ -286,6 +315,19 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hydra_home_reads_the_environment_variable_before_the_compile_time_path() {
+        let checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(
+            hydra_home_from(Some("/somewhere/else".into())),
+            PathBuf::from("/somewhere/else")
+        );
+        assert_eq!(hydra_home_from(None), checkout);
+        // An empty value is a variable somebody exported and never set, and
+        // resolving it would name the filesystem root. It reads as unset.
+        assert_eq!(hydra_home_from(Some("".into())), checkout);
+    }
 
     #[test]
     fn a_store_sha_that_is_not_a_sha_resolves_to_no_snapshot() {

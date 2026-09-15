@@ -202,8 +202,18 @@ pub fn gate_sha_of(
 pub fn other_findings(run: &hydra::normalize::Run) -> Vec<&hydra::normalize::Finding> {
     run.findings
         .iter()
-        .filter(|finding| !rebuilt_the_scopes(finding))
+        .filter(|finding| !rebuilt_the_scopes(finding) && !named_its_bar(finding))
         .collect()
+}
+
+/// Whether this finding is the reader saying which bar its counts are held to.
+///
+/// Build ticket 55 and contract 7.7's table. Every `cursor-agent` and `agy`
+/// record carries one, because on those two a leak count is a floor, and a test
+/// asking whether a call raised anything wants the rest of the list.
+pub fn named_its_bar(finding: &hydra::normalize::Finding) -> bool {
+    matches!(finding, hydra::normalize::Finding::Limit(said) if said.contains("floor rather than")
+        || said.contains("floors rather than totals"))
 }
 
 /// Whether this finding is the reader saying it rebuilt the run's scopes.

@@ -480,12 +480,14 @@ impl Walk {
         // The three adapters build it the same way and differ in the provider.
         let spawn = ReplaySpawn::of(
             layout,
-            &self.run_id,
-            &name,
-            self.cwd.as_deref(),
-            self.worktree.as_deref(),
-            self.store_sha.as_deref(),
-            &self.gate,
+            super::Recorded {
+                run_id: &self.run_id,
+                policy: &name,
+                cwd: self.cwd.as_deref(),
+                worktree: self.worktree.as_deref(),
+                store_sha: self.store_sha.as_deref(),
+                gate: &self.gate,
+            },
             policies,
             Provider::Claude,
         );
@@ -1331,9 +1333,16 @@ mod harvest {
             })
         }
 
-        /// Map ticket 50: every error `tool_result` whose text starts with
-        /// `hydra/` becomes one `permission_decision` of `deny` under
-        /// `hydra_policy`, joined to its call by `tool_use_id`.
+        /// Map ticket 50: every error `tool_result` carrying Hydra's voice
+        /// becomes one `permission_decision` of `deny` under `hydra_policy`,
+        /// joined to its call by `tool_use_id`.
+        ///
+        /// **`hydra_voice` and not `starts_with("hydra/")`, since build ticket
+        /// 55.** The stream path has validated the code against [`GATE_CODES`]
+        /// since ticket 01 and this one did not, so the two halves of the same
+        /// reader disagreed about what counts as Hydra speaking. The loose test
+        /// reads `hydra/runs/x.jsonl: permission denied`, which is a guard
+        /// quoting a path, as a gate that denied the call.
         fn derive_policy_decisions(&self) -> Vec<Option<PermissionDecision>> {
             if self.policy.is_none() {
                 return Vec::new();
@@ -1343,15 +1352,15 @@ mod harvest {
             for event in &self.events {
                 if let Event::ToolCall(call) = event {
                     let decision = results.get(&call.call_id).and_then(|(status, output)| {
-                        (*status == ResultStatus::Error && output.starts_with("hydra/")).then(
-                            || PermissionDecision {
-                                seq: call.seq,
-                                call_id: call.call_id.clone(),
-                                decision: Decision::Deny,
-                                decider: Decider::HydraPolicy,
-                                reason: output.clone(),
-                            },
-                        )
+                        (*status == ResultStatus::Error
+                            && crate::normalize::hydra_voice(output).is_some())
+                        .then(|| PermissionDecision {
+                            seq: call.seq,
+                            call_id: call.call_id.clone(),
+                            decision: Decision::Deny,
+                            decider: Decider::HydraPolicy,
+                            reason: output.clone(),
+                        })
                     });
                     decisions.push(decision);
                 }

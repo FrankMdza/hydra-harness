@@ -139,6 +139,25 @@ read as a gate leak the day this landed. `policy_sha` did not move, because the 
 rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
 and a record written before the field now reads as a limit rather than a leak.
 
+**The shipped configuration moves with `HYDRA_HOME` since build ticket 50.** `paths::hydra_home`
+answers where `policies/` and `config/` live, the variable first and the compile-time
+`CARGO_MANIFEST_DIR` second, and five call sites go through it. `ensure_shipped_config` refuses
+before any policy file is opened, naming the directory and the variable, and `hydra status` prints
+`policies <path>` under the root line. `strings target/release/hydra | grep -c <checkout>` went from
+3 to 1, the one left being the default inside the resolver. The binary is still not relocatable
+without the variable, and `README.md` says so.
+
+**The three readers do not apply the same bar, and the record says so since build ticket 55.**
+Contract 7.7 carries the table: `claude`'s init frame lists every tool it offered, `cursor-agent`'s
+carries none, and `agy` raises a leak only where the tool reported success. `note_finding_bar` puts
+one `Limit` on every `cursor-agent` and `agy` record naming which bar it held, and none on `claude`,
+which is the reference. The same ticket found `claude.rs`'s harvest path testing
+`starts_with("hydra/")` where its stream path went through `hydra_voice`: a tool error reading
+`hydra/runs/x.jsonl: permission denied`, a guard quoting a path, was recorded as a gate that denied
+the call. Both paths validate the code now. `unhooked` and `capped-argument` stay off `GATE_CODES`
+on purpose: the reader writes those into a decision's reason and the gate writes the others into a
+refusal, and one list for both would make a reader's sentence readable as the gate's.
+
 **Two shell rows and one MCP door, closed by build ticket 59.** `evaluate` in `gate.py` reached the
 path denials of 7.5 through two doors, a `file_write` carrying a path and a `shell` carrying a
 command string, and two things went through the gap.

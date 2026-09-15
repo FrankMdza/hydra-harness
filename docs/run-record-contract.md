@@ -736,6 +736,34 @@ which presumes a policy exists to have allowed. A reader wanting to know what th
 did on an interactive session reads the hook frames in `raw`, which section 7.7's corroboration table
 already describes.
 
+**The three readers do not apply the same bar, and this is what each means.** The findings in
+section 7.8 are compared across providers by rung one, so a count that meant one thing on `claude`
+and another on `agy` would be silently wrong. Build ticket 55 measured the three and none of the
+differences is a choice: each is what that provider's record lets a reader ask.
+
+| | `claude` | `cursor-agent` | `agy` |
+|---|---|---|---|
+| The tool-table check reads | every name on `system/init.tools` | only the names this run called | every name on `init.tools` |
+| `Ungated` is raised | on every allowed call carrying no Hydra voice | only where another hook refused | only where another hook refused |
+| A `GateLeak` needs | the call's fate to be known | a result present, a call naming no path excused | a result whose status is `Ok` |
+
+`cursor-agent`'s init frame carries no tool list, so a renamed tool stays invisible until something
+calls it: that count is a floor and `claude`'s is not. `agy` reports a leak only on the one status
+that is evidence, which makes its count a floor too. **A reader comparing counts across providers is
+comparing a ceiling against two floors**, and the reader says so: a record on either of those two
+carries a `Limit` naming the bar it used, once per record, so the sentence travels with the data
+rather than living only here.
+
+**Hydra's voice is a code from a fixed list, on every path.** `hydra_voice` in
+`src/normalize/mod.rs` finds `hydra/<code>:` anywhere in a refusal text and answers only when the
+code is one the gate writes, which is what keeps a guard quoting `~/hydra/runs` from reading as a
+gate that denied the call. The harvest path of a gated interactive run tested
+`starts_with("hydra/")` instead until build ticket 55, so the same reader disagreed with itself
+about what counts as Hydra speaking. Two codes that look like they belong on that list do not:
+`unhooked` and `capped-argument` are written by the reader into a decision's reason, not by the gate
+into a refusal, and mixing the two namespaces would make a reader's own sentence readable as the
+gate's.
+
 **The decider is derived from the run's own policy, never from the provider's reason text.** Hydra
 re-evaluates the policy recorded in `run_start` against the call recorded in the stream. That is the
 only mechanism available: calling back into `hydra` per tool call is ruled out, the gate script

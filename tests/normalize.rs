@@ -995,7 +995,11 @@ fn a_cursor_record_is_read_by_its_own_adapter() {
     assert_eq!(counts.cache_write_tokens, Some(0));
     assert_eq!(counts.thinking_tokens, None);
     assert_eq!(counts.raw_input(), 8383 + 109307);
-    assert!(run.findings.is_empty(), "{:?}", run.findings);
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
 }
 
 #[test]

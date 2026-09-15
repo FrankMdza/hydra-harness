@@ -112,8 +112,18 @@ fn status_names_the_root_it_read_before_any_count() {
     let layout = sandbox("root-line");
     write_run(&layout, "aaa", Some(std::process::id()), false);
     let out = hydra::status::all(&layout).unwrap();
-    let first = out.lines().next().unwrap();
-    assert_eq!(first, format!("root {}", layout.root().display()), "{out}");
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(
+        lines[0],
+        format!("root {}", layout.root().display()),
+        "{out}"
+    );
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    assert_eq!(
+        lines[1],
+        format!("policies {}", policies.dir().display()),
+        "{out}"
+    );
 }
 
 #[test]
@@ -138,6 +148,11 @@ fn the_three_states_come_apart_on_the_pid_and_nothing_else() {
     assert_eq!(state("ccc"), State::Ended);
 
     let report = hydra::status::all(&layout).unwrap();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    assert!(
+        report.contains(&format!("policies {}", policies.dir().display())),
+        "{report}"
+    );
     assert!(report.contains("live 1"), "{report}");
     assert!(report.contains("abandoned 1"), "{report}");
     assert!(report.contains("ended 1"), "{report}");

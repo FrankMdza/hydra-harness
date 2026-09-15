@@ -566,6 +566,23 @@ impl RecordedGate {
     }
 }
 
+/// The six fields a replay rebuilds a spawn from, taken off one record.
+///
+/// They travel together because they come from one place and are passed
+/// unchanged by all three adapters, and because nine positional parameters is a
+/// shape a caller gets wrong silently.
+pub(crate) struct Recorded<'a> {
+    pub run_id: &'a str,
+    pub policy: &'a str,
+    /// The record's own `cwd`, absent on a run whose opening line is gone.
+    pub cwd: Option<&'a Path>,
+    pub worktree: Option<&'a Path>,
+    /// Contract 5.3's `skills.store_sha`, which the `skill_snapshot` scope
+    /// recomputes from and from nothing else.
+    pub store_sha: Option<&'a str>,
+    pub gate: &'a RecordedGate,
+}
+
 /// What a record says about the gate that answered for it, build ticket 49.
 ///
 /// The sha is of the compiled script's bytes, which carry the policy, the deny
@@ -653,15 +670,18 @@ impl<'a> ReplaySpawn<'a> {
     /// whose opening line is gone.
     pub(crate) fn of(
         layout: &'a Layout,
-        run_id: &str,
-        policy: &str,
-        cwd: Option<&Path>,
-        worktree: Option<&Path>,
-        store_sha: Option<&str>,
-        gate: &RecordedGate,
+        recorded: Recorded<'_>,
         policies: &crate::policy::PolicySet,
         provider: Provider,
     ) -> Self {
+        let Recorded {
+            run_id,
+            policy,
+            cwd,
+            worktree,
+            store_sha,
+            gate,
+        } = recorded;
         let here = cwd
             .or(worktree)
             .map(Path::to_path_buf)
@@ -853,6 +873,37 @@ impl<'a> ReplaySpawn<'a> {
             floor_lifted: self.floor_lifted,
         }
     }
+}
+
+/// The bar this provider's record let the reader apply, said once per record.
+///
+/// Contract 7.7's table: the three readers ask the same questions of records
+/// that answer them differently, and rung one compares the counts across
+/// providers. `claude`'s init frame lists every tool it offered and its result
+/// frames say what became of every call, so its counts are a ceiling.
+/// `cursor-agent` carries no tool list, so a renamed tool is invisible until
+/// something calls it. `agy` reports a leak only on the one result status that
+/// is evidence. Both of those are floors, and a reader holding a floor beside a
+/// ceiling needs to be told which it has.
+///
+/// Nothing is emitted on `claude`, because it is the bar the other two are
+/// measured against and a line saying "this count is complete" on 79 of 213
+/// records buys nothing. Build ticket 55.
+pub(crate) fn note_finding_bar(provider: Option<Provider>, findings: &mut Vec<Finding>) {
+    let said = match provider {
+        Some(Provider::CursorAgent) => {
+            "this provider's init frame carries no tool list, so the tool-table check saw only \
+             the names this run called, and a call the record cannot say the fate of raises no \
+             leak: both counts on this record are floors rather than totals"
+        }
+        Some(Provider::Agy) => {
+            "this reader raises a leak only where the tool reported success, which is the one \
+             status on this provider that is evidence, so the leak count on this record is a \
+             floor rather than a total"
+        }
+        _ => return,
+    };
+    findings.push(Finding::Limit(said.to_string()));
 }
 
 /// A file whose opening line is gone reads exactly like a pre-gate run, and the

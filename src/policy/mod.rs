@@ -248,14 +248,11 @@ pub struct PolicySet {
 }
 
 impl PolicySet {
-    /// The set shipped in this repo.
-    ///
-    /// `CARGO_MANIFEST_DIR` is the dev-mode answer and the only one this slice
-    /// needs, because the binary runs from the source tree. An installed `hydra`
-    /// has to find its policy directory some other way, and that is a decision
-    /// nothing has needed yet.
+    /// The set shipped beside [`crate::paths::hydra_home`].
     pub fn discover() -> Result<Self> {
-        Self::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("policies"))
+        let home = crate::paths::hydra_home();
+        ensure_shipped_config(&home)?;
+        Self::load(home.join("policies"))
     }
 
     pub fn load(dir: impl Into<PathBuf>) -> Result<Self> {
@@ -316,6 +313,27 @@ impl PolicySet {
     pub fn floor(&self) -> &serde_json::Value {
         &self.floor
     }
+}
+
+/// Refuses before any policy file is opened when the shipped tree is missing.
+fn ensure_shipped_config(home: &Path) -> Result<()> {
+    let policies = home.join("policies");
+    if !policies.is_dir() {
+        bail!(
+            "cannot find policies at {}: set {} to the directory that contains policies/ and config/",
+            policies.display(),
+            crate::paths::HYDRA_HOME_VAR
+        );
+    }
+    let config = home.join("config");
+    if !config.is_dir() {
+        bail!(
+            "cannot find config at {}: set {} to the directory that contains policies/ and config/",
+            config.display(),
+            crate::paths::HYDRA_HOME_VAR
+        );
+    }
+    Ok(())
 }
 
 /// Every `.json` in the directory, hashed in name order.
@@ -534,7 +552,7 @@ impl Spawn<'_> {
 /// are here now rather than added later and forgotten. `IMPLEMENTATION.md`
 /// records the gap.
 pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
-    let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("config");
+    let config = crate::paths::hydra_home().join("config");
     let layout = spawn.layout;
     let mut paths = vec![
         // 15.1 #1, and the pattern floor by inheritance.

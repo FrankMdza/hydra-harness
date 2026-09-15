@@ -333,11 +333,10 @@ fn a_claude_run_still_writes_its_thinking_text() {
                     }
                 }
             }
-        } else if val["type"] == "result" {
-            if let Some(tokens) = val["usage"]["output_tokens_details"]["thinking_tokens"].as_u64()
-            {
-                thinking_tokens = Some(tokens);
-            }
+        } else if val["type"] == "result"
+            && let Some(tokens) = val["usage"]["output_tokens_details"]["thinking_tokens"].as_u64()
+        {
+            thinking_tokens = Some(tokens);
         }
     }
 
@@ -353,7 +352,7 @@ fn a_claude_run_still_writes_its_thinking_text() {
     assert!(
         thinking_blocks
             .iter()
-            .any(|b| b["thinking"].as_str().map_or(false, |s| !s.is_empty())),
+            .any(|b| b["thinking"].as_str().is_some_and(|s| !s.is_empty())),
         "{version} wrote thinking blocks but none had non-empty thinking text (thinking_tokens: {count_str})"
     );
 }

@@ -14,18 +14,14 @@
 //! enforced by a human reading it rather than by code. Nothing here validates the
 //! wording; a checker that counted assertions would be theatre.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
 /// Protected config #4's path, the same one [`crate::policy::denied_write_paths`]
 /// denies every policy from writing to.
-///
-/// `CARGO_MANIFEST_DIR` for the same reason `PolicySet::discover` uses it, and
-/// with the same limit: an installed binary would look in its source tree.
-/// `IMPLEMENTATION.md` records that gap once for both.
 pub fn path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("config/preamble.md")
+    crate::paths::hydra_home().join("config/preamble.md")
 }
 
 /// The preamble text, trailing newline trimmed.

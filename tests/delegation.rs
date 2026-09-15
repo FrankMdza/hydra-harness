@@ -548,7 +548,10 @@ fn no_marker_at_all_is_a_human_and_launches_anything() {
 /// nothing here needs a provider installed and nothing costs quota.
 fn launch_with_marker(root: &std::path::Path, marker: Option<&str>, args: &[&str]) -> String {
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_hydra"));
-    command.args(args).env("HYDRA_ROOT", root).env_remove("HYDRA_RUN_ID");
+    command
+        .args(args)
+        .env("HYDRA_ROOT", root)
+        .env_remove("HYDRA_RUN_ID");
     if let Some(marker) = marker {
         command.env("HYDRA_RUN_ID", marker);
     }
@@ -573,7 +576,15 @@ fn a_run_relaunching_the_binary_without_a_parent_is_refused_and_recorded() {
     let said = launch_with_marker(
         &root,
         Some("01a0-live"),
-        &["run", "--provider", "claude", "--policy", "permissive", "--task", "x"],
+        &[
+            "run",
+            "--provider",
+            "claude",
+            "--policy",
+            "permissive",
+            "--task",
+            "x",
+        ],
     );
     assert!(
         said.contains("named no parent") && said.contains("--parent 01a0-live"),
@@ -593,7 +604,17 @@ fn a_run_relaunching_the_binary_without_a_parent_is_refused_and_recorded() {
     let other = launch_with_marker(
         &root,
         Some("01a0-live"),
-        &["run", "--provider", "claude", "--policy", "permissive", "--parent", "01a0-wide", "--task", "x"],
+        &[
+            "run",
+            "--provider",
+            "claude",
+            "--policy",
+            "permissive",
+            "--parent",
+            "01a0-wide",
+            "--task",
+            "x",
+        ],
     );
     assert!(
         other.contains("may only parent a child to itself"),
@@ -605,7 +626,17 @@ fn a_run_relaunching_the_binary_without_a_parent_is_refused_and_recorded() {
     let honest = launch_with_marker(
         &root,
         Some("01a0-live"),
-        &["run", "--provider", "claude", "--policy", "read-only", "--parent", "01a0-live", "--task", "x"],
+        &[
+            "run",
+            "--provider",
+            "claude",
+            "--policy",
+            "read-only",
+            "--parent",
+            "01a0-live",
+            "--task",
+            "x",
+        ],
     );
     assert!(
         !honest.contains("named no parent") && !honest.contains("may only parent"),
@@ -621,7 +652,15 @@ fn a_launch_with_no_marker_is_not_refused_by_the_containment_check() {
     let said = launch_with_marker(
         &root,
         None,
-        &["run", "--provider", "claude", "--policy", "permissive", "--task", "x"],
+        &[
+            "run",
+            "--provider",
+            "claude",
+            "--policy",
+            "permissive",
+            "--task",
+            "x",
+        ],
     );
     assert!(
         !said.contains("named no parent"),

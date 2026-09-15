@@ -3,7 +3,7 @@
 //! A scratch layout, a two-entry allowlist, four synthetic records, and no read
 //! of `~/hydra/runs/`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use hydra::export::{Reason, audit, export};
 use hydra::paths::Layout;
@@ -79,7 +79,7 @@ const PARENT: &str = "01a08080-0000-7000-8000-00000000e003";
 const CHILD: &str = "01a08080-0000-7000-8000-00000000e004";
 const SECRET: &str = "01a08080-0000-7000-8000-00000000e005";
 
-fn read_in_repo(fixture: &Fixture, run_id: &str, parent: Option<&str>, file: &PathBuf) -> String {
+fn read_in_repo(fixture: &Fixture, run_id: &str, parent: Option<&str>, file: &Path) -> String {
     let wt = fixture.worktree(run_id);
     let mut record = Record::shaped(Shape {
         run_id,
@@ -104,17 +104,17 @@ fn read_in_repo(fixture: &Fixture, run_id: &str, parent: Option<&str>, file: &Pa
 fn seed_corpus(fixture: &Fixture) {
     let in_a = fixture.repo_a.join("in-repo.txt");
     std::fs::write(&in_a, "hello\n").unwrap();
-    fixture.write(&ELIGIBLE, &read_in_repo(fixture, ELIGIBLE, None, &in_a));
+    fixture.write(ELIGIBLE, &read_in_repo(fixture, ELIGIBLE, None, &in_a));
 
     let outside = fixture.root.join("outside.txt");
     std::fs::write(&outside, "secret\n").unwrap();
-    fixture.write(&OUTSIDE, &read_in_repo(fixture, OUTSIDE, None, &outside));
+    fixture.write(OUTSIDE, &read_in_repo(fixture, OUTSIDE, None, &outside));
 
-    fixture.write(&PARENT, &read_in_repo(fixture, PARENT, None, &in_a));
+    fixture.write(PARENT, &read_in_repo(fixture, PARENT, None, &in_a));
     let child_outside = fixture.root.join("child-outside.txt");
     std::fs::write(&child_outside, "nope\n").unwrap();
     fixture.write(
-        &CHILD,
+        CHILD,
         &read_in_repo(fixture, CHILD, Some(PARENT), &child_outside),
     );
 
@@ -123,7 +123,7 @@ fn seed_corpus(fixture: &Fixture) {
         "\"secret_flag\":null",
         "\"secret_flag\":[\"anthropic_api_key\"]",
     );
-    fixture.write(&SECRET, &flagged);
+    fixture.write(SECRET, &flagged);
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn a_planted_secret_aborts_with_nothing_written() {
     fixture.write_allowlist();
     let in_a = fixture.repo_a.join("in-repo.txt");
     std::fs::write(&in_a, "hello\n").unwrap();
-    fixture.write(&ELIGIBLE, &read_in_repo(&fixture, ELIGIBLE, None, &in_a));
+    fixture.write(ELIGIBLE, &read_in_repo(&fixture, ELIGIBLE, None, &in_a));
 
     let out = fixture.root.join("abort.jsonl");
     export(

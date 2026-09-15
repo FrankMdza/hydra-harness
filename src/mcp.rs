@@ -39,13 +39,8 @@ use crate::provider::{Provider, agy, claude, cursor};
 
 /// Protected config #5's path, the one [`crate::policy::denied_write_paths`]
 /// denies every policy from writing to.
-///
-/// `CARGO_MANIFEST_DIR` for the reason `PolicySet::discover` and
-/// `preamble::path` use it, and with the same limit: an installed binary would
-/// look in its source tree. `IMPLEMENTATION.md` records that gap once for all
-/// three.
 pub fn path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("config/mcp.md")
+    crate::paths::hydra_home().join("config/mcp.md")
 }
 
 /// The document as Hydra read it: every server, and the sha the record carries.

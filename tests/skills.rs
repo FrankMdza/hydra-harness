@@ -719,7 +719,7 @@ fn a_judge_run_against_a_nonempty_store_links_nothing() {
     let parsed: Value = serde_json::from_str(&text).unwrap();
     let run_obj = &parsed["hydra"];
     assert!(
-        !run_obj.get("skills").map_or(false, |v| v.is_object()),
+        !run_obj.get("skills").is_some_and(|v| v.is_object()),
         "skills should be absent or null on judge, got {:?}",
         run_obj.get("skills")
     );

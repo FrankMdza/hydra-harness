@@ -115,9 +115,9 @@ impl Shape {
         match self {
             Self::Bool => value.is_boolean(),
             Self::Text => value.is_string(),
-            Self::Sha => value.as_str().is_some_and(|sha| {
-                sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())
-            }),
+            Self::Sha => value
+                .as_str()
+                .is_some_and(|sha| sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())),
             Self::Names => value
                 .as_array()
                 .is_some_and(|names| names.iter().all(Value::is_string)),
