@@ -1,7 +1,7 @@
 # 52 - The demo scripts only work in the original checkout
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -31,5 +31,9 @@ answers 80 and 24 and writes a header saying the same. The flag is `--window-siz
 `record.sh` passes that now. So the cast in the repository is the one the GIF came from, and what
 lied was the recording script telling `agg` to paint 118x30 over an 80-wide recording.
 
-Left open: re-record with the corrected script. It needs a live `agy` run of about three minutes
-and a quiet machine, and this one was carrying five other runs at the time.
+Re-recorded on 2026-09-15 once the machine was quiet, run `01a0a5c6-4840`. The cast header says
+118x30 for the first time, and the session it shows is better than the one it replaces: `hydra
+status | head -3` now opens on the root, the policy directory and the live count rather than one
+line, because build tickets 51 and 50 put the first two there. The gate still refuses the `ls` that
+names the corpus, which is what the demo is for, and `verdict.py` still prints the vendor's
+`SUCCESS` beside the record's `gated`.

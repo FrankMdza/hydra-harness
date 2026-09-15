@@ -139,6 +139,14 @@ read as a gate leak the day this landed. `policy_sha` did not move, because the 
 rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
 and a record written before the field now reads as a limit rather than a leak.
 
+**The demo scripts read the checkout they live in, since build ticket 52.** `demo.sh` derives it
+from `BASH_SOURCE` instead of hardcoding `$HOME/hydra`, `verdict.py` takes the data root from
+`HYDRA_ROOT`, and `record.sh` already cd'd relative to itself. The ticket also claimed the
+checked-in cast was not the one the GIF came from, because its header said 80x24 while `record.sh`
+passed `--cols 118 --rows 30`. That was the script lying, not the cast: asciinema 3 dropped `--cols`
+and `--rows` and ignores both without a word, measured on 3.2.1 with `asciinema rec --cols 118
+--command "tput cols"`, which records a pty answering 80. The flag is `--window-size 118x30`.
+
 **The shipped configuration moves with `HYDRA_HOME` since build ticket 50.** `paths::hydra_home`
 answers where `policies/` and `config/` live, the variable first and the compile-time
 `CARGO_MANIFEST_DIR` second, and five call sites go through it. `ensure_shipped_config` refuses
