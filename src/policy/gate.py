@@ -111,6 +111,16 @@ def deny_without_dialect(reason):
 # --------------------------------------------------------------------------
 
 
+def fold_ascii(text):
+    """Lowercase ASCII letters only.
+
+    Python's str.casefold() follows Unicode equivalence, which disagrees with
+    Rust's to_lowercase on characters like ß and ﬁ. Harness spec 15.2 asks for
+    macOS filesystem case-insensitivity, which is ASCII-only.
+    """
+    return "".join(c.lower() if c.isascii() else c for c in text)
+
+
 def resolve(path, cwd):
     """An absolute, symlink-resolved, case-folded path.
 
@@ -124,7 +134,7 @@ def resolve(path, cwd):
     """
     if not os.path.isabs(path):
         path = os.path.join(cwd, path)
-    return os.path.realpath(path).casefold()
+    return fold_ascii(os.path.realpath(path))
 
 
 def inside(path, root):
@@ -233,7 +243,7 @@ def protected_path_named_by(command, cwd):
     # The raw pass. `resolve` is not used here because there is nothing to
     # resolve: this looks for a denied path already spelled absolutely, which is
     # how every interpreter and every nested shell spells one.
-    lowered = command.casefold()
+    lowered = fold_ascii(command)
     for protected in denied_prefixes():
         if protected in lowered:
             return protected
@@ -444,7 +454,7 @@ def check_aws(argv):
 
 def check_slack(command):
     rules = HYDRA_CONFIG["floor"]["slack"]
-    lowered = command.casefold()
+    lowered = fold_ascii(command)
     for host in rules["forbidden_hosts"]:
         if host in lowered:
             return "a {} URL".format(host)
@@ -469,7 +479,7 @@ def floor_violation(command):
         # trying to evaluate it. Which segment the substitution feeds is not
         # decidable without running it, so the refusal covers the command when
         # any floor target is named anywhere in it.
-        lowered = command.casefold()
+        lowered = fold_ascii(command)
         if any(target in lowered for target in FLOOR_TARGETS):
             return "a shell substitution in a command naming git, aws or Slack"
         return None

@@ -139,6 +139,16 @@ read as a gate leak the day this landed. `policy_sha` did not move, because the 
 rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
 and a record written before the field now reads as a limit rather than a leak.
 
+**Both sides fold case the same way since build ticket 60.** `src/policy/mod.rs` lowercased with
+Rust's `to_lowercase` and `gate.py` compared with Python's `casefold`, which disagree on `ß` and on
+`ﬁ`. A layout root holding one of them compiled a deny entry the gate could never match, so every
+denial and every scope stopped applying, with no message. `fold_ascii` on each side now lowercases
+ASCII letters and leaves everything else alone, which is what harness spec 15.2 asks for: a macOS
+filesystem's case-insensitivity, not Unicode equivalence. `tests/gate.rs` builds the same gate under
+`Straße` and under an ASCII control and asserts a `permissive` write into the corpus is refused on
+both; reverting the Python fold alone brings back `hydra/allow` on the first and leaves the second
+refused.
+
 **The shell check reads the command twice since build ticket 56.** The token pass resolves each
 `shlex` token, which is what catches a relative path and a symlink, and it sees whole tokens
 only. So a denied path spelled in full inside a larger one walked through: `sh -c 'cat

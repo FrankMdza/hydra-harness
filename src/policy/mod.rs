@@ -991,9 +991,24 @@ fn resolved_path(path: &Path) -> PathBuf {
     }
 }
 
+/// Lowercase ASCII letters only. macOS filesystem case-insensitivity does not
+/// fold Unicode characters like `ß` or `ﬁ`, and Rust's `to_lowercase` and
+/// Python's `casefold` disagree on those anyway, so both sides use this map.
+fn fold_ascii(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii() {
+                c.to_ascii_lowercase()
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 /// One path as the compiled script compares it, 15.2's case-insensitive match.
 fn casefold(path: &Path) -> String {
-    path.to_string_lossy().to_lowercase()
+    fold_ascii(&path.to_string_lossy())
 }
 
 /// A resolved path, folded to the case the script matches on.

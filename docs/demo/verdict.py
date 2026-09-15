@@ -3,7 +3,10 @@
 import json, subprocess, sys, os
 run_id = sys.argv[1]
 hydra = sys.argv[2] if len(sys.argv) > 2 else "hydra"
-rec = os.path.expanduser(f"~/hydra/runs/{run_id}.jsonl")
+# The same root the binary reads, and for the same reason: a clone that is not
+# ~/hydra still writes its records wherever HYDRA_ROOT says (build ticket 52).
+root = os.environ.get("HYDRA_ROOT") or os.path.expanduser("~/hydra")
+rec = os.path.join(root, "runs", f"{run_id}.jsonl")
 rows = [json.loads(l) for l in open(rec)]
 def vendor_claim():
     """The vendor's own verdict, whatever it calls it: agy says status, claude says outcome."""

@@ -174,12 +174,22 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `policy` | the policy name in force |
 | `policy_sha` | the sha of the delegation policy directory, pattern floor included |
 | `floor_lifted` | boolean, whether `--allow-floor-escape` was typed on this run (harness spec 16) |
+| `gate_sha` | the sha256 of the compiled gate script this run was launched with, absent on a run that compiled no gate and on every record written before build ticket 49 closed on 2026-09-15 under section 15's rule for a new field; see below |
 | `scopes` | the absolute paths the gate was compiled against, keyed by scope name; see below |
 | `cwd` | the directory the child was launched in |
 | `worktree` | `path`, `branch` and `base_tree`, or null under `--shared-tree`. `base_tree` is the sha `git write-tree` answered against the seed index the moment the checkout was seeded from the parent's uncommitted work, before the provider started; map ticket 49 put it here on 2026-09-07 so a reader can tell a reaped run's seed from the run's own edits. It is a name and not a guarantee: the tree hangs from no ref, a `git gc --prune` may delete it, and a record written before build ticket 23 does not carry it |
 | `depth` | integer, 0 for a run a human started |
 | `parent_policy` | the policy the parent was launched under, absent on a run with no parent. Section 8.3 requires it beside the requested one on a refused spawn |
 | `resumed_from` | the run id whose provider session this run continued, present only when `command` is `resume`. Added 2026-09-08 for build ticket 32 under section 15's rule for a new `run_start` field |
+
+**Three shapes in the corpus that no rule above forbids and no sentence described.** Measured
+2026-09-15 over 207 records. A recorded run with a null `policy`: three of them, all from before
+the gate existed, and a reader must take null as "no gate was compiled" rather than as a missing
+field. An interactive run without `--policy` reads the same way and is the fourth (section 5.6).
+A null `model` on the envelope of a provider run: 44 of 203, and it means the launch named no
+`--model`, so the vendor picked and the record does not know which. And the `type` key on both
+Hydra bodies, `run_start` and `run_end`, which is how a reader tells the two apart without
+counting lines; it is the one key in the body that is not a field of the run.
 
 **`command` names what created the run, and it earns its place on the harness run.** On a provider
 run it is nearly redundant, because the provider and the task string already describe the row. On a
@@ -199,10 +209,15 @@ round-trip. Rather than three schemes, Hydra owns the id and records the provide
 which `hydra resume` reads to hand the provider its own resume flag. A resumed run gets a fresh run
 id linked to the old one, so one file per run survives.
 
-**`provider_session_id` may arrive after `run_start`.** On `cursor-agent` it lands on the `system/init`
-frame, on `agy` on `init`. Hydra backfills the field in memory for the run it owns and does not
-rewrite line 0. A reader that needs it takes it from `raw` on the provider's own init frame, which
-is where it will always be.
+**`provider_session_id` is null on line 0 of every recorded run.** On `cursor-agent` it lands on the
+`system/init` frame, on `agy` on `init`, and on `claude` on its own init frame, all of them after
+line 0 is written and closed. Nothing rewrites line 0, so a reader takes it from `raw` on the
+provider's own init frame, which is where it will always be; `src/resume.rs` is the one caller that
+needs it and that is what it does. Measured 2026-09-15: 4 of 203 records carry a non-null value and
+all four are interactive `claude` runs, where Hydra mints the session id itself before the child
+starts and therefore knows it in time. An earlier version of this paragraph said Hydra backfills the
+field in memory for the run it owns. No code does that, and the claim was unobservable from a record,
+which is the only thing this document is allowed to describe.
 
 **`task` is recorded verbatim, preamble and all.** Ticket 28 asked whether a run should record the
 provenance of what it acted on and the answer was that the raw frame already carries it. The
@@ -225,6 +240,22 @@ run did not have is absent, never null, so a run with no checkout carries no `sk
 `skill_snapshot` is not a key: it recomputes from `skills.store_sha`, which is already here. The
 `config/` prefix is not a key either, because it moves only with a Hydra release and
 `hydra_version` covers that.
+
+**`gate_sha` is the third half, and it exists because the first two were not enough.** `policy_sha`
+pins the rules and `scopes` pins what they were applied to. Neither pins the code that reads them:
+the deny list, the pattern floor's parser and the shell check live in Rust and in
+`src/policy/gate.py`, and a change to any of them leaves every file under `policies/` untouched.
+Four times between 2026-09-12 and 2026-09-14 that happened, and each time section 7.7's
+re-evaluation read every record written before the change as a gate that leaked. So `run_start`
+carries the sha256 of the compiled script's bytes, which carry the policy, the deny list, the
+resolved scopes and the Python itself. A reader compiles the gate for the spawn it rebuilds and
+compares: only a matching sha may report a `GateLeak` or a `Disagreement`, and a record that names
+a different gate or names none reports a limit that says which mark is missing.
+
+It is absent, never null, on a run that compiled no gate, and absent on every record written before
+build ticket 49. A gated interactive run writes it absent too, which is a gap rather than a
+statement: `src/interactive.rs` compiles a gate and does not thread the sha out of `prepare`, and
+`IMPLEMENTATION.md` says so.
 
 **The compiled gate script's own sha is still not carried.** An earlier draft said the script was a
 pure function of the policy source and the Hydra version, which was false: it takes the six inputs
@@ -277,9 +308,20 @@ its absence rather than treating it as an empty listing. It is absent on a `clau
 because that run's probe is `--restricted` and a restricted probe lists no skill the filesystem
 offers (ticket 43).
 
-**`mcp.injected` and `mcp.resolved` are identical on a recorded `claude` run and can differ
-everywhere else.** That holds for all five policies since ticket 43: `judge` passes
-`--strict-mcp-config` with no file, so both are empty and both are measured.
+**`mcp.injected` and `mcp.resolved` are identical on a recorded `claude` run whose servers all
+started, and can differ everywhere else.** That holds for all five policies since ticket 43: `judge`
+passes `--strict-mcp-config` with no file, so both are empty and both are measured.
+
+**A difference on a recorded `claude` run means a server Hydra wrote that the provider could not
+start.** `resolved` is derived from the tool names the probe's transcript reports, so a server that
+failed contributes no tools and no name. Measured 2026-09-15 over 207 records: of the 77 recorded
+`claude` runs carrying both lists, 76 are identical and one is not. On `01a07f3f-3241`, `injected`
+is `["hydra"]`, `resolved` is `[]`, and the run's own `system/init` frame says
+`{"name": "hydra", "status": "failed"}`. The status is in `raw` and not in this group, which is the
+deliberate shape: `resolved` answers what reached the model. The launch check of harness spec 6.1
+runs before the child starts and cannot see a server that dies at child start, so this difference is
+the only account of it on the record. Five more records carry `resolved: null`, which is unanswered
+rather than empty and is not a difference.
 `--strict-mcp-config` makes the set an argument Hydra wrote rather than the state
 of five directories at spawn time. An interactive `claude` run keeps the human's servers, and `agy`
 has no per-run off switch at all, so on those two the difference is the record's only account of
@@ -300,7 +342,7 @@ fact, which matters because a wrong `HOME` logs a provider out silently rather t
 |---|---|
 | `auth.mechanism` | `subscription-oauth` or `api-key` |
 | `auth.source` | `keychain`, `env` or `none` |
-| `auth.allow_billed` | boolean, true only when a human typed the flag on this run |
+| `auth.allow_billed` | boolean, and false on every record ever written. Harness spec 17 lists `--allow-billed` as unbuilt, so the field is a slot waiting for a flag that does not exist in `src/cli.rs` yet. It is here rather than absent because a reader comparing a future billed run against today's corpus needs the two to have the same shape |
 | `auth.gated` | boolean, true when Hydra fully controls this provider's environment |
 | `subscription` | which subscription paid |
 
@@ -344,14 +386,19 @@ Hydra lines" holds without an exception.
 | Field | On a harness run |
 |---|---|
 | `command`, `cwd`, `depth`, `pid`, `process_start_time`, `schema_version`, `hydra_version` | filled |
-| `provider`, `provider_version`, `model`, `provider_session_id`, `launch_mode`, `task`, `policy`, `policy_sha`, `worktree` | null |
-| `skills`, `mcp`, `auth`, `env_allowlist`, `scopes` | **absent**, not null |
-| `floor_lifted` | null; no gate was compiled |
-| `subscription` | null; nothing was spent by the pass itself |
+| `provider_version`, `provider_session_id`, `launch_mode`, `task`, `policy`, `policy_sha`, `worktree`, `subscription`, `floor_lifted` | null |
+| `provider` and `model` | null too, and on the envelope rather than in the body (section 4) |
+| `skills`, `mcp`, `auth`, `env_allowlist`, `scopes`, `gate_sha`, `parent_policy`, `resumed_from` | **absent**, not null |
 
-**Seven fields of twenty-eight are filled, and that number belongs in the contract rather than in a
-reader's discovery.** It is the strongest argument anyone will ever make for reversing this decision,
-so it should be in front of whoever makes it. What bought it: the proposer and the judges need a
+No gate is compiled, so `floor_lifted` is null and `gate_sha` is absent. `subscription` is null
+because nothing was spent by the pass itself.
+
+**Seven fields of twenty-four are filled, and that number belongs in the contract rather than in a
+reader's discovery.** The twenty-four are the keys of a `run_start` body, the `type` discriminator
+left out: eight of them absent, nine null, seven filled. The count was twenty-eight when this
+paragraph was written and has moved three times since, as `scopes`, `resumed_from` and `gate_sha`
+landed; whoever adds the next field moves it again. Seven of twenty-four is the strongest argument
+anyone will ever make for reversing this decision, so it should be in front of whoever makes it. What bought it: the proposer and the judges need a
 parent that exists. Without one they are four unrelated runs at depth 0, and a human who hits Ctrl-C
 on `hydra evolve` leaves detached children that nothing can group. The alternatives were parenting
 the judges to the proposer, which claims the proposer spawned its own reviewers, and a pass file
@@ -390,6 +437,13 @@ with `--policy <name>` is gated: it seeds a worktree, links the skill snapshot, 
 and passes it as `--settings`, and every field the table below calls null or absent is filled the
 way a recorded run fills it. The table describes the ungated shape; `policy`, null on one and set
 on the other, is how a reader tells them apart.
+
+Two exceptions to "filled the way a recorded run fills it". `gate_sha` is absent on a gated
+interactive run, because `src/interactive.rs` compiles the gate and does not thread the sha back
+out; a reader sees the mark missing and downgrades a leak to a limit, which is the safe arm and not
+the intended one. And `provider_session_id` is the one field an interactive `claude` run fills that
+a recorded run never does: Hydra mints the id itself before the child starts, so it is known in time
+for line 0. Measured 2026-09-15: 4 of 203 records carry it and all four are interactive.
 
 | Field | On an interactive run |
 |---|---|
@@ -932,14 +986,29 @@ provider ships an honest terminator, and nothing else has to change for that.
 
 ### 8.3 A refused spawn is a run record
 
-A child refused for naming a policy wider than its parent's writes a run file: `run_start`, then
-`run_end` with `refusal` naming the narrowing check, and nothing between them. It derives to outcome
-`gated` with `outcome_source: refusal`.
-
-The `run_start` carries the requested policy and the parent's beside it, `pid` and
-`process_start_time` null, and no provider fields. No child process starts, so without the record
-the attempt is invisible, and under D10 anything not in a run record did not happen. Attempted
+Four checks refuse a launch, and each writes a run file: `run_start`, then `run_end` with `refusal`
+naming the check, and nothing between them. No child process starts, so without the record the
+attempt is invisible, and under D10 anything not in a run record did not happen. Attempted
 escalation is exactly the signal the corpus should carry.
+
+| `refusal` | The check | Outcome |
+|---|---|---|
+| `policy_narrowing` | the child named a policy its parent's does not contain (7.3) | `gated` |
+| `skill_collision` | a linked skill name the provider did not resolve as Hydra's | `skill_collision` |
+| `mcp_unavailable` | the MCP launch check, or Cursor's pre-flight; `remediation` says which | `mcp_unavailable` |
+| `auth_preflight` | the auth pre-flight, specified and not built | `auth_failed` |
+
+Every one derives with `outcome_source: refusal`. `Refusal::outcome_of` in `src/record/lines.rs` is
+the map, and a code it does not know derives to `gated`, which is the arm `policy_narrowing` takes.
+
+**How much of the run is on line 0 depends on which check fired, and the difference is where the
+check sits in the launch.** `policy_narrowing` is decided from the parent's record before anything
+is probed, so its `run_start` carries the requested policy and the parent's beside it, `pid` and
+`process_start_time` null, and no provider fields. The other three fire after the pre-flight has
+already read the provider's version, listed its skills and inspected its auth, so they carry those.
+Measured 2026-09-15: the one refused spawn on this machine, `01a07514-ac48`, is a `skill_collision`
+and carries `provider_version`, `task`, `policy`, `auth` and a 28-name `skills.resolved`. That is
+the record doing its job, not a bug: the collision is only legible beside the listing that found it.
 
 ### 8.4 A harness run's outcome describes the pass, not the patch
 

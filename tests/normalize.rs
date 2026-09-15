@@ -2556,7 +2556,10 @@ fn a_leak_on_a_record_from_another_gate_is_a_limit_and_never_a_leak() {
     // A gate whose code has changed since, and a record from before the field
     // existed. Neither can back the claim, and each says which mark it lacks.
     for (what, run) in [
-        ("a foreign gate", leaking(Some(format!("{}f", &todays[1..])))),
+        (
+            "a foreign gate",
+            leaking(Some(format!("{}f", &todays[1..]))),
+        ),
         ("no gate at all", leaking(None)),
     ] {
         assert!(

@@ -91,6 +91,18 @@ impl Gate {
             policy,
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
+        Self::build_at(provider, policy, floor_lifted, has_checkout, root)
+    }
+
+    /// A gate rooted at `root` rather than a fresh temp directory. The caller
+    /// owns the path and must pick one unique per parallel test.
+    fn build_at(
+        provider: Provider,
+        policy: &str,
+        floor_lifted: bool,
+        has_checkout: bool,
+        root: PathBuf,
+    ) -> Self {
         let _ = std::fs::remove_dir_all(&root);
         let layout = Layout::at(&root);
         let worktree = if has_checkout {
@@ -2148,6 +2160,53 @@ fn the_compiled_gate_carries_the_config_denials_resolved_inside_the_worktree() {
 }
 
 #[test]
+fn a_denied_path_inside_a_larger_token_is_still_named() {
+    // Build ticket 56. The token pass sees whole tokens, so a path spelled in
+    // full inside one walked through: an adversarial review on 2026-09-14 got
+    // `allow` for all three of these against a real compiled gate. The function
+    // claims to refuse a command that names a denied path, and these name one.
+    let gate = Gate::new("standard");
+    let runs = gate.runs.display();
+    for command in [
+        format!("sh -c 'cat {runs}/x.jsonl'"),
+        format!("bash -lc \"echo pwn >> {runs}/x.jsonl\""),
+        format!("python3 -c \"open('{runs}/pwn.jsonl','w')\""),
+        format!("echo x > $'{runs}/x'"),
+        format!("zsh -c \"rm -rf {runs}\""),
+    ] {
+        let decision = gate.shell(&command);
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "{command}: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn the_raw_pass_leaves_an_ordinary_command_alone() {
+    // The coarseness has a bound: the raw pass looks for denied paths and
+    // nothing else, so the ordinary working day still passes, and so does a
+    // command naming the run's own worktree, which the own carve-out covers.
+    let gate = Gate::new("standard");
+    let worktree = gate.worktree.display().to_string();
+    for command in [
+        "cargo test --release".to_string(),
+        "git status --short".to_string(),
+        "cat .claude/skills/unslop/SKILL.md".to_string(),
+        format!("ls -la {worktree}/src"),
+        format!("rg TODO {worktree}"),
+    ] {
+        let decision = gate.shell(&command);
+        assert!(
+            decision.allowed,
+            "{command} was refused: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
 fn a_shell_command_naming_the_skill_root_is_how_two_providers_read_a_skill() {
     // Run 01a09405-f451 ran `ls -la .claude/skills/` under standard and the
     // gate allowed it; the first version of build ticket 44 refused it, and the
@@ -2193,4 +2252,55 @@ fn a_shell_command_naming_the_hook_config_is_refused_whole() {
         gate.shell("cat .cursor/.gitignore").allowed,
         "the ignore file is not on the list"
     );
+}
+
+#[test]
+fn a_layout_root_rust_and_python_used_to_fold_differently_still_denies_the_corpus() {
+    // Build ticket 60. Rust's to_lowercase left ß alone while Python's casefold
+    // turned it into ss, so every deny entry and scope compiled for such a root
+    // could not match and the gate failed open with no message. Harness spec
+    // 15.2 asks for macOS filesystem case-insensitivity, which is ASCII-only.
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let suffix = format!(
+        "fold-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    for (label, segment) in [("ascii control", "Hydra"), ("non-ascii root", "Straße")] {
+        let root = std::env::temp_dir().join(segment).join(&suffix);
+        let gate = Gate::build_at(Provider::Claude, "permissive", false, true, root);
+        let decision = gate.write_to(&gate.runs.join("leak.jsonl"));
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "{label}: permissive wrote to the corpus at {}: {}",
+            gate.runs.join("leak.jsonl").display(),
+            decision.reason
+        );
+    }
+}
+
+#[test]
+#[ignore = "build ticket 58: fails until a human adds -c and --config-env to \
+            consume_before_subcommand in policies/floor.json, which is protected config #1. \
+            Run it with `cargo test --test gate -- --ignored`."]
+fn a_config_override_does_not_hide_the_subcommand_from_the_floor() {
+    // Build ticket 58. `git -c key=value` and `git --config-env key=VAR` take a
+    // separate value the way `-C` does, so a parser that does not consume it
+    // reads the value as the subcommand and every push rule below stops
+    // running. Measured on the compiled gate: `git push --force origin main`
+    // was refused and `git -c core.pager=cat push --force origin main` was
+    // allowed. The fix is two entries in `consume_before_subcommand` in
+    // `policies/floor.json`, which is protected config #1 and a human's to make.
+    let gate = Gate::new("standard");
+    for command in [
+        "git -c core.pager=cat push --force origin main",
+        "git -c user.name=x -c user.email=y reset --hard",
+        "git --config-env=http.proxy=PROXY push --force origin main",
+        "git --config-env http.proxy=PROXY branch -D topic",
+    ] {
+        assert!(
+            gate.shell(command).denied_for("hydra/floor"),
+            "the subcommand hid behind a config override: {command}"
+        );
+    }
 }

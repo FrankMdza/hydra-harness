@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # The scripted session behind docs/demo/hydra.gif. Run through record.sh, not by hand.
-export PATH="$HOME/hydra/target/release:$PATH"
-cd "$HOME/hydra"
+#
+# The checkout is wherever this script lives, so a clone records itself. The data
+# root is separate: Hydra reads HYDRA_ROOT when it is set and ~/hydra when it is
+# not, whatever directory the binary was built in (build ticket 52).
+CHECKOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PATH="$CHECKOUT/target/release:$PATH"
+cd "$CHECKOUT"
 say() {  # fake typing, then run it
   printf '\033[1;32m$\033[0m '
   local s="$1"; for ((i=0;i<${#s};i++)); do printf '%s' "${s:i:1}"; sleep 0.028; done
