@@ -139,6 +139,15 @@ read as a gate leak the day this landed. `policy_sha` did not move, because the 
 rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
 and a record written before the field now reads as a limit rather than a leak.
 
+**The corpus walks honour `HYDRA_ROOT` since build ticket 51.** `corpus_runs_dir` in
+`tests/common/mod.rs` is the one place that answers where they read, and `tests/record_contract.rs`
+goes through it rather than building the path from `real_home()` itself. The CI workflow had been
+setting the variable and claiming the walks read it, which was false; CI passed because the runner's
+home holds no corpus. Four tests measure a particular record rather than checking every one, and
+those return early on an empty corpus through `corpus_or_skip`. Measured: against an empty
+`HYDRA_ROOT`, `normalize`, `outcome` and `record_contract` pass 139 of 139 in under a second;
+against the real 213 records they take six minutes.
+
 **A run cannot relaunch the binary and name its own policy since build ticket 57, and the stop is a
 marker.** Harness spec 7.3's rule was enforced nowhere: `Lineage::of` returns depth 0 with no bound
 when `--parent` is absent, and nothing marked a process as being inside a run. `src/containment.rs`

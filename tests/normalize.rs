@@ -1508,7 +1508,10 @@ fn every_record_on_this_machine_normalizes() {
 fn the_recorded_write_denial_derives_to_a_deny_under_capability() {
     let policies = policies();
     let mut seen = 0;
-    for path in corpus() {
+    let Some(records) = common::corpus_or_skip() else {
+        return;
+    };
+    for path in records {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
         if run.policy.as_deref() != Some("read-only") {
             continue;
@@ -1617,7 +1620,10 @@ fn the_recorded_shell_denial_and_the_call_beside_it_derive_apart() {
     // them would be caught here and nowhere else in this file.
     let policies = policies();
     let mut pairs = 0;
-    for path in corpus() {
+    let Some(records) = common::corpus_or_skip() else {
+        return;
+    };
+    for path in records {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
         if run.policy.as_deref() != Some("standard") {
             continue;

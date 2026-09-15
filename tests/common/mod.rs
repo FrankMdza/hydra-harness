@@ -853,13 +853,45 @@ pub fn cursor_shell_rejected(command: &str, reason: &str) -> Value {
     }})
 }
 
-/// Every `.jsonl` under `~/hydra/runs/`, or nothing on a machine that has run
-/// nothing. Same shape as the contract suite's walk.
+/// The `runs/` directory corpus walks read.
+///
+/// When `HYDRA_ROOT` is set, walks `$HYDRA_ROOT/runs`. When it is unset, walks
+/// `~/hydra/runs`, where `~` is the real home from the passwd entry, not `HOME`.
+/// Returns `None` only when `HYDRA_ROOT` is unset and the real home cannot be
+/// located.
+pub fn corpus_runs_dir() -> Option<PathBuf> {
+    let root = if let Some(root) = std::env::var_os("HYDRA_ROOT") {
+        PathBuf::from(root)
+    } else {
+        match hydra::env::real_home() {
+            Ok(home) => home.join("hydra"),
+            Err(_) => return None,
+        }
+    };
+    Some(root.join("runs"))
+}
+
+/// The corpus, or `None` when this machine has no records.
+///
+/// A walk that checks every record holds on an empty corpus and says nothing.
+/// A test that measures one particular record does not: it asserts the record
+/// is there, and on a machine that has run nothing that assertion is about the
+/// machine rather than about the code. CI is exactly that machine, because
+/// `.github/workflows/ci.yml` points `HYDRA_ROOT` at an empty scratch root, so
+/// four tests went red the day the walks started honouring the variable (build
+/// ticket 51). Returning early is what the walks already do.
+pub fn corpus_or_skip() -> Option<Vec<PathBuf>> {
+    let paths = corpus();
+    (!paths.is_empty()).then_some(paths)
+}
+
+/// Every `.jsonl` under the corpus `runs/` directory, or nothing when the
+/// directory is missing or empty. Same shape as the contract suite's walk.
 pub fn corpus() -> Vec<PathBuf> {
-    let Ok(home) = hydra::env::real_home() else {
+    let Some(runs) = corpus_runs_dir() else {
         return Vec::new();
     };
-    let Ok(entries) = std::fs::read_dir(home.join("hydra").join("runs")) else {
+    let Ok(entries) = std::fs::read_dir(runs) else {
         return Vec::new();
     };
     let mut paths: Vec<PathBuf> = entries

@@ -4,6 +4,8 @@
 //! it at records the writer produced, and at deliberately broken ones, so that a
 //! passing report means something.
 
+mod common;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -573,10 +575,9 @@ fn a_record_carries_the_paths_its_gate_was_compiled_against() {
 fn every_record_on_this_machine_meets_the_contract() {
     // Multi-machine use is a non-goal, so the corpus this checks is the one on the
     // laptop Hydra runs on. Nothing here fails on a machine that has run nothing.
-    let Ok(home) = hydra::env::real_home() else {
+    let Some(runs) = common::corpus_runs_dir() else {
         return;
     };
-    let runs = home.join("hydra").join("runs");
     let Ok(entries) = std::fs::read_dir(&runs) else {
         return;
     };

@@ -1047,7 +1047,10 @@ fn a_cursor_run_whose_only_call_the_gate_refused_is_gated() {
 fn every_record_on_this_machine_derives_an_outcome() {
     let policies = policies();
     let mut seen: Vec<(String, &'static str, &'static str)> = Vec::new();
-    for path in corpus() {
+    let Some(records) = common::corpus_or_skip() else {
+        return;
+    };
+    for path in records {
         let run = hydra::normalize::read_file(&path, &policies)
             .unwrap_or_else(|err| panic!("{}: {err:#}", path.display()));
         // A run still being written has no `run_end`, and contract 6 says it is
@@ -1082,7 +1085,10 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
     // status on the terminator, never the exit code.
     let policies = policies();
     let mut gated = 0;
-    for path in corpus() {
+    let Some(records) = common::corpus_or_skip() else {
+        return;
+    };
+    for path in records {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
         let Some(derived) = derive(&run) else {
             continue;
@@ -1159,6 +1165,23 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
                 exit,
                 Some(serde_json::json!(0)),
                 "{}: failed with exit 0",
+                path.display()
+            );
+            continue;
+        }
+
+        // A child the kernel killed. `Crashed` is derived from the signal on
+        // `run_end.error`, so the gate's per-call answer says nothing about it:
+        // the run was stopped from outside and its calls were all allowed up to
+        // the moment it died. One landed on 2026-09-15, when six runs were live
+        // on an 8 GB machine and the OOM killer took one of them.
+        if outcome == Outcome::Crashed {
+            let error = run
+                .run_end()
+                .and_then(|end| end.body["error"].as_str().map(str::to_string));
+            assert!(
+                error.is_some_and(|said| said.contains("signal")),
+                "{}: came out crashed with no signal on run_end.error",
                 path.display()
             );
             continue;

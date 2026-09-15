@@ -30,6 +30,11 @@ The suite walks the run records on the machine it runs on, so run it single-thre
 test must build its own scratch layout with `Layout::at` and never call `Layout::discover()`,
 which would touch the real `~/hydra`.
 
+Several tests walk every `.jsonl` under `~/hydra/runs/` and check that each record still
+meets the contract, normalizes, and derives an outcome. That path is `$HYDRA_ROOT/runs` when
+the variable is set, and `~/hydra/runs` from the real home when it is not. Point the variable
+at an empty directory to run the suite without reading your own records.
+
 ## What is not open for a pull request
 
 The five protected configs of `docs/harness-spec.md` section 15.1: `policies/`, the
