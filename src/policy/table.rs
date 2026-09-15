@@ -159,9 +159,11 @@ pub const CURSOR: &[Tool] = &[
     // replay records a Disagreement. Build ticket 38.
     unhooked("awaitToolCall"),
     tool("Fetch", Capability::NetworkRead),
-    // Feeds stdin to a background shell command. It is shell, and the floor
-    // cannot see it, which is 7.4's failure mode on a second spelling.
-    tool("WriteShellStdin", Capability::Shell),
+    // Feeds stdin to a background shell command, and carries no command for the
+    // floor or the path check to read. It was `shell` until build ticket 59,
+    // which is how "denied under every policy" went with it: under `permissive`
+    // a run could feed a protected path to a shell it had already opened.
+    tool("WriteShellStdin", Capability::OpaqueShell),
     // 7.6: denied under every policy but `permissive`.
     tool("task", Capability::SubagentSpawn),
     tool("FetchMcpResource", Capability::McpCall),
@@ -248,10 +250,13 @@ pub const AGY: &[Tool] = &[
     pathed("notebook_edit", Capability::FileWrite, "NotebookPath"),
     // Both feed a shell facility rather than the filesystem, and neither carries
     // a command for the floor to read: `send_command_input` writes stdin to a
-    // command already running and `command_status` collects its output. 7.4's
-    // limit again, and they are `shell` because that is the facility they belong
-    // to, so no policy that denies shell hands a run half of it.
-    tool("send_command_input", Capability::Shell),
+    // command already running and `command_status` collects its output. They
+    // were both `shell` until build ticket 59. The two are not the same risk
+    // and no longer carry the same capability: writing into a running command
+    // is a command the gate never saw, and reading its output is not. So
+    // `send_command_input` is denied under every policy and `command_status`
+    // stays `shell`, where a policy that denies shell still denies it.
+    tool("send_command_input", Capability::OpaqueShell),
     tool("command_status", Capability::Shell),
     // Runs the notebook's own code. Shell for the same reason.
     tool("notebook_execution", Capability::Shell),

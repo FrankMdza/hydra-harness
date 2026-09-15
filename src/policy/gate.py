@@ -263,6 +263,32 @@ def protected_path_named_by(command, cwd):
     return None
 
 
+def protected_path_named_in(value):
+    """The denied path named anywhere inside a tool call's arguments, or None.
+
+    Walks strings, lists and dicts, because an MCP server's arguments are its
+    own shape and a path can sit at any depth. The match is the raw pass's: the
+    string, case-folded, searched for each denied spelling. Nothing is resolved,
+    because there is nothing to resolve. A relative path in an MCP argument
+    walks through, which is the same residual the raw shell pass has and is
+    written down beside it in `protected_path_named_by`.
+    """
+    if isinstance(value, str):
+        lowered = fold_ascii(value)
+        for protected in denied_prefixes():
+            if protected in lowered:
+                return protected
+        return None
+    if isinstance(value, dict):
+        value = value.values()
+    if isinstance(value, (list, tuple)) or hasattr(value, "__iter__"):
+        for item in value:
+            found = protected_path_named_in(item)
+            if found is not None:
+                return found
+    return None
+
+
 def denied_prefixes():
     """Every denied path this spawn does not own, resolved and case-folded.
 
@@ -640,6 +666,25 @@ def evaluate(payload):
                     "linked for this run, denied under every policy by harness "
                     "spec 6.4.".format(tool, root)
                 )
+
+    # The same list, reached through the capability that carries no path field
+    # at all. An MCP tool's arguments are whatever its server declared, so there
+    # is no field to name in the table and nothing for `target_path` to read.
+    # Until build ticket 59 that meant `permissive` let an MCP tool write the
+    # corpus: the deny list was applied to `file_write` and to `shell`, and
+    # `mcp_call` met neither. `config/mcp.md` admits no writing server today, so
+    # nothing had fired; the gun was loaded. The check is the raw pass of
+    # `protected_path_named_by` over every string the call carries, which is
+    # coarse in the same direction and for the same reason.
+    if capability == "mcp_call":
+        protected = protected_path_named_in(tool_input)
+        if protected is not None:
+            return False, (
+                "hydra/protected-path: an argument of {} names {}, denied under "
+                "every policy by harness spec 7.5. An MCP call carries no path "
+                "field for the gate to check, so one that names a protected path "
+                "is refused whole.".format(tool, protected)
+            )
 
     # The same list, reached through the capability that carries no path.
     if capability == "shell":

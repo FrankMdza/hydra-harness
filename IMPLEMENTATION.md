@@ -139,6 +139,27 @@ read as a gate leak the day this landed. `policy_sha` did not move, because the 
 rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
 and a record written before the field now reads as a limit rather than a leak.
 
+**Two shell rows and one MCP door, closed by build ticket 59.** `evaluate` in `gate.py` reached the
+path denials of 7.5 through two doors, a `file_write` carrying a path and a `shell` carrying a
+command string, and two things went through the gap.
+
+`WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy` write to the stdin of a
+command that is already running. The command was judged when it started; what is typed into it
+afterwards is not, and the row carries no `command_field`, so `raw_command` was empty and both the
+floor and the path check were skipped. They carry `Capability::OpaqueShell` now, which no policy
+grants, so the gate answers `hydra/capability` by name rather than letting a `permissive` run feed a
+protected path to a shell it had already opened. **The cost is real**: a run cannot answer an
+interactive prompt on those two providers. It gets the facility back the day the gate can see what
+is being typed. `command_status` stays `shell`, because reading a running command's output is not a
+command nobody saw, and the pair no longer shares a capability for that reason.
+
+`mcp_call` met neither door. An MCP server's arguments are its own shape, so the table names no path
+field and `target_path` read nothing, and under `permissive` an MCP tool writing the corpus was
+allowed. `protected_path_named_in` walks every string in the call's arguments, at any depth, and
+searches each for a denied spelling, which is the raw pass of build ticket 56 applied to a second
+door. Measured: disable it and the same call comes back `hydra/allow: policy permissive allows
+mcp_call`. `config/mcp.md` admits no writing server today, so nothing had fired.
+
 **The corpus walks honour `HYDRA_ROOT` since build ticket 51.** `corpus_runs_dir` in
 `tests/common/mod.rs` is the one place that answers where they read, and `tests/record_contract.rs`
 goes through it rather than building the path from `real_home()` itself. The CI workflow had been

@@ -29,6 +29,14 @@ Hydra made about it.
   Those paths are refused under every policy now, on every provider's gate. The skill roots
   Hydra links are denied to writes and stay readable, because a shell command naming one is how
   two of the three providers read a skill.
+- **Two shell facilities are denied under every policy, since 2026-09-15, and the cost is a feature.**
+  `WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy` write to the stdin of a
+  command that is already running. The command was judged when it started and what is typed into it
+  afterwards was not, because neither row carries a command string for the gate to read. They were
+  ordinary shell rows until build ticket 59, which meant a run under `permissive` could feed a
+  protected path to a shell it had already opened. No policy grants them now, so a run on those two
+  providers cannot answer an interactive prompt. That is a real loss and it is the right side of the
+  trade until the gate can see what is being typed.
 - **A run cannot relaunch the binary and name its own policy, since 2026-09-15, and the stop is a
   marker rather than a wall.** Harness spec 7.3 says a child is never wider than its parent and
   that a human at depth 0 is the only thing that widens anything. Until build ticket 57 nothing

@@ -55,6 +55,23 @@ pub enum Capability {
     /// and the compiler skips the row so `gate.py` never sees a name it cannot
     /// answer for. Map ticket 51.
     Unhooked,
+    /// A shell facility that carries no command for the gate to read.
+    ///
+    /// `WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy`
+    /// write to the stdin of a command that is already running. The command was
+    /// judged when it started; what is typed into it afterwards is not, and
+    /// `raw_command` is empty, so the pattern floor of 7.4 and the path denials
+    /// of 7.5 both have nothing to read. They were `shell` rows until build
+    /// ticket 57's review, which is how "denied under every policy" went with
+    /// them: a run under `permissive` could feed `cat > ~/hydra/runs/x` to a
+    /// shell it had already opened.
+    ///
+    /// No policy grants this, and the row stays compiled rather than skipped, so
+    /// the gate answers `hydra/capability` by name instead of
+    /// `hydra/unknown-tool`. The cost is real and named in `IMPLEMENTATION.md`:
+    /// a run cannot answer an interactive prompt. It gets the facility back the
+    /// day the gate can see what is being typed. Build ticket 59.
+    OpaqueShell,
 }
 
 impl Capability {
@@ -79,6 +96,7 @@ impl Capability {
             Capability::SkillInvoke => "skill_invoke",
             Capability::ProviderNative => "provider_native",
             Capability::Unhooked => "unhooked",
+            Capability::OpaqueShell => "opaque_shell",
         }
     }
 }

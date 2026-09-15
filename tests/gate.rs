@@ -2304,3 +2304,92 @@ fn a_config_override_does_not_hide_the_subcommand_from_the_floor() {
         );
     }
 }
+
+// --- build ticket 59 ------------------------------------------------------
+
+#[test]
+fn a_shell_facility_carrying_no_command_is_denied_under_every_policy() {
+    // `WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy`
+    // write to the stdin of a command that is already running. The command was
+    // judged when it started; what is typed into it afterwards is not, and the
+    // gate has no string to read, so neither the pattern floor nor the path
+    // denials of 7.5 apply. They were `shell` rows until this ticket, which is
+    // how a run under `permissive` could feed a protected path to a shell it had
+    // already opened.
+    for policy in hydra::policy::NAMES {
+        let cursor = Gate::compile_for(Provider::CursorAgent, policy, false);
+        let said = cursor.cursor_tool("WriteShellStdin", json!({ "input": "echo hello\n" }));
+        assert!(
+            said.denied_for("hydra/capability"),
+            "{policy} allowed WriteShellStdin: {}",
+            said.reason
+        );
+
+        let agy = Gate::compile_for(Provider::Agy, policy, false);
+        let said = agy.agy_tool("send_command_input", json!({ "Input": "echo hello\n" }));
+        assert!(
+            said.denied_for("hydra/capability"),
+            "{policy} allowed send_command_input: {}",
+            said.reason
+        );
+    }
+}
+
+#[test]
+fn reading_a_running_commands_output_is_still_shell() {
+    // The other half of the pair, and the reason they no longer share a
+    // capability: collecting output is not a command the gate never saw. It
+    // stays `shell`, so a policy that denies shell still denies it and one that
+    // grants shell still grants it.
+    let denied = Gate::agy("read-only");
+    let said = denied.agy_tool("command_status", json!({}));
+    assert!(
+        said.denied_for("hydra/capability"),
+        "read-only granted a shell facility: {}",
+        said.reason
+    );
+    let granted = Gate::agy("standard");
+    let said = granted.agy_tool("command_status", json!({}));
+    assert!(
+        said.allowed,
+        "standard refused a read of a running command's output: {}",
+        said.reason
+    );
+}
+
+#[test]
+fn an_mcp_call_naming_a_protected_path_is_refused_under_permissive() {
+    // Build ticket 59's second half. `evaluate` reached the denials of 7.5
+    // through two doors, a `file_write` with a path and a `shell` with a command
+    // string, and an MCP call is neither: its arguments are whatever its server
+    // declared, so the table names no path field and `target_path` reads
+    // nothing. `config/mcp.md` admits no writing server today, so nothing had
+    // fired.
+    let gate = Gate::compile_for(Provider::Claude, "permissive", false);
+    let corpus = gate.runs.join("stolen.jsonl");
+
+    for arguments in [
+        json!({ "path": corpus.to_string_lossy() }),
+        // At depth, because an MCP server's arguments are its own shape.
+        json!({ "edits": [{ "target": { "file": corpus.to_string_lossy() } }] }),
+    ] {
+        let decision = gate.ask("mcp__writer__put", arguments);
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "permissive let an MCP call write the corpus: {}",
+            decision.reason
+        );
+    }
+
+    // And an MCP call that names nothing protected is still allowed, so the
+    // check is a deny list rather than a wall in front of every server.
+    let ordinary = gate.ask(
+        "mcp__writer__put",
+        json!({ "path": gate.worktree.join("note.md").to_string_lossy() }),
+    );
+    assert!(
+        ordinary.allowed,
+        "the check refused an MCP call inside the run's own worktree: {}",
+        ordinary.reason
+    );
+}
