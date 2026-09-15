@@ -18,6 +18,7 @@
 //! Rung one is `hydra curate`; rung two is `hydra evolve`.
 
 pub mod cli;
+pub mod containment;
 pub mod env;
 pub mod export;
 pub mod face;

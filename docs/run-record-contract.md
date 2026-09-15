@@ -986,7 +986,7 @@ provider ships an honest terminator, and nothing else has to change for that.
 
 ### 8.3 A refused spawn is a run record
 
-Four checks refuse a launch, and each writes a run file: `run_start`, then `run_end` with `refusal`
+Five checks refuse a launch, and each writes a run file: `run_start`, then `run_end` with `refusal`
 naming the check, and nothing between them. No child process starts, so without the record the
 attempt is invisible, and under D10 anything not in a run record did not happen. Attempted
 escalation is exactly the signal the corpus should carry.
@@ -997,13 +997,17 @@ escalation is exactly the signal the corpus should carry.
 | `skill_collision` | a linked skill name the provider did not resolve as Hydra's | `skill_collision` |
 | `mcp_unavailable` | the MCP launch check, or Cursor's pre-flight; `remediation` says which | `mcp_unavailable` |
 | `auth_preflight` | the auth pre-flight, specified and not built | `auth_failed` |
+| `containment` | a launch from inside a live run that named no parent, or named another run as its parent (7.3, build ticket 57) | `gated` |
 
 Every one derives with `outcome_source: refusal`. `Refusal::outcome_of` in `src/record/lines.rs` is
-the map, and a code it does not know derives to `gated`, which is the arm `policy_narrowing` takes.
+the map, and a code it does not know derives to `gated`, which is the arm `policy_narrowing` and
+`containment` both take: they are one rule caught at two moments, the policy named too wide and the
+flag left off entirely.
 
 **How much of the run is on line 0 depends on which check fired, and the difference is where the
-check sits in the launch.** `policy_narrowing` is decided from the parent's record before anything
-is probed, so its `run_start` carries the requested policy and the parent's beside it, `pid` and
+check sits in the launch.** `containment` is decided from the launching process's own environment
+and `policy_narrowing` from the parent's record, both before anything is probed, so their
+`run_start` carries the requested policy and the parent's beside it, `pid` and
 `process_start_time` null, and no provider fields. The other three fire after the pre-flight has
 already read the provider's version, listed its skills and inspected its auth, so they carry those.
 Measured 2026-09-15: the one refused spawn on this machine, `01a07514-ac48`, is a `skill_collision`

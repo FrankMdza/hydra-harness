@@ -199,7 +199,13 @@ fn run_gated(request: Request) -> Result<RunResult> {
     let prep = prepare_policy_launch(&layout, &run_id, policy, &policies, &repo, &invoked_in)?;
 
     let provider_version = Provider::Claude.version()?;
-    let child_env = ChildEnv::build(Provider::Claude)?;
+    let mut child_env = ChildEnv::build(Provider::Claude)?;
+    // Build ticket 57. This arm compiles a gate and seeds a worktree the way a
+    // recorded run does, so 7.3 applies to it and the child is marked. The
+    // ungated arm below is not marked: it compiles no gate, claims no
+    // containment, and marking it would refuse the `hydra run` a human types in
+    // their own session.
+    child_env.set(crate::containment::MARKER, run_id.clone());
 
     let argv = claude::interactive_argv(&claude::InteractiveLaunch {
         session: &session,

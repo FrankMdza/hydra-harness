@@ -29,6 +29,19 @@ Hydra made about it.
   Those paths are refused under every policy now, on every provider's gate. The skill roots
   Hydra links are denied to writes and stay readable, because a shell command naming one is how
   two of the three providers read a skill.
+- **A run cannot relaunch the binary and name its own policy, since 2026-09-15, and the stop is a
+  marker rather than a wall.** Harness spec 7.3 says a child is never wider than its parent and
+  that a human at depth 0 is the only thing that widens anything. Until build ticket 57 nothing
+  enforced it: `standard` grants shell, shell reaches the binary, and `hydra run --policy
+  permissive` with no `--parent` was a child bounded by nothing. No forging was needed, the flag
+  was simply absent, and the adversarial review measured it working. Hydra sets `HYDRA_RUN_ID` in
+  every gated child's environment now, and a launch carrying it without a `--parent` naming the
+  same live run writes a `containment` refusal instead of starting. **A child that unsets the
+  variable walks through this**, because a variable is a thing a process removes from its own
+  children's environment. What the check closes is the absent flag, which was the whole of the
+  attack as it was measured; what it does not close is a child that means it. Map ticket 62 asks
+  whether this class wants a second uid and file modes instead, which would be the first thing in
+  this design to need something from the machine.
 - **The gate is only as good as the vendor build.** It lives in the vendor's own hook dialect,
   and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`

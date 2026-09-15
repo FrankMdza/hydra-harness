@@ -139,6 +139,28 @@ read as a gate leak the day this landed. `policy_sha` did not move, because the 
 rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
 and a record written before the field now reads as a limit rather than a leak.
 
+**A run cannot relaunch the binary and name its own policy since build ticket 57, and the stop is a
+marker.** Harness spec 7.3's rule was enforced nowhere: `Lineage::of` returns depth 0 with no bound
+when `--parent` is absent, and nothing marked a process as being inside a run. `src/containment.rs`
+is the one place that decides it. `hydra run` sets `HYDRA_RUN_ID` in every gated child's
+environment, reads it back out of its own environment at launch, and looks it up in the corpus: a
+marker naming a live run puts the caller inside it, and a marker naming an ended run or none at all
+is `Stale` and refused rather than read as permission, which is also the shape a relocated
+`HYDRA_ROOT` takes. A caller inside a run that names no parent, or names another run, writes a
+`containment` refusal and launches nothing. It derives to `gated`, the same arm
+`policy_narrowing` takes, because it is one rule caught at two moments.
+
+Measured while building it: disable the check and the same launch completes. `hydra run --provider
+claude --policy permissive` with no `--parent`, from a process carrying the marker, ran a real
+`claude` under `permissive` and came back `completed`. The attack was not theoretical.
+
+**What it does not close.** A child that unsets the variable walks through, because a variable is a
+thing a process removes from its own children's environment. The check closes the absent flag, which
+was the whole of the attack as the review measured it, and `SECURITY.md` says the residual out loud
+rather than letting the check read as containment. Map ticket 62 is where the uid alternative goes.
+The ungated interactive arm is deliberately unmarked: it compiles no gate, claims no containment,
+and marking it would refuse the `hydra run` a human types in their own session.
+
 **The validator checks three classes of field since build ticket 54.** `RUN_START_FIELDS` is what
 every record has carried since the first one and a missing name there is an error. The groups of
 contract 5.3 and 5.4 are absent when the question does not apply, so a null is the error.

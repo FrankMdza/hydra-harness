@@ -240,6 +240,12 @@ pub enum Refusal {
     /// The auth pre-flight. Not built, and the mid-run half of `auth_failed`
     /// derives from the stream instead.
     AuthPreflight,
+    /// A launch from inside a live run that named no parent, or named another
+    /// run as its parent. Build ticket 57 and `src/containment.rs`. It derives
+    /// to `gated` the way `policy_narrowing` does, because it is the same rule
+    /// caught one step earlier: 7.3's bound, missed by a flag left off rather
+    /// than by a policy named too wide.
+    Containment,
 }
 
 impl Refusal {
@@ -249,6 +255,7 @@ impl Refusal {
             Refusal::SkillCollision => "skill_collision",
             Refusal::McpUnavailable => "mcp_unavailable",
             Refusal::AuthPreflight => "auth_preflight",
+            Refusal::Containment => "containment",
         }
     }
 

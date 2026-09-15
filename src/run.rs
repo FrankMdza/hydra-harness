@@ -374,6 +374,13 @@ pub fn run(request: Request) -> Result<Call> {
     let layout = Layout::discover()?;
     layout.ensure()?;
 
+    // Build ticket 57, read before the lineage because it is the question the
+    // lineage cannot ask: `Lineage::of` is handed `--parent` and believes it, and
+    // a flag left off reaches it as a human at depth 0. This reads the marker
+    // Hydra set in the child's own environment instead, so the answer comes from
+    // the launch rather than from the caller's argv.
+    let caller = crate::containment::caller(&layout)?;
+
     // 6.1 item 2, ahead of item 4 below in the order the spec lists them. The
     // parent's own record is the only thing that says how deep this child is and
     // what policy bounds it, so a `--parent` this machine has no record of is
@@ -397,6 +404,42 @@ pub fn run(request: Request) -> Result<Call> {
     // contract 8.3 makes this refusal a run file and a run file needs a run id.
     // Nothing else has been created yet, so the record is the whole of what the
     // attempt leaves behind, which is what 7.3 asks for.
+    // Build ticket 57, beside 6.1 item 3 and for the same reason: a refused
+    // escalation is a run record (contract 8.3), and a run record needs a run id.
+    // It goes first because it is the wider refusal. A caller inside a run that
+    // names no parent has not yet been measured against any policy, so
+    // `lineage.narrowing` below would compare its request against the empty bound
+    // of a human at depth 0 and allow anything.
+    if let Some(remediation) = caller.escalation(request.parent.as_deref()) {
+        let line_zero = serde_json::to_value(run_start(
+            &request,
+            &task,
+            policies.sha(),
+            None,
+            &invoked_in,
+            None,
+            None,
+            None,
+            None,
+            &lineage,
+            None,
+            None,
+        ))?;
+        return refuse(
+            &run_file,
+            &run_id,
+            request.provider,
+            &line_zero,
+            crate::record::Refusal::Containment,
+            remediation,
+            &policies,
+            None,
+            None,
+            &layout,
+            lineage.parent_run_id(),
+        );
+    }
+
     if let Some(remediation) = lineage.narrowing(&policies, &request.policy)? {
         // Contract 8.3: no provider fields on a refused spawn. Nothing asked the
         // binary for its version and nothing built the child's environment, so
@@ -439,6 +482,11 @@ pub fn run(request: Request) -> Result<Call> {
     // that already carries the provider's two files are all errors rather than
     // refused spawns, the way they were before delegation existed.
     let mut child_env = ChildEnv::build(request.provider)?;
+    // 6.2's second category and build ticket 57's whole mechanism: the child is
+    // told which run it is, so that a `hydra run` it launches has something to
+    // check itself against. The name lands in `run_start.env_allowlist` like
+    // every other name passed, so a reader can see the child was marked.
+    child_env.set(crate::containment::MARKER, run_id.clone());
     let provider_version = request.provider.version()?;
     // Both providers that read their hook config out of the worktree get the same
     // check against their own two files.

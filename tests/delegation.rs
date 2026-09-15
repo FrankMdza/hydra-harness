@@ -462,3 +462,170 @@ fn a_run_with_no_parent_is_depth_zero_and_bound_by_nothing() {
         "absent rather than null: with no parent there is no policy to name"
     );
 }
+
+// --- containment, build ticket 57 -----------------------------------------
+
+/// A parent's record with no closing line and a liveness pair that matches this
+/// test process, so `live::read_view` calls it live.
+fn write_live_parent(layout: &Layout, run_id: &str, policy: &str) -> PathBuf {
+    let pid = std::process::id();
+    let start = hydra::procinfo::start_time(pid)
+        .unwrap()
+        .expect("this process has a start time");
+    let text = envelope(
+        run_id,
+        0,
+        json!({
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "stub",
+            "provider_session_id": null,
+            "task": "the parent's own task",
+            "policy": policy,
+            "policy_sha": null,
+            "cwd": "/tmp",
+            "worktree": null,
+            "depth": 0,
+            "pid": pid,
+            "process_start_time": start.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            "subscription": "anthropic",
+        }),
+    );
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+#[test]
+fn a_marker_naming_a_live_run_puts_the_caller_inside_it() {
+    let (layout, root) = layout();
+    write_live_parent(&layout, "01a0-live", "standard");
+    assert_eq!(
+        hydra::containment::classify(&layout, Some("01a0-live")),
+        hydra::containment::Caller::Inside("01a0-live".into())
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_marker_naming_a_run_that_ended_is_stale_and_never_permission() {
+    let (layout, root) = layout();
+    // `write_parent` closes the record, which is what an ended run looks like.
+    write_parent(&layout, "01a0-ended", Some("standard"), 0);
+    assert_eq!(
+        hydra::containment::classify(&layout, Some("01a0-ended")),
+        hydra::containment::Caller::Stale("01a0-ended".into())
+    );
+    // The shape a relocated `HYDRA_ROOT` takes: the marker is real and the
+    // corpus it is looked up in is not the one that holds it.
+    assert_eq!(
+        hydra::containment::classify(&layout, Some("01a0-nowhere")),
+        hydra::containment::Caller::Stale("01a0-nowhere".into())
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn no_marker_at_all_is_a_human_and_launches_anything() {
+    let (layout, root) = layout();
+    for marker in [None, Some("")] {
+        assert_eq!(
+            hydra::containment::classify(&layout, marker),
+            hydra::containment::Caller::Outside
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The binary, launched the way a run's own shell would launch it.
+///
+/// Drives the built binary rather than `run::run` because the marker is read out
+/// of the process environment, and a test that set one would set it for every
+/// other test in this file. The refusal lands before the provider is probed, so
+/// nothing here needs a provider installed and nothing costs quota.
+fn launch_with_marker(root: &std::path::Path, marker: Option<&str>, args: &[&str]) -> String {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_hydra"));
+    command.args(args).env("HYDRA_ROOT", root).env_remove("HYDRA_RUN_ID");
+    if let Some(marker) = marker {
+        command.env("HYDRA_RUN_ID", marker);
+    }
+    let out = command.output().expect("the binary runs");
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+}
+
+#[test]
+fn a_run_relaunching_the_binary_without_a_parent_is_refused_and_recorded() {
+    // Build ticket 57 and the one critical finding of the adversarial review.
+    // `standard` grants shell, shell reaches the binary, and until this landed
+    // `hydra run --policy permissive` with no `--parent` was a child bounded by
+    // nothing. No forging was needed; the flag was simply absent.
+    let (layout, root) = layout();
+    write_live_parent(&layout, "01a0-live", "standard");
+    let before = records(&layout);
+
+    let said = launch_with_marker(
+        &root,
+        Some("01a0-live"),
+        &["run", "--provider", "claude", "--policy", "permissive", "--task", "x"],
+    );
+    assert!(
+        said.contains("named no parent") && said.contains("--parent 01a0-live"),
+        "the escalation was not refused: {said}"
+    );
+    assert_eq!(
+        records(&layout),
+        before + 1,
+        "contract 8.3: a refused spawn is a run record, so the attempt is not invisible"
+    );
+
+    // Naming somebody else's run is the same refusal with a different sentence,
+    // and it is the attack that survives `Lineage::of`: a parent that does not
+    // exist is an error before a run id is minted, so the forge that matters
+    // names a run this machine really has and is wider than the caller's.
+    write_live_parent(&layout, "01a0-wide", "permissive");
+    let other = launch_with_marker(
+        &root,
+        Some("01a0-live"),
+        &["run", "--provider", "claude", "--policy", "permissive", "--parent", "01a0-wide", "--task", "x"],
+    );
+    assert!(
+        other.contains("may only parent a child to itself"),
+        "a forged parent was not refused: {other}"
+    );
+
+    // And the honest launch gets past this check. It fails later, on the depth
+    // or the narrowing or the provider binary, which is somebody else's test.
+    let honest = launch_with_marker(
+        &root,
+        Some("01a0-live"),
+        &["run", "--provider", "claude", "--policy", "read-only", "--parent", "01a0-live", "--task", "x"],
+    );
+    assert!(
+        !honest.contains("named no parent") && !honest.contains("may only parent"),
+        "the honest child was refused by the containment check: {honest}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_launch_with_no_marker_is_not_refused_by_the_containment_check() {
+    let (layout, root) = layout();
+    let _ = layout;
+    let said = launch_with_marker(
+        &root,
+        None,
+        &["run", "--provider", "claude", "--policy", "permissive", "--task", "x"],
+    );
+    assert!(
+        !said.contains("named no parent"),
+        "a human at depth 0 was refused: {said}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
