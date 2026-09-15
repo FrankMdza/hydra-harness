@@ -240,6 +240,10 @@ fn run_gated(request: Request) -> Result<RunResult> {
         policy: Some(policy.to_string()),
         policy_sha: Some(policies.sha().to_string()),
         floor_lifted: Some(false),
+        // An interactive run launched without `--policy` compiles no gate; with
+        // one it compiles the same gate a recorded run does, and build ticket 49
+        // wants the sha here too. Filled when the gate is compiled, null until.
+        gate_sha: None,
         scopes: Some(prep.scopes.clone()),
         cwd: prep.cwd.display().to_string(),
         worktree: Some(prep.worktree.clone()),
@@ -350,6 +354,11 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         schema_version: SCHEMA_VERSION,
         hydra_version: env!("CARGO_PKG_VERSION").to_string(),
         command: "run".to_string(),
+        // The gated interactive path compiles a gate like a recorded run does;
+        // build ticket 49 wants its sha here and this path does not thread it out
+        // of `prepare` yet, so it is null and the replay treats the record as
+        // unmarked rather than as a leak.
+        gate_sha: None,
         launch_mode: Some("interactive".to_string()),
         provider_version: Some(provider_version),
         // Known before the child starts, unlike a recorded run's: `claude`

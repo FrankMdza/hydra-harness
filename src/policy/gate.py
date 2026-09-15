@@ -208,7 +208,36 @@ def protected_path_named_by(command, cwd):
     silent permission on the spelling nobody wrote down. This is a floor for the
     same reason and with the same limit, and `IMPLEMENTATION.md` says so rather
     than letting a passing test read as coverage.
+
+    **Two passes, since build ticket 56.** The token pass below resolves each
+    argument, which is what catches a relative path and a symlink. It sees whole
+    tokens only, so a denied path spelled in full inside a larger one walked
+    through it: `sh -c 'cat /…/runs/x'` is one token to shlex, and so is
+    `python3 -c "open('/…/runs/x','w')"` and `$'/…/runs/x'`. The path is written
+    down in full in all three, which is exactly what this function claims to
+    refuse, so missing them was a parsing bug rather than the documented limit.
+    The raw pass runs first: the command, case-folded, is searched for each
+    denied prefix as a substring. It is coarser still, and deliberately: a
+    command that merely mentions a denied path in a comment or a string is
+    refused, which is the direction 7.5 already chose when it refuses reads.
+
+    **What the raw pass cannot carry**, and the residual that leaves. A denied
+    path with one of this spawn's own paths under it is not on the list, because
+    `~/hydra/worktrees` is denied while the run's own worktree sits inside it,
+    and a substring search has no way to say "this one but not that one". So a
+    sibling run's worktree spelled inside a larger token, `sh -c 'cat
+    /…/worktrees/<other-run>/x'`, still reaches the token pass and still walks
+    through it. The corpus, the store, the snapshots, the spawn directory and
+    the per-run config files carry no own path and are on the list.
     """
+    # The raw pass. `resolve` is not used here because there is nothing to
+    # resolve: this looks for a denied path already spelled absolutely, which is
+    # how every interpreter and every nested shell spells one.
+    lowered = command.casefold()
+    for protected in denied_prefixes():
+        if protected in lowered:
+            return protected
+
     try:
         segments = split_segments(command)
     except ValueError:
@@ -222,6 +251,28 @@ def protected_path_named_by(command, cwd):
                 if protected is not None:
                     return protected
     return None
+
+
+def denied_prefixes():
+    """Every denied path this spawn does not own, resolved and case-folded.
+
+    The own carve-out is applied here rather than after the match, because a run
+    naming its own worktree is the ordinary case and must not be refused. The
+    per-run config files of build ticket 44 are denied whole and stay on the
+    list; the skill roots are not, because a command naming one is how two of
+    the three providers read a skill.
+    """
+    spellings = HYDRA_CONFIG.get("denied_spellings")
+    if spellings is not None:
+        return spellings
+    # A gate compiled before the key existed. One spelling each, resolved, which
+    # is what the other checks already use.
+    own = HYDRA_CONFIG.get("own_write_paths", [])
+    out = list(HYDRA_CONFIG.get("protected_worktree_paths", []))
+    for protected in HYDRA_CONFIG["deny_write_paths"]:
+        if not any(inside(protected, o) for o in own):
+            out.append(protected)
+    return out
 
 
 def path_candidates(token):

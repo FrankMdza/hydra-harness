@@ -486,6 +486,8 @@ impl Walk {
             self.worktree.as_deref(),
             self.store_sha.as_deref(),
             &self.gate,
+            policies,
+            Provider::Claude,
         );
         // Once per record, before any decision, so a reader sees what the
         // derivation stood in for ahead of what it derived.
@@ -588,7 +590,7 @@ impl Walk {
                         decision,
                         verdict_decision(verdict.allowed),
                     )));
-                } else if let Some(limit) = spawn.stood_in(&format!(
+                } else if let Some(limit) = spawn.cannot_back(&format!(
                     "the gate answered {:?} for {call_id} ({tool}) and the derivation says {:?}",
                     decision,
                     verdict_decision(verdict.allowed),
@@ -645,7 +647,7 @@ impl Walk {
                             "{call_id} ({tool}) named no path the replay could judge and \
                              the provider answered an error, so whether it ran is unknown"
                         )));
-                    } else if let Some(limit) = spawn.stood_in(&format!(
+                    } else if let Some(limit) = spawn.cannot_back(&format!(
                         "the policy denies {call_id} ({tool}) and nothing in the record refused it"
                     )) {
                         self.findings.push(limit);

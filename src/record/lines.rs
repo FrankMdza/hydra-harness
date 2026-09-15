@@ -37,6 +37,18 @@ pub struct RunStart {
     /// included, and null on a harness run and an interactive one, where no gate
     /// is compiled (contract 5.5 and 5.6).
     pub floor_lifted: Option<bool>,
+    /// The sha256 of the gate script this run was launched with, contract 5.1
+    /// and build ticket 49. `None` on a record written before the field, and on
+    /// a run that compiled no gate.
+    ///
+    /// The gate's code is not the policy set: `policy_sha` moves when a policy
+    /// changes and stands still when the deny list, the floor's parser or the
+    /// shell check changes in Rust or in `gate.py`. Without this, contract 7.7's
+    /// re-evaluation compares today's gate against yesterday's decisions and
+    /// calls the difference a leak, which it did three times on 2026-09-12 and
+    /// once more on 2026-09-14.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate_sha: Option<String>,
     /// The absolute paths the gate resolved its scopes to, keyed by scope name
     /// (contract 5.1). Absent, never null, on a run that compiled no gate, and a
     /// key the run had no path for is absent from the object.
@@ -172,6 +184,22 @@ impl RunEnd {
     /// The codes live in one place rather than in each check that writes one, so
     /// the derivation in [`crate::outcome`] reads the same strings the writer
     /// wrote. [`crate::run::refuse`] is the only caller.
+    /// A harness run's end. Contract 6: `body_source` is null, because a pass
+    /// owns no pty and tees no frames; the eight harness records written before
+    /// 2026-09-14 say `stream` and are the only place the corpus contradicts a
+    /// contract table.
+    pub fn harness(exit_code: Option<i32>, error: Option<String>) -> Self {
+        Self {
+            kind: "run_end",
+            exit_code,
+            error,
+            refusal: None,
+            remediation: None,
+            body_source: None,
+            ended_at: now(),
+        }
+    }
+
     pub fn refused(refusal: Refusal, remediation: impl Into<String>) -> Self {
         Self {
             kind: "run_end",

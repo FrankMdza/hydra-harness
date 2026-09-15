@@ -81,6 +81,43 @@ fn proposer_record(fixture: &Fixture, run_id: &str, frames: &[Value]) {
 }
 
 #[test]
+fn a_harness_run_ends_with_a_null_body_source() {
+    // Contract 6: a pass owns no pty and tees no frames. The eight harness
+    // records written before 2026-09-14 say `stream`, which is the only place
+    // the corpus was measured contradicting a contract table.
+    let dir = std::env::temp_dir().join(format!("hydra-harness-end-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("01a00000-0000-7000-8000-000000000000.jsonl");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "run_id": "01a00000-0000-7000-8000-000000000000",
+                "seq": 0,
+                "hydra": {"type": "run_start", "command": "evolve"}
+            })
+        ),
+    )
+    .unwrap();
+
+    hydra::ouroboros::evolve::write_harness_end(&path, Some(0), None).unwrap();
+
+    let last: serde_json::Value = serde_json::from_str(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .last()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(last["hydra"]["type"], "run_end");
+    assert!(last["hydra"]["body_source"].is_null(), "{}", last["hydra"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_proposer_whose_last_rate_limit_frame_is_rejected_aborts_before_any_judge() {
     // Spec 4.7. The status is under `rate_limit_info`, and until build ticket 41
     // the abort read the top of the frame and never fired.

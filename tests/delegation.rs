@@ -136,6 +136,7 @@ fn refuse(
         lineage,
         // No gate was compiled, so the refusal resolved no scope (contract 5.1).
         None,
+        None,
     ))
     .unwrap();
 
@@ -451,6 +452,7 @@ fn a_run_with_no_parent_is_depth_zero_and_bound_by_nothing() {
         None,
         None,
         &lineage,
+        None,
         None,
     ))
     .unwrap();

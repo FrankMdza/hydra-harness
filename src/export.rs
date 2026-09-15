@@ -34,7 +34,9 @@ pub struct Allowlist {
 impl Allowlist {
     pub fn load(path: &Path) -> Result<Self> {
         if !path.is_file() {
-            bail!("Write the export allowlist at config/export-allowlist.json before exporting.");
+            bail!(
+                "Write the export allowlist at config/export-allowlist.json before exporting. It is a JSON array of absolute repository paths, one per repo whose work may leave this machine; see config/export-allowlist.json.example."
+            );
         }
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -488,7 +490,8 @@ pub fn verify_export_line(line: &str) -> Result<()> {
 
 /// Prints the refusal when the allowlist is missing.
 pub fn refuse_missing_allowlist() -> String {
-    "Write the export allowlist at config/export-allowlist.json before exporting.".to_string()
+    "Write the export allowlist at config/export-allowlist.json before exporting. It is a JSON array of absolute repository paths, one per repo whose work may leave this machine; see config/export-allowlist.json.example."
+        .to_string()
 }
 
 #[cfg(test)]

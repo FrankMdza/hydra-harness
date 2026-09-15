@@ -412,9 +412,11 @@ pub fn resolve(worktree: &Path, _mcp: crate::mcp::Probe<'_>) -> Result<Resolved>
             .map(str::to_string)
             .collect()
     });
+    // The version is the one the behaviour was measured on, not the one running,
+    // which a reader on 1.2.2 read as Hydra being three releases behind.
     eprintln!(
-        "hydra: agy has no free route to its resolved MCP set on 1.1.26, so mcp.resolved is \
-         null on this run"
+        "hydra: agy offers no free route to its resolved MCP set (measured on 1.1.26 and \
+         unchanged since), so mcp.resolved is null on this run"
     );
     Ok(Resolved {
         skills,

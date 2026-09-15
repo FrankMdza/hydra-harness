@@ -48,13 +48,17 @@ the documented path for scripted use on all three, and `SECURITY.md` says what t
 still forbid.
 
 ```
-git clone <this repo> ~/hydra && cd ~/hydra
-cargo build --release
+git clone https://github.com/FrankMdza/hydra-harness ~/hydra && cd ~/hydra
+cargo build --release   # needs Rust 1.88 or newer, edition 2024
 alias hydra=~/hydra/target/release/hydra
 ```
 
-Hydra writes its runs, worktrees and skill store under `~/hydra/`, so the checkout and the
-data root are one directory on purpose. Measured against `claude` 2.1.267, `cursor-agent`
+**Hydra writes its runs, worktrees and skill store under `~/hydra/`, wherever the checkout
+lives.** The install path above makes the two the same directory on purpose. Clone it somewhere
+else and the binary still reads and writes `~/hydra`, which is somebody else's corpus if they
+have one: `hydra status` prints the root it read on its first line, and `HYDRA_ROOT=/some/dir`
+moves everything for one command. `policies/` and `config/` resolve through the source
+directory at compile time, so the binary is not relocatable away from its checkout. Measured against `claude` 2.1.267, `cursor-agent`
 2026.09.10 and `agy` 1.2.1; a drift test in `tests/drift.rs` fails when `claude` changes
 what the gate relies on.
 
@@ -75,7 +79,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 
 | Step | What happens |
 |---|---|
-| Pre-flight | auth, concurrency cap, skill collisions, MCP servers the policy admits. Anything missing refuses the launch |
+| Pre-flight | the binary is on PATH, the concurrency cap, skill name collisions, and the MCP servers the policy admits. Anything missing refuses the launch. An auth check is specified and not built, so a logged-out vendor fails in its own words rather than Hydra's |
 | Spawn | worktree from your tree, an immutable snapshot of the skill store linked in, the gate script compiled and written outside the checkout |
 | Run | a detached process owns the pty and tees every frame, verbatim, into the record |
 | End | `run_end` with the derived outcome, token usage, and the diff against the seeded tree |
@@ -93,7 +97,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `prune` | move records out of `runs/`; deletes only behind a flag |
 | `curate` | Ouroboros rung one: propose skill edits from the corpus |
 | `evolve` | Ouroboros rung two: a proposer, the admission gate, a panel of three, a branch |
-| `usage` | tokens across the corpus |
+| `usage recount` | tokens across the corpus, recounted from the records |
 | `export` | SFT and preference JSONL, the only path anything leaves this machine by |
 
 Two more exist and clap hides them: `watch`, the detached half, and `delegate-face`, an MCP

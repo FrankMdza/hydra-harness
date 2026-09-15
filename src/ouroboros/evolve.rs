@@ -640,6 +640,9 @@ pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> R
         hydra_version: env!("CARGO_PKG_VERSION").to_string(),
         command: "evolve".to_string(),
         launch_mode: None,
+        // A harness run compiles no gate; each child it spawns compiles its own
+        // (build ticket 49).
+        gate_sha: None,
         provider_version: None,
         provider_session_id: None,
         task: None,
@@ -676,7 +679,7 @@ pub fn write_harness_end(path: &Path, exit_code: Option<i32>, error: Option<&str
         None,
         crate::record::next_seq(path)?,
     )?;
-    writer.hydra_line(&RunEnd::streamed(exit_code, error.map(str::to_string)))?;
+    writer.hydra_line(&RunEnd::harness(exit_code, error.map(str::to_string)))?;
     Ok(())
 }
 

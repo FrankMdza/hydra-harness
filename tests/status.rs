@@ -106,6 +106,17 @@ fn dead_pid() -> u32 {
 }
 
 #[test]
+fn status_names_the_root_it_read_before_any_count() {
+    // A newcomer ran `status` in a clone and was shown 197 runs that were not
+    // theirs, with nothing saying whose they were. The root goes first.
+    let layout = sandbox("root-line");
+    write_run(&layout, "aaa", Some(std::process::id()), false);
+    let out = hydra::status::all(&layout).unwrap();
+    let first = out.lines().next().unwrap();
+    assert_eq!(first, format!("root {}", layout.root().display()), "{out}");
+}
+
+#[test]
 fn the_three_states_come_apart_on_the_pid_and_nothing_else() {
     let layout = sandbox("three");
     write_run(&layout, "aaa", Some(std::process::id()), false);

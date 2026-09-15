@@ -84,6 +84,17 @@ it.
 - [47 - Snapshot creation races when several runs launch on one store sha](47-snapshot-race-on-concurrent-launch.md)
 - [48 - Codex CLI as the fourth provider](48-codex-as-the-fourth-provider.md)
 - [49 - A gate whose code changed reads every older record as a leak](49-the-replay-cannot-tell-a-changed-gate-from-a-leak.md)
+- [50 - The binary is not relocatable and nothing says so](50-the-binary-is-not-relocatable.md)
+- [51 - The corpus walk ignores `HYDRA_ROOT`](51-the-corpus-walk-ignores-hydra-root.md)
+- [52 - The demo scripts only work in one checkout](52-the-demo-scripts-only-work-in-one-checkout.md)
+- [53 - Six contract sentences the code does not keep](53-six-contract-sentences-the-code-does-not-keep.md)
+- [54 - The validator checks less than the contract claims](54-the-validator-checks-less-than-the-contract-claims.md)
+- [55 - A finding means three different things](55-a-finding-means-three-different-things.md)
+- [56 - The shell check only saw whole tokens](56-the-shell-check-only-saw-whole-tokens.md)
+- [57 - A run can relaunch the binary and name its own policy](57-a-run-can-relaunch-hydra-and-name-its-own-policy.md)
+- [58 - The floor's `git` parser eats the wrong token](58-the-floor-git-parser-eats-the-wrong-token.md)
+- [59 - A shell with no command string, and an MCP path nobody checks](59-a-shell-with-no-command-string-and-an-mcp-path-nobody-checks.md)
+- [60 - The compiler and the gate fold case differently](60-the-compiler-and-the-gate-fold-case-differently.md)
 
 ## Out of scope
 

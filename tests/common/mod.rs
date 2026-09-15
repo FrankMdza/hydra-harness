@@ -103,6 +103,11 @@ pub struct Shape<'a> {
     /// record written before build ticket 15 has, and the reader reads that as
     /// false.
     pub floor_lifted: Option<bool>,
+    /// Contract 5.1's `gate_sha`, build ticket 49. `None` leaves the field off,
+    /// which is what every record written before that ticket carries and what
+    /// the reader treats as a gate it cannot name. A fixture that wants a leak
+    /// or a disagreement reported has to carry [`gate_sha_of`].
+    pub gate_sha: Option<String>,
     /// Map ticket 49's `worktree.base_tree`, the sha `git write-tree` answered
     /// against the seed index at launch. `None` is what every record written
     /// before build ticket 23 looks like, and what a run with no worktree
@@ -126,6 +131,7 @@ impl Default for Shape<'_> {
             store_sha: None,
             scopes: None,
             floor_lifted: None,
+            gate_sha: None,
             base_tree: None,
         }
     }
@@ -147,6 +153,44 @@ pub fn scopes_of(layout: &Layout, run_id: &str, policy: &str, worktree: &Path) -
         scopes["skill_checkout"] = json!(layout.skill_checkout(run_id).to_string_lossy());
     }
     scopes
+}
+
+/// The `gate_sha` a launch under this layout would write, build ticket 49.
+///
+/// Contract 7.7's re-evaluation compiles the gate for the spawn it rebuilds off
+/// the record and compares. A fixture that wants a leak or a disagreement
+/// reported has to carry the sha of the gate this build compiles, so the paths
+/// here are the ones [`scopes_of`] writes, read back the same way the replay
+/// reads them. Pass a different string to build a record from a foreign gate.
+pub fn gate_sha_of(
+    layout: &Layout,
+    run_id: &str,
+    policy: &str,
+    provider: hydra::provider::Provider,
+    worktree: &Path,
+) -> String {
+    let checkout = (policy == "curate").then(|| layout.skill_checkout(run_id));
+    hydra::policy::gate_sha(
+        &hydra::policy::PolicySet::discover().expect("the shipped policy set loads"),
+        &hydra::policy::Spawn {
+            provider,
+            policy,
+            layout,
+            worktree,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
+            // `scopes_of` writes no `skills` object, so the replay recomputes
+            // this scope from a store sha that is not there.
+            skill_snapshot: &layout.skill_snapshot_scope(run_id, None),
+            skill_checkout: checkout.as_deref(),
+            // `scopes_of` carries no `parent_git_dir`, and a record that carries
+            // a `scopes` object answers the key by leaving it out.
+            parent_git_dir: None,
+            gate_script: &layout.gate_script(run_id),
+            floor_lifted: false,
+        },
+    )
+    .expect("the gate compiles for a fixture's spawn")
 }
 
 /// Every finding but the one a record with no `scopes` on it earns.
@@ -198,12 +242,23 @@ impl Record {
     /// to say which paths the gate had.
     pub fn gated(sandbox: &Sandbox, provider: &str, policy: &str, policy_sha: &str) -> Self {
         let worktree = sandbox.worktree();
+        let layout = sandbox.layout();
         Self::shaped(Shape {
             provider: Some(provider),
             policy: Some(policy),
             policy_sha: Some(policy_sha),
             worktree: Some(&worktree),
-            scopes: Some(scopes_of(&sandbox.layout(), RUN_ID, policy, &worktree)),
+            scopes: Some(scopes_of(&layout, RUN_ID, policy, &worktree)),
+            // Build ticket 49: a leak and a disagreement are reported only on a
+            // record that names the gate this build compiles, so the helper
+            // whose whole point is a reportable finding names it.
+            gate_sha: Some(gate_sha_of(
+                &layout,
+                RUN_ID,
+                policy,
+                provider.parse().expect("a fixture names a routed provider"),
+                &worktree,
+            )),
             ..Shape::default()
         })
     }
@@ -261,6 +316,9 @@ impl Record {
         }
         if let Some(lifted) = shape.floor_lifted {
             start["floor_lifted"] = json!(lifted);
+        }
+        if let Some(sha) = shape.gate_sha {
+            start["gate_sha"] = json!(sha);
         }
         record.line("hydra", start);
         record

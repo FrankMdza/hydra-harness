@@ -7,7 +7,7 @@ earns it.
 | File | Config | Exists |
 |---|---|---|
 | `env-allowlist.json` | #2, the environment allowlist | no, it is still Rust in `src/env.rs` |
-| `export-allowlist.json` | #3, the export allowlist | no. `hydra export` has been built since build ticket 34 and refuses to run without this file |
+| `export-allowlist.json` | #3, the export allowlist | no. `hydra export` has been built since build ticket 34 and refuses to run without this file. `export-allowlist.json.example` beside it is the shape: a JSON array of absolute repository paths, one per repo whose work may leave this machine. A relative path is refused |
 | `preamble.md` | #4, the instruction preamble | yes |
 | `mcp.md` | #5, the canonical MCP document | yes, and it declares no server |
 

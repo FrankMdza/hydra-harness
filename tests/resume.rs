@@ -172,6 +172,7 @@ fn run_start_on_a_resume_carries_command_and_resumed_from() {
         None,
         &lineage,
         None,
+        None,
     );
     assert_eq!(start.command, "resume");
     assert_eq!(start.resumed_from.as_deref(), Some("old-run"));

@@ -59,6 +59,10 @@ pub fn all_in(layout: &Layout, home: &Path) -> Result<String> {
         .collect();
     let ended = views.iter().filter(|v| v.state == State::Ended).count();
 
+    // The root, before any count. A checkout that is not `~/hydra` still reads
+    // and writes `~/hydra`, and a newcomer running `status` in a clone was
+    // shown 197 runs that were not theirs with nothing saying whose they were.
+    out.push_str(&format!("root {}\n", layout.root().display()));
     out.push_str(&format!("live {}\n", live.len()));
     for view in &live {
         out.push_str(&format!("  {}\n", one_line(view)));

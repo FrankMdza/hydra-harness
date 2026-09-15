@@ -22,6 +22,10 @@ const POLL: std::time::Duration = std::time::Duration::from_millis(100);
 /// `out` is where the bytes go, which is stdout for the command and a buffer for
 /// the suite. Nothing here formats, so the two are the same run of bytes.
 pub fn logs(layout: &Layout, run_id: &str, follow: bool, out: &mut dyn Write) -> Result<()> {
+    // The quick start teaches a prefix two lines above the `logs` example, so it
+    // has to work here too. Build ticket 39 put the resolver behind `show` and
+    // `reap` and stopped there.
+    let run_id = &crate::resolver::resolve(layout, run_id)?;
     let path = layout.run_file(run_id);
     if !path.is_file() {
         bail!("no run record at {}", path.display());

@@ -490,6 +490,8 @@ impl Walk {
             self.worktree.as_deref(),
             self.store_sha.as_deref(),
             &self.gate,
+            policies,
+            Provider::CursorAgent,
         );
         // Once per record, before any decision, so a reader sees what the
         // derivation stood in for ahead of what it derived.
@@ -584,7 +586,7 @@ impl Walk {
                                 "{call_id} ({tool}) named no path the replay could judge and \
                                  the provider answered an error, so whether it ran is unknown"
                             )));
-                        } else if let Some(limit) = spawn.stood_in(&format!(
+                        } else if let Some(limit) = spawn.cannot_back(&format!(
                             "the policy denies {call_id} ({tool}) and nothing in the record \
                              refused it"
                         )) {
@@ -620,7 +622,7 @@ impl Walk {
                                 )));
                             }
                             Some(code) => {
-                                match spawn.stood_in(&format!(
+                                match spawn.cannot_back(&format!(
                                     "the gate allowed {call_id} ({tool}) and the derivation \
                                      denies it"
                                 )) {
@@ -669,7 +671,7 @@ impl Walk {
                                  allows it, under a policy_sha that is no longer today's, \
                                  so the two answered about two policies"
                             )));
-                        } else if let Some(limit) = spawn.stood_in(&format!(
+                        } else if let Some(limit) = spawn.cannot_back(&format!(
                             "the gate denied {call_id} ({tool}) and the derivation allows it"
                         )) {
                             self.findings.push(limit);

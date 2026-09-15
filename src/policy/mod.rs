@@ -637,6 +637,46 @@ pub fn protected_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
 /// root is not refused, because `cat .claude/skills/x/SKILL.md` is how
 /// `cursor-agent` and `agy` read a skill, and `ls -la .claude/skills/` on run
 /// 01a09405-f451 is what a first version of build ticket 44 refused.
+/// Every spelling of every denied path this spawn does not own.
+///
+/// The raw pass of `protected_path_named_by` searches a command for these as
+/// substrings, which is how it catches a path spelled in full inside a larger
+/// token: `sh -c 'cat /…/runs/x'` is one token to shlex and names the corpus in
+/// full. A substring search cannot resolve anything, so both the resolved form
+/// and the literal one go in; on macOS a temporary directory is reachable as
+/// `/var/folders/...` and as `/private/var/folders/...` and a command may use
+/// either.
+fn denied_spellings(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
+    let own: Vec<String> = own_write_paths(spawn).iter().map(|p| resolved(p)).collect();
+    // A denied path with one of this spawn's own paths under it cannot go on
+    // this list: `~/hydra/worktrees` is denied and the run's own worktree lives
+    // in it, so a substring search would refuse the run's own working
+    // directory. `protected_root` expresses that carve-out and a substring
+    // cannot, so those paths are left to the token pass and the residual is
+    // written down in `gate.py` rather than papered over.
+    let holds_own = |path: &str| {
+        own.iter()
+            .any(|o| o == path || o.starts_with(&format!("{}/", path.trim_end_matches('/'))))
+    };
+    let mut out: Vec<String> = Vec::new();
+    let push = |path: &Path, out: &mut Vec<String>| {
+        for spelling in [resolved(path), casefold(path)] {
+            if !spelling.is_empty() && !out.contains(&spelling) {
+                out.push(spelling);
+            }
+        }
+    };
+    for path in protected_worktree_paths(spawn.worktree) {
+        push(&path, &mut out);
+    }
+    for path in denied_write_paths(set, spawn) {
+        if !holds_own(&resolved(&path)) {
+            push(&path, &mut out);
+        }
+    }
+    out
+}
+
 pub fn write_denied_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
     use crate::provider::Provider;
     [Provider::Claude, Provider::CursorAgent, Provider::Agy]
@@ -751,6 +791,13 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
             .iter()
             .map(|p| resolved(p))
             .collect::<Vec<_>>(),
+        // Every spelling of a denied path the raw shell pass looks for, build
+        // ticket 56. Two forms per path, because `/var/folders/...` and the
+        // `/private/var/folders/...` it resolves to are both things a command
+        // can write down, and a substring search cannot resolve either one.
+        // The own carve-out is applied here, so a run naming its own worktree
+        // is not refused.
+        "denied_spellings": denied_spellings(set, spawn),
         // The matching read carve-out. Empty on every provider but
         // `cursor-agent`, whose own `cursor-data/` is the one path under the
         // spawn directory a gated tool call has reason to open.
@@ -791,6 +838,20 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
 ///
 /// It is written before the child starts and never rewritten, which is 6.6's
 /// "real files, never links, rewritten at every spawn" for the script side.
+/// The sha256 of the gate this build compiles for `spawn`.
+///
+/// The same bytes [`write_gate`] puts on disk, which is what `src/run.rs`
+/// hashes back off the file and writes on `run_start` as `gate_sha`. Contract
+/// 7.7's re-evaluation calls this to ask whether the gate it is about to
+/// compile is the gate that answered, build ticket 49.
+pub fn gate_sha(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(compile(set, spawn)?.as_bytes())
+    ))
+}
+
 pub fn write_gate(set: &PolicySet, spawn: &Spawn<'_>) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 

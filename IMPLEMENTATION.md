@@ -135,8 +135,26 @@ three providers read a skill, so the roots are denied to writes and to nothing e
 the ordinary write still allowed, the compiled list resolved inside the worktree, and the
 shell forms. One consequence to know about: `hydra show` re-derives every recorded decision
 through the same compiler, so a record in which a run wrote one of these files and was allowed
-reads as a gate leak now. `policy_sha` did not move, because the list is code rather than a
-file under `policies/`.
+read as a gate leak the day this landed. `policy_sha` did not move, because the list is code
+rather than a file under `policies/`. That is what build ticket 49 answered with `gate_sha`,
+and a record written before the field now reads as a limit rather than a leak.
+
+**The shell check reads the command twice since build ticket 56.** The token pass resolves each
+`shlex` token, which is what catches a relative path and a symlink, and it sees whole tokens
+only. So a denied path spelled in full inside a larger one walked through: `sh -c 'cat
+<corpus>/x.jsonl'` is one token, and so is `python3 -c "open('<corpus>/x','w')"`. Verified
+against the real compiled gate of run `01a0a07b-e8a6`, where the bare `cat` was refused and the
+`sh -c` was allowed. A raw pass now runs first and searches the case-folded command for each
+denied path as a substring. `denied_spellings` in `src/policy/mod.rs` emits two forms per path,
+resolved and literal, because on macOS `/var/folders/...` and the `/private/var/folders/...` it
+resolves to are both things a command can write down and a substring search resolves nothing.
+
+The residual is written down in `gate.py` beside the code. A denied path with one of the
+spawn's own paths under it cannot go on the raw list: `~/hydra/worktrees` is denied while the
+run's own worktree sits inside it, and a substring search cannot say "this one and not that
+one". So a sibling run's worktree spelled inside a larger token still reaches the token pass
+and still walks through. The corpus, the store, the snapshots, the spawn directory and the
+per-run config files carry no own path and are covered.
 
 ## The commands
 
@@ -1702,15 +1720,32 @@ while `worktree` was the only thing a run owned outright, but a fallback that wi
 let a replay treat the whole working directory as the run's own now that a spawn can own
 a checkout too. The three normalizers mirror the launch's fallback since build ticket 14.
 
-**`policy_sha` does not cover the gate script.** It hashes `policies/`, and the rules
-that read a policy live in `src/policy/gate.py`. It does not cover the paths the script
-was compiled against either, and `scopes` and `floor_lifted` are what carry those since
-build ticket 15, so the only input to `policy::compile` a record still leaves to the
-reader is the gate code itself, which `hydra_version` dates. A record can therefore
-re-evaluate against gate code that changed while its sha matched, and what reports that is
-a disagreement rather than a stale policy. All nine records on this machine re-evaluate to
-the verdict their gate gave, including the two shell calls ticket 06's measurement left,
-and `tests/normalize.rs` asserts it per call rather than in aggregate.
+**`policy_sha` does not cover the gate script, and `gate_sha` does.** `policy_sha` hashes
+`policies/`, and the rules that read a policy live in Rust and in `src/policy/gate.py`.
+Four times, three of them on 2026-09-12 and one on 2026-09-14, a change to that code turned
+every record written before it into a gate leak while `policy_sha` stood still. Build
+ticket 49 put `gate_sha` on `run_start`: the sha256 of the compiled script's bytes, which
+carry the policy, the deny list, the scopes the spawn resolved and the Python itself.
+`src/run.rs` hashes the file it wrote; `policy::gate_sha` compiles the same bytes without
+writing them, and contract 7.7's re-evaluation calls it once per record to ask whether the
+gate it is about to compile is the gate that answered.
+
+Three marks come out of that, in `GateMark`. `Todays` is the record whose sha is the sha
+this build compiles, and only that record can report a `GateLeak` or a `Disagreement`.
+`Foreign` names a gate whose code has changed since. `Unnamed` is every record written
+before the field, which is all 207 on this machine today, and every run that compiled no
+gate. The last two downgrade the finding to a `Limit` that says which mark is missing.
+
+`ReplaySpawn::cannot_back` is the one door all seven call sites in the three normalizers go
+through, so the adapters cannot drift apart on which question they ask, which is one axis of
+build ticket 55 closed. It names every reason rather than the first: a record can lack the
+gate mark and have had its scopes rebuilt, and a reader fixing one wants to know about the
+other before re-running.
+
+**Two places still write `gate_sha: null`.** The interactive path in `src/interactive.rs`
+compiles a gate on its gated arm and does not thread the sha out of `prepare`, so a gated
+interactive run reads back as `Unnamed`. The harness record `hydra evolve` writes compiles
+no gate at all, and null is the truth there. The comments in both files say so.
 
 **`parent_run_id` is lifted off the envelope onto the normalized run.** Contract 4
 puts it there rather than in the body, because the parent writes it at spawn and

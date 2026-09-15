@@ -1,0 +1,16 @@
+# Reviews
+
+What people and agents found when they went looking, with the date and the method. A review
+here is evidence, not a plan: what it produced goes into a ticket, and the ticket is where the
+decision lives.
+
+The rule for publishing one: a finding that is fixed, or that `SECURITY.md` already states as a
+known limit, goes in with its detail. A real hole that is still open is named as held, with its
+ticket number and nothing a reader could use before the fix lands. Every report says which of
+those it is doing.
+
+| Date | Review | Method |
+|---|---|---|
+| 2026-09-14 | [First ten minutes](2026-09-14-first-ten-minutes.md) | a cold clone follows the README, one real run, docs read as a newcomer |
+| 2026-09-14 | [The record contract against the code](2026-09-14-record-contract-conformance.md) | field by field, then 200 records, then the three readers against each other |
+| 2026-09-14 | [The gate under attack](2026-09-14-the-gate-under-attack.md) | an agent told to find a way out, driving the real compiled gate of a live run |

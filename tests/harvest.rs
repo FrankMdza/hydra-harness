@@ -50,6 +50,7 @@ fn open_interactive_run(layout: &Layout, run_id: &str, session: &str, cwd: &Path
         policy: None,
         policy_sha: None,
         floor_lifted: None,
+        gate_sha: None,
         scopes: None,
         cwd: cwd.display().to_string(),
         worktree: None,
@@ -99,6 +100,7 @@ fn open_gated_interactive_run(
         policy: Some(policy.to_string()),
         policy_sha: Some(policies.sha().to_string()),
         floor_lifted: Some(false),
+        gate_sha: None,
         scopes: Some(std::collections::BTreeMap::from([(
             "worktree".to_string(),
             cwd.display().to_string(),

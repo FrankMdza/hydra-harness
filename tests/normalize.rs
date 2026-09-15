@@ -2500,6 +2500,83 @@ fn a_call_the_policy_denies_that_this_provider_ran_is_a_leak() {
     );
 }
 
+/// The same leak, on a record that names a gate this build did not compile.
+///
+/// Build ticket 49. `policy_sha` cannot answer this: the deny list, the floor's
+/// parser and the shell check live in Rust and in `gate.py`, and a change to any
+/// of them leaves every policy file untouched. It happened three times on
+/// 2026-09-12 and once on 2026-09-14, and each time the corpus walk called a
+/// run from that morning a gate that leaked.
+#[test]
+fn a_leak_on_a_record_from_another_gate_is_a_limit_and_never_a_leak() {
+    let sandbox = Sandbox::new("gate-sha");
+    let worktree = sandbox.worktree();
+    let layout = sandbox.layout();
+    let leaking = |gate_sha: Option<String>| {
+        let text = Record::shaped(Shape {
+            provider: Some("agy"),
+            policy: Some("read-only"),
+            policy_sha: Some(policies().sha()),
+            worktree: Some(&worktree),
+            scopes: Some(common::scopes_of(&layout, RUN_ID, "read-only", &worktree)),
+            gate_sha,
+            ..Shape::default()
+        })
+        .agy_user()
+        .agy_tool_ok(
+            2,
+            "run_command",
+            json!({ "CommandLine": "echo T49MARKER" }),
+            "T49MARKER",
+        )
+        .agy_result("SUCCESS", "", None)
+        .closed();
+        hydra::normalize::read_with(&text, &policies(), &layout).unwrap()
+    };
+
+    let todays = common::gate_sha_of(
+        &layout,
+        RUN_ID,
+        "read-only",
+        hydra::provider::Provider::Agy,
+        &worktree,
+    );
+
+    // Today's gate. The run really did let a denied command through, and
+    // nothing about the record stops the reader saying so.
+    let named = leaking(Some(todays.clone()));
+    assert!(
+        named.findings.iter().any(
+            |finding| matches!(finding, Finding::GateLeak { tool, .. } if tool == "run_command")
+        ),
+        "a record naming today's gate lost its leak: {:?}",
+        named.findings
+    );
+
+    // A gate whose code has changed since, and a record from before the field
+    // existed. Neither can back the claim, and each says which mark it lacks.
+    for (what, run) in [
+        ("a foreign gate", leaking(Some(format!("{}f", &todays[1..])))),
+        ("no gate at all", leaking(None)),
+    ] {
+        assert!(
+            !run.findings
+                .iter()
+                .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+            "{what}: the reader claimed a leak it cannot back: {:?}",
+            run.findings
+        );
+        assert!(
+            run.findings.iter().any(|finding| matches!(
+                finding,
+                Finding::Limit(said) if said.contains("run_command") && said.contains("gate")
+            )),
+            "{what}: no limit stood in for the leak: {:?}",
+            run.findings
+        );
+    }
+}
+
 #[test]
 fn usage_is_the_sum_of_the_steps_and_no_frame_names_it() {
     // Contract 9.2. The four step usages of the measured run, and the

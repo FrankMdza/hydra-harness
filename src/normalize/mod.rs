@@ -524,6 +524,9 @@ pub(crate) struct RecordedGate {
     /// worktree".
     scopes: Option<std::collections::BTreeMap<String, PathBuf>>,
     floor_lifted: bool,
+    /// Contract 5.1's `gate_sha`, build ticket 49. `None` on every record
+    /// written before the field existed.
+    gate_sha: Option<String>,
 }
 
 impl RecordedGate {
@@ -539,6 +542,7 @@ impl RecordedGate {
             // Harness spec 16's flag, and false is what a record without it
             // means: the floor was in force, which is the shape ticket 03 left.
             floor_lifted: body["floor_lifted"].as_bool().unwrap_or(false),
+            gate_sha: body["gate_sha"].as_str().map(str::to_string),
         }
     }
 
@@ -548,6 +552,62 @@ impl RecordedGate {
 
     fn carries_scopes(&self) -> bool {
         self.scopes.is_some()
+    }
+
+    /// The sha the record says its gate had, if it says one.
+    ///
+    /// The gate's code is not the policy set. `policy_sha` moves when a policy
+    /// changes and stands still when the deny list, the floor's parser or the
+    /// shell check changes, so a record without `gate_sha` cannot tell today's
+    /// gate from the one that ran. Build ticket 49 and
+    /// `docs/reviews/2026-09-14-the-gate-under-attack.md`.
+    fn named_gate(&self) -> Option<&str> {
+        self.gate_sha.as_deref()
+    }
+}
+
+/// What a record says about the gate that answered for it, build ticket 49.
+///
+/// The sha is of the compiled script's bytes, which carry the policy, the deny
+/// list, the scopes this spawn resolved and the Python the gate runs. So it
+/// moves when any of those move, and `policy_sha` beside it moves only when a
+/// policy does. Two marks and no third: either this build compiles the same
+/// bytes the run was launched with or it does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GateMark {
+    /// No `gate_sha` on `run_start`. Every record written before build ticket
+    /// 49, and every run that compiled no gate.
+    Unnamed,
+    /// The record names the gate this build compiles for the same spawn.
+    Todays,
+    /// The record names a gate whose bytes are not the ones compiled here.
+    Foreign,
+}
+
+impl GateMark {
+    /// Compiles the gate this build would write for `spawn` and compares.
+    ///
+    /// A policy that will not compile is `Foreign` rather than `Todays`: the
+    /// adapter reports the compile failure on its own line, and until it does
+    /// nothing here may claim a leak. The sha is taken over the same bytes
+    /// `write_gate` puts on disk, which is what `src/run.rs` hashes back.
+    fn of(recorded: Option<&str>, set: &crate::policy::PolicySet, spawn: &Spawn<'_>) -> Self {
+        let Some(recorded) = recorded else {
+            return Self::Unnamed;
+        };
+        match crate::policy::gate_sha(set, spawn) {
+            Ok(today) if today == recorded => Self::Todays,
+            _ => Self::Foreign,
+        }
+    }
+
+    /// Why this mark leaves a finding unbacked, as one clause, or `None`.
+    fn why_not(self) -> Option<&'static str> {
+        match self {
+            Self::Todays => None,
+            Self::Unnamed => Some("the record does not say which gate answered for it"),
+            Self::Foreign => Some("the gate it names is not the one compiled here"),
+        }
     }
 }
 
@@ -578,6 +638,8 @@ pub(crate) struct ReplaySpawn<'a> {
     parent_git_dir: Option<PathBuf>,
     gate_script: PathBuf,
     floor_lifted: bool,
+    /// What the record says about the gate that answered for it, build ticket 49.
+    gate: GateMark,
     /// The scope names this rebuilt rather than read, in the order the compile
     /// takes them.
     rebuilt: Vec<&'static str>,
@@ -597,6 +659,8 @@ impl<'a> ReplaySpawn<'a> {
         worktree: Option<&Path>,
         store_sha: Option<&str>,
         gate: &RecordedGate,
+        policies: &crate::policy::PolicySet,
+        provider: Provider,
     ) -> Self {
         let here = cwd
             .or(worktree)
@@ -665,7 +729,7 @@ impl<'a> ReplaySpawn<'a> {
             (checkout, found)
         };
 
-        Self {
+        let mut replay = Self {
             layout,
             policy: policy.to_string(),
             cwd: here,
@@ -682,9 +746,17 @@ impl<'a> ReplaySpawn<'a> {
             parent_git_dir,
             gate_script,
             floor_lifted: gate.floor_lifted,
+            // Filled below, once there is a spawn to compile a gate from.
+            gate: GateMark::Unnamed,
             rebuilt,
             parent_git_dir_lost,
-        }
+        };
+        // The gate the record names, against the gate this build compiles for
+        // the same spawn. Once per record: `compile` is string building over a
+        // dozen resolved paths, and the corpus walk reads two hundred records.
+        let mark = GateMark::of(gate.named_gate(), policies, &replay.spawn(provider));
+        replay.gate = mark;
+        replay
     }
 
     /// The directory the run worked in, which is what a path in a tool call
@@ -720,28 +792,49 @@ impl<'a> ReplaySpawn<'a> {
         Some(Finding::Limit(said))
     }
 
-    /// A finding about one call, downgraded because a path it was decided
-    /// against was rebuilt rather than read.
+    /// The limit that stands in for a finding this record cannot back, or
+    /// `None` when it can.
     ///
     /// **The same shape [`policy_moved`] gives `StalePolicy`, and the same
     /// argument.** A `GateLeak` and a `Disagreement` both claim the gate and the
-    /// derivation answered the same question and differed. Rebuild one of the
-    /// paths the question resolves against and they did not: the derivation
-    /// answered about a gate compiled from this build's layout. Map ticket 42's
-    /// decision 5 chose this cost out loud, so a record with no `scopes` cannot
-    /// report a leak, and `src/ouroboros/corpus.rs` keeps limits out of the
-    /// weighted `signals.disagreements` a brief ranks on.
+    /// derivation answered the same question and differed. Two things make that
+    /// claim unbackable, and this is the one door every caller goes through so
+    /// that the three adapters cannot drift apart on which of them they ask.
     ///
-    /// `None` when every path came off the record, which is when the two really
-    /// did answer the same question.
-    pub(crate) fn stood_in(&self, what: &str) -> Option<Finding> {
-        if self.rebuilt.is_empty() {
+    /// The gate question is the larger doubt: a record that does not say which
+    /// gate answered, or that names one whose bytes are not the ones compiled
+    /// here, was decided by code this build no longer has.
+    /// A change to the deny list, the floor's parser or the shell check turned
+    /// every older record into a leak three times on 2026-09-12 and once on
+    /// 2026-09-14, and `policy_sha` stood still through all four. Build ticket 49.
+    ///
+    /// The scopes question is map ticket 42's decision 5: rebuild one of the
+    /// paths the question resolves against and the derivation answered about a
+    /// gate compiled from this build's layout. That cost was chosen out loud, so
+    /// a record with no `scopes` cannot report a leak, and
+    /// `src/ouroboros/corpus.rs` keeps limits out of the weighted
+    /// `signals.disagreements` a brief ranks on.
+    pub(crate) fn cannot_back(&self, what: &str) -> Option<Finding> {
+        // Every reason, not the first one. Both can be true of one record, and
+        // a reader fixing the record wants to know it carries neither mark
+        // rather than discovering the second after supplying the first.
+        let mut why: Vec<String> = Vec::new();
+        if let Some(said) = self.gate.why_not() {
+            why.push(said.to_string());
+        }
+        if !self.rebuilt.is_empty() {
+            why.push(format!(
+                "the scopes it was decided against were rebuilt here ({}) rather than \
+                 read off the record",
+                self.rebuilt.join(", ")
+            ));
+        }
+        if why.is_empty() {
             return None;
         }
         Some(Finding::Limit(format!(
-            "{what}, and the scopes it was decided against were rebuilt here ({}) \
-             rather than read off the record, so the two answered about two gates",
-            self.rebuilt.join(", ")
+            "{what}, and {}, so the two answered about two gates",
+            why.join(", and ")
         )))
     }
 

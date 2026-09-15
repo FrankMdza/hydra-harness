@@ -288,6 +288,10 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 
 - [58 - Codex CLI as the fourth provider](issues/58-codex-as-the-fourth-provider.md): measured on 0.154.0 without logging in. It has a `PreToolUse` hook in Claude's dialect, honours the exact deny shape `gate.py` writes, streams JSONL under `exec --json`, and signs in with a ChatGPT account. Routable with a compiled gate; three costs named, hook trust, no read tool, fail-open unmeasured. Build ticket 48.
 
+- [61 - Should a checkout and a data root be the same directory?](issues/61-a-checkout-and-a-data-root.md): opened 2026-09-14 after a cold-clone review ran the quick start in `/tmp` and was shown 197 runs it had not made. `HYDRA_ROOT` and a root line on `status` patch the symptom; whether the corpus belongs to the machine or to the checkout is the question, and `hydra doctor` is the shape of the answer the reviewer asked for.
+
+- [62 - Containment by argv, or by the operating system?](issues/62-containment-by-argv-or-by-uid.md): opened 2026-09-14 after an adversarial review found five holes in the gate, three of them the same bug in three spellings. The alternative is a second uid and file modes, which is the first thing in this design that needs something from the machine. What Hydra claims, containment or evidence or both, wants deciding before the repository is public.
+
 
 ## Not yet specified
 

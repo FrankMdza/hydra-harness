@@ -23,10 +23,12 @@ Hydra made about it.
 
 ## Known exposures, stated before someone else does
 
-- **A run can rewrite the hook config inside its worktree.** On `cursor-agent` the config Hydra
-  writes is `<worktree>/.cursor/hooks.json`, and `standard` may write anywhere in the worktree.
-  Build ticket 44 denies those paths under every policy. Until it lands, treat a `cursor-agent`
-  run under `standard` as gated by a file it could edit.
+- **A run's own hook config is denied to it, since 2026-09-12.** On `cursor-agent` the config
+  Hydra writes is `<worktree>/.cursor/hooks.json`, and `standard` may write anywhere in the
+  worktree, so before build ticket 44 a run could rewrite the file that points at its gate.
+  Those paths are refused under every policy now, on every provider's gate. The skill roots
+  Hydra links are denied to writes and stay readable, because a shell command naming one is how
+  two of the three providers read a skill.
 - **The gate is only as good as the vendor build.** It lives in the vendor's own hook dialect,
   and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`

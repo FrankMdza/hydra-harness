@@ -417,6 +417,7 @@ pub fn run(request: Request) -> Result<Call> {
             None,
             &lineage,
             None,
+            None,
         ))?;
         return refuse(
             &run_file,
@@ -548,7 +549,8 @@ pub fn run(request: Request) -> Result<Call> {
     // rule applies: the key is absent rather than filled with what the compile
     // would have produced had it run.
     let line_zero = |mcp_resolved: Option<&[String]>,
-                     scopes: Option<&std::collections::BTreeMap<String, String>>|
+                     scopes: Option<&std::collections::BTreeMap<String, String>>,
+                     gate_sha: Option<&str>|
      -> Result<serde_json::Value> {
         let start = run_start(
             &request,
@@ -566,6 +568,7 @@ pub fn run(request: Request) -> Result<Call> {
             )),
             &lineage,
             scopes.cloned(),
+            gate_sha.map(str::to_string),
         );
         Ok(serde_json::to_value(&start)?)
     };
@@ -583,7 +586,7 @@ pub fn run(request: Request) -> Result<Call> {
             &run_file,
             &run_id,
             request.provider,
-            &line_zero(injected.mcp_resolved.as_deref(), None)?,
+            &line_zero(injected.mcp_resolved.as_deref(), None, None)?,
             crate::record::Refusal::SkillCollision,
             remediation,
             &policies,
@@ -625,7 +628,7 @@ pub fn run(request: Request) -> Result<Call> {
     };
     // No gate is compiled yet, so the two refusals below write a line 0 with no
     // `scopes` on it. The launched path recomposes it after `write_spawn_config`.
-    let refused_line_zero = line_zero(mcp_resolved.as_deref(), None)?;
+    let refused_line_zero = line_zero(mcp_resolved.as_deref(), None, None)?;
 
     // 6.1 item 6, one item after it. A run whose policy admits a server this
     // launch cannot deliver is refused rather than launched short, which is
@@ -696,7 +699,11 @@ pub fn run(request: Request) -> Result<Call> {
     // Line 0 again, now that the gate has been compiled and the paths it
     // resolved are known. Everything above it wrote `refused_line_zero`, which
     // carries no `scopes` because no gate existed to name any.
-    let line_zero = line_zero(mcp_resolved.as_deref(), Some(&spawn.scopes))?;
+    let line_zero = line_zero(
+        mcp_resolved.as_deref(),
+        Some(&spawn.scopes),
+        Some(&spawn.gate_sha),
+    )?;
 
     // **The gate mount is checked on `agy` and on nothing else, free.** 6.6's
     // table says this provider reads its hook config only when the worktree
@@ -1274,6 +1281,9 @@ pub fn result(
 pub struct SpawnFiles {
     /// The compiled gate, `0o700`, in `~/hydra/spawn/<run-id>/`.
     pub gate: PathBuf,
+    /// The sha256 of that script, the same one the hook config checks against
+    /// at every call. Contract 5.1 puts it on `run_start`.
+    pub gate_sha: String,
     /// The hook config the provider reads. `~/hydra/spawn/<run-id>/settings.json`
     /// on `claude`, passed on `--settings`; `<worktree>/.cursor/hooks.json` on
     /// `cursor-agent`, read from cwd (6.6's table).
@@ -1391,6 +1401,7 @@ pub fn write_spawn_config(
 
     Ok(SpawnFiles {
         gate,
+        gate_sha,
         hook_config,
         scopes,
     })
@@ -1421,6 +1432,8 @@ pub fn run_start(
     mcp: Option<serde_json::Value>,
     lineage: &Lineage,
     scopes: Option<std::collections::BTreeMap<String, String>>,
+    // `None` on a refused spawn and on a run with no gate, build ticket 49.
+    gate_sha: Option<String>,
 ) -> RunStart {
     RunStart {
         kind: "run_start",
@@ -1445,6 +1458,7 @@ pub fn run_start(
         // run too. The `scopes` beside it are not, because they are a fact about
         // a compile that may not have happened.
         floor_lifted: Some(request.floor_lifted),
+        gate_sha,
         scopes,
         cwd: cwd.display().to_string(),
         worktree,

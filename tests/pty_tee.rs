@@ -33,6 +33,7 @@ fn minimal_run_start(pid: u32, start: Option<String>) -> RunStart {
         policy: None,
         policy_sha: None,
         floor_lifted: None,
+        gate_sha: None,
         scopes: None,
         cwd: "/tmp".into(),
         worktree: None,
