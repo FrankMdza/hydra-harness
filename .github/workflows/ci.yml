@@ -8,15 +8,16 @@ jobs:
     # macOS because the pty, the process-start-time liveness test and the gate dialects are
     # measured there. The corpus walks read HYDRA_ROOT, which here is an empty scratch root.
     runs-on: macos-latest
-    env:
-      HYDRA_ROOT: ${{ runner.temp }}/hydra-ci
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: mkdir -p "$HYDRA_ROOT/runs"
+      # The runner context is not readable from a job-level env block, so the root is set here.
+      - run: |
+          echo "HYDRA_ROOT=$RUNNER_TEMP/hydra-ci" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/hydra-ci/runs"
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
       - run: cargo build --release
