@@ -3,6 +3,9 @@
 One command runs `claude`, `cursor-agent` or `agy` in its own git worktree, behind a
 deny-by-default policy, and leaves one JSONL record per run that says what actually happened.
 
+macOS only, today. The three vendor binaries exist on Linux and the port is small; the section
+on ports says what it needs.
+
 ![hydra run on agy: the vendor reports SUCCESS, the record says gated](docs/demo/hydra.gif)
 
 ## Why
@@ -36,9 +39,13 @@ So the record decides, not the vendor.
   the whole export on one hit. The contract keeps records lossless so a training set can be
   built from them elsewhere; the SFT and preference shapes the contract describes are not
   written yet (map ticket 59).
-- **It reads its own records.** Ouroboros rung one proposes skill edits from the failure
-  classes it finds; rung two proposes patches to Hydra's own Rust, behind an admission gate
-  and a panel of three judges, one per vendor. Nothing lands without a human merge.
+- **It reads its own records.** Rung one (`hydra curate`) proposes skill edits from the
+  failure classes it finds; rung two (`hydra evolve`) proposes patches to Hydra's own Rust,
+  behind an admission gate and a panel of three judges, one per vendor. Nothing lands without
+  a human merge. Eight passes so far, zero approved: one critical fail from any judge vetoes
+  the patch, by design, and every pass found something real. The spec still calls the loop
+  Ouroboros; [razzant/ouroboros](https://github.com/razzant/ouroboros) is earlier and
+  unrelated work under that name, so the name stays off the headline here.
 
 ## Install
 
@@ -95,8 +102,8 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `resume` | continue a finished run's vendor session under a fresh run id |
 | `reap` | commit a worktree to its branch, remove it |
 | `prune` | move records out of `runs/`; deletes only behind a flag |
-| `curate` | Ouroboros rung one: propose skill edits from the corpus |
-| `evolve` | Ouroboros rung two: a proposer, the admission gate, a panel of three, a branch |
+| `curate` | rung one: propose skill edits from the corpus |
+| `evolve` | rung two: a proposer, the admission gate, a panel of three, a branch |
 | `usage recount` | tokens across the corpus, recounted from the records |
 | `export` | SFT and preference JSONL, the only path anything leaves this machine by |
 
@@ -108,6 +115,16 @@ server that gives Claude Code a typed `delegate` tool over `hydra run`.
 `judge` < `curate`, `read-only` < `standard` < `permissive`. A child is never wider than its
 parent. `policies/README.md` has the capability table; `policies/*.json` are the policies, and
 every record carries the sha of the set it ran under.
+
+The policy is compiled into the vendor's hook rather than written into the prompt, and two
+outside measurements say why. ["When 'Do Not' Is Not Deny"](https://arxiv.org/abs/2608.23550)
+read 481 public `CLAUDE.md` files and found a built-in control behind 4.4% of their security
+rules under the strictest match, 16% under the loosest; an instruction is not a guardrail.
+["Before the Tool Call"](https://arxiv.org/abs/2603.20953), the Open Agent Passport paper,
+authorizes each action before it runs and signs a record of the decision, and in a live
+adversarial testbed measured 0% attack success under a restrictive policy against 74.6%
+under a permissive one. Hydra's gate is that second idea carried down into the CLIs people
+already use, one compiled script per spawn in each vendor's hook dialect.
 
 ## What Hydra is not
 
@@ -169,15 +186,37 @@ corpus and proposed one skill. Rung two has run eight passes and approved none; 
 found something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a
 record: it is every departure from the design with its reason.
 
+## Who wrote the code
+
+Part of Hydra was written by the agents Hydra launches, through `hydra run`, while a Claude
+Code session wrote the tickets, reviewed each worktree diff and applied it to master by hand.
+The corpus in `~/hydra/runs/` is the source for this table, and each ticket's `## Outcome`
+names the run id and the token count.
+
+| Written by | Build tickets |
+|---|---|
+| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 50, 51, 60 |
+| `cursor-agent` on Grok 4.6 Fast | 21, 30, 33, 35, 37, 38 |
+| `cursor-agent`, no model flag, so the record says none | 17 |
+| `claude` on Sonnet 5 | 18, 22, 23, 26, 27 |
+| `claude` on Haiku 4.5 | 25 |
+| `agy` on Gemini 3.1 Pro | 19, and the drift test of 17 |
+| the Claude Code session, by hand | 01 to 16, 39 to 49, 52 to 59 |
+
+That is 25 of 60 build tickets on an agent run, none of them merged unread. Ticket 27, the
+interactive mode and its harvest, was the largest single run at 54.7M tokens, 54.0M of them
+cache reads. Ticket 25 was the first Rust ticket given to the cheapest model, and it held.
+The design documents, the policies, the record contract and this README are the session's.
+
 ## Design
 
 `docs/harness-spec.md` is how Hydra launches, feeds and records the providers.
-`docs/run-record-contract.md` is the format it writes and Ouroboros reads.
+`docs/run-record-contract.md` is the format it writes and the two rungs read.
 `docs/ouroboros-spec.md` is both rungs of self-improvement. They are meant to be read
-together, and nothing crosses between the harness and Ouroboros except the run record and
+together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 57 decision tickets with the reasoning each
+`.scratch/hydra/map.md` is the design history: 62 decision tickets with the reasoning each
 document compressed. `CLAUDE.md` is what an agent reads first.
 
 ## Contributing and support
