@@ -321,6 +321,28 @@ pub const AGY: &[Tool] = &[
 /// binary's own schema calls it "The exact command line string to execute".
 pub const AGY_COMMAND_FIELD: &str = "CommandLine";
 
+/// `codex` 0.154.0's hooked tools, read off map ticket 58 and the hooks
+/// reference on 2026-09-12. There is no init frame to check this against yet:
+/// item 5 still needs a logged-in recorded run before the table can be walked
+/// against what the provider offered.
+///
+/// **Reads are `Bash`, not a file tool**, which is the whole of build ticket 48
+/// item 4. **`mcp__*` is a prefix**, like `claude`, and matches before the table.
+/// **Hosted tools never reach the hook** and carry [`Capability::Unhooked`].
+pub const CODEX: &[Tool] = &[
+    tool("Bash", Capability::Shell),
+    tool("apply_patch", Capability::FileWrite),
+    tool("update_plan", Capability::ProviderNative),
+    tool("spawn_agent", Capability::SubagentSpawn),
+    unhooked("WebSearch"),
+];
+
+/// The `tool_input` field carrying the shell command or patch body.
+pub const CODEX_COMMAND_FIELD: &str = "command";
+
+/// `codex` names an MCP tool `mcp__<server>__<tool>`, measured on 0.154.0.
+pub const CODEX_MCP_PREFIX: &str = "mcp__";
+
 /// One provider's table, with the per-provider spellings beside it.
 pub struct Table {
     pub tools: &'static [Tool],
@@ -352,6 +374,11 @@ impl Table {
                 tools: AGY,
                 command_field: AGY_COMMAND_FIELD,
                 mcp_prefix: None,
+            },
+            Provider::Codex => Table {
+                tools: CODEX,
+                command_field: CODEX_COMMAND_FIELD,
+                mcp_prefix: Some(CODEX_MCP_PREFIX),
             },
         }
     }
@@ -389,6 +416,11 @@ pub fn cursor_capability(tool: &str) -> Option<Capability> {
 /// The same for `agy`.
 pub fn agy_capability(tool: &str) -> Option<Capability> {
     Table::of(crate::provider::Provider::Agy).capability(tool)
+}
+
+/// The same for `codex`.
+pub fn codex_capability(tool: &str) -> Option<Capability> {
+    Table::of(crate::provider::Provider::Codex).capability(tool)
 }
 
 #[cfg(test)]
@@ -606,6 +638,30 @@ mod tests {
     #[test]
     fn no_cursor_tool_appears_twice() {
         let mut names: Vec<_> = CURSOR.iter().map(|t| t.name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(before, names.len());
+    }
+
+    #[test]
+    fn codex_names_mcp_tools_with_claudes_prefix() {
+        assert_eq!(
+            codex_capability("mcp__hydra__ping"),
+            Some(Capability::McpCall)
+        );
+        assert_eq!(codex_capability("Bash"), Some(Capability::Shell));
+        assert_eq!(codex_capability("apply_patch"), Some(Capability::FileWrite));
+        assert_eq!(codex_capability("WebSearch"), Some(Capability::Unhooked));
+        assert_eq!(
+            codex_capability("spawn_agent"),
+            Some(Capability::SubagentSpawn)
+        );
+    }
+
+    #[test]
+    fn no_codex_tool_appears_twice() {
+        let mut names: Vec<_> = CODEX.iter().map(|t| t.name).collect();
         names.sort_unstable();
         let before = names.len();
         names.dedup();

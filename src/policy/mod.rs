@@ -655,12 +655,14 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
 /// path can be inside the worktree and still `protected-path`. The names come
 /// off the provider modules, so a provider that moves its file moves the denial.
 pub fn protected_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
-    use crate::provider::{agy, claude, cursor};
+    use crate::provider::{agy, claude, codex, cursor};
     let mut paths = vec![
         cursor::hooks_file(worktree),
         cursor::mcp_file(worktree),
         agy::hooks_file(worktree),
         agy::mcp_file(worktree),
+        codex::hooks_file(worktree),
+        codex::mcp_file(worktree),
     ];
     paths.extend(claude::project_config_files(worktree));
     paths
@@ -715,10 +717,15 @@ fn denied_spellings(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
 
 pub fn write_denied_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
     use crate::provider::Provider;
-    [Provider::Claude, Provider::CursorAgent, Provider::Agy]
-        .into_iter()
-        .map(|provider| worktree.join(provider.skill_root()))
-        .collect()
+    [
+        Provider::Claude,
+        Provider::CursorAgent,
+        Provider::Agy,
+        Provider::Codex,
+    ]
+    .into_iter()
+    .map(|provider| worktree.join(provider.skill_root()))
+    .collect()
 }
 
 /// What this one spawn may read outside the scopes the policy named.

@@ -932,3 +932,59 @@ fn an_interactive_policy_launch_writes_a_gate_and_settings() {
         "the dialect is argv[1] and is never inferred, got {command}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// codex: hooks.json in the worktree and Claude's dialect on the command line
+// ---------------------------------------------------------------------------
+
+fn codex_hook(config: &serde_json::Value) -> String {
+    config["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no PreToolUse handler in {config}"))
+        .to_string()
+}
+
+#[test]
+fn a_codex_spawn_writes_the_hook_config_into_the_worktree() {
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Codex,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(spawn.gate, root.join("spawn/r1/gate"));
+    assert_eq!(spawn.hook_config, worktree.join(".codex/hooks.json"));
+    assert!(spawn.hook_config.is_file());
+    assert!(
+        !spawn
+            .hook_config
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "6.6 asks for real files, never links, on every provider"
+    );
+
+    let config = settings_of(&spawn.hook_config);
+    let command = codex_hook(&config);
+    assert!(command.contains(spawn.gate.to_str().unwrap()), "{command}");
+    assert!(command.ends_with(" claude"), "{command}");
+    assert_eq!(config["hooks"]["PreToolUse"][0]["matcher"], "*");
+
+    let ignore = std::fs::read_to_string(worktree.join(".codex/.gitignore")).unwrap();
+    assert!(ignore.contains("/hooks.json"));
+    assert!(ignore.contains("/config.toml"));
+    assert!(!ignore.contains('*'));
+}

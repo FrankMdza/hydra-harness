@@ -1,11 +1,13 @@
 //! The routable providers.
 //!
-//! Three in the design and three in this build: `claude`, `cursor-agent`, `agy`.
+//! Four in the design and four in this build: `claude`, `cursor-agent`, `agy`,
+//! `codex`.
 //! Every provider-specific fact is a property of the binary rather than of the
 //! model, so a model is a flag inside a provider and never a provider of its own.
 
 pub mod agy;
 pub mod claude;
+pub mod codex;
 pub mod cursor;
 
 use std::fmt;
@@ -19,6 +21,7 @@ pub enum Provider {
     Claude,
     CursorAgent,
     Agy,
+    Codex,
 }
 
 impl Provider {
@@ -27,6 +30,7 @@ impl Provider {
             Provider::Claude => "claude",
             Provider::CursorAgent => "cursor-agent",
             Provider::Agy => "agy",
+            Provider::Codex => "codex",
         }
     }
 
@@ -36,6 +40,7 @@ impl Provider {
             Provider::Claude => crate::policy::Dialect::Claude,
             Provider::CursorAgent => crate::policy::Dialect::Cursor,
             Provider::Agy => crate::policy::Dialect::Agy,
+            Provider::Codex => crate::policy::Dialect::Claude,
         }
     }
 
@@ -73,6 +78,7 @@ impl Provider {
             Provider::Claude => ".claude/skills",
             Provider::CursorAgent => ".cursor/skills",
             Provider::Agy => ".agents/skills",
+            Provider::Codex => ".codex/skills",
         }
     }
 
@@ -107,6 +113,7 @@ impl Provider {
             // answer is the test that covers them: a name Hydra linked that the
             // listing does not carry is a collision whichever side won.
             Provider::Agy => vec![home.join(".gemini/config/skills")],
+            Provider::Codex => vec![home.join(".codex/skills")],
         }
     }
 
@@ -128,6 +135,7 @@ impl Provider {
             Provider::Claude => claude::resolve(worktree, mcp),
             Provider::CursorAgent => cursor::resolve(worktree, mcp),
             Provider::Agy => agy::resolve(worktree, mcp),
+            Provider::Codex => codex::resolve(worktree, mcp),
         }
     }
 
@@ -143,6 +151,7 @@ impl Provider {
             Provider::Claude => "anthropic",
             Provider::CursorAgent => "cursor",
             Provider::Agy => "google",
+            Provider::Codex => "openai",
         }
     }
 
@@ -158,6 +167,7 @@ impl Provider {
             Provider::Claude => claude::observe(raw),
             Provider::CursorAgent => cursor::observe(raw),
             Provider::Agy => agy::observe(raw),
+            Provider::Codex => codex::observe(raw),
         }
     }
 }
@@ -172,7 +182,7 @@ pub fn own_worktree_paths() -> Vec<&'static str> {
     static PATHS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
     PATHS
         .get_or_init(|| {
-            [cursor::gitignore, agy::gitignore]
+            [cursor::gitignore, agy::gitignore, codex::gitignore]
                 .into_iter()
                 .flat_map(paths_listed_by)
                 .collect()
@@ -326,6 +336,7 @@ impl FromStr for Provider {
             "claude" => Ok(Provider::Claude),
             "cursor-agent" => Ok(Provider::CursorAgent),
             "agy" => Ok(Provider::Agy),
+            "codex" => Ok(Provider::Codex),
             // Ticket 22 unrouted it. Its guardrail rules are still copied into
             // the pattern floor and its binary is not launched.
             other => bail!("{other} is not a routable provider"),
@@ -366,6 +377,9 @@ mod tests {
                 ".agents/.gitignore",
                 ".agents/hooks.json",
                 ".agents/mcp_config.json",
+                ".codex/.gitignore",
+                ".codex/hooks.json",
+                ".codex/config.toml",
             ]
         );
     }
@@ -420,6 +434,19 @@ mod tests {
             Provider::CursorAgent
         );
         assert_eq!("agy".parse::<Provider>().unwrap(), Provider::Agy);
+        assert_eq!("codex".parse::<Provider>().unwrap(), Provider::Codex);
         assert!("hermes".parse::<Provider>().is_err());
+    }
+
+    #[test]
+    fn codex_reads_one_user_scope_root_and_answers_hooks_in_claudes_dialect() {
+        let home = std::path::Path::new("/Users/probe");
+        assert_eq!(
+            Provider::Codex.user_skill_roots(home),
+            vec![home.join(".codex/skills")]
+        );
+        assert_eq!(Provider::Codex.skill_root(), ".codex/skills");
+        assert_eq!(Provider::Codex.subscription(), "openai");
+        assert_eq!(Provider::Codex.dialect(), crate::policy::Dialect::Claude);
     }
 }

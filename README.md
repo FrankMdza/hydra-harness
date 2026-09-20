@@ -29,8 +29,10 @@ So the record decides, not the vendor.
   policy. Measured detail: Cursor runs three tools without asking its hook; the record marks
   them `unhooked` rather than pretending.
 - **No secret reaches the agent.** The child's environment is built from an allowlist:
-  `HOME`, `USER`, `PATH`, `TERM`. The API key in your `.zshrc` stays in your `.zshrc`.
-  `NODE_OPTIONS` and `PYTHONPATH` are stripped as injection paths.
+  `HOME`, `USER`, `PATH`, `TERM`, plus `SHELL` and `TMPDIR` for `claude`, the proxy
+  variables when set, and the two names Hydra sets itself. `src/env.rs` is the whole list.
+  The API key in your `.zshrc` stays in your `.zshrc`. `NODE_OPTIONS` and `PYTHONPATH` are
+  stripped as injection paths.
 - **No daemon, no database.** `~/hydra/runs/*.jsonl` is the source of truth. Nothing has to
   be running for the harness to exist, and `hydra status` reconciles live pids against open
   records on demand.
@@ -38,7 +40,7 @@ So the record decides, not the vendor.
   machine by: one line per eligible run, behind a repo allowlist and a secret scan that aborts
   the whole export on one hit. The contract keeps records lossless so a training set can be
   built from them elsewhere; the SFT and preference shapes the contract describes are not
-  written yet (map ticket 59).
+  written yet, and training itself is out of scope (map decision D12).
 - **It reads its own records.** Rung one (`hydra curate`) proposes skill edits from the
   failure classes it finds; rung two (`hydra evolve`) proposes patches to Hydra's own Rust,
   behind an admission gate and a panel of three judges, one per vendor. Nothing lands without
@@ -63,11 +65,12 @@ alias hydra=~/hydra/target/release/hydra
 **Hydra writes its runs, worktrees and skill store under `~/hydra/`, wherever the checkout
 lives.** The install path above makes the two the same directory on purpose. Clone it somewhere
 else and the binary still reads and writes `~/hydra`, which is somebody else's corpus if they
-have one: `hydra status` prints the root it read on its first line, and `HYDRA_ROOT=/some/dir`
-moves everything for one command. `policies/` and `config/` resolve through the source
-directory at compile time, so the binary is not relocatable away from its checkout. Measured against `claude` 2.1.267, `cursor-agent`
-2026.09.10 and `agy` 1.2.1; a drift test in `tests/drift.rs` fails when `claude` changes
-what the gate relies on.
+have one: `hydra status` prints the root it read on its first line and the policy directory
+on its second. `HYDRA_ROOT=/some/dir` moves the runs, worktrees and skill store for one
+command; `HYDRA_HOME=/some/checkout` moves `policies/` and `config/`, which otherwise resolve
+through the source directory at compile time, so the binary is not relocatable without both.
+Measured against `claude` 2.1.267, `cursor-agent` 2026.09.10 and `agy` 1.2.1 on 2026-09-15;
+a drift test in `tests/drift.rs` fails when `claude` changes what the gate relies on.
 
 ## Quick start
 
@@ -86,7 +89,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 
 | Step | What happens |
 |---|---|
-| Pre-flight | the binary is on PATH, the concurrency cap, skill name collisions, and the MCP servers the policy admits. Anything missing refuses the launch. An auth check is specified and not built, so a logged-out vendor fails in its own words rather than Hydra's |
+| Pre-flight | the binary is on PATH, the concurrency cap, skill name collisions, and the MCP servers the policy admits. Anything missing refuses the launch. An auth check is built for `codex` only, so a logged-out `claude`, `cursor-agent` or `agy` fails in its own words rather than Hydra's |
 | Spawn | worktree from your tree, an immutable snapshot of the skill store linked in, the gate script compiled and written outside the checkout |
 | Run | a detached process owns the pty and tees every frame, verbatim, into the record |
 | End | `run_end` with the derived outcome, token usage, and the diff against the seeded tree |
@@ -105,14 +108,15 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `curate` | rung one: propose skill edits from the corpus |
 | `evolve` | rung two: a proposer, the admission gate, a panel of three, a branch |
 | `usage recount` | tokens across the corpus, recounted from the records |
-| `export` | SFT and preference JSONL, the only path anything leaves this machine by |
+| `export` | one JSON line of events per eligible run, the only path anything leaves this machine by |
 
 Two more exist and clap hides them: `watch`, the detached half, and `delegate-face`, an MCP
 server that gives Claude Code a typed `delegate` tool over `hydra run`.
 
 ## Policies
 
-`judge` < `curate`, `read-only` < `standard` < `permissive`. A child is never wider than its
+`judge` < `read-only` < `standard` < `permissive`, and `judge` < `curate`, which grants a
+different set and is neither inside nor outside `standard`. A child is never wider than its
 parent. `policies/README.md` has the capability table; `policies/*.json` are the policies, and
 every record carries the sha of the set it ran under.
 

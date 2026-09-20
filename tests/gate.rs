@@ -2045,11 +2045,13 @@ fn agys_subagent_tools_belong_to_permissive_alone() {
 
 /// The files inside the worktree that decide what gates the run, spelled out
 /// here rather than read off the library so a dropped entry fails a test.
-const OWN_CONFIG_FILES: [&str; 7] = [
+const OWN_CONFIG_FILES: [&str; 9] = [
     ".cursor/hooks.json",
     ".cursor/mcp.json",
     ".agents/hooks.json",
     ".agents/mcp_config.json",
+    ".codex/hooks.json",
+    ".codex/config.toml",
     ".claude/settings.json",
     ".claude/settings.local.json",
     ".mcp.json",
@@ -2057,7 +2059,12 @@ const OWN_CONFIG_FILES: [&str; 7] = [
 
 /// The skill roots Hydra links into, one per provider. A write into one
 /// replaces a link, so the roots are denied whole.
-const OWN_SKILL_ROOTS: [&str; 3] = [".claude/skills", ".cursor/skills", ".agents/skills"];
+const OWN_SKILL_ROOTS: [&str; 4] = [
+    ".claude/skills",
+    ".cursor/skills",
+    ".agents/skills",
+    ".codex/skills",
+];
 
 impl Gate {
     /// A write in the dialect this gate was compiled for, so the same probe
@@ -2073,6 +2080,7 @@ impl Gate {
                 "write_to_file",
                 json!({ "TargetFile": path, "CodeContent": "x" }),
             ),
+            Provider::Codex => self.shell(&format!("printf x > {}", path)),
         }
     }
 }
@@ -2082,7 +2090,12 @@ fn a_run_cannot_rewrite_its_own_hook_or_provider_config_under_any_policy() {
     // Every provider's files on every provider's gate: a `claude` run has no
     // `.cursor/hooks.json`, and one it writes lands on the branch `hydra reap`
     // commits all the same.
-    for provider in [Provider::Claude, Provider::CursorAgent, Provider::Agy] {
+    for provider in [
+        Provider::Claude,
+        Provider::CursorAgent,
+        Provider::Agy,
+        Provider::Codex,
+    ] {
         for policy in MATRIX_POLICIES {
             let gate = Gate::compile_for(provider, policy, false);
             for rel in OWN_CONFIG_FILES {
@@ -2094,6 +2107,13 @@ fn a_run_cannot_rewrite_its_own_hook_or_provider_config_under_any_policy() {
                 );
             }
             for root in OWN_SKILL_ROOTS {
+                // `codex` has no pathed `file_write` tool: writes ride `Bash` or
+                // `apply_patch`, and harness spec 6.4 deliberately does not walk
+                // `write_denied_worktree_paths` for `shell`. The config-file loop
+                // above still covers `.codex/hooks.json` through the raw pass.
+                if provider == Provider::Codex {
+                    continue;
+                }
                 let target = gate.worktree.join(root).join("planted/SKILL.md");
                 let decision = gate.write_as(provider, &target);
                 assert!(
@@ -2112,9 +2132,19 @@ fn the_config_denial_takes_nothing_else_out_of_the_worktree() {
     // and so does the ignore file Hydra drops beside its config: a repo may
     // track its own, and the ignore file decides what reap stages rather than
     // what the gate allows.
-    for provider in [Provider::Claude, Provider::CursorAgent, Provider::Agy] {
+    for provider in [
+        Provider::Claude,
+        Provider::CursorAgent,
+        Provider::Agy,
+        Provider::Codex,
+    ] {
         let gate = Gate::compile_for(provider, "standard", false);
-        for rel in ["src/new.rs", ".cursor/.gitignore", ".agents/.gitignore"] {
+        for rel in [
+            "src/new.rs",
+            ".cursor/.gitignore",
+            ".agents/.gitignore",
+            ".codex/.gitignore",
+        ] {
             let decision = gate.write_as(provider, &gate.worktree.join(rel));
             assert!(
                 decision.allowed,

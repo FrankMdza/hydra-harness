@@ -73,7 +73,11 @@ sandbox is nowhere in the spec. The base case no longer waits on that answer, so
 remains at risk is a write to the policy directory or the corpus through a path the
 command assembles.
 
-Provider versions this build has been measured against:
+Provider versions this build has been measured against. The table is the 2026-09-06 reading
+the provider sections cite; `README.md` names the 2026-09-15 reading, `claude` 2.1.267,
+`cursor-agent` 2026.09.10 and `agy` 1.2.1, and on 2026-09-19 the machine had 2.1.268,
+2026.09.18-9a7762b and 1.2.3. Two of the three self-update, so a version string here is a
+date, and `tests/drift.rs` is what re-measures behaviour:
 
 | Provider | Version | Read |
 |---|---|---|
@@ -262,8 +266,8 @@ per-run config files carry no own path and are covered.
 ## The commands
 
 ```
-hydra run --provider <claude|cursor-agent|agy> --task "..." [--model <id>] [--policy <name>]
-          [--parent <run-id>] [--timeout <dur>] [--allow-floor-escape]
+hydra run --provider <claude|cursor-agent|agy|codex> --task "..." [--model <id>] [--policy <name>]
+          [--parent <run-id>] [--timeout <dur>] [--allow-floor-escape] [--interactive]
 hydra status [<run-id>]
 hydra logs <run-id> [--follow]
 hydra reap [<run-id>] [--delete-branch]
@@ -273,7 +277,7 @@ hydra show <run-id> [--events]
 hydra usage recount [<run-id>]
 hydra export --out <file> | --dry-run
 hydra resume <run-id> [--task "..."] [--timeout <dur>]
-hydra evolve [--model <id>] [--timeout <dur>] [--dry-run]
+hydra evolve [--task "..."] [--model <id>] [--timeout <dur>] [--dry-run]
 ```
 
 A launch builds the child's environment from the allowlist, reads the provider's
@@ -513,7 +517,8 @@ Tickets 01 and 02. `policies/` holds the five policies of harness spec 7.2 and t
 pattern floor of 7.4, `src/policy/` loads and hashes them, `hydra::policy::write_gate`
 compiles a policy name into the script of 7.5, and every `hydra run` writes one into
 `~/hydra/spawn/<run-id>/` and passes it to `claude` on `--settings`. `tests/gate.rs`
-feeds the compiled script synthetic hook payloads and asserts its answers, 23 of them;
+feeds the compiled script synthetic hook payloads and asserts its answers, 23 of them when
+ticket 02 closed and 72 tests today;
 `tests/spawn.rs` checks that a run writes the script where the run will find it.
 
 **The `PreToolUse` matcher is `*`, and one entry covers every tool.** `claude` routes
@@ -586,9 +591,11 @@ than being added later and forgotten. `tests/gate.rs` asks the compiled gate abo
 six paths under `permissive` and `curate`, so the two that are still empty are covered
 by the same test as the four that are not.
 
-**Hydra finds its own policy directory through `CARGO_MANIFEST_DIR`, so the binary
-only works from its source tree.** `PolicySet::discover()`, `preamble::path()` and the
-four `config/` paths are compiled against the manifest directory, which is right for a
+**Until build ticket 50, Hydra found its policy directory through `CARGO_MANIFEST_DIR`
+alone, so the binary only worked from its source tree.** `HYDRA_HOME` overrides it now, and
+the paragraph near the top of this file says how. The reasoning that ticket kept:
+`PolicySet::discover()`, `preamble::path()` and the
+four `config/` paths were compiled against the manifest directory, which is right for a
 binary run out of
 `target/debug` and wrong for an installed one. A copied `hydra` would compile gates
 against a `policies/` that is not where it thinks. Nothing has needed an installed
@@ -957,10 +964,11 @@ the document in front of them with one command. It is the opposite call from
 not move a value every record carries. The two differ because there the prose is a
 separate file, and a sha over part of a file is one nobody can recompute by hand.
 
-**The document ships with no server**, because nobody has configured an MCP server on
-this machine. What is in it is the format and one commented example per transport. Both
-the unit tests and `tests/mcp.rs` assert that emptiness, so the day a human adds a real
-server the suite says which tests now describe something else.
+**The document shipped with no server until build ticket 26**, which added the delegate
+face under `standard` and `permissive`; the interactive-mode section below has the block.
+Until then what was in it was the format and one commented example per transport, and both
+the unit tests and `tests/mcp.rs` asserted that emptiness. `tests/mcp.rs` asserts the
+admission now, which is what that emptiness check was for.
 
 **Measured on two real runs, 2026-09-06, `claude` 2.1.263, `--model haiku`.** Run
 `01a077c3-e32f-7612-bb19-89227bf6f531`, `standard`, on the shipped document: both flags
@@ -1017,8 +1025,9 @@ probe cannot answer for a server set the run will not have. `crate::mcp::Probe` 
 be `Strict(file)` or `Unanswerable` and is now the policy name and the file, which is
 what those flags come from. A `judge` record's `mcp.resolved` is `[]` and no longer null.
 
-**`tests/drift.rs` re-measures the vendor per suite run.** Two tests, both free, and the
-only two in the suite that launch a provider. The first drives the launch's own producer,
+**`tests/drift.rs` re-measures the vendor per suite run.** Two free tests, a third under
+`HYDRA_DRIFT_PAID=1` that the thinking-text section describes, and since build ticket 48 a
+`codex` login probe; those are the only tests in the suite that launch a provider. The first drives the launch's own producer,
 `claude::resolve_in`, with a `judge` `Probe` and reads its `Resolved` back: `mcp` is
 `Some([])` and `skills` is `None`. The second runs the same stubs with the flags off and
 gets both servers, which is what keeps the first from passing because a stub was
@@ -1624,6 +1633,40 @@ about the same prompt either way, which points at a cache hit being reported rat
 avoided, and it is not keyed on the conversation, the run or the clock. **Caveat, and one
 worth a ticket if anyone ever wants to cost an `agy` run.**
 
+## `codex`, the fourth provider, since build ticket 48
+
+Built on 2026-09-20 from map ticket 58's measurement of `codex-cli` 0.154.0 and **no recorded
+run**, because the binary on this machine was not logged in. `src/provider/codex.rs` holds the
+argv, `codex exec --json -C <worktree> --sandbox workspace-write --ask-for-approval never
+--dangerously-bypass-hook-trust`, the last flag because hook trust is per hash and a per-spawn gate
+never matches; the hook config at `.codex/hooks.json` in the shape `docs/hooks` gives, answered in
+`claude`'s dialect; a `-c hooks.PreToolUse=...` override that points at the same gate on the
+command line; the MCP fragment as TOML in `.codex/config.toml`; and the auth pre-flight,
+`codex login status`, which is the first `auth_preflight` refusal any provider writes.
+`src/normalize/codex.rs` reads `item.completed` and `turn.completed` into contract 7's events and
+derives decisions through the same replay the other three use. `src/policy/table.rs` has the rows:
+`Bash` is `shell`, `apply_patch` is `file_write`, `update_plan` is provider-native, `spawn_agent`
+needs `permissive`, and `WebSearch` is `unhooked` because hosted tools never reach the hook.
+
+**Routable under `standard` and `permissive` only.** Codex has no read tool, so under `read-only`
+and `judge` every read would be a shell call the policy denies; the human decided on 2026-09-20
+that those two policies refuse a `codex` launch at pre-flight, in Hydra's words, naming ticket 48,
+and that a bounded shell read for `codex` alone is map ticket 63, open. Until it closes `codex`
+cannot sit on the `evolve` panel.
+
+**`apply_patch` carries no path, so under `standard` the gate refuses it as `hydra/no-path`.**
+A scoped `file_write` with nothing to scope is refused by design, and the row is honest about the
+tool. Under `permissive`, whose writes are unscoped, it passes. Which means a `standard` run
+writes through the shell or not at all until item 5 measures what the patch body carries;
+`tests/gate.rs` skips the skill-root loop for this provider for the same reason.
+
+**Four things wait on a logged-in binary, marked `MEASURE 48.5` in the source.** Whether a hook
+crash or timeout fails open like `claude` or closed; whether the `-c` override is honoured as a
+hook source beside or instead of the file; which `item.*` and `turn.*` keys carry the session id
+and the model; and the exact field names the normalizer reads, which today follow ticket 58's
+prose and the unit fixtures. `resolve` returns null for both `skills.resolved` and `mcp.resolved`
+until a free probe exists. `tests/drift.rs` gains a login probe that skips without the binary.
+
 ## What the record does not carry
 
 **Both injection groups are written now.** Ticket 08 closed the last one: every recorded
@@ -1655,7 +1698,8 @@ why a run was allowed to do the thing", and `--allow-billed` has `auth.allow_bil
 exactly that. The floor flag had no field until map ticket 42 named one, because
 inventing a field is a contract change and ticket 03 left the gap where it found it.
 `run_start.floor_lifted` is a boolean now, filled from `Request::floor_lifted` on every
-recorded run and null on a harness run and an interactive one, where no gate is compiled.
+recorded run and null on a harness run and on an interactive run without `--policy`; a
+gated interactive run, build ticket 28, compiles a gate and writes `false`.
 It is a fact about the request rather than about the compile, so a refused launch carries
 it too. `RecordedGate` in `src/normalize/mod.rs` reads it back and hands it to the
 replay's `Spawn`, and a record without it re-derives as if the floor was in force, which
@@ -1695,13 +1739,15 @@ checks it rather than asserting it. That test also walks every record under
 
 ## Reading a record back
 
-**Two providers.** `src/normalize/` turns a stored `claude` or `cursor-agent` run into
+**Four providers, since build tickets 10 and 48.** `src/normalize/` turns a stored
+`claude`, `cursor-agent`, `agy` or `codex` run into
 contract 7's events, one adapter per column of 7.2, picked by the envelope's `provider`.
 `read_file` takes a path and the policy set; `read_with` takes text and a layout, which
 is how the tests ask a real question about a synthetic run without touching `~/hydra`.
 Nothing is written, which contract 11 requires and `tests/normalize.rs` checks by
 comparing every byte under `runs/` before and after a walk. What follows in this
-section is the `claude` adapter; the `cursor-agent` section below has the other.
+section is the `claude` adapter; the `cursor-agent`, `agy` and `codex` sections below have
+the others.
 
 **`usage` says `unavailable` for an object it cannot read, not zero.** A `result` frame
 with no `usage`, and one whose `usage` holds none of section 9's four count fields, both
@@ -1711,8 +1757,8 @@ null-against-zero confusion arriving through the other door.
 **Eight of the ten types have a producer.** `message`, `thinking`, `tool_call`,
 `tool_result`, `permission_decision` and `usage`, plus the two stored Hydra lines.
 `message_delta` needs `--include-partial-messages` and 7.4 keeps it off in v1.
-`correction` comes from an interactive harvest and this build launches no interactive
-runs. Both types are in the enum, because a type the reader cannot name is a type nobody
+`correction` comes from an interactive harvest, built since ticket 27 and read by the
+interactive section below. Both types are in the enum, because a type the reader cannot name is a type nobody
 knows is missing.
 
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
@@ -1730,8 +1776,9 @@ no prefix belongs to somebody else, which on this machine means the user's own g
 7.7 forbids parsing reason *text* for attribution and this is not that: the prefix is a
 code Hydra writes, the prose after it is what 7.7 is about.
 
-**A hook frame carries no `tool_use_id`, so the corroboration is joined by tool name and
-order, inside a window.** `hook_name` reads `PreToolUse:<Tool>` and the frame lands
+**A hook frame carries no `tool_use_id`, so the corroboration was joined by tool name and
+order, inside a window; since build ticket 22 the join is by `hook_id`, in its own section
+below, and what follows is the fallback for a record with no `hook_started` frames.** `hook_name` reads `PreToolUse:<Tool>` and the frame lands
 between the `tool_use` block and its result. Ticket 02's run fired four `PreToolUse:Bash`
 responses for one call, one Hydra's and three with an empty `output`, so filtering on a
 parseable `permissionDecision` picks Hydra's out. **The window closes at the next call
@@ -1901,7 +1948,8 @@ transcript, so nothing changes there.
 
 Ticket 04. `src/outcome.rs` turns a normalized run into contract 8's nine outcomes and
 8.2's `outcome_source`, and `hydra::run::result` projects that plus the diff stat into
-contract 17's JSON. Nothing else in the crate derives `Serialize`, so the module boundary
+contract 17's JSON. The record writer types, `RunStart`, `RunEnd` and `Auth`, and
+`status::Report` derive `Serialize` too; nothing derives it for a normalized run, and that
 is where contract 11's never-store rule stops being a comment.
 
 **Nothing reads the exit status to pick an outcome**, and the rate-limited run below is
@@ -2196,10 +2244,9 @@ read-only: no attach, no input, no answering a permission prompt from outside. `
 stops at the closing line, and also when the liveness test says the writer is gone, so
 following an abandoned run ends with a line saying so rather than waiting forever.
 
-**Harvest is the half of `hydra status` that is not here.** Section 10 also has it
-complete a dead interactive run from the vendor's transcript. No command in this build
-launches an interactive run, so there is no unharvested body on this machine, and a
-harvester with no producer would be untested code guarding a case that cannot arise.
+**Harvest was the half of `hydra status` that was not here until build ticket 27.** Section
+10 has it complete a dead interactive run from the vendor's transcript, and the interactive
+section below says how `status` does that now.
 
 ## The diff stat, and the seed it has to subtract
 
@@ -2242,10 +2289,12 @@ not write costs the field and nothing else. Both print a line, because an absent
 record and two at once would stage into each other. The guard skips the stat, the same
 way a missing seed tree does.
 
-**A `permissive` run can make the stat wrong.** Writes are scoped to the worktree under
-four of the five policies, so nothing can reach the index files; `permissive` grants
-unscoped writes and the gate protects only the gate script inside the spawn directory.
-Such a run can rewrite its own `seed-index`, which costs the diff stat and nothing else.
+**A `permissive` run could make the stat wrong until the deny list covered the spawn
+parent.** Writes are scoped to the worktree under four of the five policies; `permissive`
+grants unscoped writes, and `~/hydra/spawn/` is a denied path under every policy since build
+ticket 14, so a file-tool write or a shell command that names `seed-index` is
+`protected-path`. A shell command that reaches the path without naming it, the residual
+`SECURITY.md` states, still can, and that costs the diff stat and nothing else.
 The record is what carries the truth about what a run wrote.
 
 ## What a rate-limited run really looks like
@@ -2519,10 +2568,11 @@ With it, one object: `run_id`, `projection`, `events` with every normalized even
 record holds under `body`. A parent that wants more than contract 17's nine fields asks here,
 which is what section 9 meant by explicitly.
 
-**`HYDRA_ROOT` overrides `Layout::discover`, and it exists for one test file.** Every other
-test builds a `Layout::at` a temporary directory and calls the library; `tests/face.rs`
-drives the built binary as a subprocess, and the binary is what calls `discover`. It is
-read in `src/paths.rs` and nowhere else, and it never reaches a child provider, because
+**`HYDRA_ROOT` overrides `Layout::discover`, and it was read for one test file until build
+ticket 51.** Most tests build a `Layout::at` a temporary directory and call the library;
+`tests/face.rs` and `tests/delegation.rs` drive the built binary as a subprocess, and the
+binary is what calls `discover`; the corpus walks read the variable themselves through
+`corpus_runs_dir`. In the library it is read in `src/paths.rs` and nowhere else, and it never reaches a child provider, because
 6.2 builds that environment from an allowlist this name is not on. The rough edge below
 says what is left of it.
 
@@ -2565,7 +2615,8 @@ compiled, `settings.json` handed to `claude` on `--settings`, `run_start` carryi
 its sha. The argv carries no `--permission-mode bypassPermissions`, because interactively that
 flag opens a consent dialog with nobody to answer it; a human answers the vendor's own prompt
 for an allow and a hook deny beats the prompt either way. The harvest reader derives a `deny` by
-`hydra_policy` from every error `tool_result` whose text starts with `hydra/` and pushes one
+`hydra_policy` from every error `tool_result` whose text `hydra_voice` reads as a gate code,
+since build ticket 55, and pushes one
 `limit` finding saying allows were not recorded, so a reader tells the two record shapes apart
 by `policy` being null or not. Measured on 2026-09-08 on run 01a07ff5-2389: a `Write` asked
 for under `read-only` came back as one `permission_decision` denied by `hydra_policy` with the
@@ -2713,7 +2764,8 @@ allowlist does not exist, and `hydra export --dry-run` says so.
 
 Ouroboros spec 4 as written, with the three details map ticket 52 closed. `src/ouroboros/evolve.rs`
 and `src/ouroboros/review.rs`, `tests/evolve.rs`, written by Composer 2.5 on run 01a08053-3d85,
-launched into a Herdr pane. **Six passes have run on this machine**, the last of them through
+launched into a Herdr pane. **Six passes had run on this machine when this was written, and eight as of 2026-09-12**,
+the sixth through
 the full panel; the paragraphs below say what each one found.
 
 **A pass is a harness run with four children.** `evolve` mints a run id with `command: evolve`,
@@ -2749,7 +2801,11 @@ off its last `rate_limit_event` frame before any judge spawns. Until build ticke
 2026-09-12 it read `raw.status`, a field no frame carries, so every pass under a rate-limited
 `claude` spent a proposer to find out. `evolve::rate_limit_abort` now reads
 `rate_limit_info.status` and falls back to the top, and `tests/evolve.rs` drives both shapes,
-the `allowed` case and a run warned early and allowed later, on synthetic records.
+the `allowed` case and a run warned early and allowed later, on synthetic records. Since
+2026-09-20 that abort ends the pass `completed` on `ouroboros/blocked/<pass-id>` with the reason
+in the commit message, the same shape as a proposer whose outcome is `rate_limited`. Until then it
+ended the pass `failed`, which spec 4.10 reserves for git or the worktree breaking; the review of
+2026-09-19 found the two paths disagreeing and neither this file nor the spec named it.
 
 **The verdict lives in the commit message**, spec 4.9, on `ouroboros/<pass-id>` when the panel
 passed and `ouroboros/blocked/<pass-id>` when it did not, naming the pass, the proposer and the
@@ -3070,7 +3126,8 @@ path a test can already drive by hand.
 
 **The cap's refusal names `hydra logs --follow` and `hydra status`, not `hydra reap`.**
 The count is of live runs, so a run that has ended has already given its slot back and
-reaping it frees nothing, and `reap` is not a command this binary answers to yet either.
+reaping it frees nothing. `reap` did not exist when this was written; it does since build
+ticket 06, and the refusal still does not name it, for the first reason.
 A refusal that tells you to run something that fails twice over is worse than one that
 just says no.
 
@@ -3119,8 +3176,9 @@ what the section below measures.
 checks in prose and no closed ticket gives them strings. `record::Refusal` is the
 vocabulary, one code each, in the shape ticket 01 gave the gate's `hydra/` reason prefix
 and for the same reason: the derivation matches on it, and a sentence is not something to
-match on. One of the four is written now, `skill_collision`, and a record carries it, so
-that spelling is settled and the other three are still free to move.
+match on. All five are written now: `skill_collision` first, then `policy_narrowing`,
+`mcp_unavailable`, `containment`, and since build ticket 48 `auth_preflight`, on `codex`
+only. Records carry them, so the spellings are settled.
 
 **`hydra reap` is what removes a skills snapshot.** Harness spec 5 says a snapshot is
 reaped when no live run references it and names no command. Reap is the one already typed
@@ -3157,7 +3215,8 @@ answer is `mcp__<server>__<tool>` split back apart. The second is the same insti
 `deny_unknown_fields` serves everywhere: a typo in an admission field is a server that
 reaches no run, which is the failure the launch check exists to make loud.
 
-**The document ships with no server on this machine.** Adding one is a human's decision:
+**The document ships with one server on this machine, the delegate face, since build
+ticket 26.** Adding another is a human's decision:
 15.1 calls a server definition a command Hydra spawns inside every future run. The one
 in `tests/fixtures/mcp-probe-server.py` is a fixture for measuring, not a server, and it
 is not admitted to anything.
@@ -3227,9 +3286,8 @@ Out of scope for this slice, and each one has a document that already says what 
 - Nothing about `agy` is unbuilt. One recorded run exists, `read-only`, and no `agy` run
   under any other policy has been made, so `standard` and `permissive` on that provider
   are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
-- Interactive runs and harvest. 5.6, 12.
 - No `hydra evolve` pass has produced an offerable patch. The command is built, since
-  build ticket 36, and six passes have run: the panel answered on the last one and
+  build ticket 36, and eight passes have run: the panel answered on the sixth and
   blocked, so `ouroboros/<pass-id>` and an `ApprovedPatch` built from a real verdict do
   not exist yet. The section above says what each pass found.
 

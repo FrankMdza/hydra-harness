@@ -55,6 +55,7 @@ pub fn paths_from_call(provider: &str, call: &ToolCall, cwd: &Path) -> PathExtra
         "claude" => table::Table::of(Provider::Claude),
         "cursor-agent" => table::Table::of(Provider::CursorAgent),
         "agy" => table::Table::of(Provider::Agy),
+        "codex" => table::Table::of(Provider::Codex),
         _ => return PathExtraction::Unclassified,
     };
 

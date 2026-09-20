@@ -77,7 +77,7 @@ impl ChildEnv {
             // from Go, checked on 2026-09-06. `HOME` matters more here than
             // anywhere, because this provider hard-fails without it and its
             // paths are all hardcoded under `~/.gemini/`.
-            Provider::Agy => {}
+            Provider::Agy | Provider::Codex => {}
         }
         names.extend_from_slice(PROXY);
 

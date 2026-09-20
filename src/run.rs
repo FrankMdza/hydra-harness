@@ -52,7 +52,7 @@ use uuid::Uuid;
 use crate::env::ChildEnv;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
-use crate::provider::{Provider, agy, claude, cursor};
+use crate::provider::{Provider, agy, claude, codex, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef};
 
 pub struct Request {
@@ -488,6 +488,11 @@ pub fn run(request: Request) -> Result<Call> {
     // every other name passed, so a reader can see the child was marked.
     child_env.set(crate::containment::MARKER, run_id.clone());
     let provider_version = request.provider.version()?;
+    if request.provider == Provider::Codex
+        && let Some(remediation) = codex::unsupported_policy(&request.policy)
+    {
+        anyhow::bail!(remediation);
+    }
     // Both providers that read their hook config out of the worktree get the same
     // check against their own two files.
     match request.provider {
@@ -499,6 +504,11 @@ pub fn run(request: Request) -> Result<Call> {
         Provider::Agy => {
             worktree_preconditions("agy", repo.as_deref(), &[agy::hooks_file, agy::mcp_file])?
         }
+        Provider::Codex => worktree_preconditions(
+            "codex",
+            repo.as_deref(),
+            &[codex::hooks_file, codex::mcp_file],
+        )?,
         Provider::Claude => {}
     }
 
@@ -678,6 +688,32 @@ pub fn run(request: Request) -> Result<Call> {
     // `scopes` on it. The launched path recomposes it after `write_spawn_config`.
     let refused_line_zero = line_zero(mcp_resolved.as_deref(), None, None)?;
 
+    if request.provider == Provider::Codex {
+        let remediation = match codex::login_status() {
+            Ok(codex::LoginStatus::LoggedIn) => None,
+            Ok(codex::LoginStatus::NotLoggedIn) => Some(codex::auth_remediation().to_string()),
+            Err(err) => Some(format!(
+                "the codex auth pre-flight could not run, so whether this launch is logged in \
+                 is unknown and the run is refused: {err:#}"
+            )),
+        };
+        if let Some(remediation) = remediation {
+            return refuse(
+                &run_file,
+                &run_id,
+                request.provider,
+                &refused_line_zero,
+                crate::record::Refusal::AuthPreflight,
+                remediation,
+                &policies,
+                worktree_ref.as_ref(),
+                seed_tree.as_deref(),
+                &layout,
+                lineage.parent_run_id(),
+            );
+        }
+    }
+
     // 6.1 item 6, one item after it. A run whose policy admits a server this
     // launch cannot deliver is refused rather than launched short, which is
     // section 2's rule: a run that quietly comes up short is what it forbids.
@@ -839,6 +875,22 @@ pub fn run(request: Request) -> Result<Call> {
                 .map(|w| std::path::Path::new(w.path.as_str()))
                 .context("an agy run needs a checkout and this one has none")?,
         }),
+        Provider::Codex => {
+            let gate_command = crate::policy::hook_command(
+                &spawn.gate,
+                &spawn.gate_sha,
+                request.provider.dialect(),
+            );
+            codex::argv(&codex::Launch {
+                task: &task,
+                model: request.model.as_deref(),
+                worktree: worktree_ref
+                    .as_ref()
+                    .map(|w| std::path::Path::new(w.path.as_str()))
+                    .context("a codex run needs a checkout and this one has none")?,
+                gate_command: &gate_command,
+            })
+        }
     };
     if let Some(session_id) = &request.resume_session_id {
         append_resume_args(&mut argv, request.provider, session_id);
@@ -1374,6 +1426,7 @@ pub fn write_spawn_config(
         Provider::Claude => layout.settings_file(run_id),
         Provider::CursorAgent => cursor::claim(worktree, "hook config", cursor::hooks_file)?,
         Provider::Agy => agy::claim(worktree, "hook config", agy::hooks_file)?,
+        Provider::Codex => codex::claim(worktree, "hook config", codex::hooks_file)?,
     };
 
     // With no repo there is no worktree, and the child runs where Hydra was
@@ -1443,6 +1496,7 @@ pub fn write_spawn_config(
         Provider::Claude => claude::settings(&gate, &gate_sha),
         Provider::CursorAgent => cursor::hooks_config(&gate, &gate_sha),
         Provider::Agy => agy::hooks_config(&gate, &gate_sha),
+        Provider::Codex => codex::hooks_config(&gate, &gate_sha),
     };
     std::fs::write(&hook_config, serde_json::to_string_pretty(&config)?)
         .with_context(|| format!("writing {}", hook_config.display()))?;
@@ -1547,9 +1601,10 @@ pub fn append_resume_args(argv: &mut Vec<String>, provider: Provider, session_id
         Provider::Claude => claude::resume_args(session_id),
         Provider::CursorAgent => cursor::resume_args(session_id),
         Provider::Agy => agy::resume_args(session_id),
+        Provider::Codex => codex::resume_args(session_id),
     };
     match provider {
-        Provider::Agy => {
+        Provider::Agy | Provider::Codex => {
             argv.splice(0..0, resume);
         }
         _ => {

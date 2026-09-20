@@ -237,8 +237,9 @@ pub enum Refusal {
     /// one fired is a field Hydra sets rather than a second outcome, so this is
     /// one code and the remediation says which check it was.
     McpUnavailable,
-    /// The auth pre-flight. Not built, and the mid-run half of `auth_failed`
-    /// derives from the stream instead.
+    /// The auth pre-flight. Built for `codex` only, since build ticket 48,
+    /// where `codex login status` answers before a spawn; on the other three
+    /// the mid-run half of `auth_failed` derives from the stream instead.
     AuthPreflight,
     /// A launch from inside a live run that named no parent, or named another
     /// run as its parent. Build ticket 57 and `src/containment.rs`. It derives

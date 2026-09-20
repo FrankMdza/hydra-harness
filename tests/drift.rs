@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::env::ChildEnv;
 use hydra::mcp::Probe;
-use hydra::provider::{Provider, claude};
+use hydra::provider::{Provider, claude, codex};
 
 /// The stdio server both scopes point at, one tool and no dependencies.
 fn fixture() -> PathBuf {
@@ -355,4 +355,29 @@ fn a_claude_run_still_writes_its_thinking_text() {
             .any(|b| b["thinking"].as_str().is_some_and(|s| !s.is_empty())),
         "{version} wrote thinking blocks but none had non-empty thinking text (thinking_tokens: {count_str})"
     );
+}
+
+/// Returns the version string printed by `codex --version`, or `None` when `codex`
+/// is not on the PATH.
+fn codex_version() -> Option<String> {
+    let out = Command::new("codex").arg("--version").output().ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+#[test]
+fn codex_login_status_still_reports_whether_the_binary_is_logged_in() {
+    let Some(version) = codex_version() else {
+        println!("skipped: `codex` is not on the PATH, so there is nothing to measure");
+        return;
+    };
+
+    match codex::login_status() {
+        Ok(codex::LoginStatus::LoggedIn) => {
+            println!("measured: {version} reports a logged-in ChatGPT account");
+        }
+        Ok(codex::LoginStatus::NotLoggedIn) => {
+            println!("measured: {version} reports not logged in");
+        }
+        Err(err) => panic!("{version} login status probe failed: {err:#}"),
+    }
 }

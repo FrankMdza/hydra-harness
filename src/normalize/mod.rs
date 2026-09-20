@@ -19,6 +19,7 @@
 
 pub mod agy;
 pub mod claude;
+pub mod codex;
 pub mod cursor;
 pub mod paths;
 
@@ -494,6 +495,7 @@ pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
     match provider.as_deref() {
         Some("cursor-agent") => cursor::normalize(text, policies, layout),
         Some("agy") => agy::normalize(text, policies, layout),
+        Some("codex") => codex::normalize(text, policies, layout),
         Some("claude") | None => claude::normalize(text, policies, layout),
         Some(other) => {
             let mut run = claude::normalize(text, policies, layout)?;

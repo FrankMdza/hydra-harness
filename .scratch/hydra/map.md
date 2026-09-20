@@ -291,6 +291,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [61 - Should a checkout and a data root be the same directory?](issues/61-a-checkout-and-a-data-root.md): opened 2026-09-14 after a cold-clone review ran the quick start in `/tmp` and was shown 197 runs it had not made. `HYDRA_ROOT` and a root line on `status` patch the symptom; whether the corpus belongs to the machine or to the checkout is the question, and `hydra doctor` is the shape of the answer the reviewer asked for.
 
 - [62 - Containment by argv, or by the operating system?](issues/62-containment-by-argv-or-by-uid.md): opened 2026-09-14 after an adversarial review found five holes in the gate, three of them the same bug in three spellings. The alternative is a second uid and file modes, which is the first thing in this design that needs something from the machine. What Hydra claims, containment or evidence or both, wants deciding before the repository is public.
+- [63 - A bounded shell read for a provider without a read tool?](issues/63-a-bounded-shell-read-for-codex.md): opened 2026-09-20 when build ticket 48 routed `codex` and found every read is a `Bash` call. The interim decision is `standard` and `permissive` only; whether `read-only` and `judge` get a closed command list on that provider, or a `judge` needs no read at all, is the question.
 
 
 ## Not yet specified

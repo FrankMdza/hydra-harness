@@ -35,7 +35,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::paths::Layout;
-use crate::provider::{Provider, agy, claude, cursor};
+use crate::provider::{Provider, agy, claude, codex, cursor};
 
 /// Protected config #5's path, the one [`crate::policy::denied_write_paths`]
 /// denies every policy from writing to.
@@ -280,6 +280,7 @@ fn undeliverable(provider: Provider, policy: &str, checkout: Checkout) -> Option
         Provider::Claude => claude::mcp_undeliverable(policy),
         Provider::CursorAgent => cursor::mcp_undeliverable(checkout),
         Provider::Agy => agy::mcp_undeliverable(checkout),
+        Provider::Codex => codex::mcp_undeliverable(checkout),
     }
 }
 
@@ -360,27 +361,39 @@ pub fn write_config(
     let servers: Vec<&Server> = owned.iter().collect();
     let servers = servers.as_slice();
 
-    let (file, config) = match provider {
+    match provider {
         Provider::Claude => {
             let file = layout.mcp_file(run_id);
             if let Some(parent) = file.parent() {
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("creating {}", parent.display()))?;
             }
-            (file, claude::mcp_config(servers))
+            let config = claude::mcp_config(servers);
+            std::fs::write(&file, serde_json::to_string_pretty(&config)?)
+                .with_context(|| format!("writing {}", file.display()))?;
+            Ok(file)
         }
-        Provider::CursorAgent => (
-            cursor::claim(worktree, "MCP config", cursor::mcp_file)?,
-            cursor::mcp_config(servers),
-        ),
-        Provider::Agy => (
-            agy::claim(worktree, "MCP config", agy::mcp_file)?,
-            agy::mcp_config(servers),
-        ),
-    };
-    std::fs::write(&file, serde_json::to_string_pretty(&config)?)
-        .with_context(|| format!("writing {}", file.display()))?;
-    Ok(file)
+        Provider::CursorAgent => {
+            let file = cursor::claim(worktree, "MCP config", cursor::mcp_file)?;
+            let config = cursor::mcp_config(servers);
+            std::fs::write(&file, serde_json::to_string_pretty(&config)?)
+                .with_context(|| format!("writing {}", file.display()))?;
+            Ok(file)
+        }
+        Provider::Agy => {
+            let file = agy::claim(worktree, "MCP config", agy::mcp_file)?;
+            let config = agy::mcp_config(servers);
+            std::fs::write(&file, serde_json::to_string_pretty(&config)?)
+                .with_context(|| format!("writing {}", file.display()))?;
+            Ok(file)
+        }
+        Provider::Codex => {
+            let file = codex::claim(worktree, "MCP config", codex::mcp_file)?;
+            let body = codex::mcp_config(servers);
+            std::fs::write(&file, body).with_context(|| format!("writing {}", file.display()))?;
+            Ok(file)
+        }
+    }
 }
 
 /// Contract 5.3's `mcp` group.

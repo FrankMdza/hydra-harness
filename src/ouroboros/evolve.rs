@@ -107,11 +107,6 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         }
     };
 
-    if let Some(abort) = rate_limit_abort(&layout)? {
-        write_harness_end(&pass_record, None, Some(&abort))?;
-        bail!(abort);
-    }
-
     let patch = read_proposer_patch(&layout, &policies, &proposer)?;
     let blocked_branch = format!("ouroboros/blocked/{pass_run_id}");
     let offerable_branch = format!("ouroboros/{pass_run_id}");
@@ -165,12 +160,23 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     // admission gate blocks a pass on nothing. Measured 2026-09-08 on pass
     // 01a08169-eb3b, whose haiku proposer hit the five-hour window with zero
     // files changed. The pass ends `completed`, the way an admission refusal
-    // does, and its branch carries the reason.
-    if matches!(proposer.outcome, Some("rate_limited") | Some("auth_failed")) {
-        let reason = format!(
-            "the proposer could not run: {}",
-            proposer.outcome.unwrap_or("refused")
-        );
+    // does, and its branch carries the reason. The frame check, build ticket
+    // 41, reads the proposer's last `rate_limit_event` and catches a run the
+    // outcome calls `completed` while the window is already shut; it used to
+    // `bail!` here and end the pass `failed`, which spec 4.10 reserves for git
+    // or the worktree breaking. The review of 2026-09-19 found the two paths
+    // disagreeing, so both end the same way now.
+    let frame_abort = rate_limit_abort(&layout)?;
+    if frame_abort.is_some()
+        || matches!(proposer.outcome, Some("rate_limited") | Some("auth_failed"))
+    {
+        let reason = match frame_abort {
+            Some(abort) => abort,
+            None => format!(
+                "the proposer could not run: {}",
+                proposer.outcome.unwrap_or("refused")
+            ),
+        };
         let message = commit_message(&pass_run_id, &proposer_run_id, &[], &reason);
         commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
         write_harness_end(&pass_record, Some(0), None)?;
