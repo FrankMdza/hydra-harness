@@ -155,7 +155,7 @@ pub enum Command {
         dry_run: bool,
     },
 
-    /// One rung-two pass: proposer, admission gate, panel of three, branch.
+    /// One rung-two pass: proposer, admission gate, panel of four, branch.
     Evolve {
         /// A model inside the provider. Never chosen on your behalf.
         #[arg(long)]

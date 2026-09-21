@@ -199,7 +199,7 @@ impl Lineage {
 
         // A harness run, contract 5.5: `command: evolve`, no provider, no policy,
         // because nothing was gated. Spec 4.10 makes it the parent of the proposer
-        // and the three judges so a pass can be grouped and a Ctrl-C leaves no
+        // and the four judges so a pass can be grouped and a Ctrl-C leaves no
         // orphans, and 7.3's bound is the human's who typed the pass, which is no
         // bound. Measured 2026-09-08 on the first real pass, 01a08127-6f58, which
         // this refusal ended before the proposer existed.
