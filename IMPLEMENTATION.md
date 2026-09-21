@@ -2822,7 +2822,11 @@ with one minor finding that read the four as a contradiction of a spec it had no
 and `codex` in 28k, its first answer as a judge, a bare JSON object with no prose around it. Two
 judges came out `gated`, `cursor-agent` and `agy`, the way judges on those providers have since
 pass seven, because `judge` grants nothing and both try a read before answering. The patch sits on
-`rungs/01a0c4b4-81ec-7752-ab39-451ff5dfc144`, spec 4.11, and nothing here merges it.
+`rungs/01a0c4b4-81ec-7752-ab39-451ff5dfc144`, spec 4.11, and nothing here merges it. The human
+did, on 2026-09-21, as commit 24cade6: the two files taken off the branch, two lines, the first
+change to land through rung two. A plain `git merge` of a pass branch conflicts, because the
+branch carries the proposer's whole worktree as it was seeded, so the merge was a checkout of
+the files the panel judged; the branch stays, since git does not see it as merged.
 
 
 Rungs spec 4 as written, with the three details map ticket 52 closed. `src/rungs/evolve.rs`
@@ -3353,7 +3357,7 @@ Out of scope for this slice, and each one has a document that already says what 
   build ticket 36, and ten passes have run: the sixth reached the panel and was blocked, and
   the tenth, on 2026-09-21, was offered by all four judges, so `rungs/<pass-id>` and an
   `ApprovedPatch` built from a real verdict exist now. The section above says what each pass
-  found. Spec 4.11's merge is the human's and none has happened yet.
+  found. Spec 4.11's merge is the human's, and the first one is commit 24cade6, the same day.
 
 ## Rough edges worth knowing
 

@@ -188,7 +188,8 @@ first so the design map gets a ticket and the record contract does not fork with
 
 Eleven of eleven commands. 23 test files, green. Rung one has run once against the real
 corpus and proposed one skill. Rung two has run ten passes and offered one patch, a two-word
-one, on the tenth; the other nine found something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a
+one, on the tenth, and a human merged it; the other nine found something real, and
+`IMPLEMENTATION.md` says what. Read that file before trusting a
 record: it is every departure from the design with its reason.
 
 ## Who wrote the code
