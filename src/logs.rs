@@ -19,6 +19,14 @@ use crate::paths::Layout;
 /// How often `--follow` looks for more.
 const POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// How long `--follow` keeps reading after the pid is gone before it calls the
+/// run abandoned. One poll was enough on this machine and not on a loaded CI
+/// runner, where the writer's reap-then-write took longer than 100ms and the
+/// tail dropped the closing line (run 35643315083 on 2026-09-21). Twenty polls
+/// is two seconds, which a truly abandoned run costs once and a finishing one
+/// never reaches.
+const GRACE_POLLS: u32 = 20;
+
 /// `out` is where the bytes go, which is stdout for the command and a buffer for
 /// the suite. Nothing here formats, so the two are the same run of bytes.
 pub fn logs(layout: &Layout, run_id: &str, follow: bool, out: &mut dyn Write) -> Result<()> {
@@ -53,16 +61,19 @@ pub fn logs(layout: &Layout, run_id: &str, follow: bool, out: &mut dyn Write) ->
         // **A dead pid is not yet an answer.** The writer reaps the child and
         // then writes the closing line, so every ordinary run passes through a
         // window where the pid is gone and the record has not ended. It is a
-        // `write_all` and an `fsync` wide against a 100ms poll, which is small
-        // and not rare: giving up inside it would drop the `run_end` off the tail
-        // and tell the reader the run was abandoned when it finished. So the
-        // liveness test only opens the question and the file answers it.
+        // `write_all` and an `fsync` wide, which is small on an idle machine
+        // and not on a loaded one: giving up inside it would drop the `run_end`
+        // off the tail and tell the reader the run was abandoned when it
+        // finished. So the liveness test only opens the question, the file
+        // answers it, and the file gets [`GRACE_POLLS`] chances to.
         if !crate::live::read_view(&path)?.is_live() {
-            std::thread::sleep(POLL);
-            at = copy_from(&mut file, at, out)?;
-            if crate::live::has_run_end(&path)? {
-                copy_from(&mut file, at, out)?;
-                return Ok(());
+            for _ in 0..GRACE_POLLS {
+                std::thread::sleep(POLL);
+                at = copy_from(&mut file, at, out)?;
+                if crate::live::has_run_end(&path)? {
+                    copy_from(&mut file, at, out)?;
+                    return Ok(());
+                }
             }
             eprintln!(
                 "hydra: this run has no closing line and its process is gone. \

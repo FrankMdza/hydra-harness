@@ -2221,9 +2221,14 @@ stance the normalizer takes on a torn record, one level up.
 **A dead pid is not by itself an ending, and two places had to learn that.** The detached
 half reaps its child and then writes the closing line, so every ordinary run passes
 through a window where the liveness test says gone and the record has not ended. It is an
-`fsync` wide against a 100ms poll: small, and hit often enough to matter. `wait_for_end`
-and `hydra logs --follow` both re-check the file before they conclude anything, and
-`tests/status.rs` holds that window open with a pid killed before the record was written.
+`fsync` wide against a 100ms poll: small on this machine, and hit often enough to matter.
+`wait_for_end` and `hydra logs --follow` both re-check the file before they conclude anything,
+and `tests/status.rs` holds that window open with a pid killed before the record was written.
+One re-check was not enough on a loaded CI runner: on 2026-09-21 the follow test's writer took
+longer than the poll and the tail called a finishing run abandoned, run 35643315083, while the
+same suite passed on the commits either side. `--follow` now gives the file twenty polls, two
+seconds, after the pid reads dead, which an abandoned run pays once and a finishing one never
+reaches.
 
 **A checkout younger than the launch budget is a launch in progress, not a reap, and the
 record being there does not change that.** `hydra run` creates the worktree and seeds it
