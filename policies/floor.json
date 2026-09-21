@@ -7,7 +7,7 @@
   "substitution_markers": ["$(", "${", "`"],
 
   "git": {
-    "consume_before_subcommand": ["-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"],
+    "consume_before_subcommand": ["-C", "-c", "--config-env", "--git-dir", "--work-tree", "--namespace", "--exec-path"],
     "push_forbidden_flags": [
       "--force",
       "-f",

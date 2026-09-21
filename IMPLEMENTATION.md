@@ -1670,7 +1670,11 @@ hook-trust warning included, which arrives twice per run as an `item.completed` 
 
 **Field names.** The session id is `thread_id` on a `thread.started` frame. A shell call is
 `command_execution` with `command`, `aggregated_output`, `exit_code` and a `status` of
-`completed` or `failed`; an applied patch is `file_change` with `changes: [{path, kind}]` and
+`completed` or `failed`, and `command` is what the provider ran, `/bin/zsh -lc '<what the
+model wrote>'`, while the hook judged the bare inner text: the reader takes the wrapper off
+before the replay, because a protected path inside a quoted token is the shape build ticket
+56 documented the token pass does not see, and the wrapped form derived allow on run
+01a0c223-9ec2 for a call the live gate refuses; an applied patch is `file_change` with `changes: [{path, kind}]` and
 never the patch text, which the hook alone sees under `tool_input.command`. `turn.completed`
 carries `usage` with `input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`,
 `output_tokens` and `reasoning_output_tokens`. The stream never names the model; the hook
@@ -1732,6 +1736,16 @@ is what every record on this machine does.
 `tests/normalize.rs::the_floor_lift_on_the_record_reaches_the_replay` is the pair: the
 same `git push --force` derives allow on a record that carries the flag and `hydra/floor`
 on one that does not.
+
+**The floor's `git` parser consumes the value after `-c` and `--config-env`, since 2026-09-21.**
+`git_subcommand` in `gate.py` skips the values of the flags `consume_before_subcommand` in
+`policies/floor.json` lists before it reads the subcommand, and until build ticket 58 that list
+had `-C`, `--git-dir`, `--work-tree`, `--namespace` and `--exec-path` and not the two config
+flags, so `git -c core.pager=cat push --force origin main` was read as the subcommand
+`core.pager=cat` and walked past every push rule; the adversarial review of 2026-09-14 measured
+it. The two entries are protected config #1 and the human added them; the test in `tests/gate.rs`
+was written first and sat under `#[ignore]` for six days. The edit moved `policy_sha`, and every
+record before that day carries the old one, which is the case `policy_moved` exists for.
 
 **Every `claude` thinking block written before build ticket 17 is empty, and the count
 beside it is right.** Contract 7.5 says `claude` gives thinking text with a signature, and

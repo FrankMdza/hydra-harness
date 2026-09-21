@@ -2310,9 +2310,6 @@ fn a_layout_root_rust_and_python_used_to_fold_differently_still_denies_the_corpu
 }
 
 #[test]
-#[ignore = "build ticket 58: fails until a human adds -c and --config-env to \
-            consume_before_subcommand in policies/floor.json, which is protected config #1. \
-            Run it with `cargo test --test gate -- --ignored`."]
 fn a_config_override_does_not_hide_the_subcommand_from_the_floor() {
     // Build ticket 58. `git -c key=value` and `git --config-env key=VAR` take a
     // separate value the way `-C` does, so a parser that does not consume it

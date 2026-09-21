@@ -31,6 +31,9 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   file inside a git worktree (2026-09-21, build ticket 48, run 01a0c231-6583).
 - A proposer rate-limited by its last frame ends an `evolve` pass `completed` on a blocked
   branch, the way one rate-limited by outcome already did (2026-09-20).
+- The floor's `git` parser consumes the value after `-c` and `--config-env`, so `git -c
+  core.pager=cat push --force` is refused the way `git push --force` was (2026-09-21, build
+  ticket 58, a change to protected config #1 made by the human).
 
 ## 0.2.0, 2026-09-08
 

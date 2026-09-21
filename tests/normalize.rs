@@ -1554,12 +1554,21 @@ fn no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent() {
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
         if MEASURED_SILENT_GATES.iter().any(|id| run.run_id == *id) {
+            // Under the policy set it ran under, the record reads as two
+            // leaks. Once the set moves, build ticket 49's rule files the same
+            // disagreement as a `StalePolicy` beside a limit saying the gate
+            // named is not the one compiled here, because a replay under
+            // today's set cannot tell a changed gate from a leak. Either
+            // reading is the reader being right about this record.
             assert!(
+                run.findings.iter().any(|finding| match finding {
+                    Finding::GateLeak { .. } | Finding::StalePolicy { .. } => true,
+                    Finding::Limit(text) => text.contains("not the one compiled here"),
+                    _ => false,
+                }),
+                "{}: the measured silent gate reads as neither a leak nor a moved policy: {:?}",
+                path.display(),
                 run.findings
-                    .iter()
-                    .any(|finding| matches!(finding, Finding::GateLeak { .. })),
-                "{}: the measured silent gate no longer reads as a leak",
-                path.display()
             );
             continue;
         }

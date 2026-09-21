@@ -57,7 +57,10 @@ docs half of 6 is the `codex` section of `IMPLEMENTATION.md`, which holds every 
    `hydra/no-path`. A `standard` run writes through the shell or not at all until `gate.py`
    parses the patch header, which nobody has asked for.
 
-**Measured and now in the reader.** A denied call leaves no `item.*` frame, only a stderr line
+**Measured and now in the reader.** The stream records every shell call as `/bin/zsh -lc
+'<command>'` while the hook judged the bare command, so the reader takes the wrapper off before
+the replay; without that, the protected-path read on run 01a0c223-9ec2 derived allow. A denied
+call leaves no `item.*` frame, only a stderr line
 `Command blocked by PreToolUse hook: <reason>. Command: <command>`; the normalizer reads it into
 a call, an error result and a decision. A hook that exits non-zero without JSON fails open
 (probe p3). Usage keys are `cached_input_tokens`, `cache_write_input_tokens` and

@@ -1,7 +1,7 @@
 # 58 - The floor's `git` parser consumes the wrong token for one flag
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -20,3 +20,17 @@ makes that change; an agent does not. The test belongs in `tests/gate.rs` beside
 floor cases, and it can be written first.
 
 Found by the adversarial review.
+
+## Outcome
+
+Resolved 2026-09-21. The human ran the two-entry edit on `policies/floor.json` from `~/hydra`,
+which added `-c` and `--config-env` to `consume_before_subcommand`, and the orchestrating
+session took the `#[ignore]` off `a_config_override_does_not_hide_the_subcommand_from_the_floor`
+in `tests/gate.rs`. The test had been written on 2026-09-15 against the unedited floor and
+failed then, four commands allowed that the push rules should refuse; on the edited floor it
+passes, and `tests/gate.rs` is 72 of 72 with nothing ignored.
+
+The edit moves `policy_sha`. Every record written before 2026-09-21 carries the old sha, which
+is the case build ticket 49 built `policy_moved` for: a replay under today's set files its
+disagreement with an old record as a limit that names the sha rather than as a leak. The
+corpus walks were rerun against the new sha before this landed.

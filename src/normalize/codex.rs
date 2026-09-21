@@ -228,7 +228,10 @@ impl Walk {
 
     fn command_execution(&mut self, seq: u64, item: &Value) {
         let call_id = item_id(item, seq);
-        let command = item["command"].clone();
+        let command = match item["command"].as_str() {
+            Some(text) => Value::String(unwrap_shell(text)),
+            None => item["command"].clone(),
+        };
         let name = "Bash".to_string();
         let capability = codex_capability(&name);
         if capability.is_none() {
@@ -620,6 +623,35 @@ impl Walk {
     }
 }
 
+/// The command the hook judged, out of the one the stream records.
+///
+/// Measured 2026-09-21 on 0.154.0, run 01a0c231-6583: the hook payload carries
+/// `tool_input.command` as the model wrote it, `cat ~/hydra/runs/nothing.jsonl`,
+/// and the `command_execution` item carries what the provider ran,
+/// `/bin/zsh -lc 'cat ~/hydra/runs/nothing.jsonl'`, or `/bin/zsh -lc ls` when
+/// one word needs no quoting. A replay has to see the former: a protected path
+/// inside a quoted token is the shape build ticket 56 documented the token
+/// pass does not see, and on run 01a0c223-9ec2 the wrapped form derived allow
+/// for a call the live gate refuses. Anything not in that wrapper is returned
+/// as it came.
+fn unwrap_shell(command: &str) -> String {
+    const WRAPPERS: &[&str] = &["/bin/zsh -lc ", "/bin/bash -lc ", "/bin/sh -lc "];
+    let Some(rest) = WRAPPERS
+        .iter()
+        .find_map(|wrapper| command.strip_prefix(wrapper))
+    else {
+        return command.to_string();
+    };
+    let Some(inner) = rest
+        .strip_prefix('\'')
+        .and_then(|inner| inner.strip_suffix('\''))
+    else {
+        return rest.to_string();
+    };
+    // POSIX single quoting: the only escape is `'\''`.
+    inner.replace("'\\''", "'")
+}
+
 fn item_id(item: &Value, seq: u64) -> String {
     item["id"]
         .as_str()
@@ -760,6 +792,20 @@ mod tests {
             result.output
         );
         assert!(run.noise.is_empty(), "{:?}", run.noise);
+    }
+
+    #[test]
+    fn the_shell_wrapper_is_taken_off_so_the_replay_sees_what_the_hook_saw() {
+        assert_eq!(
+            unwrap_shell("/bin/zsh -lc 'cat ~/hydra/runs/nothing.jsonl'"),
+            "cat ~/hydra/runs/nothing.jsonl"
+        );
+        assert_eq!(unwrap_shell("/bin/zsh -lc ls"), "ls");
+        assert_eq!(
+            unwrap_shell("/bin/zsh -lc 'echo '\\''quoted'\\'' x'"),
+            "echo 'quoted' x"
+        );
+        assert_eq!(unwrap_shell("cat a.txt"), "cat a.txt");
     }
 
     #[test]
