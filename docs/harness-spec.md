@@ -3,8 +3,8 @@
 How Hydra launches, feeds and records the three agent CLIs.
 
 This is one of three documents. `docs/run-record-contract.md` fixes the format Hydra writes and
-Ouroboros reads. `docs/ouroboros-spec.md` covers both rungs of self-improvement. The three are
-meant to be read together and nothing else crosses between the harness and Ouroboros, per D5.
+Rungs reads. `docs/rungs-spec.md` covers both rungs of self-improvement. The three are
+meant to be read together and nothing else crosses between the harness and Rungs, per D5.
 
 Provider versions this document was written against. Read 2026-09-04, re-read 2026-09-05 when
 the first slice was built:
@@ -70,7 +70,7 @@ recorded are two launch modes rather than one (ticket 13).
 **Recorded.** Hydra drives the provider through a structured transport, owns the pty, and writes
 every frame into the run record as it arrives. Skills are injected, MCP is injected, the gate is
 compiled and passed, and the instruction preamble rides the task string. This is the mode
-delegation uses and the mode Ouroboros learns from.
+delegation uses and the mode Rungs learns from.
 
 **Interactive.** The vendor owns the terminal and draws its own interface. Hydra launches it and
 gets out of the way. Without `--policy`: no skill injection (ticket 10), no gate, no preamble. With
@@ -79,7 +79,7 @@ compiled gate passed as `--settings`, with denials harvested from the transcript
 paragraph in section 3). Either way the run records thin and is harvested from the vendor's own
 transcript when the process exits (section 10).
 
-The consequence is worth stating plainly rather than leaving in the mechanics: **Ouroboros learns
+The consequence is worth stating plainly rather than leaving in the mechanics: **Rungs learns
 from run records, and a thin record teaches it little.** A TUI is what would let the structured
 transport become the interactive path too, and that is deferred with the TUI (D3).
 
@@ -122,7 +122,7 @@ reader who cannot find a path here has found a bug rather than an omission.
 | `~/hydra/spawn/<run-id>/` | the compiled gate script, the `--mcp-config` file for `claude`, Cursor's data root at `cursor-data/` | per run | with the worktree |
 | `~/hydra/runs/<run-id>.jsonl` | the run record | per run | `hydra prune`, which moves rather than deletes |
 | `~/hydra/skills/` | the skill store, with its own git history | once, and it outlives every run | never |
-| `~/hydra/skill-worktrees/<run-id>/` | a `curate` pass's own checkout of the store, where it writes its proposal | per curate pass | `hydra reap`, after committing to `ouroboros/curate/<run-id>` |
+| `~/hydra/skill-worktrees/<run-id>/` | a `curate` pass's own checkout of the store, where it writes its proposal | per curate pass | `hydra reap`, after committing to `rungs/curate/<run-id>` |
 | `~/hydra/pruned/<run-id>.jsonl` | where `hydra prune` moves a record, because it moves rather than deletes | per pruned record | never |
 
 The last three are not per run and are here anyway. A reader asking where a pruned record went, or
@@ -150,7 +150,7 @@ the policy's scopes resolved to, and the contract's `run_start.scopes` now carri
 
 **A `hydra evolve` pass writes only the last row.** The record contract's section 2 splits a run into
 two kinds, and the second one is work Hydra did itself rather than a provider process it launched.
-The pass spawns a proposer and three judges, each of which is an ordinary provider run with the three
+The pass spawns a proposer and four judges, each of which is an ordinary provider run with the three
 other rows above; the pass itself launches nothing, so it gets no worktree, no skills snapshot and no
 spawn directory. Its file is `run_start`, `run_end` and nothing between, and `provider: null` is what
 a reader checks to tell the two kinds apart. The contract's section 5.5 owns the field-by-field
@@ -750,7 +750,7 @@ section 7.5 handles.
 section 7.5 denies under every policy, and the only things that write it are `Store::pin`, which
 commits a dirty store before a launch pins it, and a human. Ticket 40 settled this: a curator writing
 into the live working tree would hand its half-finished proposal to whichever run launches next, and
-`docs/ouroboros-spec.md` 3.6 is the paragraph that says so. The two scope names are separate,
+`docs/rungs-spec.md` 3.6 is the paragraph that says so. The two scope names are separate,
 `skill_store` for the store and `skill_checkout` for the pass's checkout, so neither name resolves
 two ways.
 
@@ -918,7 +918,7 @@ above it, so the gate delivers it outright: a hook sees the path and refuses the
 reaches disk, measured on all three providers (ticket 26).
 
 **The store and its snapshots earn it because they are the other half of D5's seam.** The record
-and the skill store are the two things that cross between the harness and Ouroboros, and rung one
+and the skill store are the two things that cross between the harness and Rungs, and rung one
 proposes rather than lands. A `permissive` run writing a skill into `~/hydra/skills/` lands one with
 no proposal, which is not a leak in the curator but a second door beside it. A snapshot is where a
 run's injected links resolve, so a run that writes into one edits its own instructions, which ticket
@@ -934,9 +934,9 @@ and, on a machine where the parent is Hydra's own checkout, Hydra's own history.
 **What the gate does not do is stop a run invoking `hydra` itself.** `hydra export`, `hydra prune`
 and `hydra reap` are a binary reached through `shell`, so any rule against them is an argv match with
 the pattern floor's failure mode in section 7.4: silent permission on the spelling nobody wrote down.
-`./target/debug/hydra export` walks past it. So the spec does not claim the gate keeps Ouroboros away
-from those three. What keeps them away is that no Ouroboros code path calls them, which is a property
-of Hydra's own source rather than of a run, and `docs/ouroboros-spec.md`'s `evidence_is_read_only`
+`./target/debug/hydra export` walks past it. So the spec does not claim the gate keeps Rungs away
+from those three. What keeps them away is that no Rungs code path calls them, which is a property
+of Hydra's own source rather than of a run, and `docs/rungs-spec.md`'s `evidence_is_read_only`
 checklist item is what holds it true under a self-edit. Naming the right mechanism matters more here
 than having two: a floor stated as a guarantee is the Hermes failure in miniature.
 
@@ -952,7 +952,7 @@ All three providers can spawn a subagent inside a run without going through `hyd
 `Task`, `agy`'s `invoke_subagent` and `define_subagent`, Cursor's `subagentStart`. None gets a run
 id, none writes a run file, and none counts against the depth cap. D10 makes the record the source
 of truth, and an in-process subagent is work with no record at all, on the exact trajectory
-Ouroboros learns from.
+Rungs learns from.
 
 All three surfaces are gateable, so this is enforceable rather than aspirational. The cost belongs
 in the spec rather than in a footnote: **a delegated `claude` child cannot use `Task`**, which is a
@@ -984,7 +984,7 @@ denials still only subtract. An earlier draft said the hooks could only ever sub
 of the guards on this machine and not of the mechanism.
 
 Do not call these channels. D5 uses that word for the two crossings between the harness and
-Ouroboros, and a second meaning inside one spec is a reader's error waiting to happen.
+Rungs, and a second meaning inside one spec is a reader's error waiting to happen.
 
 **Authority is per run.** A delegated child's task is authoritative for that child. This is not a
 concession; it is the only formulation that survives delegation, because a literal "obey only the
@@ -1129,7 +1129,7 @@ anyway, so this is the only coherent shape rather than a compromise.
 moves run files rather than deleting them unless a flag says otherwise, because D12 keeps lossless
 export a standing constraint and anything deleted is training data destroyed. Reap never removes a
 worktree with uncommitted changes: it commits them to the child's own branch first, then removes the
-worktree and the run's spawn directory together. Ouroboros cannot call either at either rung.
+worktree and the run's spawn directory together. Rungs cannot call either at either rung.
 
 This is the Hermes lesson turned on our own tooling. Hermes told its model that archiving was
 recoverable while the tool underneath called `shutil.rmtree`, so a guarantee written in a prompt is
@@ -1166,7 +1166,7 @@ a typed result rather than an improvised terminal prompt, and Hydra reads that s
 sniffing for a paste prompt. The teeing suspension stays as the generic net for the others.
 
 **Auth failure is its own run outcome**, distinct from task failure, carrying a remediation string.
-An expired token is not a task failure, and Ouroboros must never evolve a skill because a login
+An expired token is not a task failure, and Rungs must never evolve a skill because a login
 lapsed.
 
 **A delegated child receives no credential of any kind.** No virtual key, because the raw plane does
@@ -1220,7 +1220,7 @@ disk complete.
 
 The outcomes rung one ignores are not signal-free, they carry a different signal. A run that failed
 on too narrow a policy is a policy bug rather than a skill bug. Nothing in v1 reads that, and D5
-requires every field Ouroboros reads to be one the harness writes rather than the converse, so
+requires every field Rungs reads to be one the harness writes rather than the converse, so
 writing it with no reader is allowed and deliberate.
 
 **A rate-limited `claude` run reports `subtype: "success"` with `is_error: true` and
@@ -1342,7 +1342,7 @@ folding in the export allowlist or either of the two additions the delegation po
 correction was arithmetic rather than a new decision.
 
 **The twelfth is a decision, and the seam check made it.** The run records directory was a run-time
-denial the Ouroboros spec relied on and no document listed, so it is a new row rather than a
+denial the Rungs spec relied on and no document listed, so it is a new row rather than a
 recount.
 
 Matched case-insensitively, because `write_file(path="bible.md")` on macOS writes `BIBLE.md` and an
@@ -1365,13 +1365,13 @@ exact-case membership test misses it.
 
 **What admission refuses, as built.** The five config rows, 3, 5, 8, 10 and 11, since build ticket
 36. The five code rows, 1, 2, 4, 6 and 7, since build ticket 40 on 2026-09-12; between the two
-tickets a patch to any of them reached the panel, and ouroboros spec 4.4's sentence about the
+tickets a patch to any of them reached the panel, and rungs spec 4.4's sentence about the
 opening scenario was false for every pass run in that window. Map ticket 59 found it.
 
 **Entry 12 arrived from the seam check and is the one row that is not source.** The other eleven are
 things a rung-two patch could propose changing. A patch cannot propose changing the corpus, so its
 admission column is not applicable, and it is listed here because the run-time denial is what
-`docs/ouroboros-spec.md` relies on when it says a loop that learns from the evidence cannot edit the
+`docs/rungs-spec.md` relies on when it says a loop that learns from the evidence cannot edit the
 evidence. Before the seam check that reliance had no entry on either side.
 
 **"Protected" was carrying two mechanisms under one word**, which is why the table has two columns.
@@ -1447,14 +1447,14 @@ wanted.
 | `hydra resume <run-id>` | hands the provider its own resume flag, mints a fresh linked run id |
 | `hydra reap [<run-id>]` | commits a worktree's uncommitted changes to the child's branch, then removes the worktree and the spawn directory. Takes a prefix since build ticket 39 |
 | `hydra prune` | moves run files out of `runs/`. Deletes only behind a flag |
-| `hydra curate` | invokes Ouroboros rung one as an ordinary recorded run under the `curate` policy |
-| `hydra evolve [--task <text>]` | runs one rung-two pass: a proposer, the admission gate, a panel of three, a branch. `--task` hands the proposer a target; map ticket 57 asks what the judge should see of it |
+| `hydra curate` | invokes rung one as an ordinary recorded run under the `curate` policy |
+| `hydra evolve [--task <text>]` | runs one rung-two pass: a proposer, the admission gate, a panel of four, a branch. `--task` hands the proposer a target; map ticket 57 asks what the judge should see of it |
 | `hydra export` | section 14 |
 | `hydra usage recount` | re-derives token counts from stored text with a better tokenizer |
 
 `hydra reap`, `hydra prune` and `hydra export` are typed by a human and reachable from no run at
-either Ouroboros rung. `hydra curate` and `hydra evolve` are typed by a human too, and
-`docs/ouroboros-spec.md` says what they do.
+either Rungs rung. `hydra curate` and `hydra evolve` are typed by a human too, and
+`docs/rungs-spec.md` says what they do.
 
 **`hydra usage recount` has no work to do in v1**, because no run produces `usage_source:
 estimated`: the one provider that would have is `unavailable` instead, for the reason in the
@@ -1532,7 +1532,7 @@ Ticket 27 says a run that failed on too narrow a policy is a policy bug. So `gat
 signal about the delegation policy rather than about a skill, and section 12 records it. No system
 in v1 reads it. Rung one is barred from learning from these runs, correctly, and nothing else looks.
 
-This breaks no seam, because D5 requires every field Ouroboros reads to be one the harness writes
+This breaks no seam, because D5 requires every field Rungs reads to be one the harness writes
 and says nothing about the converse. It is on the map as fog rather than as a ticket, beside the
 second-corpus patch, which has the same shape: a signal worth keeping before anyone knows what reads
 it.

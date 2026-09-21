@@ -1,9 +1,9 @@
-//! `hydra curate`: Ouroboros rung one, invoked and never scheduled.
+//! `hydra curate`: rung one, invoked and never scheduled.
 //!
 //! One pass reads the corpus, launches a recorded run under the `curate` policy
 //! with what it found, and commits whatever that run wrote into its checkout of
-//! the skill store onto `ouroboros/curate/<run-id>`. A human merges the branch or
-//! does not. `docs/ouroboros-spec.md` section 3 is the design.
+//! the skill store onto `rungs/curate/<run-id>`. A human merges the branch or
+//! does not. `docs/rungs-spec.md` section 3 is the design.
 //!
 //! **It is a `hydra run` like any other** (3.5), so it goes through
 //! [`crate::run::run`]: one launch sequence, one record, one writer. Four things
@@ -94,7 +94,7 @@ pub fn curate(pass: Pass) -> Result<Done> {
     // read-time re-evaluation uses. Asking the layout rather than composing it
     // here is what keeps the checkout and the scope the same directory.
     let checkout = layout.skill_checkout(&run_id);
-    let branch = format!("ouroboros/curate/{run_id}");
+    let branch = format!("rungs/curate/{run_id}");
 
     let selection = corpus::select(&layout, &policies)?;
     let brief = brief(&run_id, &checkout, &layout, &selection);
@@ -155,7 +155,7 @@ pub fn request(run_id: &str, brief: String, model: Option<String>, timeout: Dura
         floor_lifted: false,
         timeout,
         // Rung one is started by a human typing `hydra curate`, so its run is
-        // depth 0 and bounded by nothing above it (ouroboros spec 3.6).
+        // depth 0 and bounded by nothing above it, rungs spec 3.6.
         parent: None,
         run_id: Some(run_id.to_string()),
         command: "curate".to_string(),
@@ -295,9 +295,7 @@ pub fn propose(
 /// it can do is keep the two apart, so a reader knows which half is a fact.
 fn message(run_id: &str, result: &RunResult) -> String {
     let mut text = format!("hydra curate: a proposal from run {run_id}\n\n");
-    text.push_str(
-        "Ouroboros rung one proposes and does not land. This branch is the proposal.\n\n",
-    );
+    text.push_str("Rung one proposes and does not land. This branch is the proposal.\n\n");
     text.push_str(&format!("run: {run_id}\n"));
     text.push_str(&format!("record: {}\n", result.run_file));
     text.push_str("policy: curate\n");
@@ -324,14 +322,14 @@ fn message(run_id: &str, result: &RunResult) -> String {
 pub fn brief(run_id: &str, checkout: &Path, layout: &Layout, selection: &Selection) -> String {
     let mut text = String::new();
     text.push_str(
-        "You are Ouroboros rung one, Hydra's curator. A human typed `hydra curate`. \
+        "You are rung one of the rungs, Hydra's curator. A human typed `hydra curate`. \
          You read run records and propose changes to the skill store.\n\n",
     );
 
     text.push_str("## What you may write\n\n");
     text.push_str(&format!(
         "{}, and nothing else. It is a git worktree of the skill store at {}, on branch \
-         ouroboros/curate/{run_id}. When you exit, Hydra commits whatever you left there \
+         rungs/curate/{run_id}. When you exit, Hydra commits whatever you left there \
          onto that branch, and a human merges it or does not. Nothing you write lands on \
          its own, so a proposal that is wrong costs a branch nobody merged.\n\n",
         checkout.display(),

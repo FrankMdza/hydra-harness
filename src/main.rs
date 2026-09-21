@@ -136,12 +136,12 @@ fn main() -> Result<()> {
             // `hydra run` and the delegate face, where a caller has to switch on
             // it; `hydra curate` is typed by a human like reap and prune are, and
             // its answer is a branch.
-            let done = hydra::ouroboros::curate::curate(hydra::ouroboros::curate::Pass {
+            let done = hydra::rungs::curate::curate(hydra::rungs::curate::Pass {
                 model,
                 timeout,
                 dry_run,
             })?;
-            print!("{}", hydra::ouroboros::curate::report(&done));
+            print!("{}", hydra::rungs::curate::report(&done));
         }
         Command::Evolve {
             model,
@@ -149,13 +149,13 @@ fn main() -> Result<()> {
             timeout,
             dry_run,
         } => {
-            let done = hydra::ouroboros::evolve::evolve(hydra::ouroboros::evolve::Pass {
+            let done = hydra::rungs::evolve::evolve(hydra::rungs::evolve::Pass {
                 model,
                 task,
                 timeout,
                 dry_run,
             })?;
-            print!("{}", hydra::ouroboros::evolve::report(&done));
+            print!("{}", hydra::rungs::evolve::report(&done));
         }
         Command::Usage { command } => match command {
             UsageCommand::Recount { run_id } => {

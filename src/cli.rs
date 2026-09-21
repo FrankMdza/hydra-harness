@@ -136,7 +136,7 @@ pub enum Command {
         delete_branch: bool,
     },
 
-    /// Read the corpus and propose skill edits: Ouroboros rung one.
+    /// Read the corpus and propose skill edits: rung one of the rungs.
     ///
     /// One recorded run under the `curate` policy, whose proposal lands on a
     /// branch in the skill store that a human merges or does not.

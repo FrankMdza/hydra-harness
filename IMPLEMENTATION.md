@@ -317,7 +317,7 @@ the run's spawn directory. `hydra prune` moves run files to `~/hydra/pruned/`. N
 appends to or removes a run record the other owns, and the section below says what each
 guarantees and how.
 
-`hydra curate` is Ouroboros rung one: it reads the corpus, launches one recorded run
+`hydra curate` is rung one: it reads the corpus, launches one recorded run
 under the `curate` policy with what it found, and commits what that run proposed onto
 a branch in the skill store that a human merges or does not. `--dry-run` reads the
 corpus and launches nothing, which is the only half that works before ticket 07
@@ -330,7 +330,7 @@ unrouted, and its name still comes back as an unknown provider.
 
 ## Cleanup: `hydra reap` and `hydra prune`
 
-Ticket 06. Harness spec 10 gives both to a human to type and Ouroboros to neither, and
+Ticket 06. Harness spec 10 gives both to a human to type and Rungs to neither, and
 harness spec 7.5 already ruled out enforcing that with the gate: the binary is reached
 through `shell`, so any rule against it is an argv match with the pattern floor's failure
 mode. What holds it here is that nothing in `src/` calls `reap::reap` or `prune::prune`
@@ -443,7 +443,7 @@ on our own tooling.
 is exactly what keeps the branch alive. A branch with nothing on it is litter and goes.
 `--delete-branch` is `git branch -D`, and it is the same shape prune gives deletion:
 recoverable by default, destructive only when a human typed the flag.
-`docs/ouroboros-spec.md` section 4.11 already expects a leftover branch to be removed
+`docs/rungs-spec.md` section 4.11 already expects a leftover branch to be removed
 with `git branch -D`; the flag is that sentence typed through the command.
 
 **Only the branch Hydra named for the run is ever deleted.** A child that checked out one
@@ -1873,7 +1873,7 @@ now.
 
 **A rebuilt key is one `Finding::Limit` per record and never a disagreement.**
 `ReplaySpawn::scope_limit` names the keys it stood in for, and adds that nothing answered
-for `parent_git_dir` when the git call came back empty. `src/ouroboros/corpus.rs` routes
+for `parent_git_dir` when the git call came back empty. `src/rungs/corpus.rs` routes
 every `Limit` to `signals.limits`, which the ranking does not weigh, rather than to
 `signals.disagreements`, which weighs 2 and reads in the brief as "the record and the
 policy disagree". Getting that arm wrong is the failure ticket 42 measured: one clean
@@ -2625,7 +2625,7 @@ calls came out `Ungated` with their answers sitting in the record. `hook_started
 `hook_response` share a `hook_id`, and a start fires the moment a call is emitted, so the
 normalizer now groups starts to calls per tool in seq order and takes each call's answer by
 the ids its starts carried. A record with no `hook_started` frames keeps the old join. That
-finding is what would have reached Ouroboros as a policy lesson, and 153 hook pairs for 60
+finding is what would have reached Rungs as a policy lesson, and 153 hook pairs for 60
 calls on the same run say the count of hooks per call is not a join key either.
 
 ## The interactive mode, on `claude`, since build ticket 27
@@ -2799,17 +2799,41 @@ over every output line and one hit aborts the whole export with nothing written.
 normalized vocabulary, to `--out <file>`. Nothing on this machine has been exported: the
 allowlist does not exist, and `hydra export --dry-run` says so.
 
-## Ouroboros rung two: `hydra evolve`, since build ticket 36
+## Rung two: `hydra evolve`, since build ticket 36
 
-Ouroboros spec 4 as written, with the three details map ticket 52 closed. `src/ouroboros/evolve.rs`
-and `src/ouroboros/review.rs`, `tests/evolve.rs`, written by Composer 2.5 on run 01a08053-3d85,
+**The module is `src/rungs/` since build ticket 62, on 2026-09-21, and was `src/ouroboros/`
+before.** razzant/ouroboros is earlier work under that name with a paper behind it, and the
+README already spoke of rungs, so the human chose the word. `cursor-agent` on Composer 2.5 did
+the mechanical half in run 01a0c4a6-cf6d, `git mv` so history follows; the spec file is
+`docs/rungs-spec.md` and every document names it so. Two things stay as they were on disk:
+the branches earlier passes wrote, `ouroboros/<pass-id>` and `ouroboros/blocked/<pass-id>`,
+which `pass_run_id_from_branch` still reads beside the new `rungs/` prefix with a test on both
+spellings, and the run records that mention the old name, which are evidence.
+
+**Passes nine and ten, 2026-09-21, and the first offerable patch.** Both were directed at the same
+two-word change, "panel of three" to four in `src/cli.rs` and `src/run.rs`, with a haiku proposer
+and `codex` on the panel for the first time. Pass nine, 01a0c4a6-fe42, was blocked at admission
+by a corpus test that selected the ticket 06 record as "the one `standard` run with exactly two
+`Bash` calls": the pass's own proposer had just written a record of that shape, both calls
+allowed, and the assertion read `Allow` where it expected `Deny`. The selector names the corpus
+path now and the test says why. Pass ten, 01a0c4b4-81ec, cleared admission and every judge said
+pass in the closed shape: `claude` haiku in 20k tokens, `cursor-agent` in 101k, `agy` in 141k
+with one minor finding that read the four as a contradiction of a spec it had not seen updated,
+and `codex` in 28k, its first answer as a judge, a bare JSON object with no prose around it. Two
+judges came out `gated`, `cursor-agent` and `agy`, the way judges on those providers have since
+pass seven, because `judge` grants nothing and both try a read before answering. The patch sits on
+`rungs/01a0c4b4-81ec-7752-ab39-451ff5dfc144`, spec 4.11, and nothing here merges it.
+
+
+Rungs spec 4 as written, with the three details map ticket 52 closed. `src/rungs/evolve.rs`
+and `src/rungs/review.rs`, `tests/evolve.rs`, written by Composer 2.5 on run 01a08053-3d85,
 launched into a Herdr pane. **Six passes had run on this machine when this was written, and eight as of 2026-09-12**,
 the sixth through
 the full panel; the paragraphs below say what each one found.
 
 **A pass is a harness run with four children.** `evolve` mints a run id with `command: evolve`,
 writes contract 5.5's two-line record, and every child carries it as `parent_run_id`: one proposer
-and three judges. The proposer is a recorded `claude` run under `standard` in a worktree of this
+and four judges since build ticket 61, three before it. The proposer is a recorded `claude` run under `standard` in a worktree of this
 repo, its task the brief spec 4.1 describes, composed by `brief()` from the same corpus selection
 rung one reads. `--model` names the proposer's model and nothing chooses one on the human's behalf.
 
@@ -2818,9 +2842,9 @@ against `base_tree` the way `hydra reap` reads one; a diff over `PATCH_LINE_CAP`
 changed, insertions plus deletions, is rejected for size and the proposer is told to split it. A
 diff naming a protected path, checked relative to the repo root and case-insensitively, is
 refused at admission. Until 2026-09-12 that meant `policies/` and `config/` only, and a patch to
-`src/ouroboros/review.rs` reached the panel; build ticket 40 added the code rows of harness spec
-15.2 as `PROTECTED_CODE_PATHS` in `evolve.rs`: `src/ouroboros/review.rs`,
-`src/ouroboros/evolve.rs`, `src/policy/`, `src/record/` and `src/env.rs`. The spec names those
+`src/rungs/review.rs` reached the panel; build ticket 40 added the code rows of harness spec
+15.2 as `PROTECTED_CODE_PATHS` in `evolve.rs`: `src/rungs/review.rs`,
+`src/rungs/evolve.rs`, `src/policy/`, `src/record/` and `src/env.rs`. The spec names those
 rows by role, and the doc comment on the constant says which file each role maps to. The
 hook-config writer is split between `src/policy/` and `write_spawn_config` in `src/run.rs`, and
 `src/run.rs` is not a row, since it is also the whole launch sequence; that gap is on the record
@@ -2848,7 +2872,7 @@ ended the pass `failed`, which spec 4.10 reserves for git or the worktree breaki
 
 **The verdict lives in the commit message**, spec 4.9, on `ouroboros/<pass-id>` when the panel
 passed and `ouroboros/blocked/<pass-id>` when it did not, naming the pass, the proposer and the
-three judges by run id, with the three answers in the body. A pass constructs `ApprovedPatch`
+four judges by run id, with the four answers in the body. A pass constructs `ApprovedPatch`
 only through `panel_verdict`, which is the one function that can build it, and nothing merges:
 the human does, spec 4.11. A pass's outcome describes the pass and not the patch, spec 4.10, so
 a refused or blocked patch is a `completed` pass and `failed` is git or the worktree breaking.
@@ -2961,9 +2985,9 @@ the Cursor ones carrying an `unknown_tool` and the oldest records. And the brief
 cannot open, since `~/hydra/runs/` is denied under every policy; that is the read-only brief of
 spec 4.3 as a convention, which map ticket 52 kept.
 
-## Ouroboros rung one: `hydra curate`
+## Rung one: `hydra curate`
 
-Ticket 12. `src/ouroboros/` is the whole of it. `corpus.rs` decides which runs the
+Ticket 12. `src/rungs/` is the whole of it. `corpus.rs` decides which runs the
 curator may learn from, `curate.rs` composes what it is told, launches it as an
 ordinary recorded run under `curate`, and commits whatever that run wrote into its
 checkout of the skill store onto `ouroboros/curate/<run-id>`. `tests/curate.rs`
@@ -3006,7 +3030,7 @@ build at all, human rejection and the retry loop, and the brief names them as
 that rather than printing a zero somebody could read as a measurement.
 
 **The curator writes into a git worktree of the store and never into
-`~/hydra/skills/`** (ouroboros spec 3.6), so the run's `skill_checkout` scope
+`~/hydra/skills/`** (rungs spec 3.6), so the run's `skill_checkout` scope
 points at that checkout, a scope of its own since build ticket 14 rather than a
 second meaning for `skill_store`. `hydra::run::Request` gained one field for it,
 `run_id`: the checkout is named after the run, so the id has to exist before the
@@ -3031,7 +3055,7 @@ means `~/hydra/skills/` on every spawn now, no exceptions, and the policy-name
 match inside `src/paths.rs` is gone with it. `Layout::skill_checkout(run_id)`
 answers the checkout's path as a pure function of the layout and the run id, and
 whether a spawn gets one at all is a decision each caller makes from the policy
-name: `src/run.rs`, `src/ouroboros/curate.rs` and `ReplaySpawn` all pass
+name: `src/run.rs`, `src/rungs/curate.rs` and `ReplaySpawn` all pass
 `Some` on `curate` and `None` on everything else, and since build ticket 15 the
 read side asks that question only of a record carrying no `scopes`. `Spawn`
 carries the result as
@@ -3325,10 +3349,11 @@ Out of scope for this slice, and each one has a document that already says what 
 - Nothing about `agy` is unbuilt. One recorded run exists, `read-only`, and no `agy` run
   under any other policy has been made, so `standard` and `permissive` on that provider
   are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
-- No `hydra evolve` pass has produced an offerable patch. The command is built, since
-  build ticket 36, and eight passes have run: the panel answered on the sixth and
-  blocked, so `ouroboros/<pass-id>` and an `ApprovedPatch` built from a real verdict do
-  not exist yet. The section above says what each pass found.
+- An offerable `hydra evolve` patch has been merged by a human. The command is built, since
+  build ticket 36, and ten passes have run: the sixth reached the panel and was blocked, and
+  the tenth, on 2026-09-21, was offered by all four judges, so `rungs/<pass-id>` and an
+  `ApprovedPatch` built from a real verdict exist now. The section above says what each pass
+  found. Spec 4.11's merge is the human's and none has happened yet.
 
 ## Rough edges worth knowing
 

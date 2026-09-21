@@ -834,7 +834,7 @@ impl<'a> ReplaySpawn<'a> {
     /// paths the question resolves against and the derivation answered about a
     /// gate compiled from this build's layout. That cost was chosen out loud, so
     /// a record with no `scopes` cannot report a leak, and
-    /// `src/ouroboros/corpus.rs` keeps limits out of the weighted
+    /// `src/rungs/corpus.rs` keeps limits out of the weighted
     /// `signals.disagreements` a brief ranks on.
     pub(crate) fn cannot_back(&self, what: &str) -> Option<Finding> {
         // Every reason, not the first one. Both can be true of one record, and

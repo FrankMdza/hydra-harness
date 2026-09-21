@@ -1,7 +1,7 @@
-//! `hydra evolve`: Ouroboros rung two, one reviewed pass over Hydra's own source.
+//! `hydra evolve`: rung two, one reviewed pass over Hydra's own source.
 //!
 //! A proposer under `standard`, protected-path refusal, the admission gate, a panel
-//! of three `judge` runs, and a branch that carries the verdict. `docs/ouroboros-spec.md`
+//! of four `judge` runs, and a branch that carries the verdict. `docs/rungs-spec.md`
 //! section 4 is the design; contract 5.5 is the harness run the pass writes.
 
 use std::path::{Path, PathBuf};
@@ -11,14 +11,14 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use uuid::Uuid;
 
-use crate::ouroboros::corpus;
-use crate::ouroboros::review::{self, ApprovedPatch, JudgeOutcome, PanelVerdict};
 use crate::outcome::RunResult;
 use crate::paths::Layout;
 use crate::policy::PolicySet;
 use crate::provider::Provider;
 use crate::record::{RunEnd, RunStart, SCHEMA_VERSION, Writer};
 use crate::run::{Call, Request, run};
+use crate::rungs::corpus;
+use crate::rungs::review::{self, ApprovedPatch, JudgeOutcome, PanelVerdict};
 use crate::worktree::{Stat, diff_stat, git, seed_tree};
 
 /// The maximum number of lines a proposer's patch may change before review.
@@ -51,6 +51,18 @@ pub struct Finished {
     pub verdict: PanelVerdict,
     pub approved: Option<ApprovedPatch>,
     pub pass_record: PathBuf,
+}
+
+/// Reads a rung-two pass id off a branch name. New passes write `rungs/<pass-id>`
+/// and `rungs/blocked/<pass-id>`; passes before ticket 62 wrote the same shapes
+/// under `ouroboros/`.
+pub fn pass_run_id_from_branch(branch: &str) -> Option<&str> {
+    branch
+        .strip_prefix("rungs/blocked/")
+        .or_else(|| branch.strip_prefix("rungs/"))
+        .or_else(|| branch.strip_prefix("ouroboros/blocked/"))
+        .or_else(|| branch.strip_prefix("ouroboros/"))
+        .filter(|id| !id.contains('/'))
 }
 
 /// Reads the corpus, runs the proposer, reviews the patch, lands on a branch.
@@ -108,8 +120,8 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     };
 
     let patch = read_proposer_patch(&layout, &policies, &proposer)?;
-    let blocked_branch = format!("ouroboros/blocked/{pass_run_id}");
-    let offerable_branch = format!("ouroboros/{pass_run_id}");
+    let blocked_branch = format!("rungs/blocked/{pass_run_id}");
+    let offerable_branch = format!("rungs/{pass_run_id}");
 
     if let Some(count) = patch_over_cap(&patch.stat) {
         let message = commit_message(
@@ -220,6 +232,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         (Provider::Claude, "claude"),
         (Provider::CursorAgent, "cursor-agent"),
         (Provider::Agy, "agy"),
+        (Provider::Codex, "codex"),
     ];
     let mut judge_run_ids = Vec::new();
     let mut outcomes = Vec::new();
@@ -229,7 +242,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         // `--model` names a model inside one provider, and the pass's flag was
         // typed for the proposer, which is `claude`. The `claude` judge takes it
         // too, so a haiku pass gets a haiku judge rather than the human's
-        // default model; the other two providers run their own defaults, since
+        // default model; the other three providers run their own defaults, since
         // `cursor-agent --model haiku` names nothing there.
         let judge_model = if provider == Provider::Claude {
             proposer_model.clone()
@@ -309,7 +322,7 @@ pub fn brief(
 ) -> String {
     let mut text = String::new();
     text.push_str(
-        "You are Ouroboros rung two, Hydra's reviewed self-editor. A human typed \
+        "You are rung two, Hydra's reviewed self-editor. A human typed \
          `hydra evolve`. You edit Hydra's own Rust in a worktree and produce a patch \
          for review.\n\n",
     );
@@ -452,7 +465,7 @@ pub fn patch_over_cap(stat: &Stat) -> Option<usize> {
 /// config rows of harness spec 15.2 and the code rows that sit next to them.
 ///
 /// The spec's table names the code rows by role rather than by file. This is
-/// where each one lives: the review module is row 1; `src/ouroboros/evolve.rs`
+/// where each one lives: the review module is row 1; `src/rungs/evolve.rs`
 /// is rows 2 and 7, this list and the admission gate; `src/policy/` is the deny
 /// list, the capability table, `gate.py` and the compiler that writes the hook
 /// command, rows 4 and 9; `src/record/` is the run-record writer, row 6;
@@ -460,8 +473,8 @@ pub fn patch_over_cap(stat: &Stat) -> Option<usize> {
 /// ticket 40 only the config rows were here, and a patch to `review.rs` reached
 /// the panel.
 pub const PROTECTED_CODE_PATHS: &[&str] = &[
-    "src/ouroboros/review.rs",
-    "src/ouroboros/evolve.rs",
+    "src/rungs/review.rs",
+    "src/rungs/evolve.rs",
     "src/policy",
     "src/record",
     "src/env.rs",
@@ -579,8 +592,8 @@ fn commit_message(
         text.push_str("judges: (none)\n\n");
     } else {
         text.push_str(&format!(
-            "judges: {}, {}, {}\n\n",
-            judge_run_ids[0], judge_run_ids[1], judge_run_ids[2]
+            "judges: {}, {}, {}, {}\n\n",
+            judge_run_ids[0], judge_run_ids[1], judge_run_ids[2], judge_run_ids[3]
         ));
     }
     text.push_str(body);

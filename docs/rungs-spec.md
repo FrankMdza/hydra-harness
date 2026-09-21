@@ -1,4 +1,4 @@
-# Hydra Ouroboros spec
+# Hydra Rungs spec
 
 Both rungs of self-improvement: the curator that evolves skills, and the reviewed loop that edits
 Hydra's own source.
@@ -6,7 +6,7 @@ Hydra's own source.
 This is one of three documents. `docs/harness-spec.md` covers how Hydra launches, feeds and records
 the three agent CLIs. `docs/run-record-contract.md` fixes the format Hydra writes and this document
 reads. The three are meant to be read together, and nothing crosses between the harness and
-Ouroboros except the run record and the skill store (D5).
+Rungs except the run record and the skill store (D5).
 
 Provider versions this document was written against, read 2026-09-04 at 17:33:
 
@@ -21,7 +21,7 @@ same day, which is the fourth time a provider has moved under this design. The t
 carry their measurements against 2.1.257 and those measurements stand as measurements. Re-read all
 three versions before trusting any provider-specific claim, and re-measure rather than inherit.
 
-## 1. What Ouroboros is
+## 1. What Rungs is
 
 Two loops that read the run records and propose changes. Neither lands anything.
 
@@ -29,8 +29,8 @@ Two loops that read the run records and propose changes. Neither lands anything.
 commits them to a branch. Ships in v1.
 
 **Rung two, reviewed core evolution.** Proposes a patch to Hydra's own Rust, runs it past a
-deterministic gate and a panel of three provider CLIs, commits it to a branch. Fully specified here
-and built since build ticket 36; eight passes have run as of 2026-09-12 and none has been approved,
+deterministic gate and a panel of four provider CLIs, commits it to a branch. Fully specified here
+and built since build ticket 36; ten passes have run as of 2026-09-21 and the tenth was the first the panel offered,
 and `IMPLEMENTATION.md` says what each found.
 
 **Both rungs stop at a branch a human merges.** That is the single most important sentence in this
@@ -40,7 +40,7 @@ map, and the reference implementation ships `OUROBOROS_REVIEW_ENFORCEMENT: "advi
 commits, which is what a blocking gate becomes once it is the only thing in someone's way. A human
 merge is a gate nobody turns off with an environment variable.
 
-Ouroboros is Rust, in the same binary as the router (D8, extended by ticket 17). Reviewer and
+Rungs is Rust, in the same binary as the router (D8, extended by ticket 17). Reviewer and
 reviewed sit on one compile gate, and no process boundary between the supervisor and the thing
 rewriting it has to be kept correct forever. The evidence is the reference implementation's own
 source: `preflight_runner.py` spends 1,488 lines of hermetic test running, plugin verification and
@@ -102,12 +102,12 @@ It does not, and the seam check caught it.
 
 **Rows three, four and five are path blocks, and the gate delivers them outright.** A hook sees the
 path and refuses the write before it reaches disk, measured on all three providers, so these hold for
-any run rather than only for Ouroboros'. Harness spec section 7.5 lists the denied paths as one set, and since ticket 40 the store, its snapshots and the pruned records are on it beside the corpus.
+any run rather than only for Rungs'. Harness spec section 7.5 lists the denied paths as one set, and since ticket 40 the store, its snapshots and the pruned records are on it beside the corpus.
 
 **Rows one and two are not a gate's job at all.** `hydra prune`, `hydra reap` and `hydra export` are a
 binary reached through `shell`, so a gate rule against them is an argv match, with the failure mode
 the harness spec's pattern floor already admits to: silent permission on the spelling nobody wrote
-down. `./target/debug/hydra export` walks past it. What actually holds these two is that no Ouroboros
+down. `./target/debug/hydra export` walks past it. What actually holds these two is that no Rungs
 code path calls those commands, which is a property of Hydra's own source, and
 `evidence_is_read_only` is the checklist item that keeps it true under a self-edit. That item is now
 load-bearing rather than belt-and-braces, which is worth knowing before anyone lowers its ceiling.
@@ -125,7 +125,7 @@ module reaches the same 327 modules and 228,207 lines, so there is no acyclic se
 package. Nothing in the repo promises an interface. 418 commits landed in one week with the rate
 still climbing, and 61% of them are authored by the agent itself. The review panel loads
 `DEVELOPMENT.md` and `ARCHITECTURE.md` whole into its prompt, 867 KB of another project's
-constitution, and reviewing a foreign repo still reads Ouroboros' own checklist off disk.
+constitution, and reviewing a foreign repo still reads Rungs' own checklist off disk.
 
 Tracking upstream is a full-time merge job. Vendoring a snapshot of a package that grew 38% new
 modules in two months is a fork on day one whatever it is called. So the reading is the thing worth
@@ -267,7 +267,7 @@ This is the hardest line in rung one's design and it should read as one.
 A run pins the store at a sha and links into an immutable snapshot, so the live working tree is only
 ever read at launch, where a dirty store is committed before pinning. A curator writing into that
 same working tree would collide with the next launch's commit. Its worktree is created per run at
-`~/hydra/skill-worktrees/<run-id>/` and its commits land on `ouroboros/curate/<run-id>` in the
+`~/hydra/skill-worktrees/<run-id>/` and its commits land on `rungs/curate/<run-id>` in the
 store's own repo. Ticket 40 settled this on 2026-09-06 and harness spec 7.2 was the paragraph that
 moved. The worktree is checked out at the sha the run pins, and the pass does the pinning itself
 before the checkout, so a dirty store is committed by `hydra curate` rather than by the launch that
@@ -279,7 +279,7 @@ prompt.**
 ### 3.7 Nothing lands unseen
 
 The skill store's sidecar makes a skill with `origin = "ouroboros"` editable in place. **In v1 it is
-not.** Every change is a proposal: the curator commits to `ouroboros/curate/<run-id>` in the store's
+not.** Every change is a proposal: the curator commits to `rungs/curate/<run-id>` in the store's
 repo and a human merges it or does not. The store's git history is the queue.
 
 D11 ships rung one first so you can find out whether it is any good, and a loop that edits silently
@@ -323,7 +323,7 @@ are cargo cult. Eleven apply verbatim. Four change, and the fourth column says h
 | 11 | Defer the first-ever run by a full interval | it fixed a real incident of a curator hitting a freshly migrated library | **moot**: invoked rather than scheduled, so there is no interval |
 | 12 | Run deterministic transitions before the model pass and independently of it, and let reactivation reverse a stale mark | state that only moves one way punishes a skill for a temporary lull | verbatim, and this is the one to keep loudest |
 | 13 | Install a non-interactive approval callback on anything shell-like before it runs | an approval prompt on a background thread with no TUI attached deadlocks | verbatim, and the gate is what implements it |
-| 14 | Make archive and delete the same real operation everywhere, or do not call the destructive one archive | the rule Hermes' own code violates | **changed in character**: a git store makes any deletion a recoverable commit, and Ouroboros cannot call prune or reap, so `absorbed_into` survives as commit-message discipline rather than as safety |
+| 14 | Make archive and delete the same real operation everywhere, or do not call the destructive one archive | the rule Hermes' own code violates | **changed in character**: a git store makes any deletion a recoverable commit, and Rungs cannot call prune or reap, so `absorbed_into` survives as commit-message discipline rather than as safety |
 | 15 | Enforce a dry run's non-mutation guarantee at the tool-dispatch layer rather than in prompt text | a "please don't" to a model is not the same class of guarantee as a runtime deny | verbatim, and it is section 2.1's third rule under another name |
 
 **Rule 12 is the one to keep loudest.** `claude` fails open on a hook response in a dialect it does
@@ -344,7 +344,7 @@ verbatim. A reader who collapses "rung one never learns from this" into "throw i
 record backwards.
 
 Nothing in v1 reads the signal those runs carry. That breaks no seam, because D5 constrains what
-Ouroboros reads and says nothing about fields the harness writes with no reader, and it is on the map
+Rungs reads and says nothing about fields the harness writes with no reader, and it is on the map
 as fog rather than as a ticket.
 
 ### 3.11 A sixth class, named and not built
@@ -365,15 +365,15 @@ a guess.
 ### 4.1 The shape of one pass
 
 `hydra evolve` is a single pass. One proposer run, the protected-path check, the admission gate, one
-panel of three, one branch, exit. No loop, no retries, no memory.
+panel of four, one branch, exit. No loop, no retries, no memory.
 
 ```
 human types hydra evolve
   -> proposer run           a hydra run child, its own worktree, produces a diff
   -> protected-path check   refuses the whole patch before any review
   -> admission gate         cargo fmt, clippy, build, test, in the worktree
-  -> panel                  three judge runs, one per routable provider
-  -> branch                 ouroboros/<run-id> or ouroboros/blocked/<run-id>
+  -> panel                  four judge runs, one per routable provider
+  -> branch                 rungs/<run-id> or ouroboros/blocked/<run-id>
   -> exit
 ```
 
@@ -449,7 +449,7 @@ That is what the list is for, not a gap in it.
 the quorum touches the review module, which is entry 1. It is refused at admission since build
 ticket 40. Between build 36 and build 40 the check covered the five config rows only, so such a
 patch reached the panel and this sentence was false for every pass in that window; map ticket 59
-found it. Since ticket 40, two of three judges approving it is not a state this design can reach.
+found it. Since ticket 40, three of four judges approving it is not a state this design can reach.
 
 ### 4.5 The admission gate
 
@@ -480,7 +480,7 @@ pass, or an admission failure that still spends review budget, is `admission_gat
 
 ### 4.6 The panel
 
-**Three judges, one per routable provider, each a `hydra run` on the agent-CLI plane under the
+**Four judges, one per routable provider since build ticket 61 put `codex` on the panel, each a `hydra run` on the agent-CLI plane under the
 `judge` policy.**
 
 The alternative was judges on the raw-model plane, and it is closed by subtraction: there is no
@@ -565,10 +565,10 @@ teaches nobody anything.
 
 | Pass outcome | Branch | Carries |
 |---|---|---|
-| Offerable | `ouroboros/<run-id>` | the verdict block; only an `ApprovedPatch` produces this branch |
-| Blocked by the panel | `ouroboros/blocked/<run-id>` | the verdict block, including the critical findings |
-| Refused at admission | `ouroboros/blocked/<run-id>` | the compiler output, and no verdict |
-| Refused on a protected path | `ouroboros/blocked/<run-id>` | the path that matched, and no verdict |
+| Offerable | `rungs/<run-id>` | the verdict block; only an `ApprovedPatch` produces this branch |
+| Blocked by the panel | `rungs/blocked/<run-id>` | the verdict block, including the critical findings |
+| Refused at admission | `rungs/blocked/<run-id>` | the compiler output, and no verdict |
+| Refused on a protected path | `rungs/blocked/<run-id>` | the path that matched, and no verdict |
 
 **Everything a pass decided about the patch lives in the commit message**, and it names the pass run
 id, the proposer run id and the three judge run ids. The verdict, the critical findings, the compiler
@@ -583,14 +583,14 @@ append to. Ticket 17's actual requirement survives, since what it argues for is 
 auditable are different properties. A commit message is also the one place a later patch cannot edit,
 which the tree is not.
 
-**The audit path is git plus the run records.** A merge commit's parent is `ouroboros/<run-id>`,
+**The audit path is git plus the run records.** A merge commit's parent is `rungs/<run-id>`,
 whose message names three judge run ids, whose records hold each judge's verdict as its final
 assistant text and each judge's identity as `provider_version` plus `model`. Nothing review-specific
 had to be added to the record for that to work.
 
 ### 4.10 The pass record
 
-A pass leaves five run records: the pass itself, the proposer, and three judges.
+A pass leaves six run records: the pass itself, the proposer, and four judges.
 
 **The pass is a harness run**, which is the contract's second kind of run: no provider, a body of
 `run_start` and `run_end` with nothing between, `pid` belonging to the Hydra process the human
@@ -628,7 +628,7 @@ than a loop. The proposer is a detached child and survives that, so `hydra statu
 **Nothing has landed, so undoing a rejected proposal is `git branch -D`.**
 
 **For a self-edit you merged three weeks ago that turns out bad, the answer is `git revert` and no
-Ouroboros machinery at all.** That sentence is here so nobody builds a rollback subsystem.
+Rungs machinery at all.** That sentence is here so nobody builds a rollback subsystem.
 
 ### 4.12 No obligation ledger, and the signal that says to build one
 
@@ -732,7 +732,7 @@ paid for. That is the point of writing them from this design rather than from th
 | `billed_spend_gate` | critical | A per-run human flag becoming inheritable, settable by the delegation policy, readable from the environment, or appearing on the MCP delegate face |
 | `delegation_depth_cap` | critical | The depth cap removed or made unreachable, or the MCP face gaining `--shared-tree`, a timeout override, depth or `model` |
 | `curator_write_surface` | critical | Rung one gaining a write path outside the skill store, above all to config, the policy or the allowlist |
-| `evidence_is_read_only` | critical | Ouroboros gaining a call to `prune`, `reap` or `export`, or any write under `~/hydra/runs/`. For the three commands this item is the only mechanism, per section 2.2, so a reviewer may not defer to the gate here |
+| `evidence_is_read_only` | critical | Rungs gaining a call to `prune`, `reap` or `export`, or any write under `~/hydra/runs/`. For the three commands this item is the only mechanism, per section 2.2, so a reviewer may not defer to the gate here |
 | `worktree_containment` | critical | A proposer path that reads or writes outside its own worktree, or a gate whose path matching can be escaped by a relative path or a symlink |
 
 **The record contract, 5 items, 3 critical:**
@@ -749,9 +749,9 @@ paid for. That is the point of writing them from this design rather than from th
 
 | Item | Ceiling | What the reviewer must find |
 |---|---|---|
-| `no_new_crossing` | critical | Anything crossing between the harness and Ouroboros other than the run record and the skill store: a shared module, a database, a socket (D5) |
+| `no_new_crossing` | critical | Anything crossing between the harness and Rungs other than the run record and the skill store: a shared module, a database, a socket (D5) |
 | `no_daemon` | critical | A scheduler, background service, timer, or anything that must be running for the harness to work (D10) |
-| `spec_matches_code` | advisory | A behaviour change that leaves `docs/harness-spec.md`, `docs/ouroboros-spec.md` or `docs/run-record-contract.md` promising the old behaviour |
+| `spec_matches_code` | advisory | A behaviour change that leaves `docs/harness-spec.md`, `docs/rungs-spec.md` or `docs/run-record-contract.md` promising the old behaviour |
 
 ### 5.4 Five items amended against the sibling documents
 
@@ -785,10 +785,10 @@ not, because they are reached through `shell` and an argv match is a floor rathe
 this item is the only thing holding them. A critical item that is the sole mechanism should say so,
 or a reviewer reads a redundant check and marks it advisory in their head.
 
-## 6. The seam: what Ouroboros reads
+## 6. The seam: what Rungs reads
 
 **Every field either rung reads is one the harness writes**, which is D5's first requirement. The
-contract's producer column is what makes that checkable, and this table is the Ouroboros side of the
+contract's producer column is what makes that checkable, and this table is the Rungs side of the
 lookup.
 
 **Rung one:**
@@ -841,17 +841,17 @@ for diagnosing: a signal absent from every interactive run is absent because the
 rather than because nothing happened, which is section 3.4's honesty rule applied to launch mode
 instead of to a provider.
 
-## 7. What Ouroboros writes
+## 7. What Rungs writes
 
 Three things, and nothing else.
 
 | Writes | Where | Merged by |
 |---|---|---|
-| Rung one's proposals | a branch in the skill store's own repo, `ouroboros/curate/<run-id>` | a human |
-| Rung two's proposals | a branch in `~/hydra`, `ouroboros/<run-id>` or `ouroboros/blocked/<run-id>` | a human |
+| Rung one's proposals | a branch in the skill store's own repo, `rungs/curate/<run-id>` | a human |
+| Rung two's proposals | a branch in `~/hydra`, `rungs/<run-id>` or `rungs/blocked/<run-id>` | a human |
 | Its own run records | `~/hydra/runs/`, written by the harness like any other run | nobody; they are the record |
 
-The third row is the harness writing, not Ouroboros. Ouroboros' runs are runs, so they land in the
+The third row is the harness writing, not Rungs. Rungs' runs are runs, so they land in the
 corpus, and the curator's own failures are learnable by the next curator pass, subject to the
 exclusion in section 3.5.
 
@@ -890,7 +890,7 @@ The open detail was where that worktree lives, and it is `~/hydra/skill-worktree
 sibling of `worktrees/` rather than a place inside the spawn directory. The spawn directory is the
 one `hydra reap` removes whole, and an uncommitted proposal is work. `hydra reap` now sweeps a
 leftover checkout too, committing to the branch first, so a proposal survives on
-`ouroboros/curate/<run-id>` rather than being thrown away.
+`rungs/curate/<run-id>` rather than being thrown away.
 
 The store's working tree gained a stronger guarantee on the way. It is one of the paths harness spec
 7.5 denies under every policy, so no gated run writes into it by any route, the way no gated run

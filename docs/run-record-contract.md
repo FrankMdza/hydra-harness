@@ -1,11 +1,11 @@
 # Hydra run record contract
 
-The format Hydra writes and Ouroboros reads. Under D5 this and the skill store are the only two
+The format Hydra writes and Rungs reads. Under D5 this and the skill store are the only two
 things that cross between the two systems, and under D10 the record is the source of truth: nothing
 needs to be running for it to be complete, and anything not in a run record did not happen.
 
 This is one of three documents. `docs/harness-spec.md` covers how Hydra launches, feeds and records
-the three provider CLIs. `docs/ouroboros-spec.md` covers both rungs of self-improvement. The three
+the three provider CLIs. `docs/rungs-spec.md` covers both rungs of self-improvement. The three
 are meant to be read together.
 
 Provider versions this document was written against. Read 2026-09-04 at 12:38, re-read
@@ -25,7 +25,7 @@ trusting any of them, and re-measure rather than inherit when one has moved.
 
 Three readers, and they want different things from the same file.
 
-**Ouroboros** reads a corpus of finished runs and looks for failures worth learning from. It needs
+**Rungs** reads a corpus of finished runs and looks for failures worth learning from. It needs
 to tell a run that failed at its task from a run that never got to try, which is why section 8's
 outcome enum is longer than it looks like it should be.
 
@@ -200,7 +200,7 @@ which stops being true the moment a pass dies before spawning them. A curator ru
 5.5 is visible in the data rather than only in a document. The four values are the four commands that
 mint a run id today, and the field grows when a fifth does. The code wrote `run` for the
 curator's run until build ticket 42 closed on 2026-09-12 (`curate::request` in
-`src/ouroboros/curate.rs` writes `curate` now), so a curator record from before that date reads
+`src/rungs/curate.rs` writes `curate` now), so a curator record from before that date reads
 `run`, and a reader has to accept both.
 
 **Hydra mints the run id and the provider gets told or not.** `claude` accepts `--session-id`
@@ -375,7 +375,7 @@ and Hydra would have chosen to put it there.
 
 ### 5.5 The harness run
 
-One producer today: a `hydra evolve` pass. The pass spawns a proposer and three judges, and it
+One producer today: a `hydra evolve` pass. The pass spawns a proposer and four judges, and it
 decides three things after the proposer's run file is closed, so those decisions have nowhere to go
 unless the pass is a run.
 
@@ -420,7 +420,7 @@ pass is Hydra. Its children each carry their own policy and `policy_sha` as usua
 narrowing bounds them against the human at depth 0 rather than against the pass.
 
 **`hydra curate` gets no harness run**, and the line is worth stating because a reader will notice
-that one Ouroboros command has a pass record and the other does not. The curator's only post-run
+that one Rungs command has a pass record and the other does not. The curator's only post-run
 supervisor action is committing work the run already did, and a commit is self-describing. A pass's
 verdict is a new fact about a run that has ended, and nothing else holds it. If a curate pass ever
 grows a step the supervisor decides, it gets a record then, by the same test.
@@ -556,7 +556,7 @@ It carries the disagreements. `thinking` has three answers by provider, and `usa
 run on two providers and to a conversation on the third. Those belong in a column beside the type
 rather than in prose a reader has to assemble.
 
-And it is the instrument for the seam check, which asks whether every field Ouroboros reads is one
+And it is the instrument for the seam check, which asks whether every field Rungs reads is one
 the harness actually writes. With this column that is a table lookup.
 
 ### 7.2 The table
@@ -1229,7 +1229,7 @@ make depth mean "distance to a run a human started" on one row and "distance to 
 another.
 
 **Runs whose parent is the curator are excluded from two corpora**, the one the curator reads and
-the one export produces, for the same reason both times. That is a rule the Ouroboros spec owns; the
+the one export produces, for the same reason both times. That is a rule the Rungs spec owns; the
 record's job is that `parent_run_id` makes it computable.
 
 ## 11. Stored against derived
@@ -1337,7 +1337,7 @@ by path before it scrubs by pattern.
 | In-process subagent work as its own run | it gets no run id and writes no file, which is why every policy but `permissive` denies it |
 
 **The last row is the one with a cost.** An in-process subagent is work with no record at all, on the
-exact trajectory Ouroboros learns from, and denying the spawn is the only way to keep D10 true. A
+exact trajectory Rungs learns from, and denying the spawn is the only way to keep D10 true. A
 delegated `claude` child therefore cannot use `Task`, which is a real capability loss on coding runs.
 `--forward-subagent-text` is passed anyway, so that under `permissive`, where the spawns are allowed,
 their text is at least on the stream.
@@ -1559,6 +1559,6 @@ on it. On the map as fog.
 
 `gated` runs carry a signal about the delegation policy rather than about a skill, and a run that
 failed on too narrow a policy is a policy bug. The record holds it in full and nothing in v1 reads
-it. This breaks no seam, because D5 requires every field Ouroboros reads to be one the harness
+it. This breaks no seam, because D5 requires every field Rungs reads to be one the harness
 writes and says nothing about the converse. On the map as fog, beside the second-corpus patch, which
 has the same shape.

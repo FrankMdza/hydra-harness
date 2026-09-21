@@ -1,6 +1,6 @@
 # Hydra
 
-Hydra is a router over three agent CLIs (`claude`, `cursor-agent`, `agy`), plus Ouroboros, a
+Hydra is a router over four agent CLIs (`claude`, `cursor-agent`, `agy`, `codex`), plus Rungs, a
 self-improvement loop that reads what the router records. The router core is Rust. `hermes` was a
 fourth until ticket 22 unrouted it; its guardrail rules are still copied, its binary is not launched.
 
@@ -9,14 +9,14 @@ closed on 2026-09-05 with 38 of 38 tickets resolved and all four seam checks pas
 the Rust that implements all eleven of that design's commands, `evolve` last, on 2026-09-08.
 
 **Read `docs/` first, not the map. Then read `IMPLEMENTATION.md`**, which is the gap between the
-design and the code. The code is deliberately not spec-complete: all three providers are routed and
+design and the code. The code is deliberately not spec-complete: all four providers are routed and
 gated, with skills and MCP injected into each, so that file says what a record does and does not
 carry and which of the three has never written one.
 
 The three documents are the design. `docs/harness-spec.md` is how Hydra launches, feeds and records
-the providers; `docs/run-record-contract.md` is the format it writes and Ouroboros reads;
-`docs/ouroboros-spec.md` is both rungs of self-improvement. They are meant to be read together, and
-nothing crosses between the harness and Ouroboros except the run record and the skill store.
+the providers; `docs/run-record-contract.md` is the format it writes and Rungs reads;
+`docs/rungs-spec.md` is both rungs of self-improvement. They are meant to be read together, and
+nothing crosses between the harness and Rungs except the run record and the skill store.
 
 ## The map
 
@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 56 of 63, reopened on 2026-09-09 on training, and the build closed at 60 of 60 on 2026-09-21.** It reached its destination
+**The map stands at 57 of 63, reopened on 2026-09-09 on training, and the build closed at 60 of 60 on 2026-09-21.** It reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -83,8 +83,8 @@ document and there should not be one.
   `preamble.rs` composes what the run is told; `interactive.rs` is the second launch mode and
   the harvest that completes it; `show.rs` prints a record normalized; `face.rs` is the MCP delegate face of harness
   spec 9, a stdio server a run's own provider spawns from the MCP document, and the one place
-  a child's text is marked on the way back; `ouroboros/` is rung one, `hydra curate`, and
-  the only place Ouroboros lives, which is what makes "it calls neither cleanup command" a
+  a child's text is marked on the way back; `rungs/` is rung one, `hydra curate`, and
+  the only place Rungs lives, which is what makes "it calls neither cleanup command" a
   property you can check by reading one directory.
 - `policies/`, the five policies of harness spec 7.2 and the pattern floor of 7.4. Protected config
   #1, and `policy_sha` on every run record is its sha. `policies/README.md` is the format.
@@ -135,7 +135,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 56 of 63 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 57 of 63 resolved
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 

@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::paths::Layout;
 use hydra::policy::{PolicySet, Spawn, write_gate};
-use hydra::provider::Provider;
+use hydra::provider::{Provider, codex};
 use serde_json::{Value, json};
 
 /// What the gate script's shebang names, and what every test below runs it on.
@@ -524,7 +524,7 @@ fn the_mcp_document_is_denied_under_all_five_policies() {
 
 #[test]
 fn curate_writes_inside_its_own_checkout_and_nowhere_else() {
-    // 7.2 and ouroboros spec 3.6. The pass writes into its own git checkout of
+    // 7.2 and rungs spec 3.6. The pass writes into its own git checkout of
     // the store and never into `~/hydra/skills/`, which 7.5 denies to every
     // policy since ticket 40: a curator writing the live working tree hands its
     // half-finished proposal to whichever run launches next.
@@ -2419,4 +2419,15 @@ fn an_mcp_call_naming_a_protected_path_is_refused_under_permissive() {
         "the check refused an MCP call inside the run's own worktree: {}",
         ordinary.reason
     );
+}
+
+#[test]
+fn codex_judge_is_not_refused_at_preflight() {
+    assert!(
+        codex::unsupported_policy("judge").is_none(),
+        "judge on codex is routable since build ticket 61"
+    );
+    let message = codex::unsupported_policy("read-only").expect("read-only stays refused");
+    assert!(message.contains("build ticket 48 item 4"), "{message}");
+    assert!(message.contains("build ticket 61"), "{message}");
 }

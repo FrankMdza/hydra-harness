@@ -35,11 +35,14 @@
 //! exit 2 (runs 01a0c220-909f and 01a0c220-ce0e).
 //!
 //! **There is no read tool.** Every read is a `Bash` call, which is why
-//! `read-only` and `judge` are refused at pre-flight until build ticket 48
-//! item 4 is decided.
+//! `read-only` is refused at pre-flight until build ticket 48 item 4 is decided.
+//! `judge` is routable since build ticket 61: a judge never reads a file and the
+//! diff arrives in the prompt.
 //!
-//! **MEASURE 48.5**: on a logged-in binary, confirm whether a hook crash or
-//! timeout fails open like `claude` or closed.
+//! **A hook that dies without answering fails open**, measured 2026-09-21,
+//! probe p3 in build ticket 48's outcome: a bare exit 2 with no JSON let the
+//! call run. The sha check in `hook.py` answers a tamper with a deny in
+//! `claude`'s dialect for that reason.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -271,12 +274,14 @@ pub fn auth_remediation() -> &'static str {
 
 /// Policies this build refuses for codex before spawn, per build ticket 48 item 4.
 pub fn unsupported_policy(policy: &str) -> Option<String> {
-    if policy == "read-only" || policy == "judge" {
-        Some(format!(
-            "codex has no read tool and every read is a Bash call, so policy {policy} cannot be \
-             routed until build ticket 48 item 4 decides whether those policies grant a bounded \
-             shell read on codex only or codex stays on standard and permissive"
-        ))
+    if policy == "read-only" {
+        Some(
+            "codex has no read tool and every read is a Bash call, so policy read-only cannot be \
+             routed until build ticket 48 item 4 decides whether that policy grants a bounded \
+             shell read on codex only or codex stays on standard and permissive; judge is \
+             routable since build ticket 61"
+                .to_string(),
+        )
     } else {
         None
     }
@@ -422,12 +427,13 @@ mod tests {
     }
 
     #[test]
-    fn read_only_and_judge_are_refused_with_a_message_that_names_item_4() {
-        for policy in ["read-only", "judge"] {
-            let message = unsupported_policy(policy).unwrap();
-            assert!(message.contains("build ticket 48 item 4"), "{message}");
-            assert!(message.contains("Bash"), "{message}");
-        }
+    fn read_only_is_refused_with_a_message_that_names_item_4_and_judge_is_routable() {
+        let message = unsupported_policy("read-only").unwrap();
+        assert!(message.contains("build ticket 48 item 4"), "{message}");
+        assert!(message.contains("Bash"), "{message}");
+        assert!(message.contains("judge"), "{message}");
+        assert!(message.contains("build ticket 61"), "{message}");
+        assert!(unsupported_policy("judge").is_none());
         assert!(unsupported_policy("standard").is_none());
     }
 

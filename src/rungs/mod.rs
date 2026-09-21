@@ -1,6 +1,6 @@
-//! Ouroboros: the loops that read what the router recorded.
+//! The rungs: the loops that read what the router recorded.
 //!
-//! `docs/ouroboros-spec.md` is the design. Rung one, the curator, is built in
+//! `docs/rungs-spec.md` is the design. Rung one, the curator, is built in
 //! [`curate`] over the corpus selection in [`corpus`]. Rung two, reviewed core
 //! evolution, is built in [`evolve`] with the panel in [`review`].
 //!
@@ -13,7 +13,7 @@
 //! is the item that keeps it true under a self-edit, and it is the only mechanism
 //! there is, so a reviewer may not defer to the gate on it.
 //!
-//! Everything Ouroboros is lives under this one directory for that reason. The
+//! Everything the rungs are lives under this one directory for that reason. The
 //! property is checkable by reading it, and `tests/curate.rs` reads it.
 //!
 //! **What crosses is the run record and the skill store, and nothing else** (D5).

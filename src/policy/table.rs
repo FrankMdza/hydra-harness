@@ -80,7 +80,7 @@ pub const CLAUDE: &[Tool] = &[
     tool("WebSearch", Capability::NetworkRead),
     // 7.6: denied under every policy but `permissive`, because an in-process
     // subagent gets no run id and writes no run file, and D10 makes the record
-    // the source of truth for work Ouroboros learns from.
+    // the source of truth for work the rungs learn from.
     tool("Task", Capability::SubagentSpawn),
     // The nineteen. Each exists only inside this provider's own product surface
     // and none is granted by any policy in 7.2.

@@ -1432,7 +1432,7 @@ pub fn write_spawn_config(
     let no_worktree = layout.spawn(run_id).join("no-worktree");
 
     // A curate pass writes into its own checkout of the store and every other
-    // policy is given none: ouroboros spec 3.6 keeps the curator out of
+    // policy is given none: rungs spec 3.6 keeps the curator out of
     // `~/hydra/skills/` because the next launch commits that tree before pinning
     // it, and two writers to one working tree is the collision. The path is a
     // function of the run id alone, because contract 7.7's read-time

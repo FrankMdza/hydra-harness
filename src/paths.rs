@@ -139,19 +139,19 @@ impl Layout {
 
     /// Where a curator pass checks the skill store out, one directory per run.
     ///
-    /// **A sixth place, and the design names four.** Ouroboros spec 3.6 gives the
+    /// **A sixth place, and the design names four.** Rungs spec 3.6 gives the
     /// curator a git worktree of the store rather than the store's own working
     /// tree, and 9.1 leaves where it lives open. It is a sibling of `worktrees/`
     /// rather than a file in the spawn directory because `hydra reap` removes that
     /// directory whole: a pass whose run outlived its call leaves an uncommitted
     /// proposal here, and work is not something a cleanup command should be able
     /// to take. `hydra curate` creates one, and `hydra reap` removes one after
-    /// committing what it holds to `ouroboros/curate/<run-id>` (ticket 40).
+    /// committing what it holds to `rungs/curate/<run-id>` (ticket 40).
     pub fn skill_worktrees(&self) -> PathBuf {
         self.root.join("skill-worktrees")
     }
 
-    /// Where one run's `skill_checkout` scope points, ouroboros spec 3.6.
+    /// Where one run's `skill_checkout` scope points, rungs spec 3.6.
     ///
     /// A curate pass writes into its own checkout of the store and every other
     /// policy is given none, which is what makes the carve-out of harness spec

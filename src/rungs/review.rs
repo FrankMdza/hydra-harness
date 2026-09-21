@@ -1,7 +1,7 @@
 //! The rung-two review panel: judge answers, the critical-threshold rule and
 //! [`ApprovedPatch`].
 //!
-//! `docs/ouroboros-spec.md` sections 2.1, 4.6 to 4.8, 5 and 5.1 are the design.
+//! `docs/rungs-spec.md` sections 2.1, 4.6 to 4.8, 5 and 5.1 are the design.
 //! Nothing outside this module may construct an [`ApprovedPatch`]; the apply path
 //! is unreachable rather than merely gated.
 
@@ -49,7 +49,7 @@ pub enum Severity {
     Minor,
 }
 
-/// What three judges decided together.
+/// What four judges decided together.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelVerdict {
     Offerable(ApprovedPatch),
@@ -69,7 +69,7 @@ struct RawFinding {
     note: String,
 }
 
-/// Every checklist id a judge may name, ouroboros spec 5.
+/// Every checklist id a judge may name, rungs spec 5.
 pub const CHECKLIST_IDS: &[&str] = &[
     "secrets_check",
     "security_issues",
@@ -250,12 +250,12 @@ pub fn outcome_blocks(outcome: &JudgeOutcome) -> bool {
         .any(|finding| finding.severity == Severity::Critical)
 }
 
-/// Turns three judge outcomes into a panel verdict. Fewer than three is a block.
+/// Turns four judge outcomes into a panel verdict. Fewer than four is a block.
 pub fn panel_verdict(pass_run_id: &str, outcomes: &[JudgeOutcome]) -> PanelVerdict {
-    if outcomes.len() != 3 {
+    if outcomes.len() != 4 {
         return PanelVerdict::Blocked {
             reasons: vec![format!(
-                "the panel needs three answers and got {}",
+                "the panel needs four answers and got {}",
                 outcomes.len()
             )],
         };
@@ -289,7 +289,7 @@ pub fn panel_verdict(pass_run_id: &str, outcomes: &[JudgeOutcome]) -> PanelVerdi
     }
 }
 
-/// The checklist text judges see in the prompt, ouroboros spec 5.
+/// The checklist text judges see in the prompt, rungs spec 5.
 pub fn checklist_prompt() -> &'static str {
     CHECKLIST_PROMPT
 }

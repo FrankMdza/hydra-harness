@@ -106,3 +106,5 @@ interpreting shell commands, ACP, and a mid-run input channel.
 Ouroboros rung two is out of scope for this file until rung one has run. `docs/`
 specifies it and nothing stops someone building it; it gets a ticket when the corpus
 exists to justify one.
+- [61 - Codex sits on the judge panel](61-codex-on-the-judge-panel.md)
+- [62 - The self-improvement module is called rungs](62-ouroboros-becomes-rungs.md)

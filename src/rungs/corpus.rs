@@ -1,6 +1,6 @@
 //! What rung one may learn from, and what it may not.
 //!
-//! `docs/ouroboros-spec.md` section 3.2 names five failure classes and 3.10 names
+//! `docs/rungs-spec.md` section 3.2 names five failure classes and 3.10 names
 //! the outcomes that are never one of them. The contract states the same split
 //! from the other side: section 8's right-hand column per outcome, and 8.6 for the
 //! whole harness-run kind.

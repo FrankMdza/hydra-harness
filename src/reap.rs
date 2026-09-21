@@ -18,7 +18,7 @@
 //! nothing on it is litter and goes; a branch holding a child's work stays and
 //! `hydra status` stops mentioning its checkout. `--delete-branch` is the way past
 //! that, and it is the same shape `hydra prune` gives deletion: recoverable by
-//! default, destructive only when a human typed the flag. The Ouroboros spec's
+//! default, destructive only when a human typed the flag. The rungs spec's
 //! section 4.11 already expects the leftover to be removed with `git branch -D`;
 //! the flag is that sentence, typed through the command.
 //!
@@ -29,16 +29,16 @@
 //! proposal it held. Nothing else swept it, because `hydra curate` only removes
 //! the checkout of a pass it watched to the end. The commit is what makes
 //! removing it safe: whatever the curator wrote goes to
-//! `ouroboros/curate/<run-id>` in the store first, which is the branch the pass
+//! `rungs/curate/<run-id>` in the store first, which is the branch the pass
 //! would have committed to itself. Neither the store's working tree nor any run
 //! record is written on the way.
 //!
 //! **Nothing in this crate calls into here except `main`.** Harness spec 7.5 is
 //! explicit that the gate does not keep a run away from `hydra reap`, because the
 //! binary is reached through `shell` and any rule against it is an argv match with
-//! the pattern floor's failure mode. What keeps Ouroboros away is that no
-//! Ouroboros code path calls it, which is a property of Hydra's own source, and
-//! `docs/ouroboros-spec.md`'s `evidence_is_read_only` checklist item is what holds
+//! the pattern floor's failure mode. What keeps the rungs away is that no
+//! rungs code path calls it, which is a property of Hydra's own source, and
+//! `docs/rungs-spec.md`'s `evidence_is_read_only` checklist item is what holds
 //! it true under a self-edit.
 
 use std::path::{Path, PathBuf};
@@ -77,7 +77,7 @@ pub struct Done {
 /// **Two directories have this shape and the fields say the same thing for
 /// both**: the run's checkout of the parent repo, whose branch is
 /// `hydra/<run-id>`, and a curate pass's checkout of the skill store, whose
-/// branch is `ouroboros/curate/<run-id>`.
+/// branch is `rungs/curate/<run-id>`.
 pub struct Checkout {
     /// The commit reap made, or `None` when the directory was already clean.
     pub committed: Option<String>,
@@ -221,7 +221,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     if checkout.is_dir() {
         match commit_then_remove(
             &checkout,
-            &format!("ouroboros/curate/{run_id}"),
+            &format!("rungs/curate/{run_id}"),
             &format!("hydra reap: what curate run {run_id} left uncommitted"),
             delete_branch,
         ) {
@@ -264,7 +264,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
 /// checkout of the parent repo and a curate pass's checkout of the skill store
 /// differ in the repository they came off, the branch Hydra made for them and the
 /// commit message, so those are the arguments. `hydra_branch` is
-/// `hydra/<run-id>` for the one and `ouroboros/curate/<run-id>` for the other, and
+/// `hydra/<run-id>` for the one and `rungs/curate/<run-id>` for the other, and
 /// everything below runs against whichever repository the checkout belongs to,
 /// which [`main_worktree`] reads off the checkout itself.
 fn commit_then_remove(

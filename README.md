@@ -43,11 +43,12 @@ So the record decides, not the vendor.
   written yet, and training itself is out of scope (map decision D12).
 - **It reads its own records.** Rung one (`hydra curate`) proposes skill edits from the
   failure classes it finds; rung two (`hydra evolve`) proposes patches to Hydra's own Rust,
-  behind an admission gate and a panel of three judges, one per vendor. Nothing lands without
-  a human merge. Eight passes so far, zero approved: one critical fail from any judge vetoes
-  the patch, by design, and every pass found something real. The spec still calls the loop
-  Ouroboros; [razzant/ouroboros](https://github.com/razzant/ouroboros) is earlier and
-  unrelated work under that name, so the name stays off the headline here.
+  behind an admission gate and a panel of four judges, one per vendor. Nothing lands without
+  a human merge. Ten passes so far and one offerable patch, on 2026-09-21, the first time all
+  four judges said pass; before it, one critical fail from any judge vetoed every patch, by
+  design, and every pass found something real. The loop was called Ouroboros
+  until 2026-09-21; [razzant/ouroboros](https://github.com/razzant/ouroboros) is earlier,
+  unrelated work under that name, so this one is the rungs.
 
 ## Install
 
@@ -106,7 +107,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `reap` | commit a worktree to its branch, remove it |
 | `prune` | move records out of `runs/`; deletes only behind a flag |
 | `curate` | rung one: propose skill edits from the corpus |
-| `evolve` | rung two: a proposer, the admission gate, a panel of three, a branch |
+| `evolve` | rung two: a proposer, the admission gate, a panel of four, a branch |
 | `usage recount` | tokens across the corpus, recounted from the records |
 | `export` | one JSON line of events per eligible run, the only path anything leaves this machine by |
 
@@ -186,8 +187,8 @@ first so the design map gets a ticket and the record contract does not fork with
 ## Status, in numbers
 
 Eleven of eleven commands. 23 test files, green. Rung one has run once against the real
-corpus and proposed one skill. Rung two has run eight passes and approved none; every pass
-found something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a
+corpus and proposed one skill. Rung two has run ten passes and offered one patch, a two-word
+one, on the tenth; the other nine found something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a
 record: it is every departure from the design with its reason.
 
 ## Who wrote the code
@@ -216,7 +217,7 @@ The design documents, the policies, the record contract and this README are the 
 
 `docs/harness-spec.md` is how Hydra launches, feeds and records the providers.
 `docs/run-record-contract.md` is the format it writes and the two rungs read.
-`docs/ouroboros-spec.md` is both rungs of self-improvement. They are meant to be read
+`docs/rungs-spec.md` is both rungs of self-improvement. They are meant to be read
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 

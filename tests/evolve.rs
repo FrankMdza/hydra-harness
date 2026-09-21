@@ -1,19 +1,19 @@
-//! Ouroboros rung two, `docs/ouroboros-spec.md` section 4.
+//! Rung two, `docs/rungs-spec.md` section 4.
 //!
 //! Nothing here launches a provider. Every test builds a scratch [`Layout`] under
 //! a temporary directory and calls the library directly.
 
 use std::path::PathBuf;
 
-use hydra::ouroboros::evolve::{
-    PATCH_LINE_CAP, patch_over_cap, protected_path_hit, rate_limit_abort, write_harness_end,
-    write_harness_start,
-};
-use hydra::ouroboros::review::{
-    ApprovedPatch, PanelVerdict, VerdictField, panel_verdict, parse_judge_answer,
-};
 use hydra::paths::Layout;
 use hydra::record::validate::check;
+use hydra::rungs::evolve::{
+    PATCH_LINE_CAP, pass_run_id_from_branch, patch_over_cap, protected_path_hit, rate_limit_abort,
+    write_harness_end, write_harness_start,
+};
+use hydra::rungs::review::{
+    ApprovedPatch, PanelVerdict, VerdictField, panel_verdict, parse_judge_answer,
+};
 use hydra::worktree::Stat;
 use serde_json::{Value, json};
 
@@ -102,7 +102,7 @@ fn a_harness_run_ends_with_a_null_body_source() {
     )
     .unwrap();
 
-    hydra::ouroboros::evolve::write_harness_end(&path, Some(0), None).unwrap();
+    hydra::rungs::evolve::write_harness_end(&path, Some(0), None).unwrap();
 
     let last: serde_json::Value = serde_json::from_str(
         std::fs::read_to_string(&path)
@@ -225,8 +225,8 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
     // this checkout: the check is on the names, and nothing has to exist.
     let repo = PathBuf::from("/scratch/hydra-evolve-rows");
     let rows = [
-        "src/ouroboros/review.rs",
-        "src/ouroboros/evolve.rs",
+        "src/rungs/review.rs",
+        "src/rungs/evolve.rs",
         "src/policy/mod.rs",
         "src/policy/table.rs",
         "src/policy/gate.py",
@@ -240,8 +240,8 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
     }
     // Case is not a way past it: `write_file(path="Review.rs")` on macOS lands
     // on the same file.
-    let cased = protected_path_hit(&["src/Ouroboros/REVIEW.rs".into()], &repo);
-    assert_eq!(cased.as_deref(), Some("src/Ouroboros/REVIEW.rs"));
+    let cased = protected_path_hit(&["src/Rungs/REVIEW.rs".into()], &repo);
+    assert_eq!(cased.as_deref(), Some("src/Rungs/REVIEW.rs"));
     // An absolute path under the repo is the same patch spelled longer.
     let absolute = repo.join("src/record/validate.rs").display().to_string();
     let hit = protected_path_hit(std::slice::from_ref(&absolute), &repo);
@@ -251,7 +251,7 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
     let mixed = protected_path_hit(
         &[
             "src/lib.rs".into(),
-            "src/ouroboros/curate.rs".into(),
+            "src/rungs/curate.rs".into(),
             "src/record/secrets.rs".into(),
         ],
         &repo,
@@ -267,13 +267,13 @@ fn a_diff_outside_the_protected_rows_passes_admission() {
     let ok = protected_path_hit(
         &[
             "src/run.rs".into(),
-            "src/ouroboros/corpus.rs".into(),
-            "src/ouroboros/curate.rs".into(),
+            "src/rungs/corpus.rs".into(),
+            "src/rungs/curate.rs".into(),
             "src/policyholder.rs".into(),
             "src/recorder.rs".into(),
             "src/environment.rs".into(),
             "tests/evolve.rs".into(),
-            "docs/ouroboros-spec.md".into(),
+            "docs/rungs-spec.md".into(),
         ],
         &repo,
     );
@@ -281,12 +281,13 @@ fn a_diff_outside_the_protected_rows_passes_admission() {
 }
 
 #[test]
-fn three_judge_answers_in_the_closed_shape_produce_the_expected_verdict() {
+fn four_judge_answers_in_the_closed_shape_produce_the_expected_verdict() {
     let pass = pass_answer("pass", "[]");
     let outcomes = [
         parse_judge_answer("claude", &pass),
         parse_judge_answer("cursor-agent", &pass),
         parse_judge_answer("agy", &pass),
+        parse_judge_answer("codex", &pass),
     ];
     assert!(matches!(
         panel_verdict("01a08000-0000-7000-8000-00000000ev01", &outcomes),
@@ -304,7 +305,7 @@ fn one_critical_finding_blocks_whatever_the_verdict_field_says() {
     assert_eq!(one.verdict, VerdictField::Pass);
     let blocked = panel_verdict(
         "01a08000-0000-7000-8000-00000000ev02",
-        &[one.clone(), one.clone(), one],
+        &[one.clone(), one.clone(), one.clone(), one],
     );
     assert!(matches!(blocked, PanelVerdict::Blocked { .. }));
 }
@@ -342,6 +343,7 @@ fn approved_patch_cannot_be_built_outside_the_review_module() {
         parse_judge_answer("claude", &pass),
         parse_judge_answer("cursor-agent", &pass),
         parse_judge_answer("agy", &pass),
+        parse_judge_answer("codex", &pass),
     ];
     let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev05", &outcomes);
     let patch = match verdict {
@@ -380,4 +382,23 @@ fn one_fence_comes_off_and_everything_else_still_blocks() {
         assert!(outcome.parse_error.is_some(), "{deviant} parsed");
         assert_eq!(outcome.verdict, VerdictField::Block);
     }
+}
+
+#[test]
+fn a_legacy_pass_branch_prefix_is_still_recognised() {
+    let id = "01a08000-0000-7000-8000-00000000ev99";
+    assert_eq!(
+        pass_run_id_from_branch(&format!("ouroboros/{id}")),
+        Some(id)
+    );
+    assert_eq!(
+        pass_run_id_from_branch(&format!("ouroboros/blocked/{id}")),
+        Some(id)
+    );
+    assert_eq!(pass_run_id_from_branch(&format!("rungs/{id}")), Some(id));
+    assert_eq!(
+        pass_run_id_from_branch(&format!("rungs/blocked/{id}")),
+        Some(id)
+    );
+    assert_eq!(pass_run_id_from_branch("rungs/curate/foo"), None);
 }

@@ -14,7 +14,7 @@
 //! [`run`] is the half a human talks to, and [`live`] is contract 5.2's liveness
 //! test, which is the only thing that tells the two apart afterwards.
 //!
-//! [`ouroboros`] is the other half of the design and reads what the router wrote.
+//! [`rungs`] is the other half of the design and reads what the router wrote.
 //! Rung one is `hydra curate`; rung two is `hydra evolve`.
 
 pub mod cli;
@@ -27,7 +27,6 @@ pub mod live;
 pub mod logs;
 pub mod mcp;
 pub mod normalize;
-pub mod ouroboros;
 pub mod outcome;
 pub mod paths;
 pub mod policy;
@@ -41,6 +40,7 @@ pub mod record;
 pub mod resolver;
 pub mod resume;
 pub mod run;
+pub mod rungs;
 pub mod show;
 pub mod skills;
 pub mod status;

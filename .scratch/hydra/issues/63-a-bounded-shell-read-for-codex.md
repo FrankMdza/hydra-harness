@@ -1,7 +1,7 @@
 # 63 - Does a provider without a read tool get a bounded shell read under read-only and judge?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -25,3 +25,19 @@ the other option, left open on purpose.
    the answer here is the rule.
 
 The measurement for items 1 and 2 needs a logged-in `codex`, which is build ticket 48 item 5.
+
+## Answer
+
+Resolved 2026-09-21 with the human. The question dissolved on a fact the ticket did not have:
+`judge` grants no tool to any provider, `policies/judge.json` says `"allows": "nothing"`, so no
+judge on any provider reads a file, and the diff arrives in the prompt. Item 2 was the whole of
+it. A `codex` judge needs no shell read; the only thing keeping it off the panel was the
+pre-flight refusal build ticket 48 put in for both narrow policies at once.
+
+Decision: `judge` opens to `codex` and the `evolve` panel becomes four, one per routable
+provider, measured with a real pass. `read-only` stays refused on `codex`, because there a
+read is the point and `codex` only reads by shell. The bounded command list of item 1 is not
+built and not scheduled: the floor declines to interpret shell on purpose, harness spec 7.4,
+and a `read-only` `codex` run is not something anyone has asked for. Item 3's rule, for a
+fifth provider in this shape: a policy that grants nothing routes it as is; a policy that
+grants reads and not shell refuses it at pre-flight. Build ticket 61 carries the code.

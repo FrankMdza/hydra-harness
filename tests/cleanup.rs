@@ -110,15 +110,15 @@ impl Fixture {
     }
 
     /// A curate pass's checkout of the store, made by the code that makes the
-    /// real one. Ouroboros spec 3.6: a git worktree of the store on
-    /// `ouroboros/curate/<run-id>`, never the store's own working tree.
+    /// real one. Rungs spec 3.6: a git worktree of the store on
+    /// `rungs/curate/<run-id>`, never the store's own working tree.
     fn store_checkout(&self, run_id: &str) -> PathBuf {
         let store = self.store();
         let checkout = self.layout().skill_checkout(run_id);
-        hydra::ouroboros::curate::check_out(
+        hydra::rungs::curate::check_out(
             &store,
             &checkout,
-            &format!("ouroboros/curate/{run_id}"),
+            &format!("rungs/curate/{run_id}"),
             "HEAD",
         )
         .unwrap();
@@ -699,7 +699,7 @@ fn a_curate_proposal_is_on_its_branch_before_the_checkout_goes() {
     assert!(!checkout.exists(), "the checkout is still there");
 
     // The bytes, read back off the branch in the store.
-    let branch = format!("ouroboros/curate/{run}");
+    let branch = format!("rungs/curate/{run}");
     assert_eq!(
         git(
             &fixture.store(),
@@ -752,7 +752,7 @@ fn a_checkout_nothing_wrote_to_goes_and_takes_its_branch() {
 #[test]
 fn a_live_curate_runs_checkout_of_the_store_is_never_reaped() {
     // A pass whose run outlived its call is exactly this shape: the curator is
-    // still writing and the checkout holds half a proposal. Ouroboros spec 3.5
+    // still writing and the checkout holds half a proposal. Rungs spec 3.5
     // commits nothing in that case, and neither may a reap typed beside it.
     let fixture = Fixture::new("curate-live");
     let layout = fixture.layout();
@@ -793,7 +793,7 @@ fn the_sweep_finds_a_checkout_with_no_worktree_and_no_spawn_directory() {
 
 #[test]
 fn the_stores_own_working_tree_is_never_written_by_a_reap() {
-    // Ouroboros spec 3.6: the store's working tree is where a concurrent
+    // Rungs spec 3.6: the store's working tree is where a concurrent
     // `Store::pin` commits without asking, so reap runs `git worktree remove`
     // and `git branch -d` from it and puts nothing in it. The registration goes
     // with the directory, or `git worktree list` keeps naming a path that is not

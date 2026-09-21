@@ -72,9 +72,9 @@ README line 185: "Rung two has run eight passes and approved none."
 
 `IMPLEMENTATION.md` lines 2716 and 3232: "Six passes have run on this machine."
 
-`docs/ouroboros-spec.md` line 33: "eight passes have run as of 2026-09-12."
+`docs/rungs-spec.md` line 33: "eight passes have run as of 2026-09-12."
 
-Believe README and `docs/ouroboros-spec.md`. Pass 7 and pass 8 appear in map tickets 57 and 56. `IMPLEMENTATION.md` has not been updated since pass six.
+Believe README and `docs/rungs-spec.md`. Pass 7 and pass 8 appear in map tickets 57 and 56. `IMPLEMENTATION.md` has not been updated since pass six.
 
 ## F7. Provider version table in `IMPLEMENTATION.md` lags README
 

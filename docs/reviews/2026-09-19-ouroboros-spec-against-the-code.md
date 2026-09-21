@@ -7,7 +7,7 @@ outcome-detected one already did.
 
 ## Method
 
-Read `docs/ouroboros-spec.md` in full, then read every file under `src/ouroboros/` and tests in `tests/curate.rs` and `tests/evolve.rs`. For each numbered rule or sentence in the spec that says what rung one or rung two does, search for where the code does it or verify that it does not. Check `IMPLEMENTATION.md` for allowed departures. Rate findings as wrong (false statement a reader would act on), stale (was true, no longer), or wording (ambiguous but defensible).
+Read `docs/rungs-spec.md` in full, then read every file under `src/ouroboros/` and tests in `tests/curate.rs` and `tests/evolve.rs`. For each numbered rule or sentence in the spec that says what rung one or rung two does, search for where the code does it or verify that it does not. Check `IMPLEMENTATION.md` for allowed departures. Rate findings as wrong (false statement a reader would act on), stale (was true, no longer), or wording (ambiguous but defensible).
 
 ## Findings
 

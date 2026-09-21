@@ -1667,6 +1667,18 @@ fn the_recorded_shell_denial_and_the_call_beside_it_derive_apart() {
         if shell.len() != 2 {
             continue;
         }
+        // The shape is the ticket 06 measurement's and not merely "two shell
+        // calls": the first names the corpus, the second does not. An `evolve`
+        // proposer on 2026-09-21 made two allowed `cargo` calls under `standard`
+        // and matched the count alone, which blocked a pass at admission.
+        let names_corpus = |call: &hydra::normalize::ToolCall| {
+            call.arguments["command"]
+                .as_str()
+                .is_some_and(|command| command.contains("hydra/runs"))
+        };
+        if !names_corpus(shell[0]) || names_corpus(shell[1]) {
+            continue;
+        }
         let decision_for = |call_id: &str| {
             run.permission_decisions()
                 .find(|decision| decision.call_id == call_id)

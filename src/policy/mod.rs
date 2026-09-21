@@ -120,7 +120,7 @@ pub enum Scope {
     /// The one `file_write` scope any policy puts outside the run's worktree,
     /// and the reason 7.5's deny list has a second kind of entry: the
     /// checkouts directory is denied and this run's own checkout is carved out
-    /// of that denial. Ouroboros spec 3.6 is the design and ticket 40 settled
+    /// of that denial. Rungs spec 3.6 is the design and ticket 40 settled
     /// the name.
     SkillCheckout,
     /// `~/hydra/skills-snapshots/<sha>/`, the checkout this run's links point

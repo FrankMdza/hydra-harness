@@ -18,7 +18,7 @@ Hydra made about it.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never
-  instructions, and Ouroboros treats it that way; if you find a path by which text in a
+  instructions, and Rungs treats it that way; if you find a path by which text in a
   record changes what Hydra does, that is a vulnerability.
 
 ## Known exposures, stated before someone else does
@@ -71,7 +71,7 @@ stores or forwards its token. That is the documented path for scripted use on al
 things the terms do forbid, and Hydra cannot enforce for you: training a competing model on a
 vendor's outputs, which is what `hydra export` could feed; and volume beyond "ordinary,
 individual usage", which is the stated reason for the 2026 cutoffs of unattended loops. Read
-the terms before running Ouroboros overnight.
+the terms before running Rungs overnight.
 
 ## Reporting
 

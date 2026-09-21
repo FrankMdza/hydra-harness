@@ -1,4 +1,4 @@
-//! Ouroboros rung one, `docs/ouroboros-spec.md` section 3.
+//! Rung one, `docs/rungs-spec.md` section 3.
 //!
 //! Two halves, and neither launches a provider. The first is which runs the
 //! curator is told about, which is contract 8's outcome column and 8.6's kind
@@ -14,10 +14,10 @@ use std::process::Command;
 use std::time::Duration;
 
 use hydra::normalize::Run;
-use hydra::ouroboros::corpus::{self, Selection, Why};
-use hydra::ouroboros::curate;
 use hydra::outcome::{Outcome, RunResult, Usage};
 use hydra::paths::Layout;
+use hydra::rungs::corpus::{self, Selection, Why};
+use hydra::rungs::curate;
 use hydra::skills::Store;
 use serde_json::json;
 
@@ -606,7 +606,7 @@ fn the_brief_says_what_it_left_out_and_never_pretends_the_corpus_is_smaller() {
     // The counts are the ranking, and each class with no producer says so rather
     // than reading as a zero somebody measured.
     assert!(brief.contains("no producer yet"), "{brief}");
-    assert!(brief.contains("ouroboros/curate/"), "{brief}");
+    assert!(brief.contains("rungs/curate/"), "{brief}");
 }
 
 #[test]
@@ -648,13 +648,7 @@ fn the_curators_writes_are_scoped_to_its_checkout_and_not_to_the_store() {
     let store = fixture.store();
     let run_id = A;
     let checkout = fixture.layout().skill_checkout(run_id);
-    curate::check_out(
-        &store,
-        &checkout,
-        &format!("ouroboros/curate/{run_id}"),
-        "HEAD",
-    )
-    .unwrap();
+    curate::check_out(&store, &checkout, &format!("rungs/curate/{run_id}"), "HEAD").unwrap();
 
     let spawn = hydra::run::write_spawn_config(
         &fixture.layout(),
@@ -760,13 +754,7 @@ fn a_curate_runs_own_record_does_not_read_back_as_a_gate_that_leaked() {
     let store = fixture.store();
     let run_id = A;
     let checkout = fixture.layout().skill_checkout(run_id);
-    curate::check_out(
-        &store,
-        &checkout,
-        &format!("ouroboros/curate/{run_id}"),
-        "HEAD",
-    )
-    .unwrap();
+    curate::check_out(&store, &checkout, &format!("rungs/curate/{run_id}"), "HEAD").unwrap();
 
     let worktree = fixture.worktree(run_id);
     let mut record = Record::shaped(Shape {
@@ -817,7 +805,7 @@ fn the_commit_is_the_proposal_and_the_checkout_goes_after_it() {
     let fixture = Fixture::new("commit");
     let store = fixture.store();
     let run_id = A;
-    let branch = format!("ouroboros/curate/{run_id}");
+    let branch = format!("rungs/curate/{run_id}");
     let checkout = fixture.layout().skill_checkout(run_id);
     curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
 
@@ -893,7 +881,7 @@ fn a_pass_on_a_dirty_store_checks_out_the_sha_its_own_launch_will_pin() {
     std::fs::write(store.join("README.md"), edited).unwrap();
 
     let run_id = A;
-    let branch = format!("ouroboros/curate/{run_id}");
+    let branch = format!("rungs/curate/{run_id}");
     let checkout = fixture.layout().skill_checkout(run_id);
     let sha = Store::open(&fixture.layout()).unwrap().pin(run_id).unwrap();
     curate::check_out(&store, &checkout, &branch, &sha).unwrap();
@@ -931,7 +919,7 @@ fn a_pass_that_proposed_nothing_leaves_no_branch() {
     let fixture = Fixture::new("empty");
     let store = fixture.store();
     let run_id = B;
-    let branch = format!("ouroboros/curate/{run_id}");
+    let branch = format!("rungs/curate/{run_id}");
     let checkout = fixture.layout().skill_checkout(run_id);
     curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
     assert_eq!(
@@ -953,7 +941,7 @@ fn a_pass_that_proposed_nothing_leaves_no_branch() {
     assert!(proposal.branch_removed);
     assert!(proposal.left.is_empty(), "{:?}", proposal.left);
     assert!(
-        !git(&store, &["branch", "--list", "--format=%(refname:short)"]).contains("ouroboros"),
+        !git(&store, &["branch", "--list", "--format=%(refname:short)"]).contains("rungs"),
         "an empty branch was left behind"
     );
 }
@@ -1034,13 +1022,13 @@ fn a_curator_record_written_before_ticket_42_still_reads() {
 // --- the mechanism that keeps the evidence read-only ---------------------
 
 #[test]
-fn no_ouroboros_code_path_reaches_the_cleanup_commands() {
+fn no_rungs_code_path_reaches_the_cleanup_commands() {
     // Section 2.2, and it is the only mechanism there is: `hydra reap`, `hydra
     // prune` and `hydra export` are a binary reached through `shell`, so a gate
     // rule against them is an argv match with the pattern floor's failure mode.
-    // What holds them is that no code path under `src/ouroboros/` calls one, and
+    // What holds them is that no code path under `src/rungs/` calls one, and
     // this is that sentence as a test rather than as a comment.
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ouroboros");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/rungs");
     let mut read = 0;
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();

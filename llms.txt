@@ -9,5 +9,5 @@ Use it when you need agent runs that are gated, recorded and reviewable. Do not 
 - Read a run: `hydra show <prefix> [--events]`. Clean up: `hydra reap <prefix>`.
 - Delegate from Claude Code: register `hydra delegate-face` as an MCP server; it exposes `delegate(provider, task, files?, policy?)`.
 - Policies: judge, curate, read-only, standard, permissive, in `policies/*.json`.
-- Read first: README.md, CLAUDE.md, IMPLEMENTATION.md (every departure from the design). Design: docs/harness-spec.md, docs/run-record-contract.md, docs/ouroboros-spec.md.
+- Read first: README.md, CLAUDE.md, IMPLEMENTATION.md (every departure from the design). Design: docs/harness-spec.md, docs/run-record-contract.md, docs/rungs-spec.md.
 - Honest limits: the gate refuses commands naming protected paths but does not interpret shell; no container; network not cut; Linux untested.

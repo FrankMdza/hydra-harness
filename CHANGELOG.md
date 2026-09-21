@@ -34,9 +34,16 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 - The floor's `git` parser consumes the value after `-c` and `--config-env`, so `git -c
   core.pager=cat push --force` is refused the way `git push --force` was (2026-09-21, build
   ticket 58, a change to protected config #1 made by the human).
+- `codex` sits on the `evolve` panel, four judges now; `read-only` stays refused on it
+  (2026-09-21, build ticket 61, map ticket 63).
+- The self-improvement module is `src/rungs/` and its spec `docs/rungs-spec.md`; new passes
+  write `rungs/<pass-id>` branches and the old `ouroboros/` ones still resolve (2026-09-21,
+  build ticket 62).
+- The tenth `evolve` pass is the first the panel offered: four judges, `codex` among them,
+  all pass on a two-word patch, on `rungs/01a0c4b4-81ec` for a human to merge (2026-09-21).
 
 ## 0.2.0, 2026-09-08
 
 All eleven commands of harness spec 17. Three routed providers, five policies, the run record
 contract, the skill store with per-run snapshots, the MCP delegate face, the Herdr bridge,
-both Ouroboros rungs. `IMPLEMENTATION.md` carries every departure from the design.
+both Rungs rungs. `IMPLEMENTATION.md` carries every departure from the design.
