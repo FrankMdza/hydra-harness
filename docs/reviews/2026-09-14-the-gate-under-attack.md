@@ -41,11 +41,11 @@ files carry no own path and are covered. `gate.py` says this where the code is.
 
 | Finding | Severity | Ticket |
 |---|---|---|
-| A run can relaunch the binary and name its own policy. Spec 7.3's rule that a child is never wider than its parent is not enforced anywhere: nothing marks a process as being inside a run, and `standard` grants the shell that reaches the binary | critical | build 57 |
+| A run can relaunch the binary and name its own policy. Spec 7.3's rule that a child is never wider than its parent is not enforced anywhere: nothing marks a process as being inside a run, and `standard` grants the shell that reaches the binary | critical, fixed 2026-09-15: `HYDRA_RUN_ID` marks every gated child and a launch carrying it without the matching `--parent` is refused; a child that unsets it walks through, and `SECURITY.md` says so | build 57 |
 | The floor's `git` parser consumed the wrong token for one flag, so a refused command passed when that flag was present. Fixed 2026-09-21: `git -c key=value` and `git --config-env key=VAR` take a separate value the way `-C` does, and the parser read that value as the subcommand, so `git -c core.pager=cat push --force origin main` walked past the push rules. Two entries in `consume_before_subcommand` in `policies/floor.json`, made by the human because it is protected config #1, and `tests/gate.rs` holds the four commands | real, fixed | build 58 |
-| Two providers offer a shell tool that carries no command string, so neither the floor nor the path check has anything to read | real | build 59 |
-| Under `permissive`, an MCP tool's path never meets the deny list, because `evaluate` applies it to `file_write` alone. No admitted server writes today, so this is a loaded gun rather than a fired one | narrow | build 59 |
-| The compiler case-folds with Rust's `to_lowercase` and the gate with Python's `casefold`. They disagree on characters like `ß`, so a non-ASCII home or repository name silently drops every denial and every scope | theoretical, total when it fires | build 60 |
+| Two providers offer a shell tool that carries no command string, so neither the floor nor the path check has anything to read | real, fixed 2026-09-15: both rows carry a capability no policy grants | build 59 |
+| Under `permissive`, an MCP tool's path never meets the deny list, because `evaluate` applies it to `file_write` alone. No admitted server writes today, so this is a loaded gun rather than a fired one | narrow, fixed 2026-09-15: the deny list meets MCP paths under every policy | build 59 |
+| The compiler case-folds with Rust's `to_lowercase` and the gate with Python's `casefold`. They disagree on characters like `ß`, so a non-ASCII home or repository name silently drops every denial and every scope | theoretical, total when it fires; fixed 2026-09-15: both sides fold ASCII only | build 60 |
 
 One more, which is not a bug and is the honest frame for all of the above: **the deny list
 covers `~/hydra`'s runtime directories and five config files, and nothing else.** Under

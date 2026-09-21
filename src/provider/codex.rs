@@ -306,8 +306,10 @@ pub fn resolve(_worktree: &Path, _mcp: crate::mcp::Probe<'_>) -> Result<Resolved
 
 /// Reads the model and the session id off one JSONL line.
 ///
-/// MEASURE 48.5: on a logged-in recorded run, confirm which `item.*` and
-/// `turn.*` keys carry `session_id`, `thread_id` and `model`.
+/// Measured 2026-09-21 on 0.154.0, run 01a0c223-4432: the session id is
+/// `thread_id` on a `thread.started` frame, and no frame names the model; the
+/// hook payload does, under `model`, but the stream never sees it, so the
+/// record's `model` stays null unless `--model` was passed.
 pub fn observe(raw: &str) -> Observed {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
         return Observed::default();

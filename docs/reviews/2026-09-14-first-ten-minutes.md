@@ -58,9 +58,9 @@ root at all, is map ticket 61.
 
 | Finding | Ticket |
 |---|---|
-| `policies/` and `config/` resolve through `CARGO_MANIFEST_DIR`, so the binary is not relocatable and nothing says so at runtime | build 50 |
-| `tests/record_contract.rs` reads the real home and ignores `HYDRA_ROOT`, so a contributor's suite validates their own corpus whatever they set, and CI's comment claims otherwise | build 51 |
-| `docs/demo/record.sh` and `verdict.py` hardcode `~/hydra` and do not work from a clone | build 52 |
+| `policies/` and `config/` resolve through `CARGO_MANIFEST_DIR`, so the binary is not relocatable and nothing says so at runtime | build 50, fixed 2026-09-15: `HYDRA_HOME` moves `policies/` and `config/`, and `hydra status` prints the policy path |
+| `tests/record_contract.rs` reads the real home and ignores `HYDRA_ROOT`, so a contributor's suite validates their own corpus whatever they set, and CI's comment claims otherwise | build 51, fixed 2026-09-15: the corpus walks read `HYDRA_ROOT` through one function |
+| `docs/demo/record.sh` and `verdict.py` hardcode `~/hydra` and do not work from a clone | build 52, fixed 2026-09-15: the demo scripts resolve the checkout they live in |
 | Whether a checkout and a data root should be separable, and what `hydra doctor` would report | map 61 |
 
 ## Terms a newcomer met before they were defined

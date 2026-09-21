@@ -3333,8 +3333,10 @@ sentence moves.
 
 Out of scope for this slice, and each one has a document that already says what it is:
 
-- One of harness spec 6.1's seven pre-flight checks. Auth is the one that belongs to a
-  ticket that is not built. What runs before a spawn today, in the order it runs, is the
+- One of harness spec 6.1's seven pre-flight checks on three of the four providers. Auth
+  is built on `codex` alone, since build ticket 48, where `codex login status` answers before
+  a spawn; on `claude`, `cursor-agent` and `agy` a logged-out binary still fails in its own
+  words. What runs before a spawn today, in the order it runs, is the
   policy name, the preamble file, the MCP document, the depth cap, the concurrency cap,
   the policy containment check, then the environment, the provider version and the two
   repo files on the providers that read their gate out of a worktree, then the skill
@@ -3355,9 +3357,10 @@ Out of scope for this slice, and each one has a document that already says what 
 - A rate-limited or logged-out `agy` run. `provider_refused` keys on `api_error_status`,
   which that provider does not write, and neither path has been measured, so a run
   refused for quota comes out `failed`.
-- Nothing about `agy` is unbuilt. One recorded run exists, `read-only`, and no `agy` run
-  under any other policy has been made, so `standard` and `permissive` on that provider
-  are checked by `tests/gate.rs` against the measured payload shape and by nothing else.
+- Nothing about `agy` is unbuilt. When this was written one recorded run existed,
+  `read-only`; since build ticket 19 on 2026-09-07 `agy` has written tickets and probes under
+  `standard`, and `permissive` on that provider is still checked by `tests/gate.rs` against
+  the measured payload shape and by no recorded run.
 - An offerable `hydra evolve` patch has been merged by a human. The command is built, since
   build ticket 36, and ten passes have run: the sixth reached the panel and was blocked, and
   the tenth, on 2026-09-21, was offered by all four judges, so `rungs/<pass-id>` and an

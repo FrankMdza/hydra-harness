@@ -103,8 +103,7 @@ the raw-model plane beyond one gated `gemini` path, hermes, multi-machine use,
 Langfuse, training, Cursor GUI automation, reading the user's credential files,
 interpreting shell commands, ACP, and a mid-run input channel.
 
-Ouroboros rung two is out of scope for this file until rung one has run. `docs/`
-specifies it and nothing stops someone building it; it gets a ticket when the corpus
-exists to justify one.
+Rung two was out of scope for this file until rung one had run; build ticket 36 built it on
+2026-09-08, and the tenth pass offered the first patch on 2026-09-21.
 - [61 - Codex sits on the judge panel](61-codex-on-the-judge-panel.md)
 - [62 - The self-improvement module is called rungs](62-ouroboros-becomes-rungs.md)
