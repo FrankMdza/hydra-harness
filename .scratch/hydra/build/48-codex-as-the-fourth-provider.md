@@ -1,7 +1,7 @@
 # 48 - Codex CLI as the fourth provider
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -32,25 +32,40 @@ three are routed. The pieces, in the order the other providers grew them:
 Needs a human logged in first: `codex login` on any ChatGPT plan. Map ticket 58 has the
 measurements and their sources.
 
-## Outcome, so far
+## Outcome
 
-Items 1, 2, 3 and the tests half of 6 built on 2026-09-20 by `cursor-agent` on Composer 2.5, run
-01a0bcdb-e6ed under `standard`, 9.4M tokens, 14 files, 1365 insertions. Applied to master after a
-mechanism read; nothing needed correcting before the suite, and `clippy --all-targets`, `fmt` and
-the targeted tests were green in the worktree and on master. The docs half of item 6 is the
-orchestrating session's, in `IMPLEMENTATION.md` under the `codex` heading.
+Resolved 2026-09-21. Items 1, 2, 3 and the tests half of 6 built on 2026-09-20 by `cursor-agent` on
+Composer 2.5, run 01a0bcdb-e6ed under `standard`, 9.4M tokens, 14 files, 1365 insertions, applied
+to master after a mechanism read. Item 4 decided by the human on 2026-09-20: `standard` and
+`permissive` only, the bounded shell read is map ticket 63. Item 5 measured on 2026-09-21 by the
+orchestrating session on a logged-in binary, four recorded runs and ten direct probes, and the
+docs half of 6 is the `codex` section of `IMPLEMENTATION.md`, which holds every measurement.
 
-**Item 4 was decided by the human on 2026-09-20: `standard` and `permissive` only.** `read-only`
-and `judge` refuse a `codex` launch at pre-flight with a message that names this item, and the
-bounded shell read for `codex` alone is map ticket 63, open. `codex` cannot sit on the `evolve`
-panel until that closes.
+**Three things the ticket assumed that turned out false, each of which changed the code.**
 
-**Item 5 is still open**, because `codex login status` on this machine said not logged in when
-the run landed. Four `MEASURE 48.5` comments in `src/provider/codex.rs` and `src/normalize/codex.rs`
-say what to measure; the ticket closes when a recorded `codex` run exists and each of them is
-replaced by what the record showed.
+1. `exec` has no `--ask-for-approval` flag; it is the interactive command's. Runs 01a0c220-909f
+   and 01a0c220-ce0e died on it with exit 2. The belt is `-c approval_policy="never"` now.
+2. A `<repo>/.codex/hooks.json` is not read inside a git worktree, from the worktree or from its
+   main checkout; probes p7 and p8 in a scratch repo showed it, and run 01a0c223-9ec2 ran a
+   protected-path read with the file in place and the gate silent. The `-c hooks.PreToolUse`
+   override is read in a worktree but cannot hold the multi-line inline command (run
+   01a0c222-4305, exit 1 at config load), so the Python goes to `spawn/<id>/hook.py` and the
+   override names the file. Run 01a0c231-6583 measured the gate refusing both a patch and a
+   protected-path read through that route.
+3. `apply_patch` is not a pathed write. The hook sees the patch text, the stream sees
+   `file_change` with `changes[].path`, and under `standard` the gate refuses it as
+   `hydra/no-path`. A `standard` run writes through the shell or not at all until `gate.py`
+   parses the patch header, which nobody has asked for.
 
-**One thing the ticket assumed that turned out false.** `apply_patch` carries no path, so under
-`standard` the gate refuses it as `hydra/no-path` and a run writes through the shell or not at
-all. The ticket read `apply_patch` as a pathed write. Whether the patch body can be parsed for
-its paths is part of item 5.
+**Measured and now in the reader.** A denied call leaves no `item.*` frame, only a stderr line
+`Command blocked by PreToolUse hook: <reason>. Command: <command>`; the normalizer reads it into
+a call, an error result and a decision. A hook that exits non-zero without JSON fails open
+(probe p3). Usage keys are `cached_input_tokens`, `cache_write_input_tokens` and
+`reasoning_output_tokens`. The stream never names the model; the hook payload does.
+
+**Ten direct probes, all in `scratchpad/hookprobe`, none recorded, each a one-line prompt.**
+p1 and p2, project file fires with and without the approval override; p3, `-c` with a one-line
+command runs the hook and a bare exit 2 fails open; p4, a top-level `description` key is
+harmless; p5, Hydra's real gate command fires from the project file in a plain repo; p6, the
+hook payload for `apply_patch` and `Bash`; p7 and p8, no project hook inside a worktree; p9,
+my own quoting, no finding; p10, the gate through a wrapper file in a worktree, deny held.

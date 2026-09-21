@@ -26,6 +26,11 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   read as ungated (2026-09-12, build ticket 46).
 - README rewritten around the measurement Hydra exists for; `llms.txt` added; demo GIF
   recorded from a real `agy` run (2026-09-12).
+- `codex` is the fourth provider, under `standard` and `permissive`: the gate rides a `-c`
+  override naming a hook file in the spawn directory, because Codex reads no project hook
+  file inside a git worktree (2026-09-21, build ticket 48, run 01a0c231-6583).
+- A proposer rate-limited by its last frame ends an `evolve` pass `completed` on a blocked
+  branch, the way one rate-limited by outcome already did (2026-09-20).
 
 ## 0.2.0, 2026-09-08
 

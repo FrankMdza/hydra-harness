@@ -50,6 +50,15 @@ Hydra made about it.
   attack as it was measured; what it does not close is a child that means it. Map ticket 62 asks
   whether this class wants a second uid and file modes instead, which would be the first thing in
   this design to need something from the machine.
+- **On `codex` the gate rides the command line, and a hook that dies without answering fails
+  open, since 2026-09-21.** Codex reads no project hook file inside a git worktree, and every
+  Hydra run is one, so the gate is handed over as a `-c` override naming a Python file in the
+  spawn directory, which every policy denies writes to, and the launch carries
+  `--dangerously-bypass-hook-trust` because a per-run hook can never be a hash a human trusted.
+  Measured on 0.154.0: a hook that exits non-zero with no JSON answer lets the call through. The
+  sha check answers a tamper with a deny rather than an exit code for that reason, and a Python
+  crash inside the gate on this provider is a call that runs. The run record still shows every
+  call the hook answered; it cannot show the one it crashed on.
 - **The gate is only as good as the vendor build.** It lives in the vendor's own hook dialect,
   and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`
@@ -58,7 +67,7 @@ Hydra made about it.
 ## Vendor terms
 
 Hydra spawns each vendor's unmodified binary under your own subscription and never reads,
-stores or forwards its token. That is the documented path for scripted use on all three. Two
+stores or forwards its token. That is the documented path for scripted use on all four. Two
 things the terms do forbid, and Hydra cannot enforce for you: training a competing model on a
 vendor's outputs, which is what `hydra export` could feed; and volume beyond "ordinary,
 individual usage", which is the stated reason for the 2026 cutoffs of unattended loops. Read

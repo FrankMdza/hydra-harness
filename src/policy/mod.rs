@@ -936,6 +936,23 @@ pub fn write_gate(set: &PolicySet, spawn: &Spawn<'_>) -> Result<()> {
 ///
 /// The script still lives where 7.5 puts it. Only the pointer got stricter.
 pub fn hook_command(gate_script: &Path, gate_sha: &str, dialect: Dialect) -> String {
+    // `python3 -c <source> <dialect>` puts the dialect at sys.argv[1], which is
+    // where the gate reads it, and leaves `__name__` as `__main__` so its own
+    // entry point still fires under `exec`.
+    format!(
+        "/usr/bin/python3 -c {} {}",
+        shell_quote(&hook_source(gate_script, gate_sha, dialect)),
+        dialect.as_str()
+    )
+}
+
+/// The Python behind [`hook_command`], for a provider that wants it in a file.
+///
+/// `codex` cannot take the multi-line command through its config override and
+/// reads no project hook file inside a git worktree, measured 2026-09-21, so
+/// its writer puts this source at `spawn/<run-id>/hook.py` and the command line
+/// names the file. Same check, same refusal, same dialect argument.
+pub fn hook_source(gate_script: &Path, gate_sha: &str, dialect: Dialect) -> String {
     // JSON string literals are Python string literals, so this quotes a path
     // containing anything a filesystem allows without a second escaping rule.
     let path = serde_json::to_string(&gate_script.display().to_string())
@@ -961,7 +978,7 @@ pub fn hook_command(gate_script: &Path, gate_sha: &str, dialect: Dialect) -> Str
     };
     let refusal =
         serde_json::to_string(&refusal.to_string()).unwrap_or_else(|_| "\"\"".to_string());
-    let source = format!(
+    format!(
         r#"import hashlib, sys
 GATE = {path}
 SHA = {sha}
@@ -974,14 +991,6 @@ if body is None or hashlib.sha256(body).hexdigest() != SHA:
     sys.exit(0)
 exec(compile(body, GATE, "exec"))
 "#
-    );
-    // `python3 -c <source> <dialect>` puts the dialect at sys.argv[1], which is
-    // where the gate reads it, and leaves `__name__` as `__main__` so its own
-    // entry point still fires under `exec`.
-    format!(
-        "/usr/bin/python3 -c {} {}",
-        shell_quote(&source),
-        dialect.as_str()
     )
 }
 

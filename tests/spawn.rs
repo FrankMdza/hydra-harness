@@ -983,6 +983,14 @@ fn a_codex_spawn_writes_the_hook_config_into_the_worktree() {
     assert!(command.ends_with(" claude"), "{command}");
     assert_eq!(config["hooks"]["PreToolUse"][0]["matcher"], "*");
 
+    // The hook the command line names, measured as the only route that fires
+    // inside a worktree: the same Python as the inline command, in a file
+    // beside the gate.
+    let hook = root.join("spawn/r1/hook.py");
+    let source = std::fs::read_to_string(&hook).unwrap();
+    assert!(source.contains(spawn.gate.to_str().unwrap()), "{source}");
+    assert!(source.contains(&spawn.gate_sha), "{source}");
+
     let ignore = std::fs::read_to_string(worktree.join(".codex/.gitignore")).unwrap();
     assert!(ignore.contains("/hooks.json"));
     assert!(ignore.contains("/config.toml"));

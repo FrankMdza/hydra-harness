@@ -875,22 +875,15 @@ pub fn run(request: Request) -> Result<Call> {
                 .map(|w| std::path::Path::new(w.path.as_str()))
                 .context("an agy run needs a checkout and this one has none")?,
         }),
-        Provider::Codex => {
-            let gate_command = crate::policy::hook_command(
-                &spawn.gate,
-                &spawn.gate_sha,
-                request.provider.dialect(),
-            );
-            codex::argv(&codex::Launch {
-                task: &task,
-                model: request.model.as_deref(),
-                worktree: worktree_ref
-                    .as_ref()
-                    .map(|w| std::path::Path::new(w.path.as_str()))
-                    .context("a codex run needs a checkout and this one has none")?,
-                gate_command: &gate_command,
-            })
-        }
+        Provider::Codex => codex::argv(&codex::Launch {
+            task: &task,
+            model: request.model.as_deref(),
+            worktree: worktree_ref
+                .as_ref()
+                .map(|w| std::path::Path::new(w.path.as_str()))
+                .context("a codex run needs a checkout and this one has none")?,
+            hook_file: &codex::hook_file(&layout, &run_id),
+        }),
     };
     if let Some(session_id) = &request.resume_session_id {
         append_resume_args(&mut argv, request.provider, session_id);
@@ -1498,6 +1491,17 @@ pub fn write_spawn_config(
         Provider::Agy => agy::hooks_config(&gate, &gate_sha),
         Provider::Codex => codex::hooks_config(&gate, &gate_sha),
     };
+    // `codex` takes the hook on the command line as a file, because it reads no
+    // project hook file inside a git worktree; `provider/codex.rs` has the
+    // measurement. The file is the same Python the other dialects carry inline.
+    if provider == Provider::Codex {
+        let hook = codex::hook_file(layout, run_id);
+        std::fs::write(
+            &hook,
+            crate::policy::hook_source(&gate, &gate_sha, provider.dialect()),
+        )
+        .with_context(|| format!("writing {}", hook.display()))?;
+    }
     std::fs::write(&hook_config, serde_json::to_string_pretty(&config)?)
         .with_context(|| format!("writing {}", hook_config.display()))?;
 

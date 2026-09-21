@@ -228,6 +228,14 @@ pub fn derive(run: &Run) -> Option<Derived> {
                 // and two of those sentences are refusals rung one must not
                 // learn from.
                 cursor_stderr_refusal(run).unwrap_or(Outcome::Failed)
+            } else if run.provider.as_deref() == Some("codex") {
+                // `codex` is the same shape: `turn.completed` only when a turn
+                // ran, and a launch that died before one prints text and
+                // exits. Measured 2026-09-21 on 0.154.0: a rejected flag is
+                // clap's usage on stderr and exit 2 (runs 01a0c220-909f and
+                // 01a0c220-ce0e), a bad config override is one sentence and
+                // exit 1 (01a0c222-4305). Nothing in those died; they failed.
+                Outcome::Failed
             } else {
                 // `claude` and `agy` both write exactly one terminator frame on
                 // every path, so a child that ended without it stopped before it

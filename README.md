@@ -1,9 +1,9 @@
 # Hydra
 
-One command runs `claude`, `cursor-agent` or `agy` in its own git worktree, behind a
+One command runs `claude`, `cursor-agent`, `agy` or `codex` in its own git worktree, behind a
 deny-by-default policy, and leaves one JSONL record per run that says what actually happened.
 
-macOS only, today. The three vendor binaries exist on Linux and the port is small; the section
+macOS only, today. The four vendor binaries exist on Linux and the port is small; the section
 on ports says what it needs.
 
 ![hydra run on agy: the vendor reports SUCCESS, the record says gated](docs/demo/hydra.gif)
@@ -51,9 +51,9 @@ So the record decides, not the vendor.
 
 ## Install
 
-macOS, a Rust toolchain, and at least one of the three CLIs installed and logged in with its
+macOS, a Rust toolchain, and at least one of the four CLIs installed and logged in with its
 own subscription. Hydra spawns the real binaries and never touches their credentials; that is
-the documented path for scripted use on all three, and `SECURITY.md` says what their terms
+the documented path for scripted use on all four, and `SECURITY.md` says what their terms
 still forbid.
 
 ```
@@ -150,7 +150,7 @@ Worktree-per-run over several vendor CLIs is a crowded shelf. What is not on it 
 | [vibe-kanban](https://github.com/BloopAI/vibe-kanban) | 10+ | yes | no | no |
 | [Cupcake](https://github.com/eqtylab/cupcake) | 4, via hooks | no | no | yes, OPA/Rego, richer than Hydra's |
 | [Langfuse coding-agent tracing](https://langfuse.com/resources/engineering/coding-agent-tracing) | 3 | no | traces, hosted, no outcome | no |
-| Hydra | 3 | yes | yes, outcome derived from the stream | yes, five policies, three dialects |
+| Hydra | 4, `codex` under two policies | yes | yes, outcome derived from the stream | yes, five policies, three dialects |
 
 ccmanager has the live dashboard and container isolation Hydra lacks. Cupcake has the policy
 language. Langfuse has the UI and cross-run search. None derives the outcome from what the tools
@@ -166,10 +166,10 @@ did, which is the one thing Hydra was built around.
 
 ## Roadmap
 
-- **Codex CLI as the fourth provider.** Measured on 0.154.0: it signs in with a ChatGPT
-  account, streams JSONL, and has a `PreToolUse` hook in Claude Code's dialect that honours
-  the deny shape the gate already writes. Build ticket 48; the read-only policies need a
-  decision first, because Codex reads files through the shell.
+- **Codex under `read-only` and `judge`.** Routed since build ticket 48 under `standard` and
+  `permissive`, measured on 0.154.0 with the gate refusing a protected path on a real run. It
+  has no read tool, so the two narrower policies wait on map ticket 63, and under `standard`
+  its `apply_patch` is refused because the tool names no path; writes go through the shell.
 - More vendor CLIs that log in rather than take a key.
 - OpenTelemetry emission from the record, so existing viewers can read it.
 - Linux.
@@ -199,15 +199,15 @@ names the run id and the token count.
 
 | Written by | Build tickets |
 |---|---|
-| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 50, 51, 60 |
+| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60 |
 | `cursor-agent` on Grok 4.6 Fast | 21, 30, 33, 35, 37, 38 |
 | `cursor-agent`, no model flag, so the record says none | 17 |
 | `claude` on Sonnet 5 | 18, 22, 23, 26, 27 |
 | `claude` on Haiku 4.5 | 25 |
 | `agy` on Gemini 3.1 Pro | 19, and the drift test of 17 |
-| the Claude Code session, by hand | 01 to 16, 39 to 49, 52 to 59 |
+| the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59 |
 
-That is 25 of 60 build tickets on an agent run, none of them merged unread. Ticket 27, the
+That is 26 of 60 build tickets on an agent run, none of them merged unread. Ticket 27, the
 interactive mode and its harvest, was the largest single run at 54.7M tokens, 54.0M of them
 cache reads. Ticket 25 was the first Rust ticket given to the cheapest model, and it held.
 The design documents, the policies, the record contract and this README are the session's.

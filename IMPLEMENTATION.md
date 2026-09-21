@@ -1635,37 +1635,62 @@ worth a ticket if anyone ever wants to cost an `agy` run.**
 
 ## `codex`, the fourth provider, since build ticket 48
 
-Built on 2026-09-20 from map ticket 58's measurement of `codex-cli` 0.154.0 and **no recorded
-run**, because the binary on this machine was not logged in. `src/provider/codex.rs` holds the
-argv, `codex exec --json -C <worktree> --sandbox workspace-write --ask-for-approval never
---dangerously-bypass-hook-trust`, the last flag because hook trust is per hash and a per-spawn gate
-never matches; the hook config at `.codex/hooks.json` in the shape `docs/hooks` gives, answered in
-`claude`'s dialect; a `-c hooks.PreToolUse=...` override that points at the same gate on the
-command line; the MCP fragment as TOML in `.codex/config.toml`; and the auth pre-flight,
-`codex login status`, which is the first `auth_preflight` refusal any provider writes.
-`src/normalize/codex.rs` reads `item.completed` and `turn.completed` into contract 7's events and
-derives decisions through the same replay the other three use. `src/policy/table.rs` has the rows:
-`Bash` is `shell`, `apply_patch` is `file_write`, `update_plan` is provider-native, `spawn_agent`
-needs `permissive`, and `WebSearch` is `unhooked` because hosted tools never reach the hook.
+Built on 2026-09-20 from map ticket 58's measurement of `codex-cli` 0.154.0, then measured on
+2026-09-21 on a logged-in binary across four recorded runs and ten direct probes. What the
+measurement changed is in the paragraphs below, and every `MEASURE 48.5` marker is gone.
+
+**The hook rides the command line, as a file.** `src/provider/codex.rs` composes `codex exec
+--json -C <worktree> --sandbox workspace-write -c approval_policy="never"
+--dangerously-bypass-hook-trust -c hooks.PreToolUse=[...]`, the last override naming
+`/usr/bin/python3 <spawn>/hook.py claude`, and `write_spawn_config` writes that file from
+`policy::hook_source`, the same Python the other three dialects carry inline. Three measurements
+forced the shape. `exec` has no `--ask-for-approval` flag, that one is the interactive command's,
+and the first two launches died on it with exit 2. A `<repo>/.codex/hooks.json` fires in a plain
+checkout and is never read inside a git worktree, from the worktree or from its main checkout,
+and every Hydra run is a worktree: run 01a0c223-9ec2 ran `cat ~/hydra/runs/nothing.jsonl` with
+the file in place and the gate silent. The `-c` override is read in a worktree, but its value is
+TOML and a basic string cannot hold the newlines the inline command carries: run 01a0c222-4305
+died at config load with `invalid type: string ... in hooks`. Run 01a0c231-6583 is the one
+where all of it holds: `apply_patch` refused `hydra/no-path`, the read of `~/hydra/runs/`
+refused `hydra/protected-path`, the shell write and `ls` allowed, two deny decisions by
+`hydra_policy` on the normalized record and no finding. The `.codex/hooks.json` in the worktree
+is still written, for a launch with no checkout, and the doc comment says it is unread otherwise.
+
+**A hook that exits non-zero with no JSON answer fails open**, probe p3: the marker was written
+and the command ran. The sha check in `hook.py` therefore answers a tamper with a deny in
+`claude`'s dialect rather than an exit code, and a Python crash inside the gate is the fail-open
+`SECURITY.md` names for this provider.
+
+**A denied call leaves no `item.*` frame.** The only trace is one stderr line, `ERROR
+codex_core::tools::router: error=Command blocked by PreToolUse hook: <reason>. Command:
+<command>`, with a patch body continuing on the lines after it. `src/normalize/codex.rs` reads
+that line into the call, an error result carrying the reason, and a decision; a run refused
+throughout reads `gated` the way it does elsewhere. Everything else on stderr is noise, the
+hook-trust warning included, which arrives twice per run as an `item.completed` of type `error`.
+
+**Field names.** The session id is `thread_id` on a `thread.started` frame. A shell call is
+`command_execution` with `command`, `aggregated_output`, `exit_code` and a `status` of
+`completed` or `failed`; an applied patch is `file_change` with `changes: [{path, kind}]` and
+never the patch text, which the hook alone sees under `tool_input.command`. `turn.completed`
+carries `usage` with `input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`,
+`output_tokens` and `reasoning_output_tokens`. The stream never names the model; the hook
+payload does, `gpt-6-astra` on this account, and the record's `model` stays null unless
+`--model` was passed. `resolve` returns null for `skills.resolved` and `mcp.resolved`, because
+no free probe exists yet.
 
 **Routable under `standard` and `permissive` only.** Codex has no read tool, so under `read-only`
 and `judge` every read would be a shell call the policy denies; the human decided on 2026-09-20
 that those two policies refuse a `codex` launch at pre-flight, in Hydra's words, naming ticket 48,
 and that a bounded shell read for `codex` alone is map ticket 63, open. Until it closes `codex`
-cannot sit on the `evolve` panel.
+cannot sit on the `evolve` panel. The auth pre-flight, `codex login status`, is the first
+`auth_preflight` refusal any provider writes.
 
-**`apply_patch` carries no path, so under `standard` the gate refuses it as `hydra/no-path`.**
-A scoped `file_write` with nothing to scope is refused by design, and the row is honest about the
-tool. Under `permissive`, whose writes are unscoped, it passes. Which means a `standard` run
-writes through the shell or not at all until item 5 measures what the patch body carries;
+**`apply_patch` carries no path, so under `standard` the gate refuses it**, measured on
+01a0c231-6583. A scoped `file_write` with nothing to scope is `hydra/no-path` by design. The
+patch text does name its files, `*** Add File: <path>` and the like, and a gate that parsed
+those would make the row pathed; that is a change to `gate.py` nobody has asked for yet, and
+until then a `standard` run on this provider writes through the shell or not at all.
 `tests/gate.rs` skips the skill-root loop for this provider for the same reason.
-
-**Four things wait on a logged-in binary, marked `MEASURE 48.5` in the source.** Whether a hook
-crash or timeout fails open like `claude` or closed; whether the `-c` override is honoured as a
-hook source beside or instead of the file; which `item.*` and `turn.*` keys carry the session id
-and the model; and the exact field names the normalizer reads, which today follow ticket 58's
-prose and the unit fixtures. `resolve` returns null for both `skills.resolved` and `mcp.resolved`
-until a free probe exists. `tests/drift.rs` gains a login probe that skips without the binary.
 
 ## What the record does not carry
 

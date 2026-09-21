@@ -2,16 +2,37 @@
 //!
 //! The command line is harness spec 6.7's `codex` block as far as this build
 //! implements it. A recorded run is `codex exec --json` with belt flags beside
-//! the gate, `-c` overrides that point the hook at Hydra's script, and the
-//! worktree named as the session root.
+//! the gate, the worktree named as the session root, and the hook handed over
+//! on the command line as a `-c hooks.PreToolUse=[...]` override that names a
+//! one-line command: `/usr/bin/python3 <spawn>/hook.py claude`.
+//!
+//! **Why the command line and a file, measured 2026-09-21 on 0.154.0.** A
+//! `<repo>/.codex/hooks.json` fires in a plain checkout and is never read
+//! inside a git worktree, from the worktree or from its main checkout (probes
+//! p1 to p8 in the ticket 48 outcome), and every Hydra run is a worktree. The
+//! `-c` override is read in a worktree, but its value is TOML and a TOML basic
+//! string cannot hold the newlines the shared hook command carries: run
+//! 01a0c222-4305 died at config load, exit 1. So the Python goes to
+//! `spawn/<run-id>/hook.py`, beside the gate it checks, and the override names
+//! the file. Probe p10 ran that shape in a worktree and the gate's deny held.
+//! The `.codex/hooks.json` in the worktree is still written, because a launch
+//! with no checkout runs in a plain directory where the file is what fires.
+//!
+//! **A hook that exits non-zero without a JSON answer fails open**, probe p3:
+//! the marker was written and the command ran. The sha check in `hook.py`
+//! answers with a deny in `claude`'s dialect rather than an exit code for
+//! that reason.
 //!
 //! **Hook trust is per-hash and a per-spawn gate never matches**, so
 //! `--dangerously-bypass-hook-trust` rides every launch Hydra makes. The
 //! record has to say so.
 //!
-//! **`--sandbox` and `--ask-for-approval never` are belt, not the gate.** They
-//! narrow what the provider will do on its own; Hydra's compiled hook is still
-//! what refuses under policy.
+//! **`--sandbox workspace-write` and `-c approval_policy="never"` are belt, not
+//! the gate.** They narrow what the provider will do on its own; Hydra's
+//! compiled hook is still what refuses under policy. Measured 2026-09-21 on
+//! 0.154.0: `exec` has no `--ask-for-approval` flag, that one lives on the
+//! interactive top-level command, and the first two launches died on it with
+//! exit 2 (runs 01a0c220-909f and 01a0c220-ce0e).
 //!
 //! **There is no read tool.** Every read is a `Bash` call, which is why
 //! `read-only` and `judge` are refused at pre-flight until build ticket 48
@@ -35,10 +56,16 @@ pub struct Launch<'a> {
     /// records this string verbatim.
     pub task: &'a str,
     pub model: Option<&'a str>,
-    /// The run's checkout. Skills, hooks and MCP config all load from here.
+    /// The run's checkout. Skills and MCP config load from here.
     pub worktree: &'a Path,
-    /// The gate command Hydra compiled, for the `-c` override beside the file.
-    pub gate_command: &'a str,
+    /// The hook file [`hook_file`] names, for the `-c` override.
+    pub hook_file: &'a Path,
+}
+
+/// Where the hook's Python lives: beside the gate it checks, in the spawn
+/// directory every policy denies writes to.
+pub fn hook_file(layout: &crate::paths::Layout, run_id: &str) -> PathBuf {
+    layout.spawn(run_id).join("hook.py")
 }
 
 /// 6.7's `codex` line as far as ticket 48 implements it.
@@ -50,11 +77,11 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
         launch.worktree.display().to_string(),
         "--sandbox".to_string(),
         "workspace-write".to_string(),
-        "--ask-for-approval".to_string(),
-        "never".to_string(),
+        "-c".to_string(),
+        "approval_policy=\"never\"".to_string(),
         "--dangerously-bypass-hook-trust".to_string(),
     ];
-    for config_override in config_overrides(launch.gate_command) {
+    for config_override in config_overrides(launch.hook_file) {
         argv.push("-c".to_string());
         argv.push(config_override);
     }
@@ -125,12 +152,18 @@ pub fn hooks_config(gate_script: &Path, gate_sha: &str) -> serde_json::Value {
     })
 }
 
-/// `-c` overrides that point the hook at Hydra's script on the command line.
-///
-/// MEASURE 48.5: on a logged-in binary, confirm that this override is honoured
-/// as a hook source alongside or instead of `<worktree>/.codex/hooks.json`.
-pub fn config_overrides(gate_command: &str) -> Vec<String> {
-    let escaped = gate_command.replace('\\', "\\\\").replace('"', "\\\"");
+/// The `-c` override that points the hook at the file, one line, in the
+/// dialect the gate insists on. The value is TOML: an inline array of one
+/// inline table, and the command is a basic string, so a backslash or a quote
+/// in the path is escaped and a newline would be refused, which is why the
+/// Python is in a file.
+pub fn config_overrides(hook_file: &Path) -> Vec<String> {
+    let command = format!(
+        "/usr/bin/python3 {} {}",
+        hook_file.display(),
+        Dialect::Claude.as_str()
+    );
+    let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
     vec![format!(
         "hooks.PreToolUse=[{{matcher=\"*\", hooks=[{{type=\"command\", command=\"{escaped}\"}}]}}]"
     )]
@@ -300,17 +333,20 @@ mod tests {
             task: "do the thing",
             model: Some("gpt-5.4"),
             worktree,
-            gate_command: "/tmp/spawn/r1/gate abc claude",
+            hook_file: Path::new("/tmp/spawn/r1/hook.py"),
         });
         assert_eq!(argv[0], "exec");
         assert!(argv.contains(&"--json".to_string()));
         let sandbox = argv.iter().position(|arg| arg == "--sandbox").unwrap();
         assert_eq!(argv[sandbox + 1], "workspace-write");
-        let approval = argv
-            .iter()
-            .position(|arg| arg == "--ask-for-approval")
-            .unwrap();
-        assert_eq!(argv[approval + 1], "never");
+        assert!(
+            !argv.iter().any(|arg| arg == "--ask-for-approval"),
+            "exec has no such flag on 0.154.0"
+        );
+        assert!(
+            argv.iter().any(|arg| arg == "approval_policy=\"never\""),
+            "{argv:?}"
+        );
         assert!(
             argv.iter()
                 .any(|arg| arg == "--dangerously-bypass-hook-trust")
@@ -331,16 +367,27 @@ mod tests {
     }
 
     #[test]
-    fn the_command_line_override_points_at_the_same_gate_command() {
-        let command = "/usr/bin/python3 -c '...' abc claude";
-        let overrides = config_overrides(command);
-        assert_eq!(overrides.len(), 1);
+    fn the_override_names_the_hook_file_on_one_line_with_the_dialect() {
+        let argv = argv(&Launch {
+            task: "t",
+            model: None,
+            worktree: Path::new("/tmp/wt"),
+            hook_file: Path::new("/tmp/spawn/r1/hook.py"),
+        });
+        let value = argv
+            .iter()
+            .find(|arg| arg.starts_with("hooks.PreToolUse=["))
+            .expect("the hook override rides a -c of its own");
+        let at = argv.iter().position(|arg| arg == value).unwrap();
+        assert_eq!(argv[at - 1], "-c");
         assert!(
-            overrides[0].starts_with("hooks.PreToolUse="),
-            "{}",
-            overrides[0]
+            value.contains("command=\"/usr/bin/python3 /tmp/spawn/r1/hook.py claude\""),
+            "{value}"
         );
-        assert!(overrides[0].contains(command), "{}", overrides[0]);
+        assert!(
+            !value.contains('\n'),
+            "a TOML basic string cannot hold a newline"
+        );
     }
 
     #[test]

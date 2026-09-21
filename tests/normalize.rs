@@ -1474,7 +1474,7 @@ fn every_record_on_this_machine_normalizes() {
         assert!(
             matches!(
                 run.provider.as_deref(),
-                Some("claude") | Some("cursor-agent") | Some("agy")
+                Some("claude") | Some("cursor-agent") | Some("agy") | Some("codex")
             ),
             "{}: {:?}",
             path.display(),
@@ -1539,11 +1539,30 @@ fn the_recorded_write_denial_derives_to_a_deny_under_capability() {
     assert!(seen >= 1, "no recorded Write denial to check against");
 }
 
+/// The one record on this machine where the gate did stay silent, kept in the
+/// corpus on purpose. Run 01a0c223-9ec2 is build ticket 48's measurement that
+/// `codex` 0.154.0 reads no project hook file inside a git worktree: the file
+/// was in place, `cat ~/hydra/runs/nothing.jsonl` ran, and the reader files
+/// both calls as leaks, which is the reader being right. The launcher hands
+/// the hook over on the command line since that day, and run 01a0c231-6583 is
+/// the same probe refused. A second id here needs the same sentence.
+const MEASURED_SILENT_GATES: &[&str] = &["01a0c223-9ec2-72e0-b5d4-e29782d692b0"];
+
 #[test]
 fn no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent() {
     let policies = policies();
     for path in corpus() {
         let run = hydra::normalize::read_file(&path, &policies).unwrap();
+        if MEASURED_SILENT_GATES.iter().any(|id| run.run_id == *id) {
+            assert!(
+                run.findings
+                    .iter()
+                    .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+                "{}: the measured silent gate no longer reads as a leak",
+                path.display()
+            );
+            continue;
+        }
         let leaks: Vec<_> = run
             .findings
             .iter()

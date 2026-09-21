@@ -10,9 +10,14 @@
 //! providers' frame shapes. `item.completed` carries tool work; `turn.completed`
 //! closes a turn and names usage.
 //!
-//! **MEASURE 48.5** still owns the exact field names on a logged-in run. The
-//! shapes below follow ticket 58's prose and the unit tests' fixtures until that
-//! measurement lands.
+//! **Field names measured 2026-09-21 on 0.154.0, run 01a0c223-4432.** The
+//! session id is `thread_id` on a `thread.started` frame; `turn.completed`
+//! carries `usage` with `input_tokens`, `cached_input_tokens`,
+//! `cache_write_input_tokens`, `output_tokens` and `reasoning_output_tokens`;
+//! the stream never names the model; and the `--dangerously-bypass-hook-trust`
+//! warning arrives as an `item.completed` of type `error`, twice per run,
+//! which is noise and not a finding. The tool item shapes are measured on run
+//! 01a0c223-9ec2, the four-step gate probe.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -97,9 +102,51 @@ impl Walk {
             if let Some(frame) = raw.as_object() {
                 self.frame(seq, raw, frame.get("type").and_then(Value::as_str));
             } else if let Some(text) = raw.as_str() {
-                self.noise.push(text.to_string());
+                self.stderr_line(seq, text);
             }
         }
+    }
+
+    /// A denied call leaves no `item.*` frame at all, measured 2026-09-21 on
+    /// 0.154.0: the only trace is one stderr line,
+    /// `... ERROR codex_core::tools::router: error=Command blocked by PreToolUse
+    /// hook: <reason>. Command: <command>`. The reader turns that line into the
+    /// call, an error result carrying the reason, and later a decision, so a
+    /// refused run reads `gated` the way it does on the other three providers.
+    /// Everything else on stderr is noise.
+    fn stderr_line(&mut self, seq: u64, text: &str) {
+        const MARK: &str = "Command blocked by PreToolUse hook: ";
+        const SPLIT: &str = ". Command: ";
+        let Some(start) = text.find(MARK) else {
+            self.noise.push(text.to_string());
+            return;
+        };
+        let rest = &text[start + MARK.len()..];
+        let (reason, command) = match rest.rfind(SPLIT) {
+            Some(at) => (&rest[..at], &rest[at + SPLIT.len()..]),
+            None => (rest, ""),
+        };
+        let name = if command.starts_with("*** Begin Patch") {
+            "apply_patch".to_string()
+        } else {
+            "Bash".to_string()
+        };
+        let call_id = format!("blocked-{seq}");
+        let capability = codex_capability(&name);
+        self.events.push(Event::ToolCall(ToolCall {
+            seq,
+            call_id: call_id.clone(),
+            name,
+            arguments: json!({ "command": command }),
+            capability,
+        }));
+        self.events.push(Event::ToolResult(ToolResult {
+            seq,
+            call_id,
+            status: ResultStatus::Error,
+            output: reason.to_string(),
+            truncated: false,
+        }));
     }
 
     fn hydra_line(&mut self, seq: u64, body: &Value) {
@@ -164,6 +211,13 @@ impl Walk {
                     }));
                 }
             }
+            // The provider's own notices, the hook-trust warning among them.
+            // Measured as noise: nothing in contract 7.2 is derived from one.
+            Some("error") => {
+                if let Some(message) = item["message"].as_str() {
+                    self.noise.push(message.to_string());
+                }
+            }
             Some(other) => self.findings.push(Finding::Limit(format!(
                 "item.completed carried type {other}, which no event type in contract 7.2 covers \
                  on this provider yet, so nothing was derived from it"
@@ -191,7 +245,11 @@ impl Walk {
             arguments: json!({ "command": command }),
             capability,
         }));
-        let output = item["output"].as_str().unwrap_or_default();
+        // `aggregated_output` is the measured name; `output` was ticket 58's guess.
+        let output = item["aggregated_output"]
+            .as_str()
+            .or_else(|| item["output"].as_str())
+            .unwrap_or_default();
         let exit_code = item["exit_code"].as_i64().unwrap_or_default();
         let (status, message) = if exit_code == 0 {
             (ResultStatus::Ok, output.to_string())
@@ -244,27 +302,40 @@ impl Walk {
         }));
     }
 
+    /// Measured 2026-09-21: an applied patch is an `item.completed` of type
+    /// `file_change` carrying `changes: [{path, kind}]` and a `status`, never
+    /// the patch text. The hook saw the text under `tool_input.command`; the
+    /// stream keeps the paths. Both go on the call so a replay has what the
+    /// gate had and a reader has what the run changed.
     fn apply_patch(&mut self, seq: u64, item: &Value) {
         let call_id = item_id(item, seq);
-        let command = item["command"].clone();
         let name = "apply_patch".to_string();
         let capability = codex_capability(&name);
+        let mut arguments = json!({ "changes": item["changes"].clone() });
+        if let Some(command) = item.get("command") {
+            arguments["command"] = command.clone();
+        }
         self.events.push(Event::ToolCall(ToolCall {
             seq,
             call_id: call_id.clone(),
             name,
-            arguments: json!({ "command": command }),
+            arguments,
             capability,
         }));
         let output = item["summary"]
             .as_str()
             .or_else(|| item["output"].as_str())
-            .unwrap_or_default()
-            .to_string();
+            .map(str::to_string)
+            .unwrap_or_else(|| item["changes"].to_string());
+        let status = if item["status"].as_str() == Some("failed") {
+            ResultStatus::Unclassified
+        } else {
+            ResultStatus::Ok
+        };
         self.events.push(Event::ToolResult(ToolResult {
             seq,
             call_id,
-            status: ResultStatus::Ok,
+            status,
             output,
             truncated: false,
         }));
@@ -279,10 +350,20 @@ impl Walk {
             return;
         }
         let running = self.counts.get_or_insert_with(Counts::default);
+        // Measured names first, the ticket-58 guesses as fallbacks.
         running.input_tokens += read("input_tokens").unwrap_or_default();
         running.output_tokens += read("output_tokens").unwrap_or_default();
-        running.cache_read_tokens += read("cache_read_tokens").unwrap_or_default();
-        if let Some(thinking) = read("reasoning_tokens").or_else(|| read("thinking_tokens")) {
+        running.cache_read_tokens += read("cached_input_tokens")
+            .or_else(|| read("cache_read_tokens"))
+            .unwrap_or_default();
+        if let Some(written) = read("cache_write_input_tokens") {
+            running.cache_write_tokens =
+                Some(running.cache_write_tokens.unwrap_or_default() + written);
+        }
+        if let Some(thinking) = read("reasoning_output_tokens")
+            .or_else(|| read("reasoning_tokens"))
+            .or_else(|| read("thinking_tokens"))
+        {
             running.thinking_tokens = Some(running.thinking_tokens.unwrap_or_default() + thinking);
         }
     }
@@ -633,7 +714,7 @@ mod tests {
     #[test]
     fn turn_completed_usage_is_summed_into_one_usage_event() {
         let text = fixture_record(
-            r#"{"seq":1,"run_id":"01a0bcdb-e6ed-7180-8a96-3674b960cbc8","provider":"codex","raw":{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":4,"reasoning_tokens":2}}}"#,
+            r#"{"seq":1,"run_id":"01a0bcdb-e6ed-7180-8a96-3674b960cbc8","provider":"codex","raw":{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":6,"cache_write_input_tokens":1,"output_tokens":4,"reasoning_output_tokens":2}}}"#,
         );
         let layout = crate::paths::Layout::at("/tmp/hydra-codex-norm-3");
         let policies = crate::policy::PolicySet::discover().unwrap();
@@ -649,6 +730,36 @@ mod tests {
         assert_eq!(usage.counts.as_ref().unwrap().input_tokens, 10);
         assert_eq!(usage.counts.as_ref().unwrap().output_tokens, 4);
         assert_eq!(usage.counts.as_ref().unwrap().thinking_tokens, Some(2));
+        assert_eq!(usage.counts.as_ref().unwrap().cache_read_tokens, 6);
+        assert_eq!(usage.counts.as_ref().unwrap().cache_write_tokens, Some(1));
+    }
+
+    #[test]
+    fn a_blocked_call_is_read_off_the_stderr_line_it_leaves() {
+        let text = fixture_record(
+            r#"{"seq":1,"run_id":"01a0bcdb-e6ed-7180-8a96-3674b960cbc8","provider":"codex","raw":"2026-09-21T04:15:28.638480Z ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook: hydra/protected-path: the command names /users/user/hydra/runs, denied under every policy by harness spec 7.5. Command: cat ~/hydra/runs/nothing.jsonl"}"#,
+        );
+        let layout = crate::paths::Layout::at("/tmp/hydra-codex-norm-4");
+        let policies = crate::policy::PolicySet::discover().unwrap();
+        let run = normalize(&text, &policies, &layout).unwrap();
+        let call = run
+            .events
+            .iter()
+            .find_map(|event| match event {
+                Event::ToolCall(call) => Some(call),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(call.name, "Bash");
+        assert_eq!(call.arguments["command"], "cat ~/hydra/runs/nothing.jsonl");
+        let result = run.tool_results().next().unwrap();
+        assert_eq!(result.status, ResultStatus::Error);
+        assert!(
+            result.output.starts_with("hydra/protected-path"),
+            "{}",
+            result.output
+        );
+        assert!(run.noise.is_empty(), "{:?}", run.noise);
     }
 
     #[test]
