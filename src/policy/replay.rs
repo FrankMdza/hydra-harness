@@ -133,6 +133,14 @@ impl Replay {
             .arg("-c")
             .arg(&self.script)
             .arg(self.dialect.as_str())
+            // The gate expands `$VAR` out of its own environment, and the live
+            // hook's environment is the provider's, where `PWD` is the run's
+            // working directory. A replay that inherits this process's `PWD`
+            // resolves `$PWD/x` under the reader's own cwd, which since build
+            // ticket 74 is a denied path, and reports a leak the gate never
+            // made; measured 2026-09-22 on run 01a0c9d9-6652, five commands
+            // of the shape `HYDRA_ROOT=$PWD/.scratch-root cargo test`.
+            .env("PWD", cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

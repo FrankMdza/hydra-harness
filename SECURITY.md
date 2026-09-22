@@ -88,8 +88,9 @@ Hydra made about it.
 - **Delegation from inside a run does not work under the seatbelt, since 2026-09-21.** The profile
   is inherited by every descendant, and a delegated child is Hydra itself, which reads its parent's
   record and writes its own into the corpus the profile denies. The human chose to keep the corpus
-  denied. Map ticket 64 holds the redesign; until then a launch through the delegate face from a
-  macOS run fails on the corpus read.
+  denied. Map ticket 64 holds the decision. Since build ticket 76 a `delegate` call from inside a
+  macOS run is refused in Hydra's words with `hydra/seatbelt-delegation` before any corpus read,
+  and the parent's record carries the tool result the provider streamed back.
 - **On `codex` the gate rides the command line, and a hook that dies without answering fails
   open, since 2026-09-21.** Codex reads no project hook file inside a git worktree, and every
   Hydra run is one, so the gate is handed over as a `-c` override naming a Python file in the

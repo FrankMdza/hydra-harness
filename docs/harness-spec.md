@@ -1108,8 +1108,11 @@ has two meaningful ones, `cursor-agent` three, `gemini` nine.
 
 The diff stat is the one returned field with no record equivalent, computed from git at return time.
 
-**The MCP face is narrow: `delegate(provider, task, files?, policy?)`.** No `--shared-tree`, no
-timeout override, no depth, no `model`. Those four are how a delegation escapes its worktree,
+**The MCP face is narrow: `delegate(provider, task, files?, policy?)`.** A call from inside a macOS
+seatbelt is refused with `hydra/seatbelt-delegation` before any launch, because the delegated child
+is Hydra itself and the inherited profile denies the corpus; launch from the orchestrator outside
+the run instead. No `--shared-tree`, no timeout override, no depth, no `model`. Those four are how a
+delegation escapes its worktree,
 outlives its budget, spawns a tree, or drops to an older model generation to dodge a limit it
 noticed. They are human decisions rather than per-call choices a model makes unattended. `model` is
 on this list for a concrete reason: `agy` serves Claude Opus 4.6, three releases behind what `claude

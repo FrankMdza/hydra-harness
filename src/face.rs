@@ -52,6 +52,12 @@ const TIMEOUT: Duration = Duration::from_secs(600);
 /// The four arguments, and the whole of what a caller may pass.
 const ARGUMENTS: [&str; 4] = ["provider", "task", "files", "policy"];
 
+/// Map ticket 64: delegation from inside a macOS run is not available, because the
+/// delegated child is Hydra itself and the inherited profile denies the corpus.
+pub const SEATBELT_DELEGATION_REFUSAL: &str = "hydra/seatbelt-delegation: delegation from inside a macOS run is not available. \
+     Launch a child from the orchestrator outside this run, which is how every child \
+     in the corpus was launched. Map ticket 64 holds the decision.";
+
 /// Reads requests until stdin closes, answering each on one line.
 pub fn serve(input: impl BufRead, mut output: impl Write, parent: Option<String>) -> Result<()> {
     for line in input.lines() {
@@ -227,6 +233,9 @@ fn result(text: String, is_error: bool) -> Value {
 
 fn call(arguments: &Value, parent: Option<&str>) -> Result<String> {
     let request = read(arguments, parent)?;
+    if crate::sandbox::inside_seatbelt() {
+        anyhow::bail!(SEATBELT_DELEGATION_REFUSAL);
+    }
     let body = match crate::run::run(request)? {
         // Contract 17's projection, with the child's text wrapped on the way out.
         Call::Ended(result) => marked(&result, &token())?,

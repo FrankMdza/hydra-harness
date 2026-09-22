@@ -120,3 +120,4 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [73 - The gated interactive launch under the seatbelt](73-the-gated-interactive-launch-under-the-seatbelt.md)
 - [74 - The checkout joins the deny list](74-the-checkout-joins-the-deny-list.md)
 - [75 - Admission under the proposer's seatbelt](75-admission-under-the-proposers-seatbelt.md)
+- [76 - The delegate face refuses inside the seatbelt](76-the-face-refuses-inside-the-seatbelt.md)

@@ -1,7 +1,7 @@
 # 64 - Delegation from inside a run, once the kernel denies the corpus to that run
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -31,3 +31,15 @@ does not work under the seatbelt, and the human took that over a corpus the kern
 
 Until this closes, `SECURITY.md` and `IMPLEMENTATION.md` say the face is not available under the
 seatbelt, and a delegated launch from inside a macOS run fails on the corpus read.
+
+## Answer
+
+Resolved 2026-09-22 with the human. **The face is not available under the seatbelt, and it says
+so in Hydra's words.** Delegation stays with the orchestrator outside the run, which is how every
+child in the corpus was launched; the face was used on two runs in its whole history. A
+`delegate` call from inside a macOS run answers a tool error with a `hydra/` code naming this
+ticket rather than an EPERM out of a corpus read, so the parent's record carries the refusal as
+the tool result the provider streamed back. Moving the launch to the watcher was declined as a
+second channel between a run and Hydra that D5 would have to rule on, for a feature nobody uses;
+leaving it open was declined because the record should say what happened. Build ticket 76.
+

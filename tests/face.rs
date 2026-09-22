@@ -91,8 +91,27 @@ struct Face {
 
 impl Face {
     fn start(parent: Option<&str>) -> Self {
+        Self::spawn(parent, None)
+    }
+
+    /// The face wrapped in a minimal seatbelt profile, the way a macOS run inherits one.
+    fn start_under_seatbelt(parent: Option<&str>) -> Self {
         let root = root();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_hydra"));
+        let profile = root.join("min.sb");
+        std::fs::write(&profile, "(version 1)\n(allow default)\n").unwrap();
+        Self::spawn(parent, Some(profile))
+    }
+
+    fn spawn(parent: Option<&str>, profile: Option<PathBuf>) -> Self {
+        let root = root();
+        let mut command = if let Some(profile) = profile {
+            let mut wrapped = Command::new("/usr/bin/sandbox-exec");
+            wrapped.arg("-f").arg(profile);
+            wrapped.arg(env!("CARGO_BIN_EXE_hydra"));
+            wrapped
+        } else {
+            Command::new(env!("CARGO_BIN_EXE_hydra"))
+        };
         command.arg("delegate-face");
         if let Some(parent) = parent {
             command.arg("--parent").arg(parent);
@@ -281,7 +300,40 @@ fn an_argument_the_face_does_not_take_is_refused_rather_than_ignored() {
 }
 
 #[test]
+fn delegation_from_inside_a_seatbelt_is_refused_in_hydras_words() {
+    let mut face = if hydra::sandbox::inside_seatbelt() {
+        // The test process already inherited a seatbelt, and nested sandbox-exec
+        // is refused on this machine, so the child inherits what we have.
+        Face::start(None)
+    } else if hydra::sandbox::exec_available() {
+        Face::start_under_seatbelt(None)
+    } else {
+        return;
+    };
+    face.initialize();
+
+    let answer = face.delegate(2, json!({"provider": "claude", "task": "count to three"}));
+    assert!(answer.get("error").is_none(), "{answer}");
+    assert_eq!(answer["result"]["isError"], true, "{answer}");
+    let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with("hydra/seatbelt-delegation:"), "{text}");
+    assert!(
+        text.contains("orchestrator") && text.contains("outside"),
+        "{text}"
+    );
+    assert!(text.contains("64"), "{text}");
+    assert_eq!(
+        std::fs::read_dir(face.root.join("runs")).unwrap().count(),
+        0,
+        "no child record was written"
+    );
+}
+
+#[test]
 fn a_child_wider_than_its_parent_comes_back_as_a_result_and_a_record() {
+    if hydra::sandbox::inside_seatbelt() {
+        return;
+    }
     // Contract 8.3 through the face: the refusal is a run record and a result the
     // model reads, rather than a protocol error it cannot act on.
     let mut face = Face::start(Some(PARENT));

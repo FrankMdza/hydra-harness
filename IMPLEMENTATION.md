@@ -2570,13 +2570,15 @@ beside the ones `hydra run` already prints.
 
 **One tool, `delegate(provider, task, files?, policy?)`, and everything the model gets
 wrong comes back as a tool result rather than a protocol error.** An unroutable provider
-name, an argument the face does not take, a policy the parent does not contain: all of
-them are `isError` with a sentence, because a JSON-RPC error is the client's to handle and
-the model never sees it. A refused launch is not even that. It is `isError: false` with
-contract 17's JSON in the content block, `outcome: gated` inside, which is a result the
-model can act on. `model`, the timeout, `--shared-tree` and depth are not in the schema
-and passing one is refused by name, because dropping `model` silently would tell a model
-it got the model it asked for.
+name, an argument the face does not take, a policy the parent does not contain, a call from
+inside a macOS seatbelt: all of them are `isError` with a sentence, because a JSON-RPC error
+is the client's to handle and the model never sees it. A refused launch is not even that. It
+is `isError: false` with contract 17's JSON in the content block, `outcome: gated` inside,
+which is a result the model can act on. `model`, the timeout, `--shared-tree` and depth are
+not in the schema and passing one is refused by name, because dropping `model` silently would
+tell a model it got the model it asked for. The seatbelt refusal carries
+`hydra/seatbelt-delegation`, on `normalize::GATE_CODES` since build ticket 76, and names map
+ticket 64.
 
 **The marker is `<<<hydra-result TOKEN>>>`, the text, then `<<<end hydra-result TOKEN>>>`.**
 The token is a UUIDv7 with the first six bytes thrown away, 20 hex characters, drawn after
@@ -2861,7 +2863,11 @@ spawn directory before the model runs, so its first `mkdir` failed with EPERM un
 allowed writes under `own_read_paths`. Measured after: one run per provider under the profile,
 all four completed, and on `codex` a corpus write spelled as two variables failed at the kernel
 while the write in its own worktree succeeded. Delegation from inside a run does not work under
-the profile, by the human's choice on map ticket 64.
+the profile, by the human's choice on map ticket 64. Since build ticket 76 the delegate face
+checks `sandbox::inside_seatbelt()` before it calls `run::run` and answers `hydra/seatbelt-delegation`
+in Hydra's words rather than an EPERM from a corpus read. `tests/face.rs::delegation_from_inside_a_seatbelt_is_refused_in_hydras_words`
+drives the built binary under `/usr/bin/sandbox-exec` with a minimal `(allow default)` profile and
+reads the refusal back as a tool result; the same request outside a profile still reaches `run::run`.
 
 **What the seatbelt is and is not, measured 2026-09-22.** `tests/spawn.rs` now drives a real
 profile through `sandbox-exec` on a corpus read spelled in full, a corpus write assembled from two
@@ -3577,6 +3583,15 @@ work; it did not, because the blob goes into the shared object store, and the se
 carve-out. One pong per provider completed under the profile that denies the checkout, 01a0c960-a3a5
 on `cursor-agent`, 01a0c960-c1f5 on `codex`, 01a0c960-e174 on `agy` and 01a0c961-009d on `claude`,
 and a recorded `codex` resume under the seatbelt, 01a0c95b-5844, answered its second task.
+
+**The replay runs the gate with `PWD` set to the record's `cwd`, since build ticket 76's run.**
+The gate expands `$VAR` out of its own environment, which on a live run is the provider's, so
+`HYDRA_ROOT=$PWD/.scratch-root cargo test` resolved under the worktree and was allowed. The reader
+inherited its own `PWD`, the checkout, which build ticket 74 put on the deny list that afternoon, so
+the corpus walk read five allowed commands on run 01a0c9d9-6652 as leaks the gate never made. The
+suite that closed build 76 was reported green before that line was read, which was the session's
+mistake; `tests/normalize.rs::a_variable_the_gate_expands_is_read_against_the_records_cwd_and_not_the_readers`
+fails without the one-line fix in `src/policy/replay.rs` and passes with it, measured both ways.
 
 What it found that this file already said and the README did not: the corpus walks are vacuous in
 CI, `gated` needs every call refused, the concurrency cap is a check without a reservation

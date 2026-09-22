@@ -2821,3 +2821,34 @@ fn a_call_the_provider_refused_on_its_input_schema_is_not_ungated() {
         run.findings
     );
 }
+
+#[test]
+fn a_variable_the_gate_expands_is_read_against_the_records_cwd_and_not_the_readers() {
+    // `$PWD` on a live run is the provider's working directory, the worktree.
+    // The reader's own `PWD` is wherever the suite runs, and since build ticket
+    // 74 that is inside the denied checkout, so a replay that inherited it read
+    // `$PWD/.scratch-root` as a protected path and reported a leak the gate
+    // never made. Measured 2026-09-22 on run 01a0c9d9-6652.
+    let sandbox = Sandbox::new("pwd");
+    let text = Record::gated(&sandbox, "claude", "standard", policies().sha())
+        .tool_use(
+        "toolu_01",
+        "Bash",
+        json!({
+            "command": "mkdir -p .scratch-root/runs && HYDRA_ROOT=$PWD/.scratch-root cargo test --release --lib",
+            "description": "the suite against an empty root"
+        }),
+    )
+    .hook_response("Bash", "allow", "hydra/allow: policy standard allows shell.")
+    .tool_result("toolu_01", "test result: ok.", false)
+    .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}

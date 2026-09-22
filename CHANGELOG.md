@@ -4,6 +4,10 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 
 ## Unreleased
 
+- Map ticket 64 closed with the human: the delegate face is not available under the seatbelt, and
+  since build ticket 76 a `delegate` call from inside a macOS run is refused as
+  `hydra/seatbelt-delegation` before any corpus read, so the parent's record carries Hydra's words
+  and not the kernel's. The map is 67 of 67 (2026-09-22).
 - The three map tickets the panel opened closed with the human the same day and five of the six
   build tickets landed, each on a Composer 2.5 run reviewed by the session: the whole checkout
   is denied to writes under every policy (map 65, build 74); rung two's admission gate runs

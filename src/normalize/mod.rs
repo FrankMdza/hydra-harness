@@ -1014,6 +1014,7 @@ pub(crate) const GATE_CODES: &[&str] = &[
     "bad-payload",
     "wrong-dialect",
     "gate-error",
+    "seatbelt-delegation",
 ];
 
 /// The gate's own code inside a refusal text, wherever it sits.
@@ -1095,7 +1096,9 @@ mod tests {
         // `GATE_CODES` is a hand copy, and a code added to the script without a
         // row here would make a real refusal read as somebody else's. All three
         // wrappers are read, because each speaks its own provider's dialect and
-        // any of them could grow a code of its own.
+        // any of them could grow a code of its own. The delegate face is a fourth
+        // source: it is not the gate script, but its refusals carry `hydra/` codes
+        // the reader must recognise.
         let mut written = codes_in(include_str!("../policy/gate.py"));
         for dialect in [
             crate::policy::Dialect::Claude,
@@ -1108,6 +1111,7 @@ mod tests {
                 dialect,
             )));
         }
+        written.extend(codes_in(crate::face::SEATBELT_DELEGATION_REFUSAL));
         let known: std::collections::BTreeSet<String> =
             GATE_CODES.iter().map(|code| code.to_string()).collect();
         assert_eq!(written, known);
