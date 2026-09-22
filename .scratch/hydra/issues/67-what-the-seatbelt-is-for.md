@@ -1,7 +1,7 @@
 # 67 - Is the seatbelt a boundary or defence in depth, and which does the document claim?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -33,3 +33,13 @@ since 2026-09-22 it says the profile is defence behind the gate and not a bounda
 
 Until this closes, `SECURITY.md` scopes the seatbelt to the process tree, names the class that
 leaves it, and states the `codex` comparison.
+
+## Answer
+
+Resolved 2026-09-22 with the human. **Defence behind the gate, not a boundary.** The profile
+stays `(allow default)` plus the denials; `SECURITY.md` scopes it to the process tree, names the
+class that leaves the tree, and states that `codex` runs wider under Hydra's profile than under
+its own `workspace-write`. Harness spec 7.5 gets one sentence saying which of the two it is.
+Making it a boundary means denying `process-exec` and the mach services that reach launchd and
+measuring what stops starting on each provider, and that is work for the day the Linux port
+arrives without any seatbelt at all. No build ticket.

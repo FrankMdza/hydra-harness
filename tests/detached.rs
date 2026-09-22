@@ -72,6 +72,14 @@ fn line_zero(cwd: &Path) -> serde_json::Value {
 
 /// Writes a launch spec that runs `script` under `/bin/sh` and returns its path.
 fn spec_for(layout: &Layout, script: &str) -> PathBuf {
+    spec_for_binary(
+        layout,
+        "/bin/sh",
+        vec!["-c".to_string(), script.to_string()],
+    )
+}
+
+fn spec_for_binary(layout: &Layout, binary: &str, argv: Vec<String>) -> PathBuf {
     let path = layout.launch_spec(RUN_ID);
     watch::write_spec(
         &path,
@@ -79,8 +87,8 @@ fn spec_for(layout: &Layout, script: &str) -> PathBuf {
             run_id: RUN_ID.to_string(),
             parent_run_id: None,
             provider: "claude".to_string(),
-            binary: "/bin/sh".to_string(),
-            argv: vec!["-c".to_string(), script.to_string()],
+            binary: binary.to_string(),
+            argv,
             cwd: PathBuf::from("/tmp"),
             run_file: layout.run_file(RUN_ID),
             model: None,
@@ -244,6 +252,117 @@ fn a_binary_that_is_not_there_still_writes_a_record() {
     let text = std::fs::read_to_string(&run_file).unwrap();
     check(&text, Some(RUN_ID)).assert_ok();
     assert!(text.contains("run_end"));
+}
+
+#[test]
+fn a_grandchild_holding_the_slave_closes_the_record_within_the_deadline() {
+    // A provider that backgrounds an MCP stdio server and exits leaves a
+    // grandchild holding the slave open. Without a deadline the tee blocks in
+    // `read` forever and the record never closes.
+    //
+    // macOS revokes inherited pty fds when the direct child exits, so the
+    // end-to-end stub cannot keep the slave open here the way a Linux
+    // grandchild can. The held-slave harness keeps the slave in-process the
+    // way a descendant would on Linux, and the same watch closing logic runs.
+    let layout = sandbox("pty-held");
+    let run_file = layout.run_file(RUN_ID);
+    let script =
+        r#"printf '{"type":"system","subtype":"init","model":"stub-1"}\n'; sleep 300 & exit 0"#;
+
+    let (mut spawned, held) = hydra::pty::spawn_with_held_slave(
+        "/bin/sh",
+        &["-c".to_string(), script.to_string()],
+        Path::new("/tmp"),
+        [("PATH".to_string(), "/usr/bin:/bin".to_string())].into_iter(),
+        None,
+    )
+    .unwrap();
+    let process_start = hydra::procinfo::start_time(spawned.pid)
+        .unwrap()
+        .expect("the stub is running");
+
+    let mut writer =
+        hydra::record::Writer::create(&run_file, RUN_ID, None, Some("claude"), None).unwrap();
+    writer
+        .hydra_line(&serde_json::json!({
+            "kind": "run_start",
+            "pid": spawned.pid,
+            "process_start_time": process_start.to_rfc3339_opts(
+                chrono::SecondsFormat::Micros,
+                true,
+            ),
+        }))
+        .unwrap();
+
+    let began = std::time::Instant::now();
+    spawned
+        .tee(|line| {
+            writer.provider_line(line)?;
+            Ok(())
+        })
+        .unwrap();
+    if !spawned.pty_still_held {
+        // macOS closes the master when the session leader exits even though the
+        // harness still holds the slave object. The deadline is unreachable on
+        // this platform; `tests/pty_tee.rs` covers the ordinary close path.
+        assert!(
+            began.elapsed() < Duration::from_millis(200),
+            "the tee should close promptly when the master sees EOF: {:?}",
+            began.elapsed()
+        );
+        spawned.wait().unwrap();
+        drop(held);
+        return;
+    }
+
+    assert!(
+        began.elapsed() >= hydra::pty::PTY_EOF_DEADLINE - Duration::from_millis(200),
+        "the tee closed before the deadline: {:?}",
+        began.elapsed()
+    );
+    assert!(
+        began.elapsed() < Duration::from_secs(8),
+        "the tee should not wait for the background sleep"
+    );
+
+    let exit_code = spawned.wait().unwrap();
+    let mut tee_error = None;
+    if spawned.pty_still_held {
+        tee_error = Some(watch::PTY_HELD_NOTE.to_string());
+    }
+    writer
+        .hydra_line(&hydra::record::RunEnd::streamed(exit_code, tee_error))
+        .unwrap();
+
+    let text = std::fs::read_to_string(&run_file).unwrap();
+    check(&text, Some(RUN_ID)).assert_ok();
+    assert!(
+        text.contains(watch::PTY_HELD_NOTE),
+        "run_end.error should name the held pty"
+    );
+
+    let sleep_alive = std::process::Command::new("pgrep")
+        .args(["-f", "sleep 300"])
+        .output()
+        .unwrap();
+    assert!(
+        sleep_alive.status.success() && !sleep_alive.stdout.is_empty(),
+        "Hydra killed the grandchild still holding the slave"
+    );
+
+    drop(held);
+    for line in sleep_alive.stdout.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let pid = std::str::from_utf8(line)
+            .unwrap()
+            .parse::<libc::pid_t>()
+            .unwrap();
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
 }
 
 #[test]

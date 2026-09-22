@@ -962,6 +962,68 @@ fn an_interactive_policy_launch_writes_a_gate_and_settings() {
     );
 }
 
+#[test]
+fn a_gated_interactive_launch_wraps_claude_in_the_seatbelt() {
+    if !hydra::sandbox::wraps_launches() {
+        return;
+    }
+    let (layout, root) = layout();
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    let config = |key: &str, value: &str| {
+        let out = std::process::Command::new("git")
+            .args(["config", key, value])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+    };
+    config("user.email", "test@example.invalid");
+    config("user.name", "hydra tests");
+    std::fs::write(repo.join("README"), "seed\n").unwrap();
+    let out = std::process::Command::new("git")
+        .args(["add", "README"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git add failed");
+    let out = std::process::Command::new("git")
+        .args(["commit", "-qm", "seed", "README"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git commit failed");
+
+    let policies = PolicySet::discover().unwrap();
+    let prep = hydra::interactive::prepare_policy_launch(
+        &layout,
+        "r1",
+        "read-only",
+        &policies,
+        &repo,
+        &repo,
+    )
+    .unwrap();
+
+    let profile = prep
+        .spawn
+        .sandbox_profile
+        .as_ref()
+        .expect("gated interactive prep writes a seatbelt profile on macOS");
+    assert!(profile.is_file(), "profile is a real file beside the gate");
+
+    let (binary, argv) =
+        hydra::interactive::gated_exec_argv(&prep, "read-only", "session-1", None, None);
+    assert_eq!(binary, "/usr/bin/sandbox-exec");
+    assert_eq!(argv.first().map(String::as_str), Some("-f"));
+    assert_eq!(argv.get(1).map(|p| p.as_str()), profile.to_str());
+    assert_eq!(
+        argv.get(2).map(String::as_str),
+        Some(Provider::Claude.binary())
+    );
+}
+
 // ---------------------------------------------------------------------------
 // codex: hooks.json in the worktree and Claude's dialect on the command line
 // ---------------------------------------------------------------------------
@@ -1238,6 +1300,201 @@ fn the_seatbelt_refuses_the_corpus_however_the_path_is_spelled() {
     assert!(refused(&out), "symlink read: {out}");
     let out = under_seatbelt(&profile, &format!("echo x > '{wt}/link/probe3'"));
     assert!(refused(&out), "symlink write: {out}");
+}
+
+#[test]
+fn a_profile_with_a_parent_git_dir_names_the_private_git_carve_out() {
+    if !hydra::sandbox::wraps_launches() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    layout.ensure().unwrap();
+    let repo = root.join("parent");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    std::fs::write(repo.join("README"), "hello\n").unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["config", "user.email", "test@example.invalid"]);
+    git(&["config", "user.name", "hydra tests"]);
+    git(&["add", "README"]);
+    git(&["commit", "-qm", "init"]);
+    let worktree = layout.worktree("r1");
+    std::fs::create_dir_all(layout.worktrees()).unwrap();
+    let index = layout.spawn("r1").join("seed-index");
+    hydra::worktree::create(&repo, &worktree, "hydra/r1", &index).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        Some(&repo),
+        None,
+        false,
+    )
+    .unwrap();
+    let private_git = canonical_subpath(&repo.join(".git/worktrees/r1"));
+    let text = std::fs::read_to_string(spawn.sandbox_profile.as_ref().unwrap()).unwrap();
+    assert!(
+        text.contains(&format!(
+            r#"(allow file-write* (subpath "{}"))"#,
+            private_git
+        )),
+        "profile does not allow the private git dir:\n{text}"
+    );
+}
+
+#[test]
+fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
+    if !hydra::sandbox::exec_available() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    layout.ensure().unwrap();
+
+    let repo = root.join("parent");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    std::fs::write(repo.join("README"), "hello\n").unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["config", "user.email", "test@example.invalid"]);
+    git(&["config", "user.name", "hydra tests"]);
+    git(&["add", "README"]);
+    git(&["commit", "-qm", "init"]);
+
+    let worktree = layout.worktree("r1");
+    std::fs::create_dir_all(layout.worktrees()).unwrap();
+    let index = layout.spawn("r1").join("seed-index");
+    hydra::worktree::create(&repo, &worktree, "hydra/r1", &index).unwrap();
+    std::fs::write(worktree.join("changed.txt"), "new\n").unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        Some(&repo),
+        None,
+        false,
+    )
+    .unwrap();
+    let profile = spawn.sandbox_profile.unwrap();
+    let wt = canonical_subpath(&worktree);
+    let git_dir = canonical_subpath(&repo.join(".git"));
+
+    let private_git = repo.join(".git/worktrees/r1");
+    assert!(
+        private_git.is_dir(),
+        "expected private git dir at {}",
+        private_git.display()
+    );
+    let profile_text = std::fs::read_to_string(&profile).unwrap();
+    assert!(
+        profile_text.contains(&canonical_subpath(&private_git)),
+        "profile does not carve out the private git dir:\n{profile_text}"
+    );
+    let profile_loads = under_seatbelt(&profile, "echo rc=$?");
+    if profile_loads.contains("sandbox_apply") {
+        // A process already inside a seatbelt that denies the parent's `.git`
+        // cannot apply a nested profile that re-allows a path under it. CI runs
+        // this test outside any seatbelt and measures the three git commands.
+        return;
+    }
+    assert!(
+        profile_loads.contains("rc=0"),
+        "git carve-out profile did not load: {profile_loads}"
+    );
+
+    let status = under_seatbelt(&profile, &format!("cd '{wt}' && git status --porcelain"));
+    assert!(status.contains("rc=0"), "git status failed: {status}");
+
+    let add = under_seatbelt(&profile, &format!("cd '{wt}' && git add changed.txt"));
+    assert!(add.contains("rc=0"), "git add failed: {add}");
+
+    let commit = under_seatbelt(
+        &profile,
+        &format!(
+            "cd '{wt}' && git -c user.email=test@example.invalid -c user.name=test commit -m test"
+        ),
+    );
+    assert!(
+        refused(&commit),
+        "git commit should fail on the shared refs: {commit}"
+    );
+
+    let refs = under_seatbelt(
+        &profile,
+        &format!("echo x > '{git_dir}/refs/heads/seatbelt-probe'"),
+    );
+    assert!(refused(&refs), "parent .git/refs write should fail: {refs}");
+    let head = under_seatbelt(&profile, &format!("echo x > '{git_dir}/HEAD'"));
+    assert!(refused(&head), "parent .git/HEAD write should fail: {head}");
+}
+
+#[test]
+fn the_seatbelt_refuses_a_checkout_write_and_allows_the_worktree() {
+    // Map ticket 65, build ticket 74: the checkout the binary was built from.
+    if !hydra::sandbox::exec_available() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    layout.ensure().unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let profile = spawn.sandbox_profile.unwrap();
+    let home = hydra::paths::hydra_home();
+    let probe = canonical_subpath(&home.join("target")) + "/seatbelt-probe";
+    let out = under_seatbelt(&profile, &format!("echo x > '{probe}'"));
+    assert!(refused(&out), "checkout write: {out}");
+    assert!(!std::path::Path::new(&probe).exists());
+    let template = canonical_subpath(&home.join("src/policy/gate.py"));
+    let out = under_seatbelt(&profile, &format!("echo x >> '{template}'"));
+    assert!(refused(&out), "gate template write: {out}");
+    let wt = canonical_subpath(&worktree);
+    let out = under_seatbelt(&profile, &format!("echo x > '{wt}/seatbelt-test'"));
+    assert!(out.contains("rc=0"), "worktree write: {out}");
 }
 
 #[test]

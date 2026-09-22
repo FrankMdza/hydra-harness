@@ -118,3 +118,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [71 - `hydra resume` on `codex`](71-codex-resume.md)
 - [72 - A deadline on the pty tee](72-a-deadline-on-the-pty-tee.md)
 - [73 - The gated interactive launch under the seatbelt](73-the-gated-interactive-launch-under-the-seatbelt.md)
+- [74 - The checkout joins the deny list](74-the-checkout-joins-the-deny-list.md)
+- [75 - Admission under the proposer's seatbelt](75-admission-under-the-proposers-seatbelt.md)

@@ -7,11 +7,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use hydra::paths::Layout;
+use hydra::policy::PolicySet;
+use hydra::provider::Provider;
 use hydra::record::validate::check;
+use hydra::run::write_spawn_config;
 use hydra::rungs::evolve::{
     HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, ProposerPatch, TASK_DOES_NOT_WAIVE_CHECKLIST,
-    ensure_reviewable, judge_task, pass_run_id_from_branch, patch_over_cap, protected_path_hit,
-    rate_limit_abort, review_commit_message, write_harness_end, write_harness_start,
+    admission_gate, ensure_reviewable, judge_task, pass_run_id_from_branch, patch_over_cap,
+    protected_path_hit, rate_limit_abort, review_commit_message, write_harness_end,
+    write_harness_start,
 };
 use hydra::rungs::review::{
     ApprovedPatch, CHECKLIST_ENTRIES, CHECKLIST_IDS, PanelVerdict, VerdictField, checklist_prompt,
@@ -105,7 +109,7 @@ fn a_harness_run_ends_with_a_null_body_source() {
     )
     .unwrap();
 
-    hydra::rungs::evolve::write_harness_end(&path, Some(0), None).unwrap();
+    hydra::rungs::evolve::write_harness_end(&path, Some(0), None, None).unwrap();
 
     let last: serde_json::Value = serde_json::from_str(
         std::fs::read_to_string(&path)
@@ -329,7 +333,7 @@ fn the_harness_record_is_two_lines_with_only_contract_fields() {
     let pass_id = "01a08000-0000-7000-8000-00000000ev04";
     let path = fixture.layout().run_file(pass_id);
     write_harness_start(&fixture.layout(), pass_id, &path).unwrap();
-    write_harness_end(&path, Some(0), None).unwrap();
+    write_harness_end(&path, Some(0), None, None).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     assert_eq!(text.lines().count(), 2);
     let report = check(&text, Some(pass_id));
@@ -581,4 +585,65 @@ fn an_offerable_pass_is_refused_even_when_a_blocked_branch_exists() {
     git(&repo, &["branch", &format!("rungs/{pass_id}")]);
     let err = ensure_reviewable(&repo, pass_id).unwrap_err();
     assert!(err.to_string().contains("offerable"), "{}", err);
+}
+
+fn minimal_cargo_worktree(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "hydra-admission-worktree-{}-{name}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"admission-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "pub fn ok() {}\n").unwrap();
+    dir
+}
+
+#[test]
+fn admission_runs_under_the_proposers_seatbelt_and_refuses_a_hostile_test() {
+    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+        return;
+    }
+    let fixture = Fixture::new("admission-seatbelt");
+    let layout = fixture.layout();
+    let worktree = minimal_cargo_worktree("hostile");
+    let proposer_id = "01a08000-0000-7000-8000-00000000ad01";
+    let set = PolicySet::discover().unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        proposer_id,
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let profile = spawn
+        .sandbox_profile
+        .expect("macOS spawn writes a profile beside the gate");
+    let runs_target = layout.runs().join("hostile");
+    let hostile = format!(
+        "#[test]\nfn writes_into_hydra_runs() {{\n    std::fs::write(r\"{}\", b\"x\").unwrap();\n}}\n",
+        runs_target.display()
+    );
+    std::fs::write(worktree.join("tests/zz_hostile.rs"), hostile).unwrap();
+    let admission_root = layout.spawn("pass-admission").join("admission-root");
+    std::fs::create_dir_all(admission_root.join("runs")).unwrap();
+    let result = admission_gate(&worktree, &profile, &admission_root);
+    let output = result.output.expect("a hostile test should fail admission");
+    assert!(output.contains("cargo test"), "{output}");
+    assert!(
+        !runs_target.exists(),
+        "the seatbelt should refuse the write"
+    );
+    assert!(result.run.profile_sha.is_some(), "profile sha is recorded");
+    assert_eq!(result.run.hydra_root, admission_root.to_string_lossy());
 }

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
-use hydra::provider::{Provider, agy, claude, cursor};
+use hydra::provider::{Provider, agy, claude, codex, cursor};
 use hydra::record::SCHEMA_VERSION;
 use hydra::run::{Lineage, Request, append_resume_args};
 use serde_json::{Value, json};
@@ -118,7 +118,7 @@ fn claude_argv_carries_resume_and_the_session_id() {
         policy: "standard",
         mcp: None,
     });
-    append_resume_args(&mut argv, Provider::Claude, "sess-claude");
+    append_resume_args(&mut argv, Provider::Claude, "sess-claude", None);
     let pos = argv
         .windows(2)
         .position(|pair| pair == ["--resume", "sess-claude"])
@@ -133,7 +133,7 @@ fn cursor_argv_carries_resume_and_the_chat_id() {
         task: "continue",
         model: Some("composer-2.5"),
     });
-    append_resume_args(&mut argv, Provider::CursorAgent, "chat-9");
+    append_resume_args(&mut argv, Provider::CursorAgent, "chat-9", None);
     assert!(
         argv.windows(2).any(|pair| pair == ["--resume", "chat-9"]),
         "{argv:?}"
@@ -149,9 +149,43 @@ fn agy_argv_carries_conversation_and_the_id() {
         model: None,
         worktree: &worktree,
     });
-    append_resume_args(&mut argv, Provider::Agy, "conv-agy");
+    append_resume_args(&mut argv, Provider::Agy, "conv-agy", None);
     assert_eq!(argv[0], "--conversation");
     assert_eq!(argv[1], "conv-agy");
+}
+
+#[test]
+fn codex_argv_carries_exec_resume_and_the_thread_id() {
+    let worktree = PathBuf::from("/tmp/wt");
+    let hook_file = PathBuf::from("/tmp/spawn/r1/hook.py");
+    let mut argv = codex::argv(&codex::Launch {
+        task: "continue",
+        model: Some("gpt-5.4"),
+        worktree: &worktree,
+        hook_file: &hook_file,
+    });
+    append_resume_args(&mut argv, Provider::Codex, "thr-codex", Some(&hook_file));
+    assert_eq!(argv[0], "exec");
+    assert_eq!(argv[1], "resume");
+    assert_eq!(argv[2], "thr-codex");
+    assert!(argv.contains(&"--json".to_string()));
+    assert!(
+        !argv.iter().any(|arg| arg == "-C"),
+        "resume takes no worktree pin: {argv:?}"
+    );
+    assert!(
+        !argv.iter().any(|arg| arg == "--sandbox"),
+        "resume takes no sandbox flag: {argv:?}"
+    );
+    assert!(
+        argv.iter()
+            .any(|arg| arg == "--dangerously-bypass-hook-trust")
+    );
+    assert!(
+        argv.windows(2).any(|pair| pair == ["-m", "gpt-5.4"]),
+        "{argv:?}"
+    );
+    assert_eq!(argv.last().unwrap(), "continue");
 }
 
 #[test]

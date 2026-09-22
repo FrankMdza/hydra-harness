@@ -623,6 +623,49 @@ fn a_leak_beside_a_real_refusal_keeps_a_run_out_of_gated() {
 }
 
 #[test]
+fn a_pty_still_held_by_a_descendant_failed_rather_than_crashed() {
+    // The child exited and a grandchild kept the slave open. Hydra stopped
+    // reading after the deadline; without the note on `run_end.error` the same
+    // shape would read as `crashed` because there is no terminator.
+    let sandbox = Sandbox::new("pty-held");
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    )
+    .assistant(json!([{"type": "text", "text": "working"}]))
+    .closed_with(json!({
+        "exit_code": 0,
+        "error": hydra::watch::PTY_HELD_NOTE,
+    }));
+
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Failed, Source::Derived))
+    );
+}
+
+#[test]
+fn a_pty_held_note_with_a_terminator_is_a_fidelity_note() {
+    let sandbox = Sandbox::new("pty-held-note");
+    let text = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    )
+    .result(usage_frame())
+    .closed_with(json!({
+        "exit_code": 0,
+        "error": hydra::watch::PTY_HELD_NOTE,
+    }));
+
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Completed, Source::Derived))
+    );
+}
+
+#[test]
 fn a_tee_that_broke_is_not_a_process_that_died() {
     // No terminator, exit 0, and `error` set: Hydra stopped reading and the child
     // may have gone on to finish perfectly. Contract 8 defines `crashed` as "the

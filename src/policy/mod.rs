@@ -569,6 +569,9 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
         // 15.1 #5: an MCP server definition is a command Hydra spawns, so a loop
         // that edits this runs code of its choosing inside every future run.
         config.join("mcp.md"),
+        // Map ticket 65, build ticket 74: the checkout the binary was built from.
+        // Own worktrees and a curate pass's checkout are carved back out below.
+        crate::paths::hydra_home(),
         // 7.5, the induction's base case for `permissive` and `curate`.
         spawn.gate_script.to_path_buf(),
         // 7.5 and 15.2 entry 12: the record is the evidence, and a loop that
@@ -619,6 +622,22 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
     // `src/run.rs` says it does.
     if !spawn.worktree.starts_with(spawn.layout.spawns()) {
         paths.push(spawn.worktree.to_path_buf());
+        // The checkout's private git directory lives inside the parent's `.git`,
+        // which is denied whole. `index`, `HEAD` and `logs/` for this run sit
+        // there, at `worktrees/<run-id>/` when Hydra names the checkout from
+        // the run id.
+        if let Some(git_dir) = spawn.parent_git_dir
+            && let Some(run_id) = spawn.gate_script.parent().and_then(|p| p.file_name())
+        {
+            paths.push(git_dir.join("worktrees").join(run_id));
+            // `git add` writes the blob into the shared object store before it
+            // touches the index, measured 2026-09-22 under a real profile:
+            // "unable to create temporary file: Operation not permitted". The
+            // store is content-addressed, so a run can add objects and cannot
+            // alter one; `refs/` stays denied, so no branch moves from inside
+            // and `git commit` still fails on its own ref.
+            paths.push(git_dir.join("objects"));
+        }
     }
     if let Some(checkout) = spawn.skill_checkout {
         paths.push(checkout.to_path_buf());
@@ -1325,6 +1344,34 @@ mod tests {
                 directory.display()
             );
         }
+    }
+
+    #[test]
+    fn a_spawn_with_a_parent_git_dir_carves_out_its_private_git_directory() {
+        let layout = crate::paths::Layout::at("/tmp/hydra-own-git");
+        let worktree = layout.worktree("r1");
+        let git_dir = PathBuf::from("/tmp/parent/.git");
+        let spawn = Spawn {
+            provider: crate::provider::Provider::Claude,
+            policy: "standard",
+            layout: &layout,
+            worktree: &worktree,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
+            skill_snapshot: &layout.snapshot("abc"),
+            skill_checkout: None,
+            parent_git_dir: Some(&git_dir),
+            gate_script: &layout.gate_script("r1"),
+            floor_lifted: false,
+        };
+        assert_eq!(
+            own_write_paths(&spawn),
+            vec![
+                worktree,
+                git_dir.join("worktrees").join("r1"),
+                git_dir.join("objects")
+            ]
+        );
     }
 
     #[test]

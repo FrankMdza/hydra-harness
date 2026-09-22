@@ -1,7 +1,7 @@
 # 66 - Rung two's admission gate runs the proposer's code before any judge sees it
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -34,3 +34,15 @@ what makes the hole.
 
 Until this closes, `SECURITY.md` says admission runs proposer-authored code on this machine
 outside the seatbelt, and `hydra evolve` is a command to type with that in mind.
+
+## Answer
+
+Resolved 2026-09-22 with the human. **Admission runs under the proposer's own seatbelt.** The
+four cargo steps run through `/usr/bin/sandbox-exec -f <the proposer's spawn profile>`, with
+`HYDRA_ROOT` pointed at an empty scratch root the way CI does, so the corpus walks leave
+admission and a hostile test can no longer write into Hydra's directories or read the corpus. It
+can still read `~/.ssh`, and `SECURITY.md` keeps saying so: this is the cheap honest step, not a
+container. Rungs spec 4.5's order stays, because a judge should not read a patch that does not
+build; "cargo test after the panel" was declined for that reason, and "protect `tests/`" because
+map ticket 53 wants proposers editing tests. The harness record of a pass says which profile the
+steps ran under. Build ticket 75.

@@ -176,9 +176,10 @@ pub fn watch(spec: &Path) -> Result<()> {
     };
 
     let pid = spawned.pid;
+    let process_start = crate::procinfo::start_time(pid)?;
     let mut start = launch.run_start;
     start["pid"] = serde_json::json!(pid);
-    start["process_start_time"] = crate::procinfo::start_time(pid)?
+    start["process_start_time"] = process_start
         .map(|t| serde_json::json!(t.to_rfc3339_opts(SecondsFormat::Micros, true)))
         .unwrap_or(serde_json::Value::Null);
     writer.hydra_line(&start)?;
@@ -232,6 +233,13 @@ pub fn watch(spec: &Path) -> Result<()> {
         });
     }
 
+    if spawned.pty_still_held {
+        tee_error = Some(match tee_error {
+            Some(existing) => format!("{existing}; {PTY_HELD_NOTE}"),
+            None => PTY_HELD_NOTE.to_string(),
+        });
+    }
+
     writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;
     Ok(())
 }
@@ -239,6 +247,11 @@ pub fn watch(spec: &Path) -> Result<()> {
 /// How `run_end.error` starts when the child died on a signal. The outcome
 /// derivation matches on this prefix, and the signal's name follows it.
 pub const SIGNAL_NOTE: &str = "the child died on signal ";
+
+/// `run_end.error` when the child exited but a descendant still held the slave
+/// when the tee gave up. The outcome derivation reads this as Hydra stopping
+/// rather than the process dying.
+pub const PTY_HELD_NOTE: &str = "the pty was still held by a descendant when the record closed";
 
 /// What the blocking view saw before it stopped watching.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

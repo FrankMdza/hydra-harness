@@ -160,6 +160,35 @@ pub fn prepare_policy_launch(
     })
 }
 
+/// The binary and argv a gated interactive launch execs.
+///
+/// Public so `tests/spawn.rs` can read the seatbelt wrap without starting a
+/// session.
+pub fn gated_exec_argv(
+    prep: &PolicyLaunch,
+    policy: &str,
+    session: &str,
+    task: Option<&str>,
+    model: Option<&str>,
+) -> (String, Vec<String>) {
+    let argv = claude::interactive_argv(&claude::InteractiveLaunch {
+        session,
+        task,
+        model,
+        mcp: prep.mcp_file.as_deref(),
+        settings: Some(&prep.spawn.hook_config),
+        policy: Some(policy),
+    });
+    match prep.spawn.sandbox_profile.as_deref() {
+        Some(profile) => {
+            let (binary, wrapped) =
+                crate::sandbox::wrap_command(Provider::Claude.binary(), &argv, profile);
+            (binary.to_string(), wrapped)
+        }
+        None => (Provider::Claude.binary().to_string(), argv),
+    }
+}
+
 /// Launches `claude` interactively and returns contract 17's projection once
 /// it exits.
 ///
@@ -207,16 +236,22 @@ fn run_gated(request: Request) -> Result<RunResult> {
     // their own session.
     child_env.set(crate::containment::MARKER, run_id.clone());
 
-    let argv = claude::interactive_argv(&claude::InteractiveLaunch {
-        session: &session,
-        task: request.task.as_deref(),
-        model: request.model.as_deref(),
-        mcp: prep.mcp_file.as_deref(),
-        settings: Some(&prep.spawn.hook_config),
-        policy: Some(policy),
-    });
+    if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
+        anyhow::bail!(
+            "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch \
+             an interactive run without the seatbelt rather than run bare"
+        );
+    }
 
-    let mut child = std::process::Command::new(Provider::Claude.binary())
+    let (binary, argv) = gated_exec_argv(
+        &prep,
+        policy,
+        &session,
+        request.task.as_deref(),
+        request.model.as_deref(),
+    );
+
+    let mut child = std::process::Command::new(&binary)
         .args(&argv)
         .current_dir(&prep.cwd)
         .env_clear()
@@ -229,7 +264,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
-        .with_context(|| format!("starting {}", Provider::Claude.binary()))?;
+        .with_context(|| format!("starting {binary}"))?;
 
     let pid = child.id();
     let process_start_time = crate::procinfo::start_time(pid)?;
@@ -246,11 +281,8 @@ fn run_gated(request: Request) -> Result<RunResult> {
         policy: Some(policy.to_string()),
         policy_sha: Some(policies.sha().to_string()),
         floor_lifted: Some(false),
-        // An interactive run launched without `--policy` compiles no gate; with
-        // one it compiles the same gate a recorded run does, and build ticket 49
-        // wants the sha here too. Filled when the gate is compiled, null until.
-        gate_sha: None,
-        sandbox: None,
+        gate_sha: Some(prep.spawn.gate_sha.clone()),
+        sandbox: prep.spawn.sandbox_sha.clone(),
         scopes: Some(prep.scopes.clone()),
         cwd: prep.cwd.display().to_string(),
         worktree: Some(prep.worktree.clone()),

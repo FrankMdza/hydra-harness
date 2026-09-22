@@ -149,6 +149,13 @@ const RUN_END_FIELDS: &[&str] = &[
     "ended_at",
 ];
 
+/// `run_end` fields that landed after the first records. Checked for type when
+/// present and never for presence, build ticket 75.
+const LATER_RUN_END_FIELDS: &[(&str, Shape)] = &[
+    ("admission_sandbox", Shape::Sha),
+    ("admission_hydra_root", Shape::Text),
+];
+
 pub fn check_file(path: &Path) -> Result<Report> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -272,6 +279,7 @@ pub fn check(text: &str, expected_run_id: Option<&str>) -> Report {
                             say(format!("{at}: run_end is missing {field}"));
                         }
                     }
+                    check_later_run_end_fields(body, &at, &mut say);
                 }
                 other => say(format!(
                     "{at}: a Hydra line of type {other:?}; the contract allows exactly two"
@@ -314,6 +322,25 @@ pub fn check(text: &str, expected_run_id: Option<&str>) -> Report {
 
     report.lines = lines.len();
     report
+}
+
+fn check_later_run_end_fields(
+    body: &serde_json::Map<String, Value>,
+    at: &str,
+    say: &mut impl FnMut(String),
+) {
+    for (field, shape) in LATER_RUN_END_FIELDS {
+        match body.get(*field) {
+            None => {}
+            Some(Value::Null) => say(format!(
+                "{at}: {field} is null; the contract says absent when it does not apply"
+            )),
+            Some(value) if !shape.fits(value) => {
+                say(format!("{at}: {field} is not {}", shape.named()))
+            }
+            Some(_) => {}
+        }
+    }
 }
 
 fn check_run_start(body: &serde_json::Map<String, Value>, at: &str, say: &mut impl FnMut(String)) {

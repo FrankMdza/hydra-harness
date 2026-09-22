@@ -101,12 +101,25 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
 }
 
 /// Harness spec 17: `codex exec resume <session-id>`, measured on 0.154.0.
-pub fn resume_args(session_id: &str) -> Vec<String> {
-    vec![
+///
+/// Takes `--json`, `-m` and `-c` and neither `-C` nor `--sandbox`. The hook
+/// override names the per-spawn `hook.py`, as on a fresh `exec`. Hydra's gate
+/// still rides the command line; there is no worktree pin on resume.
+pub fn resume_args(session_id: &str, hook_file: &Path) -> Vec<String> {
+    let mut argv = vec![
         "exec".to_string(),
         "resume".to_string(),
         session_id.to_string(),
-    ]
+        "--json".to_string(),
+        "-c".to_string(),
+        "approval_policy=\"never\"".to_string(),
+        "--dangerously-bypass-hook-trust".to_string(),
+    ];
+    for config_override in config_overrides(hook_file) {
+        argv.push("-c".to_string());
+        argv.push(config_override);
+    }
+    argv
 }
 
 const HOOKS: &str = ".codex/hooks.json";
@@ -450,6 +463,21 @@ mod tests {
         assert!(message.contains("build ticket 61"), "{message}");
         assert!(unsupported_policy("judge").is_none());
         assert!(unsupported_policy("standard").is_none());
+    }
+
+    #[test]
+    fn resume_argv_names_the_thread_and_the_belt_flags_without_a_worktree_pin() {
+        let hook_file = Path::new("/tmp/spawn/r1/hook.py");
+        let argv = resume_args("thr_123", hook_file);
+        assert_eq!(argv[0..3], ["exec", "resume", "thr_123"]);
+        assert!(argv.contains(&"--json".to_string()));
+        assert!(!argv.iter().any(|arg| arg == "-C"));
+        assert!(!argv.iter().any(|arg| arg == "--sandbox"));
+        assert!(
+            argv.iter()
+                .any(|arg| arg == "--dangerously-bypass-hook-trust")
+        );
+        assert!(argv.iter().any(|arg| arg.starts_with("hooks.PreToolUse=[")));
     }
 
     #[test]

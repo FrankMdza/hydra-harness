@@ -1,7 +1,7 @@
 # 65 - Does the checkout the binary was built from join the deny list?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -30,3 +30,14 @@ and `SECURITY.md` states it.
 
 Until this closes, `SECURITY.md` says the list covers the runtime directories and five files and
 that the binary the MCP document names is writable by a run.
+
+## Answer
+
+Resolved 2026-09-22 with the human. **The whole checkout joins the deny list.** `hydra_home()` is
+denied to writes under every policy, with the run's own worktree and a `curate` pass's own
+checkout carved back out the way they already are, so on this machine the deny is `~/hydra` and
+on a machine where the checkout and the root differ it is both. Harness spec 15.2's "denied at run
+time" column gains the checkout as a row, and 7.5's list says so. The narrower "src/ and target/"
+was declined because it leaves `Cargo.toml`, `build.rs` and `config/mcp.md`'s siblings for the
+next reviewer, and "document only" because the binary the protected MCP document names is the
+thing the protection is for. Build ticket 74 carries the code and the test under `sandbox-exec`.

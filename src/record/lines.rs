@@ -147,6 +147,14 @@ pub struct RunEnd {
     /// `stream` or `harvest`. Always `stream` here, because this slice launches no
     /// interactive runs and harvests nothing.
     pub body_source: Option<&'static str>,
+    /// The sha256 of the seatbelt profile the admission gate ran under, when a
+    /// pass ran one. Absent on every other run_end, build ticket 75.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_sandbox: Option<String>,
+    /// The empty `HYDRA_ROOT` the admission gate pointed at its cargo steps.
+    /// Absent on every other run_end, build ticket 75.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_hydra_root: Option<String>,
     pub ended_at: String,
 }
 
@@ -159,6 +167,8 @@ impl RunEnd {
             refusal: None,
             remediation: None,
             body_source: Some("stream"),
+            admission_sandbox: None,
+            admission_hydra_root: None,
             ended_at: now(),
         }
     }
@@ -175,6 +185,8 @@ impl RunEnd {
             refusal: None,
             remediation: None,
             body_source: Some("harvest"),
+            admission_sandbox: None,
+            admission_hydra_root: None,
             ended_at: now(),
         }
     }
@@ -191,7 +203,12 @@ impl RunEnd {
     /// owns no pty and tees no frames; the eight harness records written before
     /// 2026-09-14 say `stream` and are the only place the corpus contradicts a
     /// contract table.
-    pub fn harness(exit_code: Option<i32>, error: Option<String>) -> Self {
+    pub fn harness(
+        exit_code: Option<i32>,
+        error: Option<String>,
+        admission_sandbox: Option<String>,
+        admission_hydra_root: Option<String>,
+    ) -> Self {
         Self {
             kind: "run_end",
             exit_code,
@@ -199,6 +216,8 @@ impl RunEnd {
             refusal: None,
             remediation: None,
             body_source: None,
+            admission_sandbox,
+            admission_hydra_root,
             ended_at: now(),
         }
     }
@@ -211,6 +230,8 @@ impl RunEnd {
             refusal: Some(refusal.as_str()),
             remediation: Some(remediation.into()),
             body_source: None,
+            admission_sandbox: None,
+            admission_hydra_root: None,
             ended_at: now(),
         }
     }

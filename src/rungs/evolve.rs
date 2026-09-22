@@ -9,6 +9,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::outcome::RunResult;
@@ -119,13 +120,18 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     let proposer = match call {
         Ok(Call::Ended(result)) => *result,
         Ok(Call::Handle(_)) => {
-            write_harness_end(&pass_record, None, Some("the proposer outlived the call"))?;
+            write_harness_end(
+                &pass_record,
+                None,
+                Some("the proposer outlived the call"),
+                None,
+            )?;
             return Ok(Done::Handed {
                 pass_run_id: pass_run_id.clone(),
             });
         }
         Err(err) => {
-            write_harness_end(&pass_record, None, Some(&err.to_string()))?;
+            write_harness_end(&pass_record, None, Some(&err.to_string()), None)?;
             return Err(err);
         }
     };
@@ -142,7 +148,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             &format!("rejected for size: {count} lines changed exceeds cap of {PATCH_LINE_CAP}"),
         );
         commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None)?;
+        write_harness_end(&pass_record, Some(0), None, None)?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
             proposer_run_id,
@@ -164,7 +170,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             &format!("refused at admission: protected path {path}"),
         );
         commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None)?;
+        write_harness_end(&pass_record, Some(0), None, None)?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
             proposer_run_id,
@@ -202,7 +208,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         };
         let message = commit_message(&pass_run_id, &proposer_run_id, &[], &reason);
         commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None)?;
+        write_harness_end(&pass_record, Some(0), None, None)?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
             proposer_run_id,
@@ -216,7 +222,12 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         }));
     }
 
-    if let Err(output) = admission_gate(&patch.worktree) {
+    let admission_root = layout.spawn(&pass_run_id).join("admission-root");
+    std::fs::create_dir_all(admission_root.join("runs"))
+        .with_context(|| format!("creating {}", admission_root.display()))?;
+    let profile_path = crate::sandbox::profile_path(&layout.spawn(&proposer_run_id));
+    let admission = admission_gate(&patch.worktree, &profile_path, &admission_root);
+    if let Some(output) = admission.output {
         let message = commit_message(
             &pass_run_id,
             &proposer_run_id,
@@ -224,7 +235,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             &format!("admission gate failed:\n\n{output}"),
         );
         commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None)?;
+        write_harness_end(&pass_record, Some(0), None, Some(&admission.run))?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
             proposer_run_id,
@@ -260,7 +271,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     };
     let message = commit_message(&pass_run_id, &proposer_run_id, &judge_run_ids, &body);
     commit_pass_branch(&repo, &proposer, &branch, &message)?;
-    write_harness_end(&pass_record, Some(0), None)?;
+    write_harness_end(&pass_record, Some(0), None, Some(&admission.run))?;
 
     Ok(Done::Finished(Finished {
         pass_run_id,
@@ -476,8 +487,32 @@ pub fn protected_path_hit(paths: &[String], repo: &Path) -> Option<String> {
     None
 }
 
+/// What the admission gate ran under, recorded on the pass harness run_end.
+pub struct AdmissionRun {
+    pub profile_sha: Option<String>,
+    pub hydra_root: String,
+}
+
+/// Outcome of the four cargo steps: the profile and root they ran under, and the
+/// compiler output when a step failed.
+pub struct AdmissionGateResult {
+    pub run: AdmissionRun,
+    pub output: Option<String>,
+}
+
 /// `cargo fmt --check`, `clippy`, `build` and `test` in the worktree, spec 4.5.
-pub fn admission_gate(worktree: &Path) -> Result<(), String> {
+/// On macOS each step runs through the proposer's seatbelt profile with
+/// `HYDRA_ROOT` pointed at `hydra_root`; elsewhere it runs bare with the same
+/// variable.
+pub fn admission_gate(
+    worktree: &Path,
+    profile_path: &Path,
+    hydra_root: &Path,
+) -> AdmissionGateResult {
+    let run = AdmissionRun {
+        profile_sha: admission_profile_sha(profile_path),
+        hydra_root: hydra_root.to_string_lossy().into_owned(),
+    };
     let steps: &[(&str, &[&str])] = &[
         ("cargo", &["fmt", "--check"]),
         // `--` before `-D`: without it cargo reads the flag as its own and
@@ -488,21 +523,77 @@ pub fn admission_gate(worktree: &Path) -> Result<(), String> {
         ("cargo", &["test"]),
     ];
     for (bin, args) in steps {
-        let out = Command::new(bin)
-            .args(*args)
-            .current_dir(worktree)
-            .output()
-            .map_err(|err| format!("{bin} {}: {err}", args.join(" ")))?;
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            return Err(format!(
-                "{bin} {} failed:\n{stdout}{stderr}",
-                args.join(" ")
-            ));
+        match run_admission_step(worktree, profile_path, hydra_root, bin, args) {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                return AdmissionGateResult {
+                    run,
+                    output: Some(format!(
+                        "{bin} {} failed:\n{stdout}{stderr}",
+                        args.join(" ")
+                    )),
+                };
+            }
+            Err(err) => {
+                return AdmissionGateResult {
+                    run,
+                    output: Some(err),
+                };
+            }
         }
     }
-    Ok(())
+    AdmissionGateResult { run, output: None }
+}
+
+fn admission_profile_sha(profile_path: &Path) -> Option<String> {
+    if !crate::sandbox::wraps_launches() {
+        return None;
+    }
+    std::fs::read(profile_path)
+        .ok()
+        .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn run_admission_step(
+    worktree: &Path,
+    profile_path: &Path,
+    hydra_root: &Path,
+    bin: &str,
+    args: &[&str],
+) -> Result<std::process::Output, String> {
+    if crate::sandbox::wraps_launches() {
+        if !profile_path.is_file() {
+            return Err(format!(
+                "admission gate: seatbelt profile missing at {}",
+                profile_path.display()
+            ));
+        }
+        if !crate::sandbox::exec_available() {
+            return Err(
+                "/usr/bin/sandbox-exec is missing on this Mac, so the admission gate refuses to \
+                 run proposer code without the seatbelt"
+                    .into(),
+            );
+        }
+        Command::new("/usr/bin/sandbox-exec")
+            .arg("-f")
+            .arg(profile_path)
+            .arg(bin)
+            .args(args)
+            .current_dir(worktree)
+            .env("HYDRA_ROOT", hydra_root)
+            .output()
+            .map_err(|err| format!("{bin} {}: {err}", args.join(" ")))
+    } else {
+        Command::new(bin)
+            .args(args)
+            .current_dir(worktree)
+            .env("HYDRA_ROOT", hydra_root)
+            .output()
+            .map_err(|err| format!("{bin} {}: {err}", args.join(" ")))
+    }
 }
 
 /// Fixed sentence in every judge prompt when a task is present. Map ticket 57.
@@ -705,7 +796,7 @@ fn run_judge_panel(
         let result = match call {
             Call::Ended(result) => *result,
             Call::Handle(_) => {
-                write_harness_end(pass_record, None, Some("a judge outlived the call"))?;
+                write_harness_end(pass_record, None, Some("a judge outlived the call"), None)?;
                 bail!("judge {name} outlived the call");
             }
         };
@@ -715,7 +806,7 @@ fn run_judge_panel(
                 .error
                 .clone()
                 .unwrap_or_else(|| format!("judge {name} could not run"));
-            write_harness_end(pass_record, None, Some(&why))?;
+            write_harness_end(pass_record, None, Some(&why), None)?;
             bail!(why);
         }
 
@@ -774,7 +865,7 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
         &body,
     );
     commit_review_branch(&repo, &blocked_branch, &branch, &message)?;
-    write_harness_end(&pass_record, Some(0), None)?;
+    write_harness_end(&pass_record, Some(0), None, None)?;
 
     Ok(Done::Finished(Finished {
         pass_run_id,
@@ -956,7 +1047,12 @@ pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> R
     Ok(())
 }
 
-pub fn write_harness_end(path: &Path, exit_code: Option<i32>, error: Option<&str>) -> Result<()> {
+pub fn write_harness_end(
+    path: &Path,
+    exit_code: Option<i32>,
+    error: Option<&str>,
+    admission: Option<&AdmissionRun>,
+) -> Result<()> {
     let mut writer = Writer::resume(
         path,
         path.file_stem().and_then(|s| s.to_str()).unwrap_or(""),
@@ -965,7 +1061,12 @@ pub fn write_harness_end(path: &Path, exit_code: Option<i32>, error: Option<&str
         None,
         crate::record::next_seq(path)?,
     )?;
-    writer.hydra_line(&RunEnd::harness(exit_code, error.map(str::to_string)))?;
+    writer.hydra_line(&RunEnd::harness(
+        exit_code,
+        error.map(str::to_string),
+        admission.and_then(|run| run.profile_sha.clone()),
+        admission.map(|run| run.hydra_root.clone()),
+    ))?;
     Ok(())
 }
 

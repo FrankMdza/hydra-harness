@@ -967,7 +967,17 @@ pub fn run(request: Request) -> Result<Call> {
         }),
     };
     if let Some(session_id) = &request.resume_session_id {
-        append_resume_args(&mut argv, request.provider, session_id);
+        let hook_file = if request.provider == Provider::Codex {
+            Some(codex::hook_file(&layout, &run_id))
+        } else {
+            None
+        };
+        append_resume_args(
+            &mut argv,
+            request.provider,
+            session_id,
+            hook_file.as_deref(),
+        );
     }
 
     let spec_path = layout.launch_spec(&run_id);
@@ -1541,27 +1551,57 @@ pub fn run_start(
 }
 
 /// Inserts the provider's resume flag before the task, harness spec section 5.
-pub fn append_resume_args(argv: &mut Vec<String>, provider: Provider, session_id: &str) {
-    let resume = match provider {
-        Provider::Claude => claude::resume_args(session_id),
-        Provider::CursorAgent => cursor::resume_args(session_id),
-        Provider::Agy => agy::resume_args(session_id),
-        Provider::Codex => codex::resume_args(session_id),
-    };
+pub fn append_resume_args(
+    argv: &mut Vec<String>,
+    provider: Provider,
+    session_id: &str,
+    hook_file: Option<&std::path::Path>,
+) {
     match provider {
-        // `codex` is refused before this in `src/resume.rs`: splicing its
-        // three words ahead of `exec --json -C ...` builds an argv the binary
-        // rejects, and build ticket 71 holds the shape it would accept.
-        Provider::Agy | Provider::Codex => {
-            argv.splice(0..0, resume);
-        }
-        _ => {
+        Provider::Codex => {
+            let hook_file = hook_file.expect("codex resume needs the per-spawn hook file");
             let task = argv
                 .pop()
                 .expect("every recorded argv ends with the task string");
-            argv.extend(resume);
+            let model = take_model_flag(argv);
+            *argv = codex::resume_args(session_id, hook_file);
+            if let Some(model) = model {
+                argv.push("-m".to_string());
+                argv.push(model);
+            }
             argv.push(task);
         }
+        _ => {
+            let resume = match provider {
+                Provider::Claude => claude::resume_args(session_id),
+                Provider::CursorAgent => cursor::resume_args(session_id),
+                Provider::Agy => agy::resume_args(session_id),
+                Provider::Codex => unreachable!(),
+            };
+            match provider {
+                Provider::Agy => {
+                    argv.splice(0..0, resume);
+                }
+                _ => {
+                    let task = argv
+                        .pop()
+                        .expect("every recorded argv ends with the task string");
+                    argv.extend(resume);
+                    argv.push(task);
+                }
+            }
+        }
+    }
+}
+
+/// The model name when `-m` is the last flag pair on a recorded argv.
+fn take_model_flag(argv: &mut Vec<String>) -> Option<String> {
+    if argv.len() >= 2 && argv[argv.len() - 2] == "-m" {
+        let model = argv.pop().unwrap();
+        argv.pop();
+        Some(model)
+    } else {
+        None
     }
 }
 

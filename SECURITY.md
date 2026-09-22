@@ -27,24 +27,25 @@ Hydra made about it.
   One `launchctl submit` probe on 2026-09-22 did not reproduce that class; nothing says a second
   spelling would not. Map ticket 67 holds the question of what the seatbelt is for. The gate
   still decides what a policy allows and writes the record; the kernel is what refuses the
-  write. A gated interactive launch, `hydra run --interactive --policy`, runs unwrapped today,
-  build ticket 73. Linux launches unwrapped.
-- **The deny list is Hydra's runtime directories and five config files, and nothing else.**
-  Under `standard` a shell command reads and writes the rest of the machine: `~/.ssh`, your own
-  `~/.claude` hooks and settings, Hydra's own source and build output, and any directory on
-  `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from. The binary that
-  `config/mcp.md` names as the delegate face is under `~/hydra/target/`, which the list does
-  not cover, so a run can rewrite the command the protected document points at. Map ticket 65
-  asks whether the checkout the binary was built from joins the list. Rung two's admission
-  gate runs `cargo test` on a proposer's worktree from the human's own shell before any judge
-  reads the patch, which is proposer-authored code executing outside the seatbelt; map ticket
-  66 holds that one. Until both close, the honest sentence is the one the 2026-09-14 review
-  ended on: the gate bounds what a run may do to Hydra, not what it may do to you.
-- **Inside the seatbelt a run cannot take git's index lock.** The worktree's private git
-  directory lives under `~/hydra/.git/worktrees/<run-id>`, which the profile denies, so `git
-  add`, `git commit` and `git stash` fail with "operation not permitted", and `git status` does
-  when it wants to refresh the index. `git diff`, `git log` and `hydra reap` from outside are
-  unaffected. Build ticket 70.
+  write. A gated interactive launch, `hydra run --interactive --policy`, runs under the same
+  profile since build ticket 73. Linux launches unwrapped.
+- **The deny list is Hydra's runtime directories, the checkout the binary was built from, and five
+  config files.** Build ticket 74 added `hydra_home()` whole, with the run's own worktree and a
+  `curate` pass's checkout carved back out. Under `standard` a shell command still reads and writes
+  the rest of the machine: `~/.ssh`, your own `~/.claude` hooks and settings, and any directory on
+  `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from. The honest
+  sentence is still the one the 2026-09-14 review ended on: the gate bounds what a run may do to
+  Hydra, not what it may do to you. Rung two's admission gate runs `cargo fmt --check`, `clippy`,
+  `build` and `test` on a proposer's worktree under the proposer's own seatbelt profile since
+  build ticket 75, with `HYDRA_ROOT` pointed at an empty scratch root, before any judge reads the
+  patch; that profile bounds what the steps may do to Hydra and not what they may do to you, so a
+  hostile test can still read `~/.ssh`, and the pass's harness record names the profile sha and
+  the root the steps ran under.
+- **Inside the seatbelt a run can stage its work and cannot move a branch.** The worktree's
+  private git directory under `~/hydra/.git/worktrees/<run-id>` and the shared object store are
+  carved out of the denial since build ticket 70, so `git status` and `git add` work; `refs/` and
+  `HEAD` stay denied, so `git commit` and `git stash` fail with "operation not permitted" and no
+  branch moves from inside a run. `hydra reap` commits from outside.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never

@@ -866,7 +866,8 @@ included, before the policy is consulted at all.** That is where `permissive` st
 permissive. The list has two kinds of entry since ticket 40, a third since build ticket 44, and all
 of it is compiled into the script per spawn.
 
-**Denied outright:** the five protected configs of section 15.1; the generated gate script;
+**Denied outright:** the five protected configs of section 15.1; the checkout at
+[`hydra_home()`](../src/paths.rs), `src/` and `target/` included; the generated gate script;
 everything under `~/hydra/runs/` and `~/hydra/pruned/`; the skill store at `~/hydra/skills/` and its
 snapshots at `~/hydra/skills-snapshots/`; the parent repo's `.git`, which `hydra run` knows because
 it ran `git worktree add` from it; and the three per-run parents, `~/hydra/worktrees/`,
@@ -910,6 +911,13 @@ allowed under `permissive`. None of those loses the record, and every one of the
 record cannot rebuild, or kills a sibling run: its hook command checks the script's sha before
 running it, so a replaced gate fails closed as `hydra/gate-tampered` on every call that follows. Each group earns its place
 differently.
+
+**The checkout at [`hydra_home()`](../src/paths.rs) earns it because a run is not a rung-two
+patch.** The canonical MCP document names a server at the release binary under `target/`, and the
+gate template under `src/policy/` is what every future gate is compiled from. Admission refusal
+covers the source files individually; a `standard` run could still rewrite the binary the protected
+document points at and the template every sibling's gate inherits. Map ticket 65 closed with the
+whole checkout on the list rather than `src/` and `target/` alone.
 
 The **delegation policy directory** and the **generated script** earn it twice over: without them a
 child under `permissive` can rewrite the policy constraining its siblings, and the induction above
@@ -972,6 +980,15 @@ ticket 64 until it is redesigned. And a provider that brings its own seatbelt ca
 inside Hydra's, so `codex` runs with its own off where Hydra wraps it. A Mac without
 `sandbox-exec` refuses the launch rather than running bare; Linux launches unwrapped with
 `sandbox` null on the record, and a port through landlock or bwrap is the roadmap's.
+
+**The seatbelt is defence behind the gate, not a boundary**, map ticket 67, resolved 2026-09-22.
+The profile is `(allow default)` plus the denials above: it binds the launched process and its
+descendants, and a process a system agent starts on the run's behalf does not inherit it. The gate
+is what says what a run may do; the kernel is what refuses the spellings the gate cannot read. A
+profile that denied `process-exec` and the mach services that reach launchd would be a boundary,
+and that is work for the day a Linux port arrives with no seatbelt at all. One consequence is
+stated: under Hydra's profile `codex` runs with `--sandbox danger-full-access`, so its writes reach
+wider than its own `workspace-write` would have bounded them.
 
 ### 7.6 In-process subagents
 
@@ -1363,7 +1380,7 @@ records.
 **The pattern floor is protected by inheritance, not by its own entry.** It is a sixth file and it
 lives in the delegation policy directory precisely so the count stays at five.
 
-### 15.2 The protected paths: twelve
+### 15.2 The protected paths: thirteen
 
 Every ticket that states a number says nine. **The items those tickets actually name come to
 eleven.** The running count was carried from seven through the preamble and the MCP document without
@@ -1391,6 +1408,7 @@ exact-case membership test misses it.
 | 10 | the instruction preamble | config | yes | **yes, under every policy** |
 | 11 | the canonical MCP document | config | yes | **yes, under every policy** |
 | 12 | the run records directory, `~/hydra/runs/` | data | not applicable | **yes, under every policy** |
+| 13 | the checkout, [`hydra_home()`](../src/paths.rs) | source | not applicable | **yes, under every policy** |
 
 **What admission refuses, as built.** The five config rows, 3, 5, 8, 10 and 11, since build ticket
 36. The code rows 1, 2, 6 and 7, since build ticket 40 on 2026-09-12; between the two tickets a
@@ -1407,9 +1425,15 @@ admission column is not applicable, and it is listed here because the run-time d
 `docs/rungs-spec.md` relies on when it says a loop that learns from the evidence cannot edit the
 evidence. Before the seam check that reliance had no entry on either side.
 
+**Entry 13 arrived from map ticket 65 on 2026-09-22.** The checkout is where the binary and the gate
+template live, and `config/mcp.md` names a server at `<checkout>/target/release/hydra`. Admission
+refusal covers individual source files; a run under `standard` is not a rung-two patch and could
+rewrite the command the protected document points at. The run-time denial is `hydra_home()` whole,
+with the run's own worktree and a `curate` pass's checkout carved back out.
+
 **"Protected" was carrying two mechanisms under one word**, which is why the table has two columns.
 Admission refusal is a rung-two check on a proposed patch. Run-time denial is the gate refusing a
-tool call. The five config rows get both, entries 9 and 12 get run-time only, and the five code rows
+tool call. The five config rows get both, entries 9, 12 and 13 get run-time only, and the five code rows
 get admission only. Section 7.5 states the run-time set as one list and says why each group is on it.
 
 **Entry 9 is on the list under protest, and the spec says so.** The gate script is generated per run

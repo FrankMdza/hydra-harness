@@ -71,20 +71,6 @@ pub fn resume_in(layout: &Layout, request: Request) -> Result<Call> {
             request.run_id
         );
     }
-    if provider == Provider::Codex {
-        // `codex exec resume <id>` takes `--json`, `-m` and `-c` and neither
-        // `-C` nor `--sandbox`, measured on 0.154.0 on 2026-09-22, so the argv
-        // `append_resume_args` builds for this provider is not one the binary
-        // accepts, and a resumed session could not be pinned to the fresh
-        // worktree a resume gets. Build ticket 71 holds the launch shape.
-        bail!(
-            "hydra resume is not built for codex: `codex exec resume` accepts neither `-C` \
-             nor `--sandbox`, so the resumed session cannot be pinned to a fresh worktree. \
-             Build ticket 71 holds it. Run {} stays as it is.",
-            request.run_id
-        );
-    }
-
     let session_id = provider_session_id(&run_file, provider, &start).with_context(|| {
         format!(
             "run {} has no provider_session_id on its record, so there is no session to hand \

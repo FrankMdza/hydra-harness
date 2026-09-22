@@ -584,6 +584,32 @@ fn a_run_with_no_checkout_writes_nowhere_at_all() {
     assert!(gate.read_from(&gate.worktree.join("out.txt")).allowed);
 }
 
+#[test]
+fn the_checkout_is_denied_and_the_own_worktree_still_writes() {
+    // Map ticket 65: `hydra_home()` joins the deny list. The fixture's layout
+    // root is a temp directory and `hydra_home()` is the real checkout, so a
+    // write there is what a run under `permissive` could do to the binary and
+    // the gate template before this ticket.
+    let gate = Gate::new("permissive");
+    let home = hydra::paths::hydra_home();
+    for (what, path) in [
+        ("the release binary", home.join("target/release/hydra")),
+        ("the gate template", home.join("src/policy/gate.py")),
+    ] {
+        let decision = gate.write_to(&path);
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "permissive wrote to {what} at {}: {}",
+            path.display(),
+            decision.reason
+        );
+    }
+    assert!(
+        gate.write_to(&gate.worktree.join("notes.md")).allowed,
+        "permissive's own worktree should still write"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The data-loss matrix of map ticket 40
 // ---------------------------------------------------------------------------

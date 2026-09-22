@@ -102,6 +102,19 @@ hole a `permissive` run had into a concurrent run's live gate script. A run outs
 only when it is not under `~/hydra/spawn/`, so that run writes nowhere, which is what `src/run.rs`
 always said it did; `tests/gate.rs::a_run_with_no_checkout_writes_nowhere_at_all` pins it.
 
+**Built for map ticket 65, closed by build ticket 74 on 2026-09-22.** `hydra_home()` joins
+`denied_write_paths` whole, with the run's own worktree and a `curate` pass's checkout carved
+back out as before. On this machine the checkout is the data root, so the deny is `~/hydra` and
+everything a run legitimately writes is already an own path; on a machine where the two differ,
+both are denied. `denied_spellings` leaves `hydra_home()` to the token pass when an own path lives
+under it, so the substring floor does not refuse the run's own worktree directory. The seatbelt
+profile picks the deny up through `write_denies` before the own allows. `tests/gate.rs::
+the_checkout_is_denied_and_the_own_worktree_still_writes` asserts a `Write` to
+`<hydra_home>/target/release/hydra` and to `<hydra_home>/src/policy/gate.py` is `protected-path`
+under `permissive`, and that a write inside the fixture's own worktree still allows;
+`tests/spawn.rs::the_seatbelt_refuses_a_checkout_write_and_allows_the_worktree` drives the real
+profile: `echo x > <hydra_home>/target/probe` is refused and the worktree write succeeds.
+
 Ticket 40's hand-measured matrix is two tests in `tests/gate.rs` now,
 `a_write_the_matrix_allowed_on_2026_09_06_is_protected_now` and
 `a_shell_command_the_matrix_allowed_is_refused_now_unless_it_is_the_runs_own_scratch`: 13 write probes across all five policies and a shell table for
@@ -1939,10 +1952,8 @@ build ticket 55 closed. It names every reason rather than the first: a record ca
 gate mark and have had its scopes rebuilt, and a reader fixing one wants to know about the
 other before re-running.
 
-**Two places still write `gate_sha: null`.** The interactive path in `src/interactive.rs`
-compiles a gate on its gated arm and does not thread the sha out of `prepare`, so a gated
-interactive run reads back as `Unnamed`. The harness record `hydra evolve` writes compiles
-no gate at all, and null is the truth there. The comments in both files say so.
+**One place still writes `gate_sha: null`.** The harness record `hydra evolve` writes compiles
+no gate at all, and null is the truth there.
 
 **`parent_run_id` is lifted off the envelope onto the normalized run.** Contract 4
 puts it there rather than in the body, because the parent writes it at spawn and
@@ -2674,6 +2685,13 @@ by `policy` being null or not. Measured on 2026-09-08 on run 01a07ff5-2389: a `W
 for under `read-only` came back as one `permission_decision` denied by `hydra_policy` with the
 gate's own reason, the worktree gained no file, and the outcome derived `gated`.
 
+**Since build ticket 73, a gated interactive launch runs under the seatbelt on macOS.** The
+gated arm routes `claude` through `sandbox::wrap_command` with the profile `write_spawn_config`
+already wrote, and `run_start` carries `gate_sha` and `sandbox` the way a recorded launch does.
+The ungated arm stays bare. `tests/spawn.rs::a_gated_interactive_launch_wraps_claude_in_the_seatbelt`
+asserts the prep yields a profile path and that the argv starts with `/usr/bin/sandbox-exec`.
+A human must still run one session and confirm the vendor's TUI works under the wrap.
+
 ## `judge` is not injected, and the face is admitted
 
 **A `judge` run is linked no skills, since build ticket 25.** Map ticket 47 decided it: the
@@ -2752,12 +2770,15 @@ own session id. `run_start` carries `command` and `resumed_from`, the row contra
 on 2026-09-08. The source record is never rewritten, and the continuation is a run of its own
 with a fresh id, worktree and gate.
 
-**The flags are measured on the three binaries**: `claude --resume <session-id>`,
+**The flags are measured on the four binaries**: `claude --resume <session-id>`,
 `cursor-agent --resume <chatId>`, `agy --conversation <id>`, inserted before the task
-string on the first two and at the front of the argv on `agy`. The default task when
-`--task` is omitted is one line, "Continue from where the previous run left off." A resumed
-`agy` run carries one `Finding::Limit` saying its `result` usage covers earlier turns, which
-is the map's fog on usage scope left as it is.
+string on the first two and at the front of the argv on `agy`, and `codex exec resume
+<thread_id> --json -c approval_policy="never" --dangerously-bypass-hook-trust -c
+hooks.PreToolUse=[...] [-m model] <task>` with no `-C` and no `--sandbox`, measured on
+0.154.0 on 2026-09-22. The default task when `--task` is omitted is one line, "Continue
+from where the previous run left off." A resumed `agy` run carries one `Finding::Limit`
+saying its `result` usage covers earlier turns, which is the map's fog on usage scope
+left as it is.
 
 **Measured on `claude`, 2026-09-08.** Run 01a08042-7cf1 resumed run 01a07f3f-3241, a haiku
 run that had been asked "what is 6+6?", with the question "what arithmetic question were you
@@ -2770,6 +2791,15 @@ otherwise. `tests/resume.rs` builds the argv each provider would get and drives 
 refusals against synthetic records, launching nothing. Whether `cursor-agent`'s recorded
 session id is the `chatId` its flag wants, and whether `agy`'s `--conversation` takes the
 recorded `conversation_id`, are not measured on a live launch.
+
+**Measured on `codex`, 2026-09-22.** A thread started in scratch directory A with `codex exec
+--json --sandbox danger-full-access -c 'approval_policy="never"' 'print the working
+directory' </dev/null` reported `pwd` as A. Resumed from scratch directory B with `codex exec
+resume <thread_id> --json 'print the working directory again' </dev/null`, the turn reported
+the caller's cwd as B, not A. A resume therefore runs in the fresh worktree Hydra seeds for
+the continuation, not in the reaped worktree of the source run. `append_resume_args` replaces
+the recorded `exec --json -C ...` argv with the resume shape above rather than splicing three
+words ahead of it.
 
 **The run that built it reached the real harness from inside the gate.** The model's first
 tests called `resume()` with `Layout::discover()`, which found `~/hydra`, and three spawn
@@ -2844,11 +2874,21 @@ under the new profile completed, 01a0c7c7-b4d8 on `cursor-agent`, 01a0c7c7-d431 
 not do. It is `(allow default)` behind the denials, so process launching and mach services are
 open and a process launchd starts on the run's behalf does not inherit it; one `launchctl submit`
 probe that day did not reproduce the class, and map ticket 67 asks what the profile is for. The
-worktree's private git directory is under `~/hydra/.git/worktrees/<run-id>`, which the profile
-denies, so `git add`, `git commit` and `git stash` fail inside a run and `git status` does when it
-wants to refresh the index, measured on a real profile and visible on runs 01a0c5b5-b8e6 and
-01a0c5d8-af17 from 2026-09-21; build ticket 70. And a gated interactive launch spawns `claude`
-bare, `src/interactive.rs`, with `sandbox: None` on its record; build ticket 73.
+worktree's private git directory at `parent_git_dir/worktrees/<run-id>/` and the shared object
+store at `parent_git_dir/objects/` are own write paths since build ticket 70, carved out of the
+deny on the parent repo's `.git`. The run's ticket carved out the private directory alone and
+its test could not run inside the run's own seatbelt; measured by the session on a real profile,
+`git add` then failed with "unable to create temporary file: Operation not permitted", because
+the blob goes into `objects/` before the index is touched. The store is content-addressed, so a
+run can add objects and cannot alter one; `refs/` and `HEAD` stay denied, so no branch moves from
+inside and `git commit` fails on its own ref, which is the line this build draws, because `hydra
+reap` commits from outside and the record's diff is against the seeded tree either way.
+`tests/spawn.rs::the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory` drives a real
+`git init`, a real `git worktree add` and a real profile: `git status` and `git add` succeed, `git
+commit` and writes to the parent's `refs/heads/` and `HEAD` are refused. And a gated interactive
+launch spawned `claude` bare with `sandbox: None` on its record until build ticket 73 the same day
+routed it through the same profile a recorded launch gets, with `gate_sha` and `sandbox` on
+`run_start`; the human's measurement of a TUI under `sandbox-exec` is still owed.
 
 **`HYDRA_ROOT` is refused inside a seatbelt, since 2026-09-22.** A `standard` run has shell,
 shell reaches the binary, and `env -u HYDRA_RUN_ID HYDRA_ROOT=/tmp/x hydra run --policy
@@ -2962,8 +3002,19 @@ rows by role, and the doc comment on the constant says which file each role maps
 hook-config writer is split between `src/policy/` and `write_spawn_config` in `src/run.rs`, and
 `src/run.rs` is not a row, since it is also the whole launch sequence; that gap is on the record
 here rather than closed. Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
-and `test` in the worktree, and a failure is a rejection carrying the output. Each refusal lands
-on `ouroboros/blocked/<pass-id>` with its reason in the commit message, spec 4.9.
+and `test` in the worktree, and a failure is a rejection carrying the output. **Since build
+ticket 75 on 2026-09-22** each step on macOS runs through `/usr/bin/sandbox-exec -f` with the
+profile the proposer's spawn already wrote at `spawn/<proposer-run-id>/sandbox.sb`, and with
+`HYDRA_ROOT` pointed at an empty scratch root under `spawn/<pass-id>/admission-root/` so the
+corpus walks do not read a corpus the profile denies. On Linux the same four commands run bare
+with the same variable. A missing profile on macOS fails closed naming the path rather than
+running bare. The pass's harness `run_end` carries `admission_sandbox`, the profile sha, and
+`admission_hydra_root`, the scratch root. A hostile test can still read `~/.ssh`; map ticket 66
+closed on that honest step. `tests/evolve.rs::admission_runs_under_the_proposers_seatbelt_and_refuses_a_hostile_test`
+plants `tests/zz_hostile.rs` in a scratch worktree, asserts `cargo test` fails and
+`<layout>/runs/hostile` does not appear, and returns early when `sandbox::exec_available()` is
+false or the test process is already inside a seatbelt, because nested `sandbox-exec` is refused. Each refusal lands on `ouroboros/blocked/<pass-id>` with its reason in the commit
+message, spec 4.9.
 
 **The panel is one `judge` run per provider**, `claude`, `cursor-agent` and `agy`, each handed the
 whole diff and the checklist of spec 5 in the prompt, no skills and no MCP as `judge` already
@@ -3494,9 +3545,9 @@ changed in the code that day, each with its test:
 - `HYDRA_ROOT` is refused inside a seatbelt; a sibling's spawn directory is read-denied by the
   profile; the corpus denial is pinned under four spellings. `tests/spawn.rs`, three tests.
 - `src/sandbox.rs` and `src/containment.rs` are on `PROTECTED_CODE_PATHS`.
-- `hydra resume` on `codex` is refused with the reason, because `codex exec resume` takes
-  neither `-C` nor `--sandbox` and the argv `append_resume_args` built was one the binary
-  rejects. Build ticket 71.
+- `hydra resume` on `codex` builds `exec resume <thread_id> --json` with the belt flags and
+  hook override and neither `-C` nor `--sandbox`, measured on 0.154.0 on 2026-09-22. Build
+  ticket 71.
 - The harvest of an abandoned interactive run holds `flock(2)` on the record from before the
   first `has_run_end` read to the end, so two `hydra status` cannot both append the transcript.
 - The delegate face reaps the watchers it started, one zombie per delegation until then.
@@ -3510,13 +3561,21 @@ changed in the code that day, each with its test:
 - `hydra doctor` reports the environment allowlist as in code and does not exit 1 for the two
   files only `hydra export` needs.
 
-What it found that is a decision, and so a ticket rather than a commit: whether Hydra's own
-checkout, `~/hydra/src` and `~/hydra/target` included, joins the deny list (map 65); whether rung
-two's admission gate may run a proposer's `cargo test` outside the seatbelt before the panel (map
-66); what the seatbelt is for, given `(allow default)` and launchd (map 67). And four build
-tickets: git's index lock under the seatbelt (70), `codex` resume (71), a deadline on the pty tee
-so a grandchild holding the slave cannot leave a record open forever (72), and the gated
-interactive launch under the seatbelt (73).
+What it found that was a decision went to the map and the human answered the same day: the
+whole checkout joins the deny list (map 65, build 74); admission runs under the proposer's own
+profile with an empty `HYDRA_ROOT` (map 66, build 75); the seatbelt is defence behind the gate and
+not a boundary (map 67, no code). Six build tickets followed, each on a `cursor-agent` run on
+Composer 2.5 and applied by the session after review: git's index lock under the seatbelt (70,
+run 01a0c924-5609), `codex` resume (71, 01a0c924-7d46, which measured that `codex exec resume`
+runs in the caller's cwd and lifted the refusal), a deadline on the pty tee (72, 01a0c924-a494;
+the review found the probe in `persistent_eof` dropping a real byte and `spawn` copied whole, both
+fixed by hand), the gated interactive launch under the seatbelt (73, 01a0c955-f7a1), the checkout
+on the deny list (74, 01a0c956-213e) and admission under the seatbelt (75, 01a0c956-462b). Build
+70's run could not measure its own test inside its seatbelt and asserted that `git add` would
+work; it did not, because the blob goes into the shared object store, and the session added that
+carve-out. One pong per provider completed under the profile that denies the checkout, 01a0c960-a3a5
+on `cursor-agent`, 01a0c960-c1f5 on `codex`, 01a0c960-e174 on `agy` and 01a0c961-009d on `claude`,
+and a recorded `codex` resume under the seatbelt, 01a0c95b-5844, answered its second task.
 
 What it found that this file already said and the README did not: the corpus walks are vacuous in
 CI, `gated` needs every call refused, the concurrency cap is a check without a reservation

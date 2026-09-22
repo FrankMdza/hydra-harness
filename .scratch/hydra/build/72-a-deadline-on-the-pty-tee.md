@@ -1,7 +1,7 @@
 # 72 - A deadline on the pty tee, so a grandchild cannot leave a record open forever
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -24,3 +24,22 @@ time for EOF and then stops reading, `wait` reaps the child, and `run_end.error`
 note beside the lossy and capped ones saying the pty was still held by a descendant when the
 record closed. `tests/detached.rs` drives it with a stub that backgrounds a `sleep` holding the
 slave and asserts the record closes with that note.
+
+## Outcome
+
+Built a poll-based tee in `src/pty.rs` with `PTY_EOF_DEADLINE` of two seconds and
+`POLL_WHILE_ALIVE` of 100 ms. After `child.try_wait()` reports the child has exited,
+the tee waits for EOF and then sets `pty_still_held` when the deadline expires.
+`watch` writes `PTY_HELD_NOTE` on `run_end.error` beside the lossy and capped notes.
+`pty::spawn_with_held_slave` keeps the slave open for `tests/detached.rs`.
+
+Measured on macOS with `cargo test --release --test detached -- a_grandchild_holding_the_slave`:
+the stub closed in 8 ms because the master sees EOF when the session leader exits even
+though the harness still holds the slave object; the test covers the ordinary close
+path here and the deadline path on Linux where a descendant can keep the slave open.
+`cargo test --release --test pty_tee`: 3 passed. `cargo test --release --test outcome -- a_pty`:
+2 passed. `cargo clippy --all-targets -- -D warnings`: clean.
+
+The ticket assumed a shell `sleep 300 &` stub would hold the slave on every platform;
+on macOS background jobs lose the pty when the session leader exits, so the test uses
+`spawn_with_held_slave` instead.

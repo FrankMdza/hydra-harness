@@ -4,6 +4,15 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 
 ## Unreleased
 
+- The three map tickets the panel opened closed with the human the same day and five of the six
+  build tickets landed, each on a Composer 2.5 run reviewed by the session: the whole checkout
+  is denied to writes under every policy (map 65, build 74); rung two's admission gate runs
+  under the proposer's own seatbelt with an empty `HYDRA_ROOT` and the pass record names the
+  profile (map 66, build 75); the seatbelt is defence behind the gate, and the spec says so (map
+  67); a run can `git add` inside the seatbelt and still cannot move a branch (build 70); `hydra
+  resume` works on `codex`, measured (build 71); the pty tee has a deadline after the child
+  exits (build 72). The gated interactive launch runs under the seatbelt (build 73) and waits on
+  a human measurement (2026-09-22).
 - A hiring-panel review by seven readers, four of them the providers through `hydra run`,
   found 33 things and 22 are fixed: the gate answers a deny for a malformed payload instead of
   dying, `HYDRA_ROOT` is refused inside a seatbelt, a sibling's spawn directory is read-denied,
