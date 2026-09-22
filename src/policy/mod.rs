@@ -646,9 +646,9 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
 /// provider spawns (15.1 #5, one directory down). `claude`'s three are the
 /// project-scope files it reads from cwd, which add hooks rather than remove
 /// Hydra's; [`crate::provider::claude::project_config_files`] says why that is
-/// enough. The skill roots are here because the links in them are what the
-/// snapshot denial protects on the other end: a write into the root replaces a
-/// link, and a run that does that edits its own instructions mid-session.
+/// enough. The skill roots are not here: they are denied to `file_write` only,
+/// by [`write_denied_worktree_paths`], because a shell command naming one is how
+/// two providers read a skill.
 ///
 /// **The `.gitignore` files Hydra drops beside these stay writable.** A repo may
 /// track its own, `claim` reads that copy rather than replacing it, and the
@@ -671,13 +671,6 @@ pub fn protected_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
     paths
 }
 
-/// The skill roots Hydra links into the worktree, one per provider, denied to
-/// `file_write` under every policy and to nothing else.
-///
-/// A write there replaces a link into the snapshot. A shell command naming the
-/// root is not refused, because `cat .claude/skills/x/SKILL.md` is how
-/// `cursor-agent` and `agy` read a skill, and `ls -la .claude/skills/` on run
-/// 01a09405-f451 is what a first version of build ticket 44 refused.
 /// Every spelling of every denied path this spawn does not own.
 ///
 /// The raw pass of `protected_path_named_by` searches a command for these as
@@ -718,6 +711,13 @@ fn denied_spellings(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
     out
 }
 
+/// The skill roots Hydra links into the worktree, one per provider, denied to
+/// `file_write` under every policy and to nothing else.
+///
+/// A write there replaces a link into the snapshot. A shell command naming the
+/// root is not refused, because `cat .claude/skills/x/SKILL.md` is how
+/// `cursor-agent` and `agy` read a skill, and `ls -la .claude/skills/` on run
+/// 01a09405-f451 is what a first version of build ticket 44 refused.
 pub fn write_denied_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
     use crate::provider::Provider;
     [
@@ -880,15 +880,6 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     Ok(template.replace(marker, &line))
 }
 
-/// Compiles the gate and writes it to `spawn.gate_script`, executable.
-///
-/// The provider runs the script as a command, so the exec bit is part of the
-/// artifact rather than a detail for the caller to remember. `0o700` rather than
-/// `0o755`: nothing but this user runs it, and it is the file 7.5 denies every
-/// policy from writing to.
-///
-/// It is written before the child starts and never rewritten, which is 6.6's
-/// "real files, never links, rewritten at every spawn" for the script side.
 /// The sha256 of the gate this build compiles for `spawn`.
 ///
 /// The same bytes [`write_gate`] puts on disk, which is what `src/run.rs`
@@ -903,6 +894,15 @@ pub fn gate_sha(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     ))
 }
 
+/// Compiles the gate and writes it to `spawn.gate_script`, executable.
+///
+/// The provider runs the script as a command, so the exec bit is part of the
+/// artifact rather than a detail for the caller to remember. `0o700` rather than
+/// `0o755`: nothing but this user runs it, and it is the file 7.5 denies every
+/// policy from writing to.
+///
+/// It is written before the child starts and never rewritten, which is 6.6's
+/// "real files, never links, rewritten at every spawn" for the script side.
 pub fn write_gate(set: &PolicySet, spawn: &Spawn<'_>) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
@@ -1008,7 +1008,7 @@ exec(compile(body, GATE, "exec"))
 /// home directory Hydra does not name and a block of Python. A space or a quote in
 /// either would split the command and run the gate with no dialect, which denies
 /// and exits 2 rather than failing open, but would deny every call on every run.
-fn shell_quote(text: &str) -> String {
+pub(crate) fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 

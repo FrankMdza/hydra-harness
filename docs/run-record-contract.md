@@ -256,13 +256,9 @@ a different gate or names none reports a limit that says which mark is missing.
 It is absent, never null, on a run that compiled no gate, and absent on every record written before
 build ticket 49. A gated interactive run writes it absent too, which is a gap rather than a
 statement: `src/interactive.rs` compiles a gate and does not thread the sha out of `prepare`, and
-`IMPLEMENTATION.md` says so.
-
-**The compiled gate script's own sha is still not carried.** An earlier draft said the script was a
-pure function of the policy source and the Hydra version, which was false: it takes the six inputs
-above. With `policy_sha`, `policy`, `floor_lifted` and `scopes` on the record, every input but the
-Hydra version is here, and a fourth sha would tell a reader its replay was wrong without saying what
-was right.
+`IMPLEMENTATION.md` says so. An earlier draft of this section said the script's own sha was not
+carried, because the script was thought to be a pure function of the policy source and the Hydra
+version; build ticket 49 measured that it is not, and the paragraph above is what replaced it.
 
 ### 5.2 Liveness
 
@@ -967,8 +963,9 @@ learns from and never what Hydra keeps. Every run in this table is recorded in f
 whatever its outcome. A reader who collapses "rung one never learns from this" into "throw it away"
 has the record backwards.
 
-**Every outcome is derived from the event stream, never from the exit status.** All three providers
-exit 0 and report success on a run where the gate refused everything. `claude` closed
+**Every outcome is derived from the event stream, never from the exit status.** All four providers
+exit 0 and report success on a run where the gate refused everything, re-measured on 2026-09-22 on
+`claude` 2.1.268, `cursor-agent` 2026.09.18, `agy` 1.2.8 and `codex` 0.154.0. `claude` closed
 `terminal_reason: completed, is_error: false` with a real denial sitting in `permission_denials`.
 `agy` returned `status: SUCCESS`, an empty response and exit 0 on a run whose only tool was
 auto-denied. `cursor-agent` returned `is_error: false` with one tool rejected and one failed.

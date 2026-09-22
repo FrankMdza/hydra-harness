@@ -27,9 +27,9 @@ pub enum Provider {
 /// Versions this code was measured against. `README.md` and `tests/drift.rs` read
 /// this table rather than carrying their own copy.
 pub const MEASURED_VERSIONS: [(Provider, &str); 4] = [
-    (Provider::Claude, "2.1.267"),
-    (Provider::CursorAgent, "2026.09.10"),
-    (Provider::Agy, "1.2.1"),
+    (Provider::Claude, "2.1.268"),
+    (Provider::CursorAgent, "2026.09.18-9a7762b"),
+    (Provider::Agy, "1.2.8"),
     (Provider::Codex, "0.154.0"),
 ];
 
@@ -68,8 +68,14 @@ impl Provider {
     /// providers self-update without asking, and a claim measured on one build must
     /// not silently become a claim about another.
     pub fn version(self) -> Result<String> {
+        // The one vendor subprocess that used to inherit the launcher's
+        // environment whole, `GEMINI_API_KEY` and the parent's messaging
+        // socket included. It gets the same allowlist the run gets.
+        let env = crate::env::ChildEnv::build(self)?;
         let out = std::process::Command::new(self.binary())
             .arg("--version")
+            .env_clear()
+            .envs(env.vars().map(|(k, v)| (k.to_string(), v.to_string())))
             .output();
         match out {
             Ok(out) if out.status.success() => {

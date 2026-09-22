@@ -114,3 +114,7 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [67 - A foreign checkout refuses, and hydra doctor](67-a-foreign-checkout-refuses-and-hydra-doctor.md)
 - [68 - The seatbelt around the child](68-the-seatbelt-around-the-child.md)
 - [69 - The gate reads the paths out of a patch](69-the-gate-reads-the-paths-out-of-a-patch.md)
+- [70 - Git's index lock under the seatbelt](70-git-index-lock-under-the-seatbelt.md)
+- [71 - `hydra resume` on `codex`](71-codex-resume.md)
+- [72 - A deadline on the pty tee](72-a-deadline-on-the-pty-tee.md)
+- [73 - The gated interactive launch under the seatbelt](73-the-gated-interactive-launch-under-the-seatbelt.md)

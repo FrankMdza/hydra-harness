@@ -408,12 +408,22 @@ pub fn run(request: Request) -> Result<Call> {
     // refusal it can produce is 6.1 item 6's, and that one needs a run id.
     let mcp_document = crate::mcp::Document::load()?;
 
+    let root_named = std::env::var_os("HYDRA_ROOT").is_some();
+    // A run that unsets the marker of build ticket 57 is a human to the check
+    // below, and `HYDRA_ROOT` then points its record somewhere the kernel does
+    // not deny. The seatbelt is the one thing about its ancestry a run cannot
+    // shed, so the variable is refused from inside one before any root is
+    // read. Reviewed 2026-09-22: `env -u HYDRA_RUN_ID HYDRA_ROOT=/tmp/x hydra
+    // run --policy permissive` launched from a `standard` run.
+    if root_named && crate::sandbox::inside_seatbelt() {
+        anyhow::bail!(
+            "HYDRA_ROOT is set and this process is inside the seatbelt Hydra put around a \
+             run, so the record was going to land where the kernel does not deny it. A run \
+             cannot move the root. Unset the variable, or launch from outside the run."
+        );
+    }
     let layout = Layout::discover()?;
-    refuse_foreign_checkout(
-        &layout,
-        &crate::paths::hydra_home(),
-        std::env::var_os("HYDRA_ROOT").is_some(),
-    )?;
+    refuse_foreign_checkout(&layout, &crate::paths::hydra_home(), root_named)?;
     layout.ensure()?;
 
     // Build ticket 57, read before the lineage because it is the question the
@@ -1539,6 +1549,9 @@ pub fn append_resume_args(argv: &mut Vec<String>, provider: Provider, session_id
         Provider::Codex => codex::resume_args(session_id),
     };
     match provider {
+        // `codex` is refused before this in `src/resume.rs`: splicing its
+        // three words ahead of `exec --json -C ...` builds an argv the binary
+        // rejects, and build ticket 71 holds the shape it would accept.
         Provider::Agy | Provider::Codex => {
             argv.splice(0..0, resume);
         }

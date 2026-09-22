@@ -215,17 +215,30 @@ pub fn read_judge_pairs(
     Ok(out)
 }
 
+/// Every pair as a verified line, in order. Fails on the first secret, and
+/// the caller runs it before any file exists.
+pub fn render_lines(pairs: &[PreferencePair]) -> Result<Vec<String>> {
+    pairs.iter().map(PreferencePair::to_line).collect()
+}
+
 /// Writes every pair to `preference.jsonl` beside `events_out`.
 pub fn write_preference_jsonl(
     events_out: &Path,
     pairs: &[PreferencePair],
     signoff_sha: &str,
 ) -> Result<()> {
+    let lines = render_lines(pairs)?;
+    write_preference_lines(events_out, &lines, signoff_sha)
+}
+
+/// Writes lines [`render_lines`] already verified to `preference.jsonl` beside
+/// `events_out`.
+pub fn write_preference_lines(
+    events_out: &Path,
+    lines: &[String],
+    signoff_sha: &str,
+) -> Result<()> {
     let path = preference_path(events_out);
-    let mut lines: Vec<String> = Vec::new();
-    for pair in pairs {
-        lines.push(pair.to_line()?);
-    }
     let header = format!(
         "preference count={} signoff_sha={} residue=customer_data_in_fixture",
         lines.len(),

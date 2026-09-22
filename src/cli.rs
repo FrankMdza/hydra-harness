@@ -1,6 +1,7 @@
 //! The command surface.
 //!
-//! Harness spec 17 lists eleven commands. All eleven are here.
+//! Harness spec 17 lists eleven commands. All eleven are here, and `doctor`,
+//! build ticket 67, is the twelfth a human types.
 //!
 //! **`reap` and `prune` are typed by a human and reachable from no run.** Nothing
 //! in the library calls either, which is the only mechanism there is: harness spec
@@ -8,13 +9,13 @@
 //! so the property lives in Hydra's own source. `curate` is typed by a human too
 //! and is the one command that then launches a run of its own.
 //!
-//! **`watch` is a twelfth command and is not one of the eleven.** It is the
+//! **`watch` is a thirteenth command and is not one of the twelve.** It is the
 //! detached half of a launch, `hydra run` is the only thing that types it, and it
 //! is hidden from the help for that reason. The alternative was `fork` in process,
 //! which would have put a pty, an allocator and an open record file on the wrong
 //! side of a call nobody can test.
 //!
-//! **`delegate-face` is a thirteenth and is not one of the eleven either.** It is
+//! **`delegate-face` is a fourteenth and is not one of the twelve either.** It is
 //! the MCP face of harness spec 9, a stdio JSON-RPC server a run's own provider
 //! spawns from the canonical MCP document, and section 17 lists commands a human
 //! types. Hidden for the same reason `watch` is: typing it yourself gets you a

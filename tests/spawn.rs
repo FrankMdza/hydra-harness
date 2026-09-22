@@ -1158,3 +1158,179 @@ fn the_seatbelt_refuses_a_corpus_write_and_allows_the_worktree() {
         "worktree write should succeed, got {wt_out}"
     );
 }
+
+/// One shell command under a spawn's own profile, answering what it printed.
+fn under_seatbelt(profile: &Path, command: &str) -> String {
+    let out = std::process::Command::new("/usr/bin/sandbox-exec")
+        .arg("-f")
+        .arg(profile)
+        .arg("/bin/sh")
+        .arg("-c")
+        .arg(format!("{command}; echo rc=$?"))
+        .output()
+        .unwrap();
+    // The shell reports a refused redirect on its own stderr, so both streams
+    // are read and the status line at the end is what the assertions key on.
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    )
+}
+
+/// Whether the command under the seatbelt failed, however the shell worded it.
+fn refused(out: &str) -> bool {
+    !out.contains("rc=0")
+}
+
+#[test]
+fn the_seatbelt_refuses_the_corpus_however_the_path_is_spelled() {
+    if !hydra::sandbox::exec_available() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    layout.ensure().unwrap();
+    std::fs::write(layout.runs().join("r.jsonl"), "{}\n").unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let profile = spawn.sandbox_profile.unwrap();
+    let corpus = canonical_subpath(&layout.runs());
+    let wt = canonical_subpath(&worktree);
+
+    // A read, spelled in full.
+    let out = under_seatbelt(&profile, &format!("cat '{corpus}/r.jsonl'"));
+    assert!(refused(&out), "literal read: {out}");
+
+    // A write, with the path assembled from two variables, which is the
+    // spelling the gate's substring floor cannot see.
+    let (head, tail) = corpus.split_at(corpus.len() - 2);
+    let out = under_seatbelt(
+        &profile,
+        &format!("A='{head}'; B=\"${{A}}{tail}\"; echo x > \"$B/probe\""),
+    );
+    assert!(refused(&out), "variable write: {out}");
+    assert!(!layout.runs().join("probe").exists());
+
+    // A write through an interpreter.
+    let out = under_seatbelt(
+        &profile,
+        &format!("/usr/bin/python3 -c \"open('{corpus}/probe2','w')\""),
+    );
+    assert!(refused(&out), "interpreter write: {out}");
+
+    // A symlink out of the worktree into the corpus.
+    let link = worktree.join("link");
+    std::os::unix::fs::symlink(layout.runs(), &link).unwrap();
+    let out = under_seatbelt(&profile, &format!("cat '{wt}/link/r.jsonl'"));
+    assert!(refused(&out), "symlink read: {out}");
+    let out = under_seatbelt(&profile, &format!("echo x > '{wt}/link/probe3'"));
+    assert!(refused(&out), "symlink write: {out}");
+}
+
+#[test]
+fn the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own() {
+    if !hydra::sandbox::exec_available() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    layout.ensure().unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let profile = spawn.sandbox_profile.unwrap();
+    let sibling = layout.spawn("r2");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(sibling.join("launch.json"), "{\"task\":\"secret\"}").unwrap();
+
+    let out = under_seatbelt(
+        &profile,
+        &format!("cat '{}/launch.json'", canonical_subpath(&sibling)),
+    );
+    assert!(refused(&out), "a sibling's launch.json was readable: {out}");
+    let own_gate = canonical_subpath(&layout.gate_script("r1"));
+    let out = under_seatbelt(&profile, &format!("head -c 2 '{own_gate}'"));
+    assert!(
+        out.contains("rc=0"),
+        "the run's own gate was not readable: {out}"
+    );
+    let out = under_seatbelt(&profile, &format!("echo x >> '{own_gate}'"));
+    assert!(refused(&out), "the run's own gate was writable: {out}");
+}
+
+#[test]
+fn hydra_root_is_refused_from_inside_a_seatbelt() {
+    if !hydra::sandbox::exec_available() {
+        return;
+    }
+    let (_layout, root) = layout();
+    let profile = root.join("min.sb");
+    std::fs::write(&profile, "(version 1)\n(allow default)\n").unwrap();
+    let moved = root.join("moved-root");
+    let out = std::process::Command::new("/usr/bin/sandbox-exec")
+        .arg("-f")
+        .arg(&profile)
+        .arg(env!("CARGO_BIN_EXE_hydra"))
+        .args([
+            "run",
+            "--provider",
+            "claude",
+            "--policy",
+            "standard",
+            "--task",
+            "x",
+        ])
+        .env("HYDRA_ROOT", &moved)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "the launch went ahead: {stderr}");
+    assert!(stderr.contains("inside the seatbelt"), "{stderr}");
+    assert!(
+        !moved.join("runs").exists(),
+        "a record root was created under the moved root"
+    );
+
+    // The same launch outside a seatbelt gets past that check and fails on
+    // something later, which is the control: the refusal above is the
+    // seatbelt's and not the variable's.
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args([
+            "run",
+            "--provider",
+            "claude",
+            "--policy",
+            "standard",
+            "--task",
+            "x",
+        ])
+        .env("HYDRA_ROOT", &moved)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("inside the seatbelt"), "{stderr}");
+}

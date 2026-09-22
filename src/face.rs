@@ -67,8 +67,28 @@ pub fn serve(input: impl BufRead, mut output: impl Write, parent: Option<String>
         };
         writeln!(output, "{response}").context("writing the answer")?;
         output.flush().context("flushing the answer")?;
+        reap_finished_children();
     }
     Ok(())
+}
+
+/// Collects every child of this process that has exited, without waiting on
+/// one that has not.
+///
+/// `hydra run` starts a detached watcher and drops the handle, which in a
+/// process that exits is nothing, and in this one, which serves for the life
+/// of the parent run, was one zombie per delegation. Watchers are the only
+/// children this process has.
+fn reap_finished_children() {
+    loop {
+        let mut status = 0;
+        // SAFETY: waitpid with WNOHANG touches no memory of ours and returns
+        // at once when no child has exited.
+        let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+        if pid <= 0 {
+            return;
+        }
+    }
 }
 
 /// One request in, one response out, or `None` for a notification.

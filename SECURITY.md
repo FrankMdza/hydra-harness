@@ -9,17 +9,42 @@ Hydra made about it.
 
 ## What Hydra does not promise, on purpose
 
-- **The gate does not interpret shell.** A command that names a protected path is refused
-  under every policy. A command that reaches the same path through a variable or a
-  subshell is not. `docs/harness-spec.md` section 7.4 states this and `tests/gate.rs` fails
-  if someone claims to have closed it.
-- **There is no container, and on macOS there is a sandbox.** The vendor CLI needs the network to
-  reach its model, so network cannot be cut, and the run has your real `HOME` because a wrong one
-  logs the vendor out. Since 2026-09-21 every recorded launch on macOS runs under the kernel's own
-  seatbelt with the same user and `HOME`: writes under Hydra's directories and reads of the corpus
-  fail with "operation not permitted" whatever the spelling, a variable, an interpreter or a
-  symlink included, measured on all four providers. The gate still decides what a policy allows and
-  writes the record; the kernel is what refuses the write. Linux launches unwrapped.
+- **The gate does not interpret shell.** A command that spells a protected path is refused
+  under every policy. A command that reaches the same path through a variable, a subshell, a
+  `cd` followed by a relative path, or a nested `sh -c` naming a sibling under a parent this
+  run owns a piece of, is not. `docs/harness-spec.md` section 7.4 states this and
+  `tests/gate.rs` fails if someone claims to have closed it.
+- **There is no container, and on macOS there is a sandbox around the process tree.** The
+  vendor CLI needs the network to reach its model, so network cannot be cut, and the run has your
+  real `HOME` because a wrong one logs the vendor out. Since 2026-09-21 every recorded launch on
+  macOS runs under the kernel's own seatbelt with the same user and `HOME`: for the launched
+  process and every descendant, writes under Hydra's directories and reads of the corpus and of
+  any other run's spawn directory fail with "operation not permitted" whatever the spelling, a
+  variable, an interpreter or a symlink included, measured on all four providers and pinned in
+  `tests/spawn.rs`. The profile is `(allow default)` plus those denials, so it is defence behind
+  the gate and not a boundary: it does not restrict process launching or mach services, and a
+  process that a system agent starts on the run's behalf, launchd for one, does not inherit it.
+  One `launchctl submit` probe on 2026-09-22 did not reproduce that class; nothing says a second
+  spelling would not. Map ticket 67 holds the question of what the seatbelt is for. The gate
+  still decides what a policy allows and writes the record; the kernel is what refuses the
+  write. A gated interactive launch, `hydra run --interactive --policy`, runs unwrapped today,
+  build ticket 73. Linux launches unwrapped.
+- **The deny list is Hydra's runtime directories and five config files, and nothing else.**
+  Under `standard` a shell command reads and writes the rest of the machine: `~/.ssh`, your own
+  `~/.claude` hooks and settings, Hydra's own source and build output, and any directory on
+  `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from. The binary that
+  `config/mcp.md` names as the delegate face is under `~/hydra/target/`, which the list does
+  not cover, so a run can rewrite the command the protected document points at. Map ticket 65
+  asks whether the checkout the binary was built from joins the list. Rung two's admission
+  gate runs `cargo test` on a proposer's worktree from the human's own shell before any judge
+  reads the patch, which is proposer-authored code executing outside the seatbelt; map ticket
+  66 holds that one. Until both close, the honest sentence is the one the 2026-09-14 review
+  ended on: the gate bounds what a run may do to Hydra, not what it may do to you.
+- **Inside the seatbelt a run cannot take git's index lock.** The worktree's private git
+  directory lives under `~/hydra/.git/worktrees/<run-id>`, which the profile denies, so `git
+  add`, `git commit` and `git stash` fail with "operation not permitted", and `git status` does
+  when it wants to refresh the index. `git diff`, `git log` and `hydra reap` from outside are
+  unaffected. Build ticket 70.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never
@@ -55,7 +80,10 @@ Hydra made about it.
   attack as it was measured; what it does not close is a child that means it. Map ticket 62 asked
   whether this class wants a second uid, and the answer on 2026-09-21 was the seatbelt above
   instead: a child that unsets the variable still cannot write a record into the corpus, because
-  the kernel denies the directory to its whole process tree.
+  the kernel denies the directory to its whole process tree. Since 2026-09-22 it cannot move the
+  corpus either: `HYDRA_ROOT` is refused from inside a seatbelt, because a child that unset the
+  marker and pointed the root at `/tmp` was writing a `permissive` run's record where the kernel
+  does not deny it, and `sandbox_check(3)` is the one fact about its ancestry a run cannot shed.
 - **Delegation from inside a run does not work under the seatbelt, since 2026-09-21.** The profile
   is inherited by every descendant, and a delegated child is Hydra itself, which reads its parent's
   record and writes its own into the corpus the profile denies. The human chose to keep the corpus
@@ -68,12 +96,26 @@ Hydra made about it.
   `--dangerously-bypass-hook-trust` because a per-run hook can never be a hash a human trusted.
   Measured on 0.154.0: a hook that exits non-zero with no JSON answer lets the call through. The
   sha check answers a tamper with a deny rather than an exit code for that reason, and a Python
-  crash inside the gate on this provider is a call that runs. The run record still shows every
-  call the hook answered; it cannot show the one it crashed on.
+  crash inside the gate on this provider is a call that runs. Since 2026-09-22 the gate answers
+  a deny in the caller's dialect for a payload whose `cwd` is not a string, a shell row whose
+  command is not a string, a document nested past the interpreter's limit, and anything
+  `evaluate` raises; before that a `cwd: 5` was a traceback. The run record still shows every
+  call the hook answered; it cannot show the one it crashed on. Under the seatbelt `codex`
+  runs with `--sandbox danger-full-access`, because its own seatbelt does not nest inside
+  Hydra's; its `workspace-write` would have bounded writes to the workspace, and Hydra's
+  profile bounds them to everything but Hydra's own directories, so on macOS a `codex` run's
+  writes reach wider than the vendor's default.
 - **The gate is only as good as the vendor build.** It lives in the vendor's own hook dialect,
   and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`
   is where a confirmed change becomes a failing test.
+
+- **The export verifier knows the redactor's classes and no others.** `hydra export` redacts
+  five prefixes and then scans for the same five, so it can only fire on a class it would not
+  have redacted. Until 2026-09-22 a PEM block lost its header and kept its body; the redaction
+  now runs to the footer. AWS keys, Slack tokens, JWTs and anything base64'd or split across a
+  line are not on the list, and `~/hydra/runs/` sits on this laptop beside the dotfiles that
+  hold them.
 
 ## Vendor terms
 

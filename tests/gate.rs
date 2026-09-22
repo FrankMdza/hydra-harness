@@ -2479,3 +2479,99 @@ fn codex_judge_is_not_refused_at_preflight() {
     assert!(message.contains("build ticket 48 item 4"), "{message}");
     assert!(message.contains("build ticket 61"), "{message}");
 }
+
+// Five shapes measured on 2026-09-22 against a compiled gate of a live run,
+// before the fixes they pin. A gate that dies is exit 1 and nothing on stdout,
+// which `codex` reads as permission and `claude` as a non-blocking error.
+
+#[test]
+fn a_payload_whose_cwd_is_not_a_string_is_answered_rather_than_crashed() {
+    let gate = Gate::new("standard");
+    let decision = gate.ask_with_dialect(
+        Some("claude"),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": { "command": "ls" },
+            "cwd": 5,
+        }),
+    );
+    assert_eq!(decision.exit, 0, "the gate died: {}", decision.reason);
+    assert!(
+        decision.allowed,
+        "a benign command with a malformed cwd was refused: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_shell_row_whose_command_is_not_a_string_is_refused() {
+    let gate = Gate::new("standard");
+    for input in [json!({ "command": 123 }), json!({ "command": null })] {
+        let decision = gate.ask("Bash", input.clone());
+        assert!(
+            decision.denied_for("hydra/bad-payload"),
+            "{input} was answered {}: {}",
+            decision.allowed,
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_write_that_names_no_path_is_refused_under_permissive_too() {
+    let gate = Gate::new("permissive");
+    let decision = gate.ask("Write", json!({ "content": "x" }));
+    assert!(
+        decision.denied_for("hydra/no-path"),
+        "permissive let a write with no path through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_payload_nested_past_the_interpreter_limit_is_a_deny_and_not_a_traceback() {
+    // `json.loads` raises RecursionError on this, which is not a ValueError,
+    // and before 2026-09-22 escaped `main` as a traceback with exit 1.
+    let gate = Gate::new("standard");
+    let nested = format!("{}1{}", "[".repeat(5000), "]".repeat(5000));
+    let mut child = Command::new(SHEBANG_PYTHON)
+        .arg(&gate.script)
+        .arg("claude")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("python3 is on PATH");
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(nested.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the gate died: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        stdout.contains("hydra/bad-payload"),
+        "a document nested past the limit was answered: {stdout}"
+    );
+}
+
+#[test]
+fn a_fetch_whose_url_spells_the_corpus_is_refused() {
+    let gate = Gate::new("standard");
+    let url = format!("file://{}/r.jsonl", gate.runs.display());
+    let decision = gate.ask("WebFetch", json!({ "url": url, "prompt": "read it" }));
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "a file URL naming the corpus was answered {}: {}",
+        decision.allowed,
+        decision.reason
+    );
+}

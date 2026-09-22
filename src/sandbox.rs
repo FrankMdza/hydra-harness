@@ -25,6 +25,37 @@ pub fn exec_available() -> bool {
     wraps_launches() && Path::new(SANDBOX_EXEC).is_file()
 }
 
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// `sandbox_check(3)`: with a null operation, whether `pid` is sandboxed.
+    fn sandbox_check(
+        pid: libc::pid_t,
+        operation: *const libc::c_char,
+        kind: libc::c_int,
+        ...
+    ) -> libc::c_int;
+}
+
+/// Whether this process is itself inside a seatbelt, which on this machine
+/// means Hydra put it around the run this process descends from.
+///
+/// A run under `standard` has shell and shell reaches the binary. The marker
+/// check of build ticket 57 is a variable the run can unset; the seatbelt is
+/// inherited and cannot be shed. So this is the one fact about its ancestry a
+/// run cannot hide, and `hydra run` reads it before it honours `HYDRA_ROOT`.
+pub fn inside_seatbelt() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: a null operation asks only whether the pid is sandboxed;
+        // the call reads no memory of ours.
+        unsafe { sandbox_check(libc::getpid(), std::ptr::null(), 0) == 1 }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 /// The profile path beside the gate in one spawn directory.
 pub fn profile_path(spawn_dir: &Path) -> PathBuf {
     spawn_dir.join("sandbox.sb")
@@ -56,6 +87,21 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
         r#"(deny file-read* (subpath "{}"))"#,
         escape(&corpus)
     ));
+    // Every spawn directory holds its run's `launch.json`, which carries the
+    // task string and the whole `run_start`, so a sibling's is the corpus by
+    // another door. Denied to reads whole, then this run's own re-allowed
+    // below: the provider reads its hook config, its MCP config and the gate
+    // itself out of there, and the gate script stays denied to writes.
+    lines.push(format!(
+        r#"(deny file-read* (subpath "{}"))"#,
+        escape(&canonical(&spawn.layout.spawns()))
+    ));
+    if let Some(own_spawn) = spawn.gate_script.parent() {
+        lines.push(format!(
+            r#"(allow file-read* (subpath "{}"))"#,
+            escape(&canonical(own_spawn))
+        ));
+    }
     for path in policy::own_write_paths(spawn) {
         let own = canonical(&path);
         lines.push(format!(

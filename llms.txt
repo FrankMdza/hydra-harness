@@ -1,6 +1,6 @@
 # Hydra
 
-> A Rust CLI that runs coding-agent CLIs (claude, cursor-agent, agy) in isolated git worktrees behind a deny-by-default policy, and records every run as one JSONL file whose outcome is derived from what the tools did, not from the vendor's exit code.
+> A Rust CLI that runs coding-agent CLIs (claude, cursor-agent, agy, codex) in isolated git worktrees behind a deny-by-default policy, and records every run as one JSONL file whose outcome is derived from what the tools did, not from the vendor's exit code.
 
 Use it when you need agent runs that are gated, recorded and reviewable. Do not use it as a low-latency subagent: each run is a full launch in a fresh worktree with a human-typed cleanup.
 

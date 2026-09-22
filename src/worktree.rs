@@ -119,15 +119,22 @@ pub fn commit_everything(
 fn dirty_outside(checkout: &Path, exclude: &[&str]) -> Result<bool> {
     let status = git(
         checkout,
-        &["status", "--porcelain", "--untracked-files=all"],
+        &["status", "--porcelain", "-z", "--untracked-files=all"],
     )?;
-    Ok(status.lines().any(|line| {
-        // `XY path`, or `XY old -> new` for a rename, where the new name is
-        // what would be committed.
-        let path = line.get(3..).unwrap_or("");
-        let path = path.rsplit(" -> ").next().unwrap_or(path);
-        !exclude.contains(&path)
-    }))
+    // `-z`: entries are NUL-terminated and never C-quoted, and a rename is
+    // `XY new\0old\0`, two entries, where the new name is what would be
+    // committed and the old one is skipped.
+    let mut entries = status.split('\0').filter(|entry| !entry.is_empty());
+    while let Some(entry) = entries.next() {
+        let path = entry.get(3..).unwrap_or("");
+        if entry.starts_with('R') || entry.starts_with('C') {
+            entries.next();
+        }
+        if !exclude.contains(&path) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Removes the untracked files at `exclude`, and only those: a path `git

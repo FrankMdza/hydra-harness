@@ -306,6 +306,14 @@ pub fn export_with_signoff(
     }
 
     let out = out.context("--out is required unless --dry-run is set")?;
+    // The preference file is always `preference.jsonl` beside `--out`, so an
+    // `--out` by that name would be truncated by its own sibling.
+    if out.file_name().and_then(|n| n.to_str()) == Some("preference.jsonl") {
+        bail!(
+            "--out cannot be named preference.jsonl: that is the name of the preference file \
+             written beside it, and the second write would truncate the first"
+        );
+    }
     let eligible: Vec<&Verdict> = verdicts.iter().filter(|v| v.eligible()).collect();
     let signoff = crate::export_preference::SignoffManifest::load(
         signoff_path.unwrap_or(&crate::export_preference::signoff_path()),
@@ -329,6 +337,10 @@ pub fn export_with_signoff(
         verify_export_line(&line)?;
         lines.push(line);
     }
+    // Rendered, and so verified, before either file is created: a secret in a
+    // preference pair used to surface after the events file was already on
+    // disk, which is not "aborts with nothing written".
+    let preference_lines = crate::export_preference::render_lines(&preference_pairs)?;
 
     let header = format!(
         "export count={} allowlist_sha={} residue=customer_data_in_fixture",
@@ -342,7 +354,7 @@ pub fn export_with_signoff(
     for line in lines {
         writeln!(file, "{line}")?;
     }
-    crate::export_preference::write_preference_jsonl(out, &preference_pairs, &signoff.sha)?;
+    crate::export_preference::write_preference_lines(out, &preference_lines, &signoff.sha)?;
     Ok(())
 }
 
@@ -475,10 +487,28 @@ fn redact_secrets(text: &str) -> String {
         ("-----BEGIN", "pem_private_key"),
     ] {
         while let Some(at) = out.find(prefix) {
-            let end = out[at..]
-                .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
-                .map(|idx| at + idx)
-                .unwrap_or(out.len());
+            // Four classes are one token. The fifth is a header whose value
+            // runs past every space to a footer, so the cut is the end of the
+            // `-----END ...-----` line when there is one, and the end of the
+            // text when there is not. Cutting at the first space left the key
+            // body on the line and the verifier, which looks for the header,
+            // satisfied.
+            let end = if prefix == "-----BEGIN" {
+                out[at..]
+                    .find("-----END")
+                    .and_then(|footer| {
+                        let footer = at + footer;
+                        out[footer + "-----END".len()..]
+                            .find("-----")
+                            .map(|close| footer + "-----END".len() + close + "-----".len())
+                    })
+                    .unwrap_or(out.len())
+            } else {
+                out[at..]
+                    .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+                    .map(|idx| at + idx)
+                    .unwrap_or(out.len())
+            };
             out.replace_range(at..end, &format!("[REDACTED:{label}]"));
         }
     }

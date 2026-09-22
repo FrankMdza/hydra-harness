@@ -10,37 +10,44 @@ on ports says what it needs.
 
 ## Why
 
-Three coding-agent CLIs, three output formats, three permission systems, and none of them
-tells you when it failed. Hydra exists because of one measurement: all three exit 0 and report
-success on runs where every tool call was refused. In the demo above `agy` says
-`result.status='SUCCESS'`; the record says `gated` and names the refused call.
+Four coding-agent CLIs, four output formats, four permission systems, and none of them
+tells you when it failed. Hydra exists because of one measurement: all four exit 0 and report
+success on runs where every tool call was refused, measured again on 2026-09-22 on the versions
+`hydra doctor` prints. In the demo above `agy` says `result.status='SUCCESS'`; the record says
+`gated` and names the refused call.
 
 So the record decides, not the vendor.
 
-- **The outcome is derived from the event stream.** A run with a denied tool inside is
-  `gated`, a run whose tools failed is `failed`, whatever the exit code said. Three vendors,
-  one contract, one outcome column.
+- **The outcome is derived from the event stream.** A run whose every tool call the gate
+  refused is `gated`. One refused call among calls that ran is a `permission_decision` on the
+  record, not a run outcome. A run whose tools failed is `failed`, whatever the exit code said.
+  Four vendors, one contract, one outcome column.
 - **Every run gets its own git worktree.** Seeded from your tree, so the agent sees your
   uncommitted work and cannot touch it. `hydra reap` commits what it did to `hydra/<run-id>`
   and removes the checkout. Your branch never moves.
 - **A policy is compiled into the vendor's own hook.** Five named policies, from `judge`
   (nothing) to `permissive`. The gate speaks each vendor's hook dialect and refuses if spoken
-  to in the wrong one. Any shell command that names a protected path is refused under every
-  policy. Measured detail: Cursor runs three tools without asking its hook; the record marks
-  them `unhooked` rather than pretending.
-- **No secret reaches the agent.** The child's environment is built from an allowlist:
-  `HOME`, `USER`, `PATH`, `TERM`, plus `SHELL` and `TMPDIR` for `claude`, the proxy
-  variables when set, and the two names Hydra sets itself. `src/env.rs` is the whole list.
-  The API key in your `.zshrc` stays in your `.zshrc`. `NODE_OPTIONS` and `PYTHONPATH` are
-  stripped as injection paths.
+  to in the wrong one. Any shell command that spells a protected path is refused under every
+  policy; one that assembles the path is not, and `SECURITY.md` says what walks past. Measured
+  detail: Cursor runs three tools without asking its hook; the record marks them `unhooked`
+  rather than pretending.
+- **No secret reaches the agent through its environment.** The child's environment is built
+  from an allowlist: `HOME`, `USER`, `PATH`, `TERM`, plus `SHELL` and `TMPDIR` for `claude`,
+  `NODE_EXTRA_CA_CERTS` for the two Node providers, the proxy variables when set, and the two
+  names Hydra sets itself. `src/env.rs` is the whole list. The API key exported in your
+  `.zshrc` stays out of the child's `env`. `NODE_OPTIONS` and `PYTHONPATH` are never on the
+  list. What the agent can read off the disk under `standard` is a different question, and
+  `SECURITY.md` answers it.
 - **No daemon, no database.** `~/hydra/runs/*.jsonl` is the source of truth. Nothing has to
   be running for the harness to exist, and `hydra status` reconciles live pids against open
   records on demand.
-- **Records leave by one door.** `hydra export` is the only path anything leaves this
-  machine by: one line per eligible run, behind a repo allowlist and a secret scan that aborts
-  the whole export on one hit. The contract keeps records lossless so a training set can be
-  built from them elsewhere; the SFT and preference shapes the contract describes are not
-  written yet, and training itself is out of scope (map decision D12).
+- **Records leave by one door.** `hydra export` is the only path Hydra itself sends anything
+  off this machine by: one line per eligible run, and `preference.jsonl` beside it since build
+  ticket 65, behind a repo allowlist, a human sign-off manifest and a secret scan that aborts
+  before either file is created. The vendor CLI talks to its own API on every run, and the
+  record shows what it was sent. The contract keeps records lossless so a training set can be
+  built from them elsewhere; the SFT shape the contract describes is not written yet, and
+  training itself is out of scope (map decision D12).
 - **It reads its own records.** Rung one (`hydra curate`) proposes skill edits from the
   failure classes it finds; rung two (`hydra evolve`) proposes patches to Hydra's own Rust,
   behind an admission gate and a panel of four judges, one per vendor. Nothing lands without
@@ -70,8 +77,11 @@ have one: `hydra status` prints the root it read on its first line and the polic
 on its second. `HYDRA_ROOT=/some/dir` moves the runs, worktrees and skill store for one
 command; `HYDRA_HOME=/some/checkout` moves `policies/` and `config/`, which otherwise resolve
 through the source directory at compile time, so the binary is not relocatable without both.
-Measured against `claude` 2.1.267, `cursor-agent` 2026.09.10 and `agy` 1.2.1 on 2026-09-15;
-a drift test in `tests/drift.rs` fails when `claude` changes what the gate relies on.
+Measured against `claude` 2.1.268, `cursor-agent` 2026.09.18-9a7762b, `agy` 1.2.8 and `codex`
+0.154.0 on 2026-09-22, which is what `hydra doctor` compares the installed binaries against.
+`tests/drift.rs` re-measures what the `judge` launch relies on in `claude` and whether `codex
+login status` still answers; the hook dialects themselves are measured by hand and recorded by
+run id in `IMPLEMENTATION.md`.
 
 ## Quick start
 
@@ -119,7 +129,8 @@ server that gives Claude Code a typed `delegate` tool over `hydra run`.
 
 `judge` < `read-only` < `standard` < `permissive`, and `judge` < `curate`, which grants a
 different set and is neither inside nor outside `standard`. A child is never wider than its
-parent. `policies/README.md` has the capability table; `policies/*.json` are the policies, and
+parent. `docs/harness-spec.md` section 7.2 has the capability table and `src/policy/table.rs`
+is its code; `policies/*.json` are the policies, and
 every record carries the sha of the set it ran under.
 
 The policy is compiled into the vendor's hook rather than written into the prompt, and two
@@ -154,7 +165,7 @@ Worktree-per-run over several vendor CLIs is a crowded shelf. What is not on it 
 | [vibe-kanban](https://github.com/BloopAI/vibe-kanban) | 10+ | yes | no | no |
 | [Cupcake](https://github.com/eqtylab/cupcake) | 4, via hooks | no | no | yes, OPA/Rego, richer than Hydra's |
 | [Langfuse coding-agent tracing](https://langfuse.com/resources/engineering/coding-agent-tracing) | 3 | no | traces, hosted, no outcome | no |
-| Hydra | 4, `codex` under two policies | yes | yes, outcome derived from the stream | yes, five policies, three dialects |
+| Hydra | 4, `codex` under three policies | yes | yes, outcome derived from the stream | yes, five policies, three dialects |
 
 ccmanager has the live dashboard and container isolation Hydra lacks. Cupcake has the policy
 language. Langfuse has the UI and cross-run search. None derives the outcome from what the tools
@@ -170,10 +181,12 @@ did, which is the one thing Hydra was built around.
 
 ## Roadmap
 
-- **Codex under `read-only` and `judge`.** Routed since build ticket 48 under `standard` and
-  `permissive`, measured on 0.154.0 with the gate refusing a protected path on a real run. It
-  has no read tool, so the two narrower policies wait on map ticket 63, and under `standard`
-  its `apply_patch` is refused because the tool names no path; writes go through the shell.
+- **Codex under `read-only`, and `hydra resume` on it.** Routed since build ticket 48 under
+  `standard` and `permissive`, on the judge panel since 61, writing through `apply_patch` since
+  69 because the gate reads the paths out of the patch body. It has no read tool, so map ticket
+  63 refuses `read-only` until a bounded shell read exists. `codex exec resume` takes neither
+  `-C` nor `--sandbox`, so a resume cannot be pinned to a fresh worktree and is refused; build
+  ticket 71.
 - More vendor CLIs that log in rather than take a key.
 - OpenTelemetry emission from the record, so existing viewers can read it.
 - Linux.
@@ -181,7 +194,7 @@ did, which is the one thing Hydra was built around.
 ## Ports wanted
 
 Hydra is measured on macOS and nowhere else. A Linux port is small: `setsid`, the process
-start time the liveness test reads, and the three vendor binaries all exist there, so most of
+start time the liveness test reads, and the four vendor binaries all exist there, so most of
 the work is running `tests/drift.rs` and fixing what it names. A Windows port is larger: the
 pty crate supports ConPTY, but the liveness test, the gate's shell parsing (POSIX today) and the
 hook paths all assume a Unix shell. Both are welcome as forks or pull requests; open an issue
@@ -189,11 +202,14 @@ first so the design map gets a ticket and the record contract does not fork with
 
 ## Status, in numbers
 
-Eleven of eleven commands. 23 test files, green. Rung one has run once against the real
-corpus and proposed one skill. Rung two has run ten passes and offered one patch, a two-word
-one, on the tenth, and a human merged it; the other nine found something real, and
-`IMPLEMENTATION.md` says what. Read that file before trusting a
-record: it is every departure from the design with its reason.
+Twelve commands a human types, the eleven of harness spec 17 plus `doctor`, and two hidden
+ones. 23 test files, green in CI on macOS against an empty corpus; the three walks over the
+real records run only on a machine that has some, so a green CI says the readers compile and
+the fixtures hold, not that every record on this laptop still meets the contract. Rung one has
+run once against the real corpus and proposed one skill. Rung two has run ten passes and
+offered one patch, a two-word one, on the tenth, and a human merged it; the other nine found
+something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a record:
+it is every departure from the design with its reason.
 
 ## Who wrote the code
 
@@ -204,7 +220,7 @@ names the run id and the token count.
 
 | Written by | Build tickets |
 |---|---|
-| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60 |
+| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 69 |
 | `cursor-agent` on Grok 4.6 Fast | 21, 30, 33, 35, 37, 38 |
 | `cursor-agent`, no model flag, so the record says none | 17 |
 | `claude` on Sonnet 5 | 18, 22, 23, 26, 27 |
@@ -212,7 +228,7 @@ names the run id and the token count.
 | `agy` on Gemini 3.1 Pro | 19, and the drift test of 17 |
 | the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59 |
 
-That is 26 of 60 build tickets on an agent run, none of them merged unread. Ticket 27, the
+That is 35 of 69 build tickets on an agent run, none of them merged unread. Ticket 27, the
 interactive mode and its harvest, was the largest single run at 54.7M tokens, 54.0M of them
 cache reads. Ticket 25 was the first Rust ticket given to the cheapest model, and it held.
 The design documents, the policies, the record contract and this README are the session's.
@@ -225,8 +241,8 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 62 decision tickets with the reasoning each
-document compressed. `CLAUDE.md` is what an agent reads first.
+`.scratch/hydra/map.md` is the design history: 64 decision tickets, 63 of them resolved, with
+the reasoning each document compressed. `CLAUDE.md` is what an agent reads first.
 
 ## Contributing and support
 

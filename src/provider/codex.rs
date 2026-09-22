@@ -18,11 +18,6 @@
 //! The `.codex/hooks.json` in the worktree is still written, because a launch
 //! with no checkout runs in a plain directory where the file is what fires.
 //!
-//! **A hook that exits non-zero without a JSON answer fails open**, probe p3:
-//! the marker was written and the command ran. The sha check in `hook.py`
-//! answers with a deny in `claude`'s dialect rather than an exit code for
-//! that reason.
-//!
 //! **Hook trust is per-hash and a per-spawn gate never matches**, so
 //! `--dangerously-bypass-hook-trust` rides every launch Hydra makes. The
 //! record has to say so.
@@ -170,9 +165,13 @@ pub fn hooks_config(gate_script: &Path, gate_sha: &str) -> serde_json::Value {
 /// in the path is escaped and a newline would be refused, which is why the
 /// Python is in a file.
 pub fn config_overrides(hook_file: &Path) -> Vec<String> {
+    // Codex hands the command to a shell, so the path is quoted for one before
+    // the TOML escaping below. Unquoted, a space in the data root split the
+    // path, Python opened the wrong file, and the hook died without answering,
+    // which on this provider is a call that runs (SECURITY.md).
     let command = format!(
         "/usr/bin/python3 {} {}",
-        hook_file.display(),
+        crate::policy::shell_quote(&hook_file.display().to_string()),
         Dialect::Claude.as_str()
     );
     let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
@@ -402,7 +401,7 @@ mod tests {
         let at = argv.iter().position(|arg| arg == value).unwrap();
         assert_eq!(argv[at - 1], "-c");
         assert!(
-            value.contains("command=\"/usr/bin/python3 /tmp/spawn/r1/hook.py claude\""),
+            value.contains("command=\"/usr/bin/python3 '/tmp/spawn/r1/hook.py' claude\""),
             "{value}"
         );
         assert!(

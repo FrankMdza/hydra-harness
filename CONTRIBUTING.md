@@ -10,7 +10,8 @@ welcome, and it starts by reopening that ticket rather than by editing the code.
 
 The most useful report is **provider drift**: a vendor CLI changed its stream, its hook
 dialect, or its flags, and something Hydra relied on moved. There is an issue template for
-it. Include the vendor version (`claude --version`, `cursor-agent --version`, `agy --version`),
+it. Include the vendor version (`claude --version`, `cursor-agent --version`, `agy --version`,
+`codex --version`, or the four lines `hydra doctor` prints),
 the run id, and the lines of the record that changed. `tests/drift.rs` is where a confirmed
 drift becomes a test.
 

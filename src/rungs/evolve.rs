@@ -440,6 +440,13 @@ pub const PROTECTED_CODE_PATHS: &[&str] = &[
     "src/policy",
     "src/record",
     "src/env.rs",
+    // Since 2026-09-22. The seatbelt is what SECURITY.md leans on for the
+    // corpus read denial and for the writes the string floor cannot see, and
+    // the marker check is what stops a run relaunching the binary wider; a
+    // patch to either reached the panel until the hiring-panel review of that
+    // day named it. The third time a mechanism landed outside this list.
+    "src/sandbox.rs",
+    "src/containment.rs",
 ];
 
 /// Case-insensitive check against the config rows of harness spec 15.2 and the
@@ -1027,10 +1034,17 @@ fn rate_limit_status(raw: &serde_json::Value) -> Option<String> {
 
 fn changed_paths(worktree: &Path, index: &Path, base: &str) -> Result<Vec<String>> {
     let head = seed_tree(worktree, index)?;
-    let names = git(worktree, &["diff-tree", "-r", "--name-only", base, &head])?;
+    // `-z`, so a path git would otherwise C-quote (a quote, a backslash, a
+    // newline, a non-ASCII byte) arrives as itself and `protected_path_hit`
+    // sees the path and not a quoted literal of it. `seed()` in
+    // `src/worktree.rs` reads `ls-files -z` for the same reason.
+    let names = git(
+        worktree,
+        &["diff-tree", "-r", "--name-only", "-z", base, &head],
+    )?;
     Ok(names
-        .lines()
-        .filter(|line| !line.is_empty())
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
         .map(str::to_string)
         .collect())
 }

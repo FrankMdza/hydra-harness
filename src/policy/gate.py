@@ -673,7 +673,9 @@ def evaluate(payload):
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         tool_input = {}
-    cwd = payload.get("cwd") or HYDRA_CONFIG["scopes"].get("worktree") or os.getcwd()
+    cwd = payload.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        cwd = HYDRA_CONFIG["scopes"].get("worktree") or os.getcwd()
 
     capability = capability_of(tool)
     if capability is None:
@@ -707,6 +709,17 @@ def evaluate(payload):
     # The path denials of 7.5, before the policy is consulted at all. This is
     # where `permissive` stops being permissive.
     if capability == "file_write":
+        # A write the gate cannot place is a write it cannot check. Under the
+        # four scoped policies `hydra/no-path` below already refuses it; under
+        # `permissive` the `anywhere` branch used to pass it, so a write row
+        # whose field name the table got wrong, or a provider that renamed the
+        # field, was a write to a denied path the gate reported as an allow.
+        # The two `agy` rows the table marks unmeasured are the case in point.
+        if not paths:
+            return False, (
+                "hydra/no-path: {} is a write and named no path the gate could "
+                "check, so it is refused under every policy.".format(tool)
+            )
         for write_path in paths:
             protected = protected_root(write_path)
             if protected is not None:
@@ -747,10 +760,31 @@ def evaluate(payload):
                 "is refused whole.".format(tool, protected)
             )
 
+    # A fetch tool's argument is a URL, and `file://` is a scheme. Whether any of
+    # the four providers dereferences one is not measured; the check costs the
+    # same raw pass `mcp_call` pays and refuses only a URL that spells a
+    # protected path.
+    if capability == "network_read":
+        protected = protected_path_named_in(tool_input)
+        if protected is not None:
+            return False, (
+                "hydra/protected-path: an argument of {} names {}, denied under "
+                "every policy by harness spec 7.5.".format(tool, protected)
+            )
+
     # The same list, reached through the capability that carries no path.
     if capability == "shell":
         raw_command = tool_input.get(HYDRA_CONFIG["command_field"], "")
-        if isinstance(raw_command, str) and raw_command:
+        # A shell row the gate cannot read is a shell row it cannot check: the
+        # floor below runs on the string and nothing else. Measured 2026-09-22
+        # on a compiled gate: `command: 123` and `command: null` both came back
+        # `hydra/allow` with the floor never consulted.
+        if not isinstance(raw_command, str):
+            return False, (
+                "hydra/bad-payload: {} carries no command string for the gate "
+                "to read.".format(tool)
+            )
+        if raw_command:
             protected = protected_path_named_by(raw_command, cwd)
             if protected is not None:
                 return False, (
@@ -833,7 +867,10 @@ def main():
     try:
         raw = sys.stdin.read()
         payload = json.loads(raw) if raw.strip() else {}
-    except ValueError:
+    except (ValueError, RecursionError):
+        # A document nested past the interpreter's limit raises RecursionError,
+        # not ValueError, and used to be a traceback: measured 2026-09-22 at a
+        # depth of five thousand.
         respond(dialect, False, "hydra/bad-payload: the hook payload was not JSON")
         return
 
@@ -841,7 +878,20 @@ def main():
         respond(dialect, False, "hydra/bad-payload: the hook payload was not an object")
         return
 
-    allowed, reason = evaluate(payload)
+    # Whatever `evaluate` raises is answered as a deny in the caller's own
+    # shape. A traceback is exit 1 and nothing on stdout, which `codex` reads
+    # as permission (SECURITY.md) and `claude` reads as a non-blocking error;
+    # measured 2026-09-22 with `cwd: 5` on a compiled gate, which died in
+    # `os.path.join`. That path is handled above now, and no other reachable
+    # raise was found the same day, so this handler has no test that drives
+    # it. It is here for the next one.
+    try:
+        allowed, reason = evaluate(payload)
+    except Exception as err:  # noqa: BLE001, the point is to catch everything
+        allowed, reason = False, (
+            "hydra/gate-error: the gate raised {} while evaluating this call, "
+            "and a gate that cannot decide refuses.".format(type(err).__name__)
+        )
     respond(dialect, allowed, reason)
 
 

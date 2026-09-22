@@ -4,7 +4,7 @@ about: A vendor CLI changed something Hydra relied on
 labels: drift
 ---
 
-**Vendor and version** (`claude --version`, `cursor-agent --version` or `agy --version`):
+**Vendor and version** (`claude --version`, `cursor-agent --version`, `agy --version` or `codex --version`):
 
 **Hydra commit** (`git rev-parse --short HEAD`):
 

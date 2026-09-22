@@ -6,7 +6,7 @@ earns it.
 
 | File | Config | Exists |
 |---|---|---|
-| `env-allowlist.json` | #2, the environment allowlist | no, it is still Rust in `src/env.rs` |
+| `env-allowlist.json` | #2, the environment allowlist | no, it is Rust in `src/env.rs` by design, and `hydra doctor` reports it as in code rather than missing |
 | `export-allowlist.json` | #3, the export allowlist | no. `hydra export` has been built since build ticket 34 and refuses to run without this file. `export-allowlist.json.example` beside it is the shape: a JSON array of absolute repository paths, one per repo whose work may leave this machine. A relative path is refused |
 | `export-signoff.json` | beside #3, the export sign-off manifest, since build ticket 65 | no. A JSON array of `{pass_id, judge_run_id, finding_item}`, one per judge finding a human confirmed; a judge-derived preference pair leaves only when its pass is listed. `export-signoff.json.example` is the shape. Denied to runs the way the allowlist is |
 | `preamble.md` | #4, the instruction preamble | yes |
@@ -29,7 +29,8 @@ string that every record already stores.
 
 `mcp.md` is the opposite case on the sha: it does not ride the task string, so every run
 record carries `mcp.doc_sha`, which is `shasum -a 256 config/mcp.md` over the whole file.
-The document itself says what its one fenced `toml` block may hold. It ships with no
-server declared, because nobody has configured one on this machine, and adding one is a
-human's decision: a server definition is a command Hydra spawns inside every run the
-document admits it to.
+The document itself says what its one fenced `toml` block may hold. It declares one server,
+the delegate face, and its `command` is an absolute path into this checkout's `target/`, so
+a clone anywhere but `~/hydra` has to edit that line before the face can start. Adding a
+server is a human's decision: a server definition is a command Hydra spawns inside every
+run the document admits it to.

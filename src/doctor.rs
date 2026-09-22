@@ -64,33 +64,49 @@ pub fn run(layout: &Layout) -> Result<Report> {
         out.push_str("policy_sha missing\n");
     }
 
-    for (label, path) in protected_configs(&home) {
-        config_line(&mut out, label, &path, &mut missing);
+    for config in protected_configs(&home) {
+        match config {
+            Config::Launch(label, path) => path_line(&mut out, label, &path, &mut missing),
+            // Exit 1 is for what a launch needs. The export allowlist is what
+            // `hydra export` needs, and it says so itself when it is absent.
+            Config::Later(label, path) => {
+                out.push_str(&format!("{label} {} {}\n", path.display(), presence(&path)));
+            }
+            Config::InCode(label, module) => {
+                out.push_str(&format!("{label} in code, {module}\n"));
+            }
+        }
     }
 
     Ok(Report { text: out, missing })
 }
 
-fn protected_configs(home: &Path) -> [(&str, PathBuf); 5] {
+/// One protected config as the doctor reports it.
+enum Config {
+    /// A launch refuses without it.
+    Launch(&'static str, PathBuf),
+    /// A later command refuses without it, and a launch does not.
+    Later(&'static str, PathBuf),
+    /// Rust by design, never a file: `config/README.md` says which.
+    InCode(&'static str, &'static str),
+}
+
+fn protected_configs(home: &Path) -> [Config; 6] {
     let config = home.join("config");
     [
-        ("delegation policy set", home.join("policies")),
-        ("environment allowlist", config.join("env-allowlist.json")),
-        ("export allowlist", config.join("export-allowlist.json")),
-        ("instruction preamble", config.join("preamble.md")),
-        ("canonical MCP document", config.join("mcp.md")),
+        Config::Launch("delegation policy set", home.join("policies")),
+        Config::InCode("environment allowlist", "src/env.rs"),
+        Config::Later("export allowlist", config.join("export-allowlist.json")),
+        Config::Later(
+            "export sign-off manifest",
+            config.join("export-signoff.json"),
+        ),
+        Config::Launch("instruction preamble", config.join("preamble.md")),
+        Config::Launch("canonical MCP document", config.join("mcp.md")),
     ]
 }
 
 fn path_line(out: &mut String, label: &str, path: &Path, missing: &mut bool) {
-    let state = presence(path);
-    if state == "missing" {
-        *missing = true;
-    }
-    out.push_str(&format!("{label} {} {state}\n", path.display()));
-}
-
-fn config_line(out: &mut String, label: &str, path: &Path, missing: &mut bool) {
     let state = presence(path);
     if state == "missing" {
         *missing = true;

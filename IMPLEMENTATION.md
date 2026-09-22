@@ -74,10 +74,14 @@ remains at risk is a write to the policy directory or the corpus through a path 
 command assembles.
 
 Provider versions this build has been measured against. The table is the 2026-09-06 reading
-the provider sections cite; `README.md` names the 2026-09-15 reading, `claude` 2.1.267,
-`cursor-agent` 2026.09.10 and `agy` 1.2.1, and on 2026-09-19 the machine had 2.1.268,
-2026.09.18-9a7762b and 1.2.3. Two of the three self-update, so a version string here is a
-date, and `tests/drift.rs` is what re-measures behaviour:
+the provider sections cite; `provider::MEASURED_VERSIONS`, `README.md` and `hydra doctor` name
+the 2026-09-22 reading, `claude` 2.1.268, `cursor-agent` 2026.09.18-9a7762b, `agy` 1.2.8 and
+`codex` 0.154.0, on which the founding measurement was repeated that day: one-step `judge` runs
+01a0c790-8a9d on `claude` (`subtype: success`, `is_error: false`, exit 0) and 01a0c790-9157 on
+`agy` (`status: SUCCESS`, exit 0), both `gated`, beside 01a0c4c5-650b on `cursor-agent` and
+01a0c62b-d005 on `codex` from the day before. `agy` self-updated from 1.2.7 to 1.2.8 between
+`hydra doctor` and the run, an hour apart. Three of the four self-update, so a version string
+here is a date, and `tests/drift.rs` is what re-measures behaviour:
 
 | Provider | Version | Read |
 |---|---|---|
@@ -2829,14 +2833,44 @@ all four completed, and on `codex` a corpus write spelled as two variables faile
 while the write in its own worktree succeeded. Delegation from inside a run does not work under
 the profile, by the human's choice on map ticket 64.
 
+**What the seatbelt is and is not, measured 2026-09-22.** `tests/spawn.rs` now drives a real
+profile through `sandbox-exec` on a corpus read spelled in full, a corpus write assembled from two
+variables, a write through `python3`, and a read and a write through a symlink out of the
+worktree, and every one is refused; the same file drives a sibling spawn directory, which is
+read-denied since that day because its `launch.json` carries the task and the whole `run_start`,
+against the run's own, which stays readable and whose gate stays unwritable; one pong per provider
+under the new profile completed, 01a0c7c7-b4d8 on `cursor-agent`, 01a0c7c7-d431 on `codex`,
+01a0c7c7-f370 on `agy` and 01a0c7c8-12b6 on `claude`. Three things it does
+not do. It is `(allow default)` behind the denials, so process launching and mach services are
+open and a process launchd starts on the run's behalf does not inherit it; one `launchctl submit`
+probe that day did not reproduce the class, and map ticket 67 asks what the profile is for. The
+worktree's private git directory is under `~/hydra/.git/worktrees/<run-id>`, which the profile
+denies, so `git add`, `git commit` and `git stash` fail inside a run and `git status` does when it
+wants to refresh the index, measured on a real profile and visible on runs 01a0c5b5-b8e6 and
+01a0c5d8-af17 from 2026-09-21; build ticket 70. And a gated interactive launch spawns `claude`
+bare, `src/interactive.rs`, with `sandbox: None` on its record; build ticket 73.
+
+**`HYDRA_ROOT` is refused inside a seatbelt, since 2026-09-22.** A `standard` run has shell,
+shell reaches the binary, and `env -u HYDRA_RUN_ID HYDRA_ROOT=/tmp/x hydra run --policy
+permissive` walked past both the marker check and the foreign-checkout refusal and wrote a
+`permissive` record under `/tmp/x/runs/`, where the kernel denies nothing and `hydra status`
+never looks. The seatbelt is inherited and cannot be shed, `sandbox_check(3)` with a null
+operation says whether the caller is inside one, and `run.rs` reads it before it honours the
+variable. `tests/spawn.rs::hydra_root_is_refused_from_inside_a_seatbelt` drives the built binary
+under a minimal profile and asserts the refusal and that no root was created, with the same
+launch outside a profile as the control.
+
 **A launch from a foreign checkout refuses, and `hydra doctor`, since build ticket 67.**
 `refuse_foreign_checkout` in `run.rs` runs after `Layout::discover` and before `layout.ensure`,
 compares the checkout `paths::hydra_home` names against the root, and refuses with both paths and
 the variable when `HYDRA_ROOT` is unset and they differ; nothing is written first, because a
 refusal that writes into the root is the surprise itself. `src/doctor.rs` prints what a launch
-would find and exits 1 when a protected config is missing, which on this machine it is: the
-environment allowlist and the export allowlist. `provider::MEASURED_VERSIONS` is the one table of
-measured versions. The interactive launch does not pass through the refusal yet. Map ticket 61.
+would find and exits 1 when something a launch needs is missing; since 2026-09-22 the
+environment allowlist is reported as in code, which it is by design, and the export allowlist and
+the sign-off manifest are reported without setting the exit code, because a launch does not need
+them and `hydra export` says so itself. On this machine it exits 0 now. `provider::MEASURED_VERSIONS`
+is the one table of measured versions. The interactive launch does not pass through the refusal
+yet. Map ticket 61.
 
 **Redaction is the four classes and nothing else.** Repository names taken from the
 allowlist entries that are not the exported run's own, replaced by a labelled marker;
@@ -3422,8 +3456,8 @@ Out of scope for this slice, and each one has a document that already says what 
   argues. No record on this machine carries `mcp_unavailable`: `tests/mcp.rs` drives the
   refusal against a fixture document, and the shipped document admits nothing to
   anybody, so producing one for real means a human adding a server.
-- Harvest, ticket 12. Contract 7.2.1's transcript vocabulary has no reader on any
-  provider. All three of 7.2's stream columns are read now, `agy`'s as of ticket 10.
+- Nothing about harvest is unbuilt: `src/normalize/claude.rs` reads contract 7.2.1's
+  transcript vocabulary since build ticket 27, and all four of 7.2's stream columns are read.
 - A rate-limited or logged-out `agy` run. `provider_refused` keys on `api_error_status`,
   which that provider does not write, and neither path has been measured, so a run
   refused for quota comes out `failed`.
@@ -3436,6 +3470,58 @@ Out of scope for this slice, and each one has a document that already says what 
   the tenth, on 2026-09-21, was offered by all four judges, so `rungs/<pass-id>` and an
   `ApprovedPatch` built from a real verdict exist now. The section above says what each pass
   found. Spec 4.11's merge is the human's, and the first one is commit 24cade6, the same day.
+
+## What the hiring-panel review of 2026-09-22 changed
+
+Seven readers took the repository as a portfolio submission for a harness engineering role: the
+four providers through `hydra run` under `standard`, `claude` on Opus 5 (01a0c793-4b3c, 9.3M
+tokens, ended `rate_limited` after writing its file), `codex` (01a0c793-726c, 7.4M),
+`cursor-agent` on Composer 2.5 (01a0c795-f0a5, 1.9M; Opus and GPT-5.6 on that account were
+`rate_limited` at launch) and `agy` on Gemini 3.1 Pro (01a0c799-18d2, 0.5M), plus three Claude
+Code subagents on Opus with separate briefs: the public documents against the code, the Rust as
+a pull request, and the threat model as an attacker. All seven said advance to interview;
+`docs/reviews/2026-09-22-seven-readers-as-a-hiring-panel.md` is the consolidated report. What
+changed in the code that day, each with its test:
+
+- The gate answers a deny in the caller's dialect for a `cwd` that is not a string, a shell row
+  whose command is not a string, a `file_write` row that names no path under every policy
+  including `permissive`, a document nested past the interpreter's limit, a `network_read`
+  whose URL spells a protected path, and anything `evaluate` raises. `tests/gate.rs`, five
+  tests, 81 in the file. `hydra/gate-error` is a code the normalizer knows.
+- `hydra export` redacts a PEM block to its footer, renders and verifies the preference lines
+  before either file is created, and refuses an `--out` named `preference.jsonl`.
+  `tests/export.rs`, two tests.
+- `HYDRA_ROOT` is refused inside a seatbelt; a sibling's spawn directory is read-denied by the
+  profile; the corpus denial is pinned under four spellings. `tests/spawn.rs`, three tests.
+- `src/sandbox.rs` and `src/containment.rs` are on `PROTECTED_CODE_PATHS`.
+- `hydra resume` on `codex` is refused with the reason, because `codex exec resume` takes
+  neither `-C` nor `--sandbox` and the argv `append_resume_args` built was one the binary
+  rejects. Build ticket 71.
+- The harvest of an abandoned interactive run holds `flock(2)` on the record from before the
+  first `has_run_end` read to the end, so two `hydra status` cannot both append the transcript.
+- The delegate face reaps the watchers it started, one zombie per delegation until then.
+- `changed_paths` and `dirty_outside` read git with `-z`, so a path git would C-quote reaches
+  `protected_path_hit` as itself.
+- `Provider::version` runs the vendor binary under the child's allowlist rather than the
+  launcher's whole environment.
+- The `codex` hook path is shell-quoted before it is TOML-escaped.
+- `prune`, `status`, `usage recount` and `resume` take a run-id prefix through `resolver`, the
+  way `show`, `logs` and `reap` did.
+- `hydra doctor` reports the environment allowlist as in code and does not exit 1 for the two
+  files only `hydra export` needs.
+
+What it found that is a decision, and so a ticket rather than a commit: whether Hydra's own
+checkout, `~/hydra/src` and `~/hydra/target` included, joins the deny list (map 65); whether rung
+two's admission gate may run a proposer's `cargo test` outside the seatbelt before the panel (map
+66); what the seatbelt is for, given `(allow default)` and launchd (map 67). And four build
+tickets: git's index lock under the seatbelt (70), `codex` resume (71), a deadline on the pty tee
+so a grandchild holding the slave cannot leave a record open forever (72), and the gated
+interactive launch under the seatbelt (73).
+
+What it found that this file already said and the README did not: the corpus walks are vacuous in
+CI, `gated` needs every call refused, the concurrency cap is a check without a reservation
+(`live::guard` counts and does not reserve, so two launchers seeing one slot both proceed), and
+`run_start` takes thirteen positional arguments with two adjacent same-typed `Option` pairs.
 
 ## Rough edges worth knowing
 

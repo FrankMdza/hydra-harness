@@ -11,6 +11,8 @@ can disagree is a bug with a schema.
 `allow` entries name a capability and, where the capability takes a path, a scope.
 `file_read` and `file_write` are the two scoped capabilities. `shell`, `network_read`,
 `mcp_call`, `subagent_spawn`, `skill_invoke` and `provider_native` take no scope.
+`opaque_shell`, build ticket 59, is the capability no policy grants: a row that writes to
+the stdin of a command already running carries nothing the gate can read.
 
 The scopes are `worktree` (the run's own checkout), `skill_store` (`~/hydra/skills/`),
 `skill_checkout` (`~/hydra/skill-worktrees/<run-id>/`, a `curate` pass's own git worktree
@@ -28,6 +30,9 @@ is linked a skill and cannot invoke it was given a listing entry rather than a s
 every policy that reads at all grants both. `judge` reads nothing and gets neither.
 `skill_snapshot` never appears on `file_write`: a run that could edit its snapshot could
 edit its own instructions mid-session.
+
+The capability table, one row per vendor tool, is `docs/harness-spec.md` section 7.2 and
+`src/policy/table.rs`.
 
 A sixth policy should arrive with a reason. Adding one means a file here, a row in
 `Policy` in `src/policy/mod.rs`, and a place in the partial order of 7.3.

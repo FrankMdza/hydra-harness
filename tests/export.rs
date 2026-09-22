@@ -472,3 +472,80 @@ fn a_gated_judge_is_read() {
         "a judge that only reads through the gate is not completed"
     );
 }
+
+#[test]
+fn a_pem_block_is_redacted_to_its_footer_and_not_to_its_first_space() {
+    let fixture = Fixture::new("pem");
+    fixture.write_allowlist();
+    let in_a = fixture.repo_a.join("key.pem");
+    std::fs::write(&in_a, "x\n").unwrap();
+    let wt = fixture.worktree(ELIGIBLE);
+    let mut record = Record::shaped(Shape {
+        run_id: ELIGIBLE,
+        parent_run_id: None,
+        provider: Some("claude"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&wt),
+        scopes: Some(scopes_of(&fixture.layout(), ELIGIBLE, "standard", &wt)),
+        ..Shape::default()
+    });
+    // The record itself is written by a test, so the write-time sweep that
+    // would flag this run ineligible never ran; that is the preference path's
+    // shape too, where a diff is redacted and exported without a flag.
+    let body = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAplanted\nbodyline2\n-----END RSA PRIVATE KEY-----\nafter";
+    let text = record
+        .tool_use(
+            "toolu_01",
+            "Read",
+            json!({"file_path": in_a.to_string_lossy()}),
+        )
+        .tool_result("toolu_01", body, false)
+        .closed();
+    fixture.write(ELIGIBLE, &text);
+
+    let out = fixture.root.join("pem.jsonl");
+    export(
+        &fixture.layout(),
+        &fixture.allowlist_path(),
+        Some(&out),
+        false,
+    )
+    .unwrap();
+    let written = std::fs::read_to_string(&out).unwrap();
+    assert!(written.contains("[REDACTED:pem_private_key]"), "{written}");
+    assert!(
+        !written.contains("MIIEowIBAAKCAQEAplanted"),
+        "the key body survived: {written}"
+    );
+    assert!(
+        !written.contains("bodyline2"),
+        "the key body survived: {written}"
+    );
+    assert!(
+        !written.contains("PRIVATE KEY"),
+        "the header tail survived: {written}"
+    );
+    assert!(
+        written.contains("after"),
+        "text after the footer was eaten: {written}"
+    );
+}
+
+#[test]
+fn out_named_preference_jsonl_is_refused_before_anything_is_written() {
+    let fixture = Fixture::new("collision");
+    fixture.write_allowlist();
+    seed_corpus(&fixture);
+    let out = fixture.root.join("preference.jsonl");
+    let err = export(
+        &fixture.layout(),
+        &fixture.allowlist_path(),
+        Some(&out),
+        false,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("preference.jsonl"), "{err}");
+    assert!(!out.exists());
+}

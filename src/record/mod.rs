@@ -6,12 +6,40 @@
 //! and `run_end`, and everything else in the file came off the provider's stream.
 //!
 //! Nothing normalized is written here. The ten event types in contract section 7
-//! are derived at read time by a library that does not exist yet, which is why an
-//! adapter bug found next month fixes last month's records.
+//! are derived at read time by `src/normalize/`, which is why an adapter bug found
+//! next month fixes last month's records.
 
 mod lines;
 pub mod secrets;
 pub mod validate;
+
+/// An exclusive `flock(2)` on `path`, released when the handle drops.
+///
+/// Advisory and kernel-held, so a crashed holder leaves nothing to clear. The
+/// harvest of an abandoned interactive run takes it on the record itself:
+/// `hydra status` harvests, the Herdr bridge polls `hydra status`, and two
+/// harvesters that both pass a `has_run_end` check append the transcript
+/// twice, which the validator then refuses as a lost line and a second
+/// `run_end`.
+pub fn lock_exclusive(path: &std::path::Path) -> anyhow::Result<std::fs::File> {
+    use anyhow::Context;
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .with_context(|| format!("opening {} to lock it", path.display()))?;
+    loop {
+        // SAFETY: `flock` takes a descriptor this handle owns and touches no
+        // memory of ours.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(file);
+        }
+        let err = std::io::Error::last_os_error();
+        if err.kind() != std::io::ErrorKind::Interrupted {
+            return Err(err).with_context(|| format!("locking {}", path.display()));
+        }
+    }
+}
 
 pub use lines::{Auth, Refusal, RunEnd, RunStart, WorktreeRef};
 

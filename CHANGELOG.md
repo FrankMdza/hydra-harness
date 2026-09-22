@@ -4,6 +4,17 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 
 ## Unreleased
 
+- A hiring-panel review by seven readers, four of them the providers through `hydra run`,
+  found 33 things and 22 are fixed: the gate answers a deny for a malformed payload instead of
+  dying, `HYDRA_ROOT` is refused inside a seatbelt, a sibling's spawn directory is read-denied,
+  a PEM block is redacted to its footer and both export files are verified before either is
+  created, the harvest holds a lock, the face reaps its watchers, the two git parsers read `-z`,
+  four more commands take a prefix, `hydra resume` on `codex` is refused with the reason, and
+  `hydra doctor` exits 0 on a healthy install. The README's numbers are the corpus's again.
+  `docs/reviews/2026-09-22-seven-readers-as-a-hiring-panel.md` has the table (2026-09-22).
+- Measured versions are the 2026-09-22 reading: `claude` 2.1.268, `cursor-agent`
+  2026.09.18-9a7762b, `agy` 1.2.8, `codex` 0.154.0, and the founding measurement holds on all
+  four (2026-09-22).
 - `hydra evolve --task` gives the proposer a target; the first directed pass produced the
   first patch a panel reviewed as a patch (2026-09-09).
 - `hydra show` and `hydra reap` take a run-id prefix (2026-09-10).

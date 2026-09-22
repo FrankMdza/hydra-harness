@@ -62,7 +62,7 @@ fn main() -> Result<()> {
         Command::Status { run_id } => {
             let layout = Layout::discover()?;
             let text = match run_id {
-                Some(id) => hydra::status::one(&layout, &id)?,
+                Some(id) => hydra::status::one(&layout, &hydra::resolver::resolve(&layout, &id)?)?,
                 None => hydra::status::all(&layout)?,
             };
             print!("{text}");
@@ -80,6 +80,7 @@ fn main() -> Result<()> {
             task,
             timeout,
         } => {
+            let run_id = hydra::resolver::resolve(&Layout::discover()?, &run_id)?;
             let call = hydra::resume::resume(hydra::resume::Request {
                 run_id,
                 task,
@@ -164,7 +165,12 @@ fn main() -> Result<()> {
         Command::Usage { command } => match command {
             UsageCommand::Recount { run_id } => {
                 let mut out = std::io::stdout().lock();
-                hydra::usage::recount(&Layout::discover()?, run_id.as_deref(), &mut out)?;
+                let layout = Layout::discover()?;
+                let run_id = match run_id {
+                    Some(id) => Some(hydra::resolver::resolve(&layout, &id)?),
+                    None => None,
+                };
+                hydra::usage::recount(&layout, run_id.as_deref(), &mut out)?;
             }
         },
         Command::Prune {
@@ -173,6 +179,10 @@ fn main() -> Result<()> {
             dry_run,
         } => {
             let layout = Layout::discover()?;
+            let run_id = run_id
+                .iter()
+                .map(|id| hydra::resolver::resolve(&layout, id))
+                .collect::<anyhow::Result<Vec<String>>>()?;
             // The same launch grace reap gets, and for the same reason: the run
             // file exists before line 0 does, so an empty record is a run that is
             // starting rather than one that is over.

@@ -460,6 +460,10 @@ pub fn harvest_in(
     home: &Path,
 ) -> Result<HarvestOutcome> {
     let run_file = layout.run_file(run_id);
+    // Contract 6: at most one writer at a time. Held from before the first
+    // `has_run_end` read to the end of the function, so a second harvester
+    // blocks here and then finds the closing line the first one wrote.
+    let _lock = crate::record::lock_exclusive(&run_file)?;
     if crate::live::has_run_end(&run_file)? {
         return Ok(HarvestOutcome::AlreadyDone);
     }
@@ -538,11 +542,8 @@ pub fn harvest_in(
         next_seq,
     )?;
 
-    // Contract 6: at most one writer at a time. The check above already
-    // proved there was no `run_end` when this call started; this one runs
-    // again right before the first byte goes down, which is as much of a
-    // guard against a second concurrent harvester as a file with no lock can
-    // give.
+    // The lock above is the guard now; this second read stays as the cheap
+    // check it always was.
     if crate::live::has_run_end(&run_file)? {
         return Ok(HarvestOutcome::AlreadyDone);
     }

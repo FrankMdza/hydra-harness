@@ -7,15 +7,15 @@
 //! was migrated. None of the types below derives `Serialize`, so a caller that
 //! wants to put one in a file has to say so out loud first.
 //!
-//! Three providers. [`claude`], [`cursor`] and [`agy`] are one per column of
-//! contract 7.2's table, and [`read_with`] picks one by the envelope's
+//! Four providers. [`claude`], [`cursor`], [`agy`] and [`codex`] are one per
+//! column of contract 7.2's table, and [`read_with`] picks one by the envelope's
 //! `provider`, which every line carries (contract 4).
 //!
-//! Two of the ten have no producer here and both are on the list anyway, because
-//! a type the reader cannot name is a type nobody knows is missing.
+//! One of the ten has no producer here and is on the list anyway, because a
+//! type the reader cannot name is a type nobody knows is missing.
 //! [`MessageDelta`] needs `--include-partial-messages`, which contract 7.4 keeps
-//! off in v1. [`Correction`] comes from an interactive harvest (7.9) and this
-//! build launches no interactive runs.
+//! off in v1. [`Correction`] comes from an interactive harvest (7.9), which
+//! `claude::` reads since build ticket 27.
 
 pub mod agy;
 pub mod claude;
@@ -1013,6 +1013,7 @@ pub(crate) const GATE_CODES: &[&str] = &[
     "no-tool-name",
     "bad-payload",
     "wrong-dialect",
+    "gate-error",
 ];
 
 /// The gate's own code inside a refusal text, wherever it sits.

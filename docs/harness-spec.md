@@ -1422,6 +1422,14 @@ denial and drop the admission column for this row.
 **Entries 4 and 9 are different objects and are easy to collapse by mistake.** One is the writer,
 one is its output.
 
+**Two code rows arrived on 2026-09-22 without a number of their own**: `src/sandbox.rs`, the
+seatbelt profile that the run-time denials of rows 5, 9 and 12 lean on since map ticket 62, and
+`src/containment.rs`, the marker check of build ticket 57. Both are refused at admission and
+neither is denied at run time, the same shape as rows 1, 2, 4, 6 and 7. A hiring-panel review of
+that day found a patch to either reaching the panel, the third time a mechanism landed outside
+`PROTECTED_CODE_PATHS` after build tickets 40 and 66, and the recount of this table is arithmetic
+again: fourteen.
+
 **Row 9 reaches the config that points at the script as well, since build ticket 44 on
 2026-09-12.** On `cursor-agent` and `agy` the hook config is a file inside the worktree,
 `.cursor/hooks.json` and `.agents/hooks.json`, and the worktree is the one directory every writing
