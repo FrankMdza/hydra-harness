@@ -184,6 +184,14 @@ fn main() -> Result<()> {
                 anyhow::bail!("{failed} of {} could not be pruned", pruned.len());
             }
         }
+        Command::Doctor => {
+            let layout = Layout::discover()?;
+            let report = hydra::doctor::run(&layout)?;
+            print!("{}", report.text);
+            if report.missing {
+                std::process::exit(1);
+            }
+        }
         Command::Export { out, dry_run } => {
             let layout = Layout::discover()?;
             let allowlist = hydra::export::allowlist_path();

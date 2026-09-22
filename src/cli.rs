@@ -203,6 +203,10 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// Report what a launch would find: the data root, policies, provider versions,
+    /// policy sha and protected configs. Launches no provider and runs no probe.
+    Doctor,
+
     /// The one path by which anything leaves this machine, harness spec 14.
     Export {
         /// Where the header and one JSON line per eligible run are written.
@@ -282,6 +286,16 @@ pub fn render_duration(duration: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Build ticket 67's command was lost once, on 2026-09-22, when a later
+    /// ticket's `cli.rs` was copied over it from a worktree seeded before 67
+    /// landed; nothing parsed it, so the suite and CI stayed green. This does.
+    #[test]
+    fn doctor_is_a_command_this_binary_answers_to() {
+        use clap::Parser;
+        let cli = super::Cli::try_parse_from(["hydra", "doctor"]).unwrap();
+        assert!(matches!(cli.command, super::Command::Doctor));
+    }
+
     use super::*;
 
     #[test]
