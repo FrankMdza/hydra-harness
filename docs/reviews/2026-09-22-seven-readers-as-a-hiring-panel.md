@@ -47,7 +47,7 @@ table is the answer to both: it is the corpus, by run id.
 | F2 | bug | session, by probe | the gate died with a traceback on a hook payload whose `cwd` was not a string, which is a call that runs on `codex` | fixed: five payload shapes answered, catch-all, `tests/gate.rs` |
 | F3 | bug | threat model, Opus | a PEM block was redacted to its header; the verifier then looked for the header | fixed: redaction runs to the footer, `tests/export.rs` |
 | F4 | bug | `codex` | preference lines were verified after the events file existed, and `--out preference.jsonl` truncated itself | fixed, `tests/export.rs` |
-| F5 | bug | `codex` | the `codex` resume argv carried two `exec`s and flags the subcommand does not take; no test covered it | refused with the reason; build ticket 71 |
+| F5 | bug | `codex` | the `codex` resume argv carried two `exec`s and flags the subcommand does not take; no test covered it | fixed the same evening, build ticket 71: `codex exec resume` measured to run in the caller's cwd, the argv rebuilt, a recorded resume under the seatbelt answered |
 | F6 | bug | crate | two concurrent `hydra status` could both harvest one abandoned interactive record | fixed: `flock(2)` on the record for the whole harvest |
 | F7 | bug | crate | the delegate face never reaped the watchers it started, one zombie per delegation | fixed |
 | F8 | bug | crate | `changed_paths` and `dirty_outside` split git output on newlines, so a path git C-quotes passed the protected-path check as a quoted literal | fixed: `-z` |
@@ -55,12 +55,12 @@ table is the answer to both: it is the corpus, by run id.
 | F10 | bug | `codex` | the `codex` hook path went into the TOML override unquoted for the shell | fixed |
 | F11 | bug | crate | `Provider::version` ran the vendor binary with the launcher's whole environment | fixed: the child's allowlist |
 | F12 | design gap | Opus | `src/sandbox.rs` and `src/containment.rs` were outside rung two's protected set, the third mechanism to land outside it | fixed; spec 15.2 says so |
-| F13 | open exposure | threat model | the binary `config/mcp.md` names is under `~/hydra/target/`, which the deny list does not cover | held, map ticket 65; `SECURITY.md` states it |
-| F14 | open exposure | `codex`, crate | rung two's admission gate runs `cargo test` on a proposer's worktree outside the seatbelt before any judge reads the patch | held, map ticket 66; `SECURITY.md` states it |
-| F15 | documentation overclaim | threat model | the seatbelt is `(allow default)` and binds the process tree; `SECURITY.md` read as if it bound the machine | documented; map ticket 67 |
-| F16 | bug | session, by probe | inside a run `git add`, `git commit` and `git stash` fail on the index lock, because the private git directory is under the denied `.git` | documented; build ticket 70 |
-| F17 | bug | crate | the pty tee has no deadline, so a grandchild holding the slave leaves a record open forever | build ticket 72 |
-| F18 | documentation gap | documents, Opus | a gated interactive launch is recorded, compiles a gate and runs unwrapped | documented; build ticket 73 |
+| F13 | open exposure | threat model | the binary `config/mcp.md` names is under `~/hydra/target/`, which the deny list does not cover | fixed the same evening: map ticket 65 closed with the human and build ticket 74 denies the whole checkout, `tests/spawn.rs` |
+| F14 | open exposure | `codex`, crate | rung two's admission gate runs `cargo test` on a proposer's worktree outside the seatbelt before any judge reads the patch | fixed the same evening: map ticket 66 closed with the human and build ticket 75 runs admission under the proposer's profile, `tests/evolve.rs` |
+| F15 | documentation overclaim | threat model | the seatbelt is `(allow default)` and binds the process tree; `SECURITY.md` read as if it bound the machine | documented, and map ticket 67 closed with the human the same evening: defence behind the gate, spec 7.5 says so |
+| F16 | bug | session, by probe | inside a run `git add`, `git commit` and `git stash` fail on the index lock, because the private git directory is under the denied `.git` | fixed the same evening, build ticket 70: the private git directory and the object store are carved out, `git add` works, `git commit` still refused |
+| F17 | bug | crate | the pty tee has no deadline, so a grandchild holding the slave leaves a record open forever | fixed the same evening, build ticket 72: the tee polls with a deadline after the child exits; on macOS the pty is revoked at leader exit, so the path is Linux's |
+| F18 | documentation gap | documents, Opus | a gated interactive launch is recorded, compiles a gate and runs unwrapped | fixed the same evening, build ticket 73: the gated interactive launch is wrapped, measured by the human on run 01a0c9ca-1591 |
 | F19 | documentation gap | documents, Opus, `codex` | the README's `gated` bullet said one denied call; the code needs every call refused | fixed |
 | F20 | documentation gap | all four providers | "three" providers in five places, "26 of 60" tickets, "eleven" commands, "62 decision tickets", measured versions from 2026-09-15, `codex` "under two policies" | fixed: four, 35 of 69, twelve, 63 of 64, 2026-09-22, three |
 | F21 | documentation gap | documents | `config/README.md` said `mcp.md` declares a server and, twenty lines later, that it ships with none | fixed |
@@ -76,6 +76,10 @@ table is the answer to both: it is the corpus, by run id.
 | F31 | design smell | Opus, crate | `run_start` takes thirteen positional arguments with two adjacent same-typed `Option` pairs | stated in `IMPLEMENTATION.md`, not fixed |
 | F32 | test gap | all three subagents, Opus, `codex` | the corpus walks are vacuous in CI, which points `HYDRA_ROOT` at an empty root | README now says what green CI means |
 | F33 | open exposure | threat model | the export verifier searches the same five prefixes the redactor removed, so it cannot fire on a class it knows | `SECURITY.md` states it; an independent verifier is not built |
+
+Map ticket 64, delegation under the seatbelt, was not a panel finding and closed the same evening too:
+the face refuses in Hydra's words from inside a seatbelt, build ticket 76. By the end of the day 27 of
+the 33 rows were code with a test and six were limits the documents state.
 
 Three things the readers checked and found to hold that are worth saying out loud: the two arXiv
 papers exist under the ids and figures the README quotes, fetched that day; the outcome is
