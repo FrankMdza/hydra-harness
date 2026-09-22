@@ -1,0 +1,203 @@
+//! macOS seatbelt profile for recorded launches, map ticket 62.
+//!
+//! On macOS every recorded launch wraps the vendor binary in
+//! `/usr/bin/sandbox-exec` under the same user and the same `HOME`. The gate
+//! still decides capabilities; the kernel refuses writes to Hydra's directories
+//! and reads of the corpus under every spelling the gate's substring floor misses.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
+
+use crate::policy::{self, PolicySet, Spawn};
+
+const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+
+/// Whether recorded launches on this machine are wrapped in the seatbelt.
+pub fn wraps_launches() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// Whether [`SANDBOX_EXEC`] is present. On macOS a missing binary refuses the
+/// launch rather than running bare.
+pub fn exec_available() -> bool {
+    wraps_launches() && Path::new(SANDBOX_EXEC).is_file()
+}
+
+/// The profile path beside the gate in one spawn directory.
+pub fn profile_path(spawn_dir: &Path) -> PathBuf {
+    spawn_dir.join("sandbox.sb")
+}
+
+/// Composes and writes the profile, returning its sha256 for `run_start.sandbox`.
+pub fn write_profile(set: &PolicySet, spawn: &Spawn<'_>, path: &Path) -> Result<String> {
+    let text = compose(set, spawn);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::write(path, &text).with_context(|| format!("writing {}", path.display()))?;
+    Ok(format!("{:x}", Sha256::digest(text.as_bytes())))
+}
+
+/// The SBPL text: allow default, deny writes to Hydra's paths, deny corpus reads,
+/// then allow writes to what this spawn owns.
+pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
+    let mut lines = vec!["(version 1)".to_string(), "(allow default)".to_string()];
+    for path in write_denies(set, spawn) {
+        lines.push(format!(
+            r#"(deny file-write* (subpath "{}"))"#,
+            escape(&path)
+        ));
+    }
+    let corpus = canonical(spawn.corpus);
+    lines.push(format!(
+        r#"(deny file-read* (subpath "{}"))"#,
+        escape(&corpus)
+    ));
+    for path in policy::own_write_paths(spawn) {
+        let own = canonical(&path);
+        lines.push(format!(
+            r#"(allow file-write* (subpath "{}"))"#,
+            escape(&own)
+        ));
+    }
+    // The vendor's own data root under the spawn directory, `cursor-data/` on
+    // `cursor-agent`, is a read carve-out at the gate and has to be writable at
+    // the kernel: the binary creates it before the model runs anything, and
+    // under the parent's deny its first `mkdir` failed with EPERM, measured
+    // 2026-09-21 on run 01a0c6a5-be8c. The gate script beside it stays denied,
+    // because the allow names the data root and not the spawn directory.
+    for path in policy::own_read_paths(spawn) {
+        let own = canonical(&path);
+        lines.push(format!(
+            r#"(allow file-write* (subpath "{}"))"#,
+            escape(&own)
+        ));
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
+/// Wraps a launch argv for the seatbelt when `profile` is set.
+pub fn wrap_command(binary: &str, argv: &[String], profile: &Path) -> (&'static str, Vec<String>) {
+    let mut wrapped = vec![
+        "-f".to_string(),
+        profile.to_string_lossy().into_owned(),
+        binary.to_string(),
+    ];
+    wrapped.extend(argv.iter().cloned());
+    (SANDBOX_EXEC, wrapped)
+}
+
+/// Every denied path, parents of own paths included. SBPL takes the last
+/// matching rule, measured 2026-09-21: a deny on `worktrees/` followed by an
+/// allow on `worktrees/<own>` leaves the own tree writable and a sibling
+/// refused. Skipping the parent because it holds an own path, which the first
+/// draft did, would have left every sibling worktree open to the kernel layer.
+fn write_denies(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
+    let mut out = Vec::new();
+    for path in policy::denied_write_paths(set, spawn) {
+        push_unique(&mut out, canonical(&path));
+    }
+    out
+}
+
+fn push_unique(out: &mut Vec<String>, path: String) {
+    if !path.is_empty() && !out.contains(&path) {
+        out.push(path);
+    }
+}
+
+fn escape(path: &str) -> String {
+    path.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Canonical absolute path, the spelling macOS seatbelt matches.
+fn canonical(path: &Path) -> String {
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut cursor = path.to_path_buf();
+    loop {
+        if let Ok(base) = std::fs::canonicalize(&cursor) {
+            let mut out = base;
+            for part in tail.iter().rev() {
+                out.push(part);
+            }
+            return out.to_string_lossy().into_owned();
+        }
+        match (cursor.file_name(), cursor.parent()) {
+            (Some(name), Some(parent)) if !parent.as_os_str().is_empty() => {
+                tail.push(name.to_os_string());
+                cursor = parent.to_path_buf();
+            }
+            _ => return path.to_string_lossy().into_owned(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::paths::Layout;
+    use crate::policy::PolicySet;
+    use crate::provider::Provider;
+
+    fn scratch_layout() -> (Layout, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "hydra-sandbox-unit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let layout = Layout::at(&root);
+        layout.ensure().unwrap();
+        (layout, root)
+    }
+
+    #[test]
+    fn the_profile_names_denied_paths_and_not_the_worktree() {
+        let (layout, root) = scratch_layout();
+        let set = PolicySet::discover().unwrap();
+        let worktree = root.join("worktree");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let gate = layout.gate_script("r1");
+        let spawn = Spawn {
+            provider: Provider::Claude,
+            policy: "standard",
+            layout: &layout,
+            worktree: &worktree,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
+            skill_snapshot: &layout.skill_snapshot_scope("r1", None),
+            skill_checkout: None,
+            parent_git_dir: None,
+            gate_script: &gate,
+            floor_lifted: false,
+        };
+        let text = compose(&set, &spawn);
+        let worktree_canon = canonical(&worktree).to_lowercase();
+        for path in policy::denied_write_paths(&set, &spawn) {
+            let resolved = canonical(&path).to_lowercase();
+            if policy::own_write_paths(&spawn)
+                .iter()
+                .any(|own| resolved == canonical(own).to_lowercase())
+            {
+                continue;
+            }
+            assert!(
+                text.to_lowercase().contains(&resolved),
+                "profile does not deny {resolved}"
+            );
+        }
+        assert!(
+            !text.to_lowercase().contains(&format!(
+                r#"(deny file-write* (subpath "{}"))"#,
+                worktree_canon
+            )),
+            "profile denies the run's own worktree"
+        );
+    }
+}

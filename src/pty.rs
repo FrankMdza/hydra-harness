@@ -69,7 +69,15 @@ pub fn spawn(
     argv: &[String],
     cwd: &std::path::Path,
     env: impl Iterator<Item = (String, String)>,
+    sandbox_profile: Option<&std::path::Path>,
 ) -> Result<Spawned> {
+    let (binary, argv) = match sandbox_profile {
+        Some(profile) => {
+            let (wrapped, argv) = crate::sandbox::wrap_command(binary, argv, profile);
+            (wrapped, argv)
+        }
+        None => (binary, argv.to_vec()),
+    };
     let pty = native_pty_system();
     let pair = pty
         .openpty(PtySize {

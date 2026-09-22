@@ -55,6 +55,8 @@ use crate::paths::Layout;
 use crate::provider::{Provider, agy, claude, codex, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef};
 
+pub use crate::spawn_config::{SpawnFiles, write_spawn_config};
+
 pub struct Request {
     pub provider: Provider,
     pub task: String,
@@ -342,6 +344,32 @@ impl std::fmt::Display for TooDeep {
 
 impl std::error::Error for TooDeep {}
 
+/// Map ticket 61. A launch from a checkout that is not the data root, with
+/// `HYDRA_ROOT` unset, refuses before anything is written into the root.
+pub fn refuse_foreign_checkout(layout: &Layout, checkout: &std::path::Path) -> Result<()> {
+    if std::env::var_os("HYDRA_ROOT").is_some() {
+        return Ok(());
+    }
+    let root = layout.root();
+    if same_path(checkout, root) {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "this launch would write into {}, but it was run from checkout {}, which is not \
+         that root. Set HYDRA_ROOT to {} or to another directory if you meant a different \
+         data root.",
+        root.display(),
+        checkout.display(),
+        root.display()
+    )
+}
+
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
+    let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+    left == right
+}
+
 pub fn run(request: Request) -> Result<Call> {
     // **What the attempt was is decided before what the machine is.** 6.1's items
     // 2 and 3 run first here, ahead of the environment, the provider's version and
@@ -372,6 +400,7 @@ pub fn run(request: Request) -> Result<Call> {
     let mcp_document = crate::mcp::Document::load()?;
 
     let layout = Layout::discover()?;
+    refuse_foreign_checkout(&layout, &crate::paths::hydra_home())?;
     layout.ensure()?;
 
     // Build ticket 57, read before the lineage because it is the question the
@@ -424,6 +453,7 @@ pub fn run(request: Request) -> Result<Call> {
             &lineage,
             None,
             None,
+            None,
         ))?;
         return refuse(
             &run_file,
@@ -459,6 +489,7 @@ pub fn run(request: Request) -> Result<Call> {
             None,
             None,
             &lineage,
+            None,
             None,
             None,
         ))?;
@@ -608,7 +639,8 @@ pub fn run(request: Request) -> Result<Call> {
     // would have produced had it run.
     let line_zero = |mcp_resolved: Option<&[String]>,
                      scopes: Option<&std::collections::BTreeMap<String, String>>,
-                     gate_sha: Option<&str>|
+                     gate_sha: Option<&str>,
+                     sandbox: Option<&str>|
      -> Result<serde_json::Value> {
         let start = run_start(
             &request,
@@ -627,6 +659,7 @@ pub fn run(request: Request) -> Result<Call> {
             &lineage,
             scopes.cloned(),
             gate_sha.map(str::to_string),
+            sandbox.map(str::to_string),
         );
         Ok(serde_json::to_value(&start)?)
     };
@@ -644,7 +677,7 @@ pub fn run(request: Request) -> Result<Call> {
             &run_file,
             &run_id,
             request.provider,
-            &line_zero(injected.mcp_resolved.as_deref(), None, None)?,
+            &line_zero(injected.mcp_resolved.as_deref(), None, None, None)?,
             crate::record::Refusal::SkillCollision,
             remediation,
             &policies,
@@ -686,7 +719,7 @@ pub fn run(request: Request) -> Result<Call> {
     };
     // No gate is compiled yet, so the two refusals below write a line 0 with no
     // `scopes` on it. The launched path recomposes it after `write_spawn_config`.
-    let refused_line_zero = line_zero(mcp_resolved.as_deref(), None, None)?;
+    let refused_line_zero = line_zero(mcp_resolved.as_deref(), None, None, None)?;
 
     if request.provider == Provider::Codex {
         let remediation = match codex::login_status() {
@@ -787,7 +820,32 @@ pub fn run(request: Request) -> Result<Call> {
         mcp_resolved.as_deref(),
         Some(&spawn.scopes),
         Some(&spawn.gate_sha),
+        spawn.sandbox_sha.as_deref(),
     )?;
+
+    if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
+        let err = anyhow::anyhow!(
+            "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch \
+             a recorded run without the seatbelt rather than run bare"
+        );
+        eprintln!("hydra: run {run_id} did not launch");
+        eprintln!("hydra: {err:#}");
+        eprintln!("hydra: record {}", run_file.display());
+        if let Some(worktree) = &worktree_ref {
+            eprintln!("hydra: worktree {} on {}", worktree.path, worktree.branch);
+        }
+        if let Err(second) = never_started(
+            &run_file,
+            &run_id,
+            request.provider,
+            &line_zero,
+            &err,
+            lineage.parent_run_id(),
+        ) {
+            eprintln!("hydra: this run could not be recorded either: {second:#}");
+        }
+        return Err(err);
+    }
 
     // **The gate mount is checked on `agy` and on nothing else, free.** 6.6's
     // table says this provider reads its hook config only when the worktree
@@ -914,6 +972,7 @@ pub fn run(request: Request) -> Result<Call> {
             model: request.model.clone(),
             hydra_env,
             run_start: line_zero.clone(),
+            sandbox_profile: spawn.sandbox_profile.clone(),
         },
     )
     .and_then(|()| std::env::current_exe().context("locating the hydra binary"))
@@ -1369,150 +1428,6 @@ pub fn result(
     }
 }
 
-/// What one spawn writes for the gate: the script, and the config that delivers it.
-#[derive(Debug)]
-pub struct SpawnFiles {
-    /// The compiled gate, `0o700`, in `~/hydra/spawn/<run-id>/`.
-    pub gate: PathBuf,
-    /// The sha256 of that script, the same one the hook config checks against
-    /// at every call. Contract 5.1 puts it on `run_start`.
-    pub gate_sha: String,
-    /// The hook config the provider reads. `~/hydra/spawn/<run-id>/settings.json`
-    /// on `claude`, passed on `--settings`; `<worktree>/.cursor/hooks.json` on
-    /// `cursor-agent`, read from cwd (6.6's table).
-    pub hook_config: PathBuf,
-    /// The absolute paths the gate was compiled against, keyed by scope name,
-    /// which contract 5.1 puts on `run_start` as `scopes`. It is returned rather
-    /// than recomputed by the caller because the gate and the record have to
-    /// name the same paths, and one function is how that is made true.
-    pub scopes: std::collections::BTreeMap<String, String>,
-}
-
-/// Compiles the run's gate and writes the config that delivers it.
-///
-/// Split out from [`run`] because it is the half of the launch that can be checked
-/// without spending a subscription: `tests/spawn.rs` calls it against a temporary
-/// layout and reads what it wrote. The other half needs a provider.
-///
-/// **Real files, never links, rewritten at every spawn** (6.6). The spawn directory
-/// is per run and the script is created inside it, so a second run in the same
-/// directory is not a case that can arise. Cursor's config goes in the worktree,
-/// which is per run too, and a checkout that already holds one is refused rather
-/// than overwritten: [`worktree_preconditions`] checks the repo it was seeded from
-/// and this is the second line.
-#[allow(clippy::too_many_arguments)]
-pub fn write_spawn_config(
-    layout: &Layout,
-    run_id: &str,
-    policies: &crate::policy::PolicySet,
-    provider: Provider,
-    policy: &str,
-    worktree: Option<&std::path::Path>,
-    repo: Option<&std::path::Path>,
-    store_sha: Option<&str>,
-    floor_lifted: bool,
-) -> Result<SpawnFiles> {
-    // The gate is compiled against the path it will really live at, because it
-    // denies writes to itself and a placeholder would deny the wrong file.
-    let gate = layout.gate_script(run_id);
-    let hook_config = match provider {
-        Provider::Claude => layout.settings_file(run_id),
-        Provider::CursorAgent => cursor::claim(worktree, "hook config", cursor::hooks_file)?,
-        Provider::Agy => agy::claim(worktree, "hook config", agy::hooks_file)?,
-        Provider::Codex => codex::claim(worktree, "hook config", codex::hooks_file)?,
-    };
-
-    // With no repo there is no worktree, and the child runs where Hydra was
-    // invoked. Scoping the `worktree` capability to that directory would hand the
-    // run write access to whatever the human happened to be standing in, so the
-    // scope points at a path inside the spawn directory that nothing creates. A
-    // `standard` run outside a repo can therefore read and shell out and write
-    // nowhere, which is the honest reading of D9: Hydra writes only under a path
-    // it created, and a run with no checkout has none.
-    let no_worktree = layout.spawn(run_id).join("no-worktree");
-
-    // A curate pass writes into its own checkout of the store and every other
-    // policy is given none: rungs spec 3.6 keeps the curator out of
-    // `~/hydra/skills/` because the next launch commits that tree before pinning
-    // it, and two writers to one working tree is the collision. The path is a
-    // function of the run id alone, because contract 7.7's read-time
-    // re-evaluation has to reach the same answer from the record.
-    let skill_checkout = (policy == "curate").then(|| layout.skill_checkout(run_id));
-
-    // 7.5 denies the parent repo's `.git` to every policy, and this is the one
-    // denied path that is not under `~/hydra`. The common directory rather than
-    // `<repo>/.git`, because when a human launches from inside a linked worktree
-    // that name is a file and the directory holding every branch is elsewhere. A
-    // run outside a repo has no parent to protect, which is the same `None` that
-    // leaves it without a worktree.
-    let parent_git_dir = repo.and_then(crate::worktree::git_common_dir);
-
-    // 6.4 and 7.2: the run's links resolve into its own snapshot, so a read
-    // through one lands inside this and a write to the same path lands nowhere,
-    // because no policy puts this scope on `file_write`. A run with no store sha
-    // was linked nothing and gets a path inside its spawn directory that nothing
-    // creates, the same shape `no_worktree` has above.
-    let skill_snapshot = layout.skill_snapshot_scope(run_id, store_sha);
-
-    let spawn = crate::policy::Spawn {
-        provider,
-        policy,
-        layout,
-        worktree: worktree.unwrap_or(&no_worktree),
-        skill_store: &layout.skills(),
-        corpus: &layout.runs(),
-        skill_snapshot: &skill_snapshot,
-        skill_checkout: skill_checkout.as_deref(),
-        parent_git_dir: parent_git_dir.as_deref(),
-        gate_script: &gate,
-        floor_lifted,
-    };
-    // Contract 5.1's `scopes`, taken off the spawn the gate is compiled from
-    // rather than composed again here. The two cannot disagree, which is what
-    // map ticket 42 asked for after two correct builds resolved one scope two
-    // ways and no field on the record told them apart.
-    let scopes = spawn.recorded_scopes();
-    crate::policy::write_gate(policies, &spawn)?;
-
-    // Read back rather than hashed in memory, so the sha is of the bytes that
-    // reached the disk. The hook config carries it and the provider snapshots the
-    // config at process start, which is what makes a mid-run rewrite of the script
-    // fail closed.
-    let written =
-        std::fs::read(&gate).with_context(|| format!("reading back {}", gate.display()))?;
-    let gate_sha = {
-        use sha2::{Digest, Sha256};
-        format!("{:x}", Sha256::digest(&written))
-    };
-
-    let config = match provider {
-        Provider::Claude => claude::settings(&gate, &gate_sha),
-        Provider::CursorAgent => cursor::hooks_config(&gate, &gate_sha),
-        Provider::Agy => agy::hooks_config(&gate, &gate_sha),
-        Provider::Codex => codex::hooks_config(&gate, &gate_sha),
-    };
-    // `codex` takes the hook on the command line as a file, because it reads no
-    // project hook file inside a git worktree; `provider/codex.rs` has the
-    // measurement. The file is the same Python the other dialects carry inline.
-    if provider == Provider::Codex {
-        let hook = codex::hook_file(layout, run_id);
-        std::fs::write(
-            &hook,
-            crate::policy::hook_source(&gate, &gate_sha, provider.dialect()),
-        )
-        .with_context(|| format!("writing {}", hook.display()))?;
-    }
-    std::fs::write(&hook_config, serde_json::to_string_pretty(&config)?)
-        .with_context(|| format!("writing {}", hook_config.display()))?;
-
-    Ok(SpawnFiles {
-        gate,
-        gate_sha,
-        hook_config,
-        scopes,
-    })
-}
-
 /// Line 0, composed before the fork.
 ///
 /// **`pid` and `process_start_time` are null here and are the detached half's to
@@ -1540,6 +1455,8 @@ pub fn run_start(
     scopes: Option<std::collections::BTreeMap<String, String>>,
     // `None` on a refused spawn and on a run with no gate, build ticket 49.
     gate_sha: Option<String>,
+    // Null on a launch no seatbelt wrapped, build ticket 68.
+    sandbox: Option<String>,
 ) -> RunStart {
     RunStart {
         kind: "run_start",
@@ -1565,6 +1482,7 @@ pub fn run_start(
         // a compile that may not have happened.
         floor_lifted: Some(request.floor_lifted),
         gate_sha,
+        sandbox,
         scopes,
         cwd: cwd.display().to_string(),
         worktree,

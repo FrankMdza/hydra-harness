@@ -175,6 +175,7 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `policy_sha` | the sha of the delegation policy directory, pattern floor included |
 | `floor_lifted` | boolean, whether `--allow-floor-escape` was typed on this run (harness spec 16) |
 | `gate_sha` | the sha256 of the compiled gate script this run was launched with, absent on a run that compiled no gate and on every record written before build ticket 49 closed on 2026-09-15 under section 15's rule for a new field; see below |
+| `sandbox` | the sha256 of the macOS seatbelt profile the launch was wrapped in, null where no sandbox wrapped it, absent on every record written before build ticket 68 closed on 2026-09-21 under section 15's rule for a new field. The profile is written beside the gate as `sandbox.sb` |
 | `scopes` | the absolute paths the gate was compiled against, keyed by scope name; see below |
 | `cwd` | the directory the child was launched in |
 | `worktree` | `path`, `branch` and `base_tree`, or null under `--shared-tree`. `base_tree` is the sha `git write-tree` answered against the seed index the moment the checkout was seeded from the parent's uncommitted work, before the provider started; map ticket 49 put it here on 2026-09-07 so a reader can tell a reaped run's seed from the run's own edits. It is a name and not a guarantee: the tree hangs from no ref, a `git gc --prune` may delete it, and a record written before build ticket 23 does not carry it |
@@ -1483,7 +1484,20 @@ correcting a tool call in an interactive `claude` run, recovered at harvest by t
 7.9. Two real pairs exist on this machine, produced at a keyboard on 2.1.261. The preference half of
 D12 has a producer and section 7.9 keeps its slot.
 
-**What is thin is the corpus, not the mechanism.** One provider of three produces the event, so the
+**A second source since build ticket 65 on 2026-09-21: judge verdicts.** Map ticket 55 decided that
+a rung-two pass the panel blocked is the rejected half of a pair and the human's fix for the same
+task, or the panel-approved patch on the pass branch, is the chosen half. A reader of its own beside
+the exporter, `src/export_preference.rs` and not rung one's five classes, walks the `evolve` passes
+in the corpus, takes the rejected diff off `rungs/blocked/<pass-id>` against the proposer's base
+tree, looks for the chosen diff on `rungs/<pass-id>` or in a later `master` commit that names the
+pass, and withholds the pair, naming the pass, when no chosen half exists. A pair leaves only when
+`config/export-signoff.json`, which the human writes, lists its pass id, the judge run id and the
+finding item the human confirmed; a pair with a chosen half and no entry is refused and said so.
+`gated` judge runs are read the same as `completed` ones, because pass seven's one correct finding
+came from a `gated` judge. Every line in `preference.jsonl` carries `source`, `correction` or
+`judge_verdict`, and the file's header carries the manifest's sha.
+
+**What is thin is the corpus, not the mechanism.** One provider of four produces the event, so the
 preference file draws on interactive `claude` runs and nothing else, and every pair measured before
 those two was a policy or auto-mode denial, which section 7.9 rules out of export in writing. Expect
 this file to be small for a long time.

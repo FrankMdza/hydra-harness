@@ -24,6 +24,15 @@ pub enum Provider {
     Codex,
 }
 
+/// Versions this code was measured against. `README.md` and `tests/drift.rs` read
+/// this table rather than carrying their own copy.
+pub const MEASURED_VERSIONS: [(Provider, &str); 4] = [
+    (Provider::Claude, "2.1.267"),
+    (Provider::CursorAgent, "2026.09.10"),
+    (Provider::Agy, "1.2.1"),
+    (Provider::Codex, "0.154.0"),
+];
+
 impl Provider {
     pub fn binary(self) -> &'static str {
         match self {
@@ -32,6 +41,15 @@ impl Provider {
             Provider::Agy => "agy",
             Provider::Codex => "codex",
         }
+    }
+
+    /// The version string in [`MEASURED_VERSIONS`] for this provider.
+    pub fn measured_version(self) -> &'static str {
+        MEASURED_VERSIONS
+            .iter()
+            .find(|(provider, _)| *provider == self)
+            .map(|(_, version)| *version)
+            .unwrap_or("unknown")
     }
 
     /// The response shape the gate answers this provider in (6.6).

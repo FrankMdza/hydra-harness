@@ -273,6 +273,16 @@ pub fn export(
     out: Option<&Path>,
     dry_run: bool,
 ) -> Result<()> {
+    export_with_signoff(layout, allowlist_path, out, dry_run, None)
+}
+
+pub fn export_with_signoff(
+    layout: &Layout,
+    allowlist_path: &Path,
+    out: Option<&Path>,
+    dry_run: bool,
+    signoff_path: Option<&Path>,
+) -> Result<()> {
     let allowlist = Allowlist::load(allowlist_path)?;
     let policies = PolicySet::discover()?;
     let verdicts = audit(layout, &allowlist, &policies)?;
@@ -297,6 +307,17 @@ pub fn export(
 
     let out = out.context("--out is required unless --dry-run is set")?;
     let eligible: Vec<&Verdict> = verdicts.iter().filter(|v| v.eligible()).collect();
+    let signoff = crate::export_preference::SignoffManifest::load(
+        signoff_path.unwrap_or(&crate::export_preference::signoff_path()),
+    )?;
+    let eligible_ids: Vec<String> = eligible.iter().map(|v| v.run_id.clone()).collect();
+    let (preference_pairs, _) = crate::export_preference::collect_pairs(
+        layout,
+        &policies,
+        &allowlist,
+        &eligible_ids,
+        &signoff,
+    )?;
 
     let mut lines: Vec<String> = Vec::new();
     for verdict in eligible {
@@ -321,10 +342,11 @@ pub fn export(
     for line in lines {
         writeln!(file, "{line}")?;
     }
+    crate::export_preference::write_preference_jsonl(out, &preference_pairs, &signoff.sha)?;
     Ok(())
 }
 
-fn own_repo(run: &crate::normalize::Run, repos: &[PathBuf]) -> Option<PathBuf> {
+pub(crate) fn own_repo(run: &crate::normalize::Run, repos: &[PathBuf]) -> Option<PathBuf> {
     let PathExtraction::Paths(paths) = paths_touched(run) else {
         return None;
     };
@@ -350,7 +372,7 @@ fn export_events(
         .collect()
 }
 
-fn repo_names_to_redact(repos: &[PathBuf], own_repo: Option<&Path>) -> Vec<String> {
+pub(crate) fn repo_names_to_redact(repos: &[PathBuf], own_repo: Option<&Path>) -> Vec<String> {
     repos
         .iter()
         .filter(|repo| own_repo != Some(repo.as_path()))
@@ -414,7 +436,7 @@ fn export_event(event: &Event, repo_names: &[String]) -> Option<Value> {
     }
 }
 
-fn redact_value(value: &Value, repo_names: &[String]) -> Value {
+pub(crate) fn redact_value(value: &Value, repo_names: &[String]) -> Value {
     match value {
         Value::String(text) => Value::String(redact_string(text, repo_names)),
         Value::Array(items) => Value::Array(
@@ -432,7 +454,7 @@ fn redact_value(value: &Value, repo_names: &[String]) -> Value {
     }
 }
 
-fn redact_string(text: &str, repo_names: &[String]) -> String {
+pub(crate) fn redact_string(text: &str, repo_names: &[String]) -> String {
     let mut out = text.to_string();
     for name in repo_names {
         if !name.is_empty() {

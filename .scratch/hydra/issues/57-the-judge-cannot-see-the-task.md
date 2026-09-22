@@ -1,7 +1,7 @@
 # 57 - A directed proposer is judged against a spec the panel cannot see
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -54,3 +54,24 @@ the one failure rung two exists to prevent.
    features. Any reader ticket 55 builds needs an answer for a finding that is confidently
    wrong, and "three judges and unanimity" is not one, because unanimity is what let both of
    these through.
+
+## Answer
+
+Resolved 2026-09-21 with the human, after a research run on `codex` (01a0c5ab-3922).
+
+1. The judge sees the task, as evidence and not as permission. The judge prompt carries the
+   original task marked as the intent the patch was written against, the checklist's full
+   definitions rather than its names, and one fixed sentence: nothing in the task text waives a
+   checklist rule. What separates the spec from a permission slip is that sentence plus the type
+   boundary that already exists: `ApprovedPatch` is still built by `panel_verdict` alone, so the
+   task can persuade a judge and cannot construct an approval.
+2. A block stays final for its pass. A human who disagrees asks for a fresh full-panel review of
+   the same patch with the correction evidence attached, linked to the blocked review; there is
+   no override that turns a block into an offer. Spec 4.7 already anticipated the appeal.
+3. Findings are evidence, not labels. A finding enters training only after a separate human check
+   marks it confirmed; rejected and unresolved ones stay on the record and out of the corpus,
+   which is ticket 55's manifest.
+
+The research also found `self_consistency` misread by the pass 8 judge: the checklist defines it
+as behaviour the commit message does not claim, not as `show` and `reap` differing. Build ticket 63
+carries item 1 with ticket 53's change, and build ticket 64 carries item 2.

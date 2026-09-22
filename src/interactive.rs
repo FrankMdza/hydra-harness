@@ -250,6 +250,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
         // one it compiles the same gate a recorded run does, and build ticket 49
         // wants the sha here too. Filled when the gate is compiled, null until.
         gate_sha: None,
+        sandbox: None,
         scopes: Some(prep.scopes.clone()),
         cwd: prep.cwd.display().to_string(),
         worktree: Some(prep.worktree.clone()),
@@ -365,6 +366,7 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         // of `prepare` yet, so it is null and the replay treats the record as
         // unmarked rather than as a leak.
         gate_sha: None,
+        sandbox: None,
         launch_mode: Some("interactive".to_string()),
         provider_version: Some(provider_version),
         // Known before the child starts, unlike a recorded run's: `claude`

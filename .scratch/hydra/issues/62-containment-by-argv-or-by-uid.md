@@ -1,7 +1,7 @@
 # 62 - Should containment be enforced by reading argv, or by the operating system?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -34,3 +34,28 @@ which is shaping capabilities and writing down what was asked.
    what it answered. That stays true under both designs and is the thing nobody else has. It is
    worth deciding whether Hydra's claim is containment, or evidence, or both, before the
    repository is public and somebody decides for it.
+
+## Answer
+
+Resolved 2026-09-21 with the human. The research run on `agy` (01a0c5ab-9a7b) recommended no
+second uid and a `SECURITY.md` that calls the gate best effort. The session measured a third route
+the research did not consider, and the human took it.
+
+1. No second uid. What happens instead is the operating system's own sandbox on macOS,
+   `sandbox-exec`, around the vendor binary under the same user with the same `HOME`, so the
+   keychain and the logins are untouched. Measured 2026-09-21 in a scratch directory: a direct
+   write, a write through a variable, a write from Python and a write through a symlink into a
+   denied subpath all fail with EPERM; a hard link to a denied file cannot be created from
+   inside; the denied directory cannot be renamed; and `claude`, `cursor-agent`, `agy` and `codex`
+   all start underneath it, `codex` still logged in. The one path that reached a denied inode
+   was a hard link the human made outside the sandbox first, which is not the threat.
+2. The gate is honest about being a floor for capabilities and a writer of evidence. The writes
+   to Hydra's own directories, harness spec 7.5's deny list, and the reads of the corpus are
+   denied by the kernel, whatever the spelling; the gate keeps deciding which capabilities a
+   policy grants and recording every call. `SECURITY.md` says both halves in those words.
+3. The record promises evidence of what the gate saw, and the sandbox promises that Hydra's own
+   directories were not written by a run. Containment of the machine at large is not claimed.
+
+The cost is stated: macOS only today, and Apple marks the tool deprecated while shipping it in
+26 and while Anthropic's own sandbox runtime uses it. Linux is a port through landlock or bwrap.
+Build ticket 68.

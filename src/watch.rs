@@ -66,6 +66,10 @@ pub struct Launch {
     /// `process_start_time` null. Those two are the only fields this half fills
     /// in, because they do not exist until the process does.
     pub run_start: serde_json::Value,
+    /// The seatbelt profile on macOS, consumed at spawn and not copied to the
+    /// record beyond the sha on line 0.
+    #[serde(default)]
+    pub sandbox_profile: Option<PathBuf>,
 }
 
 pub fn write_spec(path: &Path, launch: &Launch) -> Result<()> {
@@ -156,6 +160,7 @@ pub fn watch(spec: &Path) -> Result<()> {
         child_env
             .vars()
             .map(|(k, v)| (k.to_string(), v.to_string())),
+        launch.sandbox_profile.as_deref(),
     );
 
     let mut spawned = match spawned {

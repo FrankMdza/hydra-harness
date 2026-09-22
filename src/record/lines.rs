@@ -49,6 +49,9 @@ pub struct RunStart {
     /// once more on 2026-09-14.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gate_sha: Option<String>,
+    /// The sha256 of the macOS seatbelt profile, null where no sandbox wrapped
+    /// the launch, build ticket 68.
+    pub sandbox: Option<String>,
     /// The absolute paths the gate resolved its scopes to, keyed by scope name
     /// (contract 5.1). Absent, never null, on a run that compiled no gate, and a
     /// key the run had no path for is absent from the object.

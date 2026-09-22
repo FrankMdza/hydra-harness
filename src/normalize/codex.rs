@@ -309,7 +309,8 @@ impl Walk {
     /// `file_change` carrying `changes: [{path, kind}]` and a `status`, never
     /// the patch text. The hook saw the text under `tool_input.command`; the
     /// stream keeps the paths. Both go on the call so a replay has what the
-    /// gate had and a reader has what the run changed.
+    /// gate had and a reader has what the run changed. The gate's replay reads
+    /// `changes[].path` the way it reads patch headers from `command`.
     fn apply_patch(&mut self, seq: u64, item: &Value) {
         let call_id = item_id(item, seq);
         let name = "apply_patch".to_string();

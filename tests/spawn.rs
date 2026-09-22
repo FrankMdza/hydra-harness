@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
 use hydra::provider::Provider;
-use hydra::run::write_spawn_config;
+use hydra::run::{refuse_foreign_checkout, write_spawn_config};
 
 /// A layout per test, because the suite runs in parallel.
 fn layout() -> (Layout, PathBuf) {
@@ -54,6 +54,35 @@ fn hook_command(settings: &serde_json::Value) -> String {
         .as_str()
         .unwrap()
         .to_string()
+}
+
+#[test]
+fn a_launch_from_a_foreign_checkout_is_refused_before_writing() {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "hydra-spawn-foreign-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = Layout::at(&root);
+    let checkout = root.join("checkout");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let err = refuse_foreign_checkout(&layout, &checkout).unwrap_err();
+    let message = err.to_string();
+    assert!(
+        message.contains(root.display().to_string().as_str()),
+        "{message}"
+    );
+    assert!(
+        message.contains(checkout.display().to_string().as_str()),
+        "{message}"
+    );
+    assert!(message.contains("HYDRA_ROOT"), "{message}");
+    assert!(
+        !layout.runs().exists(),
+        "the refusal wrote into the data root"
+    );
 }
 
 #[test]
@@ -995,4 +1024,137 @@ fn a_codex_spawn_writes_the_hook_config_into_the_worktree() {
     assert!(ignore.contains("/hooks.json"));
     assert!(ignore.contains("/config.toml"));
     assert!(!ignore.contains('*'));
+}
+
+// ---------------------------------------------------------------------------
+// macOS seatbelt: profile beside the gate, build ticket 68
+// ---------------------------------------------------------------------------
+
+fn canonical_subpath(path: &Path) -> String {
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[test]
+fn a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths() {
+    if !hydra::sandbox::wraps_launches() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    let profile = spawn.sandbox_profile.expect("macOS spawn writes a profile");
+    assert!(profile.is_file(), "profile is a real file beside the gate");
+    let text = std::fs::read_to_string(&profile).unwrap();
+    let worktree_canon = canonical_subpath(&worktree).to_lowercase();
+
+    let gate = layout.gate_script("r1");
+    let policy_spawn = hydra::policy::Spawn {
+        provider: Provider::Claude,
+        policy: "standard",
+        layout: &layout,
+        worktree: &worktree,
+        skill_store: &layout.skills(),
+        corpus: &layout.runs(),
+        skill_snapshot: &layout.skill_snapshot_scope("r1", None),
+        skill_checkout: None,
+        parent_git_dir: None,
+        gate_script: &gate,
+        floor_lifted: false,
+    };
+    for path in hydra::policy::denied_write_paths(&set, &policy_spawn) {
+        let resolved = canonical_subpath(&path).to_lowercase();
+        if hydra::policy::own_write_paths(&policy_spawn)
+            .iter()
+            .any(|own| resolved == canonical_subpath(own).to_lowercase())
+        {
+            continue;
+        }
+        assert!(
+            text.to_lowercase().contains(&resolved),
+            "profile does not deny {resolved}"
+        );
+    }
+    assert!(
+        !text.to_lowercase().contains(&format!(
+            r#"(deny file-write* (subpath "{}"))"#,
+            worktree_canon
+        )),
+        "profile denies the run's own worktree"
+    );
+}
+
+#[test]
+fn the_seatbelt_refuses_a_corpus_write_and_allows_the_worktree() {
+    if !hydra::sandbox::exec_available() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    layout.ensure().unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let profile = spawn.sandbox_profile.unwrap();
+    let corpus = canonical_subpath(&layout.runs());
+    let wt = canonical_subpath(&worktree);
+
+    let corpus_write = std::process::Command::new("/usr/bin/sandbox-exec")
+        .arg("-f")
+        .arg(&profile)
+        .arg("/bin/sh")
+        .arg("-c")
+        .arg(format!(
+            "echo x > '{corpus}/seatbelt-test' 2>&1; echo rc=$?"
+        ))
+        .output()
+        .unwrap();
+    let corpus_out = String::from_utf8_lossy(&corpus_write.stdout);
+    assert!(
+        corpus_out.contains("rc=1") || corpus_out.to_lowercase().contains("not permitted"),
+        "corpus write should fail, got {corpus_out}"
+    );
+
+    let worktree_write = std::process::Command::new("/usr/bin/sandbox-exec")
+        .arg("-f")
+        .arg(&profile)
+        .arg("/bin/sh")
+        .arg("-c")
+        .arg(format!("echo x > '{wt}/seatbelt-test' 2>&1; echo rc=$?"))
+        .output()
+        .unwrap();
+    let wt_out = String::from_utf8_lossy(&worktree_write.stdout);
+    assert!(
+        wt_out.contains("rc=0"),
+        "worktree write should succeed, got {wt_out}"
+    );
 }

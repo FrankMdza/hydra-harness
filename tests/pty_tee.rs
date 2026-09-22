@@ -34,6 +34,7 @@ fn minimal_run_start(pid: u32, start: Option<String>) -> RunStart {
         policy_sha: None,
         floor_lifted: None,
         gate_sha: None,
+        sandbox: None,
         scopes: None,
         cwd: "/tmp".into(),
         worktree: None,
@@ -60,6 +61,7 @@ fn a_teed_run_is_a_valid_record() {
         &["-c".to_string(), script.to_string()],
         std::path::Path::new("/tmp"),
         [("PATH".to_string(), "/usr/bin:/bin".to_string())].into_iter(),
+        None,
     )
     .unwrap();
 
@@ -113,6 +115,7 @@ fn a_long_frame_survives_being_split_across_reads() {
         &["-c".to_string(), script],
         std::path::Path::new("/tmp"),
         [("PATH".to_string(), "/usr/bin:/bin".to_string())].into_iter(),
+        None,
     )
     .unwrap();
 
@@ -152,6 +155,7 @@ fn a_line_past_the_cap_becomes_two_frames_and_is_named_on_run_end() {
         &["-c".to_string(), script],
         std::path::Path::new("/tmp"),
         [("PATH".to_string(), "/usr/bin:/bin".to_string())].into_iter(),
+        None,
     )
     .unwrap();
 

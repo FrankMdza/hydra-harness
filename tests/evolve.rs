@@ -3,16 +3,19 @@
 //! Nothing here launches a provider. Every test builds a scratch [`Layout`] under
 //! a temporary directory and calls the library directly.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use hydra::paths::Layout;
 use hydra::record::validate::check;
 use hydra::rungs::evolve::{
-    PATCH_LINE_CAP, pass_run_id_from_branch, patch_over_cap, protected_path_hit, rate_limit_abort,
-    write_harness_end, write_harness_start,
+    HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, ProposerPatch, TASK_DOES_NOT_WAIVE_CHECKLIST,
+    ensure_reviewable, judge_task, pass_run_id_from_branch, patch_over_cap, protected_path_hit,
+    rate_limit_abort, review_commit_message, write_harness_end, write_harness_start,
 };
 use hydra::rungs::review::{
-    ApprovedPatch, PanelVerdict, VerdictField, panel_verdict, parse_judge_answer,
+    ApprovedPatch, CHECKLIST_ENTRIES, CHECKLIST_IDS, PanelVerdict, VerdictField, checklist_prompt,
+    panel_verdict, parse_judge_answer,
 };
 use hydra::worktree::Stat;
 use serde_json::{Value, json};
@@ -227,6 +230,7 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
     let rows = [
         "src/rungs/review.rs",
         "src/rungs/evolve.rs",
+        "src/spawn_config.rs",
         "src/policy/mod.rs",
         "src/policy/table.rs",
         "src/policy/gate.py",
@@ -384,6 +388,131 @@ fn one_fence_comes_off_and_everything_else_still_blocks() {
     }
 }
 
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+fn scratch_repo(name: &str) -> PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("hydra-judge-prompt-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q", "-b", "main"]);
+    git(&dir, &["config", "user.email", "test@example.invalid"]);
+    git(&dir, &["config", "user.name", "hydra tests"]);
+    std::fs::write(dir.join("README"), "scratch\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "empty"]);
+    dir
+}
+
+fn patch_fixture(
+    repo: &Path,
+    paths: &[&str],
+    diff: &str,
+    seed_test: Option<(&str, &str)>,
+) -> ProposerPatch {
+    let base_tree = if let Some((path, content)) = seed_test {
+        let file = repo.join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(file, content).unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-qm", "baseline"]);
+        git(repo, &["rev-parse", "HEAD^{tree}"]).trim().to_string()
+    } else {
+        git(repo, &["rev-parse", "HEAD^{tree}"]).trim().to_string()
+    };
+    ProposerPatch {
+        worktree: repo.to_path_buf(),
+        base_tree,
+        stat: Stat {
+            files_changed: paths.len(),
+            insertions: 1,
+            deletions: 1,
+        },
+        paths: paths.iter().map(|path| (*path).to_string()).collect(),
+        diff: diff.to_string(),
+    }
+}
+
+#[test]
+fn the_judge_prompt_carries_the_task_and_the_fixed_sentence() {
+    let repo = scratch_repo("task");
+    let patch = patch_fixture(&repo, &["src/lib.rs"], "diff", None);
+    let task = "make reap report nothing to do for an unknown id";
+    let prompt = judge_task(&patch, Some(task), None);
+    assert!(prompt.contains(task), "{prompt}");
+    assert!(prompt.contains(TASK_DOES_NOT_WAIVE_CHECKLIST), "{prompt}");
+    assert!(
+        prompt.contains("## Intent the patch was written against"),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn a_diff_touching_tests_puts_the_baseline_in_the_prompt() {
+    let repo = scratch_repo("baseline-test");
+    let baseline = "assert_eq!(answer(), false);\n";
+    let patch = patch_fixture(
+        &repo,
+        &["tests/x.rs"],
+        "diff --git a/tests/x.rs",
+        Some(("tests/x.rs", baseline)),
+    );
+    let prompt = judge_task(&patch, None, None);
+    assert!(prompt.contains("## Baseline tests"), "{prompt}");
+    assert!(prompt.contains("### tests/x.rs"), "{prompt}");
+    assert!(prompt.contains(baseline.trim()), "{prompt}");
+    assert!(prompt.contains("baseline_test_provenance"), "{prompt}");
+}
+
+#[test]
+fn a_diff_touching_only_src_does_not_put_a_baseline_in_the_prompt() {
+    let repo = scratch_repo("src-only");
+    let patch = patch_fixture(&repo, &["src/lib.rs"], "diff --git a/src/lib.rs", None);
+    let prompt = judge_task(&patch, None, None);
+    assert!(!prompt.contains("## Baseline tests"), "{prompt}");
+}
+
+#[test]
+fn checklist_names_and_definitions_match_the_spec() {
+    assert_eq!(CHECKLIST_ENTRIES.len(), CHECKLIST_IDS.len());
+    for (entry, id) in CHECKLIST_ENTRIES.iter().zip(CHECKLIST_IDS.iter()) {
+        assert_eq!(entry.id, *id);
+    }
+    let prompt = checklist_prompt();
+    for entry in CHECKLIST_ENTRIES {
+        assert!(
+            prompt.contains(entry.definition),
+            "{} missing definition",
+            entry.id
+        );
+        let ceiling = if entry.advisory {
+            "advisory"
+        } else {
+            "critical"
+        };
+        assert!(
+            prompt.contains(&format!("- {} ({})", entry.id, ceiling)),
+            "{} missing from prompt",
+            entry.id
+        );
+    }
+}
+
 #[test]
 fn a_legacy_pass_branch_prefix_is_still_recognised() {
     let id = "01a08000-0000-7000-8000-00000000ev99";
@@ -401,4 +530,55 @@ fn a_legacy_pass_branch_prefix_is_still_recognised() {
         Some(id)
     );
     assert_eq!(pass_run_id_from_branch("rungs/curate/foo"), None);
+}
+
+#[test]
+fn a_review_pass_commit_message_names_the_pass_it_reviews() {
+    let reviewed = "01a08000-0000-7000-8000-00000000rv01";
+    let pass = "01a08000-0000-7000-8000-00000000rv02";
+    let proposer = "01a08000-0000-7000-8000-00000000rv03";
+    let judges = vec![
+        "01a08000-0000-7000-8000-00000000rv04".into(),
+        "01a08000-0000-7000-8000-00000000rv05".into(),
+        "01a08000-0000-7000-8000-00000000rv06".into(),
+        "01a08000-0000-7000-8000-00000000rv07".into(),
+    ];
+    let message = review_commit_message(pass, reviewed, proposer, &judges, "verdict: blocked\n\n");
+    assert!(
+        message.contains(&format!("reviews: {reviewed}")),
+        "{message}"
+    );
+    assert!(
+        message.contains(&format!("hydra evolve pass {pass}")),
+        "{message}"
+    );
+}
+
+#[test]
+fn human_evidence_reaches_the_judge_prompt() {
+    let repo = scratch_repo("review-evidence");
+    let patch = patch_fixture(&repo, &["src/lib.rs"], "diff", None);
+    let evidence = "self_consistency means the commit message, not show and reap agreeing";
+    let prompt = judge_task(&patch, Some("fix reap for unknown ids"), Some(evidence));
+    assert!(prompt.contains(HUMAN_EVIDENCE_HEADING), "{prompt}");
+    assert!(prompt.contains(evidence), "{prompt}");
+}
+
+#[test]
+fn a_pass_that_is_not_blocked_is_refused() {
+    let repo = scratch_repo("not-blocked");
+    let pass_id = "01a08000-0000-7000-8000-00000000rv08";
+    git(&repo, &["branch", &format!("rungs/{pass_id}")]);
+    let err = ensure_reviewable(&repo, pass_id).unwrap_err();
+    assert!(err.to_string().contains("not blocked"), "{}", err);
+}
+
+#[test]
+fn an_offerable_pass_is_refused_even_when_a_blocked_branch_exists() {
+    let repo = scratch_repo("offerable");
+    let pass_id = "01a08000-0000-7000-8000-00000000rv09";
+    git(&repo, &["branch", &format!("rungs/blocked/{pass_id}")]);
+    git(&repo, &["branch", &format!("rungs/{pass_id}")]);
+    let err = ensure_reviewable(&repo, pass_id).unwrap_err();
+    assert!(err.to_string().contains("offerable"), "{}", err);
 }

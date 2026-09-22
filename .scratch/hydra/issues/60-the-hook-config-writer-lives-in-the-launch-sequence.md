@@ -1,7 +1,7 @@
 # 60 - Row 4 of harness 15.2 is not a file, and protecting it means cutting `run.rs`
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -28,3 +28,16 @@ that edit and master, which is the situation ticket 40 was opened to end for the
 
 The build ticket's Outcome and `IMPLEMENTATION.md` record the gap. Nothing chooses until
 this is answered.
+
+## Answer
+
+Resolved 2026-09-21 with the human, after a research run on `cursor-agent` (01a0c5ab-7364). The
+writer moves out: `write_spawn_config`, `SpawnFiles` and their tests go to `src/spawn_config.rs`,
+re-exported from `run.rs` so the call sites keep their path, and the new file joins
+`PROTECTED_CODE_PATHS`. `run.rs` stays editable by rung two, which build ticket 40 measured as the
+right size for the loop, and the panel stops being the only guard of row 4, because spec 4.4's
+"refused at admission, not by the panel" is load-bearing and a judge item is probabilistic where
+`protected_path_hit` is not. The research found harness spec 15.2 claiming row 4 refused at
+admission while the code lists only `src/policy/`, and the `PROTECTED_CODE_PATHS` comment mapping
+`src/policy/` to rows 4 and 9 both; the build fixes the code and the session fixes the spec. Build
+ticket 66.

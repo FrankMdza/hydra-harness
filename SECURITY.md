@@ -13,8 +13,13 @@ Hydra made about it.
   under every policy. A command that reaches the same path through a variable or a
   subshell is not. `docs/harness-spec.md` section 7.4 states this and `tests/gate.rs` fails
   if someone claims to have closed it.
-- **There is no container.** The vendor CLI needs the network to reach its model, so network
-  cannot be cut, and the run has your real `HOME` because a wrong one logs the vendor out.
+- **There is no container, and on macOS there is a sandbox.** The vendor CLI needs the network to
+  reach its model, so network cannot be cut, and the run has your real `HOME` because a wrong one
+  logs the vendor out. Since 2026-09-21 every recorded launch on macOS runs under the kernel's own
+  seatbelt with the same user and `HOME`: writes under Hydra's directories and reads of the corpus
+  fail with "operation not permitted" whatever the spelling, a variable, an interpreter or a
+  symlink included, measured on all four providers. The gate still decides what a policy allows and
+  writes the record; the kernel is what refuses the write. Linux launches unwrapped.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never
@@ -47,9 +52,15 @@ Hydra made about it.
   same live run writes a `containment` refusal instead of starting. **A child that unsets the
   variable walks through this**, because a variable is a thing a process removes from its own
   children's environment. What the check closes is the absent flag, which was the whole of the
-  attack as it was measured; what it does not close is a child that means it. Map ticket 62 asks
-  whether this class wants a second uid and file modes instead, which would be the first thing in
-  this design to need something from the machine.
+  attack as it was measured; what it does not close is a child that means it. Map ticket 62 asked
+  whether this class wants a second uid, and the answer on 2026-09-21 was the seatbelt above
+  instead: a child that unsets the variable still cannot write a record into the corpus, because
+  the kernel denies the directory to its whole process tree.
+- **Delegation from inside a run does not work under the seatbelt, since 2026-09-21.** The profile
+  is inherited by every descendant, and a delegated child is Hydra itself, which reads its parent's
+  record and writes its own into the corpus the profile denies. The human chose to keep the corpus
+  denied. Map ticket 64 holds the redesign; until then a launch through the delegate face from a
+  macOS run fails on the corpus read.
 - **On `codex` the gate rides the command line, and a hook that dies without answering fails
   open, since 2026-09-21.** Codex reads no project hook file inside a git worktree, and every
   Hydra run is one, so the gate is handed over as a `-c` override naming a Python file in the

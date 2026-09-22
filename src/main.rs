@@ -146,12 +146,16 @@ fn main() -> Result<()> {
         Command::Evolve {
             model,
             task,
+            review,
+            evidence,
             timeout,
             dry_run,
         } => {
             let done = hydra::rungs::evolve::evolve(hydra::rungs::evolve::Pass {
                 model,
                 task,
+                review,
+                evidence,
                 timeout,
                 dry_run,
             })?;

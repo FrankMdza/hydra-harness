@@ -51,6 +51,7 @@ fn line_zero(cwd: &Path) -> serde_json::Value {
         // A stub launch compiles no gate, so it resolved no scope.
         floor_lifted: Some(false),
         gate_sha: None,
+        sandbox: None,
         scopes: None,
         cwd: cwd.display().to_string(),
         worktree: None,
@@ -85,6 +86,7 @@ fn spec_for(layout: &Layout, script: &str) -> PathBuf {
             model: None,
             hydra_env: Default::default(),
             run_start: line_zero(Path::new("/tmp")),
+            sandbox_profile: None,
         },
     )
     .unwrap();
@@ -222,6 +224,7 @@ fn a_binary_that_is_not_there_still_writes_a_record() {
             model: None,
             hydra_env: Default::default(),
             run_start: line_zero(Path::new("/tmp")),
+            sandbox_profile: None,
         },
     )
     .unwrap();

@@ -29,6 +29,10 @@ pub struct Tool {
     pub capability: Capability,
     /// The `tool_input` field naming the path this call acts on, when it has one.
     pub path_field: Option<&'static str>,
+    /// When true, paths are parsed from the patch body in the provider's
+    /// `command_field` and from `changes[].path` on replay, not from one path
+    /// argument.
+    pub patch_paths: bool,
 }
 
 const fn tool(name: &'static str, capability: Capability) -> Tool {
@@ -36,6 +40,7 @@ const fn tool(name: &'static str, capability: Capability) -> Tool {
         name,
         capability,
         path_field: None,
+        patch_paths: false,
     }
 }
 
@@ -44,6 +49,17 @@ const fn pathed(name: &'static str, capability: Capability, field: &'static str)
         name,
         capability,
         path_field: Some(field),
+        patch_paths: false,
+    }
+}
+
+/// A `file_write` whose paths live in a patch body rather than one field.
+const fn patch_write(name: &'static str) -> Tool {
+    Tool {
+        name,
+        capability: Capability::FileWrite,
+        path_field: None,
+        patch_paths: true,
     }
 }
 
@@ -55,6 +71,7 @@ const fn unhooked(name: &'static str) -> Tool {
         name,
         capability: Capability::Unhooked,
         path_field: None,
+        patch_paths: false,
     }
 }
 
@@ -331,7 +348,7 @@ pub const AGY_COMMAND_FIELD: &str = "CommandLine";
 /// **Hosted tools never reach the hook** and carry [`Capability::Unhooked`].
 pub const CODEX: &[Tool] = &[
     tool("Bash", Capability::Shell),
-    tool("apply_patch", Capability::FileWrite),
+    patch_write("apply_patch"),
     tool("update_plan", Capability::ProviderNative),
     tool("spawn_agent", Capability::SubagentSpawn),
     unhooked("WebSearch"),
@@ -642,6 +659,13 @@ mod tests {
         let before = names.len();
         names.dedup();
         assert_eq!(before, names.len());
+    }
+
+    #[test]
+    fn apply_patch_paths_are_parsed_from_the_patch_body_and_from_changes_on_replay() {
+        let row = CODEX.iter().find(|t| t.name == "apply_patch").unwrap();
+        assert!(row.patch_paths);
+        assert!(row.path_field.is_none());
     }
 
     #[test]

@@ -142,6 +142,65 @@ def inside(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+PATCH_HEADERS = (
+    "*** Add File: ",
+    "*** Update File: ",
+    "*** Delete File: ",
+    "*** Move to: ",
+)
+
+
+def parse_patch_paths(body, cwd):
+    """Every path an `apply_patch` body names in its headers, resolved."""
+    paths = []
+    for line in body.splitlines():
+        for prefix in PATCH_HEADERS:
+            if line.startswith(prefix):
+                raw = line[len(prefix) :].strip()
+                if raw:
+                    paths.append(resolve(raw, cwd))
+                break
+    return paths
+
+
+def paths_from_changes(tool_input, cwd):
+    """Paths a replayed `file_change` carries in `changes[].path`."""
+    changes = tool_input.get("changes")
+    if not isinstance(changes, list):
+        return []
+    paths = []
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+        raw = change.get("path")
+        if isinstance(raw, str) and raw:
+            paths.append(resolve(raw, cwd))
+    return paths
+
+
+def target_paths(tool, tool_input, cwd):
+    """Every path a tool call acts on, or an empty list when it names none."""
+    patch_tools = HYDRA_CONFIG.get("patch_path_tools", {})
+    if tool in patch_tools:
+        paths = []
+        field = patch_tools[tool]
+        raw = tool_input.get(field)
+        if isinstance(raw, str) and raw:
+            paths.extend(parse_patch_paths(raw, cwd))
+        paths.extend(paths_from_changes(tool_input, cwd))
+        seen = set()
+        out = []
+        for path in paths:
+            if path not in seen:
+                seen.add(path)
+                out.append(path)
+        return out
+    path = target_path(tool, tool_input, cwd)
+    if path is None:
+        return []
+    return [path]
+
+
 def target_path(tool, tool_input, cwd):
     """The path a tool call acts on, or None when the table names no field."""
     field = HYDRA_CONFIG["path_fields"].get(tool)
@@ -626,7 +685,8 @@ def evaluate(payload):
             "provider. The table is stale or the provider renamed a tool.".format(tool)
         )
 
-    path = target_path(tool, tool_input, cwd)
+    paths = target_paths(tool, tool_input, cwd)
+    path = paths[0] if paths else None
 
     # Own-read carve-out, before the denied-parent check. A Cursor run's
     # `cursor-data/` sits under the spawn directory, a denied parent since
@@ -646,26 +706,27 @@ def evaluate(payload):
 
     # The path denials of 7.5, before the policy is consulted at all. This is
     # where `permissive` stops being permissive.
-    if capability == "file_write" and path is not None:
-        protected = protected_root(path)
-        if protected is not None:
-            return False, (
-                "hydra/protected-path: {} writes under {}, denied under every "
-                "policy by harness spec 7.5.".format(tool, protected)
-            )
-        # The skill roots Hydra linked into the worktree (6.4). A write there
-        # replaces a link, so the tool-level write is refused under every
-        # policy. The shell floor does not read this list on purpose: two of
-        # three providers read a SKILL.md with `cat`, and a command that names
-        # the root is how they do it. Build ticket 44, narrowed the same day
-        # after `ls -la .claude/skills/` on run 01a09405-f451 was refused.
-        for root in HYDRA_CONFIG.get("write_denied_worktree_paths", []):
-            if inside(path, root):
+    if capability == "file_write":
+        for write_path in paths:
+            protected = protected_root(write_path)
+            if protected is not None:
                 return False, (
-                    "hydra/protected-path: {} writes under {}, the skills Hydra "
-                    "linked for this run, denied under every policy by harness "
-                    "spec 6.4.".format(tool, root)
+                    "hydra/protected-path: {} writes {}, under {}, denied under "
+                    "every policy by harness spec 7.5.".format(tool, write_path, protected)
                 )
+            # The skill roots Hydra linked into the worktree (6.4). A write there
+            # replaces a link, so the tool-level write is refused under every
+            # policy. The shell floor does not read this list on purpose: two of
+            # three providers read a SKILL.md with `cat`, and a command that names
+            # the root is how they do it. Build ticket 44, narrowed the same day
+            # after `ls -la .claude/skills/` on run 01a09405-f451 was refused.
+            for root in HYDRA_CONFIG.get("write_denied_worktree_paths", []):
+                if inside(write_path, root):
+                    return False, (
+                        "hydra/protected-path: {} writes {}, under {}, the skills "
+                        "Hydra linked for this run, denied under every policy by "
+                        "harness spec 6.4.".format(tool, write_path, root)
+                    )
 
     # The same list, reached through the capability that carries no path field
     # at all. An MCP tool's arguments are whatever its server declared, so there
@@ -710,7 +771,7 @@ def evaluate(payload):
     if capability in ("file_read", "file_write"):
         if "anywhere" in allowed_scopes:
             pass
-        elif path is None:
+        elif not paths:
             return False, (
                 "hydra/no-path: policy {} scopes {} and {} named no path to "
                 "check.".format(HYDRA_CONFIG["policy"], capability, tool)
@@ -721,15 +782,17 @@ def evaluate(payload):
                 for name in allowed_scopes
                 if name in HYDRA_CONFIG["scopes"]
             ]
-            if not any(inside(path, root) for root in roots):
-                return False, (
-                    "hydra/out-of-scope: policy {} allows {} inside {} and this "
-                    "call is outside it.".format(
-                        HYDRA_CONFIG["policy"],
-                        capability,
-                        " or ".join(allowed_scopes),
+            for scoped_path in paths:
+                if not any(inside(scoped_path, root) for root in roots):
+                    return False, (
+                        "hydra/out-of-scope: policy {} allows {} inside {} and "
+                        "{} is outside it.".format(
+                            HYDRA_CONFIG["policy"],
+                            capability,
+                            " or ".join(allowed_scopes),
+                            scoped_path,
+                        )
                     )
-                )
 
     if capability == "shell" and not HYDRA_CONFIG["floor_lifted"]:
         command = tool_input.get(HYDRA_CONFIG["command_field"], "")

@@ -44,6 +44,7 @@ fn a_run_start() -> RunStart {
         policy_sha: None,
         floor_lifted: None,
         gate_sha: None,
+        sandbox: None,
         scopes: None,
         cwd: "/Users/USER/hydra/worktrees/x".into(),
         worktree: Some(WorktreeRef {

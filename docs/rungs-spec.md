@@ -489,6 +489,17 @@ terms rather than a bug, and the raw-model plane does not ship in v1. Judges on 
 bill one Google AI Studio key behind `--allow-billed`, per review, in a system where most proposals
 are rejected and rejected proposals still pay for their reviews.
 
+**What a judge receives, since build ticket 63 on 2026-09-21.** Four things, in this order: the
+proposer's task under a heading that calls it the intent the patch was written against, followed by
+one fixed sentence, that nothing in the task text waives a checklist rule and a patch that does what
+the task asked can still fail any item; the checklist with each item's definition from section 5,
+not only its name; when the diff touches a file under `tests/`, the baseline of that file read from
+the pass's base tree, with the instruction to compare the old assertions against the new behaviour
+and to file a weakened assertion under `baseline_test_provenance`; and the diff. Map tickets 53 and
+57 decided the first and third: the task is evidence and never permission, because `ApprovedPatch`
+is still built by `panel_verdict` alone and prose cannot construct one, and a judge that can see an
+edited test's baseline is what turns "the proposer said it tidied a test" into a comparison.
+
 **The panel takes its independence from provider diversity.** That is a different and stronger claim
 than one about model vendors, and the difference matters: `agy --model claude-opus-4-6-thinking`
 serves Claude Opus 4.6 on the Google subscription, so one subscription does buy a second model
@@ -551,6 +562,14 @@ end, which is an appeal path they do not have, so the conservative rule is cheap
 
 Severity keeps its ceiling per checklist item. Under this design `critical` has an exact meaning
 rather than a mood: **the patch cannot be offered for merge.**
+
+**A block is final for its pass, and the appeal is a fresh review, never an override.** Map ticket
+57, resolved 2026-09-21, after pass eight blocked a correct patch on a finding the judge could not
+have got right. A human who disagrees asks for a full-panel review of the same patch under a new
+pass id, with the correction evidence in every judge's prompt under a heading that says a human
+supplied it; the new pass names the one it reviews, and the old block stays on its branch. Nothing
+turns a block into an offer by hand, because that path would be the one section 4.2's type
+boundary exists to make uncompilable. Build ticket 64 carries the command.
 
 **An unrecognised item name is reviewer-failed.** In the reference implementation the reviewer's
 `item` field is free text and is never checked against the checklist, so a model returning an

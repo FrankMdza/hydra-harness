@@ -119,11 +119,22 @@ reader who cannot find a path here has found a bug rather than an omission.
 |---|---|---|---|
 | `<worktree>/` | the child's checkout, the injected skill root, the hook config for `cursor-agent` and `agy`, the MCP config for `cursor-agent` and `agy` | per run, from the parent's repo | `hydra reap`, after committing uncommitted changes to the child's branch |
 | `~/hydra/skills-snapshots/<sha>/` | an immutable git worktree of the skill store at the sha the run pinned | per sha, shared and refcounted | when no live run references it |
-| `~/hydra/spawn/<run-id>/` | the compiled gate script, the `--mcp-config` file for `claude`, Cursor's data root at `cursor-data/` | per run | with the worktree |
+| `~/hydra/spawn/<run-id>/` | the compiled gate script, the seatbelt profile `sandbox.sb` on macOS, the hook file `hook.py` on `codex`, the `--mcp-config` file for `claude`, Cursor's data root at `cursor-data/` | per run | with the worktree |
 | `~/hydra/runs/<run-id>.jsonl` | the run record | per run | `hydra prune`, which moves rather than deletes |
 | `~/hydra/skills/` | the skill store, with its own git history | once, and it outlives every run | never |
 | `~/hydra/skill-worktrees/<run-id>/` | a `curate` pass's own checkout of the store, where it writes its proposal | per curate pass | `hydra reap`, after committing to `rungs/curate/<run-id>` |
 | `~/hydra/pruned/<run-id>.jsonl` | where `hydra prune` moves a record, because it moves rather than deletes | per pruned record | never |
+
+**The root is a property of the machine, and a launch from a checkout that is not the root refuses
+first.** Map ticket 61, resolved 2026-09-21 after a cold-clone review ran the quick start from
+`/tmp` and was shown a corpus it had not made. `~/hydra` is one corpus per machine, which is what
+rung one learns from and what the install makes coincide with the checkout. `hydra run` from a
+checkout elsewhere, with `HYDRA_ROOT` unset, refuses before writing anything and names the root
+it would have written into, the checkout it ran from, and the variable; set to that root or
+another, the launch proceeds. `hydra doctor` says what a launch would find: the root and the
+policy path, the four binaries and their versions against the ones the code was measured on,
+the policy set sha, and each protected config as present or missing, exit 1 when one is missing.
+Neither the versions nor the configs were checked at spawn before it; `doctor` is a new check.
 
 The last three are not per run and are here anyway. A reader asking where a pruned record went, or
 where a curator's proposal is before a human sees it, had nowhere in this spec to look. Ticket 40
@@ -944,6 +955,24 @@ than having two: a floor stated as a guarantee is the Hermes failure in miniatur
 call inside Cursor's 60 second hook budget. The large one is that a gate depending on the parent
 still running turns a dead parent into a fail-open, on the provider that already fails open.
 
+**On macOS the kernel stands behind the script, since build ticket 68.** Map ticket 62 asked whether
+containment should be argv or the operating system, and the answer is the operating system's own
+sandbox under the same user: every recorded launch is `/usr/bin/sandbox-exec -f <spawn>/sandbox.sb
+<binary> <argv>`, and the profile denies `file-write*` under every path 7.5's deny list names,
+parents included, allows it again under the run's own worktree and the vendor's own data root,
+and denies `file-read*` under the corpus. SBPL takes the last matching rule, so a sibling worktree
+stays refused while the own one is writable. Measured 2026-09-21 on all four providers: a corpus
+write spelled as two shell variables, which the string floor cannot see, fails with "operation not
+permitted"; a symlink is resolved before the check; a hard link into a denied path cannot be made
+from inside; and `HOME` and the keychain are untouched, so the logins survive. The gate still
+decides capabilities and writes the record; the kernel is what refuses the write. Two costs are
+stated. The profile is inherited by every descendant, so a delegated child, which is Hydra itself,
+cannot read its parent's record or write its own, and delegation from inside a macOS run is map
+ticket 64 until it is redesigned. And a provider that brings its own seatbelt cannot apply it
+inside Hydra's, so `codex` runs with its own off where Hydra wraps it. A Mac without
+`sandbox-exec` refuses the launch rather than running bare; Linux launches unwrapped with
+`sandbox` null on the record, and a port through landlock or bwrap is the roadmap's.
+
 ### 7.6 In-process subagents
 
 Every policy but `permissive` denies them.
@@ -1364,9 +1393,13 @@ exact-case membership test misses it.
 | 12 | the run records directory, `~/hydra/runs/` | data | not applicable | **yes, under every policy** |
 
 **What admission refuses, as built.** The five config rows, 3, 5, 8, 10 and 11, since build ticket
-36. The five code rows, 1, 2, 4, 6 and 7, since build ticket 40 on 2026-09-12; between the two
-tickets a patch to any of them reached the panel, and rungs spec 4.4's sentence about the
-opening scenario was false for every pass run in that window. Map ticket 59 found it.
+36. The code rows 1, 2, 6 and 7, since build ticket 40 on 2026-09-12; between the two tickets a
+patch to any of them reached the panel, and rungs spec 4.4's sentence about the opening scenario
+was false for every pass run in that window. Map ticket 59 found it. Row 4 since build ticket 66 on
+2026-09-21: until then the writer lived inside `src/run.rs`, which is the whole launch sequence and
+stays editable by rung two, so only the compiler half under `src/policy/` was refused and a patch to
+`write_spawn_config` reached the panel. Map ticket 60 found it, and the writer is `src/spawn_config.rs`
+now, its own protected row, with `src/policy/` mapped to row 9 alone.
 
 **Entry 12 arrived from the seam check and is the one row that is not source.** The other eleven are
 things a rung-two patch could propose changing. A patch cannot propose changing the corpus, so its
@@ -1448,7 +1481,9 @@ wanted.
 | `hydra reap [<run-id>]` | commits a worktree's uncommitted changes to the child's branch, then removes the worktree and the spawn directory. Takes a prefix since build ticket 39 |
 | `hydra prune` | moves run files out of `runs/`. Deletes only behind a flag |
 | `hydra curate` | invokes rung one as an ordinary recorded run under the `curate` policy |
-| `hydra evolve [--task <text>]` | runs one rung-two pass: a proposer, the admission gate, a panel of four, a branch. `--task` hands the proposer a target; map ticket 57 asks what the judge should see of it |
+| `hydra evolve [--task <text>]` | runs one rung-two pass: a proposer, the admission gate, a panel of four, a branch. `--task` hands the proposer a target, and since build ticket 63 the judges see it as evidence that waives nothing |
+| `hydra evolve --review <pass-id> --evidence <file>` | a fresh full-panel review of a blocked pass, the same patch under a new pass id with the human's evidence in every judge's prompt; the old block stays. Build ticket 64 |
+| `hydra doctor` | the root, the policy path, the four binaries against the measured versions, the policy sha, the protected configs present or missing. Launches nothing; exit 1 when something is missing. Build ticket 67 |
 | `hydra export` | section 14 |
 | `hydra usage recount` | re-derives token counts from stored text with a better tokenizer |
 

@@ -29,6 +29,8 @@ pub const PATCH_LINE_CAP: usize = 400;
 pub struct Pass {
     pub model: Option<String>,
     pub task: Option<String>,
+    pub review: Option<String>,
+    pub evidence: Option<PathBuf>,
     pub timeout: Duration,
     pub dry_run: bool,
 }
@@ -67,6 +69,15 @@ pub fn pass_run_id_from_branch(branch: &str) -> Option<&str> {
 
 /// Reads the corpus, runs the proposer, reviews the patch, lands on a branch.
 pub fn evolve(pass: Pass) -> Result<Done> {
+    if pass.review.is_some() {
+        let reviewed_pass_id = pass.review.clone().unwrap();
+        let evidence_path = pass
+            .evidence
+            .clone()
+            .context("hydra evolve --review requires --evidence")?;
+        return review_blocked(&reviewed_pass_id, &evidence_path, pass);
+    }
+
     let layout = Layout::discover()?;
     let policies = PolicySet::discover()?;
     let pass_run_id = Uuid::now_v7().to_string();
@@ -227,64 +238,14 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         }));
     }
 
-    let judge_prompt = judge_task(&patch.diff);
-    let judges = [
-        (Provider::Claude, "claude"),
-        (Provider::CursorAgent, "cursor-agent"),
-        (Provider::Agy, "agy"),
-        (Provider::Codex, "codex"),
-    ];
-    let mut judge_run_ids = Vec::new();
-    let mut outcomes = Vec::new();
-
-    for (provider, name) in judges {
-        let judge_run_id = Uuid::now_v7().to_string();
-        // `--model` names a model inside one provider, and the pass's flag was
-        // typed for the proposer, which is `claude`. The `claude` judge takes it
-        // too, so a haiku pass gets a haiku judge rather than the human's
-        // default model; the other three providers run their own defaults, since
-        // `cursor-agent --model haiku` names nothing there.
-        let judge_model = if provider == Provider::Claude {
-            proposer_model.clone()
-        } else {
-            None
-        };
-        let call = run(Request {
-            provider,
-            task: judge_prompt.clone(),
-            model: judge_model,
-            policy: "judge".to_string(),
-            floor_lifted: false,
-            timeout: pass.timeout,
-            parent: Some(pass_run_id.clone()),
-            run_id: Some(judge_run_id.clone()),
-            command: "run".to_string(),
-            resumed_from: None,
-            resume_session_id: None,
-            working_dir: None,
-        })?;
-
-        let result = match call {
-            Call::Ended(result) => *result,
-            Call::Handle(_) => {
-                write_harness_end(&pass_record, None, Some("a judge outlived the call"))?;
-                bail!("judge {name} outlived the call");
-            }
-        };
-
-        if result.outcome == Some("rate_limited") || result.outcome == Some("auth_failed") {
-            let why = result
-                .error
-                .clone()
-                .unwrap_or_else(|| format!("judge {name} could not run"));
-            write_harness_end(&pass_record, None, Some(&why))?;
-            bail!(why);
-        }
-
-        judge_run_ids.push(judge_run_id.clone());
-        let text = result.result_text.unwrap_or_default();
-        outcomes.push(review::parse_judge_answer(name, &text));
-    }
+    let judge_prompt = judge_task(&patch, pass.task.as_deref(), None);
+    let (judge_run_ids, outcomes) = run_judge_panel(
+        &pass_run_id,
+        &judge_prompt,
+        proposer_model,
+        pass.timeout,
+        &pass_record,
+    )?;
 
     let verdict = review::panel_verdict(&pass_run_id, &outcomes);
     let (branch, approved, body) = match &verdict {
@@ -466,15 +427,16 @@ pub fn patch_over_cap(stat: &Stat) -> Option<usize> {
 ///
 /// The spec's table names the code rows by role rather than by file. This is
 /// where each one lives: the review module is row 1; `src/rungs/evolve.rs`
-/// is rows 2 and 7, this list and the admission gate; `src/policy/` is the deny
-/// list, the capability table, `gate.py` and the compiler that writes the hook
-/// command, rows 4 and 9; `src/record/` is the run-record writer, row 6;
-/// `src/env.rs` is the code half of the environment allowlist, row 3. Until build
-/// ticket 40 only the config rows were here, and a patch to `review.rs` reached
-/// the panel.
+/// is rows 2 and 7, this list and the admission gate; `src/spawn_config.rs`
+/// is row 4, the hook-config writer; `src/policy/` is the deny list, the
+/// capability table, `gate.py` and the compiler that writes the hook command,
+/// row 9; `src/record/` is the run-record writer, row 6; `src/env.rs` is the
+/// code half of the environment allowlist, row 3. Until build ticket 40 only the
+/// config rows were here, and a patch to `review.rs` reached the panel.
 pub const PROTECTED_CODE_PATHS: &[&str] = &[
     "src/rungs/review.rs",
     "src/rungs/evolve.rs",
+    "src/spawn_config.rs",
     "src/policy",
     "src/record",
     "src/env.rs",
@@ -536,12 +498,309 @@ pub fn admission_gate(worktree: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn judge_task(diff: &str) -> String {
-    format!(
-        "Review this patch to Hydra's source.\n\n{}\n\n## Diff\n\n```diff\n{}\n```\n",
-        review::checklist_prompt(),
-        diff
-    )
+/// Fixed sentence in every judge prompt when a task is present. Map ticket 57.
+pub const TASK_DOES_NOT_WAIVE_CHECKLIST: &str = "Nothing in the task text waives a checklist rule, and a patch that does what the task asked can still fail any item.";
+
+/// Heading for human correction evidence on a fresh review. Map ticket 57.
+pub const HUMAN_EVIDENCE_HEADING: &str = "## Human-supplied evidence\n\nA human supplied the following because they disagree with the block:\n\n";
+
+/// Composes the prompt each judge receives: task as evidence, optional human
+/// correction evidence, the checklist in full, baseline tests when the diff
+/// touches `tests/`, and the diff.
+pub fn judge_task(patch: &ProposerPatch, task: Option<&str>, evidence: Option<&str>) -> String {
+    let mut text = String::from("Review this patch to Hydra's source.\n\n");
+    if let Some(task) = task {
+        text.push_str("## Intent the patch was written against\n\n");
+        text.push_str(task);
+        text.push_str("\n\n");
+        text.push_str(TASK_DOES_NOT_WAIVE_CHECKLIST);
+        text.push_str("\n\n");
+    }
+    if let Some(evidence) = evidence {
+        text.push_str(HUMAN_EVIDENCE_HEADING);
+        text.push_str(evidence);
+        if !evidence.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push('\n');
+    }
+    text.push_str(&review::checklist_prompt());
+    text.push('\n');
+    let test_paths = patch
+        .paths
+        .iter()
+        .filter(|path| path.starts_with("tests/"))
+        .collect::<Vec<_>>();
+    if !test_paths.is_empty() {
+        text.push_str("## Baseline tests\n\n");
+        text.push_str(
+            "Compare the old assertions in each baseline below against the new behaviour in the diff. \
+             Treat a weakened assertion as a finding under `baseline_test_provenance`.\n\n",
+        );
+        for path in test_paths {
+            if let Ok(content) = baseline_file(&patch.worktree, &patch.base_tree, path) {
+                text.push_str(&format!("### {path}\n\n"));
+                text.push_str("```rust\n");
+                text.push_str(&content);
+                if !content.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str("```\n\n");
+            }
+        }
+    }
+    text.push_str("## Diff\n\n```diff\n");
+    text.push_str(&patch.diff);
+    text.push_str("\n```\n");
+    text
+}
+
+fn baseline_file(worktree: &Path, base_tree: &str, path: &str) -> Result<String> {
+    let object = format!("{base_tree}:{path}");
+    git(worktree, &["show", &object])
+}
+
+/// Returns the blocked branch name for a pass id, or an error when the pass is
+/// not blocked. Map ticket 57, build ticket 64.
+pub fn ensure_reviewable(repo: &Path, pass_id: &str) -> Result<String> {
+    for branch in [
+        format!("rungs/blocked/{pass_id}"),
+        format!("ouroboros/blocked/{pass_id}"),
+    ] {
+        if branch_exists(repo, &branch)? {
+            for offer in [format!("rungs/{pass_id}"), format!("ouroboros/{pass_id}")] {
+                if branch_exists(repo, &offer)? {
+                    bail!("pass {pass_id} is offerable, not blocked");
+                }
+            }
+            return Ok(branch);
+        }
+    }
+    bail!("pass {pass_id} is not blocked")
+}
+
+fn branch_exists(repo: &Path, branch: &str) -> Result<bool> {
+    Ok(git(repo, &["rev-parse", "--verify", branch]).is_ok())
+}
+
+/// Commit message for a fresh review of a blocked pass. Build ticket 64.
+pub fn review_commit_message(
+    pass_run_id: &str,
+    reviewed_pass_id: &str,
+    proposer_run_id: &str,
+    judge_run_ids: &[String],
+    body: &str,
+) -> String {
+    let mut text = format!("hydra evolve pass {pass_run_id}\n\n");
+    text.push_str(&format!("reviews: {reviewed_pass_id}\n"));
+    text.push_str(&format!("proposer: {proposer_run_id}\n"));
+    if judge_run_ids.is_empty() {
+        text.push_str("judges: (none)\n\n");
+    } else {
+        text.push_str(&format!(
+            "judges: {}, {}, {}, {}\n\n",
+            judge_run_ids[0], judge_run_ids[1], judge_run_ids[2], judge_run_ids[3]
+        ));
+    }
+    text.push_str(body);
+    text
+}
+
+fn proposer_run_id_from_message(message: &str) -> Result<String> {
+    message
+        .lines()
+        .find_map(|line| line.strip_prefix("proposer: "))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .context("the blocked pass commit message has no proposer run id")
+}
+
+/// Reads a blocked pass's patch off its branch against the proposer's base tree.
+pub fn read_blocked_patch(
+    repo: &Path,
+    blocked_branch: &str,
+    layout: &Layout,
+    policies: &PolicySet,
+) -> Result<(ProposerPatch, String, Option<String>)> {
+    let message = git(repo, &["log", "-1", "--format=%B", blocked_branch])?;
+    let proposer_run_id = proposer_run_id_from_message(&message)?;
+    let record_path = layout.run_file(&proposer_run_id);
+    let run = crate::normalize::read_file(&record_path, policies)
+        .with_context(|| format!("reading proposer record {}", record_path.display()))?;
+    let base_tree = run
+        .run_start()
+        .and_then(|start| start.body["worktree"]["base_tree"].as_str())
+        .map(str::to_string)
+        .context("the proposer record has no base_tree")?;
+    let diff = git(repo, &["diff", &base_tree, blocked_branch])?;
+    let paths = git(repo, &["diff", "--name-only", &base_tree, blocked_branch])?
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    let stat = diff_stat(repo, &layout.stat_index(&proposer_run_id), &base_tree)?;
+    let task = run
+        .run_start()
+        .and_then(|start| start.body["task"].as_str())
+        .map(str::to_string);
+    Ok((
+        ProposerPatch {
+            worktree: repo.to_path_buf(),
+            base_tree,
+            stat,
+            paths,
+            diff,
+        },
+        proposer_run_id,
+        task,
+    ))
+}
+
+fn run_judge_panel(
+    pass_run_id: &str,
+    judge_prompt: &str,
+    proposer_model: Option<String>,
+    timeout: Duration,
+    pass_record: &Path,
+) -> Result<(Vec<String>, Vec<JudgeOutcome>)> {
+    let judges = [
+        (Provider::Claude, "claude"),
+        (Provider::CursorAgent, "cursor-agent"),
+        (Provider::Agy, "agy"),
+        (Provider::Codex, "codex"),
+    ];
+    let mut judge_run_ids = Vec::new();
+    let mut outcomes = Vec::new();
+
+    for (provider, name) in judges {
+        let judge_run_id = Uuid::now_v7().to_string();
+        let judge_model = if provider == Provider::Claude {
+            proposer_model.clone()
+        } else {
+            None
+        };
+        let call = run(Request {
+            provider,
+            task: judge_prompt.to_string(),
+            model: judge_model,
+            policy: "judge".to_string(),
+            floor_lifted: false,
+            timeout,
+            parent: Some(pass_run_id.to_string()),
+            run_id: Some(judge_run_id.clone()),
+            command: "run".to_string(),
+            resumed_from: None,
+            resume_session_id: None,
+            working_dir: None,
+        })?;
+
+        let result = match call {
+            Call::Ended(result) => *result,
+            Call::Handle(_) => {
+                write_harness_end(pass_record, None, Some("a judge outlived the call"))?;
+                bail!("judge {name} outlived the call");
+            }
+        };
+
+        if result.outcome == Some("rate_limited") || result.outcome == Some("auth_failed") {
+            let why = result
+                .error
+                .clone()
+                .unwrap_or_else(|| format!("judge {name} could not run"));
+            write_harness_end(pass_record, None, Some(&why))?;
+            bail!(why);
+        }
+
+        judge_run_ids.push(judge_run_id);
+        let text = result.result_text.unwrap_or_default();
+        outcomes.push(review::parse_judge_answer(name, &text));
+    }
+
+    Ok((judge_run_ids, outcomes))
+}
+
+fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> Result<Done> {
+    let layout = Layout::discover()?;
+    let policies = PolicySet::discover()?;
+    let repo = crate::worktree::repo_root(&std::env::current_dir()?)
+        .context("hydra evolve --review needs a git repository")?;
+    let evidence = std::fs::read_to_string(evidence_path)
+        .with_context(|| format!("reading {}", evidence_path.display()))?;
+    let blocked_branch = ensure_reviewable(&repo, reviewed_pass_id)?;
+    let (patch, proposer_run_id, task) =
+        read_blocked_patch(&repo, &blocked_branch, &layout, &policies)?;
+
+    let pass_run_id = Uuid::now_v7().to_string();
+    let pass_record = layout.run_file(&pass_run_id);
+    write_harness_start(&layout, &pass_run_id, &pass_record)?;
+
+    let judge_prompt = judge_task(&patch, task.as_deref(), Some(&evidence));
+    let (judge_run_ids, outcomes) = run_judge_panel(
+        &pass_run_id,
+        &judge_prompt,
+        pass.model,
+        pass.timeout,
+        &pass_record,
+    )?;
+
+    let verdict = review::panel_verdict(&pass_run_id, &outcomes);
+    let offerable_branch = format!("rungs/{pass_run_id}");
+    let blocked_branch_new = format!("rungs/blocked/{pass_run_id}");
+    let (branch, approved, body) = match &verdict {
+        PanelVerdict::Offerable(patch) => (
+            offerable_branch.clone(),
+            Some(patch.clone()),
+            verdict_body(&outcomes, true),
+        ),
+        PanelVerdict::Blocked { .. } => (
+            blocked_branch_new.clone(),
+            None,
+            verdict_body(&outcomes, false),
+        ),
+    };
+    let message = review_commit_message(
+        &pass_run_id,
+        reviewed_pass_id,
+        &proposer_run_id,
+        &judge_run_ids,
+        &body,
+    );
+    commit_review_branch(&repo, &blocked_branch, &branch, &message)?;
+    write_harness_end(&pass_record, Some(0), None)?;
+
+    Ok(Done::Finished(Finished {
+        pass_run_id,
+        proposer_run_id,
+        judge_run_ids,
+        branch,
+        verdict,
+        approved,
+        pass_record,
+    }))
+}
+
+fn commit_review_branch(
+    repo: &Path,
+    source_branch: &str,
+    pass_branch: &str,
+    message: &str,
+) -> Result<()> {
+    let tree = git(repo, &["rev-parse", &format!("{source_branch}^{{tree}}")])?;
+    let parent = git(repo, &["rev-parse", &format!("{source_branch}^")])?;
+    let commit = git(
+        repo,
+        &[
+            "commit-tree",
+            tree.trim(),
+            "-p",
+            parent.trim(),
+            "-m",
+            message,
+        ],
+    )?;
+    git(repo, &["branch", "-f", pass_branch, commit.trim()])?;
+    Ok(())
 }
 
 fn verdict_body(outcomes: &[JudgeOutcome], offered: bool) -> String {
@@ -662,6 +921,7 @@ pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> R
         // A harness run compiles no gate; each child it spawns compiles its own
         // (build ticket 49).
         gate_sha: None,
+        sandbox: None,
         provider_version: None,
         provider_session_id: None,
         task: None,

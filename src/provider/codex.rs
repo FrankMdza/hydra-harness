@@ -78,8 +78,17 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
         "--json".to_string(),
         "-C".to_string(),
         launch.worktree.display().to_string(),
+        // Codex's own sandbox is a seatbelt too, and a second profile cannot be
+        // applied inside Hydra's unless it is identical, measured 2026-09-21:
+        // under `workspace-write` every command died with `sandbox_apply:
+        // Operation not permitted`, the allowed ones included. Where Hydra wraps
+        // the launch, the kernel layer is Hydra's and Codex runs without its own.
         "--sandbox".to_string(),
-        "workspace-write".to_string(),
+        if crate::sandbox::wraps_launches() {
+            "danger-full-access".to_string()
+        } else {
+            "workspace-write".to_string()
+        },
         "-c".to_string(),
         "approval_policy=\"never\"".to_string(),
         "--dangerously-bypass-hook-trust".to_string(),
@@ -345,7 +354,12 @@ mod tests {
         assert_eq!(argv[0], "exec");
         assert!(argv.contains(&"--json".to_string()));
         let sandbox = argv.iter().position(|arg| arg == "--sandbox").unwrap();
-        assert_eq!(argv[sandbox + 1], "workspace-write");
+        let expected = if crate::sandbox::wraps_launches() {
+            "danger-full-access"
+        } else {
+            "workspace-write"
+        };
+        assert_eq!(argv[sandbox + 1], expected);
         assert!(
             !argv.iter().any(|arg| arg == "--ask-for-approval"),
             "exec has no such flag on 0.154.0"

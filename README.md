@@ -91,7 +91,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 | Step | What happens |
 |---|---|
 | Pre-flight | the binary is on PATH, the concurrency cap, skill name collisions, and the MCP servers the policy admits. Anything missing refuses the launch. An auth check is built for `codex` only, so a logged-out `claude`, `cursor-agent` or `agy` fails in its own words rather than Hydra's |
-| Spawn | worktree from your tree, an immutable snapshot of the skill store linked in, the gate script compiled and written outside the checkout |
+| Spawn | worktree from your tree, an immutable snapshot of the skill store linked in, the gate script compiled and written outside the checkout, and on macOS a seatbelt profile the vendor binary runs under |
 | Run | a detached process owns the pty and tees every frame, verbatim, into the record |
 | End | `run_end` with the derived outcome, token usage, and the diff against the seeded tree |
 
@@ -109,7 +109,8 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `curate` | rung one: propose skill edits from the corpus |
 | `evolve` | rung two: a proposer, the admission gate, a panel of four, a branch |
 | `usage recount` | tokens across the corpus, recounted from the records |
-| `export` | one JSON line of events per eligible run, the only path anything leaves this machine by |
+| `export` | one JSON line of events per eligible run, and `preference.jsonl` beside it; the only path anything leaves this machine by |
+| `doctor` | the root, the binaries against the measured versions, the policy sha, which protected configs are missing |
 
 Two more exist and clap hides them: `watch`, the detached half, and `delegate-face`, an MCP
 server that gives Claude Code a typed `delegate` tool over `hydra run`.
@@ -136,8 +137,10 @@ already use, one compiled script per spawn in each vendor's hook dialect.
 - Not a chat UI and not an agent. The vendor's model thinks; Hydra decides where it may act
   and writes down what it did.
 - Not a container. The gate refuses commands that name a protected path and declines to
-  interpret shell, so `P=$HOME; echo x > $P/runs/x` passes. `tests/gate.rs` breaks on purpose
-  if someone "closes" that. Network cannot be cut because the CLI needs its model.
+  interpret shell, so `P=$HOME; echo x > $P/runs/x` walks past the gate; on macOS the kernel's
+  seatbelt around the run refuses that write anyway, measured on all four providers, and
+  `tests/gate.rs` breaks on purpose if someone claims the gate itself closed it. Network cannot
+  be cut because the CLI needs its model, and Linux runs without the seatbelt.
 - Not a trainer. Records export losslessly; weights are trained elsewhere.
 - Not Linux yet, and not tested outside this machine.
 

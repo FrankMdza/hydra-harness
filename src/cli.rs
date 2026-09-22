@@ -163,8 +163,16 @@ pub enum Command {
 
         /// What to change. Without it the proposer picks its own target from
         /// the corpus, which is what the spec's brief asks for.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "review")]
         task: Option<String>,
+
+        /// Blocked pass id to re-review with human evidence. Map ticket 57.
+        #[arg(long, requires = "evidence")]
+        review: Option<String>,
+
+        /// File whose text every judge sees as human-supplied correction evidence.
+        #[arg(long, requires = "review")]
+        evidence: Option<std::path::PathBuf>,
 
         /// How long to wait before degrading to a handle on each child run.
         #[arg(long, default_value = "10m", value_parser = parse_duration)]

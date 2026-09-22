@@ -107,3 +107,10 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 2026-09-08, and the tenth pass offered the first patch on 2026-09-21.
 - [61 - Codex sits on the judge panel](61-codex-on-the-judge-panel.md)
 - [62 - The self-improvement module is called rungs](62-ouroboros-becomes-rungs.md)
+- [63 - The judge sees the task, the checklist in full, and the baseline test](63-the-judge-sees-the-task-and-the-baseline-test.md)
+- [64 - A human asks for a fresh review](64-a-human-asks-for-a-fresh-review.md)
+- [65 - Judge verdicts become preference pairs](65-judge-verdicts-become-preference-pairs.md)
+- [66 - The spawn-config writer is a protected row](66-the-spawn-config-writer-is-a-protected-row.md)
+- [67 - A foreign checkout refuses, and hydra doctor](67-a-foreign-checkout-refuses-and-hydra-doctor.md)
+- [68 - The seatbelt around the child](68-the-seatbelt-around-the-child.md)
+- [69 - The gate reads the paths out of a patch](69-the-gate-reads-the-paths-out-of-a-patch.md)

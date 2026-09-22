@@ -411,6 +411,10 @@ impl Gate {
     fn read_from(&self, path: &Path) -> Decision {
         self.ask("Read", json!({ "file_path": path.to_string_lossy() }))
     }
+
+    fn apply_patch(&self, command: &str) -> Decision {
+        self.ask("apply_patch", json!({ "command": command }))
+    }
 }
 
 impl Drop for Gate {
@@ -2080,7 +2084,10 @@ impl Gate {
                 "write_to_file",
                 json!({ "TargetFile": path, "CodeContent": "x" }),
             ),
-            Provider::Codex => self.shell(&format!("printf x > {}", path)),
+            Provider::Codex => self.apply_patch(&format!(
+                "*** Begin Patch\n*** Add File: {}\n+x\n*** End Patch\n",
+                path
+            )),
         }
     }
 }
@@ -2107,13 +2114,6 @@ fn a_run_cannot_rewrite_its_own_hook_or_provider_config_under_any_policy() {
                 );
             }
             for root in OWN_SKILL_ROOTS {
-                // `codex` has no pathed `file_write` tool: writes ride `Bash` or
-                // `apply_patch`, and harness spec 6.4 deliberately does not walk
-                // `write_denied_worktree_paths` for `shell`. The config-file loop
-                // above still covers `.codex/hooks.json` through the raw pass.
-                if provider == Provider::Codex {
-                    continue;
-                }
                 let target = gate.worktree.join(root).join("planted/SKILL.md");
                 let decision = gate.write_as(provider, &target);
                 assert!(
@@ -2418,6 +2418,54 @@ fn an_mcp_call_naming_a_protected_path_is_refused_under_permissive() {
         ordinary.allowed,
         "the check refused an MCP call inside the run's own worktree: {}",
         ordinary.reason
+    );
+}
+
+#[test]
+fn apply_patch_adding_inside_the_worktree_is_allowed_under_standard() {
+    let gate = Gate::compile_for(Provider::Codex, "standard", false);
+    let inside = gate.worktree.join("src/new.rs");
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: {}\n+fn main() {{}}\n*** End Patch\n",
+        inside.display()
+    );
+    let decision = gate.apply_patch(&patch);
+    assert!(
+        decision.allowed,
+        "standard refused a patch inside the worktree: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn apply_patch_updating_under_the_corpus_is_refused() {
+    let gate = Gate::compile_for(Provider::Codex, "standard", false);
+    let target = gate.runs.join("r.jsonl");
+    let patch = format!(
+        "*** Begin Patch\n*** Update File: {}\n@@\n-x\n+y\n*** End Patch\n",
+        target.display()
+    );
+    let decision = gate.apply_patch(&patch);
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "standard let a patch reach the corpus: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn apply_patch_with_one_path_inside_and_one_outside_is_refused() {
+    let gate = Gate::compile_for(Provider::Codex, "standard", false);
+    let inside = gate.worktree.join("src/inside.rs");
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: {}\n+x\n*** Update File: src/old.rs\n*** Move to: /tmp/outside.rs\n*** End Patch\n",
+        inside.display()
+    );
+    let decision = gate.apply_patch(&patch);
+    assert!(
+        decision.denied_for("hydra/out-of-scope"),
+        "standard let a patch name a path outside the worktree: {}",
+        decision.reason
     );
 }
 

@@ -1,7 +1,7 @@
 # 61 - Should a checkout and a data root be the same directory?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -34,3 +34,21 @@ it read. That is a patch on the symptom. The question underneath:
 
 Whichever way this goes, `docs/harness-spec.md` section 5 owns the answer, because it is the
 section that names the directories.
+
+## Answer
+
+Resolved 2026-09-21 with the human, after a research run on `agy` (01a0c59d-21cc), which
+recommended a per-checkout root; the human took the other reading with the session's reasons.
+
+1. The data root is a property of the machine: one corpus under `~/hydra`, which is what rung one
+   learns from and what the install already makes coincide with the checkout. That is one
+   machine and one corpus, not many machines, and nothing about volume changes.
+2. What refuses the surprise is a refusal: a launch from a checkout that is not the root, with
+   `HYDRA_ROOT` unset, refuses before writing anything, names the root it would have written into
+   and the variable that says so. With the variable set, to that root or another, it launches.
+3. `hydra doctor` exists: the root and the policy path, the four vendor binaries and their versions
+   against the ones the code was measured on, the policy set sha, and which protected configs are
+   missing. The research found that spawn does not check versions or missing configs today, so
+   `doctor` is a new check and not a display of an old one.
+
+Harness spec section 5 owns the answer and the session amends it. Build ticket 67.

@@ -2089,6 +2089,45 @@ fn a_call_with_no_id_still_gets_a_decision_and_says_what_it_lost() {
 const AGY_TOOLS: &[&str] = &["run_command", "view_file", "list_dir", "write_to_file"];
 
 #[test]
+fn a_write_the_binary_failed_on_its_own_stat_never_reached_the_hook() {
+    // Run 01a0c5b2-8048 on claude 2.1.268, sonnet: a `Write` into a linked
+    // worktree's `.git`, which is a file, came back `<tool_use_error>Error
+    // calling tool (Write): ENOTDIR ...` with no hook frame for it, beside four
+    // `PreToolUse:Write` starts for the run's other writes. The binary's own
+    // stat failed first; nothing ran. Not ungated, not a leak.
+    let sandbox = Sandbox::new("claude-enotdir-write");
+    let target = sandbox.worktree().join(".git/COMMIT_MSG.txt");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use(
+        "toolu_01",
+        "Write",
+        json!({"file_path": target, "content": "x"}),
+    );
+    record.tool_result(
+        "toolu_01",
+        &format!(
+            "<tool_use_error>Error calling tool (Write): ENOTDIR: not a directory, stat '{}'</tool_use_error>",
+            target.display()
+        ),
+        true,
+    );
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. } | Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
 fn a_write_refused_before_it_was_read_never_reached_the_hook() {
     // Run 01a096ee-8791 on claude 2.1.268: a `Write` into the skill store came
     // back `<tool_use_error>File has not been read yet ...` with no hook frame

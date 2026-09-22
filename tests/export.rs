@@ -5,7 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
-use hydra::export::{Reason, audit, export};
+use hydra::export::{Reason, audit, export, export_with_signoff};
+use hydra::export_preference::{JudgeDisposition, SignoffManifest, read_judge_pairs};
 use hydra::paths::Layout;
 use serde_json::json;
 
@@ -219,4 +220,255 @@ fn a_planted_secret_aborts_with_nothing_written() {
     )
     .unwrap();
     assert!(out.exists());
+}
+
+const PASS: &str = "01a0c5dd-0000-7000-8000-00000000p001";
+const PROPOSER: &str = "01a0c5dd-0000-7000-8000-00000000p002";
+const JUDGE: &str = "01a0c5dd-0000-7000-8000-00000000p003";
+
+fn git(repo: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn git_init(repo: &Path) {
+    git(repo, &["init", "-q", "-b", "main"]);
+    git(repo, &["config", "user.email", "hydra@test"]);
+    git(repo, &["config", "user.name", "hydra"]);
+}
+
+fn git_commit_all(repo: &Path, message: &str) {
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-q", "-m", message, "--allow-empty"]);
+}
+
+fn head(repo: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn write_pass_corpus(
+    fixture: &Fixture,
+    _repo: &Path,
+    base_tree: &str,
+    proposer_task: &str,
+    judge_answer: &str,
+    judge_provider: &str,
+) {
+    let pass = Record::shaped(Shape {
+        run_id: PASS,
+        provider: None,
+        command: "evolve",
+        launch_mode: "recorded",
+        policy: None,
+        policy_sha: None,
+        ..Shape::default()
+    })
+    .closed();
+    fixture.write(PASS, &pass);
+
+    let wt = fixture.worktree(PROPOSER);
+    let mut proposer = Record::shaped(Shape {
+        run_id: PROPOSER,
+        parent_run_id: Some(PASS),
+        provider: Some("claude"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&wt),
+        base_tree: Some(base_tree),
+        ..Shape::default()
+    });
+    proposer.assistant(json!([{"type": "text", "text": "done"}]));
+    let proposer = proposer.closed().replace(
+        r#""task":"probe""#,
+        &format!(r#""task":{}"#, json!(proposer_task)),
+    );
+    fixture.write(PROPOSER, &proposer);
+
+    let judge = Record::shaped(Shape {
+        run_id: JUDGE,
+        parent_run_id: Some(PASS),
+        provider: Some(judge_provider),
+        policy: Some("judge"),
+        policy_sha: Some(policies().sha()),
+        ..Shape::default()
+    })
+    .assistant(json!([{"type": "text", "text": judge_answer}]))
+    .closed();
+    fixture.write(JUDGE, &judge);
+}
+
+fn seed_blocked_pass(fixture: &Fixture, repo: &Path, with_chosen_on_main: bool) {
+    git_init(repo);
+    std::fs::write(repo.join("src.txt"), "base\n").unwrap();
+    git_commit_all(repo, "base");
+    let base = head(repo);
+    git(
+        repo,
+        &["checkout", "-q", "-b", &format!("rungs/blocked/{PASS}")],
+    );
+    std::fs::write(repo.join("src.txt"), "rejected\n").unwrap();
+    git_commit_all(
+        repo,
+        &format!("hydra evolve pass {PASS}\n\nverdict: blocked"),
+    );
+    git(repo, &["checkout", "-q", "main"]);
+    if with_chosen_on_main {
+        std::fs::write(repo.join("src.txt"), "chosen\n").unwrap();
+        git_commit_all(repo, &format!("hydra evolve pass {PASS}\n\nhuman fix"));
+    }
+    let answer = r#"{"verdict":"block","findings":[{"item":"self_consistency","severity":"major","note":"gap"}]}"#;
+    write_pass_corpus(fixture, repo, &base, "fix src.txt", answer, "claude");
+}
+
+fn signoff_at(fixture: &Fixture, entries: &[serde_json::Value]) {
+    let config = fixture.root.join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("export-signoff.json"),
+        serde_json::to_string(entries).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_blocked_pass_with_no_chosen_half_is_withheld() {
+    let fixture = Fixture::new("withheld");
+    seed_blocked_pass(&fixture, &fixture.repo_a, false);
+    fixture.write_allowlist();
+    let signoff = SignoffManifest::load(&fixture.root.join("config/export-signoff.json")).unwrap();
+    let dispositions =
+        read_judge_pairs(&fixture.layout(), &policies(), &fixture.repo_a, &signoff).unwrap();
+    assert_eq!(
+        dispositions,
+        vec![JudgeDisposition::Withheld {
+            pass_id: PASS.to_string()
+        }]
+    );
+}
+
+#[test]
+fn a_blocked_pass_with_a_merged_fix_and_a_manifest_entry_exports() {
+    let fixture = Fixture::new("exports");
+    seed_blocked_pass(&fixture, &fixture.repo_a, true);
+    fixture.write_allowlist();
+    signoff_at(
+        &fixture,
+        &[json!({
+            "pass_id": PASS,
+            "judge_run_id": JUDGE,
+            "finding_item": "self_consistency"
+        })],
+    );
+    let signoff = SignoffManifest::load(&fixture.root.join("config/export-signoff.json")).unwrap();
+    let dispositions =
+        read_judge_pairs(&fixture.layout(), &policies(), &fixture.repo_a, &signoff).unwrap();
+    let exported = dispositions
+        .iter()
+        .filter_map(|item| match item {
+            JudgeDisposition::Exported(pair) => Some(pair),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(exported.len(), 1);
+    assert_eq!(exported[0].source, "judge_verdict");
+    assert!(
+        exported[0].rejected[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("rejected")
+    );
+    assert!(
+        exported[0].chosen[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("chosen")
+    );
+
+    let out = fixture.root.join("events.jsonl");
+    export_with_signoff(
+        &fixture.layout(),
+        &fixture.allowlist_path(),
+        Some(&out),
+        false,
+        Some(&fixture.root.join("config/export-signoff.json")),
+    )
+    .unwrap();
+    let preference = fixture.root.join("preference.jsonl");
+    assert!(preference.is_file());
+    let text = std::fs::read_to_string(&preference).unwrap();
+    assert!(text.contains("\"source\":\"judge_verdict\""));
+}
+
+#[test]
+fn a_blocked_pass_with_a_merged_fix_and_no_manifest_entry_is_refused() {
+    let fixture = Fixture::new("refused");
+    seed_blocked_pass(&fixture, &fixture.repo_a, true);
+    fixture.write_allowlist();
+    let signoff = SignoffManifest::load(&fixture.root.join("config/export-signoff.json")).unwrap();
+    let dispositions =
+        read_judge_pairs(&fixture.layout(), &policies(), &fixture.repo_a, &signoff).unwrap();
+    assert_eq!(
+        dispositions,
+        vec![JudgeDisposition::Refused {
+            pass_id: PASS.to_string()
+        }]
+    );
+}
+
+#[test]
+fn a_gated_judge_is_read() {
+    let fixture = Fixture::new("gated");
+    seed_blocked_pass(&fixture, &fixture.repo_a, true);
+    fixture.write_allowlist();
+    signoff_at(
+        &fixture,
+        &[json!({
+            "pass_id": PASS,
+            "judge_run_id": JUDGE,
+            "finding_item": "self_consistency"
+        })],
+    );
+    let answer = r#"{"verdict":"block","findings":[{"item":"self_consistency","severity":"major","note":"gap"}]}"#;
+    let judge = Record::shaped(Shape {
+        run_id: JUDGE,
+        parent_run_id: Some(PASS),
+        provider: Some("cursor-agent"),
+        policy: Some("judge"),
+        policy_sha: Some(policies().sha()),
+        ..Shape::default()
+    })
+    .tool_use("toolu_01", "Read", json!({"file_path": "/etc/passwd"}))
+    .tool_result("toolu_01", "refused by the gate", true)
+    .assistant(json!([{"type": "text", "text": answer}]))
+    .closed();
+    fixture.write(JUDGE, &judge);
+    let signoff = SignoffManifest::load(&fixture.root.join("config/export-signoff.json")).unwrap();
+    let dispositions =
+        read_judge_pairs(&fixture.layout(), &policies(), &fixture.repo_a, &signoff).unwrap();
+    assert!(
+        dispositions
+            .iter()
+            .any(|item| matches!(item, JudgeDisposition::Exported(_))),
+        "{dispositions:?}"
+    );
+    let run = hydra::normalize::read_file(&fixture.layout().run_file(JUDGE), &policies()).unwrap();
+    assert_ne!(
+        hydra::outcome::derive(&run).map(|d| d.outcome),
+        Some(hydra::outcome::Outcome::Completed),
+        "a judge that only reads through the gate is not completed"
+    );
 }

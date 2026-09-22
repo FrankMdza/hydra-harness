@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 57 of 63, reopened on 2026-09-09 on training, and the build closed at 60 of 60 on 2026-09-21.** It reached its destination
+**The map stands at 63 of 64, reopened on 2026-09-09 on training, and the build closed at 60 of 60 on 2026-09-21.** It reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -80,6 +80,10 @@ document and there should not be one.
   `skills/` is the store, the per-sha snapshot, the read-only index over the user's own skill
   roots and the collision check;
   `mcp.rs` reads the canonical MCP document and decides what one launch is handed;
+  `spawn_config.rs` writes the gate's hook config and, on macOS, the seatbelt profile, and is
+  harness spec 15.2's row 4; `sandbox.rs` composes that profile and wraps the launch in it;
+  `doctor.rs` is `hydra doctor`; `export_preference.rs` reads preference pairs, corrections and
+  judge verdicts, behind the human's sign-off manifest;
   `preamble.rs` composes what the run is told; `interactive.rs` is the second launch mode and
   the harvest that completes it; `show.rs` prints a record normalized; `face.rs` is the MCP delegate face of harness
   spec 9, a stdio server a run's own provider spawns from the MCP document, and the one place
@@ -135,7 +139,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 57 of 63 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 63 of 64 resolved
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 

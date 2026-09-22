@@ -1689,12 +1689,16 @@ and that a bounded shell read for `codex` alone is map ticket 63, open. Until it
 cannot sit on the `evolve` panel. The auth pre-flight, `codex login status`, is the first
 `auth_preflight` refusal any provider writes.
 
-**`apply_patch` carries no path, so under `standard` the gate refuses it**, measured on
-01a0c231-6583. A scoped `file_write` with nothing to scope is `hydra/no-path` by design. The
-patch text does name its files, `*** Add File: <path>` and the like, and a gate that parsed
-those would make the row pathed; that is a change to `gate.py` nobody has asked for yet, and
-until then a `standard` run on this provider writes through the shell or not at all.
-`tests/gate.rs` skips the skill-root loop for this provider for the same reason.
+**`apply_patch` is a pathed write since build ticket 69, and was refused `hydra/no-path` under
+`standard` before it**, measured on 01a0c231-6583 and again on the first run of build ticket 63,
+which could not write at all and stopped. `parse_patch_paths` in `gate.py` reads every `*** Add
+File`, `*** Update File`, `*** Delete File` and `*** Move to` header out of the body and the
+scope check runs over all of them, refusing on the first outside; `policy/mod.rs` compiles the
+row's `patch_paths` flag into the gate config; the replay reads `changes[].path` off the stream.
+A body with no header is still `hydra/no-path`. Where Hydra's seatbelt wraps the launch, `codex`
+runs with `--sandbox danger-full-access`, because its own sandbox is a seatbelt too and a second
+profile cannot be applied inside Hydra's: every command on run 01a0c62d-b98d died with
+`sandbox_apply: Operation not permitted` until then, the allowed ones included.
 
 ## What the record does not carry
 
@@ -2687,6 +2691,13 @@ haiku run passed `offset` as an array and came back as `InputValidationError` re
 hook frame beside them, because validation runs before any hook. The normalizer reads that
 result shape and does not count the gate's silence against it.
 
+**A `Write` whose parent is not a directory fails the binary's own `stat` before any hook.**
+Measured 2026-09-21 on run 01a0c5b2-8048, sonnet on 2.1.268, launched by the other session: a
+`Write` into a linked worktree's `.git`, which is a file, came back `<tool_use_error>Error calling
+tool (Write): ENOTDIR` with four `PreToolUse:Write` starts in the record for the run's other
+writes and none for this one. The reader read it as `Ungated`, the corpus walk stopped on it, and
+that spelling is the fifth on the list below of calls the binary refused before asking.
+
 **A `Write` Claude Code refuses before reading the file never reached a hook.** Measured 2026-09-12 on run `01a096ee-8791`, `claude` 2.1.268 on haiku under `standard`: a `Write` into the skill store came back `<tool_use_error>File has not been read yet. Read it first before writing to it.` with no `hook_started` for it, in a record holding 43 hook starts for everything else. It is the fourth spelling of the binary's own input refusal that `src/normalize/claude.rs` knows, beside `InputValidationError`, `No such tool available` and `<tool_use_error>Blocked:`, and the corpus walk had read it as ungated and as a leak at once. The store file it named was edited and committed by a human four minutes later, not by the run.
 
 ## The Herdr bridge, on Herdr's side
@@ -2792,6 +2803,41 @@ Contract 16.2 keys three exclusions on outcome and only one of them is an outcom
 attached, gated and rate-limited runs included, because the exporter judges validity and
 never quality. `Reason::AuthFailed` replaced `NeverOutcome`.
 
+**`preference.jsonl` has a writer since build ticket 65, and a second source.** `src/export_preference.rs`
+reads correction pairs off eligible runs and judge-derived pairs off the `evolve` passes: the
+rejected half is the diff on `rungs/blocked/<pass-id>` or the older `ouroboros/blocked/` against the
+proposer's `base_tree`, the chosen half is the diff on `rungs/<pass-id>` or in a later `master`
+commit whose message names the pass, and a pass with no chosen half is reported withheld. A pair
+leaves only when `config/export-signoff.json` lists the pass id, the judge run id and the finding
+item a human confirmed; the file is the human's, denied to runs beside the allowlist, and its sha is
+in the preference file's header. `gated` judges are read like `completed` ones. Map ticket 55. The
+redaction helpers are `export.rs`'s, made `pub(crate)`; the run had copied them and the session
+removed the copies before the suite.
+
+**The seatbelt, since build ticket 68, and what it cost to measure.** `src/sandbox.rs` composes the
+profile from `denied_write_paths`, parents included, then allows the own worktree and the
+vendor's own data root, then denies reads of the corpus; `spawn_config` writes it as `sandbox.sb`
+beside the gate and puts its sha on `run_start.sandbox`; `pty::spawn` prepends
+`/usr/bin/sandbox-exec -f <profile>` on macOS and a Mac without the binary refuses the launch.
+Three things the first draft got wrong, each caught by a run: it skipped a denied parent when it
+held an own path, which left sibling worktrees open at the kernel, and SBPL's last-match rule
+means the parent can stay denied; `codex`'s own sandbox could not apply inside Hydra's and every
+command died, so it runs with its own off; and `cursor-agent` creates `cursor-data/` under the
+spawn directory before the model runs, so its first `mkdir` failed with EPERM until the profile
+allowed writes under `own_read_paths`. Measured after: one run per provider under the profile,
+all four completed, and on `codex` a corpus write spelled as two variables failed at the kernel
+while the write in its own worktree succeeded. Delegation from inside a run does not work under
+the profile, by the human's choice on map ticket 64.
+
+**A launch from a foreign checkout refuses, and `hydra doctor`, since build ticket 67.**
+`refuse_foreign_checkout` in `run.rs` runs after `Layout::discover` and before `layout.ensure`,
+compares the checkout `paths::hydra_home` names against the root, and refuses with both paths and
+the variable when `HYDRA_ROOT` is unset and they differ; nothing is written first, because a
+refusal that writes into the root is the surprise itself. `src/doctor.rs` prints what a launch
+would find and exits 1 when a protected config is missing, which on this machine it is: the
+environment allowlist and the export allowlist. `provider::MEASURED_VERSIONS` is the one table of
+measured versions. The interactive launch does not pass through the refusal yet. Map ticket 61.
+
 **Redaction is the four classes and nothing else.** Repository names taken from the
 allowlist entries that are not the exported run's own, replaced by a labelled marker;
 secrets by the same five prefixes the write-time sweep uses; the user's own hook stdout
@@ -2814,6 +2860,30 @@ the mechanical half in run 01a0c4a6-cf6d, `git mv` so history follows; the spec 
 the branches earlier passes wrote, `ouroboros/<pass-id>` and `ouroboros/blocked/<pass-id>`,
 which `pass_run_id_from_branch` still reads beside the new `rungs/` prefix with a test on both
 spellings, and the run records that mention the old name, which are evidence.
+
+**What a judge receives, since build ticket 63.** `judge_task` in `src/rungs/evolve.rs` takes the
+proposer patch and the pass's task and composes four sections in order: the task under "Intent the
+patch was written against" followed by `TASK_DOES_NOT_WAIVE_CHECKLIST`, a named constant so a test
+can assert it; the checklist with definitions, from `review::CHECKLIST_ENTRIES`, one table of
+thirty items that `ceiling` reads too, so the prompt and the clamp cannot drift; the baseline of every
+file under `tests/` the diff touches, read with `git show <base_tree>:<path>` and headed by the
+instruction to compare old assertions against new behaviour; and the diff. Map tickets 53 and 57
+decided it; `tests/evolve.rs` builds the prompt from fixtures and a scratch repo. Written by
+`cursor-agent` on Composer 2.5 after a `codex` run under `standard` could not write at all, which
+is build ticket 69's subject.
+
+**The spawn-config writer is `src/spawn_config.rs`, since build ticket 66.** `SpawnFiles` and
+`write_spawn_config` moved out of `run.rs` with a `pub use` back, so `hydra::run::write_spawn_config`
+still resolves at every call site, and the file is harness spec 15.2's row 4 in
+`PROTECTED_CODE_PATHS`; `src/policy/` is row 9 alone now. `run.rs` stays editable by rung two, which
+build ticket 40 measured as the loop's right size. Map ticket 60.
+
+**A human asks for a fresh review, since build ticket 64.** `hydra evolve --review <pass-id>
+--evidence <file>` reads the blocked patch off `rungs/blocked/<pass-id>` against the proposer's
+`base_tree`, runs the four judges again under a new pass id with the evidence under
+`HUMAN_EVIDENCE_HEADING` in every prompt, lands the result on a fresh branch through `commit-tree`,
+and names the reviewed pass in the commit. A pass that is not blocked, or that also has an offerable
+branch, is refused. `ApprovedPatch` is still built by `panel_verdict` alone. Map ticket 57.
 
 **Passes nine and ten, 2026-09-21, and the first offerable patch.** Both were directed at the same
 two-word change, "panel of three" to four in `src/cli.rs` and `src/run.rs`, with a haiku proposer

@@ -559,15 +559,21 @@ impl Walk {
             // `<tool_use_error>File has not been read yet. Read it first before
             // writing to it.`, 2026-09-12 on run 01a096ee-8791, a `Write` into
             // the skill store that 2.1.268 refused before any hook, with 43
-            // `hook_started` frames in the record and none for that call. The
-            // gate was never asked, so neither its silence nor the table's
+            // `hook_started` frames in the record and none for that call. And a
+            // fifth, `<tool_use_error>Error calling tool (Write): ENOTDIR ...`,
+            // 2026-09-21 on run 01a0c5b2-8048, sonnet on 2.1.268: a `Write` into
+            // a linked worktree's `.git`, which is a file, failed the binary's
+            // own `stat` before any hook, with four `PreToolUse:Write` starts in
+            // the record for the run's other four writes and none for this one.
+            // The gate was never asked, so neither its silence nor the table's
             // ignorance of an invented name is a finding.
             let refused_on_input = results.get(&call_id).is_some_and(|(status, output)| {
                 *status == ResultStatus::Error
                     && (output.contains("InputValidationError")
                         || output.contains("No such tool available")
                         || output.starts_with("<tool_use_error>Blocked:")
-                        || output.starts_with("<tool_use_error>File has not been read yet"))
+                        || output.starts_with("<tool_use_error>File has not been read yet")
+                        || output.starts_with("<tool_use_error>Error calling tool ("))
             });
             if !hydra_spoke && !refused_on_input {
                 self.findings.push(Finding::Ungated {

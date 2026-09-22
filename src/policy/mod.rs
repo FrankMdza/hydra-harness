@@ -561,6 +561,9 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
         config.join("env-allowlist.json"),
         // 15.1 #3: data leaves the machine.
         config.join("export-allowlist.json"),
+        // The sign-off manifest beside it, build ticket 65: the human's word on
+        // which judge findings a pair may leave under.
+        config.join("export-signoff.json"),
         // 15.1 #4: a run is told a different rule than the one Hydra enforces.
         config.join("preamble.md"),
         // 15.1 #5: an MCP server definition is a command Hydra spawns, so a loop
@@ -764,6 +767,7 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     let table = table::Table::of(spawn.provider);
     let mut tools = serde_json::Map::new();
     let mut path_fields = serde_json::Map::new();
+    let mut patch_path_tools = serde_json::Map::new();
     for t in table.tools {
         // Unhooked rows exist for the replay, not for the hook. Compiling one
         // would add a capability `gate.py` does not know, and the hook never
@@ -774,6 +778,9 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         tools.insert(t.name.to_string(), t.capability.as_str().into());
         if let Some(field) = t.path_field {
             path_fields.insert(t.name.to_string(), field.into());
+        }
+        if t.patch_paths {
+            patch_path_tools.insert(t.name.to_string(), table.command_field.into());
         }
     }
 
@@ -850,6 +857,7 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
             .collect::<Vec<_>>(),
         "tools": tools,
         "path_fields": path_fields,
+        "patch_path_tools": patch_path_tools,
         "command_field": table.command_field,
         "mcp_prefix": table.mcp_prefix,
         "floor": set.floor(),

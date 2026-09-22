@@ -1,7 +1,7 @@
 # 53 - Two of three judges passed a patch that hid a regression behind an edited test
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 
 ## Question
@@ -43,3 +43,15 @@ patch carrying an edited baseline test.
    hidden regression written as a tidy-up. Two judges read that sentence and passed. Is there
    anything the brief or the judge prompt can do about a proposer that is not lying, or is this
    exactly what a panel is for and the panel worked?
+
+## Answer
+
+Resolved 2026-09-21 with the human, after a research run on `codex` (01a0c59c-c1c9) laid the options
+out. Four judges and unanimity stay: one veto is what caught the edited test, and the panel is four
+since build ticket 61. The seats stay until a human-labeled comparison set exists; one miss is not
+evidence. What changes is what a judge is shown: when a patch edits an existing test, the judge
+receives the baseline version of that test beside the diff and an instruction to compare the old
+assertions against the new behaviour. The research also found the ticket's causal account wrong on
+one point: the code sends judges the checklist and the diff, never the proposer's final message,
+so "two judges read that sentence and passed" is not what happened. Build ticket 63 carries the
+prompt change together with ticket 57's.

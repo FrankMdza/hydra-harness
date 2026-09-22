@@ -19,8 +19,10 @@
 
 pub mod cli;
 pub mod containment;
+pub mod doctor;
 pub mod env;
 pub mod export;
+pub mod export_preference;
 pub mod face;
 pub mod interactive;
 pub mod live;
@@ -41,8 +43,10 @@ pub mod resolver;
 pub mod resume;
 pub mod run;
 pub mod rungs;
+pub mod sandbox;
 pub mod show;
 pub mod skills;
+pub mod spawn_config;
 pub mod status;
 pub mod usage;
 pub mod watch;

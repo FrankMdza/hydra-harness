@@ -81,6 +81,7 @@ const RUN_START_FIELDS: &[&str] = &[
 const LATER_RUN_START_FIELDS: &[(&str, Shape, bool)] = &[
     ("floor_lifted", Shape::Bool, true),
     ("gate_sha", Shape::Sha, false),
+    ("sandbox", Shape::Sha, true),
     ("scopes", Shape::PathMap, false),
     ("env_allowlist", Shape::Names, false),
     ("parent_policy", Shape::Text, false),

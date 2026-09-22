@@ -45,6 +45,22 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 - `hydra logs --follow` waits up to two seconds, not one poll, for the closing line after the
   pid reads dead, because a loaded machine can take longer than 100ms between the reap and the
   write (2026-09-21, seen once on CI).
+- The judge sees the proposer's task as evidence that waives nothing, the checklist with its
+  definitions, and the baseline of any test the patch edits (2026-09-21, build ticket 63, map
+  tickets 53 and 57).
+- `hydra evolve --review <pass-id> --evidence <file>` runs a fresh full-panel review of a blocked
+  pass; a block is never overridden by hand (2026-09-21, build ticket 64).
+- `preference.jsonl` has a writer, with judge verdicts as a second source behind
+  `config/export-signoff.json`, which the human writes (2026-09-21, build ticket 65, map 55).
+- The hook-config writer is `src/spawn_config.rs`, a protected row of harness spec 15.2
+  (2026-09-21, build ticket 66, map 60).
+- A launch from a checkout that is not the data root refuses and names `HYDRA_ROOT`; `hydra
+  doctor` is the twelfth command (2026-09-21, build ticket 67, map 61).
+- On macOS every recorded launch runs under the kernel's seatbelt: writes under Hydra's
+  directories and reads of the corpus fail whatever the spelling, measured on all four providers;
+  delegation from inside a run waits on map ticket 64 (2026-09-21, build ticket 68, map 62).
+- The gate reads the paths out of an `apply_patch` body, so `codex` writes under `standard`
+  (2026-09-21, build ticket 69).
 
 ## 0.2.0, 2026-09-08
 

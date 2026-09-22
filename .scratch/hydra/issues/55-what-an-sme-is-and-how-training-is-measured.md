@@ -1,7 +1,7 @@
 # 55 - An SME is a trained model, not a skill, and the corpus to train one does not exist yet
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 54
 
 ## Question
@@ -65,3 +65,24 @@ So the questions:
    you did not train, which is every run Hydra launches today. Ticket 56 measured that they
    only land from sonnet up. That is a fact about the harness now, independent of any training,
    and it should stop being filed under this ticket.
+
+## Answer
+
+Resolved 2026-09-21 with the human, after a research run on `cursor-agent` (01a0c59c-fa57).
+
+1. Judge verdicts become preference pairs through a reader of their own, not through rung one's
+   five classes: the rejected half is the blocked proposer patch, the chosen half is the human's
+   fix or the panel-approved patch on the pass branch, and a pair is withheld until its chosen
+   half exists. The first chosen half exists since 24cade6.
+2. A wrong finding does not enter the corpus on its own: every judge-derived pair needs a human
+   sign-off in a manifest naming pass, judge run and finding before it leaves through
+   `hydra export`. `gated` judges are read, not filtered, because pass seven's correct finding
+   came from one.
+3. The specialist is the small MCP controller the map's fog describes, and the trajectory corpus
+   is SFT material for frontier agents, not training data for that controller. Naming which is
+   which stops the corpus being built for the wrong job.
+4. Skills stay launch-time steering for vendor models and are ticket 56's; this ticket says
+   nothing more about them.
+
+`config/export-allowlist.json` is protected config #3 and the human writes it. Build ticket 65
+carries the reader and the manifest.
