@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 66 of 67, reopened on 2026-09-22 by a hiring-panel review, and the build stands at 74 of 75, 73 waiting on a human's interactive run.** It reached its destination
+**The map stands at 66 of 67, reopened on 2026-09-22 by a hiring-panel review, and the build closed at 75 of 75 on 2026-09-22.** It reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.

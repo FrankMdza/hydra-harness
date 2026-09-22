@@ -2888,7 +2888,8 @@ reap` commits from outside and the record's diff is against the seeded tree eith
 commit` and writes to the parent's `refs/heads/` and `HEAD` are refused. And a gated interactive
 launch spawned `claude` bare with `sandbox: None` on its record until build ticket 73 the same day
 routed it through the same profile a recorded launch gets, with `gate_sha` and `sandbox` on
-`run_start`; the human's measurement of a TUI under `sandbox-exec` is still owed.
+`run_start`; the human measured it the same day on run 01a0c9ca-1591, which drew its interface under
+`sandbox-exec`, answered and exited 0 with both shas on line 0.
 
 **`HYDRA_ROOT` is refused inside a seatbelt, since 2026-09-22.** A `standard` run has shell,
 shell reaches the binary, and `env -u HYDRA_RUN_ID HYDRA_ROOT=/tmp/x hydra run --policy

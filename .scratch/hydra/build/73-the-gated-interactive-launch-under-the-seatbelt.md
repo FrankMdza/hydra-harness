@@ -1,7 +1,7 @@
 # 73 - The gated interactive launch runs unwrapped
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -41,4 +41,9 @@ the seatbelt, and check the record's `sandbox` and `gate_sha` fields are non-nul
 Session note, 2026-09-22: the code and the test are on master. The ticket stays claimed until a
 human runs `hydra run --interactive --policy standard`, quits the session, and writes the run id
 here with `hydra show <id>` showing non-null `sandbox` and `gate_sha`.
+
+Measured by the human on 2026-09-22 in a Herdr pane: run 01a0c9ca-1591 under `standard`, `claude`
+drew its interface under `sandbox-exec`, answered `pong` and exited 0, and `run_start` carries
+`launch_mode: interactive`, `sandbox` b4c17cc9 and `gate_sha` d4870f3a; the spawn directory holds
+`sandbox.sb` beside the gate. 54.6k tokens.
 
