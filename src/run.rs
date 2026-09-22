@@ -346,8 +346,17 @@ impl std::error::Error for TooDeep {}
 
 /// Map ticket 61. A launch from a checkout that is not the data root, with
 /// `HYDRA_ROOT` unset, refuses before anything is written into the root.
-pub fn refuse_foreign_checkout(layout: &Layout, checkout: &std::path::Path) -> Result<()> {
-    if std::env::var_os("HYDRA_ROOT").is_some() {
+///
+/// Whether the variable is set arrives as an argument rather than being read
+/// here, so a test can ask the question under a CI runner that sets it, which
+/// is what failed run 35686710205 on 2026-09-22: the workflow exports
+/// `HYDRA_ROOT` for the corpus walks, and the check returned early.
+pub fn refuse_foreign_checkout(
+    layout: &Layout,
+    checkout: &std::path::Path,
+    root_named: bool,
+) -> Result<()> {
+    if root_named {
         return Ok(());
     }
     let root = layout.root();
@@ -400,7 +409,11 @@ pub fn run(request: Request) -> Result<Call> {
     let mcp_document = crate::mcp::Document::load()?;
 
     let layout = Layout::discover()?;
-    refuse_foreign_checkout(&layout, &crate::paths::hydra_home())?;
+    refuse_foreign_checkout(
+        &layout,
+        &crate::paths::hydra_home(),
+        std::env::var_os("HYDRA_ROOT").is_some(),
+    )?;
     layout.ensure()?;
 
     // Build ticket 57, read before the lineage because it is the question the

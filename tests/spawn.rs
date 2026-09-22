@@ -68,7 +68,7 @@ fn a_launch_from_a_foreign_checkout_is_refused_before_writing() {
     let layout = Layout::at(&root);
     let checkout = root.join("checkout");
     std::fs::create_dir_all(&checkout).unwrap();
-    let err = refuse_foreign_checkout(&layout, &checkout).unwrap_err();
+    let err = refuse_foreign_checkout(&layout, &checkout, false).unwrap_err();
     let message = err.to_string();
     assert!(
         message.contains(root.display().to_string().as_str()),
