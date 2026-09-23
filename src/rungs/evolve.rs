@@ -459,6 +459,9 @@ pub const PROTECTED_CODE_PATHS: &[&str] = &[
     // day named it. The third time a mechanism landed outside this list.
     "src/sandbox.rs",
     "src/containment.rs",
+    // Since build ticket 79. The attack corpus is what rung two's patches are
+    // judged against; a proposer must not delete or rewrite the probes.
+    "tests/corpus",
 ];
 
 /// Case-insensitive check against the config rows of harness spec 15.2 and the

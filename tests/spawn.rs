@@ -17,6 +17,9 @@ use hydra::policy::PolicySet;
 use hydra::provider::Provider;
 use hydra::run::{refuse_foreign_checkout, write_spawn_config};
 
+mod corpus;
+use corpus::{canonical_subpath, refused, under_seatbelt};
+
 /// A layout per test, because the suite runs in parallel.
 fn layout() -> (Layout, PathBuf) {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -1131,13 +1134,6 @@ fn a_codex_spawn_writes_the_hook_config_into_the_worktree() {
 // macOS seatbelt: profile beside the gate, build ticket 68
 // ---------------------------------------------------------------------------
 
-fn canonical_subpath(path: &Path) -> String {
-    std::fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .into_owned()
-}
-
 #[test]
 fn a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths() {
     if !hydra::sandbox::wraps_launches() {
@@ -1258,30 +1254,6 @@ fn the_seatbelt_refuses_a_corpus_write_and_allows_the_worktree() {
         wt_out.contains("rc=0"),
         "worktree write should succeed, got {wt_out}"
     );
-}
-
-/// One shell command under a spawn's own profile, answering what it printed.
-fn under_seatbelt(profile: &Path, command: &str) -> String {
-    let out = std::process::Command::new("/usr/bin/sandbox-exec")
-        .arg("-f")
-        .arg(profile)
-        .arg("/bin/sh")
-        .arg("-c")
-        .arg(format!("{command}; echo rc=$?"))
-        .output()
-        .unwrap();
-    // The shell reports a refused redirect on its own stderr, so both streams
-    // are read and the status line at the end is what the assertions key on.
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
-    )
-}
-
-/// Whether the command under the seatbelt failed, however the shell worded it.
-fn refused(out: &str) -> bool {
-    !out.contains("rc=0")
 }
 
 #[test]

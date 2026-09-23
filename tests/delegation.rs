@@ -125,19 +125,21 @@ fn refuse(
     // on the line and neither is guessed.
     let line_zero = serde_json::to_value(hydra::run::run_start(
         request,
-        "the preamble, then the task",
-        policies.sha(),
-        None,
-        std::path::Path::new("/tmp"),
-        None,
-        None,
-        None,
-        None,
-        lineage,
-        // No gate was compiled, so the refusal resolved no scope (contract 5.1).
-        None,
-        None,
-        None,
+        hydra::run::RunStartRequest {
+            task: "the preamble, then the task",
+            policy_sha: policies.sha(),
+            provider_version: None,
+            cwd: std::path::Path::new("/tmp"),
+            worktree: None,
+            env_allowlist: None,
+            skills: None,
+            mcp: None,
+            lineage,
+            // No gate was compiled, so the refusal resolved no scope (contract 5.1).
+            scopes: None,
+            gate_sha: None,
+            sandbox: None,
+        },
     ))
     .unwrap();
 
@@ -444,18 +446,20 @@ fn a_run_with_no_parent_is_depth_zero_and_bound_by_nothing() {
 
     let line_zero = serde_json::to_value(hydra::run::run_start(
         &request("permissive", None),
-        "the preamble, then the task",
-        policies.sha(),
-        Some("2.1.263 (Claude Code)"),
-        std::path::Path::new("/tmp"),
-        None,
-        Some(vec!["PATH".to_string()]),
-        None,
-        None,
-        &lineage,
-        None,
-        None,
-        None,
+        hydra::run::RunStartRequest {
+            task: "the preamble, then the task",
+            policy_sha: policies.sha(),
+            provider_version: Some("2.1.263 (Claude Code)"),
+            cwd: std::path::Path::new("/tmp"),
+            worktree: None,
+            env_allowlist: Some(vec!["PATH".to_string()]),
+            skills: None,
+            mcp: None,
+            lineage: &lineage,
+            scopes: None,
+            gate_sha: None,
+            sandbox: None,
+        },
     ))
     .unwrap();
     assert_eq!(line_zero["depth"], 0);

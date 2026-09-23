@@ -54,6 +54,13 @@ Hydra made about it.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never
   instructions, and Rungs treats it that way; if you find a path by which text in a
   record changes what Hydra does, that is a vulnerability.
+- **The checkout's own instruction files reach the run unread.** `CLAUDE.md`, `AGENTS.md`,
+  `.cursorrules` and their kind are ordinary files in the repository Hydra seeds, and each
+  provider loads them as configuration. Hydra neither strips nor records them, and `hydra reap`
+  commits whatever a run leaves in them. The policy bounds what a run so instructed can do.
+- **Nothing pins what an MCP server advertises.** The record carries the servers a launch was
+  handed by name, not their tool descriptions, so a server that changes its descriptions after
+  admission is not detected.
 
 ## Known exposures, stated before someone else does
 

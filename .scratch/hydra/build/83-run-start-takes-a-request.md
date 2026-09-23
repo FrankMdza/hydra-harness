@@ -1,7 +1,7 @@
 # 83 - `run_start` takes one struct rather than thirteen arguments
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 81
 
 ## What
@@ -18,3 +18,10 @@ No `too_many_arguments` allow on `run_start`; the full suite's record-writing te
 and fmt clean. Blocked by 81 only because both edit `src/run.rs`. Edits `src/` and `tests/` only.
 
 ## Outcome
+
+`run_start` takes `&RunStartRequest`, whose fields carry the names the positional arguments had;
+the `too_many_arguments` allow is gone and all six callers moved, `tests/delegation.rs` and
+`tests/resume.rs` included (the ticket named only the first). Record bytes unchanged:
+`record_contract` 20, `resume` 9, `delegation` 14 green on master, and the full suite with an empty
+`HYDRA_ROOT` green. Built by `codex` under `standard`, run 01a0cc3f-4438, 1.4M tokens, reading
+nothing from the skill link it was told to skip (map 71).

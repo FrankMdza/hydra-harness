@@ -1,7 +1,7 @@
 # 79 - The attack corpus lives in `tests/corpus`, where rung two cannot edit it
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 77
 
 ## What
@@ -27,3 +27,13 @@ full count of tests in `gate` and `spawn` unchanged. Clippy and fmt clean. Edits
 `src/rungs/evolve.rs` only.
 
 ## Outcome
+
+`tests/corpus/mod.rs` holds `Gate`, `Decision`, `raw_answer`, `under_seatbelt`, `refused` and the
+constants both files used; `tests/gate.rs` and `tests/spawn.rs` import it and keep every test name
+and count (gate 90, spawn 30). `tests/corpus/README.md` has fourteen rows. `tests/corpus` is on
+`PROTECTED_CODE_PATHS`, and `tests/evolve.rs`'s protected-row test now walks every row of that list.
+The run marked A3 and A5 `not applicable`; they are classes Hydra does not answer, not classes that
+cannot reach it, so the session changed them to `Open`, A1's probe to the policy matrix, and added
+both to `SECURITY.md`. Measured on master with the full suite and an empty `HYDRA_ROOT`: every
+target green, clippy and fmt clean. Built by `cursor-agent` on Composer 2.5 under `standard`, run
+01a0cc3f-1e0f, 2.0M tokens.

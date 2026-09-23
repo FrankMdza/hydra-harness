@@ -461,18 +461,20 @@ pub fn run(request: Request) -> Result<Call> {
     if let Some(remediation) = caller.escalation(request.parent.as_deref()) {
         let line_zero = serde_json::to_value(run_start(
             &request,
-            &task,
-            policies.sha(),
-            None,
-            &invoked_in,
-            None,
-            None,
-            None,
-            None,
-            &lineage,
-            None,
-            None,
-            None,
+            RunStartRequest {
+                task: &task,
+                policy_sha: policies.sha(),
+                provider_version: None,
+                cwd: &invoked_in,
+                worktree: None,
+                env_allowlist: None,
+                skills: None,
+                mcp: None,
+                lineage: &lineage,
+                scopes: None,
+                gate_sha: None,
+                sandbox: None,
+            },
         ))?;
         return refuse(
             &run_file,
@@ -499,18 +501,20 @@ pub fn run(request: Request) -> Result<Call> {
         // this run, and no gate was compiled to resolve a path (contract 5.1).
         let line_zero = serde_json::to_value(run_start(
             &request,
-            &task,
-            policies.sha(),
-            None,
-            &invoked_in,
-            None,
-            None,
-            None,
-            None,
-            &lineage,
-            None,
-            None,
-            None,
+            RunStartRequest {
+                task: &task,
+                policy_sha: policies.sha(),
+                provider_version: None,
+                cwd: &invoked_in,
+                worktree: None,
+                env_allowlist: None,
+                skills: None,
+                mcp: None,
+                lineage: &lineage,
+                scopes: None,
+                gate_sha: None,
+                sandbox: None,
+            },
         ))?;
         return refuse(
             &run_file,
@@ -663,22 +667,24 @@ pub fn run(request: Request) -> Result<Call> {
      -> Result<serde_json::Value> {
         let start = run_start(
             &request,
-            &task,
-            policies.sha(),
-            Some(&provider_version),
-            &cwd,
-            worktree_ref.clone(),
-            Some(child_env.names()),
-            injected.as_ref().map(|i| i.record.clone()),
-            Some(crate::mcp::record(
-                &mcp_document.sha,
-                &injected_names,
-                mcp_resolved,
-            )),
-            &lineage,
-            scopes.cloned(),
-            gate_sha.map(str::to_string),
-            sandbox.map(str::to_string),
+            RunStartRequest {
+                task: &task,
+                policy_sha: policies.sha(),
+                provider_version: Some(&provider_version),
+                cwd: &cwd,
+                worktree: worktree_ref.clone(),
+                env_allowlist: Some(child_env.names()),
+                skills: injected.as_ref().map(|i| i.record.clone()),
+                mcp: Some(crate::mcp::record(
+                    &mcp_document.sha,
+                    &injected_names,
+                    mcp_resolved,
+                )),
+                lineage: &lineage,
+                scopes: scopes.cloned(),
+                gate_sha: gate_sha.map(str::to_string),
+                sandbox: sandbox.map(str::to_string),
+            },
         );
         Ok(serde_json::to_value(&start)?)
     };
@@ -1458,6 +1464,27 @@ pub fn result(
     }
 }
 
+/// The resolved inputs used to compose a run's first record line.
+pub struct RunStartRequest<'a> {
+    pub task: &'a str,
+    pub policy_sha: &'a str,
+    // `None` on a refused spawn, where no binary was asked (contract 8.3).
+    pub provider_version: Option<&'a str>,
+    pub cwd: &'a std::path::Path,
+    pub worktree: Option<WorktreeRef>,
+    // `None` on a refused spawn, where no child environment was built. Absent
+    // rather than empty, because an empty list reads as a measurement.
+    pub env_allowlist: Option<Vec<String>>,
+    pub skills: Option<serde_json::Value>,
+    pub mcp: Option<serde_json::Value>,
+    pub lineage: &'a Lineage,
+    pub scopes: Option<std::collections::BTreeMap<String, String>>,
+    // `None` on a refused spawn and on a run with no gate, build ticket 49.
+    pub gate_sha: Option<String>,
+    // Null on a launch no seatbelt wrapped, build ticket 68.
+    pub sandbox: Option<String>,
+}
+
 /// Line 0, composed before the fork.
 ///
 /// **`pid` and `process_start_time` are null here and are the detached half's to
@@ -1467,27 +1494,21 @@ pub fn result(
 /// It is public for the same reason [`refuse`] is: `tests/delegation.rs` composes
 /// the line a refused child gets and everything above it in [`run`] needs a
 /// provider binary on PATH.
-#[allow(clippy::too_many_arguments)]
-pub fn run_start(
-    request: &Request,
-    task: &str,
-    policy_sha: &str,
-    // `None` on a refused spawn, where no binary was asked (contract 8.3).
-    provider_version: Option<&str>,
-    cwd: &std::path::Path,
-    worktree: Option<WorktreeRef>,
-    // `None` on a refused spawn, where no child environment was built. Absent
-    // rather than empty, because an empty list reads as a measurement.
-    env_allowlist: Option<Vec<String>>,
-    skills: Option<serde_json::Value>,
-    mcp: Option<serde_json::Value>,
-    lineage: &Lineage,
-    scopes: Option<std::collections::BTreeMap<String, String>>,
-    // `None` on a refused spawn and on a run with no gate, build ticket 49.
-    gate_sha: Option<String>,
-    // Null on a launch no seatbelt wrapped, build ticket 68.
-    sandbox: Option<String>,
-) -> RunStart {
+pub fn run_start(request: &Request, start: RunStartRequest<'_>) -> RunStart {
+    let RunStartRequest {
+        task,
+        policy_sha,
+        provider_version,
+        cwd,
+        worktree,
+        env_allowlist,
+        skills,
+        mcp,
+        lineage,
+        scopes,
+        gate_sha,
+        sandbox,
+    } = start;
     RunStart {
         kind: "run_start",
         schema_version: SCHEMA_VERSION,

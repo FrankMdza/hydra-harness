@@ -3626,7 +3626,8 @@ fails without the one-line fix in `src/policy/replay.rs` and passes with it, mea
 What it found that this file already said and the README did not: the corpus walks are vacuous in
 CI, `gated` needs every call refused, the concurrency cap was a check without a reservation
 (closed by build ticket 81), and
-`run_start` takes thirteen positional arguments with two adjacent same-typed `Option` pairs.
+`run_start` took thirteen positional arguments with two adjacent same-typed `Option` pairs (since
+build ticket 83 it takes one `RunStartRequest` with named fields).
 
 ## What map ticket 68 changed
 
@@ -3651,6 +3652,18 @@ with `..`, `//` or `/./` inside an interpreter or nested-shell token walks past 
 `tests/gate.rs::a_protected_path_split_or_assembled_still_walks_past` pins each spelling as open
 beside the older substitution pin. `SECURITY.md` names the class under "does not interpret shell".
 On macOS the seatbelt still refuses what those spellings reach.
+
+**The attack corpus lives in `tests/corpus/`** (build 79). `tests/corpus/mod.rs` holds the helpers
+`tests/gate.rs` and `tests/spawn.rs` both used to carry: compile a gate into a scratch layout, ask
+it, run a command under the real profile. `tests/corpus/README.md` is one row per attack class
+from the map 68 research, each naming the mechanism that answers it and the test that probes it,
+`Open` where Hydra does not answer (instruction files in the checkout, an MCP server changing its
+descriptions after admission, both stated in `SECURITY.md`), and `not applicable` only where the
+class cannot reach Hydra. `tests/corpus` is on `PROTECTED_CODE_PATHS`, so rung two's admission
+refuses a patch that edits the corpus its patches are judged against. A new class enters as a row
+and, where there is something to pin, a probe in `tests/gate.rs` or `tests/spawn.rs` using the
+shared helpers. Baseline-test provenance, which would protect every test file rather than one
+directory, is build ticket 80, open.
 
 **A non-ASCII root is refused before launch** (build 78). The gate folds case ASCII only, and the
 macOS filesystem folds `É` too, so on a root with a cased non-ASCII letter every denial missed the

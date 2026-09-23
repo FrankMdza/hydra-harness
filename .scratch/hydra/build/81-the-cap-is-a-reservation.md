@@ -42,3 +42,7 @@ Measured on master with `HYDRA_ROOT` empty: status 20, cleanup 29, spawn 29, del
 passed; clippy and fmt clean. Built by `codex` under `standard`, run 01a0cc2b-e29c, 1.3M tokens,
 after a first run (01a0cc2a-f20b, 127k tokens) stopped on an unreadable skill, which is map ticket
 71. The session's Opus reviewer found the reap bug and an Opus subagent fixed it in the worktree.
+
+One more thing the ticket did not foresee, found by the session after 79 and 83 ran: on this
+machine `~/hydra` is the checkout, and `reservations/` was not in `.gitignore`, so `seed_tree`
+copied each launcher's own reservation into its worktree. Fixed in `e734038`.

@@ -12,10 +12,10 @@ use hydra::provider::Provider;
 use hydra::record::validate::check;
 use hydra::run::write_spawn_config;
 use hydra::rungs::evolve::{
-    HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, ProposerPatch, TASK_DOES_NOT_WAIVE_CHECKLIST,
-    admission_gate, ensure_reviewable, judge_task, pass_run_id_from_branch, patch_over_cap,
-    protected_path_hit, rate_limit_abort, review_commit_message, write_harness_end,
-    write_harness_start,
+    HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, PROTECTED_CODE_PATHS, ProposerPatch,
+    TASK_DOES_NOT_WAIVE_CHECKLIST, admission_gate, ensure_reviewable, judge_task,
+    pass_run_id_from_branch, patch_over_cap, protected_path_hit, rate_limit_abort,
+    review_commit_message, write_harness_end, write_harness_start,
 };
 use hydra::rungs::review::{
     ApprovedPatch, CHECKLIST_ENTRIES, CHECKLIST_IDS, PanelAnswers, PanelVerdict, VerdictField,
@@ -241,10 +241,30 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
         "src/record/mod.rs",
         "src/record/lines.rs",
         "src/env.rs",
+        "src/sandbox.rs",
+        "src/containment.rs",
+        "tests/corpus/mod.rs",
+        "tests/corpus/README.md",
     ];
     for row in rows {
         let hit = protected_path_hit(&[row.to_string()], &repo);
         assert_eq!(hit.as_deref(), Some(row), "{row} reached the panel");
+    }
+    for row in PROTECTED_CODE_PATHS {
+        let sample = repo
+            .join(row)
+            .join(if row.ends_with(".rs") { "" } else { "probe.rs" });
+        let path = if row.ends_with(".rs") {
+            repo.join(row)
+        } else {
+            sample
+        };
+        let hit = protected_path_hit(&[path.display().to_string()], &repo);
+        assert_eq!(
+            hit.as_deref(),
+            Some(path.display().to_string().as_str()),
+            "PROTECTED_CODE_PATHS row {row} reached the panel"
+        );
     }
     // Case is not a way past it: `write_file(path="Review.rs")` on macOS lands
     // on the same file.

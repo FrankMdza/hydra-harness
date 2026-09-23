@@ -196,18 +196,20 @@ fn run_start_on_a_resume_carries_command_and_resumed_from() {
     let lineage = Lineage::of(&layout, None).unwrap();
     let start = hydra::run::run_start(
         &request,
-        hydra::resume::DEFAULT_TASK,
-        policies.sha(),
-        Some("stub"),
-        std::path::Path::new("/tmp"),
-        None,
-        None,
-        None,
-        None,
-        &lineage,
-        None,
-        None,
-        None,
+        hydra::run::RunStartRequest {
+            task: hydra::resume::DEFAULT_TASK,
+            policy_sha: policies.sha(),
+            provider_version: Some("stub"),
+            cwd: std::path::Path::new("/tmp"),
+            worktree: None,
+            env_allowlist: None,
+            skills: None,
+            mcp: None,
+            lineage: &lineage,
+            scopes: None,
+            gate_sha: None,
+            sandbox: None,
+        },
     );
     assert_eq!(start.command, "resume");
     assert_eq!(start.resumed_from.as_deref(), Some("old-run"));
