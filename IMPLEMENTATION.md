@@ -2946,8 +2946,15 @@ allowlist entries that are not the exported run's own, replaced by a labelled ma
 secrets by the same five prefixes the write-time sweep uses; the user's own hook stdout
 dropped as the `hook_response` frames; and customer data inside a fixture named in the
 header as the residue no pattern reaches. Section 5.2's fields are dropped with
-`run_start`, `run_end`, `permission_decision` and `usage`. The same prefix sweep runs again
-over every output line and one hit aborts the whole export with nothing written.
+`run_start`, `run_end`, `permission_decision` and `usage`. Every output line is then checked
+again by `verify_export_line`, which since build ticket 85 has its own scan rather than the
+redactor's: it decodes the JSON, reads keys as well as values, and aborts the whole export with
+nothing written on a PEM header or one of the known prefixes. A long high-entropy token that no
+named class covers does not abort. It is a warning, printed after the export as run id, event
+field, token class and length, never the value, for the human to read before signing the
+manifest. Aborting on entropy was measured first and would have stopped 108 of 321 records on
+this machine, 145 of the hits being Cursor's `contentBlobId` digests; as a warning it is the same
+108 records and 291 lines of output to read.
 
 **The output is one header line and one JSON line per run**, `{"events": [...]}` in the
 normalized vocabulary, to `--out <file>`. Nothing on this machine has been exported: the

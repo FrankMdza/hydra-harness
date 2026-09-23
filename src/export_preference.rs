@@ -13,7 +13,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::export::{
-    Allowlist, own_repo, redact_string, redact_value, repo_names_to_redact, verify_export_line,
+    Allowlist, EntropyWarning, ExportWarning, own_repo, redact_string, redact_value,
+    repo_names_to_redact, verify_export_line,
 };
 use crate::normalize::{Event, Role, Run};
 use crate::paths::Layout;
@@ -82,15 +83,16 @@ pub struct PreferencePair {
 }
 
 impl PreferencePair {
-    pub fn to_line(&self) -> Result<String> {
+    /// The verified line and the entropy warnings the verifier raised on it.
+    pub fn to_line(&self) -> Result<(String, Vec<EntropyWarning>)> {
         let line = serde_json::to_string(&json!({
             "prompt": self.prompt,
             "rejected": self.rejected,
             "chosen": self.chosen,
             "source": self.source,
         }))?;
-        verify_export_line(&line)?;
-        Ok(line)
+        let warnings = verify_export_line(&line)?;
+        Ok((line, warnings))
     }
 }
 
@@ -218,7 +220,28 @@ pub fn read_judge_pairs(
 /// Every pair as a verified line, in order. Fails on the first secret, and
 /// the caller runs it before any file exists.
 pub fn render_lines(pairs: &[PreferencePair]) -> Result<Vec<String>> {
-    pairs.iter().map(PreferencePair::to_line).collect()
+    Ok(render_lines_with_warnings(pairs)?.0)
+}
+
+/// [`render_lines`], plus the entropy warnings. A pair has no run id, so each
+/// warning names the pair by its 1-based place in `preference.jsonl` and its
+/// source.
+pub fn render_lines_with_warnings(
+    pairs: &[PreferencePair],
+) -> Result<(Vec<String>, Vec<ExportWarning>)> {
+    let mut lines = Vec::new();
+    let mut warnings = Vec::new();
+    for (index, pair) in pairs.iter().enumerate() {
+        let (line, found) = pair.to_line()?;
+        for warning in found {
+            warnings.push(ExportWarning {
+                source: format!("preference pair {} ({})", index + 1, pair.source),
+                warning,
+            });
+        }
+        lines.push(line);
+    }
+    Ok((lines, warnings))
 }
 
 /// Writes every pair to `preference.jsonl` beside `events_out`.

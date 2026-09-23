@@ -549,3 +549,144 @@ fn out_named_preference_jsonl_is_refused_before_anything_is_written() {
     assert!(err.contains("preference.jsonl"), "{err}");
     assert!(!out.exists());
 }
+
+const OPAQUE_SECRET: &str = "q7Kx2Vm9Za4Nc8Rt1By6Hw3Df0Lp5JsUeQiWoAsEdFgHjKlZxCvBnM987654321";
+
+/// The entropy warnings the verifier raises on `text` as one exported value.
+fn warnings_on(text: &str) -> Vec<hydra::export::EntropyWarning> {
+    hydra::export::verify_export_line(&json!({"output": text}).to_string()).unwrap()
+}
+
+#[test]
+fn an_unknown_opaque_token_exports_and_is_named_in_the_summary_without_its_value() {
+    let fixture = Fixture::new("opaque-secret");
+    fixture.write_allowlist();
+    assert!(hydra::record::secrets::scan(OPAQUE_SECRET).is_none());
+    let file = fixture.repo_a.join("in-repo.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+    let record = read_in_repo(&fixture, ELIGIBLE, None, &file);
+    assert_eq!(record.matches("bytes").count(), 1);
+    let record = record.replace("bytes", OPAQUE_SECRET);
+    fixture.write(ELIGIBLE, &record);
+    let out = fixture.root.join("events.jsonl");
+    let warnings = export_with_signoff(
+        &fixture.layout(),
+        &fixture.allowlist_path(),
+        Some(&out),
+        false,
+        Some(&fixture.root.join("absent-signoff.json")),
+    )
+    .unwrap();
+    assert!(out.is_file());
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].source, ELIGIBLE);
+    assert_eq!(warnings[0].warning.class, "alphanumeric");
+    assert_eq!(warnings[0].warning.len, OPAQUE_SECRET.len());
+    let summary = hydra::export::warning_summary(&warnings);
+    assert!(summary.starts_with("entropy warnings: 1 "), "{summary}");
+    assert!(
+        summary.contains(&format!("{ELIGIBLE}: events[")),
+        "{summary}"
+    );
+    assert!(summary.contains(" alphanumeric len=63"), "{summary}");
+    assert!(!summary.contains(&OPAQUE_SECRET[..8]), "{summary}");
+}
+
+#[test]
+fn a_prefix_secret_and_a_pem_header_still_abort_in_values_and_keys() {
+    for text in [
+        "-----BEGIN RSA PRIVATE KEY-----\r\nshort-body\r\n-----END RSA PRIVATE KEY-----",
+        "-----BEGIN PRIVATE KEY-----\nunfinished",
+        "token sk-ant-planted end",
+        "xAIzaSyPlanted",
+    ] {
+        let line = json!({"events": [{"output": text}]}).to_string();
+        assert!(hydra::export::verify_export_line(&line).is_err(), "{text}");
+        let key = json!({"arguments": {text: "value"}}).to_string();
+        assert!(hydra::export::verify_export_line(&key).is_err(), "{text}");
+    }
+    let escaped = json!({"output": "-----BEGIN PRIVATE KEY-----"})
+        .to_string()
+        .replace('B', "\\u0042");
+    assert!(hydra::export::verify_export_line(&escaped).is_err());
+}
+
+#[test]
+fn an_opaque_key_warns_as_key_and_does_not_print_itself() {
+    let line = json!({"events": [{"arguments": {OPAQUE_SECRET: "value"}}]}).to_string();
+    let warnings = hydra::export::verify_export_line(&line).unwrap();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].field, "events[0].arguments.<key>");
+}
+
+#[test]
+fn verifier_is_quiet_on_prose_uuids_hex_digests_and_low_entropy_values() {
+    for text in [
+        "Ordinary prose with several words and a useful explanation.",
+        "01a08080-0000-7000-8000-00000000e001",
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "[REDACTED:pem_private_key]",
+        "q7Kx2Vm9Za4Nc8Rt1By6Hw3Df0Lp5Js",
+    ] {
+        assert!(warnings_on(text).is_empty(), "{text}");
+    }
+}
+
+#[test]
+fn a_preference_pair_with_an_opaque_token_renders_and_warns() {
+    let pair = hydra::export_preference::PreferencePair {
+        prompt: vec![json!({"content": "fix this"})],
+        rejected: vec![json!({"content": OPAQUE_SECRET})],
+        chosen: vec![json!({"content": "fixed"})],
+        source: "judge_verdict",
+    };
+    let (lines, warnings) = hydra::export_preference::render_lines_with_warnings(&[pair]).unwrap();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].source, "preference pair 1 (judge_verdict)");
+    assert_eq!(warnings[0].warning.field, "rejected[0].content");
+}
+
+const RANDOM_BASE64_40: &str = "ebpzwnY/+hGzXYYWUImHlrvgzXeYPd1aOeZo5KCg";
+
+#[test]
+fn a_forty_byte_random_base64_token_with_no_known_prefix_warns() {
+    assert!(hydra::record::secrets::scan(RANDOM_BASE64_40).is_none());
+    let warnings = warnings_on(&format!("token {RANDOM_BASE64_40} end"));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].field, "output");
+    assert_eq!(warnings[0].class, "base64");
+    assert_eq!(warnings[0].len, 40);
+}
+
+#[test]
+fn a_base64_token_whose_slashes_leave_no_24_character_run_is_not_warned() {
+    // The cost of sparing paths: this is random base64, but `/` cuts it into
+    // runs of at most 20, so the verifier reads it as a path. About one
+    // 40-byte base64 token in seven looks like this.
+    assert!(warnings_on("itt/yab+2VYVLstNtWx/baECAfoVLc9TbGqRCdXt").is_empty());
+}
+
+#[test]
+fn a_hydra_worktree_path_raises_no_warning() {
+    let path =
+        "/Users/USER/hydra/worktrees/01a0cc32-3831-7d42-b307-0248751bb76c/IMPLEMENTATION.md";
+    assert!(warnings_on(path).is_empty());
+}
+
+#[test]
+fn a_lockfile_integrity_string_raises_no_warning() {
+    let digest =
+        "WIC3zgtWJbq9sMTDPqdOd4NJYUaMcVysvf2VZfQ5VHbBXgMkYByLeWTvIATBRHjjvbFecNwsykoIjdsFU53qgA==";
+    // The bare digest warns, so the prefix is what spares it.
+    assert_eq!(warnings_on(digest).len(), 1);
+    assert!(warnings_on(&format!("\"integrity\": \"sha512-{digest}\"")).is_empty());
+}
+
+#[test]
+fn a_data_uri_raises_no_warning() {
+    let payload = "ZXilbzs6Wr1gyrqeYUGkfYK2d+sLDJV1fG62jVCN2QzMu4dTzsPOuei28RkVfYbB";
+    assert_eq!(warnings_on(payload).len(), 1);
+    assert!(warnings_on(&format!("<img src=\"data:image/png;base64,{payload}\">")).is_empty());
+}

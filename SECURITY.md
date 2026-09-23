@@ -17,6 +17,11 @@ Hydra made about it.
   token. The gate refuses a protected path only when its prefix appears whole and in canonical
   form. `docs/harness-spec.md` section 7.4 states this and `tests/gate.rs` fails if someone
   claims to have closed it.
+- **The gate folds case ASCII only, and Hydra refuses a root it would fold wrong.** The macOS
+  filesystem folds `É` too, so `hydra run` refuses when its data root or its checkout resolves
+  to a path outside ASCII. The launching repository's `.git` is folded the same way and is not
+  checked: under a repository whose path holds a cased non-ASCII letter, the denial of writes to
+  that `.git` misses the other case, and on macOS the seatbelt is what still refuses them.
 - **There is no container, and on macOS there is a sandbox around the process tree.** The
   vendor CLI needs the network to reach its model, so network cannot be cut, and the run has your
   real `HOME` because a wrong one logs the vendor out. Since 2026-09-21 every recorded launch on
@@ -122,12 +127,14 @@ Hydra made about it.
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`
   is where a confirmed change becomes a failing test.
 
-- **The export verifier knows the redactor's classes and no others.** `hydra export` redacts
-  five prefixes and then scans for the same five, so it can only fire on a class it would not
-  have redacted. Until 2026-09-22 a PEM block lost its header and kept its body; the redaction
-  now runs to the footer. AWS keys, Slack tokens, JWTs and anything base64'd or split across a
-  line are not on the list, and `~/hydra/runs/` sits on this laptop beside the dotfiles that
-  hold them.
+- **The export verifier aborts on the redactor's classes and warns on the rest.** `hydra export`
+  redacts five classes, then re-reads every line with a scan of its own that aborts on a PEM
+  header or a known prefix, including one hidden in a JSON key or a `\u` escape. A long
+  high-entropy token that matches no class is reported after the export by field, class and
+  length, and the export still happens: aborting on entropy stopped a third of this machine's
+  records on digests that are not secrets. AWS keys, Slack tokens and JWTs are not a named class,
+  a secret split by a space or URL-encoded reaches neither check, and `~/hydra/runs/` sits on
+  this laptop beside the dotfiles that hold them.
 
 ## Vendor terms
 

@@ -18,7 +18,6 @@ use crate::normalize::{Event, ResultStatus, Role};
 use crate::outcome::{Source, derive};
 use crate::paths::Layout;
 use crate::policy::{Capability, PolicySet};
-use crate::record::secrets;
 
 /// Protected config #3, harness spec 15.1.
 pub fn allowlist_path() -> PathBuf {
@@ -267,22 +266,28 @@ fn has_secret_flag(text: &str) -> bool {
 }
 
 /// Exports eligible runs to `out`, or prints eligibility under `--dry-run`.
+/// After a real export it prints the entropy warnings, one line per token.
 pub fn export(
     layout: &Layout,
     allowlist_path: &Path,
     out: Option<&Path>,
     dry_run: bool,
 ) -> Result<()> {
-    export_with_signoff(layout, allowlist_path, out, dry_run, None)
+    let warnings = export_with_signoff(layout, allowlist_path, out, dry_run, None)?;
+    if !dry_run {
+        print!("{}", warning_summary(&warnings));
+    }
+    Ok(())
 }
 
+/// The export itself. Returns the entropy warnings, which a dry run never has.
 pub fn export_with_signoff(
     layout: &Layout,
     allowlist_path: &Path,
     out: Option<&Path>,
     dry_run: bool,
     signoff_path: Option<&Path>,
-) -> Result<()> {
+) -> Result<Vec<ExportWarning>> {
     let allowlist = Allowlist::load(allowlist_path)?;
     let policies = PolicySet::discover()?;
     let verdicts = audit(layout, &allowlist, &policies)?;
@@ -302,7 +307,7 @@ pub fn export_with_signoff(
                 writeln!(stdout, "{}: {}", verdict.run_id, names)?;
             }
         }
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let out = out.context("--out is required unless --dry-run is set")?;
@@ -328,19 +333,27 @@ pub fn export_with_signoff(
     )?;
 
     let mut lines: Vec<String> = Vec::new();
+    let mut warnings: Vec<ExportWarning> = Vec::new();
     for verdict in eligible {
         let path = layout.run_file(&verdict.run_id);
         let run = crate::normalize::read_file(&path, &policies)?;
         let own_repo = own_repo(&run, &allowlist.repos);
         let events = export_events(&run, &allowlist.repos, own_repo.as_deref());
         let line = serde_json::to_string(&json!({ "events": events }))?;
-        verify_export_line(&line)?;
+        for warning in verify_export_line(&line)? {
+            warnings.push(ExportWarning {
+                source: verdict.run_id.clone(),
+                warning,
+            });
+        }
         lines.push(line);
     }
     // Rendered, and so verified, before either file is created: a secret in a
     // preference pair used to surface after the events file was already on
     // disk, which is not "aborts with nothing written".
-    let preference_lines = crate::export_preference::render_lines(&preference_pairs)?;
+    let (preference_lines, preference_warnings) =
+        crate::export_preference::render_lines_with_warnings(&preference_pairs)?;
+    warnings.extend(preference_warnings);
 
     let header = format!(
         "export count={} allowlist_sha={} residue=customer_data_in_fixture",
@@ -355,7 +368,7 @@ pub fn export_with_signoff(
         writeln!(file, "{line}")?;
     }
     crate::export_preference::write_preference_lines(out, &preference_lines, &signoff.sha)?;
-    Ok(())
+    Ok(warnings)
 }
 
 pub(crate) fn own_repo(run: &crate::normalize::Run, repos: &[PathBuf]) -> Option<PathBuf> {
@@ -530,14 +543,226 @@ fn status_str(status: ResultStatus) -> &'static str {
     }
 }
 
-/// Harness spec 14's second prefix sweep. A hit means the redactor is broken.
-pub fn verify_export_line(line: &str) -> Result<()> {
-    if secrets::scan(line).is_some() {
+/// A long, random-looking token the verifier found in an exported value. It
+/// does not abort the export. It carries where the token sits and what it
+/// looks like, and never the token or any part of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntropyWarning {
+    /// JSON path to the string, such as `events[3].output`. An object key that
+    /// is not a short plain identifier prints as `<key>`, since a key can be
+    /// the token itself.
+    pub field: String,
+    /// `alphanumeric`, `base64`, `base64url` or `mixed`.
+    pub class: &'static str,
+    pub len: usize,
+}
+
+/// One warning and the run or preference pair it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportWarning {
+    pub source: String,
+    pub warning: EntropyWarning,
+}
+
+/// Verify decoded values independently of the record scanner and redactor.
+/// A known prefix or a PEM header aborts. A high-entropy token does not: it
+/// comes back as a warning for the summary the export prints.
+pub fn verify_export_line(line: &str) -> Result<Vec<EntropyWarning>> {
+    let value: Value = serde_json::from_str(line).context("parsing export verification input")?;
+    let mut warnings = Vec::new();
+    if scan_value(&value, "", &mut warnings) {
         bail!(
             "verification scan found a secret after redaction; export aborted with nothing written"
         );
     }
-    Ok(())
+    Ok(warnings)
+}
+
+/// The summary `hydra export` prints once both files are written.
+pub fn warning_summary(warnings: &[ExportWarning]) -> String {
+    let mut out = format!(
+        "entropy warnings: {} (exported anyway; each is a long random-looking token no \
+         redaction rule covers, so read it before the export leaves this machine)\n",
+        warnings.len()
+    );
+    for ExportWarning { source, warning } in warnings {
+        out.push_str(&format!(
+            "{source}: {} {} len={}\n",
+            warning.field, warning.class, warning.len
+        ));
+    }
+    out
+}
+
+/// True when something in `value` must abort the export. Warnings go to
+/// `warnings` either way.
+fn scan_value(value: &Value, path: &str, warnings: &mut Vec<EntropyWarning>) -> bool {
+    match value {
+        Value::String(text) => scan_text(text, path, warnings),
+        Value::Array(items) => {
+            let mut abort = false;
+            for (index, item) in items.iter().enumerate() {
+                abort |= scan_value(item, &format!("{path}[{index}]"), warnings);
+            }
+            abort
+        }
+        Value::Object(items) => {
+            let mut abort = false;
+            for (key, item) in items {
+                let plain =
+                    key.len() <= 32 && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                let name = if plain { key.as_str() } else { "<key>" };
+                let child = if path.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{path}.{name}")
+                };
+                abort |= scan_text(key, &child, warnings);
+                abort |= scan_value(item, &child, warnings);
+            }
+            abort
+        }
+        _ => false,
+    }
+}
+
+fn scan_text(text: &str, path: &str, warnings: &mut Vec<EntropyWarning>) -> bool {
+    // Header only. The redactor replaces everything from `-----BEGIN` to the
+    // end of its footer, or to the end of the text when there is no footer,
+    // so a redacted value never holds this string and any hit means the
+    // redactor missed a block. Certificates and public keys abort too, as
+    // they do in the redactor.
+    //
+    // The prefixes are the redactor's own, matched anywhere in the text as
+    // the redactor matches them, so a hit also means the redactor missed.
+    if text.contains("-----BEGIN")
+        || ["AIza", "sk-ant-", "ghp_", "ya29."]
+            .iter()
+            .any(|prefix| text.contains(prefix))
+    {
+        return true;
+    }
+
+    // Tokens split on any character outside the token set. A secret broken
+    // by a space, or URL-encoded so its `/` and `+` become `%2F` and `%2B`,
+    // reaches this check as short pieces and is missed. This is a heuristic
+    // that stands behind the redactor, and it only warns.
+    for token in mask_routine_values(text).split(|c: char| !is_token_char(c)) {
+        if opaque_export_token(token) {
+            warnings.push(EntropyWarning {
+                field: path.to_string(),
+                class: token_class(token),
+                len: token.len(),
+            });
+        }
+    }
+    false
+}
+
+fn token_class(token: &str) -> &'static str {
+    let only = |extra: &str| {
+        token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
+    };
+    if only("") {
+        "alphanumeric"
+    } else if only("+/=") {
+        "base64"
+    } else if only("-_=") {
+        "base64url"
+    } else {
+        "mixed"
+    }
+}
+
+fn is_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "_-/+.=".contains(c)
+}
+
+/// Blanks the routine values that look random but are not secrets: UUIDs,
+/// which Hydra writes into every worktree path, and the base64 payload of a
+/// data URI. Each becomes a space, so a path around a UUID splits into two
+/// ordinary tokens.
+fn mask_routine_values(text: &str) -> String {
+    const DATA_URI: &str = ";base64,";
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if is_uuid(&bytes[at..]) {
+            out.push(' ');
+            at += 36;
+        } else if bytes[at..].starts_with(DATA_URI.as_bytes()) {
+            out.push(' ');
+            at += DATA_URI.len();
+            while at < bytes.len()
+                && (bytes[at].is_ascii_alphanumeric() || b"+/=".contains(&bytes[at]))
+            {
+                at += 1;
+            }
+        } else {
+            // Every skip above ends on an ASCII byte, so `at` is always a
+            // char boundary here.
+            let c = text[at..].chars().next().unwrap_or(' ');
+            out.push(c);
+            at += c.len_utf8();
+        }
+    }
+    out
+}
+
+/// True when `bytes` starts with an 8-4-4-4-12 hex UUID.
+fn is_uuid(bytes: &[u8]) -> bool {
+    bytes.len() >= 36
+        && bytes[..36].iter().enumerate().all(|(i, &b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            _ => b.is_ascii_hexdigit(),
+        })
+}
+
+fn opaque_export_token(token: &str) -> bool {
+    // Subresource integrity strings in lockfiles are public digests.
+    if ["sha256-", "sha384-", "sha512-"]
+        .iter()
+        .any(|prefix| token.starts_with(prefix))
+    {
+        return false;
+    }
+    if token.len() < 32 {
+        return false;
+    }
+    // Paths, URLs and joined identifiers clear the entropy bar at 32 to 44
+    // bytes, because their pieces are words. A token must also hold 24
+    // characters in a row with no `/`, `.`, `_` or `-` between them. This
+    // costs a little on base64url secrets, which use `_` and `-`.
+    let longest_run = token
+        .split(|c: char| "/._-".contains(c))
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    if longest_run < 24 {
+        return false;
+    }
+    let mut counts = [0usize; 128];
+    for byte in token.bytes() {
+        counts[usize::from(byte)] += 1;
+    }
+    let entropy: f64 = counts
+        .iter()
+        .filter(|&&count| count != 0)
+        .map(|&count| {
+            let probability = count as f64 / token.len() as f64;
+            -probability * probability.log2()
+        })
+        .sum();
+    // A token of n bytes holds at most log2(n) bits per byte, so a fixed bar
+    // cannot fire on short tokens. The bar is 80% of that ceiling, capped at
+    // 64 bytes. Random base64 of 32 to 48 bytes clears it about 99% of the
+    // time; hex tops out at 4 bits per byte and clears it almost never, and
+    // hex digests are not secrets here.
+    let ceiling = (token.len().min(64) as f64).log2();
+    entropy >= 0.80 * ceiling
 }
 
 /// Prints the refusal when the allowlist is missing.
@@ -556,5 +781,18 @@ mod tests {
         let redacted = redact_string(text, &[]);
         assert!(!redacted.contains("sk-ant-"));
         assert!(redacted.contains("[REDACTED:anthropic_api_key]"));
+    }
+
+    #[test]
+    fn a_redacted_pem_block_passes_the_header_check() {
+        for text in [
+            "before -----BEGIN RSA PRIVATE KEY-----\nMIIE body\n-----END RSA PRIVATE KEY----- after",
+            "before -----BEGIN PRIVATE KEY-----\nno footer",
+        ] {
+            let redacted = redact_string(text, &[]);
+            assert!(!redacted.contains("-----BEGIN"), "{redacted}");
+            let line = serde_json::json!({ "output": redacted }).to_string();
+            verify_export_line(&line).unwrap();
+        }
     }
 }
