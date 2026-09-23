@@ -19,8 +19,11 @@ Map ticket 72, resolved 2026-09-23. Four parts; read the ticket's `## Answer` an
    `src/resume.rs` ~96-98 already reads the git directory from the record. The callers: `hydra reap`
    (`src/reap.rs`, `commit_then_remove` and what it calls, `current_branch`, `main_worktree`), the
    run-end diff stat (`src/run.rs` ~1436, and `worktree::diff_stat` / `seed_tree`), rung two's patch
-   read (`read_proposer_patch`, `changed_paths`, `diff_patch` in `src/rungs/evolve.rs`) and
-   `commit_pass_branch`, and rung one's `curate::propose`. Find any other call in a run's checkout by
+   read (`read_proposer_patch`, which since build 89 also reads the checkout's `HEAD`, and the
+   `seed_tree` it calls, in `src/rungs/evolve.rs`), and rung one's `curate::propose` (its
+   `rev-parse HEAD` and `commit_everything`). `commit_pass_branch` already commits in the parent
+   repository since build 89 and needs nothing; the first run of this ticket, 01a0cfa7-7c3e,
+   stopped on that, which was not a reason to stop. Find any other call in a run's checkout by
    grepping for `git(` and `Command::new("git")`. A cheap belt on top: pass `-c core.hooksPath=/dev/null`
    and `-c core.fsmonitor=false` on those calls.
 2. **Reap commits only on its own branch.** In `commit_then_remove` (`src/reap.rs` ~374), when the
