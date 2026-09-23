@@ -105,12 +105,24 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
 /// Takes `--json`, `-m` and `-c` and neither `-C` nor `--sandbox`. The hook
 /// override names the per-spawn `hook.py`, as on a fresh `exec`. Hydra's gate
 /// still rides the command line; there is no worktree pin on resume.
+///
+/// **The sandbox mode goes as `-c sandbox_mode=...`**, because `resume` takes no
+/// `--sandbox`, and without it Codex applied its own seatbelt inside Hydra's and
+/// every command died with `sandbox_apply: Operation not permitted`, measured
+/// 2026-09-23 on run 01a0cfda-7012, the first `codex` resume under the seatbelt.
 pub fn resume_args(session_id: &str, hook_file: &Path) -> Vec<String> {
+    let sandbox_mode = if crate::sandbox::wraps_launches() {
+        "danger-full-access"
+    } else {
+        "workspace-write"
+    };
     let mut argv = vec![
         "exec".to_string(),
         "resume".to_string(),
         session_id.to_string(),
         "--json".to_string(),
+        "-c".to_string(),
+        format!("sandbox_mode=\"{sandbox_mode}\""),
         "-c".to_string(),
         "approval_policy=\"never\"".to_string(),
         "--dangerously-bypass-hook-trust".to_string(),
@@ -473,6 +485,7 @@ mod tests {
         assert!(argv.contains(&"--json".to_string()));
         assert!(!argv.iter().any(|arg| arg == "-C"));
         assert!(!argv.iter().any(|arg| arg == "--sandbox"));
+        assert!(argv.iter().any(|arg| arg.starts_with("sandbox_mode=")));
         assert!(
             argv.iter()
                 .any(|arg| arg == "--dangerously-bypass-hook-trust")
