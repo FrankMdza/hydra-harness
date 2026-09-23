@@ -306,6 +306,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [69 - A scope for `network_read`](issues/69-a-scope-for-network-read.md): resolved 2026-09-22. State the trifecta, build no half fence. No build ticket.
 - [70 - A concurrent delegate face](issues/70-a-concurrent-delegate-face.md): resolved 2026-09-22. Serial on purpose, one sentence in spec 9. No build ticket.
 - [71 - `codex` cannot read its own skills](issues/71-codex-cannot-read-its-own-skills.md): resolved 2026-09-22 after a three-reader panel. Copy on `codex`, seatbelt-denied, skill roots off the reap, a hash at exit. Build ticket 87.
+- [72 - Which branch reap may commit on, and what the git carve-out lets a run write](issues/72-reap-and-the-git-carve-out.md): resolved 2026-09-23 after a four-reader panel. Reap commits only on its own branch; every unsandboxed git call takes its git directory from the record; the private carve-out narrows to the index. Build ticket 95.
+- [73 - What rung two may edit](issues/73-what-rung-two-may-edit.md): resolved 2026-09-23 after a four-reader panel. The human names the paths per pass over a floor no name lifts; existing tests are refused, new ones allowed. Build tickets 80 and 96.
 
 
 ## Not yet specified

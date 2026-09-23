@@ -2,7 +2,7 @@
 
 Type: build
 Status: open
-Blocked by: 79
+Blocked by: 79, 96
 
 ## What
 
@@ -12,6 +12,9 @@ edits, deletes or weakens one of them, whatever its path. Pass 6 of `hydra evolv
 proposer edited a baseline test and only a judge caught it, by `baseline_test_provenance`.
 Estimated at 60 to 100 lines in `src/rungs/evolve.rs`. Not scheduled; take it when rung two runs
 again.
+
+Since map ticket 73, 2026-09-23: build ticket 96 carries this refusal as its part 3, and this ticket
+closes with it.
 
 ## Done when
 

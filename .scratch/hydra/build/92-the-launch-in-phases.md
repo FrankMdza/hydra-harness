@@ -2,7 +2,7 @@
 
 Type: build
 Status: open
-Blocked by: 89, 90, 91, 93
+Blocked by: 89, 90, 91, 93, 95
 
 ## What
 
@@ -41,5 +41,5 @@ refusals, the same record lines in the same order, the same argv.
 
 Tests take a scratch `Layout`, never `Layout::discover()`. Ignore
 `no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent`. Run `cargo fmt --check` and
-`cargo clippy --all-targets -- -D warnings` before you stop. Blocked by 89 to 91 and 93 only so it
-starts from a master that holds them; it does not depend on their content.
+`cargo clippy --all-targets -- -D warnings` before you stop. Blocked by 89 to 91, 93 and 95 only so
+it starts from a master that holds them; 95 changes how `src/run.rs` calls git at the run end.

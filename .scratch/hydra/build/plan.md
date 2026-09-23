@@ -139,3 +139,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [92 - The launch in phases](92-the-launch-in-phases.md)
 - [93 - Seven small code fixes from the panel](93-seven-small-code-fixes-from-the-panel.md)
 - [94 - The documents say what the code does](94-the-documents-say-what-the-code-does.md)
+- [95 - Git outside the seatbelt reads Hydra's git directory](95-git-outside-the-seatbelt-reads-hydras-git-directory.md)
+- [96 - The human names what a pass may edit](96-the-human-names-what-a-pass-may-edit.md)

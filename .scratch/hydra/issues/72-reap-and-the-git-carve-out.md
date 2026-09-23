@@ -1,7 +1,7 @@
 # 72 - Which branch `hydra reap` may commit on, and what the git carve-out lets a run write
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-09-23, by the session, from finding G41 of the second hiring panel (`codex`).
 
@@ -41,3 +41,34 @@ The options:
    leaves object deletion open, stated in `SECURITY.md`.
 
 The human asked for a panel of four readers before deciding (`.scratch/hydra/research/72-panel-*.md`).
+
+## Answer
+
+Resolved 2026-09-23 with the human, after a panel of four readers
+(`.scratch/hydra/research/72-panel-*.md`). All four chose option 1. Opus found a larger hole the
+question did not ask about: Hydra runs `git` outside any seatbelt in a checkout whose git metadata
+the run can write, and git reads its configuration from there. That happens in `hydra reap`, in the
+diff stat at the end of a run, and in rung two's patch read (`worktree::git` runs with
+`current_dir(checkout)` and nothing else, `src/worktree.rs:441`). Git's own behaviour was measured
+in a scratch repository, not through Hydra's code paths. A safety classifier stopped Opus's written
+answer, so its file holds its closing report only.
+
+The human chose option 1 with Opus's addition:
+
+1. **Reap commits only on the branch Hydra made.** `commit_then_remove` refuses before
+   `commit_everything` when the checkout's branch is not `hydra/<run-id>`, or
+   `rungs/curate/<run-id>` for a curate checkout, and leaves the checkout in place. The comment
+   treating a human branch as intended goes.
+2. **Every git call Hydra makes outside the seatbelt in a run's checkout takes its git directory
+   from what Hydra recorded, not from the checkout.** `GIT_DIR`, `GIT_COMMON_DIR` and
+   `GIT_WORK_TREE` come from the run record or the layout, never from `<checkout>/.git`, in reap, the
+   run-end diff stat, rung two's patch read and `commit_pass_branch`. `src/resume.rs:96-98` already
+   reads the git directory from the record.
+3. **The private git directory's carve-out narrows to what `git add` needs**: the index, its lock and
+   `logs/`. `HEAD`, `commondir`, `gitdir` and the rest are denied, at the seatbelt and the gate.
+4. **The object store.** Measure whether a profile that allows creation and denies unlink and
+   overwrite still lets `git add` work. If it does, use it. If not, the grant stays and `SECURITY.md`
+   says a run can delete objects in the parent repository.
+
+`README.md`'s "Your branch never moves" stays true. `codex` asked for the object store to fail
+closed; the human kept `git add` inside runs instead. Build ticket 95.

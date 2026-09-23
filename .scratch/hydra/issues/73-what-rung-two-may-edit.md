@@ -1,7 +1,7 @@
 # 73 - What rung two may edit: a denylist that keeps missing, or an allowlist
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-09-23, by the session, from findings G5 (`claude`) and G44 (`codex`) of the second
 hiring panel. Bears on build ticket 80.
@@ -38,3 +38,28 @@ Harness spec 15.2 owns the rows by role; `evolve.rs` maps them to files. The opt
 
 The human leans to 1 and asked a panel of four readers to decide, and to say whether an option
 not listed here is better (`.scratch/hydra/research/73-panel-*.md`).
+
+## Answer
+
+Resolved 2026-09-23 with the human, after a panel of four readers
+(`.scratch/hydra/research/73-panel-*.md`). All four wanted a new file refused by default. `codex`,
+composer and `agy` chose option 1, `codex` with an even narrower list. Opus showed that option 1's
+example set is unsafe and would have refused five of the six real proposer patches, including pass
+10, the only one ever merged: `src/provider/claude.rs` adds the `--settings` flag that loads the
+gate. It proposed a fourth option, and the human chose it:
+
+1. **The human names what a pass may edit.** `hydra evolve` takes a repeatable `--may-edit <path>`
+   beside `--task`. Without it, a short default set applies. A patch touching any path not named is
+   refused before any judge, like a protected path today. The pass record carries the list.
+2. **A floor no name can lift.** Today's protected rows, plus `src/pty.rs`, `src/watch.rs`,
+   `src/paths.rs`, `Cargo.toml`, `Cargo.lock`, any `build.rs` and `.cargo/`. Naming a floor path
+   refuses the pass before it starts. `src/run.rs` stays off the floor, because harness spec 15.2 and
+   map ticket 60 keep it editable on purpose; it is refused unless named.
+3. **Build ticket 80 replaces moving the probes.** A patch that edits or deletes a file under
+   `tests/` that exists at `base_tree` is refused; a new test file is allowed.
+
+Opus's other findings go with it: `CLAUDE.md` and `IMPLEMENTATION.md` are refused unless named,
+which the default-refusal already gives, and a new `build.rs`, `.cargo/` or dependency is on the
+floor because the human's own `cargo build` runs it after the merge. What stays open, stated in
+spec 4.4: a named file is fully editable, and a unit-test probe inside a named file, A12's in
+`src/face.rs`, can be weakened with the code it guards. Build tickets 80 and 96.
