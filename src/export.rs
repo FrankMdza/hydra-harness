@@ -490,6 +490,50 @@ pub(crate) fn redact_string(text: &str, repo_names: &[String]) -> String {
     out
 }
 
+/// An OpenAI key, `sk-proj-`, `sk-svcacct-` or `sk-admin-` and at least this
+/// many characters of `[A-Za-z0-9_-]`, or a legacy `sk-` and at least
+/// [`OPENAI_LEGACY_BODY`] alphanumerics. Build ticket 93.
+const OPENAI_PROJECT_BODY: usize = 20;
+const OPENAI_LEGACY_BODY: usize = 32;
+
+/// The byte spans of OpenAI keys in `text`, left to right. Redactor and
+/// verifier both call this, so the verifier catches a redactor that skipped a
+/// span and nothing the rule itself misses: finding G18 still stands.
+fn openai_key_spans(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let token = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
+    let mut spans = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = text[from..].find("sk-") {
+        let at = from + rel;
+        from = at + 3;
+        if at > 0 && token(bytes[at - 1]) {
+            continue;
+        }
+        let rest = &text[at + 3..];
+        let (body_start, min, allowed): (usize, usize, fn(u8) -> bool) =
+            match ["proj-", "svcacct-", "admin-"]
+                .iter()
+                .find(|p| rest.starts_with(**p))
+            {
+                Some(kind) => (at + 3 + kind.len(), OPENAI_PROJECT_BODY, |b| {
+                    b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+                }),
+                None => (at + 3, OPENAI_LEGACY_BODY, |b| b.is_ascii_alphanumeric()),
+            };
+        let len = bytes[body_start..]
+            .iter()
+            .take_while(|b| allowed(**b))
+            .count();
+        let end = body_start + len;
+        if len >= min && (end == bytes.len() || !token(bytes[end])) {
+            spans.push((at, end));
+            from = end;
+        }
+    }
+    spans
+}
+
 fn redact_secrets(text: &str) -> String {
     let mut out = text.to_string();
     for (prefix, label) in [
@@ -524,6 +568,12 @@ fn redact_secrets(text: &str) -> String {
             };
             out.replace_range(at..end, &format!("[REDACTED:{label}]"));
         }
+    }
+    // OpenAI keys start with the same `sk-` as English words ending in "sk"
+    // ("task-", "risk-", "disk-"), so they get a matcher of their own rather
+    // than a prefix: a left boundary, and a body long enough to be a key.
+    for (at, end) in openai_key_spans(&out).into_iter().rev() {
+        out.replace_range(at..end, "[REDACTED:openai_api_key]");
     }
     out
 }
@@ -639,6 +689,7 @@ fn scan_text(text: &str, path: &str, warnings: &mut Vec<EntropyWarning>) -> bool
         || ["AIza", "sk-ant-", "ghp_", "ya29."]
             .iter()
             .any(|prefix| text.contains(prefix))
+        || !openai_key_spans(text).is_empty()
     {
         return true;
     }
@@ -781,6 +832,33 @@ mod tests {
         let redacted = redact_string(text, &[]);
         assert!(!redacted.contains("sk-ant-"));
         assert!(redacted.contains("[REDACTED:anthropic_api_key]"));
+    }
+
+    #[test]
+    fn openai_keys_are_redacted_and_short_sk_in_prose_is_not() {
+        let prose = "the sk- prefix in prose is not a key";
+        let redacted = redact_string(prose, &[]);
+        assert!(redacted.contains("sk-"), "{redacted}");
+        assert!(
+            !redacted.contains("[REDACTED:openai_api_key]"),
+            "{redacted}"
+        );
+        for words in [
+            "task-management-system-v2",
+            "risk-assessment-notes",
+            "flask-sqlalchemy==3.1.1",
+            "the `sk-proj-` prefix",
+        ] {
+            assert_eq!(redact_string(words, &[]), words);
+        }
+        for key in [
+            "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+            "sk-proj-planted_openai-key-value-0123",
+            "sk-svcacct-planted_openai-key-value-0123",
+        ] {
+            let redacted = redact_string(&format!("key `{key}`, done"), &[]);
+            assert_eq!(redacted, "key `[REDACTED:openai_api_key]`, done");
+        }
     }
 
     #[test]

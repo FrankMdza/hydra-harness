@@ -576,3 +576,24 @@ pub fn under_seatbelt(profile: &Path, command: &str) -> String {
 pub fn refused(out: &str) -> bool {
     !out.contains("rc=0")
 }
+
+/// Whether `/usr/bin/sandbox-exec` is present for a live seatbelt probe.
+///
+/// When it is absent, the probe prints that it skipped and returns false. On CI
+/// the absence is a failure, because macOS runners are expected to carry it.
+pub fn seatbelt_exec_or_skip(test_name: &str) -> bool {
+    // Nested `sandbox-exec` is refused, so every `refused(..)` assertion would
+    // pass on a probe that never ran. Not a CI failure: CI is never nested.
+    if hydra::sandbox::inside_seatbelt() {
+        eprintln!("skipped {test_name}: already inside a seatbelt, which cannot nest");
+        return false;
+    }
+    if hydra::sandbox::exec_available() {
+        return true;
+    }
+    eprintln!("skipped {test_name}: sandbox-exec is not available");
+    if std::env::var_os("CI").is_some() {
+        panic!("sandbox-exec is required on CI (macOS)");
+    }
+    false
+}

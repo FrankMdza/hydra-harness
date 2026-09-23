@@ -26,8 +26,8 @@ Hydra made about it.
   vendor CLI needs the network to reach its model, so network cannot be cut, and the run has your
   real `HOME` because a wrong one logs the vendor out. Since 2026-09-21 every recorded launch on
   macOS runs under the kernel's own seatbelt with the same user and `HOME`: for the launched
-  process and every descendant, writes under Hydra's directories and reads of the corpus and of
-  any other run's spawn directory fail with "operation not permitted" whatever the spelling, a
+  process and every descendant, writes under Hydra's directories and reads of the corpus, of
+  pruned records (since build ticket 93) and of any other run's spawn directory fail with "operation not permitted" whatever the spelling, a
   variable, an interpreter or a symlink included, measured on all four providers and pinned in
   `tests/spawn.rs`. The profile is `(allow default)` plus those denials, so it is defence behind
   the gate and not a boundary: it does not restrict process launching or mach services, and a

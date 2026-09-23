@@ -97,6 +97,10 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
         r#"(deny file-read* (subpath "{}"))"#,
         escape(&canonical(&spawn.layout.spawns()))
     ));
+    lines.push(format!(
+        r#"(deny file-read* (subpath "{}"))"#,
+        escape(&canonical(&spawn.layout.pruned()))
+    ));
     if let Some(own_spawn) = spawn.gate_script.parent() {
         lines.push(format!(
             r#"(allow file-read* (subpath "{}"))"#,

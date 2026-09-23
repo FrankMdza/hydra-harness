@@ -18,7 +18,7 @@ use hydra::provider::Provider;
 use hydra::run::{refuse_foreign_checkout, write_spawn_config};
 
 mod corpus;
-use corpus::{canonical_subpath, refused, under_seatbelt};
+use corpus::{canonical_subpath, refused, seatbelt_exec_or_skip, under_seatbelt};
 
 /// A layout per test, because the suite runs in parallel.
 fn layout() -> (Layout, PathBuf) {
@@ -1143,6 +1143,7 @@ fn a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths() {
     let set = PolicySet::discover().unwrap();
     let worktree = root.join("worktree");
     std::fs::create_dir_all(&worktree).unwrap();
+    std::fs::create_dir_all(layout.pruned()).unwrap();
 
     let spawn = write_spawn_config(
         &layout,
@@ -1161,6 +1162,14 @@ fn a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths() {
     assert!(profile.is_file(), "profile is a real file beside the gate");
     let text = std::fs::read_to_string(&profile).unwrap();
     let worktree_canon = canonical_subpath(&worktree).to_lowercase();
+    // Build ticket 93: pruned records are the corpus moved, read-denied like it.
+    assert!(
+        text.contains(&format!(
+            r#"(deny file-read* (subpath "{}"))"#,
+            canonical_subpath(&layout.pruned())
+        )),
+        "profile does not deny reads of pruned records:\n{text}"
+    );
 
     let gate = layout.gate_script("r1");
     let policy_spawn = hydra::policy::Spawn {
@@ -1237,7 +1246,9 @@ fn a_codex_spawn_profile_denies_writes_to_the_skill_copy() {
 
 #[test]
 fn the_seatbelt_refuses_a_codex_skill_copy_write_and_allows_the_rest_of_the_worktree() {
-    if !hydra::sandbox::exec_available() {
+    if !seatbelt_exec_or_skip(
+        "the_seatbelt_refuses_a_codex_skill_copy_write_and_allows_the_rest_of_the_worktree",
+    ) {
         return;
     }
     let (layout, root) = layout();
@@ -1272,7 +1283,7 @@ fn the_seatbelt_refuses_a_codex_skill_copy_write_and_allows_the_rest_of_the_work
 
 #[test]
 fn the_seatbelt_refuses_a_corpus_write_and_allows_the_worktree() {
-    if !hydra::sandbox::exec_available() {
+    if !seatbelt_exec_or_skip("the_seatbelt_refuses_a_corpus_write_and_allows_the_worktree") {
         return;
     }
     let (layout, root) = layout();
@@ -1330,7 +1341,7 @@ fn the_seatbelt_refuses_a_corpus_write_and_allows_the_worktree() {
 
 #[test]
 fn the_seatbelt_refuses_the_corpus_however_the_path_is_spelled() {
-    if !hydra::sandbox::exec_available() {
+    if !seatbelt_exec_or_skip("the_seatbelt_refuses_the_corpus_however_the_path_is_spelled") {
         return;
     }
     let (layout, root) = layout();
@@ -1339,6 +1350,8 @@ fn the_seatbelt_refuses_the_corpus_however_the_path_is_spelled() {
     std::fs::create_dir_all(&worktree).unwrap();
     layout.ensure().unwrap();
     std::fs::write(layout.runs().join("r.jsonl"), "{}\n").unwrap();
+    std::fs::create_dir_all(layout.pruned()).unwrap();
+    std::fs::write(layout.pruned().join("p.jsonl"), "{}\n").unwrap();
     let spawn = write_spawn_config(
         &layout,
         "r1",
@@ -1353,11 +1366,14 @@ fn the_seatbelt_refuses_the_corpus_however_the_path_is_spelled() {
     .unwrap();
     let profile = spawn.sandbox_profile.unwrap();
     let corpus = canonical_subpath(&layout.runs());
+    let pruned = canonical_subpath(&layout.pruned());
     let wt = canonical_subpath(&worktree);
 
     // A read, spelled in full.
     let out = under_seatbelt(&profile, &format!("cat '{corpus}/r.jsonl'"));
     assert!(refused(&out), "literal read: {out}");
+    let out = under_seatbelt(&profile, &format!("cat '{pruned}/p.jsonl'"));
+    assert!(refused(&out), "pruned read: {out}");
 
     // A write, with the path assembled from two variables, which is the
     // spelling the gate's substring floor cannot see.
@@ -1443,7 +1459,8 @@ fn a_profile_with_a_parent_git_dir_names_the_private_git_carve_out() {
 
 #[test]
 fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
-    if !hydra::sandbox::exec_available() {
+    if !seatbelt_exec_or_skip("the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory")
+    {
         return;
     }
     let (layout, root) = layout();
@@ -1546,7 +1563,7 @@ fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
 #[test]
 fn the_seatbelt_refuses_a_checkout_write_and_allows_the_worktree() {
     // Map ticket 65, build ticket 74: the checkout the binary was built from.
-    if !hydra::sandbox::exec_available() {
+    if !seatbelt_exec_or_skip("the_seatbelt_refuses_a_checkout_write_and_allows_the_worktree") {
         return;
     }
     let (layout, root) = layout();
@@ -1582,7 +1599,9 @@ fn the_seatbelt_refuses_a_checkout_write_and_allows_the_worktree() {
 
 #[test]
 fn the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own() {
-    if !hydra::sandbox::exec_available() {
+    if !seatbelt_exec_or_skip(
+        "the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own",
+    ) {
         return;
     }
     let (layout, root) = layout();
@@ -1624,7 +1643,7 @@ fn the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own() {
 
 #[test]
 fn hydra_root_is_refused_from_inside_a_seatbelt() {
-    if !hydra::sandbox::exec_available() {
+    if !seatbelt_exec_or_skip("hydra_root_is_refused_from_inside_a_seatbelt") {
         return;
     }
     let (_layout, root) = layout();

@@ -13,8 +13,9 @@ compiler in `src/policy/mod.rs` replaces the `HYDRA_CONFIG` line below with the
 run's own policy and writes the result to `~/hydra/spawn/<run-id>/gate`.
 
 **Nothing here reads a policy file.** 7.5 rules that out: anything read at fire
-time is a file that may have changed since the previous tool call. All three
-providers snapshot their hook config at process start, but the config is a
+time is a file that may have changed since the previous tool call. The three
+providers measured, `claude`, `cursor-agent` and `agy`, snapshot their hook config at
+process start (`codex` is unmeasured), but the config is a
 pointer and the script is its target, and the target is read fresh on every
 invocation. The policy is in this file, and the gate denies writes to this file
 under every policy.
@@ -360,8 +361,8 @@ def denied_prefixes():
     The own carve-out is applied here rather than after the match, because a run
     naming its own worktree is the ordinary case and must not be refused. The
     per-run config files of build ticket 44 are denied whole and stay on the
-    list; the skill roots are not, because a command naming one is how two of
-    the three providers read a skill.
+    list; the skill roots are not, because a command naming one is how three of
+    the four providers read a skill.
     """
     spellings = HYDRA_CONFIG.get("denied_spellings")
     if spellings is not None:
@@ -812,8 +813,8 @@ def evaluate(payload):
                 )
             # The skill roots Hydra linked into the worktree (6.4). A write there
             # replaces a link, so the tool-level write is refused under every
-            # policy. The shell floor does not read this list on purpose: two of
-            # three providers read a SKILL.md with `cat`, and a command that names
+            # policy. The shell floor does not read this list on purpose: three of
+            # the four providers read a SKILL.md with `cat`, and a command that names
             # the root is how they do it. Build ticket 44, narrowed the same day
             # after `ls -la .claude/skills/` on run 01a09405-f451 was refused.
             for root in HYDRA_CONFIG.get("write_denied_worktree_paths", []):
@@ -962,9 +963,10 @@ def decide_payload(dialect, payload):
     # shape. A traceback is exit 1 and nothing on stdout, which `codex` reads
     # as permission (SECURITY.md) and `claude` reads as a non-blocking error;
     # measured 2026-09-22 with `cwd: 5` on a compiled gate, which died in
-    # `os.path.join`. That path is handled above now, and no other reachable
-    # raise was found the same day, so this handler has no test that drives
-    # it. It is here for the next one.
+    # `os.path.join`. That path is handled above now. Since build ticket 93,
+    # `tests/gate.rs::evaluate_raise_is_answered_as_a_deny` drives this handler
+    # by writing a non-string `scopes.worktree` into a compiled gate's config,
+    # which makes `inside` raise.
     try:
         allowed, reason = evaluate(payload)
     except Exception as err:  # noqa: BLE001, the point is to catch everything

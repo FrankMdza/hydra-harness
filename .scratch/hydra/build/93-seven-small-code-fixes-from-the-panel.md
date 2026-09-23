@@ -1,7 +1,7 @@
 # 93 - Seven small code fixes from the second hiring panel
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -48,3 +48,37 @@ Each item has its test or edit, the suite passes, and the Outcome lists the seve
 Tests take a scratch `Layout`, never `Layout::discover()`. Ignore
 `no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent`. Run `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` before you stop.
+
+## Outcome
+
+Built by `cursor-agent` on composer-2.5 under `standard`, run 01a0cfa1-507d, 3.1M tokens, then
+fixed by the session after an Opus review.
+
+1. **G2.** `run::tests::inject_skills_does_not_treat_a_codex_copy_as_a_collision_with_itself`
+   goes through `inject_skills` for `codex`; the agent reverted `d264867`'s `project_scope_without`
+   and saw it fail with `skill_collision`. `inject_skills` reads the real home's user roots, so the
+   session renamed the probe skill to `hydra-g2-inject-probe`, a name no user root will hold.
+2. **G6.** `sandbox::compose` denies reads of `pruned/`. The session moved the profile-text check
+   into `a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths`, which runs without
+   `sandbox-exec`, and kept the live read in the corpus test. Reverting the deny on master fails
+   both. `SECURITY.md` names pruned records.
+3. **G17.** The agent's rule matched `sk-` anywhere, so `task-management-system`,
+   `risk-assessment-notes` and `flask-sqlalchemy` were redacted as keys. The session replaced it
+   with `export::openai_key_spans`: a left boundary, `sk-proj-`, `sk-svcacct-` or `sk-admin-`
+   followed by 20 or more of `[A-Za-z0-9_-]`, or `sk-` followed by 32 or more alphanumerics, ending
+   at a non-token character. Redactor and verifier call the same function, so the verifier catches
+   a skipped span and nothing the rule misses; G18 stands. Tests cover the three words, prose
+   naming the prefix, and three key shapes with trailing punctuation.
+4. **G19.** `tests/gate.rs::evaluate_raise_is_answered_as_a_deny` writes a non-string
+   `scopes.worktree` into a compiled gate's config, `inside` raises, and the catch-all answers
+   `hydra/gate-error`. No hook in `gate.py`. The session made the rewrite helper assert it replaced
+   exactly one line and updated the handler's comment, which said no test drove it.
+5. **G25.** `tests/corpus/mod.rs::seatbelt_exec_or_skip` prints a skip, panics when `CI` is set,
+   and, added by the session, skips inside a seatbelt, where nested `sandbox-exec` fails and every
+   `refused(..)` assertion would pass on a probe that never ran.
+6. **G15.** `src/outcome.rs`'s module comment says the harvested arm reads the exit code.
+7. **G11.** The agent wrote "four providers" in four places. Two were wrong in a new way: `codex`
+   also reads skills by shell, so it is three of four in `gate.py` twice, and the exit-0 and
+   hook-snapshot claims were measured on three providers and say so now, `codex` unmeasured.
+
+Measured on master: lib 200, spawn 32, gate 97, export 21, skills 27 passed; fmt and clippy clean.

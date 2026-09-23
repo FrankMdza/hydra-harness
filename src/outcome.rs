@@ -10,11 +10,13 @@
 //! module boundary a reader can see. Everything below serializes to stdout for an
 //! orchestrator and nothing below is ever written to a run file.
 //!
-//! **Nothing reads the exit status to decide an outcome.** All three providers
-//! exit 0 and report success on a run the gate refused, so the exit code is
-//! carried through to the caller as a fact and never consulted as a signal. The
-//! one thing that reads it is [`derive`]'s split between a process that died and
-//! a process that never started, and that reads only whether it exists.
+//! **Nothing on a streamed run reads the exit status to decide an outcome.** The
+//! three providers measured, `claude`, `cursor-agent` and `agy`, exit 0 and report
+//! success on a run the gate refused (`codex` is unmeasured), so the
+//! exit code is carried through to the caller as a fact and never consulted as a
+//! signal on that path. [`derive`]'s harvested interactive arm reads
+//! `run_end.exit_code` when there is no result-shaped terminator, and the
+//! null-exit-code arm below reads only whether a process ever started.
 
 use serde::Serialize;
 use serde_json::Value;
@@ -453,7 +455,7 @@ fn has_unclassified(run: &Run) -> bool {
 /// The last thing the assistant said, contract 17's "final assistant text".
 ///
 /// Taken from the `message` events rather than from `claude`'s `result.result`,
-/// because the stream is the one source all three providers have and the frame is
+/// because the stream is the one source all four providers have and the frame is
 /// one provider's spelling. A run that said nothing returns `None`, which is the
 /// true answer rather than an empty string.
 ///

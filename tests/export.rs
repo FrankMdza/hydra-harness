@@ -593,6 +593,26 @@ fn an_unknown_opaque_token_exports_and_is_named_in_the_summary_without_its_value
 }
 
 #[test]
+fn openai_keys_are_redacted_and_short_sk_in_prose_is_not() {
+    let planted_proj = "sk-proj-planted_openai-key-value-0123";
+    let planted_legacy = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+    for text in [planted_proj, planted_legacy] {
+        let line = json!({"events": [{"output": text}]}).to_string();
+        assert!(hydra::export::verify_export_line(&line).is_err(), "{text}");
+    }
+    for prose in [
+        "the sk- prefix in prose is not a key",
+        "task-management-system-v2",
+        "disk-utilization-report",
+    ] {
+        assert!(
+            hydra::export::verify_export_line(&json!({ "output": prose }).to_string()).is_ok(),
+            "{prose}"
+        );
+    }
+}
+
+#[test]
 fn a_prefix_secret_and_a_pem_header_still_abort_in_values_and_keys() {
     for text in [
         "-----BEGIN RSA PRIVATE KEY-----\r\nshort-body\r\n-----END RSA PRIVATE KEY-----",

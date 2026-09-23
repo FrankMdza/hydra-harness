@@ -1128,6 +1128,30 @@ fn compiled_config(script: &Path) -> Value {
     serde_json::from_str(&inner).unwrap()
 }
 
+fn rewrite_compiled_config(script: &Path, config: &Value) {
+    let text = std::fs::read_to_string(script).unwrap();
+    let inner = serde_json::to_string(config).unwrap();
+    let literal = serde_json::to_string(&inner).unwrap();
+    let line = format!("HYDRA_CONFIG = json.loads({literal})");
+    let replaced = text
+        .lines()
+        .filter(|existing| existing.starts_with("HYDRA_CONFIG = json.loads("))
+        .count();
+    assert_eq!(replaced, 1, "the compiled gate should hold one config line");
+    let rewritten = text
+        .lines()
+        .map(|existing| {
+            if existing.starts_with("HYDRA_CONFIG = json.loads(") {
+                line.as_str()
+            } else {
+                existing
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(script, format!("{rewritten}\n")).unwrap();
+}
+
 #[test]
 fn the_path_denials_hold_through_cursors_shell_too() {
     let gate = Gate::cursor("permissive");
@@ -2369,6 +2393,28 @@ fn a_single_call_whose_cwd_holds_a_nul_is_answered_as_before_the_batch_entry() {
     assert!(
         decision.allowed && decision.reason.starts_with("hydra/allow"),
         "the single-call answer changed: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn evaluate_raise_is_answered_as_a_deny() {
+    // `decide_payload`'s catch-all around `evaluate`, not the batch entry's PWD
+    // handler. A scope path that is not a string dies in `inside`.
+    let gate = Gate::new("standard");
+    let mut config = compiled_config(&gate.script);
+    config["scopes"]["worktree"] = json!(5);
+    rewrite_compiled_config(&gate.script, &config);
+    let decision = gate.ask("Read", json!({ "file_path": "src/lib.rs" }));
+    assert!(
+        decision.denied_for("hydra/gate-error"),
+        "a broken scope was answered {}: {}",
+        decision.allowed,
+        decision.reason
+    );
+    assert!(
+        decision.reason.contains("while evaluating this call"),
+        "the batch PWD handler answered instead: {}",
         decision.reason
     );
 }

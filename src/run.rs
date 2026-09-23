@@ -1732,4 +1732,78 @@ mod tests {
         assert!(json.get("branch").is_none());
         assert!(json.get("diff_stat").is_none());
     }
+
+    #[test]
+    fn inject_skills_does_not_treat_a_codex_copy_as_a_collision_with_itself() {
+        use std::process::Command;
+
+        use crate::paths::Layout;
+        use crate::provider::Provider;
+        use crate::skills::Store;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+
+        let base = std::env::temp_dir().join(format!("hydra-inject-skills-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["config", "user.email", "test@example.invalid"]);
+        git(&repo, &["config", "user.name", "hydra tests"]);
+        std::fs::write(repo.join("committed.txt"), "one\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-qm", "first"]);
+
+        let layout = Layout::at(base.join("hydra"));
+        layout.ensure().unwrap();
+        let run_id = "01a0cfa1-507d-7a61-99b1-18b7f5a30b0b";
+        let worktree = layout.worktree(run_id);
+        crate::worktree::create(
+            &repo,
+            &worktree,
+            &format!("hydra/{run_id}"),
+            &layout.seed_index(run_id),
+        )
+        .unwrap();
+
+        let store = Store::open(&layout).unwrap();
+        let skill_dir = layout.skills().join("hydra-g2-inject-probe");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: hydra-g2-inject-probe\ndescription: A probe.\n---\n\nbody\n",
+        )
+        .unwrap();
+        store.pin(run_id).unwrap();
+
+        let injected = inject_skills(
+            &layout,
+            run_id,
+            Provider::Codex,
+            &worktree,
+            crate::mcp::Probe {
+                policy: "standard",
+                config: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            injected.collisions.is_empty(),
+            "the launch-time check read the copy as a project skill: {:?}",
+            injected.collisions
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
