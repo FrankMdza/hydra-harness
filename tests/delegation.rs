@@ -143,19 +143,19 @@ fn refuse(
     ))
     .unwrap();
 
-    hydra::run::refuse(
-        &layout.run_file(run_id),
+    hydra::run::refuse(hydra::run::RefuseRequest {
+        run_file: &layout.run_file(run_id),
         run_id,
-        request.provider,
-        &line_zero,
-        Refusal::PolicyNarrowing,
+        provider: request.provider,
+        line_zero: &line_zero,
+        refusal: Refusal::PolicyNarrowing,
         remediation,
         policies,
-        None,
-        None,
+        worktree: None,
+        seed_tree: None,
         layout,
-        lineage.parent_run_id(),
-    )
+        parent_run_id: lineage.parent_run_id(),
+    })
     .unwrap()
 }
 

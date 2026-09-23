@@ -1,7 +1,7 @@
 # 92 - The launch in phases, with a record on every early return
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 89, 90, 91, 93, 95
 
 ## What
@@ -43,3 +43,30 @@ Tests take a scratch `Layout`, never `Layout::discover()`. Ignore
 `no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent`. Run `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` before you stop. Blocked by 89 to 91, 93 and 95 only so
 it starts from a master that holds them; 95 changes how `src/run.rs` calls git at the run end.
+
+## Outcome
+
+Four runs. `codex` first, 01a0cfd5-cdda, stopped when the gate refused a command spelling its own
+worktree's absolute path; the task text now says to use relative paths. Its resume, 01a0cfda-7012,
+found `hydra resume` on `codex` broken under the seatbelt, fixed in `3878399`; the next resume,
+01a0cfdb-e5c3, hit `codex`'s usage limit. `cursor-agent` on composer-2.5 then did the refactor,
+01a0cfdc-ac67, 10.5M tokens, and a second composer run, 01a0cfec-faa6, 2.0M, made the review's fixes.
+
+`run()` is phases now, `preflight_inputs`, `reserve_run`, `prepare_machine`, `phase_worktree`,
+`phase_handoff`, `phase_spawn`, each with a struct for what it produces; no function in
+`src/run.rs` is over 150 lines, and `refuse` takes `RefuseRequest` with no `too_many_arguments`
+allow. The Opus review compared the phases with master line by line: same refusals, same order of
+side effects, same line 0 and argv, the reservation released on every path. What it sent back:
+the refactor had deleted 174 lines of design comments, now restored onto the phases that do the
+work; two `?` in the spawn phase still escaped without a record; an error from `refuse()` itself
+reached the failure path and printed a second, misleading message; and the agent's test called the
+failure writer directly, so it passed with the wiring removed.
+
+G4, measured on master outside a seatbelt: `tests/launch_phases.rs` calls `run::run` with a
+directory planted where the gate goes, after the worktree exists, and finds a `never_started`
+record that validates. With the handoff error path changed back to a bare `return Err`, it fails.
+lib 202, spawn 32, detached 8, delegation 14, mcp 16, record_contract 20, status 20, cleanup 39,
+normalize 83, evolve 35, curate 22 passed; fmt and clippy clean. Real launches on `read-only` with
+the refactored binary: `claude` haiku 01a0cff3-6576, `cursor-agent` composer-2.5 01a0cff3-8452 and
+`agy` gemini-3.8-flash-low 01a0cff3-a299 all answered `pong`; `codex` is out of quota and refused
+on `read-only` by map ticket 63.

@@ -2159,15 +2159,20 @@ half writes `run_start` and `run_end` with the reason in `error` and exits; the 
 reads that record back like any other, sees a null `exit_code` with no `refusal` beside
 it, and returns the error rather than the projection, so `hydra run` exits non-zero with
 nothing on stdout. A launch that fails before the fork, so that there is no detached half
-to write anything, writes the same record from the foreground instead: `run::never_started`
-is that path, and by then a worktree, a branch and a compiled gate are on disk with a run
-id on them, so under D10 a file has to exist saying so. The record derives `failed` and `tests/outcome.rs` pins it, so nothing
-is lost for the corpus; what is missing is the JSON for a caller that wanted the
-projection rather than an exit code. Making it print instead would mean exiting 0 on a run
-that never launched, which breaks any script reading the status. The delegate face is
-where that hurts, because a caller there has no exit code to read, so the face turns the
-error into a tool result with `isError` and the sentence in it. On the command line the
-exit code is still the answer.
+to write anything, writes the same record from the foreground instead. Build ticket 92
+split the launch into phases and every error after the worktree exists reaches
+`run::never_started`: MCP config write, skill injection, spawn-config compile, argv build,
+sandbox refusal, agy hook mount and detach failures all land on one path, not only the
+spawn half. By then a worktree, its branch and a run id are on disk and stay there for
+`hydra reap`; once compile succeeded a gate is on disk too. Under D10 a file has to exist
+saying so. `tests/launch_phases.rs` pins the handoff failure through `run()` itself.
+The record derives `failed` and `tests/outcome.rs` pins it, so nothing is lost for the
+corpus; what is missing is the JSON for a caller that wanted the projection rather than
+an exit code. Making it print instead would mean exiting 0 on a run that never launched,
+which breaks any script reading the status. The delegate face is where that hurts, because
+a caller there has no exit code to read, so the face turns the error into a tool result
+with `isError` and the sentence in it. On the command line the exit code is still the
+answer.
 
 **That test is "no exit code and no refusal", and it is a reading of the record rather
 than a fact the launcher kept.** The launcher no longer runs the spawn, so it has nothing

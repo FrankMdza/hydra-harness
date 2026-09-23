@@ -203,19 +203,20 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
     });
 
     let run_file = layout.run_file(run_id);
-    let call = hydra::run::refuse(
-        &run_file,
+    let policies = PolicySet::discover().unwrap();
+    let call = hydra::run::refuse(hydra::run::RefuseRequest {
+        run_file: &run_file,
         run_id,
-        Provider::Claude,
-        &line_zero,
-        Refusal::McpUnavailable,
-        plan.remediation(),
-        &PolicySet::discover().unwrap(),
-        None,
-        None,
-        &layout,
-        None,
-    )
+        provider: Provider::Claude,
+        line_zero: &line_zero,
+        refusal: Refusal::McpUnavailable,
+        remediation: plan.remediation(),
+        policies: &policies,
+        worktree: None,
+        seed_tree: None,
+        layout: &layout,
+        parent_run_id: None,
+    })
     .unwrap();
 
     let Call::Ended(result) = call else {
@@ -484,19 +485,20 @@ fn the_pre_flight_refusal_writes_a_record_that_derives_mcp_unavailable() {
     });
 
     let run_file = layout.run_file(run_id);
-    let call = hydra::run::refuse(
-        &run_file,
+    let policies = PolicySet::discover().unwrap();
+    let call = hydra::run::refuse(hydra::run::RefuseRequest {
+        run_file: &run_file,
         run_id,
-        Provider::CursorAgent,
-        &line_zero,
-        Refusal::McpUnavailable,
-        preflight.remediation(&short),
-        &PolicySet::discover().unwrap(),
-        None,
-        None,
-        &layout,
-        None,
-    )
+        provider: Provider::CursorAgent,
+        line_zero: &line_zero,
+        refusal: Refusal::McpUnavailable,
+        remediation: preflight.remediation(&short),
+        policies: &policies,
+        worktree: None,
+        seed_tree: None,
+        layout: &layout,
+        parent_run_id: None,
+    })
     .unwrap();
 
     let Call::Ended(result) = call else {

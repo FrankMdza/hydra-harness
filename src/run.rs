@@ -379,6 +379,88 @@ fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
     left == right
 }
 
+/// Inputs for [`refuse`], the way [`RunStartRequest`] carries line 0.
+pub struct RefuseRequest<'a> {
+    pub run_file: &'a std::path::Path,
+    pub run_id: &'a str,
+    pub provider: Provider,
+    pub line_zero: &'a serde_json::Value,
+    pub refusal: crate::record::Refusal,
+    pub remediation: String,
+    pub policies: &'a crate::policy::PolicySet,
+    pub worktree: Option<&'a WorktreeRef>,
+    pub seed_tree: Option<&'a str>,
+    pub layout: &'a Layout,
+    pub parent_run_id: Option<&'a str>,
+}
+
+/// What the pre-run checks produced before a run id is minted.
+struct PreflightInputs {
+    invoked_in: PathBuf,
+    repo: Option<PathBuf>,
+    policies: crate::policy::PolicySet,
+    task: String,
+    mcp_document: crate::mcp::Document,
+    root_named: bool,
+}
+
+/// What exists once the layout is open and the run id is reserved.
+struct ReservedRun {
+    layout: Layout,
+    lineage: Lineage,
+    run_id: String,
+    run_file: PathBuf,
+    reservation: Option<crate::live::Reservation>,
+}
+
+/// Machine facts read after the attempt has been judged.
+struct MachineReady {
+    request: Request,
+    preflight: PreflightInputs,
+    reserved: ReservedRun,
+    child_env: ChildEnv,
+    provider_version: String,
+    hydra_env: std::collections::BTreeMap<String, String>,
+}
+
+/// A checkout and the spawn-side paths that hang off it.
+struct WorktreeReady {
+    cwd: PathBuf,
+    worktree_ref: Option<WorktreeRef>,
+    seed_tree: Option<String>,
+}
+
+/// What the run is handed before the spawn: MCP, skills, gate, line 0.
+struct HandoffReady {
+    mcp_file: Option<PathBuf>,
+    injected: Option<InjectedSkills>,
+    spawn: SpawnFiles,
+    line_zero: serde_json::Value,
+}
+
+/// Context for composing line 0 after the worktree exists.
+struct LineZeroParts<'a, 's> {
+    request: &'a Request,
+    policies: &'a crate::policy::PolicySet,
+    task: &'a str,
+    provider_version: &'a str,
+    cwd: &'a std::path::Path,
+    worktree_ref: Option<&'a WorktreeRef>,
+    env_allowlist: Vec<String>,
+    injected: Option<&'s InjectedSkills>,
+    mcp_document: &'a crate::mcp::Document,
+    injected_names: &'s [String],
+    mcp_resolved: Option<&'s [String]>,
+    lineage: &'a Lineage,
+}
+
+/// Handoff state recorded for a `never_started` line 0 if a later step fails.
+struct PostWorktree {
+    mcp_plan_injected: Vec<String>,
+    mcp_resolved: Option<Vec<String>>,
+    injected: Option<InjectedSkills>,
+}
+
 pub fn run(request: Request) -> Result<Call> {
     // **What the attempt was is decided before what the machine is.** 6.1's items
     // 2 and 3 run first here, ahead of the environment, the provider's version and
@@ -387,12 +469,35 @@ pub fn run(request: Request) -> Result<Call> {
     // start. Reading the version first would turn a child reaching for `permissive`
     // on a binary nobody installed into an error with nothing written, which is the
     // invisible attempt the containment check exists to prevent.
+    let preflight = preflight_inputs(&request)?;
+    let reserved = reserve_run(&request, &preflight)?;
+    if let Some(call) = refuse_escalation(&request, &preflight, &reserved)? {
+        return Ok(call);
+    }
+    if let Some(call) = refuse_narrowing(&request, &preflight, &reserved)? {
+        return Ok(call);
+    }
+    let mut machine = prepare_machine(request, preflight, reserved)?;
+    let worktree = phase_worktree(&machine)?;
+    let mut recording = PostWorktree::new();
+    let handoff = match phase_handoff(&machine, &worktree, &mut recording) {
+        Ok(PhaseHandoff::Done(call)) => return call,
+        Ok(PhaseHandoff::Ready(handoff)) => handoff,
+        Err(err) => return Err(recording.fail(&machine, &worktree, err, true, None)),
+    };
+    phase_spawn(&mut machine, &worktree, handoff)
+}
+
+enum PhaseHandoff {
+    Done(Result<Call>),
+    Ready(HandoffReady),
+}
+
+fn preflight_inputs(request: &Request) -> Result<PreflightInputs> {
     let invoked_in = match &request.working_dir {
         Some(dir) => dir.clone(),
         None => std::env::current_dir().context("reading the working directory")?,
     };
-    let repo = crate::worktree::repo_root(&invoked_in);
-
     // Read before a run id exists: a policy name that is not one of the five, or a
     // preamble file that has gone missing, is a fact about this machine rather than
     // a refused spawn. Line 0 needs all three whichever way the launch goes.
@@ -407,7 +512,6 @@ pub fn run(request: Request) -> Result<Call> {
     // not parse is a fact about this machine rather than a refused spawn. The
     // refusal it can produce is 6.1 item 6's, and that one needs a run id.
     let mcp_document = crate::mcp::Document::load()?;
-
     let root_named = std::env::var_os("HYDRA_ROOT").is_some();
     // A run that unsets the marker of build ticket 57 is a human to the check
     // below, and `HYDRA_ROOT` then points its record somewhere the kernel does
@@ -422,31 +526,61 @@ pub fn run(request: Request) -> Result<Call> {
              cannot move the root. Unset the variable, or launch from outside the run."
         );
     }
+    let repo = crate::worktree::repo_root(&invoked_in);
+    Ok(PreflightInputs {
+        invoked_in,
+        repo,
+        policies,
+        task,
+        mcp_document,
+        root_named,
+    })
+}
+
+fn reserve_run(request: &Request, preflight: &PreflightInputs) -> Result<ReservedRun> {
     let layout = Layout::discover()?;
+    reserve_on_layout(request, preflight, layout)
+}
+
+fn reserve_on_layout(
+    request: &Request,
+    preflight: &PreflightInputs,
+    layout: Layout,
+) -> Result<ReservedRun> {
     crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
-    refuse_foreign_checkout(&layout, &crate::paths::hydra_home(), root_named)?;
+    refuse_foreign_checkout(&layout, &crate::paths::hydra_home(), preflight.root_named)?;
     layout.ensure()?;
-
-    // Build ticket 57, read before the lineage because it is the question the
-    // lineage cannot ask: `Lineage::of` is handed `--parent` and believes it, and
-    // a flag left off reaches it as a human at depth 0. This reads the marker
-    // Hydra set in the child's own environment instead, so the answer comes from
-    // the launch rather than from the caller's argv.
-    let caller = crate::containment::caller(&layout)?;
-
     // 6.1 item 2, ahead of item 4 below in the order the spec lists them. The
     // parent's own record is the only thing that says how deep this child is and
     // what policy bounds it, so a `--parent` this machine has no record of is
     // refused here rather than launched bounded by nothing.
     let lineage = Lineage::of(&layout, request.parent.as_deref())?;
-
     let run_id = request
         .run_id
         .clone()
         .unwrap_or_else(|| Uuid::now_v7().to_string());
-    let reservation = crate::live::reserve(&layout, &run_id, crate::live::LIVE_RUN_CAP)?;
     let run_file = layout.run_file(&run_id);
+    let reservation = crate::live::reserve(&layout, &run_id, crate::live::LIVE_RUN_CAP)?;
+    Ok(ReservedRun {
+        layout,
+        lineage,
+        run_id,
+        run_file,
+        reservation: Some(reservation),
+    })
+}
 
+fn refuse_escalation(
+    request: &Request,
+    preflight: &PreflightInputs,
+    reserved: &ReservedRun,
+) -> Result<Option<Call>> {
+    // Build ticket 57, read before the lineage because it is the question the
+    // lineage cannot ask: `Lineage::of` is handed `--parent` and believes it, and
+    // a flag left off reaches it as a human at depth 0. This reads the marker
+    // Hydra set in the child's own environment instead, so the answer comes from
+    // the launch rather than from the caller's argv.
+    let caller = crate::containment::caller(&reserved.layout)?;
     // 6.1 item 3, and the one pre-flight check whose refusal is a run record. It
     // runs after the id is minted, which is out of the spec's order on purpose:
     // contract 8.3 makes this refusal a run file and a run file needs a run id.
@@ -458,79 +592,96 @@ pub fn run(request: Request) -> Result<Call> {
     // names no parent has not yet been measured against any policy, so
     // `lineage.narrowing` below would compare its request against the empty bound
     // of a human at depth 0 and allow anything.
-    if let Some(remediation) = caller.escalation(request.parent.as_deref()) {
-        let line_zero = serde_json::to_value(run_start(
-            &request,
-            RunStartRequest {
-                task: &task,
-                policy_sha: policies.sha(),
-                provider_version: None,
-                cwd: &invoked_in,
-                worktree: None,
-                env_allowlist: None,
-                skills: None,
-                mcp: None,
-                lineage: &lineage,
-                scopes: None,
-                gate_sha: None,
-                sandbox: None,
-            },
-        ))?;
-        return refuse(
-            &run_file,
-            &run_id,
-            request.provider,
-            &line_zero,
-            crate::record::Refusal::Containment,
-            remediation,
-            &policies,
-            None,
-            None,
-            &layout,
-            lineage.parent_run_id(),
-        );
-    }
+    let Some(remediation) = caller.escalation(request.parent.as_deref()) else {
+        return Ok(None);
+    };
+    let line_zero = serde_json::to_value(run_start(
+        request,
+        RunStartRequest {
+            task: &preflight.task,
+            policy_sha: preflight.policies.sha(),
+            provider_version: None,
+            cwd: &preflight.invoked_in,
+            worktree: None,
+            env_allowlist: None,
+            skills: None,
+            mcp: None,
+            lineage: &reserved.lineage,
+            scopes: None,
+            gate_sha: None,
+            sandbox: None,
+        },
+    ))?;
+    Ok(Some(refuse(RefuseRequest {
+        run_file: &reserved.run_file,
+        run_id: &reserved.run_id,
+        provider: request.provider,
+        line_zero: &line_zero,
+        refusal: crate::record::Refusal::Containment,
+        remediation,
+        policies: &preflight.policies,
+        worktree: None,
+        seed_tree: None,
+        layout: &reserved.layout,
+        parent_run_id: reserved.lineage.parent_run_id(),
+    })?))
+}
 
-    if let Some(remediation) = lineage.narrowing(&policies, &request.policy)? {
-        // Contract 8.3: no provider fields on a refused spawn. Nothing asked the
-        // binary for its version and nothing built the child's environment, so
-        // both are absent rather than guessed, and `skills` and `mcp` follow. The
-        // envelope still names the provider, which is contract 4's field and a
-        // fact about the request rather than about a process. `scopes` is absent
-        // for the same reason and `floor_lifted` is not: the flag was typed on
-        // this run, and no gate was compiled to resolve a path (contract 5.1).
-        let line_zero = serde_json::to_value(run_start(
-            &request,
-            RunStartRequest {
-                task: &task,
-                policy_sha: policies.sha(),
-                provider_version: None,
-                cwd: &invoked_in,
-                worktree: None,
-                env_allowlist: None,
-                skills: None,
-                mcp: None,
-                lineage: &lineage,
-                scopes: None,
-                gate_sha: None,
-                sandbox: None,
-            },
-        ))?;
-        return refuse(
-            &run_file,
-            &run_id,
-            request.provider,
-            &line_zero,
-            crate::record::Refusal::PolicyNarrowing,
-            remediation,
-            &policies,
-            None,
-            None,
-            &layout,
-            lineage.parent_run_id(),
-        );
-    }
+fn refuse_narrowing(
+    request: &Request,
+    preflight: &PreflightInputs,
+    reserved: &ReservedRun,
+) -> Result<Option<Call>> {
+    let Some(remediation) = reserved
+        .lineage
+        .narrowing(&preflight.policies, &request.policy)?
+    else {
+        return Ok(None);
+    };
+    // Contract 8.3: no provider fields on a refused spawn. Nothing asked the
+    // binary for its version and nothing built the child's environment, so
+    // both are absent rather than guessed, and `skills` and `mcp` follow. The
+    // envelope still names the provider, which is contract 4's field and a
+    // fact about the request rather than about a process. `scopes` is absent
+    // for the same reason and `floor_lifted` is not: the flag was typed on
+    // this run, and no gate was compiled to resolve a path (contract 5.1).
+    let line_zero = serde_json::to_value(run_start(
+        request,
+        RunStartRequest {
+            task: &preflight.task,
+            policy_sha: preflight.policies.sha(),
+            provider_version: None,
+            cwd: &preflight.invoked_in,
+            worktree: None,
+            env_allowlist: None,
+            skills: None,
+            mcp: None,
+            lineage: &reserved.lineage,
+            scopes: None,
+            gate_sha: None,
+            sandbox: None,
+        },
+    ))?;
+    Ok(Some(refuse(RefuseRequest {
+        run_file: &reserved.run_file,
+        run_id: &reserved.run_id,
+        provider: request.provider,
+        line_zero: &line_zero,
+        refusal: crate::record::Refusal::PolicyNarrowing,
+        remediation,
+        policies: &preflight.policies,
+        worktree: None,
+        seed_tree: None,
+        layout: &reserved.layout,
+        parent_run_id: reserved.lineage.parent_run_id(),
+    })?))
+}
 
+fn prepare_machine(
+    request: Request,
+    preflight: PreflightInputs,
+    reserved: ReservedRun,
+) -> Result<MachineReady> {
     // The machine's own facts, read once the attempt has been judged. A wrong
     // PATH, a missing HOME, a provider binary that is not installed and a repo
     // that already carries the provider's two files are all errors rather than
@@ -540,7 +691,7 @@ pub fn run(request: Request) -> Result<Call> {
     // told which run it is, so that a `hydra run` it launches has something to
     // check itself against. The name lands in `run_start.env_allowlist` like
     // every other name passed, so a reader can see the child was marked.
-    child_env.set(crate::containment::MARKER, run_id.clone());
+    child_env.set(crate::containment::MARKER, reserved.run_id.clone());
     let provider_version = request.provider.version()?;
     if request.provider == Provider::Codex
         && let Some(remediation) = codex::unsupported_policy(&request.policy)
@@ -552,20 +703,21 @@ pub fn run(request: Request) -> Result<Call> {
     match request.provider {
         Provider::CursorAgent => worktree_preconditions(
             "cursor-agent",
-            repo.as_deref(),
+            preflight.repo.as_deref(),
             &[cursor::hooks_file, cursor::mcp_file],
         )?,
-        Provider::Agy => {
-            worktree_preconditions("agy", repo.as_deref(), &[agy::hooks_file, agy::mcp_file])?
-        }
+        Provider::Agy => worktree_preconditions(
+            "agy",
+            preflight.repo.as_deref(),
+            &[agy::hooks_file, agy::mcp_file],
+        )?,
         Provider::Codex => worktree_preconditions(
             "codex",
-            repo.as_deref(),
+            preflight.repo.as_deref(),
             &[codex::hooks_file, codex::mcp_file],
         )?,
         Provider::Claude => {}
     }
-
     // 6.2's second category: a variable Hydra sets rather than one it passes
     // through. `CURSOR_DATA_DIR` moves Cursor's per-project MCP approval state
     // into the run's spawn directory, so approving an injected server writes
@@ -575,80 +727,170 @@ pub fn run(request: Request) -> Result<Call> {
     // secret the launcher inherited.
     let mut hydra_env = std::collections::BTreeMap::new();
     if request.provider == Provider::CursorAgent {
-        let data_dir = layout.cursor_data_dir(&run_id);
+        let data_dir = reserved.layout.cursor_data_dir(&reserved.run_id);
         std::fs::create_dir_all(&data_dir)
             .with_context(|| format!("creating {}", data_dir.display()))?;
         let value = data_dir.display().to_string();
         child_env.set("CURSOR_DATA_DIR", value.clone());
         hydra_env.insert("CURSOR_DATA_DIR".to_string(), value);
     }
+    Ok(MachineReady {
+        request,
+        preflight,
+        reserved,
+        child_env,
+        provider_version,
+        hydra_env,
+    })
+}
 
-    let worktree = match &repo {
+fn phase_worktree(machine: &MachineReady) -> Result<WorktreeReady> {
+    let worktree = match &machine.preflight.repo {
         Some(repo) => Some(crate::worktree::create(
             repo,
-            &layout.worktree(&run_id),
-            &format!("hydra/{run_id}"),
-            &layout.seed_index(&run_id),
+            &machine.reserved.layout.worktree(&machine.reserved.run_id),
+            &format!("hydra/{}", machine.reserved.run_id),
+            &machine.reserved.layout.seed_index(&machine.reserved.run_id),
         )?),
         None => None,
     };
     let seed_tree = worktree.as_ref().and_then(|w| w.seed_tree.clone());
-    let cwd: PathBuf = worktree
+    let cwd = worktree
         .as_ref()
         .map(|w| w.path.clone())
-        .unwrap_or_else(|| invoked_in.clone());
+        .unwrap_or_else(|| machine.preflight.invoked_in.clone());
     let worktree_ref = worktree.as_ref().map(|w| WorktreeRef {
         path: w.path.display().to_string(),
         branch: w.branch.clone(),
         base_tree: w.seed_tree.clone(),
     });
+    Ok(WorktreeReady {
+        cwd,
+        worktree_ref,
+        seed_tree,
+    })
+}
 
-    // 6.5: the document decides which servers this run's policy admits and the
-    // launch shape decides whether any of them can be delivered. The file is
-    // written before the probe below, because the probe carries the run's own MCP
-    // flags and that is what makes its answer the run's rather than the machine's.
-    // A launch that cannot deliver gets no file, and the check that refuses it
-    // runs after the skill collision check, where 6.1 puts it.
-    let checkout = match &worktree_ref {
-        Some(_) => crate::mcp::Checkout::Hydra,
-        None => crate::mcp::Checkout::None,
-    };
-    let mcp_plan = crate::mcp::plan(&mcp_document, request.provider, &request.policy, checkout);
-    let mcp_file = match mcp_plan.undeliverable {
-        Some(_) => None,
-        None => Some(crate::mcp::write_config(
-            &layout,
-            &run_id,
-            request.provider,
-            mcp_plan.injected(),
-            worktree_ref.as_ref().map(|w| std::path::Path::new(&w.path)),
-        )?),
-    };
+impl PostWorktree {
+    fn new() -> Self {
+        PostWorktree {
+            mcp_plan_injected: Vec::new(),
+            mcp_resolved: None,
+            injected: None,
+        }
+    }
 
-    // 6.4: the store is pinned, snapshotted and linked into the checkout before
-    // anything asks the provider a question. A run with no checkout has nowhere to
-    // inject into, so it gets no links and its record leaves `skills` absent
-    // rather than null: the question does not apply. A `judge` run is not injected
-    // either, since the policy allows nothing and the diff rides the prompt, and
-    // ticket 25 stopped the links. The MCP group is present either way, which is
-    // 6.5's asymmetry showing up in the record: on `claude` the servers ride the
-    // command line and need no checkout to land in.
-    let injected = match &worktree_ref {
-        Some(worktree) if request.policy != "judge" => Some(inject_skills(
-            &layout,
-            &run_id,
-            request.provider,
-            std::path::Path::new(&worktree.path),
-            crate::mcp::Probe {
-                policy: &request.policy,
-                config: mcp_file.as_deref(),
-            },
-        )?),
-        _ => None,
-    };
+    fn parts<'a, 's>(
+        &'s self,
+        machine: &'a MachineReady,
+        worktree: &'a WorktreeReady,
+    ) -> LineZeroParts<'a, 's> {
+        LineZeroParts {
+            request: &machine.request,
+            policies: &machine.preflight.policies,
+            task: &machine.preflight.task,
+            provider_version: &machine.provider_version,
+            cwd: &worktree.cwd,
+            worktree_ref: worktree.worktree_ref.as_ref(),
+            env_allowlist: machine.child_env.names(),
+            injected: self.injected.as_ref(),
+            mcp_document: &machine.preflight.mcp_document,
+            injected_names: &self.mcp_plan_injected,
+            mcp_resolved: self.mcp_resolved.as_deref(),
+            lineage: &machine.reserved.lineage,
+        }
+    }
 
-    let injected_names = mcp_plan.injected_names();
+    fn fail(
+        &self,
+        machine: &MachineReady,
+        worktree: &WorktreeReady,
+        err: anyhow::Error,
+        announce: bool,
+        spawn: Option<&SpawnFiles>,
+    ) -> anyhow::Error {
+        announce_launch_failure(
+            &machine.reserved,
+            worktree.worktree_ref.as_ref(),
+            announce,
+            &err,
+        );
+        match compose_line_zero(self.parts(machine, worktree), spawn) {
+            Ok(line_zero) => record_never_started(
+                &machine.reserved,
+                machine.request.provider,
+                &line_zero,
+                &err,
+            ),
+            Err(e) => {
+                eprintln!("hydra: this run could not be recorded either: {e:#}");
+            }
+        }
+        err
+    }
+}
 
+fn announce_launch_failure(
+    reserved: &ReservedRun,
+    worktree: Option<&WorktreeRef>,
+    announce: bool,
+    err: &anyhow::Error,
+) {
+    if !announce {
+        return;
+    }
+    eprintln!("hydra: run {} did not launch", reserved.run_id);
+    eprintln!("hydra: {err:#}");
+    eprintln!("hydra: record {}", reserved.run_file.display());
+    if let Some(worktree) = worktree {
+        eprintln!("hydra: worktree {} on {}", worktree.path, worktree.branch);
+    }
+}
+
+fn record_never_started(
+    reserved: &ReservedRun,
+    provider: Provider,
+    line_zero: &serde_json::Value,
+    err: &anyhow::Error,
+) {
+    if let Err(second) = never_started(
+        &reserved.run_file,
+        &reserved.run_id,
+        provider,
+        line_zero,
+        err,
+        reserved.lineage.parent_run_id(),
+    ) {
+        eprintln!("hydra: this run could not be recorded either: {second:#}");
+    }
+}
+
+fn fail_after_handoff(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    handoff: &HandoffReady,
+    err: anyhow::Error,
+    announce: bool,
+) -> anyhow::Error {
+    announce_launch_failure(
+        &machine.reserved,
+        worktree.worktree_ref.as_ref(),
+        announce,
+        &err,
+    );
+    record_never_started(
+        &machine.reserved,
+        machine.request.provider,
+        &handoff.line_zero,
+        &err,
+    );
+    err
+}
+
+fn compose_line_zero(
+    parts: LineZeroParts<'_, '_>,
+    spawn: Option<&SpawnFiles>,
+) -> Result<serde_json::Value> {
     // The whole of line 0 except the two fields that do not exist until a process
     // does, as a function of the two the steps below decide.
     // Composing it here keeps every provider-specific fact on this side of the
@@ -660,33 +902,188 @@ pub fn run(request: Request) -> Result<Call> {
     // pre-flight refusals. A refused run resolved no scope, so contract 5.1's
     // rule applies: the key is absent rather than filled with what the compile
     // would have produced had it run.
-    let line_zero = |mcp_resolved: Option<&[String]>,
-                     scopes: Option<&std::collections::BTreeMap<String, String>>,
-                     gate_sha: Option<&str>,
-                     sandbox: Option<&str>|
-     -> Result<serde_json::Value> {
-        let start = run_start(
-            &request,
-            RunStartRequest {
-                task: &task,
-                policy_sha: policies.sha(),
-                provider_version: Some(&provider_version),
-                cwd: &cwd,
-                worktree: worktree_ref.clone(),
-                env_allowlist: Some(child_env.names()),
-                skills: injected.as_ref().map(|i| i.record.clone()),
-                mcp: Some(crate::mcp::record(
-                    &mcp_document.sha,
-                    &injected_names,
-                    mcp_resolved,
-                )),
-                lineage: &lineage,
-                scopes: scopes.cloned(),
-                gate_sha: gate_sha.map(str::to_string),
-                sandbox: sandbox.map(str::to_string),
+    let (scopes, gate_sha, sandbox) = match spawn {
+        Some(spawn) => (
+            Some(&spawn.scopes),
+            Some(&spawn.gate_sha),
+            spawn.sandbox_sha.as_deref(),
+        ),
+        None => (None, None, None),
+    };
+    let start = run_start(
+        parts.request,
+        RunStartRequest {
+            task: parts.task,
+            policy_sha: parts.policies.sha(),
+            provider_version: Some(parts.provider_version),
+            cwd: parts.cwd,
+            worktree: parts.worktree_ref.cloned(),
+            env_allowlist: Some(parts.env_allowlist.clone()),
+            skills: parts.injected.map(|i| i.record.clone()),
+            mcp: Some(crate::mcp::record(
+                &parts.mcp_document.sha,
+                parts.injected_names,
+                parts.mcp_resolved,
+            )),
+            lineage: parts.lineage,
+            scopes: scopes.cloned(),
+            gate_sha: gate_sha.map(|sha| sha.to_string()),
+            sandbox: sandbox.map(str::to_string),
+        },
+    );
+    Ok(serde_json::to_value(&start)?)
+}
+
+fn refuse_handoff(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    line_zero: &serde_json::Value,
+    refusal: crate::record::Refusal,
+    remediation: String,
+) -> PhaseHandoff {
+    PhaseHandoff::Done(refuse(RefuseRequest {
+        run_file: &machine.reserved.run_file,
+        run_id: &machine.reserved.run_id,
+        provider: machine.request.provider,
+        line_zero,
+        refusal,
+        remediation,
+        policies: &machine.preflight.policies,
+        worktree: worktree.worktree_ref.as_ref(),
+        seed_tree: worktree.seed_tree.as_deref(),
+        layout: &machine.reserved.layout,
+        parent_run_id: machine.reserved.lineage.parent_run_id(),
+    }))
+}
+
+fn handoff_preflight_refusals(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    recording: &mut PostWorktree,
+    mcp_plan: &crate::mcp::Plan<'_>,
+    refused_line_zero: &serde_json::Value,
+    preflight: &Option<Result<cursor::Preflight, String>>,
+) -> Option<PhaseHandoff> {
+    if machine.request.provider == Provider::Codex {
+        let remediation = match codex::login_status() {
+            Ok(codex::LoginStatus::LoggedIn) => None,
+            Ok(codex::LoginStatus::NotLoggedIn) => Some(codex::auth_remediation().to_string()),
+            Err(err) => Some(format!(
+                "the codex auth pre-flight could not run, so whether this launch is logged in \
+                 is unknown and the run is refused: {err:#}"
+            )),
+        };
+        if let Some(remediation) = remediation {
+            return Some(refuse_handoff(
+                machine,
+                worktree,
+                refused_line_zero,
+                crate::record::Refusal::AuthPreflight,
+                remediation,
+            ));
+        }
+    }
+
+    // 6.1 item 6, one item after it. A run whose policy admits a server this
+    // launch cannot deliver is refused rather than launched short, which is
+    // section 2's rule: a run that quietly comes up short is what it forbids.
+    if mcp_plan.shortfall().is_some() {
+        return Some(refuse_handoff(
+            machine,
+            worktree,
+            refused_line_zero,
+            crate::record::Refusal::McpUnavailable,
+            mcp_plan.remediation(),
+        ));
+    }
+
+    // 6.1 item 7. Any injected server the listing did not report ready fails the
+    // run, because on this provider that listing is the one that lies: the
+    // human's same-named server may be starting with the human's token while
+    // the name reads as not loaded. Same refusal code as item 6; harness spec 12
+    // says which check fired is a field Hydra sets, and here it is the
+    // remediation.
+    if let Some(preflight) = preflight {
+        let remediation = match preflight {
+            Ok(preflight) => {
+                let short = preflight.shortfall(&recording.mcp_plan_injected);
+                if short.is_empty() {
+                    None
+                } else {
+                    Some(preflight.remediation(&short))
+                }
+            }
+            Err(why) => Some(why.clone()),
+        };
+        if let Some(remediation) = remediation {
+            return Some(refuse_handoff(
+                machine,
+                worktree,
+                refused_line_zero,
+                crate::record::Refusal::McpUnavailable,
+                remediation,
+            ));
+        }
+    }
+
+    None
+}
+
+fn phase_handoff(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    recording: &mut PostWorktree,
+) -> Result<PhaseHandoff> {
+    // 6.5: the document decides which servers this run's policy admits and the
+    // launch shape decides whether any of them can be delivered. The file is
+    // written before the probe below, because the probe carries the run's own MCP
+    // flags and that is what makes its answer the run's rather than the machine's.
+    // A launch that cannot deliver gets no file, and the check that refuses it
+    // runs after the skill collision check, where 6.1 puts it.
+    let checkout = match &worktree.worktree_ref {
+        Some(_) => crate::mcp::Checkout::Hydra,
+        None => crate::mcp::Checkout::None,
+    };
+    let mcp_plan = crate::mcp::plan(
+        &machine.preflight.mcp_document,
+        machine.request.provider,
+        &machine.request.policy,
+        checkout,
+    );
+    recording.mcp_plan_injected = mcp_plan.injected_names();
+    let mcp_file = match mcp_plan.undeliverable {
+        Some(_) => None,
+        None => Some(crate::mcp::write_config(
+            &machine.reserved.layout,
+            &machine.reserved.run_id,
+            machine.request.provider,
+            mcp_plan.injected(),
+            worktree
+                .worktree_ref
+                .as_ref()
+                .map(|w| std::path::Path::new(&w.path)),
+        )?),
+    };
+    // 6.4: the store is pinned, snapshotted and linked into the checkout before
+    // anything asks the provider a question. A run with no checkout has nowhere to
+    // inject into, so it gets no links and its record leaves `skills` absent
+    // rather than null: the question does not apply. A `judge` run is not injected
+    // either, since the policy allows nothing and the diff rides the prompt, and
+    // ticket 25 stopped the links. The MCP group is present either way, which is
+    // 6.5's asymmetry showing up in the record: on `claude` the servers ride the
+    // command line and need no checkout to land in.
+    recording.injected = match &worktree.worktree_ref {
+        Some(worktree_ref) if machine.request.policy != "judge" => Some(inject_skills(
+            &machine.reserved.layout,
+            &machine.reserved.run_id,
+            machine.request.provider,
+            std::path::Path::new(&worktree_ref.path),
+            crate::mcp::Probe {
+                policy: &machine.request.policy,
+                config: mcp_file.as_deref(),
             },
-        );
-        Ok(serde_json::to_value(&start)?)
+        )?),
+        _ => None,
     };
 
     // 6.1 item 5. A hit fails the run as its own outcome, and the record is the
@@ -694,23 +1091,17 @@ pub fn run(request: Request) -> Result<Call> {
     // approves anything, so a launch refused here has started no server process,
     // and on `cursor-agent` its record says nobody asked about servers, which is
     // the true answer.
-    if let Some(injected) = &injected
+    if let Some(injected) = recording.injected.as_ref()
         && !injected.collisions.is_empty()
     {
         let remediation = crate::skills::collision::remediation(&injected.collisions);
-        return refuse(
-            &run_file,
-            &run_id,
-            request.provider,
-            &line_zero(injected.mcp_resolved.as_deref(), None, None, None)?,
+        return Ok(refuse_handoff(
+            machine,
+            worktree,
+            &compose_line_zero(recording.parts(machine, worktree), None)?,
             crate::record::Refusal::SkillCollision,
             remediation,
-            &policies,
-            worktree_ref.as_ref(),
-            seed_tree.as_deref(),
-            &layout,
-            lineage.parent_run_id(),
-        );
+        ));
     }
 
     // 6.1 item 7, the pre-flight Cursor alone gets, run here because its listing
@@ -719,12 +1110,16 @@ pub fn run(request: Request) -> Result<Call> {
     // Its verdict is read after item 6 below, in 6.1's order. A pre-flight that
     // could not run at all is the same refusal with the error as its remediation:
     // nothing spawned, and the record says why.
-    let preflight = match (request.provider, &worktree_ref, mcp_plan.undeliverable) {
-        (Provider::CursorAgent, Some(worktree), None) => {
+    let preflight = match (
+        machine.request.provider,
+        &worktree.worktree_ref,
+        mcp_plan.undeliverable,
+    ) {
+        (Provider::CursorAgent, Some(worktree_ref), None) => {
             match cursor::preflight(
-                std::path::Path::new(&worktree.path),
-                &child_env,
-                &injected_names,
+                std::path::Path::new(&worktree_ref.path),
+                &machine.child_env,
+                &recording.mcp_plan_injected,
             ) {
                 Ok(preflight) => Some(Ok(preflight)),
                 Err(err) => Some(Err(format!(
@@ -738,138 +1133,67 @@ pub fn run(request: Request) -> Result<Call> {
     let mcp_resolved: Option<Vec<String>> = match &preflight {
         Some(Ok(preflight)) => Some(preflight.resolved()),
         Some(Err(_)) => None,
-        None => injected
+        None => recording
+            .injected
             .as_ref()
             .and_then(|injected| injected.mcp_resolved.clone()),
     };
+    recording.mcp_resolved = mcp_resolved.clone();
     // No gate is compiled yet, so the two refusals below write a line 0 with no
     // `scopes` on it. The launched path recomposes it after `write_spawn_config`.
-    let refused_line_zero = line_zero(mcp_resolved.as_deref(), None, None, None)?;
-
-    if request.provider == Provider::Codex {
-        let remediation = match codex::login_status() {
-            Ok(codex::LoginStatus::LoggedIn) => None,
-            Ok(codex::LoginStatus::NotLoggedIn) => Some(codex::auth_remediation().to_string()),
-            Err(err) => Some(format!(
-                "the codex auth pre-flight could not run, so whether this launch is logged in \
-                 is unknown and the run is refused: {err:#}"
-            )),
-        };
-        if let Some(remediation) = remediation {
-            return refuse(
-                &run_file,
-                &run_id,
-                request.provider,
-                &refused_line_zero,
-                crate::record::Refusal::AuthPreflight,
-                remediation,
-                &policies,
-                worktree_ref.as_ref(),
-                seed_tree.as_deref(),
-                &layout,
-                lineage.parent_run_id(),
-            );
-        }
-    }
-
-    // 6.1 item 6, one item after it. A run whose policy admits a server this
-    // launch cannot deliver is refused rather than launched short, which is
-    // section 2's rule: a run that quietly comes up short is what it forbids.
-    if mcp_plan.shortfall().is_some() {
-        return refuse(
-            &run_file,
-            &run_id,
-            request.provider,
-            &refused_line_zero,
-            crate::record::Refusal::McpUnavailable,
-            mcp_plan.remediation(),
-            &policies,
-            worktree_ref.as_ref(),
-            seed_tree.as_deref(),
-            &layout,
-            lineage.parent_run_id(),
-        );
-    }
-
-    // 6.1 item 7. Any injected server the listing did not report ready fails the
-    // run, because on this provider that listing is the one that lies: the
-    // human's same-named server may be starting with the human's token while
-    // the name reads as not loaded. Same refusal code as item 6; harness spec 12
-    // says which check fired is a field Hydra sets, and here it is the
-    // remediation.
-    if let Some(preflight) = &preflight {
-        let remediation = match preflight {
-            Ok(preflight) => {
-                let short = preflight.shortfall(&injected_names);
-                if short.is_empty() {
-                    None
-                } else {
-                    Some(preflight.remediation(&short))
-                }
-            }
-            Err(why) => Some(why.clone()),
-        };
-        if let Some(remediation) = remediation {
-            return refuse(
-                &run_file,
-                &run_id,
-                request.provider,
-                &refused_line_zero,
-                crate::record::Refusal::McpUnavailable,
-                remediation,
-                &policies,
-                worktree_ref.as_ref(),
-                seed_tree.as_deref(),
-                &layout,
-                lineage.parent_run_id(),
-            );
-        }
+    let refused_line_zero = compose_line_zero(recording.parts(machine, worktree), None)?;
+    if let Some(done) = handoff_preflight_refusals(
+        machine,
+        worktree,
+        recording,
+        &mcp_plan,
+        &refused_line_zero,
+        &preflight,
+    ) {
+        return Ok(done);
     }
 
     let spawn = write_spawn_config(
-        &layout,
-        &run_id,
-        &policies,
-        request.provider,
-        &request.policy,
-        worktree_ref.as_ref().map(|w| std::path::Path::new(&w.path)),
-        repo.as_deref(),
-        injected.as_ref().map(|i| i.store_sha.as_str()),
-        request.floor_lifted,
+        &machine.reserved.layout,
+        &machine.reserved.run_id,
+        &machine.preflight.policies,
+        machine.request.provider,
+        &machine.request.policy,
+        worktree
+            .worktree_ref
+            .as_ref()
+            .map(|w| std::path::Path::new(&w.path)),
+        machine.preflight.repo.as_deref(),
+        recording.injected.as_ref().map(|i| i.store_sha.as_str()),
+        machine.request.floor_lifted,
     )?;
-
     // Line 0 again, now that the gate has been compiled and the paths it
     // resolved are known. Everything above it wrote `refused_line_zero`, which
     // carries no `scopes` because no gate existed to name any.
-    let line_zero = line_zero(
-        mcp_resolved.as_deref(),
-        Some(&spawn.scopes),
-        Some(&spawn.gate_sha),
-        spawn.sandbox_sha.as_deref(),
-    )?;
+    let line_zero = compose_line_zero(recording.parts(machine, worktree), Some(&spawn))?;
+    Ok(PhaseHandoff::Ready(HandoffReady {
+        mcp_file,
+        injected: std::mem::take(&mut recording.injected),
+        spawn,
+        line_zero,
+    }))
+}
 
+fn phase_spawn(
+    machine: &mut MachineReady,
+    worktree: &WorktreeReady,
+    handoff: HandoffReady,
+) -> Result<Call> {
+    // Under D10 anything not in a run record did not happen. One path covers every
+    // error after the worktree exists: [`fail_after_handoff`] and
+    // [`PostWorktree::fail`] both reach [`never_started`], whether the failure is
+    // in handoff, argv build, agy hook mount or detach.
     if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
         let err = anyhow::anyhow!(
             "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch \
              a recorded run without the seatbelt rather than run bare"
         );
-        eprintln!("hydra: run {run_id} did not launch");
-        eprintln!("hydra: {err:#}");
-        eprintln!("hydra: record {}", run_file.display());
-        if let Some(worktree) = &worktree_ref {
-            eprintln!("hydra: worktree {} on {}", worktree.path, worktree.branch);
-        }
-        if let Err(second) = never_started(
-            &run_file,
-            &run_id,
-            request.provider,
-            &line_zero,
-            &err,
-            lineage.parent_run_id(),
-        ) {
-            eprintln!("hydra: this run could not be recorded either: {second:#}");
-        }
-        return Err(err);
+        return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
     }
 
     // **The gate mount is checked on `agy` and on nothing else, free.** 6.6's
@@ -887,11 +1211,14 @@ pub fn run(request: Request) -> Result<Call> {
     // id on them. It is not one of contract 6's four refusals, so it is not
     // dressed as one: this is a launch that could not start, and it derives
     // `failed`.
-    if request.provider == Provider::Agy {
-        let checkout = worktree_ref
-            .as_ref()
-            .map(|w| std::path::PathBuf::from(&w.path))
-            .context("an agy run needs a checkout and this one has none")?;
+    if machine.request.provider == Provider::Agy {
+        let checkout = match worktree.worktree_ref.as_ref() {
+            Some(w) => PathBuf::from(&w.path),
+            None => {
+                let err = anyhow::anyhow!("an agy run needs a checkout and this one has none");
+                return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
+            }
+        };
         let mounted = agy::hooks_mounted(&checkout).with_context(|| {
             format!(
                 "asking agy which hooks it loaded for {}, which is what proves the gate is \
@@ -900,10 +1227,10 @@ pub fn run(request: Request) -> Result<Call> {
             )
         });
         let verdict = match &mounted {
-            Ok(mounted) if agy::gate_is_mounted(mounted, &spawn.hook_config) => Ok(()),
+            Ok(mounted) if agy::gate_is_mounted(mounted, &handoff.spawn.hook_config) => Ok(()),
             Ok(mounted) => Err(anyhow::anyhow!(
                 "{}",
-                agy::unmounted_remediation(mounted, &spawn.hook_config)
+                agy::unmounted_remediation(mounted, &handoff.spawn.hook_config)
             )),
             Err(err) => Err(anyhow::anyhow!("{err:#}")),
         };
@@ -912,158 +1239,178 @@ pub fn run(request: Request) -> Result<Call> {
             // checkout, a branch and a compiled gate are on disk with this run
             // id on them, and an error naming none of them leaves a human with
             // an orphan worktree and nothing to type into `hydra reap`.
-            eprintln!("hydra: run {run_id} did not launch");
-            eprintln!("hydra: {err:#}");
-            eprintln!("hydra: record {}", run_file.display());
-            if let Some(worktree) = &worktree_ref {
-                eprintln!("hydra: worktree {} on {}", worktree.path, worktree.branch);
-            }
-            if let Err(second) = never_started(
-                &run_file,
-                &run_id,
-                request.provider,
-                &line_zero,
-                &err,
-                lineage.parent_run_id(),
-            ) {
-                eprintln!("hydra: this run could not be recorded either: {second:#}");
-            }
-            return Err(err);
+            return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
         }
     }
 
-    let mut argv = match request.provider {
-        Provider::Claude => claude::argv(&claude::Launch {
-            task: &task,
-            model: request.model.as_deref(),
-            settings: &spawn.hook_config,
-            policy: &request.policy,
-            mcp: mcp_file.as_deref(),
-        }),
-        // Nothing provider-specific rides the argv. The hook config, the MCP
-        // config and the skill links are all read from cwd, and the data
-        // directory is in the environment.
-        Provider::CursorAgent => cursor::argv(&cursor::Launch {
-            task: &task,
-            model: request.model.as_deref(),
-        }),
-        // The one flag the skills, the hook config and the MCP config all ride
-        // in on. A launch with no worktree was refused above, so the checkout is
-        // here rather than optional.
-        Provider::Agy => agy::argv(&agy::Launch {
-            task: &task,
-            model: request.model.as_deref(),
-            worktree: worktree_ref
-                .as_ref()
-                .map(|w| std::path::Path::new(w.path.as_str()))
-                .context("an agy run needs a checkout and this one has none")?,
-        }),
-        Provider::Codex => codex::argv(&codex::Launch {
-            task: &task,
-            model: request.model.as_deref(),
-            worktree: worktree_ref
-                .as_ref()
-                .map(|w| std::path::Path::new(w.path.as_str()))
-                .context("a codex run needs a checkout and this one has none")?,
-            hook_file: &codex::hook_file(&layout, &run_id),
-        }),
+    let mut argv = match build_argv(machine, worktree, &handoff) {
+        Ok(argv) => argv,
+        Err(err) => return Err(fail_after_handoff(machine, worktree, &handoff, err, true)),
     };
-    if let Some(session_id) = &request.resume_session_id {
-        let hook_file = if request.provider == Provider::Codex {
-            Some(codex::hook_file(&layout, &run_id))
+    if let Some(session_id) = &machine.request.resume_session_id {
+        let hook_file = if machine.request.provider == Provider::Codex {
+            Some(codex::hook_file(
+                &machine.reserved.layout,
+                &machine.reserved.run_id,
+            ))
         } else {
             None
         };
         append_resume_args(
             &mut argv,
-            request.provider,
+            machine.request.provider,
             session_id,
             hook_file.as_deref(),
         );
     }
 
-    let spec_path = layout.launch_spec(&run_id);
-
-    // **A launch that fails here writes the record itself.** Everything from the
-    // spec file to the fork happens before the detached half exists, so there is
-    // nothing on the other side to write a run file, and contract 8.3's rule
-    // still holds: under D10 anything not in a run record did not happen, and by
-    // this point a worktree, a branch and a compiled gate are on disk with a run
-    // id on them. The two writers cannot collide, because the failure is what
-    // stops the second one from starting.
+    let spec_path = machine
+        .reserved
+        .layout
+        .launch_spec(&machine.reserved.run_id);
+    // Everything from the spec file to the fork happens before the detached half
+    // exists, so there is nothing on the other side to write a run file. The two
+    // writers cannot collide, because the failure is what stops the second one
+    // from starting.
     let launched = crate::watch::write_spec(
         &spec_path,
         &crate::watch::Launch {
-            run_id: run_id.clone(),
+            run_id: machine.reserved.run_id.clone(),
             // Contract 4's edge, carried across the fork. The detached half owns
             // every line of the record, so this is the only way the parent's id
             // reaches any of them.
-            parent_run_id: lineage.parent_run_id().map(str::to_string),
-            provider: request.provider.to_string(),
-            binary: request.provider.binary().to_string(),
+            parent_run_id: machine.reserved.lineage.parent_run_id().map(str::to_string),
+            provider: machine.request.provider.to_string(),
+            binary: machine.request.provider.binary().to_string(),
             argv,
-            cwd,
-            run_file: run_file.clone(),
-            model: request.model.clone(),
-            hydra_env,
-            run_start: line_zero.clone(),
-            sandbox_profile: spawn.sandbox_profile.clone(),
-            skill_snapshot: if request.provider.reads_skills_by_shell() {
-                injected
-                    .as_ref()
-                    .map(|injected| layout.skill_snapshot_scope(&run_id, Some(&injected.store_sha)))
+            cwd: worktree.cwd.clone(),
+            run_file: machine.reserved.run_file.clone(),
+            model: machine.request.model.clone(),
+            hydra_env: machine.hydra_env.clone(),
+            run_start: handoff.line_zero.clone(),
+            sandbox_profile: handoff.spawn.sandbox_profile.clone(),
+            skill_snapshot: if machine.request.provider.reads_skills_by_shell() {
+                handoff.injected.as_ref().map(|injected| {
+                    machine
+                        .reserved
+                        .layout
+                        .skill_snapshot_scope(&machine.reserved.run_id, Some(&injected.store_sha))
+                })
             } else {
                 None
             },
         },
     )
     .and_then(|()| std::env::current_exe().context("locating the hydra binary"))
-    .and_then(|exe| crate::watch::detach(&exe, &spec_path, &layout.watcher_log(&run_id)));
+    .and_then(|exe| {
+        crate::watch::detach(
+            &exe,
+            &spec_path,
+            &machine
+                .reserved
+                .layout
+                .watcher_log(&machine.reserved.run_id),
+        )
+    });
 
     let mut watcher = match launched {
         Ok(watcher) => watcher,
-        Err(err) => {
-            if let Err(second) = never_started(
-                &run_file,
-                &run_id,
-                request.provider,
-                &line_zero,
-                &err,
-                lineage.parent_run_id(),
-            ) {
-                eprintln!("hydra: this run could not be recorded either: {second:#}");
-            }
-            return Err(err);
-        }
+        Err(err) => return Err(fail_after_handoff(machine, worktree, &handoff, err, false)),
     };
 
-    eprintln!("hydra: run {run_id}");
-    eprintln!("hydra: record {}", run_file.display());
-    if let Some(w) = &worktree_ref {
+    eprintln!("hydra: run {}", machine.reserved.run_id);
+    eprintln!("hydra: record {}", machine.reserved.run_file.display());
+    if let Some(w) = &worktree.worktree_ref {
         eprintln!("hydra: worktree {} on {}", w.path, w.branch);
     }
 
     // Line 0 first, so a handle always carries a pid and a watcher that died on
     // its way up is reported as that rather than as a run the caller can poll.
-    crate::watch::wait_for_start(&run_file, &mut watcher, LAUNCH_BUDGET).map_err(|err| {
-        err.context(format!(
-            "the run's own log is {}",
-            layout.watcher_log(&run_id).display()
-        ))
-    })?;
+    crate::watch::wait_for_start(&machine.reserved.run_file, &mut watcher, LAUNCH_BUDGET).map_err(
+        |err| {
+            err.context(format!(
+                "the run's own log is {}",
+                machine
+                    .reserved
+                    .layout
+                    .watcher_log(&machine.reserved.run_id)
+                    .display()
+            ))
+        },
+    )?;
 
-    drop(reservation);
-    match crate::watch::wait_for_end(&run_file, &mut watcher, request.timeout)? {
+    machine.reserved.reservation = None;
+    wait_for_call_end(machine, worktree, &mut watcher)
+}
+
+fn build_argv(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    handoff: &HandoffReady,
+) -> Result<Vec<String>> {
+    let task = &machine.preflight.task;
+    let argv = match machine.request.provider {
+        Provider::Claude => claude::argv(&claude::Launch {
+            task,
+            model: machine.request.model.as_deref(),
+            settings: &handoff.spawn.hook_config,
+            policy: &machine.request.policy,
+            mcp: handoff.mcp_file.as_deref(),
+        }),
+        // Nothing provider-specific rides the argv. The hook config, the MCP
+        // config and the skill links are all read from cwd, and the data
+        // directory is in the environment.
+        Provider::CursorAgent => cursor::argv(&cursor::Launch {
+            task,
+            model: machine.request.model.as_deref(),
+        }),
+        // The one flag the skills, the hook config and the MCP config all ride
+        // in on. A launch with no worktree was refused above, so the checkout is
+        // here rather than optional.
+        Provider::Agy => agy::argv(&agy::Launch {
+            task,
+            model: machine.request.model.as_deref(),
+            worktree: worktree
+                .worktree_ref
+                .as_ref()
+                .map(|w| std::path::Path::new(w.path.as_str()))
+                .context("an agy run needs a checkout and this one has none")?,
+        }),
+        Provider::Codex => codex::argv(&codex::Launch {
+            task,
+            model: machine.request.model.as_deref(),
+            worktree: worktree
+                .worktree_ref
+                .as_ref()
+                .map(|w| std::path::Path::new(w.path.as_str()))
+                .context("a codex run needs a checkout and this one has none")?,
+            hook_file: &codex::hook_file(&machine.reserved.layout, &machine.reserved.run_id),
+        }),
+    };
+    Ok(argv)
+}
+
+fn wait_for_call_end(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    watcher: &mut std::process::Child,
+) -> Result<Call> {
+    match crate::watch::wait_for_end(&machine.reserved.run_file, watcher, machine.request.timeout)?
+    {
         crate::watch::Waited::TimedOut => Ok(Call::Handle(handle(
-            &run_id,
-            &run_file,
-            worktree_ref.as_ref(),
-            request.timeout,
+            &machine.reserved.run_id,
+            &machine.reserved.run_file,
+            worktree.worktree_ref.as_ref(),
+            machine.request.timeout,
         )?)),
         crate::watch::Waited::WriterGone => Err(anyhow::anyhow!(
             "the run's writer exited without closing {}. Its log is {}",
-            run_file.display(),
-            layout.watcher_log(&run_id).display()
+            machine.reserved.run_file.display(),
+            machine
+                .reserved
+                .layout
+                .watcher_log(&machine.reserved.run_id)
+                .display()
         )),
         crate::watch::Waited::Ended => {
             // Contract 17: the result is a projection of the record. So it is read
@@ -1077,13 +1424,16 @@ pub fn run(request: Request) -> Result<Call> {
             // and synced by this line, so propagating the error would report a run
             // that worked as one that did not, and would take the run id and the
             // path to the file holding the answer down with it.
-            let result = match crate::normalize::read_file(&run_file, &policies) {
+            let result = match crate::normalize::read_file(
+                &machine.reserved.run_file,
+                &machine.preflight.policies,
+            ) {
                 Ok(run) => result(
                     &run,
-                    &run_file,
-                    worktree_ref.as_ref(),
-                    seed_tree.as_deref(),
-                    &layout,
+                    &machine.reserved.run_file,
+                    worktree.worktree_ref.as_ref(),
+                    worktree.seed_tree.as_deref(),
+                    &machine.reserved.layout,
                 ),
                 Err(err) => {
                     eprintln!("hydra: the record is written and would not read back: {err:#}");
@@ -1092,15 +1442,19 @@ pub fn run(request: Request) -> Result<Call> {
                     // memory. That read is a tail and a `serde_json` call, which
                     // is the half of the record that always parses even when the
                     // normalizer chokes on what is above it.
-                    let exit_code = crate::live::closing_line(&run_file)
+                    let exit_code = crate::live::closing_line(&machine.reserved.run_file)
                         .ok()
                         .flatten()
                         .and_then(|end| end["exit_code"].as_i64())
                         .and_then(|code| i32::try_from(code).ok());
-                    unread(&run_id, &run_file, exit_code, &err)
+                    unread(
+                        &machine.reserved.run_id,
+                        &machine.reserved.run_file,
+                        exit_code,
+                        &err,
+                    )
                 }
             };
-
             // **A spawn that never started returns the error rather than the
             // JSON.** A null exit code with no `refusal` is a record whose child
             // never existed, and printing a projection of it would exit 0 on a run
@@ -1259,34 +1613,24 @@ pub(crate) fn inject_skills(
 /// The checkout, the branch and the links stay where they are. `hydra reap` is
 /// what removes them, the same as for a run that spawned, and a human who wants to
 /// see what was refused can look at the directory.
-#[allow(clippy::too_many_arguments)]
-pub fn refuse(
-    run_file: &std::path::Path,
-    run_id: &str,
-    provider: Provider,
-    line_zero: &serde_json::Value,
-    refusal: crate::record::Refusal,
-    remediation: String,
-    policies: &crate::policy::PolicySet,
-    worktree: Option<&WorktreeRef>,
-    seed_tree: Option<&str>,
-    layout: &Layout,
-    parent_run_id: Option<&str>,
-) -> Result<Call> {
-    eprintln!("hydra: run {run_id} refused");
-    eprintln!("hydra: {remediation}");
+pub fn refuse(request: RefuseRequest<'_>) -> Result<Call> {
+    eprintln!("hydra: run {} refused", request.run_id);
+    eprintln!("hydra: {}", request.remediation);
 
     // Contract 4: the edge goes on every line of the child's file, including the
     // two a refused spawn gets, because a refused child is still a child.
     let mut writer = crate::record::Writer::create(
-        run_file,
-        run_id,
-        parent_run_id,
-        Some(provider.binary()),
+        request.run_file,
+        request.run_id,
+        request.parent_run_id,
+        Some(request.provider.binary()),
         None,
     )?;
-    writer.hydra_line(line_zero)?;
-    writer.hydra_line(&crate::record::RunEnd::refused(refusal, remediation))?;
+    writer.hydra_line(request.line_zero)?;
+    writer.hydra_line(&crate::record::RunEnd::refused(
+        request.refusal,
+        request.remediation,
+    ))?;
     drop(writer);
 
     // Read back through the normalizer for the same reason the spawned path does:
@@ -1299,9 +1643,13 @@ pub fn refuse(
     // refused, the file is two lines Hydra just wrote with no tool call in it for
     // the gate replay to choke on, and a read that fails is a real fault rather
     // than a missing projection.
-    let run = crate::normalize::read_file(run_file, policies)?;
+    let run = crate::normalize::read_file(request.run_file, request.policies)?;
     Ok(Call::Ended(Box::new(result(
-        &run, run_file, worktree, seed_tree, layout,
+        &run,
+        request.run_file,
+        request.worktree,
+        request.seed_tree,
+        request.layout,
     ))))
 }
 
