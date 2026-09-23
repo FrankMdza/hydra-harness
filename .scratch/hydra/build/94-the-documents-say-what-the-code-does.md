@@ -1,7 +1,7 @@
 # 94 - README, SECURITY, IMPLEMENTATION and CONTRIBUTING say what the code does
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
