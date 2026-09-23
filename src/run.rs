@@ -1223,7 +1223,8 @@ pub(crate) fn inject_skills(
 
     let home = crate::env::real_home()?;
     let user = crate::skills::index::Index::user_scope(&home)?;
-    let project = crate::skills::index::Index::project_scope(&injected.root)?;
+    let project =
+        crate::skills::index::Index::project_scope_without(&injected.root, &injected.linked)?;
     let collisions = crate::skills::collision::check(
         &injected,
         provider,

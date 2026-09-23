@@ -481,6 +481,49 @@ fn an_empty_store_links_nothing_and_still_pins_a_sha() {
 }
 
 #[test]
+fn a_codex_copy_is_not_a_collision_with_itself() {
+    // Build ticket 87 made the `codex` skill a real directory, and the launch-time
+    // check read it as the checkout's own skill: every `codex` launch was refused
+    // with `skill_collision` naming its own copy, run 01a0cc9b-5397 on 2026-09-23.
+    let fixture = Fixture::new("codex-self-collision");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+    let injected = skills::inject(&worktree, Provider::Codex, &snapshot, &sha).unwrap();
+    let user = skills::index::Index::user_scope(&fixture.home).unwrap();
+
+    let naive = skills::index::Index::project_scope(&injected.root).unwrap();
+    let before = skills::collision::check(
+        &injected,
+        Provider::Codex,
+        &fixture.home,
+        &user,
+        &naive,
+        None,
+    );
+    assert_eq!(
+        before.len(),
+        1,
+        "the copy reads as a project skill: {before:?}"
+    );
+
+    let project =
+        skills::index::Index::project_scope_without(&injected.root, &injected.linked).unwrap();
+    let hits = skills::collision::check(
+        &injected,
+        Provider::Codex,
+        &fixture.home,
+        &user,
+        &project,
+        None,
+    );
+    assert!(hits.is_empty(), "{hits:?}");
+}
+
+#[test]
 fn on_codex_the_skill_is_a_read_only_copy_with_the_snapshots_bytes() {
     let fixture = Fixture::new("codex-copy");
     let layout = fixture.layout();

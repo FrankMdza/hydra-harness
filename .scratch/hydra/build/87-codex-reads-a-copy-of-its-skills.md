@@ -56,3 +56,11 @@ copy followed symlinks (a loop recursed forever). Item 4 needed no contract chan
 master with an empty `HYDRA_ROOT`: every suite green, clippy and fmt clean. The seatbelt test for the
 copy was measured outside a run. Built by `cursor-agent` on Composer 2.5 under `standard`, run
 01a0cc69-bbd2, 4.9M tokens; an Opus subagent reviewed and fixed it in two rounds.
+
+A regression the suite did not catch, found by the first real `codex` launch after the push (run
+01a0cc9b-5397, 2026-09-23): the launch-time collision check builds its project index skipping links,
+and a copy is a real directory, so every `codex` launch was refused with `skill_collision` naming its
+own copy. `Index::project_scope_without` drops the entries Hydra injected, and
+`tests/skills.rs::a_codex_copy_is_not_a_collision_with_itself` shows the old index reporting the hit
+and the new one not. Measured again with a real `codex` launch, which started.
+

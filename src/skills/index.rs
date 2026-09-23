@@ -64,6 +64,19 @@ impl Index {
         Self::walk(std::slice::from_ref(&root.to_path_buf()), true)
     }
 
+    /// The project scope without the entries Hydra itself put there. Skipping
+    /// links was enough while every provider got a link; since build ticket 87
+    /// `codex` gets a copy, which is a real directory, and without this the
+    /// launch-time check read each copy as the checkout's own skill and refused
+    /// every `codex` launch as a collision with itself.
+    pub fn project_scope_without(root: &Path, injected: &[String]) -> Result<Self> {
+        let mut index = Self::project_scope(root)?;
+        index
+            .entries
+            .retain(|entry| !injected.iter().any(|name| entry.path == root.join(name)));
+        Ok(index)
+    }
+
     fn walk(roots: &[PathBuf], skip_links: bool) -> Result<Self> {
         let mut entries = Vec::new();
         for root in roots {
