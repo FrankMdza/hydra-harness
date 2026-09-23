@@ -1448,13 +1448,27 @@ fn a_profile_with_a_parent_git_dir_names_the_private_git_carve_out() {
     .unwrap();
     let private_git = canonical_subpath(&repo.join(".git/worktrees/r1"));
     let text = std::fs::read_to_string(spawn.sandbox_profile.as_ref().unwrap()).unwrap();
-    assert!(
-        text.contains(&format!(
-            r#"(allow file-write* (subpath "{}"))"#,
-            private_git
-        )),
-        "profile does not allow the private git dir:\n{text}"
-    );
+    for name in ["index", "index.lock"] {
+        assert!(
+            text.contains(&format!(
+                r#"(allow file-write* (subpath "{private_git}/{name}"))"#
+            )),
+            "profile does not allow private {name}:\n{text}"
+        );
+    }
+    assert!(!text.contains(&format!(r#"(allow file-write* (subpath "{private_git}"))"#)));
+    for name in ["HEAD", "commondir", "gitdir"] {
+        let payload = serde_json::json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Write",
+            "tool_input": {"file_path": format!("{private_git}/{name}"), "content": "x"},
+            "cwd": worktree,
+        });
+        let answer = ask_through_the_hook(&spawn.hook_config, &payload.to_string());
+        assert!(
+            answer.contains("\"deny\"") && answer.contains("hydra/protected-path"),
+            "gate allowed private {name}: {answer}"
+        );
+    }
 }
 
 #[test]
@@ -1558,6 +1572,69 @@ fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
     assert!(refused(&refs), "parent .git/refs write should fail: {refs}");
     let head = under_seatbelt(&profile, &format!("echo x > '{git_dir}/HEAD'"));
     assert!(refused(&head), "parent .git/HEAD write should fail: {head}");
+    for name in ["HEAD", "commondir", "gitdir"] {
+        let target = private_git.join(name);
+        let before = std::fs::read(&target).unwrap();
+        let out = under_seatbelt(
+            &profile,
+            &format!("echo x > '{}'", canonical_subpath(&target)),
+        );
+        assert!(refused(&out), "private {name} write should fail: {out}");
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+    }
+
+    // Measure creation-only object access independently of the production grant.
+    // Nested seatbelts return above, so a skipped probe is never called a success.
+    let objects = canonical_subpath(&repo.join(".git/objects"));
+    let full_grant = format!(r#"(allow file-write* (subpath "{objects}"))"#);
+    assert!(profile_text.contains(&full_grant));
+    let candidate = profile_text.replace(&full_grant, &format!(
+        "(deny file-write-data (subpath \"{objects}\"))\n(deny file-write-unlink (subpath \"{objects}\"))\n(allow file-write-create (subpath \"{objects}\"))"
+    ));
+    let candidate_path = layout.spawn("r1").join("objects-create-only.sb");
+    std::fs::write(&candidate_path, candidate).unwrap();
+    std::fs::write(
+        worktree.join("fresh-blob.txt"),
+        "a fresh object for ticket 95\n",
+    )
+    .unwrap();
+    std::fs::write(worktree.join("existing-blob.txt"), "hello\n").unwrap();
+    let fresh = under_seatbelt(
+        &candidate_path,
+        &format!("cd '{wt}' && git add fresh-blob.txt"),
+    );
+    let existing = under_seatbelt(
+        &candidate_path,
+        &format!("cd '{wt}' && git add existing-blob.txt"),
+    );
+    eprintln!("creation-only objects, new blob: {fresh}");
+    eprintln!("creation-only objects, existing blob: {existing}");
+    assert!(
+        !fresh.contains("sandbox_apply") && !existing.contains("sandbox_apply"),
+        "creation-only profile did not load"
+    );
+    let sentinel = repo.join(".git/objects/existing-object-probe");
+    std::fs::write(&sentinel, "keep these bytes\n").unwrap();
+    let overwrite = under_seatbelt(
+        &candidate_path,
+        &format!("echo replaced > '{}'", canonical_subpath(&sentinel)),
+    );
+    let unlink = under_seatbelt(
+        &candidate_path,
+        &format!("rm '{}'", canonical_subpath(&sentinel)),
+    );
+    assert!(
+        refused(&overwrite),
+        "creation-only object overwrite succeeded: {overwrite}"
+    );
+    assert!(
+        refused(&unlink),
+        "creation-only object unlink succeeded: {unlink}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(sentinel).unwrap(),
+        "keep these bytes\n"
+    );
 }
 
 #[test]

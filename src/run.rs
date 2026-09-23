@@ -1433,11 +1433,15 @@ pub fn result(
         .and_then(|start| start.body["worktree"]["base_tree"].as_str());
     let base_tree = recorded_base_tree.or(seed_tree);
     let diff_stat = match (worktree, base_tree, !run.run_id.is_empty()) {
-        (Some(worktree), Some(base), true) => crate::worktree::diff_stat(
+        (Some(worktree), Some(base), true) => crate::worktree::CheckoutGit::for_run(
+            layout,
+            &run.run_id,
             std::path::Path::new(&worktree.path),
-            &layout.stat_index(&run.run_id),
-            base,
+            run.run_start().map(|start| &start.body),
         )
+        .and_then(|context| {
+            crate::worktree::diff_stat(&context, &layout.stat_index(&run.run_id), base)
+        })
         .inspect_err(|err| {
             // The record is already whole at this point, so a failed stat is a
             // missing field rather than a failed run. It is said out loud because

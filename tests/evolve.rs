@@ -35,6 +35,16 @@ fn admission_write_is_not_carried_by_the_offered_branch() {
     std::fs::write(repo.join("src/policy/guard.rs"), "// original\n").unwrap();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-qm", "protected baseline"]);
+    let run_id = "01a08000-0000-7000-8000-00000000ad02";
+    let parent = repo;
+    let repo = fixture.layout().worktree(run_id);
+    hydra::worktree::create(
+        &parent,
+        &repo,
+        &format!("hydra/{run_id}"),
+        &fixture.layout().seed_index(run_id),
+    )
+    .unwrap();
     std::fs::write(
         repo.join("Cargo.toml"),
         "[package]\nname = \"tree-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -44,7 +54,6 @@ fn admission_write_is_not_carried_by_the_offered_branch() {
     std::fs::write(repo.join(".gitignore"), "/target\n/Cargo.lock\n").unwrap();
     std::fs::write(repo.join("build.rs"), "fn main() { std::fs::write(\"src/policy/guard.rs\", \"// admission edit\\n\").unwrap(); }\n").unwrap();
     let base_tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
-    let run_id = "01a08000-0000-7000-8000-00000000ad02";
     let record = Record::shaped(Shape {
         run_id,
         worktree: Some(&repo),
@@ -99,7 +108,7 @@ fn admission_write_is_not_carried_by_the_offered_branch() {
     assert_eq!(approved.tree(), read_tree);
     // The same commit path also preserves a worktree that has not changed.
     hydra::rungs::evolve::commit_pass_branch(
-        &repo,
+        &parent,
         &patch,
         "rungs/unchanged",
         "verdict: offerable",
@@ -131,7 +140,7 @@ fn admission_write_is_not_carried_by_the_offered_branch() {
         &repo,
         &["commit", "-q", "--allow-empty", "-m", "moved by admission"],
     );
-    hydra::rungs::evolve::commit_pass_branch(&repo, &patch, "rungs/test", "verdict: offerable")
+    hydra::rungs::evolve::commit_pass_branch(&parent, &patch, "rungs/test", "verdict: offerable")
         .unwrap();
     assert_eq!(
         git(&repo, &["show", "rungs/test:src/policy/guard.rs"]),
@@ -147,6 +156,7 @@ fn admission_write_is_not_carried_by_the_offered_branch() {
     );
     assert_eq!(git(&repo, &["rev-parse", "rungs/test^"]).trim(), read_head);
     std::fs::remove_dir_all(repo).unwrap();
+    std::fs::remove_dir_all(parent).unwrap();
 }
 
 struct Fixture {
@@ -599,6 +609,7 @@ fn patch_fixture(
     };
     ProposerPatch {
         worktree: repo.to_path_buf(),
+        git_context: None,
         head: git(repo, &["rev-parse", "HEAD"]).trim().to_string(),
         tree: base_tree.clone(),
         base_tree,

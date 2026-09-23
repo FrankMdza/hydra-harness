@@ -735,15 +735,14 @@ impl<'a> ReplaySpawn<'a> {
             if checkout.is_some() {
                 rebuilt.push(keys::SKILL_CHECKOUT);
             }
-            // The parent repo's `.git`, rediscovered from the checkout the run
-            // worked in. `--git-common-dir` answers there with the directory
-            // every checkout of that repo shares, which is the one 7.5 denies;
-            // joining `.git` onto the checkout would name a pointer file
-            // instead. A record whose checkout `hydra reap` has taken answers
-            // nothing, which loses a `GateLeak` it could have reported and never
-            // invents one. Ticket 14 measured it and it is the sharpest case for
-            // a stored path over a rebuilt one.
-            let found = crate::worktree::git_common_dir(worktree.unwrap_or(&here));
+            // Never rediscover Git metadata through a run's writable checkout.
+            // Old records can recover the parent from Hydra's saved launch data;
+            // without either source, report the missing scope.
+            let found = worktree.and_then(|path| {
+                crate::worktree::CheckoutGit::for_run(layout, run_id, path, None)
+                    .ok()
+                    .map(|context| context.common_dir().to_path_buf())
+            });
             match &found {
                 Some(_) => rebuilt.push(keys::PARENT_GIT_DIR),
                 None => parent_git_dir_lost = true,

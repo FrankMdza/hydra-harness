@@ -626,19 +626,23 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
     if !spawn.worktree.starts_with(spawn.layout.spawns()) {
         paths.push(spawn.worktree.to_path_buf());
         // The checkout's private git directory lives inside the parent's `.git`,
-        // which is denied whole. `index`, `HEAD` and `logs/` for this run sit
-        // there, at `worktrees/<run-id>/` when Hydra names the checkout from
-        // the run id.
+        // which is denied whole. Only the index and its lock are writable, which
+        // is all `git status` and `git add` need, measured 2026-09-23. `logs/`
+        // stays denied: a run that replaced it with a link would have reap's
+        // commit, outside the seatbelt, append a reflog line to the target.
+        // HEAD, commondir and gitdir retain the parent's denial.
+        // These live at worktrees/<run-id>/.
         if let Some(git_dir) = spawn.parent_git_dir
             && let Some(run_id) = spawn.gate_script.parent().and_then(|p| p.file_name())
         {
-            paths.push(git_dir.join("worktrees").join(run_id));
+            let private = git_dir.join("worktrees").join(run_id);
+            paths.extend([private.join("index"), private.join("index.lock")]);
             // `git add` writes the blob into the shared object store before it
             // touches the index, measured 2026-09-22 under a real profile:
-            // "unable to create temporary file: Operation not permitted". The
-            // store is content-addressed, so a run can add objects and cannot
-            // alter one; `refs/` stays denied, so no branch moves from inside
-            // and `git commit` still fails on its own ref.
+            // "unable to create temporary file: Operation not permitted".
+            // This remains a full write grant until a creation-only profile is
+            // measured successfully. Content addressing does not prevent a run
+            // from deleting or overwriting an existing object. Refs stay denied.
             paths.push(git_dir.join("objects"));
         }
     }
@@ -1372,7 +1376,8 @@ mod tests {
             own_write_paths(&spawn),
             vec![
                 worktree,
-                git_dir.join("worktrees").join("r1"),
+                git_dir.join("worktrees/r1/index"),
+                git_dir.join("worktrees/r1/index.lock"),
                 git_dir.join("objects")
             ]
         );

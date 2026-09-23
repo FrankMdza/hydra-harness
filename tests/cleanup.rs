@@ -1147,3 +1147,199 @@ fn prune_leaves_the_checkout_and_the_spawn_directory_to_reap() {
     assert!(layout.worktree(run).is_dir());
     assert!(layout.spawn(run).is_dir());
 }
+
+#[test]
+fn reap_refuses_a_checkout_on_another_branch_before_committing() {
+    let fixture = Fixture::new("foreign-branch");
+    let layout = fixture.layout();
+    let run = "01a07217-6007-7733-9ce2-7bb31830eab9";
+    let checkout = fixture.checkout(run);
+    git(&checkout, &["checkout", "-qb", "human"]);
+    std::fs::write(checkout.join("human.txt"), "human commit\n").unwrap();
+    git(&checkout, &["add", "-A"]);
+    git(&checkout, &["commit", "-qm", "human work"]);
+    let before = git(&fixture.repo, &["rev-parse", "human"]);
+    std::fs::write(checkout.join("child.txt"), "child work\n").unwrap();
+    let reaped = reap_one(&layout, run, false);
+    assert!(matches!(&reaped[0], Reaped::Failed { why, .. } if why.contains("human")));
+    assert_eq!(git(&fixture.repo, &["rev-parse", "human"]), before);
+    assert!(checkout.is_dir());
+    assert!(layout.spawn(run).is_dir());
+}
+
+#[cfg(unix)]
+fn redirect_git_to_decoy(fixture: &Fixture, checkout: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let decoy = checkout.join("decoy.git");
+    git(
+        &fixture.repo,
+        &["clone", "--bare", "-q", ".", decoy.to_str().unwrap()],
+    );
+    let branch = git(checkout, &["symbolic-ref", "HEAD"]);
+    git(&decoy, &["symbolic-ref", "HEAD", branch.trim()]);
+    let marker = fixture.root.join("decoy-was-used");
+    let monitor = checkout.join("decoy-monitor");
+    std::fs::write(
+        &monitor,
+        format!(
+            "#!/bin/sh\ntouch '{}'\nprintf 'token\\0'\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&monitor, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(&decoy, &["config", "core.bare", "false"]);
+    git(
+        &decoy,
+        &["config", "core.worktree", checkout.to_str().unwrap()],
+    );
+    git(
+        &decoy,
+        &["config", "core.fsmonitor", monitor.to_str().unwrap()],
+    );
+    // The fsmonitor belt alone would stop the monitor, so the decoy also
+    // defines a clean filter the checkout selects: only the pinned directories
+    // keep git from reading the decoy's configuration at all.
+    let filter = checkout.join("decoy-filter");
+    std::fs::write(
+        &filter,
+        format!("#!/bin/sh\ntouch '{}'\ncat\n", marker.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&filter, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(
+        &decoy,
+        &["config", "filter.decoy.clean", filter.to_str().unwrap()],
+    );
+    std::fs::write(checkout.join(".gitattributes"), "* filter=decoy\n").unwrap();
+    std::fs::write(
+        checkout.join(".git"),
+        format!("gitdir: {}\n", decoy.display()),
+    )
+    .unwrap();
+    marker
+}
+
+#[test]
+#[cfg(unix)]
+fn reap_ignores_a_rewritten_git_file_and_its_configuration() {
+    let fixture = Fixture::new("decoy-reap");
+    let layout = fixture.layout();
+    let run = "01a07217-6007-7733-9ce2-7bb31830eaba";
+    let checkout = fixture.checkout(run);
+    let marker = redirect_git_to_decoy(&fixture, &checkout);
+    std::fs::write(checkout.join("child.txt"), "real branch\n").unwrap();
+    let reaped = reap_one(&layout, run, false);
+    assert!(worktree_of(&reaped[0]).committed.is_some());
+    assert_eq!(
+        git(&fixture.repo, &["show", &format!("hydra/{run}:child.txt")]),
+        "real branch\n"
+    );
+    assert!(!marker.exists(), "decoy configuration executed");
+}
+
+#[test]
+#[cfg(unix)]
+fn run_end_diff_stat_ignores_a_rewritten_git_file_and_its_configuration() {
+    let fixture = Fixture::new("decoy-stat");
+    let layout = fixture.layout();
+    let run_id = "01a07217-6007-7733-9ce2-7bb31830eabb";
+    let checkout = fixture.checkout(run_id);
+    let base = git(&checkout, &["rev-parse", "HEAD^{tree}"])
+        .trim()
+        .to_string();
+    let file = write_run(&layout, run_id, None, true);
+    let text = std::fs::read_to_string(&file).unwrap();
+    let mut lines: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    lines[0]["hydra"]["worktree"]["base_tree"] = json!(base);
+    lines[0]["hydra"]["scopes"]["parent_git_dir"] = json!(fixture.repo.join(".git"));
+    let text = lines
+        .iter()
+        .map(|line| format!("{line}\n"))
+        .collect::<String>();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_with(&text, &policies, &layout).unwrap();
+    let marker = redirect_git_to_decoy(&fixture, &checkout);
+    std::fs::write(checkout.join("child.txt"), "new work\n").unwrap();
+    let result = hydra::run::result(
+        &run,
+        &file,
+        Some(&hydra::record::WorktreeRef {
+            path: checkout.to_string_lossy().into_owned(),
+            branch: format!("hydra/{run_id}"),
+            base_tree: Some(base),
+        }),
+        None,
+        &layout,
+    );
+    assert!(result.diff_stat.is_some());
+    assert!(!marker.exists(), "decoy configuration executed");
+}
+
+#[test]
+fn reap_refuses_a_curate_checkout_on_another_branch() {
+    let fixture = Fixture::new("foreign-curate-branch");
+    let layout = fixture.layout();
+    let run = "01a07217-6007-7733-9ce2-7bb31830eabc";
+    let checkout = fixture.store_checkout(run);
+    std::fs::create_dir_all(layout.spawn(run)).unwrap();
+    git(&checkout, &["checkout", "-qb", "human"]);
+    std::fs::write(checkout.join("human.txt"), "human work\n").unwrap();
+    git(&checkout, &["add", "-A"]);
+    git(&checkout, &["commit", "-qm", "human work"]);
+    let before = git(&fixture.store(), &["rev-parse", "human"]);
+    std::fs::write(checkout.join("child.txt"), "child work\n").unwrap();
+    let reaped = reap_one(&layout, run, false);
+    assert!(matches!(&reaped[0], Reaped::Failed { why, .. } if why.contains("human")));
+    assert_eq!(git(&fixture.store(), &["rev-parse", "human"]), before);
+    assert!(checkout.is_dir());
+    assert!(layout.spawn(run).is_dir());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_link_planted_as_the_private_logs_takes_no_reflog_line_to_its_target() {
+    let fixture = Fixture::new("logs-link");
+    let layout = fixture.layout();
+    let run = "01a07217-6007-7733-9ce2-7bb31830eab9";
+    let checkout = fixture.checkout(run);
+    std::fs::write(checkout.join("child.txt"), "work\n").unwrap();
+    let victim = fixture.root.join("victim.txt");
+    std::fs::write(&victim, "untouched\n").unwrap();
+    let private = fixture.repo.join(".git/worktrees").join(run);
+    let _ = std::fs::remove_dir_all(private.join("logs"));
+    let fake = fixture.root.join("fake-logs");
+    std::fs::create_dir_all(&fake).unwrap();
+    std::os::unix::fs::symlink(&victim, fake.join("HEAD")).unwrap();
+    std::os::unix::fs::symlink(&fake, private.join("logs")).unwrap();
+    let reaped = reap_one(&layout, run, false);
+    assert_eq!(hydra::reap::failures(&reaped), 0);
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "untouched\n");
+}
+
+#[test]
+fn reap_without_trusted_git_metadata_leaves_checkout_untouched() {
+    let fixture = Fixture::new("missing-trusted-git");
+    let layout = fixture.layout();
+    let run = "01a07217-6007-7733-9ce2-7bb31830eabd";
+    let checkout = fixture.checkout(run);
+    let saved = checkout.with_extension("git-context.json");
+    if saved.exists() {
+        std::fs::remove_file(saved).unwrap();
+    }
+    std::fs::write(checkout.join("child.txt"), "keep this work\n").unwrap();
+    let before = git(&fixture.repo, &["rev-parse", &format!("hydra/{run}")]);
+    let reaped = reap_one(&layout, run, false);
+    assert!(
+        matches!(&reaped[0], Reaped::Failed { why, .. } if why.contains("no trusted git directory"))
+    );
+    assert_eq!(
+        git(&fixture.repo, &["rev-parse", &format!("hydra/{run}")]),
+        before
+    );
+    assert!(checkout.join("child.txt").is_file());
+    assert!(layout.spawn(run).is_dir());
+}

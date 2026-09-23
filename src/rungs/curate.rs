@@ -278,7 +278,16 @@ pub fn propose(
         refused: Vec::new(),
     };
 
-    let started_at = git(checkout, &["rev-parse", "HEAD"])?.trim().to_string();
+    let common =
+        crate::worktree::git_common_dir(store).context("skill store has no Git directory")?;
+    let context = crate::worktree::CheckoutGit::new(checkout, &common)?;
+    let found = git(&context, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    anyhow::ensure!(
+        found.trim() == branch,
+        "checkout is on branch {}, expected {branch}",
+        found.trim()
+    );
+    let started_at = git(&context, &["rev-parse", "HEAD"])?.trim().to_string();
 
     // Harness spec 6.4's write-time check, before anything is committed. A
     // refusal leaves the checkout and the branch exactly as the curator left
@@ -302,8 +311,10 @@ pub fn propose(
     }
 
     let exclude = crate::provider::own_worktree_paths();
-    proposal.commit = commit_everything(checkout, &message(run_id, result), &exclude)?;
+    context.clear_private_logs()?;
+    proposal.commit = commit_everything(&context, &message(run_id, result), &exclude)?;
 
+    context.restore_pointer()?;
     match git(store, &["worktree", "remove", &checkout.to_string_lossy()]) {
         Ok(_) => proposal.checkout_removed = true,
         Err(err) => proposal.left.push(format!("{err:#}")),

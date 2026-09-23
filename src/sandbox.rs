@@ -114,6 +114,17 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
             escape(&own)
         ));
     }
+    if let Some(common) = spawn.parent_git_dir
+        && let Some(run_id) = spawn.gate_script.parent().and_then(|p| p.file_name())
+    {
+        for name in ["HEAD", "commondir", "gitdir"] {
+            let path = common.join("worktrees").join(run_id).join(name);
+            lines.push(format!(
+                r#"(deny file-write* (subpath "{}"))"#,
+                escape(&canonical(&path))
+            ));
+        }
+    }
     // The vendor's own data root under the spawn directory, `cursor-data/` on
     // `cursor-agent`, is a read carve-out at the gate and has to be writable at
     // the kernel: the binary creates it before the model runs anything, and

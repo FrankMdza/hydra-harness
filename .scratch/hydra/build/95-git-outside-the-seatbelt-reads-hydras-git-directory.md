@@ -1,7 +1,7 @@
 # 95 - Git outside the seatbelt reads Hydra's git directory, and reap commits only on its own branch
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 89
 
 ## What
@@ -64,3 +64,48 @@ Tests take a scratch `Layout` and a throwaway repository, never `Layout::discove
 early inside a seatbelt (`tests/spawn.rs` ~1509), and you are inside one: say which tests could not
 measure in your worktree, and the session runs them outside. Run `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` before you stop.
+
+## Outcome
+
+Built by `codex` under `standard`, run 01a0cfae-6b3a, 7.7M tokens; the first run, 01a0cfa7-7c3e,
+stopped on a detail an earlier ticket had already fixed, and the task text now says a stale detail
+is not a reason to stop. Then fixed by the session after an Opus review that ran the seatbelt tests
+outside a seatbelt: cleanup 38 and spawn 32 passed there.
+
+Parts 1 to 3 as asked: `worktree::CheckoutGit` pins `GIT_DIR`, `GIT_COMMON_DIR` and
+`GIT_WORK_TREE` from the record's `scopes.parent_git_dir` or a sidecar saved at launch under the
+deny list, on reap, the run-end diff stat, status's seed index, rung two's patch read and rung
+one's proposal. Reap and curate refuse a foreign branch before staging. The private carve-out is
+the index and its lock.
+
+What the review changed:
+- The agent kept `logs/` writable. Neither `git status` nor `git add` needs it, and a run that
+  replaced it with a link would have had reap's commit append a reflog line, outside the seatbelt,
+  to the link's target; the review measured it. The grant is gone, and reap and curate remove the
+  private `logs/` before committing, for checkouts launched earlier.
+  `a_link_planted_as_the_private_logs_takes_no_reflog_line_to_its_target` fails without that.
+- The decoy tests used `core.fsmonitor` as their marker, which the `-c core.fsmonitor=false` belt
+  defeats on its own. The decoy now also defines a clean filter the checkout selects. With the
+  three environment variables removed from `CheckoutGit::command`, both decoy tests fail.
+- The hooks and fsmonitor belt applied to every git Hydra runs, parent repositories included, so
+  `git worktree add` stopped running the human's own post-checkout hook. It is scoped to checkouts.
+- A pruned run's reap reads its record from `pruned/`; the missing-metadata error says how to
+  recover by hand.
+
+Part 4, the object store, found its premise false. The session measured, outside a seatbelt,
+that `file-write-create` alone lets `git add` of new and existing blobs work with a clean
+`git fsck` and 23 stray `tmp_obj_*` files, and refuses delete, overwrite, `chmod` and rename of an
+existing object. The review then measured that a run can still create a pack mapping an existing
+sha to other bytes and git serves it. Creation-only stops deletion, not substitution, so the
+grant stays and map ticket 74 holds the question. `SECURITY.md` states it, with the
+`~/.gitconfig` residual the review named: `standard` leaves home writable by shell, so a run can
+define a filter reap's git will run.
+
+Measured on master: cleanup 39, spawn 32, evolve 26, curate 22, status and outcome green, lib
+200; fmt and clippy clean. `tests/normalize.rs`'s corpus walk fails on master before and after
+this change, on record 01a0cc56-c15b, an `Edit` to a mistyped `worktrades/` path with no hook
+decision; not caused here, and left for its own look.
+
+The real run: `claude` haiku under `standard`, run 01a0cfcb-4fd1, ran `git add` inside the new
+profile and got `A  probe95.txt`; `hydra reap` from outside committed it, removed the checkout and
+deleted the branch.

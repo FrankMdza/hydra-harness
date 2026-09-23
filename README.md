@@ -27,7 +27,8 @@ So the record decides, not the vendor.
   Four vendors, one contract, one outcome column.
 - **Every run gets its own git worktree.** Seeded from your tree, so the agent sees your
   uncommitted work and cannot touch it. `hydra reap` commits what it did to `hydra/<run-id>`
-  and removes the checkout. Your branch never moves.
+  and removes the checkout. If the checkout is on another branch, reap refuses and leaves it
+  and its spawn directory intact. Your branch never moves.
 - **A policy is compiled into the vendor's own hook.** Five named policies, from `judge`
   (nothing) to `permissive`. The gate speaks each vendor's hook dialect and refuses if spoken
   to in the wrong one. Any shell command that spells a protected path is refused under every

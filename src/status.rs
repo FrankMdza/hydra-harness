@@ -179,10 +179,18 @@ fn build(layout: &Layout, run_id: &str, home: &Path) -> Result<Report> {
                     // on a `Worktree` that lived in another process. The seed index
                     // still holds it.
                     let base = view.worktree.as_ref().and_then(|w| {
-                        crate::worktree::tree_of_index(
+                        crate::worktree::CheckoutGit::for_run(
+                            layout,
+                            &view.run_id,
                             std::path::Path::new(&w.path),
-                            &layout.seed_index(&view.run_id),
+                            run.run_start().map(|start| &start.body),
                         )
+                        .and_then(|context| {
+                            crate::worktree::tree_of_index(
+                                &context,
+                                &layout.seed_index(&view.run_id),
+                            )
+                        })
                         .ok()
                     });
                     Some(crate::run::result(

@@ -801,22 +801,31 @@ fn a_record_with_no_run_id_writes_no_shared_scratch_index() {
     );
 }
 
-/// A freshly initialized repository with one untracked file and no commit yet.
-/// `write-tree` answers for a checkout in this shape the same way it does for
-/// a seeded one, which is all the diff stat below needs.
+/// A real linked checkout with an empty base tree and one untracked file.
+/// Trusted parent metadata lives outside the checkout, as it does at launch.
 fn git_repo_with_untracked_file(worktree: &std::path::Path) {
+    let parent = worktree
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("parent-repo");
+    std::fs::create_dir_all(&parent).unwrap();
     for args in [
         &["init", "-q", "-b", "main"][..],
         &["config", "user.email", "test@example.invalid"][..],
         &["config", "user.name", "hydra tests"][..],
+        &["commit", "--allow-empty", "-qm", "empty base"][..],
     ] {
         let out = std::process::Command::new("git")
             .args(args)
-            .current_dir(worktree)
+            .current_dir(&parent)
             .output()
             .unwrap();
         assert!(out.status.success(), "git {args:?}");
     }
+    std::fs::remove_dir(worktree).unwrap();
+    hydra::worktree::create(&parent, worktree, "hydra/probe", &parent.join("seed-index")).unwrap();
     std::fs::write(worktree.join("a.txt"), "one\n").unwrap();
 }
 

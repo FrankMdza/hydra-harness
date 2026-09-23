@@ -2979,6 +2979,30 @@ this machine, 145 of the hits being Cursor's `contentBlobId` digests; as a warni
 normalized vocabulary, to `--out <file>`. Nothing on this machine has been exported: the
 allowlist does not exist, and `hydra export --dry-run` says so.
 
+## Git that Hydra runs in a run's checkout, since build ticket 95
+
+**Nothing Hydra runs discovers a repository through a checkout's `.git` file.** That file lives
+in the run's worktree and the run can rewrite it; until build ticket 95, reap, the diff stat at a
+run's end, rung two's patch read and rung one's proposal all ran `git` with `current_dir` set to
+the checkout and nothing else, outside any seatbelt, so a run could point them at a configuration
+it wrote. `worktree::CheckoutGit` holds the checkout path, the parent's common git directory and
+the private directory `common/worktrees/<name>`, taken from the record's
+`scopes.parent_git_dir`, or from `worktrees/<run-id>.git-context.json` saved at launch beside the
+checkout and under the deny list. Every call through it sets `GIT_DIR`, `GIT_COMMON_DIR` and
+`GIT_WORK_TREE` and passes `core.hooksPath=/dev/null` and `core.fsmonitor=false`. Calls in a
+parent repository or the skill store still discover normally and keep the human's hooks.
+
+- Reap refuses a checkout on any branch but its own before it stages anything, rewrites the
+  `.git` file to the trusted directory because `git worktree remove` reads it, and removes the
+  private `logs/` before committing: a checkout launched before this ticket could write there,
+  and a link planted as `logs` would have taken reap's reflog line to any file.
+- The seatbelt and the gate grant the private directory's `index` and `index.lock` only.
+- A checkout with neither trusted source fails its reap with a message saying how to remove it by
+  hand. No checkout on this machine was in that state on 2026-09-23.
+- Replaying an old record no longer rediscovers `parent_git_dir` through the checkout for records
+  written before scopes carried it; such a record reports the scope as missing instead.
+- The object store keeps its full write grant; map ticket 74.
+
 ## Rung two: `hydra evolve`, since build ticket 36
 
 **The pass branch carries the read tree, since build ticket 89.** Hydra seeds one tree

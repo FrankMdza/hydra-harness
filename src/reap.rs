@@ -48,7 +48,7 @@ use anyhow::Result;
 
 use crate::live::{RunView, State};
 use crate::paths::Layout;
-use crate::worktree::{commit_everything, git};
+use crate::worktree::{CheckoutGit, commit_everything, git};
 
 /// What one run's reap did.
 pub enum Reaped {
@@ -160,6 +160,24 @@ pub fn reap(
         .collect())
 }
 
+fn reap_git_context(layout: &Layout, run_id: &str, checkout: &Path) -> Result<CheckoutGit> {
+    // A pruned run's record moved to `pruned/`, and it still names the parent.
+    let start = [layout.run_file(run_id), layout.pruned_file(run_id)]
+        .iter()
+        .find_map(|file| std::fs::read_to_string(file).ok())
+        .and_then(|text| {
+            text.lines()
+                .next()
+                .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        });
+    CheckoutGit::for_run(
+        layout,
+        run_id,
+        checkout,
+        start.as_ref().map(|line| &line["hydra"]),
+    )
+}
+
 fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) -> Reaped {
     let worktree = layout.worktree(run_id);
     let checkout = layout.skill_checkout(run_id);
@@ -203,6 +221,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     if worktree.is_dir() {
         match commit_then_remove(
             &worktree,
+            reap_git_context(layout, run_id, &worktree),
             &injected,
             &format!("hydra/{run_id}"),
             &format!("hydra reap: what run {run_id} left uncommitted"),
@@ -224,6 +243,9 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     if checkout.is_dir() {
         match commit_then_remove(
             &checkout,
+            crate::worktree::git_common_dir(&layout.skills())
+                .ok_or_else(|| anyhow::anyhow!("skill store has no Git directory"))
+                .and_then(|common| CheckoutGit::new(&checkout, &common)),
             &injected,
             &format!("rungs/curate/{run_id}"),
             &format!("hydra reap: what curate run {run_id} left uncommitted"),
@@ -336,7 +358,7 @@ fn injected_skills(layout: &Layout, run_id: &str) -> InjectedSkills {
 /// Removes `<root>/.gitignore` when it is still the one `skills::inject`
 /// wrote: untracked, and holding exactly `*`. A repo's own ignore file there,
 /// or one the run rewrote, is left to be committed or kept like any other.
-fn drop_hydras_ignore(checkout: &Path, ignore: &str) -> Result<()> {
+fn drop_hydras_ignore(checkout: &Path, context: &CheckoutGit, ignore: &str) -> Result<()> {
     // A root reached through a link the run made would put the removal
     // outside the checkout.
     if !crate::worktree::inside_checkout(checkout, ignore) {
@@ -347,10 +369,7 @@ fn drop_hydras_ignore(checkout: &Path, ignore: &str) -> Result<()> {
     if !is_file || std::fs::read_to_string(&path).ok().as_deref() != Some("*\n") {
         return Ok(());
     }
-    if !git(checkout, &["ls-files", "--", ignore])?
-        .trim()
-        .is_empty()
-    {
+    if !git(context, &["ls-files", "--", ignore])?.trim().is_empty() {
         return Ok(());
     }
     std::fs::remove_file(&path)?;
@@ -369,27 +388,36 @@ fn drop_hydras_ignore(checkout: &Path, ignore: &str) -> Result<()> {
 /// differ in the repository they came off, the branch Hydra made for them and the
 /// commit message, so those are the arguments. `hydra_branch` is
 /// `hydra/<run-id>` for the one and `rungs/curate/<run-id>` for the other, and
-/// everything below runs against whichever repository the checkout belongs to,
-/// which [`main_worktree`] reads off the checkout itself.
+/// the Git metadata comes from trusted launch data or the skill store.
 fn commit_then_remove(
     checkout: &Path,
+    context: Result<CheckoutGit>,
     injected: &InjectedSkills,
     hydra_branch: &str,
     message: &str,
     delete_branch: bool,
 ) -> Result<Checkout> {
-    let main = main_worktree(checkout)?;
+    let context = context?;
+    let main = main_worktree(&context)?;
 
     // A commit on a detached HEAD is reachable from nothing once the checkout is
     // gone, which is the one shape where committing first would not save the work
     // it claims to. Reap leaves it and says so.
-    let Some(branch) = current_branch(checkout)? else {
+    let Some(branch) = current_branch(&context)? else {
         anyhow::bail!(
             "{} is on a detached HEAD, so a commit would be reachable from nothing. \
              Give it a branch and reap it again.",
             checkout.display()
         );
     };
+    if branch != hydra_branch {
+        anyhow::bail!(
+            "{} is on branch {branch}, expected {hydra_branch}; leaving the checkout and spawn directory",
+            checkout.display()
+        );
+    }
+    context.restore_pointer()?;
+    context.clear_private_logs()?;
     let mut swept = Checkout {
         committed: None,
         branch: branch.clone(),
@@ -403,25 +431,19 @@ fn commit_then_remove(
     // word. So it goes before staging, and the injected entries are held back
     // by name instead.
     for ignore in &injected.ignores {
-        drop_hydras_ignore(checkout, ignore)?;
+        drop_hydras_ignore(checkout, &context, ignore)?;
     }
     let mut exclude = crate::provider::own_worktree_paths();
     exclude.extend(injected.entries.iter().map(String::as_str));
-    swept.committed = commit_everything(checkout, message, &exclude)?;
+    swept.committed = commit_everything(&context, message, &exclude)?;
 
     git(&main, &["worktree", "remove", &checkout.to_string_lossy()])?;
+    let saved = checkout.with_extension("git-context.json");
+    if saved.is_file() {
+        std::fs::remove_file(saved)?;
+    }
     swept.removed = true;
 
-    // Only the branch Hydra made for this run. A child that checked out one of the
-    // human's own branches gets its work committed there and the branch left
-    // alone, which is the difference between cleaning up after a run and deleting
-    // somebody's work.
-    if branch != hydra_branch {
-        swept.branch_kept = Some(format!(
-            "{branch} is not the branch Hydra made for this run"
-        ));
-        return Ok(swept);
-    }
     match drop_branch(&main, &branch, false) {
         Ok(()) => swept.branch_removed = true,
         Err(_) if delete_branch => match drop_branch(&main, &branch, true) {
@@ -465,17 +487,17 @@ fn drop_branch(main: &Path, branch: &str, force: bool) -> Result<(), String> {
 /// `git worktree list` puts it first, always. Reap needs it because
 /// `git worktree remove` and `git branch -d` both want to run somewhere that is
 /// not the directory about to disappear.
-fn main_worktree(path: &Path) -> Result<PathBuf> {
+fn main_worktree(path: &CheckoutGit) -> Result<PathBuf> {
     let listing = git(path, &["worktree", "list", "--porcelain"])?;
     listing
         .lines()
         .find_map(|line| line.strip_prefix("worktree "))
         .map(PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!("{} is not a git worktree", path.display()))
+        .ok_or_else(|| anyhow::anyhow!("checkout is not a git worktree"))
 }
 
 /// The branch `path` has checked out, or `None` on a detached HEAD.
-fn current_branch(path: &Path) -> Result<Option<String>> {
+fn current_branch(path: &CheckoutGit) -> Result<Option<String>> {
     let name = git(path, &["rev-parse", "--abbrev-ref", "HEAD"])?
         .trim()
         .to_string();

@@ -11,6 +11,137 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+/// A checkout bound to metadata supplied by Hydra, never its writable git file.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CheckoutGit {
+    path: PathBuf,
+    common: PathBuf,
+    private: PathBuf,
+}
+
+impl CheckoutGit {
+    pub fn common_dir(&self) -> &Path {
+        &self.common
+    }
+
+    /// Replace the writable pointer without following a symlink planted there.
+    /// Git's parent-side worktree removal validates this pointer too.
+    pub fn restore_pointer(&self) -> Result<()> {
+        use std::io::Write;
+        let path = self.path.join(".git");
+        match std::fs::remove_file(&path) {
+            Ok(()) => (),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
+            Err(err) => return Err(err.into()),
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        writeln!(file, "gitdir: {}", self.private.display())?;
+        Ok(())
+    }
+
+    /// Remove the checkout's private `logs/` before a commit made outside the
+    /// seatbelt. A checkout launched before build ticket 95 could write there,
+    /// and a link planted as `logs` or inside it would take the reflog line to
+    /// any file it names. The link is removed, never followed; the reflog of a
+    /// checkout about to be removed is worth nothing.
+    pub fn clear_private_logs(&self) -> Result<()> {
+        let logs = self.private.join("logs");
+        match std::fs::symlink_metadata(&logs) {
+            Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(&logs)?,
+            Ok(_) => std::fs::remove_file(&logs)?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
+            Err(err) => return Err(err.into()),
+        }
+        Ok(())
+    }
+
+    pub fn new(path: &Path, common: &Path) -> Result<Self> {
+        let name = path.file_name().context("checkout has no directory name")?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            common: common.to_path_buf(),
+            private: common.join("worktrees").join(name),
+        })
+    }
+
+    /// Launch data beside the checkout survives record and spawn pruning and is
+    /// outside the run's writable directory.
+    pub fn for_run(
+        _layout: &crate::paths::Layout,
+        run_id: &str,
+        path: &Path,
+        start: Option<&serde_json::Value>,
+    ) -> Result<Self> {
+        if let Some(common) = start.and_then(|s| s["scopes"]["parent_git_dir"].as_str()) {
+            return Self::new(path, Path::new(common));
+        }
+        let saved = path.with_extension("git-context.json");
+        let context: Self = serde_json::from_slice(&std::fs::read(&saved).with_context(|| {
+            format!(
+                "no trusted git directory for {run_id}: its record has no \
+                     `scopes.parent_git_dir` and {} is missing, so Hydra will not run git \
+                     in a checkout whose own `.git` file the run could write. Inspect {} by \
+                     hand, then remove it with `git -C <parent repo> worktree remove`",
+                saved.display(),
+                path.display()
+            )
+        })?)?;
+        anyhow::ensure!(
+            context.path == path,
+            "saved Git checkout path does not match"
+        );
+        Ok(context)
+    }
+}
+
+/// Parent repositories may discover metadata and keep the human's own hooks.
+/// Run checkouts use CheckoutGit.
+pub trait GitLocation {
+    fn path(&self) -> &Path;
+    fn command(&self) -> Command {
+        let mut command = Command::new("git");
+        command.current_dir(self.path());
+        command
+    }
+}
+
+impl GitLocation for Path {
+    fn path(&self) -> &Path {
+        self
+    }
+}
+
+impl GitLocation for PathBuf {
+    fn path(&self) -> &Path {
+        self
+    }
+}
+
+impl GitLocation for CheckoutGit {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+    fn command(&self) -> Command {
+        let mut command = self.path.as_path().command();
+        // A belt on top of the pinned directories: nothing a run could have
+        // configured runs a hook or a monitor from a git Hydra starts.
+        command
+            .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "core.fsmonitor=false",
+            ])
+            .env("GIT_DIR", &self.private)
+            .env("GIT_COMMON_DIR", &self.common)
+            .env("GIT_WORK_TREE", &self.path);
+        command
+    }
+}
+
 pub struct Worktree {
     pub path: PathBuf,
     pub branch: String,
@@ -93,8 +224,8 @@ pub fn git_common_dir(dir: &Path) -> Option<PathBuf> {
 /// Two callers, and both remove the checkout afterwards: `hydra reap` and the
 /// curate pass's own `propose`. The removal is what differs between them, so it
 /// stays with each.
-pub fn commit_everything(
-    checkout: &Path,
+pub fn commit_everything<G: GitLocation + ?Sized>(
+    checkout: &G,
     message: &str,
     exclude: &[&str],
 ) -> Result<Option<String>> {
@@ -116,7 +247,7 @@ pub fn commit_everything(
 }
 
 /// Whether `git status` reports anything at a path not in `exclude`.
-fn dirty_outside(checkout: &Path, exclude: &[&str]) -> Result<bool> {
+fn dirty_outside<G: GitLocation + ?Sized>(checkout: &G, exclude: &[&str]) -> Result<bool> {
     let status = git(
         checkout,
         &["status", "--porcelain", "-z", "--untracked-files=all"],
@@ -158,12 +289,12 @@ fn excluded(path: &str, exclude: &[&str]) -> bool {
 /// example `.codex` pointed at a directory outside the checkout: removing through
 /// it would delete something reap was never told about. A symlink at the path
 /// itself is removed as a link, never followed.
-fn remove_untracked(checkout: &Path, exclude: &[&str]) -> Result<()> {
+fn remove_untracked<G: GitLocation + ?Sized>(checkout: &G, exclude: &[&str]) -> Result<()> {
     for path in exclude {
-        if !inside_checkout(checkout, path) {
+        if !inside_checkout(checkout.path(), path) {
             continue;
         }
-        let file = checkout.join(path);
+        let file = checkout.path().join(path);
         let Ok(meta) = std::fs::symlink_metadata(&file) else {
             continue;
         };
@@ -260,11 +391,17 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
     )
     .with_context(|| format!("creating a worktree at {}", dest.display()))?;
 
-    seed(repo, dest).with_context(|| "seeding the worktree with uncommitted changes")?;
+    let common = git_common_dir(repo).context("parent has no Git directory")?;
+    let context = CheckoutGit::new(dest, &common)?;
+    std::fs::write(
+        dest.with_extension("git-context.json"),
+        serde_json::to_vec(&context)?,
+    )?;
+    seed(repo, &context).with_context(|| "seeding the worktree with uncommitted changes")?;
 
     // A snapshot that will not write costs the diff stat and nothing else, so it
     // does not refuse the run. It says so rather than losing the field quietly.
-    let seed_tree = match seed_tree(dest, index) {
+    let seed_tree = match seed_tree(&context, index) {
         Ok(tree) => Some(tree),
         Err(err) => {
             eprintln!("hydra: no diff stat for this run, the seed snapshot failed: {err:#}");
@@ -290,7 +427,7 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
 /// Ignored files are outside it, because `add -A` honours `.gitignore` and the
 /// seed skipped them for the same reason: they are `target/` and the rest of what
 /// a build produces.
-pub fn seed_tree(worktree: &Path, index: &Path) -> Result<String> {
+pub fn seed_tree<G: GitLocation + ?Sized>(worktree: &G, index: &Path) -> Result<String> {
     if let Some(parent) = index.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -309,7 +446,7 @@ pub fn seed_tree(worktree: &Path, index: &Path) -> Result<String> {
 /// against it answers with the same sha `seed_tree` answered with at launch.
 /// Persisting the sha beside it would be a second source of truth for a fact the
 /// index already carries.
-pub fn tree_of_index(worktree: &Path, index: &Path) -> Result<String> {
+pub fn tree_of_index<G: GitLocation + ?Sized>(worktree: &G, index: &Path) -> Result<String> {
     if !index.is_file() {
         bail!("{} does not exist", index.display());
     }
@@ -330,13 +467,17 @@ pub fn tree_of_index(worktree: &Path, index: &Path) -> Result<String> {
 /// Hydra's own repo, 123 tracked files, that is 10 to 50ms. A repo big enough for
 /// it to matter can be handed a copy of the seed index instead, which carries the
 /// stat cache, and nothing here has to change for that.
-pub fn diff_stat(worktree: &Path, index: &Path, base: &str) -> Result<Stat> {
+pub fn diff_stat<G: GitLocation + ?Sized>(worktree: &G, index: &Path, base: &str) -> Result<Stat> {
     let head = seed_tree(worktree, index)?;
     diff_tree_stat(worktree, base, &head)
 }
 
 /// Measures two captured trees without staging the worktree again.
-pub fn diff_tree_stat(worktree: &Path, base: &str, head: &str) -> Result<Stat> {
+pub fn diff_tree_stat<G: GitLocation + ?Sized>(
+    worktree: &G,
+    base: &str,
+    head: &str,
+) -> Result<Stat> {
     let numstat = git(worktree, &["diff-tree", "-r", "--numstat", base, head])?;
     Ok(Stat::parse(&numstat))
 }
@@ -378,7 +519,7 @@ impl Stat {
 /// Ignored files are left behind on purpose: they are `target/`, `runs/` and the
 /// rest of what a build produces, and copying them would put a parent's run records
 /// inside a child's checkout.
-fn seed(repo: &Path, dest: &Path) -> Result<()> {
+fn seed(repo: &Path, dest: &CheckoutGit) -> Result<()> {
     let patch = git_bytes(repo, &["diff", "HEAD", "--binary"])?;
     if !patch.is_empty() {
         apply_patch(dest, &patch)?;
@@ -391,7 +532,7 @@ fn seed(repo: &Path, dest: &Path) -> Result<()> {
         }
         let relative = PathBuf::from(String::from_utf8_lossy(name).to_string());
         let from = repo.join(&relative);
-        let to = dest.join(&relative);
+        let to = dest.path().join(&relative);
         if !from.is_file() {
             continue;
         }
@@ -404,13 +545,13 @@ fn seed(repo: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-fn apply_patch(dest: &Path, patch: &[u8]) -> Result<()> {
+fn apply_patch(dest: &CheckoutGit, patch: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::process::Stdio;
 
-    let mut child = Command::new("git")
+    let mut child = dest
+        .command()
         .args(["apply", "--whitespace=nowarn", "-"])
-        .current_dir(dest)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -443,8 +584,8 @@ fn head_exists(repo: &Path) -> bool {
 ///
 /// Crate-visible because `hydra reap` runs the same three-line shape and a second
 /// copy of it would be a second place to get the stderr handling wrong.
-pub(crate) fn git(repo: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git").args(args).current_dir(repo).output()?;
+pub(crate) fn git<G: GitLocation + ?Sized>(repo: &G, args: &[&str]) -> Result<String> {
+    let out = repo.command().args(args).output()?;
     if !out.status.success() {
         bail!(
             "git {} failed: {}",
@@ -456,10 +597,14 @@ pub(crate) fn git(repo: &Path, args: &[&str]) -> Result<String> {
 }
 
 /// `git` with `GIT_INDEX_FILE` pointed somewhere the run cannot see.
-fn git_with_index(repo: &Path, index: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git")
+fn git_with_index<G: GitLocation + ?Sized>(
+    repo: &G,
+    index: &Path,
+    args: &[&str],
+) -> Result<String> {
+    let out = repo
+        .command()
         .args(args)
-        .current_dir(repo)
         .env("GIT_INDEX_FILE", index)
         .output()?;
     if !out.status.success() {
@@ -472,8 +617,8 @@ fn git_with_index(repo: &Path, index: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-fn git_bytes(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let out = Command::new("git").args(args).current_dir(repo).output()?;
+fn git_bytes<G: GitLocation + ?Sized>(repo: &G, args: &[&str]) -> Result<Vec<u8>> {
+    let out = repo.command().args(args).output()?;
     if !out.status.success() {
         bail!(
             "git {} failed: {}",

@@ -57,11 +57,29 @@ Hydra made about it.
   shell that ran `hydra evolve`, API keys and agent sockets included. The seatbelt profile bounds what the steps may do to Hydra and not what they may do to you, so a hostile test
   can still read `~/.ssh`, and the pass's harness record names the profile sha and the root the
   steps ran under.
-- **Inside the seatbelt a run can stage its work and cannot move a branch.** The worktree's
-  private git directory under `~/hydra/.git/worktrees/<run-id>` and the shared object store are
-  carved out of the denial since build ticket 70, so `git status` and `git add` work; `refs/` and
-  `HEAD` stay denied, so `git commit` and `git stash` fail with "operation not permitted" and no
-  branch moves from inside a run. `hydra reap` commits from outside.
+- **Inside the seatbelt a run can stage its work and cannot move a branch.** Under the parent
+  repository's git directory, only the private `worktrees/<run-id>/index` and `index.lock` are
+  writable, since build ticket 95; its `HEAD`, `commondir`, `gitdir` and `logs/`, and the shared
+  refs, stay denied at the gate and the seatbelt. `git status` and `git add` work, `git commit`
+  fails, and no branch moves from inside a run. `hydra reap` commits from outside, only on
+  `hydra/<run-id>` or `rungs/curate/<run-id>`, and refuses any other branch before it stages
+  anything.
+- **Git that Hydra runs outside the seatbelt does not trust the checkout's `.git` file.** Every
+  git call Hydra makes in a run's checkout sets `GIT_DIR`, `GIT_COMMON_DIR` and `GIT_WORK_TREE`
+  from the run record's `scopes.parent_git_dir`, or from launch data saved beside the checkout
+  under the deny list, and turns off hooks and fsmonitor. Before build ticket 95 a run could
+  rewrite that file and point Hydra's own git, in reap and in the diff stat at the end of a run,
+  at a configuration it wrote, found by the second hiring panel's Opus reader. One exception:
+  `git worktree remove` reads the file, so reap rewrites it to the trusted directory first. A
+  checkout with neither trusted source is left for a human, and reap says how to remove it.
+- **A run can still write the shared object store, and `~/.gitconfig`.** `objects/` keeps its
+  full write grant. A profile that allows only file creation there lets `git add` work and
+  refuses deletion and overwrite, measured 2026-09-23, but a run can still create a pack that
+  maps an existing sha to other bytes, and git served it. So creation-only stops deletion and not
+  substitution, and what to do about it is map ticket 74, open. Separately, `standard` leaves the home
+  directory writable by shell, so a run can define a filter or a signing program in
+  `~/.gitconfig` that reap's `git add` and `git commit` then run. That is the same class as
+  `~/.zshrc`.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never

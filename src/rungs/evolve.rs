@@ -386,6 +386,7 @@ pub fn brief(
 
 pub struct ProposerPatch {
     pub worktree: PathBuf,
+    pub git_context: Option<crate::worktree::CheckoutGit>,
     pub base_tree: String,
     pub tree: String,
     /// The commit the verdict commit sits on, read with the tree and before
@@ -420,14 +421,21 @@ pub fn read_proposer_patch(
             .map(|stat| stat.base_tree.as_str()))
         .context("the proposer record has no base_tree")?;
     let worktree = PathBuf::from(worktree_path);
+    let context = crate::worktree::CheckoutGit::for_run(
+        layout,
+        &result.run_id,
+        &worktree,
+        run.run_start().map(|start| &start.body),
+    )?;
     let index = layout.stat_index(&result.run_id);
-    let tree = seed_tree(&worktree, &index)?;
-    let head = git(&worktree, &["rev-parse", "HEAD"])?.trim().to_string();
-    let stat = diff_tree_stat(&worktree, base_tree, &tree)?;
-    let paths = changed_paths(&worktree, base_tree, &tree)?;
-    let diff = diff_patch(&worktree, base_tree, &tree)?;
+    let tree = seed_tree(&context, &index)?;
+    let head = git(&context, &["rev-parse", "HEAD"])?.trim().to_string();
+    let stat = diff_tree_stat(&context, base_tree, &tree)?;
+    let paths = changed_paths(&context, base_tree, &tree)?;
+    let diff = diff_patch(&context, base_tree, &tree)?;
     Ok(ProposerPatch {
         worktree,
+        git_context: Some(context),
         base_tree: base_tree.to_string(),
         tree,
         head,
@@ -655,7 +663,7 @@ pub fn judge_task(patch: &ProposerPatch, task: Option<&str>, evidence: Option<&s
              Treat a weakened assertion as a finding under `baseline_test_provenance`.\n\n",
         );
         for path in test_paths {
-            if let Ok(content) = baseline_file(&patch.worktree, &patch.base_tree, path) {
+            if let Ok(content) = baseline_file(patch, path) {
                 text.push_str(&format!("### {path}\n\n"));
                 text.push_str("```rust\n");
                 text.push_str(&content);
@@ -672,9 +680,12 @@ pub fn judge_task(patch: &ProposerPatch, task: Option<&str>, evidence: Option<&s
     text
 }
 
-fn baseline_file(worktree: &Path, base_tree: &str, path: &str) -> Result<String> {
-    let object = format!("{base_tree}:{path}");
-    git(worktree, &["show", &object])
+fn baseline_file(patch: &ProposerPatch, path: &str) -> Result<String> {
+    let object = format!("{}:{path}", patch.base_tree);
+    match &patch.git_context {
+        Some(context) => git(context, &["show", &object]),
+        None => git(&patch.worktree, &["show", &object]),
+    }
 }
 
 /// Returns the blocked branch name for a pass id, or an error when the pass is
@@ -766,6 +777,7 @@ pub fn read_blocked_patch(
     Ok((
         ProposerPatch {
             worktree: repo.to_path_buf(),
+            git_context: None,
             base_tree,
             tree,
             head,
@@ -1146,7 +1158,11 @@ fn rate_limit_status(raw: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn changed_paths(worktree: &Path, base: &str, head: &str) -> Result<Vec<String>> {
+fn changed_paths<G: crate::worktree::GitLocation + ?Sized>(
+    worktree: &G,
+    base: &str,
+    head: &str,
+) -> Result<Vec<String>> {
     // `-z`, so a path git would otherwise C-quote (a quote, a backslash, a
     // newline, a non-ASCII byte) arrives as itself and `protected_path_hit`
     // sees the path and not a quoted literal of it. `seed()` in
@@ -1162,7 +1178,11 @@ fn changed_paths(worktree: &Path, base: &str, head: &str) -> Result<Vec<String>>
         .collect())
 }
 
-fn diff_patch(worktree: &Path, base: &str, head: &str) -> Result<String> {
+fn diff_patch<G: crate::worktree::GitLocation + ?Sized>(
+    worktree: &G,
+    base: &str,
+    head: &str,
+) -> Result<String> {
     git(worktree, &["diff-tree", "-r", "-p", base, head])
 }
 
