@@ -81,6 +81,9 @@ Map ticket 64, delegation under the seatbelt, was not a panel finding and closed
 the face refuses in Hydra's words from inside a seatbelt, build ticket 76. By the end of the day 27 of
 the 33 rows were code with a test and six were limits the documents state.
 
+That count is generous, as the second panel said on 2026-09-23 (its finding G40): F19 to F21 and F23
+to F25 are marked fixed, and their fixes were edits to the documents, not code with a test.
+
 Three things the readers checked and found to hold that are worth saying out loud: the two arXiv
 papers exist under the ids and figures the README quotes, fetched that day; the outcome is
 derived from the stream with the exit code carried as a fact, which every reader traced through

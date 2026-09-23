@@ -38,6 +38,9 @@ that was false: the Opus review found `reap::orphan_spawns` treats every directo
 and would delete the lock. They moved to `<root>/reservations/`, on `denied_write_paths`, and
 `tests/cleanup.rs::a_sweep_leaves_pending_reservations_alone` fails if they move back. Interactive
 launches never reserve, so the cap does not count them; stated in `IMPLEMENTATION.md`.
+Corrected 2026-09-23 (second hiring panel, G26): they reserve nothing but are counted, because
+an interactive launch writes line 0 with the child's pid right after the spawn and
+`live::reserve` counts every live view. The window it misses is between the spawn and line 0.
 Measured on master with `HYDRA_ROOT` empty: status 20, cleanup 29, spawn 29, delegation 14, lib 188
 passed; clippy and fmt clean. Built by `codex` under `standard`, run 01a0cc2b-e29c, 1.3M tokens,
 after a first run (01a0cc2a-f20b, 127k tokens) stopped on an unreadable skill, which is map ticket

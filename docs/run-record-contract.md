@@ -5,8 +5,13 @@ things that cross between the two systems, and under D10 the record is the sourc
 needs to be running for it to be complete, and anything not in a run record did not happen.
 
 This is one of three documents. `docs/harness-spec.md` covers how Hydra launches, feeds and records
-the three provider CLIs. `docs/rungs-spec.md` covers both rungs of self-improvement. The three
+the provider CLIs. `docs/rungs-spec.md` covers both rungs of self-improvement. The three
 are meant to be read together.
+
+This document was written and measured against three providers, `claude`, `cursor-agent` and
+`agy`. `codex` was routed later, and `IMPLEMENTATION.md` says what its records carry. Where a
+sentence below says "three providers", it means those three, measured then, and it makes no claim
+about `codex`.
 
 Provider versions this document was written against. Read 2026-09-04 at 12:38, re-read
 2026-09-05 when the first slice was built:
