@@ -1,7 +1,7 @@
 # 90 - Rung two's admission steps start from a cleared environment
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
