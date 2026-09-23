@@ -1,7 +1,7 @@
 # 96 - The human names what a rung-two pass may edit, over a floor, and existing tests are refused
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 89, 90
 
 ## What
