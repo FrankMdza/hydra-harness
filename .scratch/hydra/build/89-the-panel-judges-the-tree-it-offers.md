@@ -1,7 +1,7 @@
 # 89 - Rung two offers the tree its checks and judges read, and no other
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
