@@ -1008,6 +1008,13 @@ pub fn run(request: Request) -> Result<Call> {
             hydra_env,
             run_start: line_zero.clone(),
             sandbox_profile: spawn.sandbox_profile.clone(),
+            skill_snapshot: if request.provider.reads_skills_by_shell() {
+                injected
+                    .as_ref()
+                    .map(|injected| layout.skill_snapshot_scope(&run_id, Some(&injected.store_sha)))
+            } else {
+                None
+            },
         },
     )
     .and_then(|()| std::env::current_exe().context("locating the hydra binary"))

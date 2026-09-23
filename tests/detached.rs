@@ -17,8 +17,10 @@ use std::time::Duration;
 
 use hydra::live::{self, State};
 use hydra::paths::Layout;
+use hydra::provider::Provider;
 use hydra::record::validate::check;
 use hydra::record::{RunStart, SCHEMA_VERSION};
+use hydra::skills::{self, Store};
 use hydra::watch::{self, Launch, Waited};
 
 const RUN_ID: &str = "01996d3c-8f2a-7c31-9b44-000000000042";
@@ -95,6 +97,7 @@ fn spec_for_binary(layout: &Layout, binary: &str, argv: Vec<String>) -> PathBuf 
             hydra_env: Default::default(),
             run_start: line_zero(Path::new("/tmp")),
             sandbox_profile: None,
+            skill_snapshot: None,
         },
     )
     .unwrap();
@@ -233,6 +236,7 @@ fn a_binary_that_is_not_there_still_writes_a_record() {
             hydra_env: Default::default(),
             run_start: line_zero(Path::new("/tmp")),
             sandbox_profile: None,
+            skill_snapshot: None,
         },
     )
     .unwrap();
@@ -363,6 +367,97 @@ fn a_grandchild_holding_the_slave_closes_the_record_within_the_deadline() {
             libc::kill(pid, libc::SIGKILL);
         }
     }
+}
+
+#[test]
+fn a_codex_run_whose_skill_copy_was_edited_records_the_mismatch_on_run_end() {
+    let layout = sandbox("codex-skills");
+    let run_id = "01996d3c-8f2a-7c31-9b44-000000000043";
+    let worktree = layout.root().join("checkout");
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let store = Store::open(&layout).unwrap();
+    let skill_dir = layout.skills().join("alpha");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: alpha\ndescription: A probe.\n---\n\nbody\n",
+    )
+    .unwrap();
+    let sha = store.pin(run_id).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let injected = skills::inject(&worktree, Provider::Codex, &snapshot, &sha).unwrap();
+    assert_eq!(injected.linked, vec!["alpha".to_string()]);
+
+    let skills_root = worktree.join(".codex/skills");
+    let skill_file = skills_root.join("alpha/SKILL.md");
+    let script = format!(
+        r#"printf '{{"type":"system","subtype":"init","model":"stub-1"}}\n'; \
+chmod -R u+w '{}' && echo tampered >> '{}'; \
+printf '{{"type":"result","subtype":"success","is_error":false}}\n'"#,
+        skills_root.display(),
+        skill_file.display()
+    );
+
+    let run_start = serde_json::json!({
+        "type": "run_start",
+        "schema_version": SCHEMA_VERSION,
+        "hydra_version": "0.2.0",
+        "command": "run",
+        "launch_mode": "recorded",
+        "provider_version": "stub",
+        "provider_session_id": null,
+        "task": "stub",
+        "policy": "standard",
+        "policy_sha": null,
+        "floor_lifted": false,
+        "cwd": worktree.display().to_string(),
+        "worktree": null,
+        "depth": 0,
+        "pid": null,
+        "process_start_time": null,
+        "skills": {
+            "store_sha": sha,
+            "linked": ["alpha"],
+            "resolved": null
+        },
+        "subscription": "none",
+    });
+
+    let spec = layout.launch_spec(run_id);
+    watch::write_spec(
+        &spec,
+        &Launch {
+            run_id: run_id.to_string(),
+            parent_run_id: None,
+            provider: "codex".to_string(),
+            binary: "/bin/sh".to_string(),
+            argv: vec!["-c".to_string(), script],
+            cwd: worktree.clone(),
+            run_file: layout.run_file(run_id),
+            model: None,
+            hydra_env: Default::default(),
+            run_start,
+            sandbox_profile: None,
+            skill_snapshot: Some(snapshot),
+        },
+    )
+    .unwrap();
+
+    let mut watcher = watch::detach(&hydra(), &spec, &layout.watcher_log(run_id)).unwrap();
+    let run_file = layout.run_file(run_id);
+    watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
+    assert_eq!(
+        watch::wait_for_end(&run_file, &mut watcher, Duration::from_secs(20)).unwrap(),
+        Waited::Ended
+    );
+
+    let text = std::fs::read_to_string(&run_file).unwrap();
+    check(&text, Some(run_id)).assert_ok();
+    assert!(
+        text.contains(skills::COPY_MISMATCH_NOTE),
+        "run_end.error should name the skill copy mismatch: {text}"
+    );
 }
 
 #[test]

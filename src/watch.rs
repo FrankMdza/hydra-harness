@@ -70,6 +70,10 @@ pub struct Launch {
     /// record beyond the sha on line 0.
     #[serde(default)]
     pub sandbox_profile: Option<PathBuf>,
+    /// Where the pinned snapshot lives, for comparing a `codex` skill copy at
+    /// exit. Absent on every other provider and on runs with no injected skills.
+    #[serde(default)]
+    pub skill_snapshot: Option<PathBuf>,
 }
 
 pub fn write_spec(path: &Path, launch: &Launch) -> Result<()> {
@@ -175,6 +179,23 @@ pub fn watch(spec: &Path) -> Result<()> {
         }
     };
 
+    let linked_skills = if provider.reads_skills_by_shell() {
+        launch
+            .run_start
+            .get("skills")
+            .and_then(|skills| skills.get("linked"))
+            .and_then(|linked| linked.as_array())
+            .map(|linked| {
+                linked
+                    .iter()
+                    .filter_map(|name| name.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     let pid = spawned.pid;
     let process_start = crate::procinfo::start_time(pid)?;
     let mut start = launch.run_start;
@@ -238,6 +259,19 @@ pub fn watch(spec: &Path) -> Result<()> {
             Some(existing) => format!("{existing}; {PTY_HELD_NOTE}"),
             None => PTY_HELD_NOTE.to_string(),
         });
+    }
+
+    if provider.reads_skills_by_shell()
+        && let Some(snapshot) = &launch.skill_snapshot
+        && !linked_skills.is_empty()
+    {
+        let copy_root = launch.cwd.join(provider.skill_root());
+        if let Some(note) = crate::skills::copy_mismatch(&copy_root, snapshot, &linked_skills) {
+            tee_error = Some(match tee_error {
+                Some(existing) => format!("{existing}; {note}"),
+                None => note,
+            });
+        }
     }
 
     writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;

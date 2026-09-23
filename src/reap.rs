@@ -198,9 +198,12 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
         spawn_removed: false,
     };
 
+    let injected = injected_skills(layout, run_id);
+
     if worktree.is_dir() {
         match commit_then_remove(
             &worktree,
+            &injected,
             &format!("hydra/{run_id}"),
             &format!("hydra reap: what run {run_id} left uncommitted"),
             delete_branch,
@@ -221,6 +224,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     if checkout.is_dir() {
         match commit_then_remove(
             &checkout,
+            &injected,
             &format!("rungs/curate/{run_id}"),
             &format!("hydra reap: what curate run {run_id} left uncommitted"),
             delete_branch,
@@ -253,6 +257,106 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     Reaped::Done(done)
 }
 
+/// What Hydra put under a run's skill root, as checkout-relative paths.
+///
+/// Map ticket 71: no skill Hydra injected reaches a branch, and nothing else
+/// under a skill root is Hydra's business. A skill the run wrote there is its
+/// work and is committed like any other file.
+struct InjectedSkills {
+    /// `<root>/<name>` for each name the record lists as linked, whether the
+    /// launch made a link or a copy. Excluded from the commit and removed.
+    entries: Vec<String>,
+    /// `<root>/.gitignore`, removed before staging when it is still the one
+    /// Hydra wrote.
+    ignores: Vec<String>,
+}
+
+/// Reads the injected names off the run's own `run_start`, contract 5.3's
+/// `skills.linked`, from `runs/` or from `pruned/`.
+///
+/// **The record is the one source a run cannot forge.** The gate and the
+/// seatbelt both deny a run writes under `~/hydra`, while anything in the
+/// checkout is the run's to rewrite. `launch.json` carries the same line 0 but
+/// is not read to interpret a run, so it is not read here either.
+///
+/// **No record means the names are unknown**, which happens only when line 0
+/// was never written or the human pruned with `--delete`. Then every skill
+/// root is held back whole, the rule before this narrowing, because leaking an
+/// injected skill onto a branch is the failure map ticket 71 exists to stop.
+fn injected_skills(layout: &Layout, run_id: &str) -> InjectedSkills {
+    let line_zero = [layout.run_file(run_id), layout.pruned_file(run_id)]
+        .iter()
+        .find_map(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            serde_json::from_str::<serde_json::Value>(text.lines().next()?).ok()
+        });
+    let Some(line) = line_zero else {
+        return InjectedSkills {
+            entries: [
+                crate::provider::Provider::Claude,
+                crate::provider::Provider::CursorAgent,
+                crate::provider::Provider::Agy,
+                crate::provider::Provider::Codex,
+            ]
+            .iter()
+            .map(|provider| provider.skill_root().to_string())
+            .collect(),
+            ignores: Vec::new(),
+        };
+    };
+    let skills = &line["hydra"]["skills"];
+    let provider = line["provider"]
+        .as_str()
+        .and_then(|name| name.parse::<crate::provider::Provider>().ok());
+    let (Some(provider), Some(linked)) = (provider, skills["linked"].as_array()) else {
+        // No `skills` block: nothing was injected, so nothing is held back.
+        return InjectedSkills {
+            entries: Vec::new(),
+            ignores: Vec::new(),
+        };
+    };
+    let root = provider.skill_root();
+    let entries = linked
+        .iter()
+        .filter_map(|name| name.as_str())
+        // A name is one path component. Anything else was not written by
+        // `inject`, and joined onto the root it could name the root itself.
+        .filter(|name| {
+            let mut parts = Path::new(name).components();
+            matches!(parts.next(), Some(std::path::Component::Normal(_))) && parts.next().is_none()
+        })
+        .map(|name| format!("{root}/{name}"))
+        .collect();
+    InjectedSkills {
+        entries,
+        ignores: vec![format!("{root}/.gitignore")],
+    }
+}
+
+/// Removes `<root>/.gitignore` when it is still the one `skills::inject`
+/// wrote: untracked, and holding exactly `*`. A repo's own ignore file there,
+/// or one the run rewrote, is left to be committed or kept like any other.
+fn drop_hydras_ignore(checkout: &Path, ignore: &str) -> Result<()> {
+    // A root reached through a link the run made would put the removal
+    // outside the checkout.
+    if !crate::worktree::inside_checkout(checkout, ignore) {
+        return Ok(());
+    }
+    let path = checkout.join(ignore);
+    let is_file = std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file());
+    if !is_file || std::fs::read_to_string(&path).ok().as_deref() != Some("*\n") {
+        return Ok(());
+    }
+    if !git(checkout, &["ls-files", "--", ignore])?
+        .trim()
+        .is_empty()
+    {
+        return Ok(());
+    }
+    std::fs::remove_file(&path)?;
+    Ok(())
+}
+
 /// Commits what one checkout holds, then removes it and maybe its branch.
 ///
 /// The order is the guarantee. Nothing below the commit runs if the commit did
@@ -269,6 +373,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
 /// which [`main_worktree`] reads off the checkout itself.
 fn commit_then_remove(
     checkout: &Path,
+    injected: &InjectedSkills,
     hydra_branch: &str,
     message: &str,
     delete_branch: bool,
@@ -293,7 +398,15 @@ fn commit_then_remove(
         removed: false,
     };
 
-    let exclude = crate::provider::own_worktree_paths();
+    // Hydra's `*` ignore file would hide a skill the run authored beside the
+    // injected ones, and `git worktree remove` deletes ignored files without a
+    // word. So it goes before staging, and the injected entries are held back
+    // by name instead.
+    for ignore in &injected.ignores {
+        drop_hydras_ignore(checkout, ignore)?;
+    }
+    let mut exclude = crate::provider::own_worktree_paths();
+    exclude.extend(injected.entries.iter().map(String::as_str));
     swept.committed = commit_everything(checkout, message, &exclude)?;
 
     git(&main, &["worktree", "remove", &checkout.to_string_lossy()])?;

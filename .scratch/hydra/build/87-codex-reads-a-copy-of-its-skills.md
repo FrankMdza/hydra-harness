@@ -1,7 +1,7 @@
 # 87 - `codex` reads a copy of its skills, and no skill root reaches a branch
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -43,3 +43,16 @@ other three it is still a link. The profile test for 2, the reap test for 3, the
 clean. Edits `src/` and `tests/` only. Harness spec 6.4 and `IMPLEMENTATION.md` are the session's.
 
 ## Outcome
+
+All four items built. The ticket's item 3 said to put the four skill roots on `own_worktree_paths`,
+and that turned out wrong twice over: it would have discarded a skill the run authored in a repo
+that keeps its own under `.claude/skills`, and Hydra's `*` `.gitignore` already hid such a skill from
+`git add -A`, so `git worktree remove` deleted it silently. Reap now reads the injected names from
+the record and excludes only those. The Opus review also found that 0555 directories made
+`git worktree remove` fail, that a plant inside a skill root alone made reap attempt an empty commit,
+that exclude paths needed guarding against `.`, absolute, `..` and symlinked spellings, and that the
+copy followed symlinks (a loop recursed forever). Item 4 needed no contract change: the note goes on
+`run_end.error`, which a `codex` run with `turn.completed` reads as a fidelity note. Measured on
+master with an empty `HYDRA_ROOT`: every suite green, clippy and fmt clean. The seatbelt test for the
+copy was measured outside a run. Built by `cursor-agent` on Composer 2.5 under `standard`, run
+01a0cc69-bbd2, 4.9M tokens; an Opus subagent reviewed and fixed it in two rounds.

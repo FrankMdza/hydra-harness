@@ -297,6 +297,14 @@ session already running. Snapshots are shared per sha and refcounted, because de
 and not fan-out. Two runs on the same sha see identical bytes because they are looking at the same
 bytes.
 
+**`codex` gets a copy, because it reads only by shell** (map ticket 71). The shell check refuses a
+command that names anything under `~/hydra`, where the snapshot lives, so a link is unreadable to a
+provider with no file tool. On `codex` each admitted skill is copied into `.codex/skills/` as
+read-only files; on macOS the seatbelt denies writes to that directory, and at exit the watcher
+compares the copy with the snapshot and notes any difference on `run_end.error`, which no outcome
+reads. `hydra reap` holds back exactly the entries Hydra injected, named by the run's record, and
+commits anything else the run wrote under a skill root.
+
 **A run may invoke what it was linked and may read it.** `Skill` answers to `skill_invoke`, granted
 by every policy that reads at all, and the run's own snapshot is a read scope of its own,
 `skill_snapshot`, resolved from the sha on the run's record, which is what lets contract 7.7

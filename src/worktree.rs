@@ -130,25 +130,109 @@ fn dirty_outside(checkout: &Path, exclude: &[&str]) -> Result<bool> {
         if entry.starts_with('R') || entry.starts_with('C') {
             entries.next();
         }
-        if !exclude.contains(&path) {
+        if !excluded(path, exclude) {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
+/// Whether a path `git status` printed is one of `exclude` or lies under one.
+/// An injected skill copy is a directory, and with `--untracked-files=all`
+/// status names the files inside it rather than the directory.
+fn excluded(path: &str, exclude: &[&str]) -> bool {
+    exclude.iter().any(|root| {
+        path == *root
+            || path
+                .strip_prefix(root)
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
+}
+
 /// Removes the untracked files at `exclude`, and only those: a path `git
 /// ls-files` knows is the repo's own and stays.
+///
+/// **Every path is checked before anything is removed.** An entry that is empty,
+/// `.`, absolute or holds `..` is skipped, since `git clean -fd -- .` would clean
+/// the whole checkout. So is one reached through a symlink the run made, for
+/// example `.codex` pointed at a directory outside the checkout: removing through
+/// it would delete something reap was never told about. A symlink at the path
+/// itself is removed as a link, never followed.
 fn remove_untracked(checkout: &Path, exclude: &[&str]) -> Result<()> {
     for path in exclude {
-        let file = checkout.join(path);
-        if !file.is_file() {
+        if !inside_checkout(checkout, path) {
             continue;
         }
-        if git(checkout, &["ls-files", "--", path])?.trim().is_empty() {
+        let file = checkout.join(path);
+        let Ok(meta) = std::fs::symlink_metadata(&file) else {
+            continue;
+        };
+        if meta.is_dir() {
+            // An injected `codex` skill is a directory, and so is a whole skill
+            // root when reap could not read which skills were injected. `git
+            // clean` without `-x` drops only what is untracked and not ignored,
+            // and only under this path, so a tracked file there stays. The copy
+            // is 0555 directories, and neither `git clean` here nor `git
+            // worktree remove` after can unlink inside one, so the owner's write
+            // bit comes back first.
+            restore_write_bits(&file)?;
+            git(checkout, &["clean", "-fd", "--", path])
+                .with_context(|| format!("cleaning untracked files under {}", file.display()))?;
+        } else if git(checkout, &["ls-files", "--", path])?.trim().is_empty() {
             std::fs::remove_file(&file).with_context(|| format!("removing {}", file.display()))?;
         }
     }
+    Ok(())
+}
+
+/// Whether `path` names something strictly below `checkout` without passing
+/// through a symlink on the way.
+pub(crate) fn inside_checkout(checkout: &Path, path: &str) -> bool {
+    let relative = Path::new(path);
+    let mut parts = relative.components().peekable();
+    if parts.peek().is_none() {
+        return false;
+    }
+    let mut cursor = checkout.to_path_buf();
+    while let Some(part) = parts.next() {
+        let std::path::Component::Normal(name) = part else {
+            return false;
+        };
+        cursor.push(name);
+        // The last component may be a link, which is removed as one. Any link
+        // before it would carry the removal somewhere else.
+        if parts.peek().is_some()
+            && std::fs::symlink_metadata(&cursor).is_ok_and(|meta| meta.file_type().is_symlink())
+        {
+            return false;
+        }
+    }
+    true
+}
+
+/// Gives the owner write permission back on `dir` and every directory under
+/// it, without following symlinks, so the entries inside can be unlinked.
+#[cfg(unix)]
+fn restore_write_bits(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let meta = std::fs::symlink_metadata(dir)?;
+    if !meta.is_dir() {
+        return Ok(());
+    }
+    let mode = meta.permissions().mode();
+    if mode & 0o200 == 0 {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode | 0o700))
+            .with_context(|| format!("restoring write permission on {}", dir.display()))?;
+    }
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        restore_write_bits(&entry?.path())?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restore_write_bits(_dir: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -393,4 +477,34 @@ fn git_bytes(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
         );
     }
     Ok(out.stdout)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inside_checkout;
+
+    #[test]
+    fn an_exclude_entry_that_names_the_checkout_or_leaves_it_is_skipped() {
+        let checkout = std::env::temp_dir().join(format!("hydra-inside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&checkout);
+        std::fs::create_dir_all(checkout.join(".claude")).unwrap();
+        for path in ["", ".", "./", "..", "../x", "/etc", ".claude/../.."] {
+            assert!(
+                !inside_checkout(&checkout, path),
+                "{path:?} was let through"
+            );
+        }
+        assert!(inside_checkout(&checkout, ".claude/skills"));
+
+        // A run that points `.codex` outside the checkout takes `.codex/skills`
+        // out of reach, and the link itself is still a path reap may remove.
+        let outside = checkout.with_extension("outside");
+        std::fs::create_dir_all(outside.join("skills")).unwrap();
+        std::os::unix::fs::symlink(&outside, checkout.join(".codex")).unwrap();
+        assert!(!inside_checkout(&checkout, ".codex/skills"));
+        assert!(inside_checkout(&checkout, ".codex"));
+
+        std::fs::remove_dir_all(&checkout).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
+    }
 }

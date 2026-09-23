@@ -80,11 +80,11 @@ Hydra made about it.
   Hydra writes is `<worktree>/.cursor/hooks.json`, and `standard` may write anywhere in the
   worktree, so before build ticket 44 a run could rewrite the file that points at its gate.
   Those paths are refused under every policy now, on every provider's gate. The skill roots
-  Hydra links are denied to writes. They were meant to stay readable by shell, which is how
-  `codex` and `agy` read a skill, and since build ticket 74 denied the checkout whole they are
-  not: the shell check refuses any command naming the snapshot under `~/hydra`, so on those two
-  providers a skill is out of reach by shell: `codex` cannot open one at all, and `agy` only
-  through its own file tool. Map ticket 71 holds what to do about it.
+  Hydra links are denied to writes. A shell command naming the snapshot under `~/hydra` is
+  refused, so since build ticket 87 `codex`, which reads only by shell, gets read-only copies in
+  its worktree instead of links; on macOS the seatbelt denies writes to them, and elsewhere a run
+  can `chmod` its own copy, which the watcher notes at exit. `agy` reads a skill through its file
+  tool. `hydra reap` never commits an entry Hydra injected.
 - **Two shell facilities are denied under every policy, since 2026-09-15, and the cost is a feature.**
   `WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy` write to the stdin of a
   command that is already running. The command was judged when it started and what is typed into it

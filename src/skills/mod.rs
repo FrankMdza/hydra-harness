@@ -34,7 +34,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
+
 use serde::Deserialize;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use crate::paths::Layout;
 use crate::provider::Provider;
@@ -397,6 +400,13 @@ pub struct Injected {
     pub root: PathBuf,
 }
 
+/// The note the watcher adds to `run_end.error` when a `codex` skill copy no
+/// longer matches the snapshot it was taken from. It is appended after any tee
+/// note, so it need not start the field. The outcome derivation never reads it:
+/// a `codex` run that reached `turn.completed` has a terminator, which makes the
+/// field a fidelity note, and one that did not is `failed` with or without it.
+pub const COPY_MISMATCH_NOTE: &str = "the codex skill copy no longer matches the snapshot";
+
 /// Links the snapshot's admitted skills into the run's checkout.
 ///
 /// **The directory ignores itself.** A `.gitignore` holding `*` goes in first, so
@@ -442,8 +452,15 @@ pub fn inject(
             blocked.push(skill.name);
             continue;
         }
-        std::os::unix::fs::symlink(&skill.path, &link)
-            .with_context(|| format!("linking {} into {}", skill.name, root.display()))?;
+        if provider.reads_skills_by_shell() {
+            // `linked` still names the skills Hydra put in front of the provider,
+            // whether they arrived as links or as copies of the snapshot.
+            copy_skill_tree(&skill.path, &link)
+                .with_context(|| format!("copying {} into {}", skill.name, root.display()))?;
+        } else {
+            std::os::unix::fs::symlink(&skill.path, &link)
+                .with_context(|| format!("linking {} into {}", skill.name, root.display()))?;
+        }
         linked.push(skill.name);
     }
 
@@ -485,6 +502,189 @@ pub fn admit(store_dir: &Path, name: &str, user: &index::Index, home: &Path) -> 
         );
     }
     Ok(())
+}
+
+/// Recursively copies one admitted skill from the snapshot into the checkout.
+///
+/// `hydra.toml` is skipped because no provider opens it. Files are 0444 and
+/// directories 0555 so a run on an unwrapped launch cannot edit in place without
+/// `chmod`, which the seatbelt also refuses on macOS. `hydra reap` gives the
+/// write bit back before it removes the checkout.
+///
+/// A symlink in the snapshot is copied as a symlink with the same target, never
+/// followed, so a link to a file outside the store does not become a copy of
+/// that file's bytes and a link loop cannot recurse forever.
+fn copy_skill_tree(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst).with_context(|| format!("creating {}", dst.display()))?;
+    for entry in std::fs::read_dir(src).with_context(|| format!("reading {}", src.display()))? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == "hydra.toml" {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            let target = std::fs::read_link(&from)
+                .with_context(|| format!("reading the link {}", from.display()))?;
+            std::os::unix::fs::symlink(&target, &to)
+                .with_context(|| format!("linking {}", to.display()))?;
+        } else if kind.is_dir() {
+            copy_skill_tree(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)
+                .with_context(|| format!("copying {} to {}", from.display(), to.display()))?;
+            set_read_only_file(&to)?;
+        }
+    }
+    set_read_only_dir(dst)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_read_only_file(path: &Path) -> Result<()> {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o444))
+        .with_context(|| format!("chmod 0444 on {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_read_only_file(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_read_only_dir(path: &Path) -> Result<()> {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o555))
+        .with_context(|| format!("chmod 0555 on {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_read_only_dir(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Compares a `codex` skill copy with the snapshot it came from.
+///
+/// Returns text for `run_end.error` when a linked skill differs, is missing, or
+/// when the copy gained a file the snapshot does not carry, checked from both
+/// sides. `None` means the trees still match on every file the copy was given.
+/// `hydra.toml` is never copied, so one found in the copy counts as added.
+///
+/// Every byte of every copied skill is read twice, once per side, at exit and
+/// on `codex` only, so the cost grows with the admitted skills and not with the
+/// whole store.
+pub fn copy_mismatch(copy_root: &Path, snapshot: &Path, linked: &[String]) -> Option<String> {
+    let mut problems = Vec::new();
+    for name in linked {
+        let copy_skill = copy_root.join(name);
+        let snap_skill = snapshot.join(name);
+        match std::fs::symlink_metadata(&copy_skill) {
+            Err(_) => {
+                problems.push(format!("{name} is missing from the copy"));
+                continue;
+            }
+            // A link here would be read through, and could point back at the
+            // snapshot and compare equal to it.
+            Ok(meta) if !meta.is_dir() => {
+                problems.push(format!("{name} is no longer a directory in the copy"));
+                continue;
+            }
+            Ok(_) => {}
+        }
+        if !snap_skill.exists() {
+            problems.push(format!("{name} is missing from the snapshot"));
+            continue;
+        }
+        diff_skill_trees(&copy_skill, &snap_skill, name, &mut problems);
+    }
+    if let Ok(entries) = std::fs::read_dir(copy_root) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name == ".gitignore" {
+                continue;
+            }
+            let name = name.to_string_lossy();
+            if linked.iter().any(|linked| linked == name.as_ref()) {
+                continue;
+            }
+            problems.push(format!("{name} was added to the copy"));
+        }
+    }
+    if problems.is_empty() {
+        None
+    } else {
+        Some(format!("{}: {}", COPY_MISMATCH_NOTE, problems.join("; ")))
+    }
+}
+
+fn diff_skill_trees(copy: &Path, snap: &Path, prefix: &str, problems: &mut Vec<String>) {
+    let copy_entries = match std::fs::read_dir(copy) {
+        Ok(entries) => entries.flatten().collect::<Vec<_>>(),
+        Err(err) => {
+            problems.push(format!("{prefix}: cannot read copy ({err})"));
+            return;
+        }
+    };
+    let snap_entries = match std::fs::read_dir(snap) {
+        Ok(entries) => entries.flatten().collect::<Vec<_>>(),
+        Err(err) => {
+            problems.push(format!("{prefix}: cannot read snapshot ({err})"));
+            return;
+        }
+    };
+    for entry in copy_entries {
+        let name = entry.file_name();
+        let rel = format!("{prefix}/{}", name.to_string_lossy());
+        let snap_path = snap.join(&name);
+        // The copy never carries `hydra.toml`, so one found there was added.
+        // Nothing here follows a link: a link is compared by its target.
+        let Ok(snap_meta) = std::fs::symlink_metadata(&snap_path) else {
+            problems.push(format!("{rel} was added to the copy"));
+            continue;
+        };
+        if name == "hydra.toml" {
+            problems.push(format!("{rel} was added to the copy"));
+            continue;
+        }
+        let copy_path = entry.path();
+        let Ok(copy_meta) = std::fs::symlink_metadata(&copy_path) else {
+            problems.push(format!("{rel}: cannot read copy"));
+            continue;
+        };
+        let (copy_kind, snap_kind) = (copy_meta.file_type(), snap_meta.file_type());
+        if copy_kind.is_symlink() != snap_kind.is_symlink()
+            || copy_kind.is_dir() != snap_kind.is_dir()
+        {
+            problems.push(format!("{rel} changed type"));
+            continue;
+        }
+        if copy_kind.is_symlink() {
+            if std::fs::read_link(&copy_path).ok() != std::fs::read_link(&snap_path).ok() {
+                problems.push(format!("{rel} points somewhere else"));
+            }
+        } else if copy_kind.is_dir() {
+            diff_skill_trees(&copy_path, &snap_path, &rel, problems);
+        } else if file_bytes(&copy_path) != file_bytes(&snap_path) {
+            problems.push(format!("{rel} differs"));
+        }
+    }
+    for entry in snap_entries {
+        let name = entry.file_name();
+        if name == "hydra.toml" {
+            continue;
+        }
+        if std::fs::symlink_metadata(copy.join(&name)).is_err() {
+            problems.push(format!(
+                "{prefix}/{} is missing from the copy",
+                name.to_string_lossy()
+            ));
+        }
+    }
+}
+
+fn file_bytes(path: &Path) -> Option<Vec<u8>> {
+    std::fs::read(path).ok()
 }
 
 /// Contract 5.3's `skills` object, or nothing when there was no checkout to

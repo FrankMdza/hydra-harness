@@ -14,8 +14,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use hydra::paths::Layout;
+use hydra::provider::Provider;
 use hydra::prune::Pruned;
 use hydra::reap::Reaped;
+use hydra::skills::{self, Store};
 use serde_json::{Value, json};
 
 // --- the fixture ---------------------------------------------------------
@@ -333,6 +335,186 @@ fn reap_does_not_commit_hydras_own_files_when_the_checkout_already_has_an_ignore
         tree.lines().any(|line| line == ".cursor/.gitignore"),
         "the checkout's own ignore file was dropped: {tree}"
     );
+}
+
+/// A closed record for a run that injected `linked` into `provider`'s skill
+/// root, which is where reap learns what Hydra put there.
+fn write_skill_run(layout: &Layout, run_id: &str, provider: &str, linked: &[&str], sha: &str) {
+    write_run(layout, run_id, None, true);
+    let path = layout.run_file(run_id);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut lines: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    for line in &mut lines {
+        line["provider"] = json!(provider);
+    }
+    lines[0]["hydra"]["skills"] = json!({"store_sha": sha, "linked": linked, "resolved": null});
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(&path, text).unwrap();
+}
+
+/// A store holding one skill, pinned, and its snapshot.
+fn one_skill_snapshot(layout: &Layout, name: &str, pin: &str) -> (String, PathBuf) {
+    let store = Store::open(layout).unwrap();
+    let skill_dir = layout.skills().join(name);
+    std::fs::create_dir_all(skill_dir.join("nested")).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        format!("---\nname: {name}\ndescription: An injected skill.\n---\n"),
+    )
+    .unwrap();
+    std::fs::write(skill_dir.join("nested/notes.md"), "deeper\n").unwrap();
+    let sha = store.pin(pin).unwrap();
+    let snapshot = store.snapshot(layout, &sha).unwrap();
+    (sha, snapshot)
+}
+
+#[test]
+fn an_injected_skill_stays_off_the_branch_and_a_skill_the_run_wrote_beside_it_does_not() {
+    // Map ticket 71: what Hydra injected never reaches a branch, and nothing
+    // else under the root is Hydra's. The run deleted Hydra's ignore file, wrote
+    // into the injected copy, and authored a skill of its own next to it.
+    let fixture = Fixture::new("skill-root");
+    let layout = fixture.layout();
+    let (sha, snapshot) =
+        one_skill_snapshot(&layout, "injected", "01a07730-a1b2-7c3d-8e4f-500000000010");
+
+    let run = "01a07730-a1b2-7c3d-8e4f-500000000011";
+    let checkout = fixture.checkout(run);
+    skills::inject(&checkout, Provider::Codex, &snapshot, &sha).unwrap();
+    write_skill_run(&layout, run, "codex", &["injected"], &sha);
+
+    let root = checkout.join(".codex/skills");
+    std::fs::remove_file(root.join(".gitignore")).unwrap();
+    Command::new("chmod")
+        .args(["-R", "u+w"])
+        .arg(&root)
+        .status()
+        .unwrap();
+    std::fs::write(root.join("injected/planted.md"), "not on the branch\n").unwrap();
+    std::fs::create_dir_all(root.join("authored")).unwrap();
+    std::fs::write(root.join("authored/SKILL.md"), "the run's own skill\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let swept = worktree_of(&reaped[0]);
+    assert!(swept.committed.is_some(), "reap removed without committing");
+    assert!(!checkout.exists());
+
+    let branch = format!("hydra/{run}");
+    assert_eq!(
+        git(
+            &fixture.repo,
+            &["show", &format!("{branch}:.codex/skills/authored/SKILL.md")]
+        ),
+        "the run's own skill\n"
+    );
+    let tree = git(&fixture.repo, &["ls-tree", "-r", "--name-only", &branch]);
+    assert!(
+        !tree.contains(".codex/skills/injected"),
+        "an injected skill reached the branch: {tree}"
+    );
+}
+
+#[test]
+fn reap_removes_a_codex_checkout_whose_skill_copy_is_read_only() {
+    // The copy is 0444 files in 0555 directories. Neither `git clean` nor `git
+    // worktree remove` can unlink an entry of a directory with no write bit, so
+    // reap has to give the bit back before it removes anything. Hydra's ignore
+    // file is still in place, and a skill the run authored under it is still
+    // committed, as is untracked work elsewhere.
+    let fixture = Fixture::new("codex-copy");
+    let layout = fixture.layout();
+    let (sha, snapshot) =
+        one_skill_snapshot(&layout, "copied", "01a07730-a1b2-7c3d-8e4f-500000000012");
+
+    let run = "01a07730-a1b2-7c3d-8e4f-500000000013";
+    let checkout = fixture.checkout(run);
+    skills::inject(&checkout, Provider::Codex, &snapshot, &sha).unwrap();
+    write_skill_run(&layout, run, "codex", &["copied"], &sha);
+    assert!(!checkout.join(".codex/skills/copied").is_symlink());
+    std::fs::create_dir_all(checkout.join(".codex/skills/authored")).unwrap();
+    std::fs::write(checkout.join(".codex/skills/authored/SKILL.md"), "mine\n").unwrap();
+    std::fs::create_dir_all(checkout.join("new-dir")).unwrap();
+    std::fs::write(checkout.join("new-dir/work.txt"), "kept\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let swept = worktree_of(&reaped[0]);
+    assert!(swept.committed.is_some(), "reap removed without committing");
+    assert!(swept.removed, "reap left the checkout");
+    assert!(!checkout.exists(), "the checkout is still on disk");
+
+    let branch = format!("hydra/{run}");
+    assert_eq!(
+        git(
+            &fixture.repo,
+            &["show", &format!("{branch}:new-dir/work.txt")]
+        ),
+        "kept\n"
+    );
+    let tree = git(&fixture.repo, &["ls-tree", "-r", "--name-only", &branch]);
+    assert!(tree.contains(".codex/skills/authored/SKILL.md"), "{tree}");
+    assert!(
+        !tree.contains(".codex/skills/copied") && !tree.contains(".codex/skills/.gitignore"),
+        "Hydra's copy or ignore file reached the branch: {tree}"
+    );
+}
+
+#[test]
+fn a_file_planted_inside_an_injected_skill_and_nothing_else_is_not_a_commit() {
+    // `git status` names the file, not the injected directory, so the dirt check
+    // has to count a path below an excluded one as excluded, or reap stages
+    // nothing and `git commit` refuses an empty commit.
+    let fixture = Fixture::new("skill-root-only");
+    let layout = fixture.layout();
+    let (sha, snapshot) =
+        one_skill_snapshot(&layout, "planted", "01a07730-a1b2-7c3d-8e4f-500000000014");
+
+    let run = "01a07730-a1b2-7c3d-8e4f-500000000015";
+    let checkout = fixture.checkout(run);
+    skills::inject(&checkout, Provider::Codex, &snapshot, &sha).unwrap();
+    write_skill_run(&layout, run, "codex", &["planted"], &sha);
+    let root = checkout.join(".codex/skills");
+    std::fs::remove_file(root.join(".gitignore")).unwrap();
+    Command::new("chmod")
+        .args(["-R", "u+w"])
+        .arg(&root)
+        .status()
+        .unwrap();
+    std::fs::write(root.join("planted/hostile.md"), "not on the branch\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let swept = worktree_of(&reaped[0]);
+    assert!(
+        swept.committed.is_none(),
+        "an injected skill alone was committed"
+    );
+    assert!(swept.removed);
+    assert!(!checkout.exists());
+}
+
+#[test]
+fn with_no_record_to_name_the_injected_skills_the_whole_root_is_held_back() {
+    // The names come off line 0. Without it reap cannot tell Hydra's entries
+    // from the run's, and holds back every skill root rather than risk one.
+    let fixture = Fixture::new("skill-root-no-record");
+    let layout = fixture.layout();
+    let run = "01a07730-a1b2-7c3d-8e4f-500000000016";
+    let checkout = fixture.checkout(run);
+    std::fs::create_dir_all(checkout.join(".claude/skills/unknown")).unwrap();
+    std::fs::write(checkout.join(".claude/skills/unknown/SKILL.md"), "?\n").unwrap();
+    std::fs::write(checkout.join("child.txt"), "the edit\n").unwrap();
+
+    let reaped = reap_one(&layout, run, false);
+    let swept = worktree_of(&reaped[0]);
+    assert!(swept.committed.is_some());
+    let tree = git(
+        &fixture.repo,
+        &["ls-tree", "-r", "--name-only", &format!("hydra/{run}")],
+    );
+    assert!(tree.contains("child.txt"), "{tree}");
+    assert!(!tree.contains(".claude/skills"), "{tree}");
 }
 
 #[test]

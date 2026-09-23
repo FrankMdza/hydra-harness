@@ -104,6 +104,12 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // A `codex` copy is 0555 directories, which `remove_dir_all` cannot
+        // empty, so the owner's write bit comes back first.
+        let _ = Command::new("chmod")
+            .args(["-R", "u+w"])
+            .arg(self.root.parent().unwrap())
+            .output();
         let _ = std::fs::remove_dir_all(self.root.parent().unwrap());
     }
 }
@@ -472,6 +478,124 @@ fn an_empty_store_links_nothing_and_still_pins_a_sha() {
     // The root and its `.gitignore` are made anyway, so the checkout stays clean
     // whether or not there was anything to put in it.
     assert_eq!(git(&worktree, &["status", "--porcelain"]).trim(), "");
+}
+
+#[test]
+fn on_codex_the_skill_is_a_read_only_copy_with_the_snapshots_bytes() {
+    let fixture = Fixture::new("codex-copy");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe. Marker COPY.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+
+    let injected = skills::inject(&worktree, Provider::Codex, &snapshot, &sha).unwrap();
+    assert_eq!(injected.linked, vec!["alpha".to_string()]);
+
+    let copy = injected.root.join("alpha");
+    assert!(copy.is_dir());
+    assert!(!copy.is_symlink());
+    let seen = std::fs::read_to_string(copy.join("SKILL.md")).unwrap();
+    let snap = std::fs::read_to_string(snapshot.join("alpha/SKILL.md")).unwrap();
+    assert_eq!(seen, snap);
+    assert!(seen.contains("Marker COPY"), "{seen}");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(copy.join("SKILL.md"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o444, "copied files are read-only");
+    }
+}
+
+#[test]
+fn the_copy_check_reports_a_changed_a_missing_and_an_added_file_and_nothing_on_a_fresh_copy() {
+    let fixture = Fixture::new("copy-check");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", Some("origin = \"test\"\n"));
+    let extra = layout.skills().join("alpha/refs");
+    std::fs::create_dir_all(&extra).unwrap();
+    std::fs::write(extra.join("one.md"), "one\n").unwrap();
+    std::fs::write(extra.join("two.md"), "two\n").unwrap();
+    std::os::unix::fs::symlink("one.md", extra.join("link.md")).unwrap();
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+    let injected = skills::inject(&worktree, Provider::Codex, &snapshot, &sha).unwrap();
+    let copy = injected.root.join("alpha");
+
+    // The sidecar stays behind and a link stays a link, and neither is a
+    // mismatch on a copy nobody touched.
+    assert!(!copy.join("hydra.toml").exists());
+    assert_eq!(
+        std::fs::read_link(copy.join("refs/link.md")).unwrap(),
+        Path::new("one.md")
+    );
+    assert_eq!(
+        skills::copy_mismatch(&injected.root, &snapshot, &injected.linked),
+        None
+    );
+
+    Command::new("chmod")
+        .args(["-R", "u+w"])
+        .arg(&injected.root)
+        .status()
+        .unwrap();
+    std::fs::write(copy.join("SKILL.md"), "rewritten\n").unwrap();
+    std::fs::remove_file(copy.join("refs/two.md")).unwrap();
+    std::fs::write(copy.join("refs/three.md"), "three\n").unwrap();
+    std::fs::write(copy.join("hydra.toml"), "pinned = true\n").unwrap();
+    std::fs::create_dir_all(injected.root.join("planted")).unwrap();
+
+    let note = skills::copy_mismatch(&injected.root, &snapshot, &injected.linked).unwrap();
+    assert!(note.starts_with(skills::COPY_MISMATCH_NOTE), "{note}");
+    for expected in [
+        "alpha/SKILL.md differs",
+        "alpha/refs/two.md is missing from the copy",
+        "alpha/refs/three.md was added to the copy",
+        "alpha/hydra.toml was added to the copy",
+        "planted was added to the copy",
+    ] {
+        assert!(note.contains(expected), "{expected:?} not in {note}");
+    }
+
+    // A skill directory swapped for a link back into the snapshot would read
+    // as identical through the link, so it is named on its own.
+    std::fs::remove_dir_all(&copy).unwrap();
+    std::os::unix::fs::symlink(snapshot.join("alpha"), &copy).unwrap();
+    let note = skills::copy_mismatch(&injected.root, &snapshot, &injected.linked).unwrap();
+    assert!(
+        note.contains("alpha is no longer a directory in the copy"),
+        "{note}"
+    );
+}
+
+#[test]
+fn on_the_other_three_providers_the_skills_are_still_links() {
+    let fixture = Fixture::new("still-links");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+
+    for (run_id, provider) in [
+        (RUN_A, Provider::Claude),
+        (RUN_B, Provider::CursorAgent),
+        ("01a07357-58a5-79e2-a25a-3df578a750b6", Provider::Agy),
+    ] {
+        let worktree = fixture.checkout(run_id);
+        let injected = skills::inject(&worktree, provider, &snapshot, &sha).unwrap();
+        let link = injected.root.join("alpha");
+        assert!(link.is_symlink(), "{provider} should still link skills");
+        assert_eq!(std::fs::read_link(&link).unwrap(), snapshot.join("alpha"));
+    }
 }
 
 #[test]

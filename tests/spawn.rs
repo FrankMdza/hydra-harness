@@ -1199,6 +1199,78 @@ fn a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths() {
 }
 
 #[test]
+fn a_codex_spawn_profile_denies_writes_to_the_skill_copy() {
+    if !hydra::sandbox::wraps_launches() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let skills = worktree.join(".codex/skills");
+    std::fs::create_dir_all(&skills).unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Codex,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    let profile = spawn.sandbox_profile.expect("macOS spawn writes a profile");
+    let text = std::fs::read_to_string(&profile).unwrap();
+    let skills_canon = canonical_subpath(&skills).to_lowercase();
+    assert!(
+        text.to_lowercase().contains(&format!(
+            r#"(deny file-write* (subpath "{}"))"#,
+            skills_canon
+        )),
+        "profile does not deny writes to the codex skill copy:\n{text}"
+    );
+}
+
+#[test]
+fn the_seatbelt_refuses_a_codex_skill_copy_write_and_allows_the_rest_of_the_worktree() {
+    if !hydra::sandbox::exec_available() {
+        return;
+    }
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let skills = worktree.join(".codex/skills");
+    std::fs::create_dir_all(skills.join("alpha")).unwrap();
+    std::fs::write(skills.join("alpha/SKILL.md"), "skill\n").unwrap();
+
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Codex,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let profile = spawn.sandbox_profile.unwrap();
+    let wt = canonical_subpath(&worktree);
+    let skill = canonical_subpath(&skills.join("alpha/SKILL.md"));
+
+    let out = under_seatbelt(&profile, &format!("echo x >> '{skill}'"));
+    assert!(out.contains("Operation not permitted"), "{out}");
+    let out = under_seatbelt(&profile, &format!("echo x > '{wt}/seatbelt-test'"));
+    assert!(out.contains("rc=0"), "worktree write should succeed: {out}");
+}
+
+#[test]
 fn the_seatbelt_refuses_a_corpus_write_and_allows_the_worktree() {
     if !hydra::sandbox::exec_available() {
         return;

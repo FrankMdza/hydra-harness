@@ -106,6 +106,14 @@ impl Provider {
         }
     }
 
+    /// Whether this provider reads injected skills only through shell commands.
+    ///
+    /// `codex` has no read tool, so skills have to be plain files in the
+    /// worktree rather than links into the snapshot under `~/hydra`.
+    pub fn reads_skills_by_shell(self) -> bool {
+        matches!(self, Provider::Codex)
+    }
+
     /// The user-scope roots this provider reads, which the collision check
     /// compares the store against.
     ///

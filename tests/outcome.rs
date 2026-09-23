@@ -11,7 +11,7 @@
 
 use hydra::outcome::{Outcome, Source, derive};
 use hydra::record::{Refusal, RunEnd};
-use serde_json::json;
+use serde_json::{Value, json};
 
 mod common;
 use common::{
@@ -373,6 +373,49 @@ fn a_note_about_the_records_fidelity_does_not_make_a_finished_run_a_failure() {
         outcome_of(&sandbox, &text),
         Some((Outcome::Completed, Source::Derived))
     );
+}
+
+#[test]
+fn a_codex_skill_copy_that_changed_does_not_change_the_outcome() {
+    // Build ticket 87 puts the copy check on `run_end.error`. A `codex` run
+    // that reached `turn.completed` has a terminator, so the note is a fidelity
+    // note and the run stays `completed`. One that never reached a turn is
+    // `failed` with or without the note, because that is this provider's
+    // reading of no terminator.
+    let sandbox = Sandbox::new("codex-copy");
+    let worktree = sandbox.worktree();
+    let codex = |turn: bool, error: Value| {
+        let mut record = Record::shaped(Shape {
+            provider: Some("codex"),
+            policy: Some("standard"),
+            policy_sha: Some(policies().sha()),
+            worktree: Some(&worktree),
+            ..Shape::default()
+        });
+        record.raw(json!({"type": "thread.started", "thread_id": "t"}));
+        if turn {
+            record.raw(json!({
+                "type": "turn.completed",
+                "usage": {"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 4},
+            }));
+        }
+        record.closed_with(json!({"exit_code": if turn { 0 } else { 1 }, "error": error}))
+    };
+    let note = format!(
+        "{}: alpha/SKILL.md differs",
+        hydra::skills::COPY_MISMATCH_NOTE
+    );
+
+    assert_eq!(
+        outcome_of(&sandbox, &codex(true, json!(note))),
+        Some((Outcome::Completed, Source::Derived))
+    );
+    for error in [json!(note), Value::Null] {
+        assert_eq!(
+            outcome_of(&sandbox, &codex(false, error)),
+            Some((Outcome::Failed, Source::Derived))
+        );
+    }
 }
 
 #[test]

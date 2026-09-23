@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
 use crate::policy::{self, PolicySet, Spawn};
+use crate::provider::Provider;
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
@@ -120,6 +121,16 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
         lines.push(format!(
             r#"(allow file-write* (subpath "{}"))"#,
             escape(&own)
+        ));
+    }
+    // `codex` reads skills by shell, so they are copied into the worktree rather
+    // than linked into the snapshot. SBPL takes the last matching rule, so this
+    // deny after the worktree allow keeps the copy read-only at the kernel.
+    if spawn.provider == Provider::Codex {
+        let skills = canonical(&spawn.worktree.join(Provider::Codex.skill_root()));
+        lines.push(format!(
+            r#"(deny file-write* (subpath "{}"))"#,
+            escape(&skills)
         ));
     }
     format!("{}\n", lines.join("\n"))

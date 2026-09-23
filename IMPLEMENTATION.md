@@ -3686,6 +3686,27 @@ other case. `paths::refuse_non_ascii_roots` checks the resolved form of the data
 repository's `.git` is a third path the gate folds and it is not checked: a repo under a non-ASCII
 directory still launches with that one denial case-blind. Whether such a repo is refused is open.
 
+## `codex` and its skills, since build ticket 87
+
+Map ticket 71 found that `codex` could not open a single skill Hydra injected: it reads only by
+shell, the snapshot sits under `~/hydra`, and build ticket 74 made the shell check refuse any
+command naming that. A panel of three readers chose a copy. `skills::inject` copies on
+`Provider::reads_skills_by_shell()`, true for `codex` only, with files 0444 and directories 0555,
+and keeps a symlink inside a skill as a link rather than following it. The seatbelt profile of a
+`codex` launch ends with a write deny on `<worktree>/.codex/skills`. At exit the watcher compares
+the copy with the snapshot in both directions, and a link swapped in or a `hydra.toml` added
+counts, appending a note to `run_end.error` after the signal and tee notes;
+`tests/outcome.rs::a_codex_skill_copy_that_changed_does_not_change_the_outcome` holds that the
+note changes no outcome, because a completed `codex` run has a terminator.
+
+**Reap holds back what Hydra injected and nothing else.** `reap::injected_skills` reads
+`skills.linked` from line 0 of the run's record, or its pruned copy, and excludes `<root>/<name>` for
+each; Hydra's own `*` `.gitignore` in a skill root is dropped before staging when it is untracked
+and holds exactly `*`, so a skill the run authored under `.claude/skills` is committed. Before this
+ticket a run that deleted that `.gitignore` got whatever it planted there committed on every
+provider. With no record, reap holds back the four roots whole. The read-only copies need their
+write bits back before `git worktree remove`, which `worktree::restore_write_bits` does.
+
 ## Rough edges worth knowing
 
 - **`~/hydra` is this checkout on the machine this is developed on**, so everything
