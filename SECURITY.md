@@ -12,8 +12,11 @@ Hydra made about it.
 - **The gate does not interpret shell.** A command that spells a protected path is refused
   under every policy. A command that reaches the same path through a variable, a subshell, a
   `cd` followed by a relative path, or a nested `sh -c` naming a sibling under a parent this
-  run owns a piece of, is not. `docs/harness-spec.md` section 7.4 states this and
-  `tests/gate.rs` fails if someone claims to have closed it.
+  run owns a piece of, is not. Neither is a path split by a quote, assembled by concatenation,
+  percent-encoded, or spelled with `..`, `//` or `/./` inside an interpreter or nested-shell
+  token. The gate refuses a protected path only when its prefix appears whole and in canonical
+  form. `docs/harness-spec.md` section 7.4 states this and `tests/gate.rs` fails if someone
+  claims to have closed it.
 - **There is no container, and on macOS there is a sandbox around the process tree.** The
   vendor CLI needs the network to reach its model, so network cannot be cut, and the run has your
   real `HOME` because a wrong one logs the vendor out. Since 2026-09-21 every recorded launch on

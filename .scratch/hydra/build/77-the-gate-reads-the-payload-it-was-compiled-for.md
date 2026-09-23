@@ -1,7 +1,7 @@
 # 77 - The gate reads the payload it was compiled for, and says what its raw pass misses
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -49,3 +49,18 @@ The four items above, each with a test that fails before the change and passes a
 `policies/` or `.scratch/`.
 
 ## Outcome
+
+All four items built as the ticket asked, with the dialect fix shaped as the research proposed:
+`toolCall` read only on `agy`, `beforeReadFile` only on `cursor`, anything else `hydra/wrong-envelope`.
+Tests in `tests/gate.rs`: a non-object `tool_input` refused, an `agy` `toolCall.args` that is a
+string or list refused, a missing `tool_input` still allowed for `Task` and an MCP tool, each gate
+refusing each foreign envelope, the Slack floor on a `WebFetch` URL and not on a search query or a
+prompt field, and the seven pinned spellings with controls. The ticket assumed `policies/floor.json`
+would need editing; it did not. It also assumed `tool_input` was the only field coerced, and that
+was false: `agy`'s `toolCall.args` was coerced the same way one function earlier, found by the Opus
+review. The first version walked every string in `tool_input` for Slack methods, which refused a
+search query that mentioned one; narrowed to the URL field. `hydra/wrong-envelope` was missing from
+`normalize::GATE_CODES` and the lib test written for that caught it on master. Measured on master
+with 78 applied: gate 90, spawn 30, normalize 81, outcome 42, show 3, lib 193 passed; clippy and
+fmt clean. Built by `cursor-agent` on Composer 2.5 under `standard`, run 01a0cc2a-d2a1, 1.9M tokens;
+an Opus subagent fixed the review's six findings in the worktree.

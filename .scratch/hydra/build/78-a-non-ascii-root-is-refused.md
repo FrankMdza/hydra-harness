@@ -1,7 +1,7 @@
 # 78 - A non-ASCII root is refused before launch
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -28,3 +28,17 @@ with an ASCII name is not; a unit test on the check itself. Tests take a scratch
 `tests/` only.
 
 ## Outcome
+
+`paths::refuse_non_ascii_roots` checks `policy::resolved_path` of the data root and of
+`hydra_home()`, so an ASCII symlink to a non-ASCII directory is refused too; wired into `run::run`
+before `layout.ensure()`, both interactive paths, `curate`, `evolve` and `review_blocked`, and the
+face through `run::run`. `hydra doctor` prints `data root <path> ascii|non-ascii` and
+`checkout <path> ...` and fails on the second. Unit tests in `src/paths.rs` (including the symlink
+case) and `src/doctor.rs`; `tests/spawn.rs` refuses a scratch layout under `Café/`. The ticket said
+to confirm there was no third root, and there is one: the launching repo's `.git`
+(`Spawn::parent_git_dir`) is folded into the deny list and scopes and is not checked. A comment at
+the check and `IMPLEMENTATION.md` state it; whether a non-ASCII repo is refused goes to the human.
+The first version checked raw bytes (symlink bypass, measured by the Opus review) and wrote a doctor
+test that would fail on CI, where no vendor binary is installed; both fixed by an Opus subagent.
+Measured on master: spawn 30, lib 193 passed; clippy and fmt clean. Built by `cursor-agent` on
+Composer 2.5 under `standard`, run 01a0cc32-1103, 1.2M tokens.

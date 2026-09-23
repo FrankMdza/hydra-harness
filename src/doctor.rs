@@ -27,6 +27,8 @@ pub fn run(layout: &Layout) -> Result<Report> {
     let policies = home.join("policies");
 
     path_line(&mut out, "root", layout.root(), &mut missing);
+    ascii_root_line(&mut out, "data root", layout.root(), &mut missing);
+    ascii_root_line(&mut out, "checkout", &home, &mut missing);
     path_line(&mut out, "policies", &policies, &mut missing);
 
     for provider in [
@@ -106,6 +108,18 @@ fn protected_configs(home: &Path) -> [Config; 6] {
     ]
 }
 
+/// Map ticket 68: judged on the resolved path, the form the gate compiles.
+/// See [`crate::paths::refuse_non_ascii_roots`] for the path it leaves out.
+fn ascii_root_line(out: &mut String, label: &str, path: &Path, missing: &mut bool) {
+    let state = if crate::paths::path_is_ascii(path) {
+        "ascii"
+    } else {
+        *missing = true;
+        "non-ascii"
+    };
+    out.push_str(&format!("{label} {} {state}\n", path.display()));
+}
+
 fn path_line(out: &mut String, label: &str, path: &Path, missing: &mut bool) {
     let state = presence(path);
     if state == "missing" {
@@ -119,5 +133,25 @@ fn presence(path: &Path) -> &'static str {
         "present"
     } else {
         "missing"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_ascii_root_line_passes_and_a_non_ascii_one_fails() {
+        let mut out = String::new();
+        let mut missing = false;
+        ascii_root_line(&mut out, "data root", Path::new("/tmp/hydra"), &mut missing);
+        assert_eq!(out, "data root /tmp/hydra ascii\n");
+        assert!(!missing);
+
+        let mut out = String::new();
+        let mut missing = false;
+        ascii_root_line(&mut out, "checkout", Path::new("/tmp/Café"), &mut missing);
+        assert_eq!(out, "checkout /tmp/Café non-ascii\n");
+        assert!(missing);
     }
 }

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::paths::Layout;
+use hydra::paths::refuse_non_ascii_roots;
 use hydra::policy::PolicySet;
 use hydra::provider::Provider;
 use hydra::run::{refuse_foreign_checkout, write_spawn_config};
@@ -54,6 +55,44 @@ fn hook_command(settings: &serde_json::Value) -> String {
         .as_str()
         .unwrap()
         .to_string()
+}
+
+#[test]
+fn a_layout_rooted_under_a_non_ascii_name_is_refused_before_writing() {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let suffix = format!(
+        "non-ascii-root-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    for (label, segment) in [("ascii control", "Hydra"), ("non-ascii root", "Café")] {
+        let root = std::env::temp_dir().join(segment).join(&suffix);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let layout = Layout::at(&root);
+        let checkout = hydra::paths::hydra_home();
+        let result = refuse_non_ascii_roots(&layout, &checkout);
+        if label == "ascii control" {
+            result.unwrap();
+            assert!(
+                !layout.runs().exists(),
+                "{label}: the check wrote into the data root"
+            );
+        } else {
+            let err = result.unwrap_err();
+            let message = err.to_string();
+            assert!(message.contains("data root"), "{message}");
+            assert!(
+                message.contains(root.display().to_string().as_str()),
+                "{message}"
+            );
+            assert!(message.contains("map ticket 68"), "{message}");
+            assert!(
+                !layout.runs().exists(),
+                "{label}: the refusal wrote into the data root"
+            );
+        }
+    }
 }
 
 #[test]

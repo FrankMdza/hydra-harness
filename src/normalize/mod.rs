@@ -1013,6 +1013,7 @@ pub(crate) const GATE_CODES: &[&str] = &[
     "no-tool-name",
     "bad-payload",
     "wrong-dialect",
+    "wrong-envelope",
     "gate-error",
     "seatbelt-delegation",
 ];

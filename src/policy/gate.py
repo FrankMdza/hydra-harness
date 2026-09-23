@@ -297,7 +297,10 @@ def protected_path_named_by(command, cwd):
     sibling run's worktree spelled inside a larger token, `sh -c 'cat
     /…/worktrees/<other-run>/x'`, still reaches the token pass and still walks
     through it. The corpus, the store, the snapshots, the spawn directory and
-    the per-run config files carry no own path and are on the list.
+    the per-run config files are covered when the denied prefix appears whole
+    and in canonical form. A path split by a quote, assembled by concatenation,
+    percent-encoded, or spelled with `..`, `//` or `/./` inside an interpreter
+    or nested-shell token is not.
     """
     # The raw pass. `resolve` is not used here because there is nothing to
     # resolve: this looks for a denied path already spelled absolutely, which is
@@ -610,6 +613,29 @@ def capability_of(tool):
     return HYDRA_CONFIG["tools"].get(tool)
 
 
+def wrong_dialect_envelope(payload):
+    """Another provider's hook envelope, or None when the payload matches ours.
+
+    `beforeReadFile` is Cursor's and `toolCall` is `agy`'s. A gate compiled for
+    one dialect reads only that dialect's shape; a payload that carries the
+    other's key is refused rather than unwrapped, because unwrapping would leave
+    the real `tool_name` unchecked. Contract 7.7's replay sends the normalized
+    shape and carries neither key.
+    """
+    dialect = HYDRA_CONFIG["dialect"]
+    has_before_read = payload.get("hook_event_name") == "beforeReadFile"
+    has_tool_call = isinstance(payload.get("toolCall"), dict)
+    if dialect == "claude" and (has_before_read or has_tool_call):
+        if has_before_read:
+            return "cursor's beforeReadFile"
+        return "agy's toolCall"
+    if dialect == "cursor" and has_tool_call:
+        return "agy's toolCall"
+    if dialect == "agy" and has_before_read:
+        return "cursor's beforeReadFile"
+    return None
+
+
 def as_tool_call(payload):
     """The payload as `evaluate` reads it: a tool name, its input, a cwd.
 
@@ -619,7 +645,7 @@ def as_tool_call(payload):
     2026.09.02-c22c1a3, 2026-09-06: the path is a top-level `file_path`, the
     file's content rides beside it, and there is no `cwd`. It is a read, so it is
     evaluated as the provider's `Read` tool with that path, which is the row the
-    table already holds for it.
+    table already holds for it. Only a gate compiled for `cursor` unwraps it.
 
     `agy` sends `toolCall.name` and `toolCall.args` in camelCase protojson, with
     no `cwd` field at all. Measured on 1.1.26, 2026-09-06. Two things stand in
@@ -628,30 +654,34 @@ def as_tool_call(payload):
     the worktree Hydra passed on `--add-dir`. Falling back to the compiled
     `worktree` scope, which `evaluate` does when both are absent, would resolve a
     relative path against the run's own checkout, and that is the same directory
-    in every launch Hydra makes.
+    in every launch Hydra makes. Only a gate compiled for `agy` unwraps it.
 
-    Keying on the payload rather than on the dialect is deliberate: contract
-    7.7's read-time re-evaluation sends the normalized shape for every provider,
-    so the same script answers the live hook and the replay.
+    Contract 7.7's read-time re-evaluation sends the normalized shape for every
+    provider, which carries neither envelope, so the same script answers the
+    live hook and the replay.
     """
-    if payload.get("hook_event_name") == "beforeReadFile":
+    dialect = HYDRA_CONFIG["dialect"]
+    if dialect == "cursor" and payload.get("hook_event_name") == "beforeReadFile":
         return {
             "tool_name": "Read",
             "tool_input": {"file_path": payload.get("file_path")},
             "cwd": payload.get("cwd"),
         }
-    call = payload.get("toolCall")
-    if isinstance(call, dict):
-        args = call.get("args")
-        if not isinstance(args, dict):
-            args = {}
-        paths = payload.get("workspacePaths")
-        workspace = paths[0] if isinstance(paths, list) and paths else None
-        return {
-            "tool_name": call.get("name"),
-            "tool_input": args,
-            "cwd": args.get("Cwd") or workspace,
-        }
+    if dialect == "agy":
+        call = payload.get("toolCall")
+        if isinstance(call, dict):
+            # `args` goes through as it arrived. One that is not an object
+            # reaches `evaluate` as a `tool_input` it cannot read and is refused
+            # there, rather than emptied here into a command line of nothing.
+            args = call.get("args")
+            paths = payload.get("workspacePaths")
+            workspace = paths[0] if isinstance(paths, list) and paths else None
+            own_cwd = args.get("Cwd") if isinstance(args, dict) else None
+            return {
+                "tool_name": call.get("name"),
+                "tool_input": args,
+                "cwd": own_cwd or workspace,
+            }
     return payload
 
 
@@ -663,16 +693,58 @@ def scopes_for(capability):
     ]
 
 
+# The URL field of each fetch tool in the dialect tables. `claude`'s `WebFetch`
+# and Cursor's `Fetch` send `url`, the second read off the normalizer's own
+# mapping of `webFetchToolCall`. `agy`'s `Url` on `read_url_content` follows the
+# PascalCase of every field measured on that provider and is itself unmeasured.
+# `codex` has no hooked fetch tool. The search tools, `WebSearch` and
+# `search_web`, carry a query rather than a URL and are left out on purpose: a
+# query that mentions `files.upload` sends nothing to Slack.
+FETCH_URL_FIELDS = {
+    "WebFetch": "url",
+    "Fetch": "url",
+    "read_url_content": "Url",
+}
+
+
+def slack_violation_in_fetch(tool, tool_input):
+    """What the floor's Slack rules refuse in a fetch tool's URL, or None."""
+    field = FETCH_URL_FIELDS.get(tool)
+    if field is None:
+        return None
+    url = tool_input.get(field)
+    if not isinstance(url, str) or not url:
+        return None
+    return check_slack(url)
+
+
 def evaluate(payload):
     """(allowed, reason) for one tool call."""
+    envelope = wrong_dialect_envelope(payload)
+    if envelope is not None:
+        return False, (
+            "hydra/wrong-envelope: this gate was compiled for the {} dialect "
+            "and the payload carried {}.".format(HYDRA_CONFIG["dialect"], envelope)
+        )
+
     payload = as_tool_call(payload)
     tool = payload.get("tool_name")
     if not isinstance(tool, str) or not tool:
         return False, "hydra/no-tool-name: the payload named no tool"
 
+    # A missing `tool_input` stays `{}` for tools the table names no field on:
+    # `Task`, `mcp__*` and the `provider_native` rows carry optional arguments
+    # the gate does not resolve a path from. A present `tool_input` that is not
+    # an object is refused, because coercing it to `{}` would empty a shell
+    # command or a path field the gate must read.
     tool_input = payload.get("tool_input")
-    if not isinstance(tool_input, dict):
+    if tool_input is None:
         tool_input = {}
+    elif not isinstance(tool_input, dict):
+        return False, (
+            "hydra/bad-payload: {} carries tool_input the gate cannot read as an "
+            "object.".format(tool)
+        )
     cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         cwd = HYDRA_CONFIG["scopes"].get("worktree") or os.getcwd()
@@ -771,6 +843,13 @@ def evaluate(payload):
                 "hydra/protected-path: an argument of {} names {}, denied under "
                 "every policy by harness spec 7.5.".format(tool, protected)
             )
+        if not HYDRA_CONFIG["floor_lifted"]:
+            hit = slack_violation_in_fetch(tool, tool_input)
+            if hit:
+                return False, (
+                    "hydra/floor: the pattern floor refuses {}. Lift it for one run "
+                    "with --allow-floor-escape.".format(hit)
+                )
 
     # The same list, reached through the capability that carries no path.
     if capability == "shell":

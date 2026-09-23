@@ -207,6 +207,7 @@ pub fn run(request: Request) -> Result<RunResult> {
 
 fn run_gated(request: Request) -> Result<RunResult> {
     let layout = Layout::discover()?;
+    crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     layout.ensure()?;
 
     let invoked_in = std::env::current_dir().context("reading the working directory")?;
@@ -340,6 +341,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
 
 fn run_ungated(request: Request) -> Result<RunResult> {
     let layout = Layout::discover()?;
+    crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     layout.ensure()?;
 
     let cwd = std::env::current_dir().context("reading the working directory")?;

@@ -86,6 +86,7 @@ pub struct Proposal {
 /// Reads the corpus, runs the curator, commits what it proposed.
 pub fn curate(pass: Pass) -> Result<Done> {
     let layout = Layout::discover()?;
+    crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     let policies = PolicySet::discover()?;
     // Minted here rather than by the launch, because the checkout the gate scopes
     // to is named after the run and has to exist before the gate is compiled.

@@ -1793,6 +1793,100 @@ fn a_protected_path_built_by_substitution_still_walks_past() {
 }
 
 #[test]
+fn a_protected_path_split_or_assembled_still_walks_past() {
+    // **These pin what is still open**, build ticket 77. The raw pass is a
+    // substring test, so a denied path is refused when its prefix appears whole
+    // and in canonical form. A path split by a quote, assembled by
+    // concatenation, percent-encoded, or spelled with `..`, `//` or `/./` inside
+    // an interpreter or nested-shell token is not. Neither is one split across
+    // an MCP call's fields.
+    let gate = Gate::new("standard");
+    let root = gate.root.display();
+    let runs = gate.runs.display();
+    assert!(
+        gate.shell(&format!("cat {}/x.jsonl", runs))
+            .denied_for("hydra/protected-path"),
+        "the plain spelling must stay refused"
+    );
+
+    // A quote splits the prefix inside a nested shell.
+    // If this now denies, the residual is closed and this comment is stale;
+    // rewrite the assertion and SECURITY.md.
+    let split_quote = format!("sh -c 'cat {}/ru\"ns\"/x.jsonl'", root);
+    assert!(
+        gate.shell(&split_quote).allowed,
+        "if this now denies, the residual is closed and the comment is stale"
+    );
+
+    // Concatenation inside an interpreter token.
+    // If this now denies, the residual is closed and this comment is stale;
+    // rewrite the assertion and SECURITY.md.
+    let python_concat = format!("python3 -c \"open('{}/ru' + 'ns/x.jsonl')\"", root);
+    assert!(
+        gate.shell(&python_concat).allowed,
+        "if this now denies, the residual is closed and the comment is stale"
+    );
+
+    // The same `worktrees/..` launder reaches skills, skills-snapshots, pruned,
+    // spawn/<other-run> and skill-worktrees/<other-run>; one pin is enough.
+    // If this now denies, the residual is closed and this comment is stale;
+    // rewrite the assertion and SECURITY.md.
+    let dotdot = format!("sh -c 'cat {}/worktrees/../runs/x.jsonl'", root);
+    assert!(
+        gate.shell(&dotdot).allowed,
+        "if this now denies, the residual is closed and the comment is stale"
+    );
+
+    // A doubled slash and a dot segment.
+    // If this now denies, the residual is closed and this comment is stale;
+    // rewrite the assertion and SECURITY.md.
+    for doubled in [
+        format!("sh -c 'cat {}//runs/x.jsonl'", root),
+        format!("sh -c 'cat {}/./runs/x.jsonl'", root),
+    ] {
+        assert!(
+            gate.shell(&doubled).allowed,
+            "if this now denies, the residual is closed and the comment is stale"
+        );
+    }
+
+    // Percent-encoding in a fetch URL.
+    // If this now denies, the residual is closed and this comment is stale;
+    // rewrite the assertion and SECURITY.md.
+    let encoded = format!("file://{}/ru%6es/x.jsonl", root);
+    assert!(
+        gate.ask("WebFetch", json!({ "url": encoded, "prompt": "read it" }))
+            .allowed,
+        "if this now denies, the residual is closed and the comment is stale"
+    );
+
+    // An MCP call under `permissive`, with a doubled slash or the path split
+    // across two fields.
+    let permissive = Gate::new("permissive");
+    // If this now denies, the residual is closed and this comment is stale;
+    // rewrite the assertion and SECURITY.md.
+    for arguments in [
+        json!({ "path": format!("{}//runs/x.jsonl", root) }),
+        json!({
+            "dir": format!("{}/ru", root),
+            "name": "ns/x.jsonl",
+        }),
+    ] {
+        assert!(
+            permissive.ask("mcp__x__write", arguments).allowed,
+            "if this now denies, the residual is closed and the comment is stale"
+        );
+    }
+    let corpus = permissive.runs.join("x.jsonl");
+    assert!(
+        permissive
+            .ask("mcp__x__write", json!({ "path": corpus.to_string_lossy() }))
+            .denied_for("hydra/protected-path"),
+        "the plain MCP spelling must stay refused"
+    );
+}
+
+#[test]
 fn ordinary_shell_is_left_alone() {
     let gate = Gate::new("standard");
     assert!(gate.shell("cargo test --all").allowed);
@@ -2598,6 +2692,202 @@ fn a_fetch_whose_url_spells_the_corpus_is_refused() {
         decision.denied_for("hydra/protected-path"),
         "a file URL naming the corpus was answered {}: {}",
         decision.allowed,
+        decision.reason
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Build ticket 77: the gate reads the payload it was compiled for
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_shell_tool_input_that_is_not_an_object_is_refused() {
+    let gate = Gate::new("standard");
+    let runs = gate.runs.join("x.jsonl");
+    for tool_input in [
+        json!(format!("cat {}", runs.display())),
+        json!([format!("cat {}", runs.display())]),
+    ] {
+        let decision = gate.ask_with_dialect(
+            Some("claude"),
+            json!({
+                "cwd": gate.worktree.to_string_lossy(),
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": tool_input,
+            }),
+        );
+        assert!(
+            decision.denied_for("hydra/bad-payload"),
+            "{tool_input} was answered {}: {}",
+            decision.allowed,
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_claude_gate_refuses_another_dialects_envelope() {
+    let gate = Gate::new("standard");
+    let runs = gate.runs.join("x.jsonl");
+    let inside = gate.worktree.join("a.txt");
+
+    let with_agy = gate.ask_with_dialect(
+        Some("claude"),
+        json!({
+            "cwd": gate.worktree.to_string_lossy(),
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": { "command": format!("cat {}", runs.display()) },
+            "toolCall": {
+                "name": "Read",
+                "args": { "file_path": inside.to_string_lossy() },
+            },
+        }),
+    );
+    assert!(
+        with_agy.denied_for("hydra/wrong-envelope"),
+        "agy's toolCall walked past: {}",
+        with_agy.reason
+    );
+
+    let with_cursor = gate.ask_with_dialect(
+        Some("claude"),
+        json!({
+            "cwd": gate.worktree.to_string_lossy(),
+            "hook_event_name": "beforeReadFile",
+            "file_path": inside.to_string_lossy(),
+            "tool_name": "Bash",
+            "tool_input": { "command": format!("cat {}", runs.display()) },
+        }),
+    );
+    assert!(
+        with_cursor.denied_for("hydra/wrong-envelope"),
+        "cursor's beforeReadFile walked past: {}",
+        with_cursor.reason
+    );
+}
+
+#[test]
+fn the_floor_refuses_slack_on_a_fetch_url_and_not_in_a_search_query() {
+    let gate = Gate::new("standard");
+    let slack_url = "https://slack.com/api/files.upload";
+    assert!(
+        gate.shell(&format!("curl {}", slack_url))
+            .denied_for("hydra/floor"),
+        "the shell floor still refuses curl to Slack"
+    );
+    assert!(
+        gate.ask("WebFetch", json!({ "url": slack_url, "prompt": "post" }))
+            .denied_for("hydra/floor"),
+        "WebFetch to the same Slack method must meet the same floor"
+    );
+    assert!(
+        gate.ask("WebFetch", json!({ "url": "https://example.com" }))
+            .allowed,
+        "an ordinary fetch is still allowed"
+    );
+    // A search query sends nothing to Slack, so the floor does not read it.
+    let search = gate.ask(
+        "WebSearch",
+        json!({ "query": "slack api files.upload rate limits" }),
+    );
+    assert!(
+        search.allowed,
+        "a search that mentions files.upload was refused: {}",
+        search.reason
+    );
+    // The floor reads the URL field and nothing beside it.
+    assert!(
+        gate.ask(
+            "WebFetch",
+            json!({ "url": "https://example.com", "prompt": "compare with files.upload" })
+        )
+        .allowed,
+        "the prompt beside the URL is not the URL"
+    );
+}
+
+#[test]
+fn an_agy_run_command_whose_args_are_not_an_object_is_refused() {
+    let gate = Gate::agy("standard");
+    let runs = gate.runs.join("x.jsonl");
+    for args in [
+        json!(format!("cat {}", runs.display())),
+        json!([format!("cat {}", runs.display())]),
+    ] {
+        let decision = gate.agy_tool("run_command", args.clone());
+        assert!(
+            decision.denied_for("hydra/bad-payload"),
+            "{args} was answered {}: {}",
+            decision.allowed,
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_missing_tool_input_is_allowed_for_a_tool_that_sends_none() {
+    // `Task` and an `mcp__` tool carry no field the gate resolves a path from,
+    // so a payload without `tool_input` reads as `{}` and `permissive` grants
+    // both. Only a `tool_input` that is present and not an object is refused.
+    let gate = Gate::new("permissive");
+    for tool in ["Task", "mcp__server__tool"] {
+        let decision = gate.ask_with_dialect(
+            Some("claude"),
+            json!({
+                "cwd": gate.worktree.to_string_lossy(),
+                "hook_event_name": "PreToolUse",
+                "tool_name": tool,
+            }),
+        );
+        assert!(
+            decision.allowed,
+            "{tool} without tool_input was refused: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_cursor_gate_refuses_agys_envelope() {
+    let gate = Gate::cursor("standard");
+    let runs = gate.runs.join("x.jsonl");
+    let inside = gate.worktree.join("a.txt");
+    let decision = gate.cursor_ask(json!({
+        "conversation_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+        "tool_name": "Shell",
+        "tool_input": { "command": format!("cat {}", runs.display()) },
+        "hook_event_name": "preToolUse",
+        "workspace_roots": [gate.worktree.to_string_lossy()],
+        "toolCall": {
+            "name": "view_file",
+            "args": { "AbsolutePath": inside.to_string_lossy() },
+        },
+    }));
+    assert!(
+        decision.denied_for("hydra/wrong-envelope"),
+        "agy's toolCall walked past a cursor gate: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn an_agy_gate_refuses_cursors_envelope() {
+    let gate = Gate::agy("standard");
+    let runs = gate.runs.join("x.jsonl");
+    let decision = gate.agy_ask(json!({
+        "hook_event_name": "beforeReadFile",
+        "file_path": gate.worktree.join("a.txt").to_string_lossy(),
+        "toolCall": {
+            "name": "run_command",
+            "args": { "CommandLine": format!("cat {}", runs.display()) },
+        },
+        "workspacePaths": [gate.worktree.to_string_lossy()],
+    }));
+    assert!(
+        decision.denied_for("hydra/wrong-envelope"),
+        "cursor's beforeReadFile walked past an agy gate: {}",
         decision.reason
     );
 }

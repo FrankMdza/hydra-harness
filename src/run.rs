@@ -423,6 +423,7 @@ pub fn run(request: Request) -> Result<Call> {
         );
     }
     let layout = Layout::discover()?;
+    crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     refuse_foreign_checkout(&layout, &crate::paths::hydra_home(), root_named)?;
     layout.ensure()?;
 

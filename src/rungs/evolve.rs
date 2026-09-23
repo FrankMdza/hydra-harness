@@ -80,6 +80,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     }
 
     let layout = Layout::discover()?;
+    crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     let policies = PolicySet::discover()?;
     let pass_run_id = Uuid::now_v7().to_string();
     let repo = crate::worktree::repo_root(&std::env::current_dir()?)
@@ -823,6 +824,7 @@ fn run_judge_panel(
 
 fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> Result<Done> {
     let layout = Layout::discover()?;
+    crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     let policies = PolicySet::discover()?;
     let repo = crate::worktree::repo_root(&std::env::current_dir()?)
         .context("hydra evolve --review needs a git repository")?;

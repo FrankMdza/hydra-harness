@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// The environment variable that overrides where `policies/` and `config/` are read from.
 pub const HYDRA_HOME_VAR: &str = "HYDRA_HOME";
@@ -48,6 +48,46 @@ fn hydra_home_from(named: Option<std::ffi::OsString>) -> PathBuf {
         Some(home) if !home.is_empty() => PathBuf::from(home),
         _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
     }
+}
+
+/// Whether every byte of a path is ASCII once symlinks are resolved.
+///
+/// Map ticket 68: the gate folds case in ASCII only, and macOS folds non-ASCII
+/// letters in paths too, so a root whose path holds such a letter would miss
+/// the other case on every deny entry and scope compiled from it. The compiler
+/// folds what `resolved_path` returns, not what the user typed, so an ASCII
+/// symlink to a non-ASCII directory has to be judged by its target.
+pub fn path_is_ascii(path: &Path) -> bool {
+    crate::policy::resolved_path(path)
+        .as_os_str()
+        .as_encoded_bytes()
+        .is_ascii()
+}
+
+/// Map ticket 68, build ticket 78. Refuse when either root the compiler folds
+/// into denials and scopes is not ASCII-only.
+///
+/// Known residual: the gate folds a third path, the launching repo's `.git`
+/// (`Spawn::parent_git_dir`, which `src/policy/mod.rs` adds to the denied
+/// write paths and the scopes), and it is not checked here. Map ticket 68
+/// decided the two Hydra roots. Whether a launch from a repo under a non-ASCII
+/// path is refused is still open.
+pub fn refuse_non_ascii_roots(layout: &Layout, checkout: &Path) -> Result<()> {
+    refuse_non_ascii_root("data root", layout.root())?;
+    refuse_non_ascii_root("checkout", checkout)?;
+    Ok(())
+}
+
+fn refuse_non_ascii_root(label: &str, path: &Path) -> Result<()> {
+    if path_is_ascii(path) {
+        return Ok(());
+    }
+    bail!(
+        "the {label} {path} contains a byte outside ASCII, and the gate folds case in ASCII only \
+         (map ticket 68). Every deny entry and scope under that root would miss the other case on \
+         macOS.",
+        path = path.display()
+    );
 }
 
 pub struct Layout {
@@ -338,6 +378,65 @@ mod tests {
         // An empty value is a variable somebody exported and never set, and
         // resolving it would name the filesystem root. It reads as unset.
         assert_eq!(hydra_home_from(Some("".into())), checkout);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_ascii_symlink_to_a_non_ascii_directory_is_refused() {
+        let scratch = std::env::temp_dir().join(format!(
+            "hydra-ascii-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let target = scratch.join("Café");
+        std::fs::create_dir_all(&target).unwrap();
+        let link = scratch.join("hydra-link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(link.as_os_str().as_encoded_bytes().is_ascii());
+        assert!(!path_is_ascii(&link));
+        let err = refuse_non_ascii_roots(&Layout::at(&link), Path::new("/tmp/checkout"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("data root"), "{err}");
+        assert!(err.contains("map ticket 68"), "{err}");
+
+        std::fs::remove_dir_all(&scratch).unwrap();
+    }
+
+    #[test]
+    fn a_path_outside_ascii_is_not_ascii() {
+        assert!(path_is_ascii(Path::new("/tmp/hydra")));
+        assert!(!path_is_ascii(Path::new("/tmp/Café")));
+        assert!(!path_is_ascii(Path::new("/tmp/Straße")));
+    }
+
+    #[test]
+    fn a_non_ascii_data_root_is_refused_and_an_ascii_one_is_not() {
+        let ascii = Layout::at("/tmp/hydra-ascii-root");
+        refuse_non_ascii_roots(&ascii, Path::new("/tmp/checkout")).unwrap();
+
+        let non_ascii = Layout::at("/tmp/Café");
+        let err = refuse_non_ascii_roots(&non_ascii, Path::new("/tmp/checkout")).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("data root"), "{message}");
+        assert!(message.contains("/tmp/Café"), "{message}");
+        assert!(message.contains("map ticket 68"), "{message}");
+    }
+
+    #[test]
+    fn a_non_ascii_checkout_is_refused_and_an_ascii_one_is_not() {
+        let layout = Layout::at("/tmp/hydra");
+        refuse_non_ascii_roots(&layout, Path::new("/tmp/checkout")).unwrap();
+
+        let err = refuse_non_ascii_roots(&layout, Path::new("/tmp/Café")).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("checkout"), "{message}");
+        assert!(message.contains("/tmp/Café"), "{message}");
+        assert!(message.contains("map ticket 68"), "{message}");
     }
 
     #[test]

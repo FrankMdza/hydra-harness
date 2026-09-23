@@ -3628,6 +3628,38 @@ CI, `gated` needs every call refused, the concurrency cap was a check without a 
 (closed by build ticket 81), and
 `run_start` takes thirteen positional arguments with two adjacent same-typed `Option` pairs.
 
+## What map ticket 68 changed
+
+Map ticket 68 asked for an immune loop and got a narrower answer: no schedule, a corpus rung two
+cannot edit, and the gate's claims made to match its code. Build tickets 77 and 78 carry the code.
+
+**The gate reads a payload in the dialect it was compiled for** (build 77). `as_tool_call` reads
+`toolCall` only on an `agy` gate and `beforeReadFile` only on a `cursor` gate, and a payload that
+carries another dialect's envelope is refused as `hydra/wrong-envelope`, the rule argv already
+followed with `hydra/wrong-dialect`. A `tool_input`, or an `agy` `toolCall.args`, that is present and
+not an object is refused as `hydra/bad-payload`; before, it was read as `{}`, so a shell call with a
+list for input reached neither the path check nor the floor. A missing `tool_input` is still read as
+empty, for tools that send none. `hydra/wrong-envelope` is on `normalize::GATE_CODES`.
+
+**The floor's Slack rules also run on a fetch tool's URL** (build 77): `url` on `WebFetch` and
+`Fetch`, `Url` on `agy`'s `read_url_content`, which is the one field name here nobody has measured.
+Search tools are not checked. Whether `network_read` gets a scope at all is map ticket 69.
+
+**The raw pass says what it does** (build 77). It refuses a denied prefix written whole and in
+canonical form. A path split by a quote, assembled by concatenation, percent-encoded, or spelled
+with `..`, `//` or `/./` inside an interpreter or nested-shell token walks past it, and
+`tests/gate.rs::a_protected_path_split_or_assembled_still_walks_past` pins each spelling as open
+beside the older substitution pin. `SECURITY.md` names the class under "does not interpret shell".
+On macOS the seatbelt still refuses what those spellings reach.
+
+**A non-ASCII root is refused before launch** (build 78). The gate folds case ASCII only, and the
+macOS filesystem folds `É` too, so on a root with a cased non-ASCII letter every denial missed the
+other case. `paths::refuse_non_ascii_roots` checks the resolved form of the data root and of
+`hydra_home()` on `run`, `resume`, both interactive paths, `curate`, `evolve` and the face, and
+`hydra doctor` prints each root as `ascii` or `non-ascii`, failing on the second. The launching
+repository's `.git` is a third path the gate folds and it is not checked: a repo under a non-ASCII
+directory still launches with that one denial case-blind. Whether such a repo is refused is open.
+
 ## Rough edges worth knowing
 
 - **`~/hydra` is this checkout on the machine this is developed on**, so everything

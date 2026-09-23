@@ -1051,7 +1051,7 @@ pub(crate) fn shell_quote(text: &str) -> String {
 /// does it, and the run record stores what this returns: a lowercased path is
 /// not a path on a case-sensitive filesystem, and a reader has to be able to
 /// open what line 0 names.
-fn resolved_path(path: &Path) -> PathBuf {
+pub(crate) fn resolved_path(path: &Path) -> PathBuf {
     let mut tail: Vec<std::ffi::OsString> = Vec::new();
     let mut cursor = path.to_path_buf();
     loop {
