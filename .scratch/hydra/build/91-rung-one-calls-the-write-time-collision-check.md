@@ -1,7 +1,7 @@
 # 91 - Rung one calls the write-time collision check
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

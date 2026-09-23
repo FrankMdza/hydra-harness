@@ -1,7 +1,7 @@
 # 93 - Seven small code fixes from the second hiring panel
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
