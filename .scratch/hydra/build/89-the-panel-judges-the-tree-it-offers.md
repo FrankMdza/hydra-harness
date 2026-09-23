@@ -20,10 +20,13 @@ So a build script or test in the patch can edit files during admission, a protec
 changes no check and no judge saw, under a commit message that carries the panel's verdict. A
 process the proposer left running can do the same.
 
-`read_proposer_patch` already builds the tree it diffs: `worktree::diff_stat` (`src/worktree.rs`
-~333) calls `seed_tree(worktree, index)`, which returns a tree sha. Carry that sha on
-`ProposerPatch`, and make the pass branch's commit have exactly that tree whatever the worktree
-holds afterwards. Two shapes that work, your call, say which and why in the Outcome:
+`read_proposer_patch` does not build one tree, it builds three: `diff_stat`, `changed_paths` and
+`diff_patch` each call `seed_tree(worktree, index)` (`src/worktree.rs` ~333), so a writer between
+the calls can make the size cap, the protected-path check and the judges read three different
+trees. (Found by `codex` on the first run of this ticket, 01a0cf8d-ce29, which stopped as told.)
+So: call `seed_tree` once, derive the stat, the paths and the diff from that one tree sha with
+`git diff-tree` against `base_tree`, carry the sha on `ProposerPatch`, and make the pass branch's
+commit have exactly that tree whatever the worktree holds afterwards. Two shapes that work, your call, say which and why in the Outcome:
 
 - build the verdict commit with `git commit-tree <read tree> -p <checkout HEAD> -m <message>`, so
   the worktree's later state never reaches the branch; or
