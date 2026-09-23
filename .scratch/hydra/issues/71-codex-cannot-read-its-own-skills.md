@@ -1,7 +1,7 @@
 # 71 - `codex` cannot read the skills Hydra links into its worktree
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-09-22, by the session, from build ticket 81's first run.
 
@@ -35,4 +35,21 @@ for opening. The same is true of `agy` wherever it reads by `run_command` rather
 
 ## Answer
 
-Open.
+Resolved 2026-09-22 with the human, after a panel of three readers (`.scratch/hydra/research/71-panel-*.md`):
+Opus and composer both chose a copy on `codex`, `codex` proposed a Hydra-owned MCP reader of the
+snapshot at an estimated 400 to 700 lines. The human chose the copy with its holes closed:
+
+1. On `codex` only, `skills::inject` copies each admitted skill from the pinned snapshot into
+   `<worktree>/.codex/skills/` as read-only files instead of linking it. The other three keep links.
+2. The seatbelt profile denies writes to that directory, so on macOS the copy cannot change during
+   the run whatever the spelling.
+3. The four skill roots join `own_worktree_paths`, so `hydra reap` never commits a skill root even
+   when a run deleted the `.gitignore` inside it. That closes a channel open today on every
+   provider, found by the Opus reader.
+4. At exit the watcher hashes the copy against the snapshot, and a mismatch is recorded, so "the
+   bytes the run read are the bytes at `store_sha`" is checked rather than asserted.
+
+`gate.py` does not change: `cat .codex/skills/x/SKILL.md` resolves inside the run's own worktree.
+Rejected: a read-only shell carve-out (7.4 and 7.5 refuse to judge what a command does), not
+injecting on `codex` (drops the store from a provider that can use it), and telling the run
+(run `01a0cc2a-f20b` stopped rather than go on without the skill). Build ticket 87.

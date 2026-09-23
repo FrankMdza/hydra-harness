@@ -131,3 +131,4 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [84 - CI prints the corpus count](84-ci-prints-the-corpus-count.md)
 - [85 - An export verifier of its own](85-an-export-verifier-of-its-own.md)
 - [86 - One interpreter per replay](86-one-interpreter-per-replay.md)
+- [87 - `codex` reads a copy of its skills](87-codex-reads-a-copy-of-its-skills.md)
