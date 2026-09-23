@@ -1,7 +1,7 @@
 # 89 - Rung two offers the tree its checks and judges read, and no other
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -52,3 +52,25 @@ Either way `ApprovedPatch` gains the tree sha, and the commit message names it.
 Tests take a scratch `Layout`, never `Layout::discover()`. Ignore
 `no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent`, which fails inside every
 worktree. Run `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` before you stop.
+
+## Outcome
+
+Built by `codex` under `standard`, second run 01a0cf91-1d0b, 1.7M tokens; the first run,
+01a0cf8d-ce29, stopped as told when it found the ticket's premise false (three `seed_tree` calls,
+not one) and the ticket was amended. Shape taken: `git commit-tree`, so the worktree's later state
+never reaches the branch, rather than refusing a changed tree. `read_proposer_patch` seeds one tree
+and derives the stat, paths and diff from it with `git diff-tree`; `ApprovedPatch` carries the sha;
+the commit message names it as `read-tree`; the fresh-review path commits `<blocked>^{tree}` too.
+The old `read_blocked_patch` staged the main checkout's working tree into the proposer's stat
+index, and that bug went with it.
+
+The Opus review found the parent was still read from the checkout's `HEAD` after admission, which
+proposer code can rewrite under the carve-out map ticket 72 is narrowing. The session added `head`
+to `ProposerPatch`, read with the tree, and made the commit in the parent repository. Measured:
+`tests/evolve.rs::admission_write_is_not_carried_by_the_offered_branch` runs a real `build.rs` that
+writes `src/policy/guard.rs` after the read and moves `HEAD` with a commit; the branch carries the
+read tree and the read parent. With the parent read from the checkout again it fails on the parent
+assertion. The tree half cannot be reverted into a failing run, because the test does not compile
+against the old `commit_pass_branch`; that it would carry the admission edit is reasoned, not run.
+evolve 26 passed; fmt and clippy clean. `hydra/<proposer>` no longer carries the verdict, stated in
+`IMPLEMENTATION.md`; the judges' diff now shows a rename as a delete and an add.

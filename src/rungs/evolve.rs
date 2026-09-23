@@ -20,7 +20,7 @@ use crate::record::{RunEnd, RunStart, SCHEMA_VERSION, Writer};
 use crate::run::{Call, Request, run};
 use crate::rungs::corpus;
 use crate::rungs::review::{self, ApprovedPatch, JudgeOutcome, PanelVerdict};
-use crate::worktree::{Stat, diff_stat, git, seed_tree};
+use crate::worktree::{Stat, diff_tree_stat, git, seed_tree};
 
 /// The maximum number of lines a proposer's patch may change before review.
 /// Map ticket 52: a patch over this is rejected for size in one place.
@@ -148,7 +148,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             &[],
             &format!("rejected for size: {count} lines changed exceeds cap of {PATCH_LINE_CAP}"),
         );
-        commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
+        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
         write_harness_end(&pass_record, Some(0), None, None)?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
@@ -170,7 +170,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             &[],
             &format!("refused at admission: protected path {path}"),
         );
-        commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
+        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
         write_harness_end(&pass_record, Some(0), None, None)?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
@@ -208,7 +208,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             ),
         };
         let message = commit_message(&pass_run_id, &proposer_run_id, &[], &reason);
-        commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
+        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
         write_harness_end(&pass_record, Some(0), None, None)?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
@@ -235,7 +235,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             &[],
             &format!("admission gate failed:\n\n{output}"),
         );
-        commit_pass_branch(&repo, &proposer, &blocked_branch, &message)?;
+        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
         write_harness_end(&pass_record, Some(0), None, Some(&admission.run))?;
         return Ok(Done::Finished(Finished {
             pass_run_id,
@@ -259,7 +259,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         &pass_record,
     )?;
 
-    let verdict = review::panel_verdict(&pass_run_id, &answers);
+    let verdict = review::panel_verdict(&pass_run_id, &patch.tree, &answers);
     let (branch, approved, body) = match &verdict {
         PanelVerdict::Offerable(patch) => (
             offerable_branch.clone(),
@@ -271,7 +271,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         }
     };
     let message = commit_message(&pass_run_id, &proposer_run_id, &judge_run_ids, &body);
-    commit_pass_branch(&repo, &proposer, &branch, &message)?;
+    commit_pass_branch(&repo, &patch, &branch, &message)?;
     write_harness_end(&pass_record, Some(0), None, Some(&admission.run))?;
 
     Ok(Done::Finished(Finished {
@@ -387,6 +387,11 @@ pub fn brief(
 pub struct ProposerPatch {
     pub worktree: PathBuf,
     pub base_tree: String,
+    pub tree: String,
+    /// The commit the verdict commit sits on, read with the tree and before
+    /// admission, which runs proposer code that can rewrite the checkout's
+    /// `HEAD`. Build ticket 89's review found the parent read after admission.
+    pub head: String,
     pub stat: Stat,
     pub paths: Vec<String>,
     pub diff: String,
@@ -416,12 +421,16 @@ pub fn read_proposer_patch(
         .context("the proposer record has no base_tree")?;
     let worktree = PathBuf::from(worktree_path);
     let index = layout.stat_index(&result.run_id);
-    let stat = diff_stat(&worktree, &index, base_tree)?;
-    let paths = changed_paths(&worktree, &index, base_tree)?;
-    let diff = diff_patch(&worktree, &index, base_tree)?;
+    let tree = seed_tree(&worktree, &index)?;
+    let head = git(&worktree, &["rev-parse", "HEAD"])?.trim().to_string();
+    let stat = diff_tree_stat(&worktree, base_tree, &tree)?;
+    let paths = changed_paths(&worktree, base_tree, &tree)?;
+    let diff = diff_patch(&worktree, base_tree, &tree)?;
     Ok(ProposerPatch {
         worktree,
         base_tree: base_tree.to_string(),
+        tree,
+        head,
         stat,
         paths,
         diff,
@@ -741,13 +750,15 @@ pub fn read_blocked_patch(
         .and_then(|start| start.body["worktree"]["base_tree"].as_str())
         .map(str::to_string)
         .context("the proposer record has no base_tree")?;
-    let diff = git(repo, &["diff", &base_tree, blocked_branch])?;
-    let paths = git(repo, &["diff", "--name-only", &base_tree, blocked_branch])?
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect();
-    let stat = diff_stat(repo, &layout.stat_index(&proposer_run_id), &base_tree)?;
+    let tree = git(repo, &["rev-parse", &format!("{blocked_branch}^{{tree}}")])?
+        .trim()
+        .to_string();
+    let head = git(repo, &["rev-parse", &format!("{blocked_branch}^")])?
+        .trim()
+        .to_string();
+    let diff = diff_patch(repo, &base_tree, &tree)?;
+    let paths = changed_paths(repo, &base_tree, &tree)?;
+    let stat = diff_tree_stat(repo, &base_tree, &tree)?;
     let task = run
         .run_start()
         .and_then(|start| start.body["task"].as_str())
@@ -756,6 +767,8 @@ pub fn read_blocked_patch(
         ProposerPatch {
             worktree: repo.to_path_buf(),
             base_tree,
+            tree,
+            head,
             stat,
             paths,
             diff,
@@ -856,7 +869,7 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
         &pass_record,
     )?;
 
-    let verdict = review::panel_verdict(&pass_run_id, &answers);
+    let verdict = review::panel_verdict(&pass_run_id, &patch.tree, &answers);
     let offerable_branch = format!("rungs/{pass_run_id}");
     let blocked_branch_new = format!("rungs/blocked/{pass_run_id}");
     let (branch, approved, body) = match &verdict {
@@ -878,7 +891,7 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
         &judge_run_ids,
         &body,
     );
-    commit_review_branch(&repo, &blocked_branch, &branch, &message)?;
+    commit_review_branch(&repo, &blocked_branch, &patch.tree, &branch, &message)?;
     write_harness_end(&pass_record, Some(0), None, None)?;
 
     Ok(Done::Finished(Finished {
@@ -895,10 +908,11 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
 fn commit_review_branch(
     repo: &Path,
     source_branch: &str,
+    tree: &str,
     pass_branch: &str,
     message: &str,
 ) -> Result<()> {
-    let tree = git(repo, &["rev-parse", &format!("{source_branch}^{{tree}}")])?;
+    let message = format!("{message}\n\nread-tree: {tree}\n");
     let parent = git(repo, &["rev-parse", &format!("{source_branch}^")])?;
     let commit = git(
         repo,
@@ -908,7 +922,7 @@ fn commit_review_branch(
             "-p",
             parent.trim(),
             "-m",
-            message,
+            &message,
         ],
     )?;
     git(repo, &["branch", "-f", pass_branch, commit.trim()])?;
@@ -971,45 +985,30 @@ fn commit_message(
     text
 }
 
-fn commit_pass_branch(
+/// Writes the pass verdict branch for a captured proposer patch.
+pub fn commit_pass_branch(
     repo: &Path,
-    proposer: &RunResult,
+    patch: &ProposerPatch,
     branch: &str,
     message: &str,
 ) -> Result<()> {
-    let policies = PolicySet::discover()?;
-    let run = crate::normalize::read_file(std::path::Path::new(&proposer.run_file), &policies)?;
-    let worktree_path = run
-        .run_start()
-        .and_then(|start| start.body["worktree"]["path"].as_str())
-        .context("proposer worktree missing")?;
-    let checkout = PathBuf::from(worktree_path);
-    let exclude = crate::provider::own_worktree_paths();
-    // Spec 4.9: every pass ends with exactly one branch and the verdict lives in
-    // its commit message, so a pass whose proposer left the tree equal to HEAD
-    // still gets a commit, an empty one carrying the message. The first real
-    // pass, 01a08129-de0c on 2026-09-08, had a proposer that undid the seeded
-    // uncommitted work and nothing else, `commit_everything` found nothing, and
-    // the blocked branch pointed at master with no verdict anywhere.
-    if crate::worktree::commit_everything(&checkout, message, &exclude)?.is_none() {
-        git(
-            &checkout,
-            &[
-                "commit",
-                "-q",
-                "--allow-empty",
-                "--no-verify",
-                "-m",
-                message,
-            ],
-        )?;
-    }
-    // The verdict commit is the checkout's HEAD, on `hydra/<proposer>`. The
-    // pass branch has to point at that commit, not at the parent repo's HEAD:
-    // the second real pass, 01a0814a-c730 on 2026-09-08, made the commit and
-    // then named master, and the blocked branch carried master's last message
-    // as its verdict.
-    let verdict_commit = git(&checkout, &["rev-parse", "HEAD"])?;
+    let message = format!("{message}\n\nread-tree: {}\n", patch.tree);
+    // Admission and surviving proposer processes may have changed the checkout,
+    // its files and its `HEAD`, so neither is read here: the tree and the parent
+    // both come from the read before admission, and the commit is made in the
+    // parent repository. Even an unchanged patch gets a verdict commit (spec
+    // 4.9; the first real pass, 01a08129-de0c, left one without a verdict).
+    let verdict_commit = git(
+        repo,
+        &[
+            "commit-tree",
+            &patch.tree,
+            "-p",
+            &patch.head,
+            "-m",
+            &message,
+        ],
+    )?;
     git(repo, &["branch", "-f", branch, verdict_commit.trim()])?;
     Ok(())
 }
@@ -1147,15 +1146,14 @@ fn rate_limit_status(raw: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn changed_paths(worktree: &Path, index: &Path, base: &str) -> Result<Vec<String>> {
-    let head = seed_tree(worktree, index)?;
+fn changed_paths(worktree: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     // `-z`, so a path git would otherwise C-quote (a quote, a backslash, a
     // newline, a non-ASCII byte) arrives as itself and `protected_path_hit`
     // sees the path and not a quoted literal of it. `seed()` in
     // `src/worktree.rs` reads `ls-files -z` for the same reason.
     let names = git(
         worktree,
-        &["diff-tree", "-r", "--name-only", "-z", base, &head],
+        &["diff-tree", "-r", "--name-only", "-z", base, head],
     )?;
     Ok(names
         .split('\0')
@@ -1164,9 +1162,8 @@ fn changed_paths(worktree: &Path, index: &Path, base: &str) -> Result<Vec<String
         .collect())
 }
 
-fn diff_patch(worktree: &Path, index: &Path, base: &str) -> Result<String> {
-    let head = seed_tree(worktree, index)?;
-    git(worktree, &["diff", base, &head])
+fn diff_patch(worktree: &Path, base: &str, head: &str) -> Result<String> {
+    git(worktree, &["diff-tree", "-r", "-p", base, head])
 }
 
 /// What a human reads back.

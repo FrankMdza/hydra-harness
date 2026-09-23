@@ -332,7 +332,12 @@ pub fn tree_of_index(worktree: &Path, index: &Path) -> Result<String> {
 /// stat cache, and nothing here has to change for that.
 pub fn diff_stat(worktree: &Path, index: &Path, base: &str) -> Result<Stat> {
     let head = seed_tree(worktree, index)?;
-    let numstat = git(worktree, &["diff-tree", "-r", "--numstat", base, &head])?;
+    diff_tree_stat(worktree, base, &head)
+}
+
+/// Measures two captured trees without staging the worktree again.
+pub fn diff_tree_stat(worktree: &Path, base: &str, head: &str) -> Result<Stat> {
+    let numstat = git(worktree, &["diff-tree", "-r", "--numstat", base, head])?;
     Ok(Stat::parse(&numstat))
 }
 

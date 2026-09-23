@@ -2964,6 +2964,21 @@ allowlist does not exist, and `hydra export --dry-run` says so.
 
 ## Rung two: `hydra evolve`, since build ticket 36
 
+**The pass branch carries the read tree, since build ticket 89.** Hydra seeds one tree
+when reading the proposer patch and derives its stat, paths and diff from that SHA against
+`base_tree`. The size cap, protected-path check and judges therefore see the same tree.
+`ApprovedPatch` carries that SHA, and the verdict commit names it as `read-tree`.
+The pass branch is written with `git commit-tree` in the parent repository, with the read
+tree and, as parent, the checkout's `HEAD` read at the same moment, before admission runs any
+proposer code. Files or a `HEAD` changed during admission, or by a surviving proposer process,
+therefore reach neither the offered or blocked branch's tree nor its parent; the review of the
+agent's version found the parent read after admission, and `tests/evolve.rs` now moves `HEAD`
+between the read and the commit. A fresh review also commits its captured source tree, on the
+blocked commit's parent. Two things changed with it. `hydra/<proposer>` no longer carries the
+verdict: the checkout stays as admission left it, and reaping it commits that tree to the
+proposer's own branch, which is the run's output and not an offer. And the judges' diff comes
+from `git diff-tree -p` of the read tree, so a rename reaches them as a delete and an add.
+
 **The module is `src/rungs/` since build ticket 62, on 2026-09-21, and was `src/ouroboros/`
 before.** razzant/ouroboros is earlier work under that name with a paper behind it, and the
 README already spoke of rungs, so the human chose the word. `cursor-agent` on Composer 2.5 did
@@ -3095,7 +3110,8 @@ microseconds `watch.rs` writes; microseconds now, and no fallback to the clock. 
 was seeded with the orchestrating session's uncommitted edits, read them as the patch under
 review, and undid them, which left its tree equal to HEAD; `commit_everything` found nothing,
 and the blocked branch pointed at master with the verdict nowhere, so the pass now makes an
-empty commit carrying the message when the tree is clean, spec 4.9's one branch. The
+empty commit carrying the message when the tree is clean, spec 4.9's one branch (since build
+ticket 89, `commit-tree` makes one whether or not the tree changed). The
 admission gate then failed, on `cargo fmt --check` and `clippy -D warnings` against master's
 own code rather than the proposer's: master did not pass the four commands spec 4.5 names, so
 no patch could have. Master is formatted and clippy-clean since that pass. And the closed
@@ -3119,7 +3135,8 @@ inside its worktree, the same failure every agent since ticket 31 had reported, 
 fifty lines across the three normalizers to make the replay refuse a shell command naming a
 protected path. `cargo fmt --check` passed. `cargo clippy -D warnings` failed with "unexpected
 argument '-D'", because the gate ran it without the `--` cargo needs before clippy's own
-flags; fixed. The verdict commit landed on `hydra/<proposer>` as designed, and the blocked
+flags; fixed. The verdict commit landed on `hydra/<proposer>`, the design then and not since build ticket
+89, and the blocked
 branch then named master's HEAD instead of it, because `commit_pass_branch` resolved `HEAD`
 in the parent repo; it resolves the checkout's now. The pass record read `completed` and
 `hydra status` reported it live while it ran, so two of the first pass's fixes held. Haiku's

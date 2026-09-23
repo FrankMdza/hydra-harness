@@ -27,6 +27,128 @@ use serde_json::{Value, json};
 mod common;
 use common::{Record, Shape, usage_frame};
 
+#[test]
+fn admission_write_is_not_carried_by_the_offered_branch() {
+    let fixture = Fixture::new("admission-tree");
+    let repo = scratch_repo("admission-tree");
+    std::fs::create_dir_all(repo.join("src/policy")).unwrap();
+    std::fs::write(repo.join("src/policy/guard.rs"), "// original\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "protected baseline"]);
+    std::fs::write(
+        repo.join("Cargo.toml"),
+        "[package]\nname = \"tree-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(repo.join("src/lib.rs"), "pub fn ok() {}\n").unwrap();
+    std::fs::write(repo.join(".gitignore"), "/target\n/Cargo.lock\n").unwrap();
+    std::fs::write(repo.join("build.rs"), "fn main() { std::fs::write(\"src/policy/guard.rs\", \"// admission edit\\n\").unwrap(); }\n").unwrap();
+    let base_tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
+    let run_id = "01a08000-0000-7000-8000-00000000ad02";
+    let record = Record::shaped(Shape {
+        run_id,
+        worktree: Some(&repo),
+        base_tree: Some(base_tree.trim()),
+        ..Shape::default()
+    })
+    .result(usage_frame())
+    .closed();
+    let run_file = fixture.layout().run_file(run_id);
+    std::fs::write(&run_file, record).unwrap();
+    let result = hydra::outcome::RunResult {
+        run_id: run_id.into(),
+        outcome: Some("completed"),
+        outcome_source: Some("derived"),
+        exit_code: Some(0),
+        error: None,
+        result_text: None,
+        branch: None,
+        diff_stat: None,
+        usage: hydra::outcome::Usage {
+            usage_source: "unknown",
+            estimator: None,
+            counts: None,
+        },
+        run_file: run_file.to_string_lossy().into_owned(),
+    };
+    let patch = hydra::rungs::evolve::read_proposer_patch(
+        &fixture.layout(),
+        &PolicySet::discover().unwrap(),
+        &result,
+    )
+    .unwrap();
+    let read_tree = patch.tree.clone();
+    assert_eq!(patch.stat.files_changed, 4);
+    assert_eq!(
+        patch.paths,
+        [".gitignore", "Cargo.toml", "build.rs", "src/lib.rs"]
+    );
+    assert!(patch.diff.contains("diff --git a/build.rs b/build.rs"));
+    assert!(protected_path_hit(&patch.paths, &repo).is_none());
+    assert!(patch_over_cap(&patch.stat).is_none());
+    let clean = pass_answer("pass", "[]");
+    let answers = PanelAnswers::new(
+        parse_judge_answer("claude", &clean),
+        parse_judge_answer("cursor-agent", &clean),
+        parse_judge_answer("agy", &clean),
+        parse_judge_answer("codex", &clean),
+    );
+    let PanelVerdict::Offerable(approved) = panel_verdict("test", &read_tree, &answers) else {
+        panic!("clean panel must offer the patch");
+    };
+    assert_eq!(approved.tree(), read_tree);
+    // The same commit path also preserves a worktree that has not changed.
+    hydra::rungs::evolve::commit_pass_branch(
+        &repo,
+        &patch,
+        "rungs/unchanged",
+        "verdict: offerable",
+    )
+    .unwrap();
+    assert_eq!(
+        git(&repo, &["rev-parse", "rungs/unchanged^{tree}"]).trim(),
+        read_tree
+    );
+    // Run admission's build step with a real writing build script, without a provider.
+    let build = Command::new("cargo")
+        .args(["build", "--offline"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.join("src/policy/guard.rs")).unwrap(),
+        "// admission edit\n"
+    );
+    // Admission's code can also move the checkout's `HEAD`; the verdict commit
+    // keeps the parent read with the tree.
+    let read_head = patch.head.clone();
+    git(
+        &repo,
+        &["commit", "-q", "--allow-empty", "-m", "moved by admission"],
+    );
+    hydra::rungs::evolve::commit_pass_branch(&repo, &patch, "rungs/test", "verdict: offerable")
+        .unwrap();
+    assert_eq!(
+        git(&repo, &["show", "rungs/test:src/policy/guard.rs"]),
+        "// original\n"
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", "rungs/test^{tree}"]).trim(),
+        read_tree
+    );
+    assert!(
+        git(&repo, &["log", "-1", "--format=%B", "rungs/test"])
+            .contains(&format!("read-tree: {read_tree}"))
+    );
+    assert_eq!(git(&repo, &["rev-parse", "rungs/test^"]).trim(), read_head);
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
 struct Fixture {
     root: PathBuf,
 }
@@ -318,7 +440,7 @@ fn four_judge_answers_in_the_closed_shape_produce_the_expected_verdict() {
         parse_judge_answer("codex", &pass),
     );
     assert!(matches!(
-        panel_verdict("01a08000-0000-7000-8000-00000000ev01", &answers),
+        panel_verdict("01a08000-0000-7000-8000-00000000ev01", "tree", &answers),
         PanelVerdict::Offerable(_)
     ));
 }
@@ -338,7 +460,7 @@ fn one_critical_finding_blocks_whatever_the_verdict_field_says() {
         parse_judge_answer("agy", &clean),
         parse_judge_answer("codex", &clean),
     );
-    let blocked = panel_verdict("01a08000-0000-7000-8000-00000000ev02", &answers);
+    let blocked = panel_verdict("01a08000-0000-7000-8000-00000000ev02", "tree", &answers);
     assert_eq!(
         blocked,
         PanelVerdict::Blocked {
@@ -359,7 +481,7 @@ fn prose_outside_the_closed_shape_is_a_block_with_a_parse_error() {
         parse_judge_answer("agy", &pass_answer_text),
         parse_judge_answer("codex", &pass_answer_text),
     );
-    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev03", &answers);
+    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev03", "tree", &answers);
     assert!(matches!(verdict, PanelVerdict::Blocked { .. }));
 }
 
@@ -389,7 +511,7 @@ fn approved_patch_cannot_be_built_outside_the_review_module() {
         parse_judge_answer("agy", &pass),
         parse_judge_answer("codex", &pass),
     );
-    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev05", &answers);
+    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev05", "tree", &answers);
     let patch = match verdict {
         PanelVerdict::Offerable(patch) => patch,
         PanelVerdict::Blocked { .. } => panic!("expected offerable"),
@@ -477,6 +599,8 @@ fn patch_fixture(
     };
     ProposerPatch {
         worktree: repo.to_path_buf(),
+        head: git(repo, &["rev-parse", "HEAD"]).trim().to_string(),
+        tree: base_tree.clone(),
         base_tree,
         stat: Stat {
             files_changed: paths.len(),

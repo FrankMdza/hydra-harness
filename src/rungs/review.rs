@@ -13,9 +13,14 @@ use crate::provider::Provider;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovedPatch {
     pass_run_id: String,
+    tree: String,
 }
 
 impl ApprovedPatch {
+    pub fn tree(&self) -> &str {
+        &self.tree
+    }
+
     pub fn pass_run_id(&self) -> &str {
         &self.pass_run_id
     }
@@ -495,9 +500,13 @@ pub fn outcome_blocks(outcome: &JudgeOutcome) -> bool {
 /// Turns outcomes that arrive as a list into a panel verdict. A list that is not
 /// one answer per provider is a block, not an error, which is what
 /// `panel_size_unshrunk` in rungs spec 5.3 asks of a short panel.
-pub fn verdict_from_outcomes(pass_run_id: &str, outcomes: Vec<JudgeOutcome>) -> PanelVerdict {
+pub fn verdict_from_outcomes(
+    pass_run_id: &str,
+    tree: &str,
+    outcomes: Vec<JudgeOutcome>,
+) -> PanelVerdict {
     match PanelAnswers::from_outcomes(outcomes) {
-        Ok(answers) => panel_verdict(pass_run_id, &answers),
+        Ok(answers) => panel_verdict(pass_run_id, tree, &answers),
         Err(reason) => PanelVerdict::Blocked {
             reasons: vec![reason],
         },
@@ -505,7 +514,7 @@ pub fn verdict_from_outcomes(pass_run_id: &str, outcomes: Vec<JudgeOutcome>) -> 
 }
 
 /// Turns the panel's four answers into a verdict.
-pub fn panel_verdict(pass_run_id: &str, answers: &PanelAnswers) -> PanelVerdict {
+pub fn panel_verdict(pass_run_id: &str, tree: &str, answers: &PanelAnswers) -> PanelVerdict {
     let mut reasons = Vec::new();
     for outcome in answers.outcomes() {
         if let Some(err) = &outcome.parse_error {
@@ -528,6 +537,7 @@ pub fn panel_verdict(pass_run_id: &str, answers: &PanelAnswers) -> PanelVerdict 
     if reasons.is_empty() {
         PanelVerdict::Offerable(ApprovedPatch {
             pass_run_id: pass_run_id.to_string(),
+            tree: tree.to_string(),
         })
     } else {
         PanelVerdict::Blocked { reasons }
@@ -623,7 +633,8 @@ mod tests {
 
     #[test]
     fn a_short_or_duplicate_list_is_a_block_not_an_error() {
-        let short = verdict_from_outcomes("pass", vec![pass("claude"), pass("cursor-agent")]);
+        let short =
+            verdict_from_outcomes("pass", "tree", vec![pass("claude"), pass("cursor-agent")]);
         assert_eq!(
             short,
             PanelVerdict::Blocked {
@@ -632,6 +643,7 @@ mod tests {
         );
         let duplicate = verdict_from_outcomes(
             "pass",
+            "tree",
             vec![pass("claude"), pass("claude"), pass("agy"), pass("codex")],
         );
         assert_eq!(
@@ -646,6 +658,7 @@ mod tests {
     fn a_full_list_reaches_the_panel_rule() {
         let verdict = verdict_from_outcomes(
             "pass",
+            "tree",
             vec![
                 pass("claude"),
                 pass("cursor-agent"),
