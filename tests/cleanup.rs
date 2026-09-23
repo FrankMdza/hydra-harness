@@ -501,6 +501,21 @@ fn a_spawn_directory_with_no_checkout_is_reaped_on_its_own() {
 }
 
 #[test]
+fn a_sweep_leaves_pending_reservations_alone() {
+    // Build ticket 81. A reservation is held by a launcher that has not made a
+    // checkout yet, so a sweep that took it would let the next launch past the
+    // cap. Reservations live beside `spawn/`, which is what keeps them out.
+    let fixture = Fixture::new("reservations");
+    let layout = fixture.layout();
+    let held = hydra::live::reserve(&layout, "pending", 4).unwrap();
+    let reaped = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
+    assert!(reaped.is_empty(), "the sweep reaped {} runs", reaped.len());
+    assert!(layout.reservations().join("pending.json").exists());
+    assert!(layout.reservations().join(".lock").exists());
+    drop(held);
+}
+
+#[test]
 fn a_launch_in_progress_is_not_swept() {
     // `hydra run` creates the checkout, then the spawn directory, and only then
     // does the detached half write line 0. In that window neither has a record

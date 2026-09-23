@@ -496,3 +496,92 @@ fn a_dead_interactive_run_is_harvested_by_status_one() {
     assert_eq!(report["result"]["outcome"], "completed");
     assert_eq!(report["result"]["outcome_source"], "unknown");
 }
+
+#[test]
+fn concurrent_launchers_reserve_exactly_the_cap_without_records() {
+    let layout = sandbox("reservations-race");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+    let threads: Vec<_> = (0..16)
+        .map(|i| {
+            let layout = Layout::at(layout.root());
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                live::reserve(&layout, &format!("run-{i}"), 3)
+            })
+        })
+        .collect();
+    let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+    assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 3);
+    for err in results.iter().filter_map(|r| r.as_ref().err()) {
+        assert!(err.downcast_ref::<live::TooManyLive>().is_some(), "{err:#}");
+    }
+    assert!(live::scan(&layout).unwrap().is_empty());
+    drop(results);
+    assert!(live::reserve(&layout, "after-failure", 1).is_ok());
+}
+
+#[test]
+fn dead_or_reused_launcher_pids_release_reservations() {
+    let layout = sandbox("reservations-dead");
+    let dir = layout.reservations();
+    std::fs::create_dir_all(&dir).unwrap();
+    let pid = std::process::id();
+    let start = hydra::procinfo::start_time(pid).unwrap().unwrap();
+    // An impossible pid needs no child process. The other identity models reuse.
+    for (id, pid, start) in [
+        ("dead", i32::MAX as u32, start),
+        ("reused", pid, start - chrono::Duration::seconds(1)),
+    ] {
+        std::fs::write(
+            dir.join(format!("{id}.json")),
+            json!({"pid": pid, "process_start_time": start.to_rfc3339()}).to_string(),
+        )
+        .unwrap();
+    }
+    let _reservation = live::reserve(&layout, "new", 1).unwrap();
+    assert!(!dir.join("dead.json").exists());
+    assert!(!dir.join("reused.json").exists());
+}
+
+#[test]
+fn reservation_handoff_counts_the_run_once_and_releases_on_end() {
+    let layout = sandbox("reservations-handoff");
+    let reservation = live::reserve(&layout, "first", 2).unwrap();
+    write_run(&layout, "first", Some(std::process::id()), false);
+    let second = live::reserve(&layout, "second", 2).unwrap();
+    assert!(!layout.reservations().join("first.json").exists());
+    let err = live::reserve(&layout, "third", 2).unwrap_err();
+    assert!(err.downcast_ref::<live::TooManyLive>().is_some());
+    assert!(!layout.run_file("third").exists());
+    drop(reservation);
+    drop(second);
+    write_run(&layout, "first", Some(std::process::id()), true);
+    assert!(live::reserve(&layout, "after-end", 1).is_ok());
+}
+
+#[test]
+fn an_unparseable_reservation_is_stale_and_removed() {
+    let layout = sandbox("reservations-malformed");
+    let dir = layout.reservations();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("garbage.json"), b"{not json").unwrap();
+    std::fs::write(
+        dir.join("bad-time.json"),
+        json!({"pid": std::process::id(), "process_start_time": "yesterday"}).to_string(),
+    )
+    .unwrap();
+    let _reservation = live::reserve(&layout, "new", 1).unwrap();
+    assert!(!dir.join("garbage.json").exists());
+    assert!(!dir.join("bad-time.json").exists());
+}
+
+#[test]
+fn a_refused_duplicate_reservation_leaves_no_temp_file() {
+    let layout = sandbox("reservations-duplicate");
+    let _first = live::reserve(&layout, "same", 3).unwrap();
+    let err = live::reserve(&layout, "same", 3).unwrap_err();
+    assert!(err.to_string().contains("already has a reservation"));
+    assert!(!layout.reservations().join("same.tmp").exists());
+    assert!(layout.reservations().join("same.json").exists());
+}

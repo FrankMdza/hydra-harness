@@ -250,7 +250,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     }
 
     let judge_prompt = judge_task(&patch, pass.task.as_deref(), None);
-    let (judge_run_ids, outcomes) = run_judge_panel(
+    let (judge_run_ids, answers) = run_judge_panel(
         &pass_run_id,
         &judge_prompt,
         proposer_model,
@@ -258,15 +258,15 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         &pass_record,
     )?;
 
-    let verdict = review::panel_verdict(&pass_run_id, &outcomes);
+    let verdict = review::panel_verdict(&pass_run_id, &answers);
     let (branch, approved, body) = match &verdict {
         PanelVerdict::Offerable(patch) => (
             offerable_branch.clone(),
             Some(patch.clone()),
-            verdict_body(&outcomes, true),
+            verdict_body(&answers, true),
         ),
         PanelVerdict::Blocked { .. } => {
-            (blocked_branch.clone(), None, verdict_body(&outcomes, false))
+            (blocked_branch.clone(), None, verdict_body(&answers, false))
         }
     };
     let message = commit_message(&pass_run_id, &proposer_run_id, &judge_run_ids, &body);
@@ -755,23 +755,19 @@ pub fn read_blocked_patch(
     ))
 }
 
+/// Runs the four judges in [`review::PANEL_ORDER`], each into its own slot, so
+/// the panel is built without a step that can fail on its shape. The only
+/// errors are a judge that could not run, and those close the pass record first.
 fn run_judge_panel(
     pass_run_id: &str,
     judge_prompt: &str,
     proposer_model: Option<String>,
     timeout: Duration,
     pass_record: &Path,
-) -> Result<(Vec<String>, Vec<JudgeOutcome>)> {
-    let judges = [
-        (Provider::Claude, "claude"),
-        (Provider::CursorAgent, "cursor-agent"),
-        (Provider::Agy, "agy"),
-        (Provider::Codex, "codex"),
-    ];
+) -> Result<(Vec<String>, review::PanelAnswers)> {
     let mut judge_run_ids = Vec::new();
-    let mut outcomes = Vec::new();
-
-    for (provider, name) in judges {
+    let mut judge = |provider: Provider| -> Result<JudgeOutcome> {
+        let name = provider.binary();
         let judge_run_id = Uuid::now_v7().to_string();
         let judge_model = if provider == Provider::Claude {
             proposer_model.clone()
@@ -812,10 +808,17 @@ fn run_judge_panel(
 
         judge_run_ids.push(judge_run_id);
         let text = result.result_text.unwrap_or_default();
-        outcomes.push(review::parse_judge_answer(name, &text));
-    }
+        Ok(review::parse_judge_answer(name, &text))
+    };
 
-    Ok((judge_run_ids, outcomes))
+    let [claude, cursor_agent, agy, codex] = review::PANEL_ORDER;
+    let answers = review::PanelAnswers::new(
+        judge(claude)?,
+        judge(cursor_agent)?,
+        judge(agy)?,
+        judge(codex)?,
+    );
+    Ok((judge_run_ids, answers))
 }
 
 fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> Result<Done> {
@@ -834,7 +837,7 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
     write_harness_start(&layout, &pass_run_id, &pass_record)?;
 
     let judge_prompt = judge_task(&patch, task.as_deref(), Some(&evidence));
-    let (judge_run_ids, outcomes) = run_judge_panel(
+    let (judge_run_ids, answers) = run_judge_panel(
         &pass_run_id,
         &judge_prompt,
         pass.model,
@@ -842,19 +845,19 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
         &pass_record,
     )?;
 
-    let verdict = review::panel_verdict(&pass_run_id, &outcomes);
+    let verdict = review::panel_verdict(&pass_run_id, &answers);
     let offerable_branch = format!("rungs/{pass_run_id}");
     let blocked_branch_new = format!("rungs/blocked/{pass_run_id}");
     let (branch, approved, body) = match &verdict {
         PanelVerdict::Offerable(patch) => (
             offerable_branch.clone(),
             Some(patch.clone()),
-            verdict_body(&outcomes, true),
+            verdict_body(&answers, true),
         ),
         PanelVerdict::Blocked { .. } => (
             blocked_branch_new.clone(),
             None,
-            verdict_body(&outcomes, false),
+            verdict_body(&answers, false),
         ),
     };
     let message = review_commit_message(
@@ -901,13 +904,13 @@ fn commit_review_branch(
     Ok(())
 }
 
-fn verdict_body(outcomes: &[JudgeOutcome], offered: bool) -> String {
+fn verdict_body(answers: &review::PanelAnswers, offered: bool) -> String {
     let mut text = if offered {
         String::from("verdict: offerable\n\n")
     } else {
         String::from("verdict: blocked\n\n")
     };
-    for outcome in outcomes {
+    for outcome in answers.outcomes() {
         text.push_str(&format!("## {}\n", outcome.provider));
         if let Some(err) = &outcome.parse_error {
             text.push_str(&format!("parse error: {err}\n"));

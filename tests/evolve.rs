@@ -18,8 +18,8 @@ use hydra::rungs::evolve::{
     write_harness_start,
 };
 use hydra::rungs::review::{
-    ApprovedPatch, CHECKLIST_ENTRIES, CHECKLIST_IDS, PanelVerdict, VerdictField, checklist_prompt,
-    panel_verdict, parse_judge_answer,
+    ApprovedPatch, CHECKLIST_ENTRIES, CHECKLIST_IDS, PanelAnswers, PanelVerdict, VerdictField,
+    checklist_prompt, panel_verdict, parse_judge_answer,
 };
 use hydra::worktree::Stat;
 use serde_json::{Value, json};
@@ -291,14 +291,14 @@ fn a_diff_outside_the_protected_rows_passes_admission() {
 #[test]
 fn four_judge_answers_in_the_closed_shape_produce_the_expected_verdict() {
     let pass = pass_answer("pass", "[]");
-    let outcomes = [
+    let answers = PanelAnswers::new(
         parse_judge_answer("claude", &pass),
         parse_judge_answer("cursor-agent", &pass),
         parse_judge_answer("agy", &pass),
         parse_judge_answer("codex", &pass),
-    ];
+    );
     assert!(matches!(
-        panel_verdict("01a08000-0000-7000-8000-00000000ev01", &outcomes),
+        panel_verdict("01a08000-0000-7000-8000-00000000ev01", &answers),
         PanelVerdict::Offerable(_)
     ));
 }
@@ -309,21 +309,37 @@ fn one_critical_finding_blocks_whatever_the_verdict_field_says() {
         "pass",
         r#"[{"item":"secrets_check","severity":"critical","note":"token in src"}]"#,
     );
-    let one = parse_judge_answer("claude", &answer);
-    assert_eq!(one.verdict, VerdictField::Pass);
-    let blocked = panel_verdict(
-        "01a08000-0000-7000-8000-00000000ev02",
-        &[one.clone(), one.clone(), one.clone(), one],
+    let clean = pass_answer("pass", "[]");
+    let claude = parse_judge_answer("claude", &answer);
+    assert_eq!(claude.verdict, VerdictField::Pass);
+    let answers = PanelAnswers::new(
+        claude,
+        parse_judge_answer("cursor-agent", &clean),
+        parse_judge_answer("agy", &clean),
+        parse_judge_answer("codex", &clean),
     );
-    assert!(matches!(blocked, PanelVerdict::Blocked { .. }));
+    let blocked = panel_verdict("01a08000-0000-7000-8000-00000000ev02", &answers);
+    assert_eq!(
+        blocked,
+        PanelVerdict::Blocked {
+            reasons: vec!["claude: critical secrets_check — token in src".into()],
+        }
+    );
 }
 
 #[test]
 fn prose_outside_the_closed_shape_is_a_block_with_a_parse_error() {
     let answer = format!("looks good {}\n", pass_answer("pass", "[]"));
-    let outcome = parse_judge_answer("claude", &answer);
-    assert!(outcome.parse_error.is_some());
-    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev03", &[outcome]);
+    let pass_answer_text = pass_answer("pass", "[]");
+    let claude = parse_judge_answer("claude", &answer);
+    assert!(claude.parse_error.is_some());
+    let answers = PanelAnswers::new(
+        claude,
+        parse_judge_answer("cursor-agent", &pass_answer_text),
+        parse_judge_answer("agy", &pass_answer_text),
+        parse_judge_answer("codex", &pass_answer_text),
+    );
+    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev03", &answers);
     assert!(matches!(verdict, PanelVerdict::Blocked { .. }));
 }
 
@@ -347,13 +363,13 @@ fn the_harness_record_is_two_lines_with_only_contract_fields() {
 #[test]
 fn approved_patch_cannot_be_built_outside_the_review_module() {
     let pass = pass_answer("pass", "[]");
-    let outcomes = [
+    let answers = PanelAnswers::new(
         parse_judge_answer("claude", &pass),
         parse_judge_answer("cursor-agent", &pass),
         parse_judge_answer("agy", &pass),
         parse_judge_answer("codex", &pass),
-    ];
-    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev05", &outcomes);
+    );
+    let verdict = panel_verdict("01a08000-0000-7000-8000-00000000ev05", &answers);
     let patch = match verdict {
         PanelVerdict::Offerable(patch) => patch,
         PanelVerdict::Blocked { .. } => panic!("expected offerable"),

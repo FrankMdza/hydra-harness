@@ -2,7 +2,8 @@
 //!
 //! Contract 5.2: a run is alive when a process matching both the recorded pid and
 //! the recorded start time still exists. No sidecar, no lockfile, no second source
-//! of truth. This module is the only place that reconciles the two, and
+//! of truth for a launched run. Pending launches reserve slots separately.
+//! This module is the only place that reconciles the two, and
 //! [`crate::procinfo`] is the only place that asks the kernel.
 //!
 //! **Three states, and the third is a fact rather than a corruption.** A file with
@@ -299,6 +300,108 @@ pub fn guard(cap: usize, views: &[RunView]) -> Result<(), TooManyLive> {
     Err(TooManyLive { cap, live })
 }
 
+/// A pending launch's slot. Dropping it releases the slot on every error path.
+#[derive(Debug)]
+pub struct Reservation {
+    path: PathBuf,
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Launcher {
+    pid: u32,
+    process_start_time: String,
+}
+
+/// Count and reserve under one kernel lock, before any run record is created.
+pub fn reserve(layout: &Layout, run_id: &str, cap: usize) -> Result<Reservation> {
+    anyhow::ensure!(
+        !run_id.is_empty() && run_id != "." && run_id != ".." && !run_id.contains('/'),
+        "invalid reservation run id"
+    );
+    let dir = layout.reservations();
+    std::fs::create_dir_all(&dir)?;
+    let lock_path = dir.join(".lock");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&lock_path)?;
+    let _lock = crate::record::lock_exclusive(&lock_path)?;
+    let mut pending = std::collections::BTreeMap::new();
+    // Read reservations before records so a concurrent handoff cannot vanish
+    // between the two reads. A run id present in both counts only once.
+    for entry in std::fs::read_dir(&dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err.into()),
+        };
+        let id = path.file_stem().unwrap().to_string_lossy().into_owned();
+        // A file that does not parse names no launcher, so nothing holds its
+        // slot. Counting it would refuse every launch until a human removed it.
+        let launcher = serde_json::from_slice::<Launcher>(&bytes)
+            .ok()
+            .and_then(|l| Some((l.pid, parse_time(&l.process_start_time)?)));
+        let view = read_view(&layout.run_file(&id))?;
+        let stale = match launcher {
+            None => true,
+            Some((pid, start)) => view.launched() || !crate::procinfo::is_alive(pid, start)?,
+        };
+        if stale {
+            std::fs::remove_file(&path).or_else(|err| {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            })?;
+        } else {
+            pending.insert(id, launcher.map(|(pid, _)| pid));
+        }
+    }
+    for view in scan(layout)? {
+        if view.is_live() {
+            pending.insert(view.run_id, view.pid);
+        }
+    }
+    if pending.len() >= cap {
+        return Err(TooManyLive {
+            cap,
+            live: pending
+                .into_iter()
+                .map(|(run_id, pid)| InFlight { run_id, pid })
+                .collect(),
+        }
+        .into());
+    }
+    let pid = std::process::id();
+    let launcher = Launcher {
+        pid,
+        process_start_time: crate::procinfo::start_time(pid)?
+            .context("launcher has no start time")?
+            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+    };
+    let path = dir.join(format!("{run_id}.json"));
+    // Checked before the temp file exists, so a refusal leaves nothing behind.
+    // The lock makes the check and the rename one step.
+    anyhow::ensure!(!path.exists(), "run already has a reservation");
+    // Publish a complete identity: a crash during writing leaves only a temp
+    // file, while the rename under the lock is the admission point.
+    let temp = dir.join(format!("{run_id}.tmp"));
+    std::fs::write(&temp, serde_json::to_vec(&launcher)?)?;
+    std::fs::rename(temp, &path)?;
+    Ok(Reservation { path })
+}
+
 /// One live child, as the refusal names it.
 #[derive(Debug, Clone)]
 pub struct InFlight {
@@ -316,7 +419,7 @@ pub struct InFlight {
 /// **No run record is written.** Contract 8.3 makes a refused spawn a record when
 /// the refusal is one of section 6's four codes, and the cap is not one of them.
 /// Minting a fifth is a contract change rather than an implementation, so the
-/// refusal stays on stderr and the run id is never minted.
+/// refusal stays on stderr and no run record is created.
 #[derive(Debug)]
 pub struct TooManyLive {
     pub cap: usize,

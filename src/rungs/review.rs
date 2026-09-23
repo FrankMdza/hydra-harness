@@ -7,6 +7,8 @@
 
 use serde::Deserialize;
 
+use crate::provider::Provider;
+
 /// A patch the panel offered for merge. Only [`panel_verdict`] returns this.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovedPatch {
@@ -47,6 +49,84 @@ pub enum Severity {
     Critical,
     Major,
     Minor,
+}
+
+/// The panel's four answers, one slot per [`Provider`].
+///
+/// [`PanelAnswers::new`] takes one outcome per named provider and writes that
+/// provider's binary name into the outcome, so a panel always carries four
+/// distinct provider labels. The type says which provider each answer is filed
+/// under. It cannot check which binary produced the text; `run_judge_panel` in
+/// `evolve.rs` fills each slot from a run of that slot's provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelAnswers {
+    /// In [`PANEL_ORDER`].
+    answers: [JudgeOutcome; 4],
+}
+
+/// The order the panel runs and reports its judges in.
+pub const PANEL_ORDER: [Provider; 4] = [
+    Provider::Claude,
+    Provider::CursorAgent,
+    Provider::Agy,
+    Provider::Codex,
+];
+
+impl PanelAnswers {
+    /// One outcome per provider. Each outcome's `provider` becomes the binary
+    /// name of the slot it was passed in.
+    pub fn new(
+        claude: JudgeOutcome,
+        cursor_agent: JudgeOutcome,
+        agy: JudgeOutcome,
+        codex: JudgeOutcome,
+    ) -> Self {
+        let mut answers = [claude, cursor_agent, agy, codex];
+        for (outcome, provider) in answers.iter_mut().zip(PANEL_ORDER) {
+            outcome.provider = provider.binary();
+        }
+        PanelAnswers { answers }
+    }
+
+    /// Files outcomes by their `provider` label, for answers that arrive as a
+    /// list. Refuses a label that is not a provider, a provider named twice and
+    /// a provider missing, and says which.
+    pub fn from_outcomes(outcomes: Vec<JudgeOutcome>) -> Result<Self, String> {
+        let mut slots: [Option<JudgeOutcome>; 4] = [None, None, None, None];
+        for outcome in outcomes {
+            let Some(index) = PANEL_ORDER
+                .iter()
+                .position(|provider| provider.binary() == outcome.provider)
+            else {
+                return Err(format!("{} is not a panel provider", outcome.provider));
+            };
+            if slots[index].is_some() {
+                return Err(format!("{} answered more than once", outcome.provider));
+            }
+            slots[index] = Some(outcome);
+        }
+        let missing: Vec<&str> = PANEL_ORDER
+            .iter()
+            .zip(&slots)
+            .filter(|(_, slot)| slot.is_none())
+            .map(|(provider, _)| provider.binary())
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!(
+                "the panel needs four answers and is missing {}",
+                missing.join(", ")
+            ));
+        }
+        let [Some(claude), Some(cursor_agent), Some(agy), Some(codex)] = slots else {
+            unreachable!("every slot was checked above");
+        };
+        Ok(Self::new(claude, cursor_agent, agy, codex))
+    }
+
+    /// The four outcomes in [`PANEL_ORDER`].
+    pub fn outcomes(&self) -> &[JudgeOutcome; 4] {
+        &self.answers
+    }
 }
 
 /// What four judges decided together.
@@ -412,19 +492,22 @@ pub fn outcome_blocks(outcome: &JudgeOutcome) -> bool {
         .any(|finding| finding.severity == Severity::Critical)
 }
 
-/// Turns four judge outcomes into a panel verdict. Fewer than four is a block.
-pub fn panel_verdict(pass_run_id: &str, outcomes: &[JudgeOutcome]) -> PanelVerdict {
-    if outcomes.len() != 4 {
-        return PanelVerdict::Blocked {
-            reasons: vec![format!(
-                "the panel needs four answers and got {}",
-                outcomes.len()
-            )],
-        };
+/// Turns outcomes that arrive as a list into a panel verdict. A list that is not
+/// one answer per provider is a block, not an error, which is what
+/// `panel_size_unshrunk` in rungs spec 5.3 asks of a short panel.
+pub fn verdict_from_outcomes(pass_run_id: &str, outcomes: Vec<JudgeOutcome>) -> PanelVerdict {
+    match PanelAnswers::from_outcomes(outcomes) {
+        Ok(answers) => panel_verdict(pass_run_id, &answers),
+        Err(reason) => PanelVerdict::Blocked {
+            reasons: vec![reason],
+        },
     }
+}
 
+/// Turns the panel's four answers into a verdict.
+pub fn panel_verdict(pass_run_id: &str, answers: &PanelAnswers) -> PanelVerdict {
     let mut reasons = Vec::new();
-    for outcome in outcomes {
+    for outcome in answers.outcomes() {
         if let Some(err) = &outcome.parse_error {
             reasons.push(format!("{}: parse error: {err}", outcome.provider));
             continue;
@@ -475,4 +558,101 @@ pub fn checklist_prompt() -> String {
         ));
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PASS: &str = r#"{"verdict":"pass","findings":[]}"#;
+
+    fn pass(provider: &'static str) -> JudgeOutcome {
+        parse_judge_answer(provider, PASS)
+    }
+
+    #[test]
+    fn new_labels_each_answer_with_its_slot() {
+        let answers = PanelAnswers::new(
+            pass("claude"),
+            pass("claude"),
+            pass("claude"),
+            pass("claude"),
+        );
+        let labels: Vec<&str> = answers.outcomes().iter().map(|o| o.provider).collect();
+        assert_eq!(labels, ["claude", "cursor-agent", "agy", "codex"]);
+    }
+
+    #[test]
+    fn from_outcomes_files_answers_in_any_order() {
+        let answers = PanelAnswers::from_outcomes(vec![
+            pass("codex"),
+            pass("agy"),
+            pass("cursor-agent"),
+            pass("claude"),
+        ])
+        .unwrap();
+        let labels: Vec<&str> = answers.outcomes().iter().map(|o| o.provider).collect();
+        assert_eq!(labels, ["claude", "cursor-agent", "agy", "codex"]);
+    }
+
+    #[test]
+    fn from_outcomes_refuses_a_duplicate_provider() {
+        let err = PanelAnswers::from_outcomes(vec![
+            pass("claude"),
+            pass("claude"),
+            pass("agy"),
+            pass("codex"),
+        ])
+        .unwrap_err();
+        assert_eq!(err, "claude answered more than once");
+    }
+
+    #[test]
+    fn from_outcomes_refuses_a_missing_provider() {
+        let err =
+            PanelAnswers::from_outcomes(vec![pass("claude"), pass("cursor-agent"), pass("agy")])
+                .unwrap_err();
+        assert_eq!(err, "the panel needs four answers and is missing codex");
+    }
+
+    #[test]
+    fn from_outcomes_refuses_a_provider_outside_the_panel() {
+        let err = PanelAnswers::from_outcomes(vec![pass("hermes")]).unwrap_err();
+        assert_eq!(err, "hermes is not a panel provider");
+    }
+
+    #[test]
+    fn a_short_or_duplicate_list_is_a_block_not_an_error() {
+        let short = verdict_from_outcomes("pass", vec![pass("claude"), pass("cursor-agent")]);
+        assert_eq!(
+            short,
+            PanelVerdict::Blocked {
+                reasons: vec!["the panel needs four answers and is missing agy, codex".into()],
+            }
+        );
+        let duplicate = verdict_from_outcomes(
+            "pass",
+            vec![pass("claude"), pass("claude"), pass("agy"), pass("codex")],
+        );
+        assert_eq!(
+            duplicate,
+            PanelVerdict::Blocked {
+                reasons: vec!["claude answered more than once".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_full_list_reaches_the_panel_rule() {
+        let verdict = verdict_from_outcomes(
+            "pass",
+            vec![
+                pass("claude"),
+                pass("cursor-agent"),
+                pass("agy"),
+                pass("codex"),
+            ],
+        );
+        assert!(matches!(verdict, PanelVerdict::Offerable(_)));
+    }
 }

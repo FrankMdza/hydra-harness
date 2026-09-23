@@ -1,7 +1,7 @@
 # 82 - The panel's type carries one answer per provider
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -20,3 +20,15 @@ and a missing one; `cargo test --release --test evolve` and the lib tests green;
 clean. Edits `src/rungs/` and `tests/` only.
 
 ## Outcome
+
+`PanelAnswers::new(claude, cursor_agent, agy, codex)` stores one outcome per `Provider` in a fixed
+order and writes `Provider::binary()` into each; `run_judge_panel` returns it directly, so the
+production path cannot build a bad panel and cannot fail on it between harness start and end.
+`PanelAnswers::from_outcomes` is the list-shaped path and refuses a duplicate, missing or unknown
+provider; `verdict_from_outcomes` turns that refusal into `PanelVerdict::Blocked`. `panel_verdict`
+borrows the panel. `tests/evolve.rs`'s critical-finding test now gives the finding to one judge only.
+The type guarantees one slot per provider label, not which binary wrote each answer; the doc comment
+says so. Measured on master: evolve 25, curate 20, lib 188 passed; clippy and fmt clean. Built by
+`claude` on Haiku 4.5 under `standard`, run 01a0cc2b-10d6, 4.0M tokens. Haiku's version compared
+strings and turned a short panel into an error that left the pass record open; an Opus review found
+both and an Opus subagent rebuilt it on `Provider`.

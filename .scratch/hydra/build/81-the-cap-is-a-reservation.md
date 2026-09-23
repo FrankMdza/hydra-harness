@@ -1,7 +1,7 @@
 # 81 - The concurrency cap reserves a slot rather than counting
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -27,3 +27,18 @@ count. Launches nothing. Tests take a scratch `Layout`, never `Layout::discover(
 and `tests/` only. Clippy and fmt clean.
 
 ## Outcome
+
+`live::reserve` holds an `flock` on `<root>/reservations/.lock` across reading pending
+reservations, scanning live runs and renaming `<run_id>.json` into place; a `Reservation` guard
+removes the file once line 0 carries the child pid, or on any early return. Tests in
+`tests/status.rs`: sixteen threads behind a barrier against a cap of three, exactly three reserve;
+a dead or reused launcher pid releases; an unparseable reservation is stale and removed; a refused
+duplicate leaves no temp file. The ticket assumed the reservations could live under `spawns/`, and
+that was false: the Opus review found `reap::orphan_spawns` treats every directory there as a run
+and would delete the lock. They moved to `<root>/reservations/`, on `denied_write_paths`, and
+`tests/cleanup.rs::a_sweep_leaves_pending_reservations_alone` fails if they move back. Interactive
+launches never reserve, so the cap does not count them; stated in `IMPLEMENTATION.md`.
+Measured on master with `HYDRA_ROOT` empty: status 20, cleanup 29, spawn 29, delegation 14, lib 188
+passed; clippy and fmt clean. Built by `codex` under `standard`, run 01a0cc2b-e29c, 1.3M tokens,
+after a first run (01a0cc2a-f20b, 127k tokens) stopped on an unreadable skill, which is map ticket
+71. The session's Opus reviewer found the reap bug and an Opus subagent fixed it in the worktree.

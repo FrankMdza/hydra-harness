@@ -219,6 +219,15 @@ impl Layout {
         self.pruned().join(format!("{run_id}.jsonl"))
     }
 
+    /// Where a pending launch holds its slot under the cap, build ticket 81.
+    ///
+    /// A sibling of `spawn/` rather than a child of it. `hydra reap` reads every
+    /// directory under `spawn/` as a run id and removes the ones with no
+    /// checkout, which would take pending reservations and their lock with it.
+    pub fn reservations(&self) -> PathBuf {
+        self.root.join("reservations")
+    }
+
     /// `~/hydra/spawn/<run-id>/`, created per run and reaped with the worktree.
     pub fn spawn(&self, run_id: &str) -> PathBuf {
         self.spawns().join(run_id)
@@ -308,6 +317,8 @@ impl Layout {
             .with_context(|| format!("creating {}", self.worktrees().display()))?;
         std::fs::create_dir_all(self.spawns())
             .with_context(|| format!("creating {}", self.spawns().display()))?;
+        std::fs::create_dir_all(self.reservations())
+            .with_context(|| format!("creating {}", self.reservations().display()))?;
         Ok(())
     }
 }

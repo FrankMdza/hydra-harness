@@ -215,7 +215,10 @@ setting the variable and claiming the walks read it, which was false; CI passed 
 home holds no corpus. Four tests measure a particular record rather than checking every one, and
 those return early on an empty corpus through `corpus_or_skip`. Measured: against an empty
 `HYDRA_ROOT`, `normalize`, `outcome` and `record_contract` pass 139 of 139 in under a second;
-against the real 213 records they take six minutes.
+against the real 213 records they take six minutes. Since build ticket 84 the CI job ends with a
+step that runs the contract walk alone and writes its "checked N record(s)" line to the job
+summary, so a green run on the runner's empty root says `checked 0` where a reader can see it.
+The fixture corpus that would give CI real records to walk (panel finding F32) is not built.
 
 **A run cannot relaunch the binary and name its own policy since build ticket 57, and the stop is a
 marker.** Harness spec 7.3's rule was enforced nowhere: `Lineage::of` returns depth 0 with no bound
@@ -2010,6 +2013,19 @@ contract 17's JSON. The record writer types, `RunStart`, `RunEnd` and `Auth`, an
 `status::Report` derive `Serialize` too; nothing derives it for a normalized run, and that
 is where contract 11's never-store rule stops being a comment.
 
+**The order of `derive`'s checks is the design**, and the first one that answers wins. It
+runs from what Hydra decided toward what the run got to try:
+
+| # | Check | Answers | Why it sits here |
+|---|---|---|---|
+| 1 | `run_end.refusal` is set | the refusal's outcome | contract 6's one stated outcome, and there is no stream to read |
+| 2 | `provider_refused` | `auth_failed`, `rate_limited` | the provider refused its own service, so the run never started its work |
+| 3 | `refused_everything` | `gated` | every call refused and at least one refusal was the gate |
+| 4 | no provider | `completed`, or `failed` when `run_end.error` is set | a harness run describes the pass, spec 4.10, not the patch |
+| 5 | `claude_harvest_limit_refusal` on a harvested run | `rate_limited` | the limit lives in the transcript, not on a terminator |
+| 6 | the terminator | `completed`, `failed`, `crashed` by provider | a harvested body, no terminator, or a `result` frame, read three ways |
+| 7 | `outcome_source` | `unknown` on a `completed` with unclassified calls or an unwatched harvest | the outcome stands and the source says how much to trust it |
+
 **Nothing reads the exit status to pick an outcome**, and the rate-limited run below is
 why. It exited 1. The one thing the derivation reads off `exit_code` is whether it exists
 at all, which separates a child that died from a spawn that never happened.
@@ -3044,7 +3060,10 @@ ended the pass `failed`, which spec 4.10 reserves for git or the worktree breaki
 **The verdict lives in the commit message**, spec 4.9, on `ouroboros/<pass-id>` when the panel
 passed and `ouroboros/blocked/<pass-id>` when it did not, naming the pass, the proposer and the
 four judges by run id, with the four answers in the body. A pass constructs `ApprovedPatch`
-only through `panel_verdict`, which is the one function that can build it, and nothing merges:
+only through `panel_verdict`, which is the one function that can build it, and since build
+ticket 82 `panel_verdict` takes a `PanelAnswers` with one slot per `Provider`, filled by
+`run_judge_panel` from a run of that slot's binary, so a panel of four answers from one binary
+cannot be built; a list-shaped answer that fails that shape ends `Blocked`. Nothing merges:
 the human does, spec 4.11. A pass's outcome describes the pass and not the patch, spec 4.10, so
 a refused or blocked patch is a `completed` pass and `failed` is git or the worktree breaking.
 
@@ -3335,6 +3354,17 @@ a queue holds a slot the caller can neither see nor cancel. The refusal is a typ
 `live::TooManyLive`, carrying the run ids, because a caller that hits it has to decide
 between waiting on one and reaping it and neither is decidable from a sentence.
 
+**Since build ticket 81 the cap is a reservation, not a count.** `live::reserve` takes an
+`flock` on `<root>/reservations/.lock` and holds it across reading the pending reservations,
+scanning the live runs and renaming `<run_id>.json` into place, so two launchers that see one
+slot are serialized and the second sees the first's file. The file holds the `hydra run` pid
+and its start time; the guard drops it once line 0 carries the child's pid, and a file whose
+launcher is dead, reused or unparseable is removed by the next reservation. The directory sits
+beside `spawns/` rather than inside it, because `hydra reap` treats every directory under
+`spawns/` as a run's and would have deleted the lock (`tests/cleanup.rs::a_sweep_leaves_pending_reservations_alone`).
+It is on `denied_write_paths`, so the seatbelt denies it too. Interactive launches reserve
+nothing and are not counted against the cap.
+
 **A run refused by the cap writes no record.** Contract 8.3 makes a refused spawn a record
 when the refusal is one of section 6's four codes, and the cap is not one of them. Minting
 a fifth is a contract change rather than an implementation, so the refusal goes to stderr
@@ -3594,8 +3624,8 @@ mistake; `tests/normalize.rs::a_variable_the_gate_expands_is_read_against_the_re
 fails without the one-line fix in `src/policy/replay.rs` and passes with it, measured both ways.
 
 What it found that this file already said and the README did not: the corpus walks are vacuous in
-CI, `gated` needs every call refused, the concurrency cap is a check without a reservation
-(`live::guard` counts and does not reserve, so two launchers seeing one slot both proceed), and
+CI, `gated` needs every call refused, the concurrency cap was a check without a reservation
+(closed by build ticket 81), and
 `run_start` takes thirteen positional arguments with two adjacent same-typed `Option` pairs.
 
 ## Rough edges worth knowing

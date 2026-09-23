@@ -580,6 +580,9 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
         // `hydra prune` moves a record rather than deleting it, and that promise
         // is empty if a child can delete the moved copy.
         layout.pruned(),
+        // Build ticket 81: a run that deletes a pending launch's reservation, or
+        // its lock, lets the next launch past the cap.
+        layout.reservations(),
         // The store and its snapshots are the other half of D5's seam. Rung one
         // proposes rather than lands, and a run that writes its own snapshot
         // edits its own instructions mid-session.
@@ -1337,6 +1340,7 @@ mod tests {
             layout.snapshots(),
             layout.skill_worktrees(),
             layout.pruned(),
+            layout.reservations(),
         ] {
             assert!(
                 denied.iter().any(|root| directory.starts_with(root)),

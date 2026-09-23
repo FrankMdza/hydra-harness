@@ -439,23 +439,18 @@ pub fn run(request: Request) -> Result<Call> {
     // refused here rather than launched bounded by nothing.
     let lineage = Lineage::of(&layout, request.parent.as_deref())?;
 
-    // Harness spec 9's cap, checked before anything is created. Concurrency comes
-    // from the orchestrator's own parallel tool calls, so Hydra needs no scheduler,
-    // only a refusal. Queueing here would hold a slot the caller cannot see and
-    // cannot cancel.
-    crate::live::guard(crate::live::LIVE_RUN_CAP, &crate::live::scan(&layout)?)?;
-
     let run_id = request
         .run_id
         .clone()
         .unwrap_or_else(|| Uuid::now_v7().to_string());
+    let reservation = crate::live::reserve(&layout, &run_id, crate::live::LIVE_RUN_CAP)?;
     let run_file = layout.run_file(&run_id);
 
     // 6.1 item 3, and the one pre-flight check whose refusal is a run record. It
     // runs after the id is minted, which is out of the spec's order on purpose:
     // contract 8.3 makes this refusal a run file and a run file needs a run id.
-    // Nothing else has been created yet, so the record is the whole of what the
-    // attempt leaves behind, which is what 7.3 asks for.
+    // Only a temporary reservation exists so far. The refusal drops it and
+    // leaves the record of the attempt, which is what 7.3 asks for.
     // Build ticket 57, beside 6.1 item 3 and for the same reason: a refused
     // escalation is a run record (contract 8.3), and a run record needs a run id.
     // It goes first because it is the wider refusal. A caller inside a run that
@@ -1043,6 +1038,7 @@ pub fn run(request: Request) -> Result<Call> {
         ))
     })?;
 
+    drop(reservation);
     match crate::watch::wait_for_end(&run_file, &mut watcher, request.timeout)? {
         crate::watch::Waited::TimedOut => Ok(Call::Handle(handle(
             &run_id,
