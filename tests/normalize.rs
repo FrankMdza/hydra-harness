@@ -2164,6 +2164,72 @@ fn a_write_refused_before_it_was_read_never_reached_the_hook() {
 }
 
 #[test]
+fn an_edit_to_a_file_that_does_not_exist_never_reached_the_hook() {
+    // Run 01a0cc56-c15b on claude 2.1.268, sonnet: an `Edit` to a mistyped
+    // `worktrades/` path came back `<tool_use_error>File does not exist.` with
+    // no hook frame. The binary refused it on its own `stat`; nothing ran.
+    let sandbox = Sandbox::new("claude-missing-edit");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use(
+        "toolu_01",
+        "Edit",
+        json!({"file_path": "/nowhere/x.py", "old_string": "a", "new_string": "b"}),
+    );
+    record.tool_result(
+        "toolu_01",
+        "<tool_use_error>File does not exist. Note: your current working directory is /tmp.</tool_use_error>",
+        true,
+    );
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. } | Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_call_withheld_by_a_safety_classifier_never_reached_the_hook() {
+    // Run 01a0cf89-8b3d on claude, opus: a `Write` came back "Not run: the
+    // response that made this tool call was stopped by a safety classifier."
+    // No tool and no hook ran.
+    let sandbox = Sandbox::new("claude-withheld-write");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use(
+        "toolu_01",
+        "Write",
+        json!({"file_path": sandbox.worktree().join("a.md"), "content": "x"}),
+    );
+    record.tool_result(
+        "toolu_01",
+        "Not run: the response that made this tool call was stopped by a safety classifier.",
+        true,
+    );
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. } | Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
 fn parallel_calls_to_one_tool_each_get_their_own_hook_answer() {
     // Build ticket 46. Run 01a095e6-626f on claude 2.1.268: two `WebFetch`
     // calls emitted back to back, then both `hook_started` frames, then both

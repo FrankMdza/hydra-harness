@@ -104,7 +104,10 @@ define a filter reap's git will run.
 Measured on master: cleanup 39, spawn 32, evolve 26, curate 22, status and outcome green, lib
 200; fmt and clippy clean. `tests/normalize.rs`'s corpus walk fails on master before and after
 this change, on record 01a0cc56-c15b, an `Edit` to a mistyped `worktrades/` path with no hook
-decision; not caused here, and left for its own look.
+decision; not caused here. Fixed the same day: Claude Code refused the call on its own `stat`
+before any hook, a sixth spelling for `src/normalize/claude.rs`'s list, and the Opus panel run
+01a0cf89-8b3d added a seventh, a call a safety classifier withheld. The walk is green over every
+record on this machine.
 
 The real run: `claude` haiku under `standard`, run 01a0cfcb-4fd1, ran `git add` inside the new
 profile and got `A  probe95.txt`; `hydra reap` from outside committed it, removed the checkout and

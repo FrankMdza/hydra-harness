@@ -570,6 +570,13 @@ impl Walk {
             // a linked worktree's `.git`, which is a file, failed the binary's
             // own `stat` before any hook, with four `PreToolUse:Write` starts in
             // the record for the run's other four writes and none for this one.
+            // A sixth, `<tool_use_error>File does not exist.`, 2026-09-23 on run
+            // 01a0cc56-c15b, sonnet on 2.1.268: an `Edit` to a mistyped
+            // `worktrades/` path, refused on its own `stat` with no hook frame.
+            // And a seventh, the same day on run 01a0cf89-8b3d, opus: `Not run:
+            // the response that made this tool call was stopped by a safety
+            // classifier.`, a `Write` withheld by the model provider before
+            // Claude Code ran any tool or hook.
             // The gate was never asked, so neither its silence nor the table's
             // ignorance of an invented name is a finding.
             let refused_on_input = results.get(&call_id).is_some_and(|(status, output)| {
@@ -578,7 +585,11 @@ impl Walk {
                         || output.contains("No such tool available")
                         || output.starts_with("<tool_use_error>Blocked:")
                         || output.starts_with("<tool_use_error>File has not been read yet")
-                        || output.starts_with("<tool_use_error>Error calling tool ("))
+                        || output.starts_with("<tool_use_error>File does not exist.")
+                        || output.starts_with("<tool_use_error>Error calling tool (")
+                        || output.starts_with(
+                            "Not run: the response that made this tool call was stopped",
+                        ))
             });
             if !hydra_spoke && !refused_on_input {
                 self.findings.push(Finding::Ungated {
