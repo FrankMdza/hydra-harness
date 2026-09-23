@@ -9,6 +9,7 @@ target/
 /skills-snapshots/
 /skill-worktrees/
 /pruned/
+/reservations/
 # Where the Claude Code harness puts a subagent's isolated checkout of this repo.
 /.claude/worktrees/
 .DS_Store
