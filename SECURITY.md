@@ -76,7 +76,8 @@ Hydra made about it.
   Hydra links are denied to writes. They were meant to stay readable by shell, which is how
   `codex` and `agy` read a skill, and since build ticket 74 denied the checkout whole they are
   not: the shell check refuses any command naming the snapshot under `~/hydra`, so on those two
-  providers an injected skill cannot be opened. Map ticket 71 holds what to do about it.
+  providers a skill is out of reach by shell: `codex` cannot open one at all, and `agy` only
+  through its own file tool. Map ticket 71 holds what to do about it.
 - **Two shell facilities are denied under every policy, since 2026-09-15, and the cost is a feature.**
   `WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy` write to the stdin of a
   command that is already running. The command was judged when it started and what is typed into it
