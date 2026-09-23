@@ -63,6 +63,13 @@ Hydra made about it.
   `.cursorrules` and their kind are ordinary files in the repository Hydra seeds, and each
   provider loads them as configuration. Hydra neither strips nor records them, and `hydra reap`
   commits whatever a run leaves in them. The policy bounds what a run so instructed can do.
+- **Under `standard` a run holds all three legs of the lethal trifecta.** It reads untrusted
+  text, it reads private data, and `network_read` carries no scope and no domain list, so it can
+  send what it read anywhere. The floor refuses Slack's posting methods by shell and by fetch
+  URL and nothing else. A domain list would bind the fetch tools and not `curl`, since the gate
+  does not interpret shell, and the seatbelt filters by address rather than host name, so
+  map ticket 69 chose to state the exposure rather than build half a fence. `read-only`, `judge`
+  and `curate` grant no network.
 - **Nothing pins what an MCP server advertises.** The record carries the servers a launch was
   handed by name, not their tool descriptions, so a server that changes its descriptions after
   admission is not detected.

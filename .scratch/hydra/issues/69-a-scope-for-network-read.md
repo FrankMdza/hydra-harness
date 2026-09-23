@@ -1,7 +1,7 @@
 # 69 - Does `network_read` get a scope, and who writes the domain list?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-09-22, from map ticket 68's answer 4.
 
@@ -29,4 +29,10 @@ destination and not the class.
 
 ## Answer
 
-Open.
+Resolved 2026-09-22 with the human: state the exposure, build nothing. A domain list binds the
+fetch tools and leaves `curl`, because the gate does not interpret shell, and the seatbelt's
+`network-outbound` filter keys on addresses rather than host names, so neither mechanism closes the
+leg; a list that only binds one tool family is the claim-wider-than-code class the hiring panel
+marked. `SECURITY.md` now says under `standard` the trifecta is complete, what the floor still
+refuses (Slack's posting methods, by shell since before and by fetch URL since build 77), and which
+policies grant no network. No build ticket.

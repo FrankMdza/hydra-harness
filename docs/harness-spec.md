@@ -1117,7 +1117,9 @@ outlives its budget, spawns a tree, or drops to an older model generation to dod
 noticed. They are human decisions rather than per-call choices a model makes unattended. `model` is
 on this list for a concrete reason: `agy` serves Claude Opus 4.6, three releases behind what `claude
 --model opus` resolves to, so a `model` argument is exactly that lever. The CLI keeps the full
-surface.
+surface. The face answers one call at a time, on purpose (map ticket 70): a
+concurrent face would let one parent fill the cap of live children by itself, and a parent that
+wants two children in parallel is an orchestrator, which launches them from outside.
 
 `policy?` takes a name from the five, and section 7.3 bounds which names a given caller may pass.
 

@@ -1,7 +1,7 @@
 # 70 - Does the delegate face serve more than one call at a time?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-09-22, from the study session's block (g), question 2.
 
@@ -21,4 +21,7 @@ open through the face. A concurrent face lets one parent fill the cap by itself.
 
 ## Answer
 
-Open.
+Resolved 2026-09-22 with the human: the face stays serial, on purpose. Harness spec 9 says so in
+one sentence. A concurrent face lets one parent fill the cap of eight by itself, the face refuses
+inside the seatbelt since map 64 so it is rarely reached on macOS, and a parent that wants children
+in parallel is an orchestrator, which launches them from outside. No build ticket.
