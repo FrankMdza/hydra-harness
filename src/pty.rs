@@ -77,9 +77,14 @@ pub struct Spawned {
 /// Opens a pty, spawns `binary` on its slave, and returns the spawned child
 /// with the slave handle still open.
 ///
-/// The environment is exactly what the caller passes. `CommandBuilder::new` starts
-/// from an empty environment rather than inheriting this process's, which is what
-/// makes the allowlist in [`crate::env`] a boundary rather than a filter.
+/// The environment is exactly what the caller passes. `CommandBuilder::new` copies
+/// this process's environment, so it is cleared before the caller's names go in;
+/// that is what makes the allowlist in [`crate::env`] a boundary rather than a
+/// filter. Until 2026-09-23 this comment said the builder started empty and the
+/// clear was missing, so every recorded run inherited the shell that launched
+/// `hydra run` through the watcher; the second hiring panel found it and
+/// `tests/pty_tee.rs::the_child_gets_the_environment_it_is_handed_and_nothing_else`
+/// fails without the clear.
 fn open(
     binary: &str,
     argv: &[String],
@@ -112,6 +117,7 @@ fn open(
         cmd.arg(arg);
     }
     cmd.cwd(cwd);
+    cmd.env_clear();
     for (name, value) in env {
         cmd.env(name, value);
     }

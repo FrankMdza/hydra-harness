@@ -300,7 +300,9 @@ hydra resume <run-id> [--task "..."] [--timeout <dur>]
 hydra evolve [--task "..."] [--model <id>] [--timeout <dur>] [--dry-run]
 ```
 
-A launch builds the child's environment from the allowlist, reads the provider's
+A launch builds the child's environment from the allowlist (and since build ticket 88 the pty
+clears the inherited environment before applying it; before, recorded runs got the launching
+shell's whole environment, `SECURITY.md` says what that exposed), reads the provider's
 version, loads the policy set, the preamble and the canonical MCP document, refuses if
 the concurrency cap is already met, mints a UUIDv7 run id, creates a git worktree and
 seeds it with the parent's uncommitted work, writes the servers the run's policy admits

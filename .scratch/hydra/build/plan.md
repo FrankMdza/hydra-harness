@@ -132,3 +132,4 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [85 - An export verifier of its own](85-an-export-verifier-of-its-own.md)
 - [86 - One interpreter per replay](86-one-interpreter-per-replay.md)
 - [87 - `codex` reads a copy of its skills](87-codex-reads-a-copy-of-its-skills.md)
+- [88 - The pty clears the environment](88-the-pty-clears-the-environment.md)

@@ -52,6 +52,45 @@ fn minimal_run_start(pid: u32, start: Option<String>) -> RunStart {
 }
 
 #[test]
+fn the_child_gets_the_environment_it_is_handed_and_nothing_else() {
+    // The allowlist in `src/env.rs` is only a boundary if the pty starts the child
+    // from an empty environment. portable-pty's `CommandBuilder::new` copies this
+    // process's, found by the hiring panel of 2026-09-23; without `env_clear` every
+    // recorded run inherited the shell that launched `hydra run`. Cargo sets
+    // `CARGO_MANIFEST_DIR` on this test process, and `HOME` is set on any shell that
+    // runs the suite, so either reaching the child is the leak.
+    assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
+    let mut spawned = hydra::pty::spawn(
+        "/bin/sh",
+        &["-c".to_string(), "env".to_string()],
+        std::path::Path::new("/tmp"),
+        [("PATH".to_string(), "/usr/bin:/bin".to_string())].into_iter(),
+        None,
+    )
+    .unwrap();
+    let mut lines = Vec::new();
+    spawned
+        .tee(|line| {
+            lines.push(line.to_string());
+            Ok(())
+        })
+        .unwrap();
+    spawned.wait().unwrap();
+
+    let names: Vec<&str> = lines
+        .iter()
+        .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+        .collect();
+    assert!(names.contains(&"PATH"), "{names:?}");
+    for leaked in ["CARGO_MANIFEST_DIR", "HOME", "USER"] {
+        assert!(
+            !names.contains(&leaked),
+            "{leaked} reached the child without being handed to it: {names:?}"
+        );
+    }
+}
+
+#[test]
 fn a_teed_run_is_a_valid_record() {
     let path = scratch("teed.jsonl");
     let script = r#"printf '{"type":"system","subtype":"init","model":"stub-1"}\n'; printf '{"type":"assistant","text":"hi"}\n'; printf '\033[?25h'"#;

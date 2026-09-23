@@ -76,6 +76,16 @@ Hydra made about it.
 
 ## Known exposures, stated before someone else does
 
+- **Until 2026-09-23 the environment allowlist did not reach recorded runs.** The probes and the
+  interactive launch cleared the environment, and the pty that starts a recorded run did not:
+  portable-pty's `CommandBuilder::new` copies the environment of the process that calls it, and
+  the watcher calling it had inherited the shell that ran `hydra run`. So every recorded launch
+  before build ticket 88 received that shell's whole environment, `GEMINI_API_KEY`,
+  `SSH_AUTH_SOCK` and Claude Code's messaging token among what the test measured, while this
+  file said no credential in your shell reaches the agent. The second hiring panel found it by
+  reading the dependency's source. `src/pty.rs` clears the environment before applying the
+  allowlist now, and `tests/pty_tee.rs` fails without the clear. Records from before carry an
+  `env_allowlist` that named what Hydra meant to pass, not what the child got.
 - **A run's own hook config is denied to it, since 2026-09-12.** On `cursor-agent` the config
   Hydra writes is `<worktree>/.cursor/hooks.json`, and `standard` may write anywhere in the
   worktree, so before build ticket 44 a run could rewrite the file that points at its gate.
