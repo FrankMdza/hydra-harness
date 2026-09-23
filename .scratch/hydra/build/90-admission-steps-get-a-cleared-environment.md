@@ -1,7 +1,7 @@
 # 90 - Rung two's admission steps start from a cleared environment
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -38,3 +38,23 @@ Tests take a scratch `Layout`, never `Layout::discover()`. Ignore
 `cargo clippy --all-targets -- -D warnings` before you stop. Build ticket 89 edits other functions
 in `evolve.rs` at the same time; keep your change inside `run_admission_step`, the new constant and
 the test.
+
+## Outcome
+
+Built by `cursor-agent` on composer-2.5 under `standard`, run 01a0cf91-7525, 1.5M tokens, then
+fixed by the session after an Opus review. `ADMISSION_ENV_ALLOWLIST` and `admission_env()` in
+`src/env.rs`; `run_admission_step` builds the seatbelt or bare command and then runs one shared
+tail that calls `env_clear`, the allowlist and `HYDRA_ROOT`, so no step reaches `output()` without
+the clear. The agent had cleared both branches separately, and its test, inside a seatbelt, drove a
+hand-built command rather than the function; the review showed the seatbelt branch could lose the
+clear with the test still green. The shared tail closes that. The review also caught a `/usr/bin`
+error message copied from the provider path that talked about a keychain read.
+
+Measured on master outside any seatbelt, where the test drives `run_admission_step` through
+`sandbox-exec`: it passes, and with the `apply_admission_env` line commented out it fails with
+`HYDRA_ADMISSION_CANARY=planted` in the child's environment. `cargo build --release` under
+`env -i` with only `PATH`, `HOME`, `USER` and `LANG` builds; the agent measured the same set for
+`cargo build --lib` and a test. Not forwarded, on purpose: `CARGO_TARGET_DIR`, which would build
+outside the worktree, and the proxy variables, so a patch that adds a crate behind a proxy fails its
+fetch. `~/.cargo/credentials.toml` stays readable through `HOME`, which is the existing
+home-readable caveat. evolve 25 passed; fmt and clippy clean.

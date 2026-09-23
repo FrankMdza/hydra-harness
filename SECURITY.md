@@ -46,9 +46,13 @@ Hydra made about it.
   Hydra, not what it may do to you. Rung two's admission gate runs `cargo fmt --check`, `clippy`,
   `build` and `test` on a proposer's worktree under the proposer's own seatbelt profile since
   build ticket 75, with `HYDRA_ROOT` pointed at an empty scratch root, before any judge reads the
-  patch; that profile bounds what the steps may do to Hydra and not what they may do to you, so a
-  hostile test can still read `~/.ssh`, and the pass's harness record names the profile sha and
-  the root the steps ran under.
+  patch. Since build ticket 90 each step starts from a cleared environment and gets only
+  `ADMISSION_ENV_ALLOWLIST` in `src/env.rs` (`PATH`, `HOME`, `TMPDIR`, `USER`, `LANG`,
+  `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`) plus `HYDRA_ROOT`; an unset or empty name is
+  skipped and a `HOME` that is not the account's is dropped. Before that, the steps inherited the
+  shell that ran `hydra evolve`, API keys and agent sockets included. The seatbelt profile bounds what the steps may do to Hydra and not what they may do to you, so a hostile test
+  can still read `~/.ssh`, and the pass's harness record names the profile sha and the root the
+  steps ran under.
 - **Inside the seatbelt a run can stage its work and cannot move a branch.** The worktree's
   private git directory under `~/hydra/.git/worktrees/<run-id>` and the shared object store are
   carved out of the denial since build ticket 70, so `git status` and `git add` work; `refs/` and

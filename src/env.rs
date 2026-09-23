@@ -37,6 +37,48 @@ const PROXY: &[&str] = &[
 /// For the two Node providers.
 const NODE_CA: &str = "NODE_EXTRA_CA_CERTS";
 
+/// Passed to rung-two's admission gate after `env_clear`. `CARGO_TARGET_DIR` is
+/// left off on purpose: forwarding it would build outside the worktree and share
+/// artifacts with the human's own builds.
+pub const ADMISSION_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "USER",
+    "LANG",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+];
+
+/// The environment `cargo` and `rustc` see during rung-two's admission gate.
+pub fn admission_env() -> Result<BTreeMap<String, String>> {
+    let mut vars = BTreeMap::new();
+    for name in ADMISSION_ENV_ALLOWLIST {
+        let Ok(value) = std::env::var(name) else {
+            continue;
+        };
+        if value.is_empty() {
+            continue;
+        }
+        if *name == "HOME" && Path::new(&value) != real_home()? {
+            continue;
+        }
+        vars.insert(name.to_string(), value);
+    }
+
+    match vars.get("PATH") {
+        None => bail!("PATH is not set, and admission cannot run cargo without it"),
+        Some(path) if !path.split(':').any(|p| p == "/usr/bin") => bail!(
+            "PATH does not contain /usr/bin, where cc, ld and xcrun live, and admission \
+             cannot link without it"
+        ),
+        Some(_) => {}
+    }
+
+    Ok(vars)
+}
+
 /// Three names Hydra must never set, checked rather than assumed.
 ///
 /// `CLAUDE_CONFIG_DIR` loses the Anthropic login even when set to its own default

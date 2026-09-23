@@ -560,6 +560,16 @@ fn admission_profile_sha(profile_path: &Path) -> Option<String> {
         .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
 }
 
+fn apply_admission_env(cmd: &mut Command, hydra_root: &Path) -> Result<(), String> {
+    let env = crate::env::admission_env().map_err(|err| format!("admission gate: {err}"))?;
+    cmd.env_clear();
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
+    cmd.env("HYDRA_ROOT", hydra_root);
+    Ok(())
+}
+
 fn run_admission_step(
     worktree: &Path,
     profile_path: &Path,
@@ -567,7 +577,7 @@ fn run_admission_step(
     bin: &str,
     args: &[&str],
 ) -> Result<std::process::Output, String> {
-    if crate::sandbox::wraps_launches() {
+    let mut cmd = if crate::sandbox::wraps_launches() {
         if !profile_path.is_file() {
             return Err(format!(
                 "admission gate: seatbelt profile missing at {}",
@@ -581,23 +591,19 @@ fn run_admission_step(
                     .into(),
             );
         }
-        Command::new("/usr/bin/sandbox-exec")
-            .arg("-f")
-            .arg(profile_path)
-            .arg(bin)
-            .args(args)
-            .current_dir(worktree)
-            .env("HYDRA_ROOT", hydra_root)
-            .output()
-            .map_err(|err| format!("{bin} {}: {err}", args.join(" ")))
+        let mut cmd = Command::new("/usr/bin/sandbox-exec");
+        cmd.arg("-f").arg(profile_path).arg(bin);
+        cmd
     } else {
         Command::new(bin)
-            .args(args)
-            .current_dir(worktree)
-            .env("HYDRA_ROOT", hydra_root)
-            .output()
-            .map_err(|err| format!("{bin} {}: {err}", args.join(" ")))
-    }
+    };
+    // One tail for both branches, so no admission step reaches `output()`
+    // without the cleared environment, and the test that drives this tail
+    // covers the seatbelt branch too.
+    cmd.args(args).current_dir(worktree);
+    apply_admission_env(&mut cmd, hydra_root)?;
+    cmd.output()
+        .map_err(|err| format!("{bin} {}: {err}", args.join(" ")))
 }
 
 /// Fixed sentence in every judge prompt when a task is present. Map ticket 57.
@@ -1191,5 +1197,73 @@ pub fn report(done: &Done) -> String {
             }
             text
         }
+    }
+}
+
+#[cfg(test)]
+mod admission_step_tests {
+    use super::*;
+
+    fn env_probe_output(
+        worktree: &Path,
+        profile_path: &Path,
+        hydra_root: &Path,
+    ) -> std::process::Output {
+        if crate::sandbox::inside_seatbelt() {
+            // Nested `sandbox-exec` is refused on macOS, and admission runs from
+            // outside the seatbelt. Inside one, drive the tail both branches of
+            // `run_admission_step` share; outside, the function itself.
+            let mut cmd = Command::new("/usr/bin/env");
+            cmd.current_dir(worktree);
+            apply_admission_env(&mut cmd, hydra_root).unwrap();
+            cmd.output().unwrap()
+        } else {
+            run_admission_step(worktree, profile_path, hydra_root, "/usr/bin/env", &[]).unwrap()
+        }
+    }
+
+    #[test]
+    fn run_admission_step_clears_the_parent_environment() {
+        // SAFETY: the test owns this name and removes it before returning.
+        unsafe {
+            std::env::set_var("HYDRA_ADMISSION_CANARY", "planted");
+        }
+
+        let worktree =
+            std::env::temp_dir().join(format!("hydra-admission-env-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&worktree);
+        std::fs::create_dir_all(&worktree).unwrap();
+        let hydra_root = worktree.join("hydra-root");
+        std::fs::create_dir_all(&hydra_root).unwrap();
+
+        let profile_path = if crate::sandbox::wraps_launches() {
+            if !crate::sandbox::exec_available() {
+                unsafe {
+                    std::env::remove_var("HYDRA_ADMISSION_CANARY");
+                }
+                return;
+            }
+            let profile = worktree.join("admission.sb");
+            std::fs::write(&profile, "(version 1)\n(allow default)\n").unwrap();
+            profile
+        } else {
+            worktree.join("unused.sb")
+        };
+
+        let out = env_probe_output(&worktree, &profile_path, &hydra_root);
+        // SAFETY: paired with the set above, and before any assert can return.
+        unsafe {
+            std::env::remove_var("HYDRA_ADMISSION_CANARY");
+        }
+        let _ = std::fs::remove_dir_all(&worktree);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stdout.contains("HYDRA_ADMISSION_CANARY=planted"),
+            "admission step inherited the parent environment:\n{stdout}"
+        );
+        assert!(
+            stdout.contains("HYDRA_ROOT="),
+            "admission step did not set HYDRA_ROOT:\n{stdout}"
+        );
     }
 }

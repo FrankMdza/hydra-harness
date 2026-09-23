@@ -3045,7 +3045,9 @@ ticket 75 on 2026-09-22** each step on macOS runs through `/usr/bin/sandbox-exec
 profile the proposer's spawn already wrote at `spawn/<proposer-run-id>/sandbox.sb`, and with
 `HYDRA_ROOT` pointed at an empty scratch root under `spawn/<pass-id>/admission-root/` so the
 corpus walks do not read a corpus the profile denies. On Linux the same four commands run bare
-with the same variable. A missing profile on macOS fails closed naming the path rather than
+with the same variable. **Since build ticket 90** both branches share one tail that clears the
+environment and passes `ADMISSION_ENV_ALLOWLIST` from `src/env.rs` plus `HYDRA_ROOT`; until then the
+steps inherited the orchestrator's whole shell, the second hiring panel's G43. A missing profile on macOS fails closed naming the path rather than
 running bare. The pass's harness `run_end` carries `admission_sandbox`, the profile sha, and
 `admission_hydra_root`, the scratch root. A hostile test can still read `~/.ssh`; map ticket 66
 closed on that honest step. `tests/evolve.rs::admission_runs_under_the_proposers_seatbelt_and_refuses_a_hostile_test`
