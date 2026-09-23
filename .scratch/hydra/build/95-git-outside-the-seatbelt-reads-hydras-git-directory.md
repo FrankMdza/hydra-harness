@@ -1,7 +1,7 @@
 # 95 - Git outside the seatbelt reads Hydra's git directory, and reap commits only on its own branch
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 89
 
 ## What
