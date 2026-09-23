@@ -73,6 +73,14 @@ impl Fixture {
     fn select(&self) -> Selection {
         corpus::select(&self.layout(), &policies()).unwrap()
     }
+
+    /// Stands in for the human's home, whose user-scope skill roots the
+    /// write-time check reads. Never the real one.
+    fn home(&self) -> PathBuf {
+        let home = self.root.join("scratch-home");
+        std::fs::create_dir_all(&home).unwrap();
+        home
+    }
 }
 
 impl Drop for Fixture {
@@ -821,6 +829,7 @@ fn the_commit_is_the_proposal_and_the_checkout_goes_after_it() {
         &branch,
         run_id,
         &result_of(run_id, "I proposed one edit for the repeated tool errors."),
+        &fixture.home(),
     )
     .unwrap();
 
@@ -933,6 +942,7 @@ fn a_pass_that_proposed_nothing_leaves_no_branch() {
         &branch,
         run_id,
         &result_of(run_id, "The corpus does not support a change."),
+        &fixture.home(),
     )
     .unwrap();
 
@@ -944,6 +954,117 @@ fn a_pass_that_proposed_nothing_leaves_no_branch() {
         !git(&store, &["branch", "--list", "--format=%(refname:short)"]).contains("rungs"),
         "an empty branch was left behind"
     );
+}
+
+/// A skill directory as a curator would write it into its checkout.
+fn write_skill(dir: &Path, name: &str) {
+    let skill = dir.join(name);
+    std::fs::create_dir_all(&skill).unwrap();
+    std::fs::write(
+        skill.join("SKILL.md"),
+        format!("---\nname: {name}\ndescription: Proposed by the curator.\n---\n\nbody\n"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_proposed_skill_whose_name_a_user_root_holds_is_not_committed() {
+    // Build ticket 91, harness spec 6.4's write-time check. A name the human's
+    // own `~/.claude/skills/` already holds would make every later launch refuse
+    // the run, so the pass refuses the write instead: no commit, no removal, and
+    // the collision named.
+    let fixture = Fixture::new("collides");
+    let store = fixture.store();
+    let home = fixture.home();
+    write_skill(&home.join(".claude/skills"), "foo");
+
+    let run_id = A;
+    let branch = format!("rungs/curate/{run_id}");
+    let checkout = fixture.layout().skill_checkout(run_id);
+    curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
+    let started_at = git(&checkout, &["rev-parse", "HEAD"]).trim().to_string();
+    write_skill(&checkout, "foo");
+
+    let proposal = curate::propose(
+        &store,
+        &checkout,
+        &branch,
+        run_id,
+        &result_of(run_id, "I proposed a skill called foo."),
+        &home,
+    )
+    .unwrap();
+
+    assert!(
+        proposal.commit.is_none(),
+        "the colliding skill was committed"
+    );
+    assert!(!proposal.checkout_removed);
+    assert!(!proposal.branch_removed);
+    assert_eq!(proposal.refused.len(), 1, "{:?}", proposal.refused);
+    let root = home.join(".claude/skills/foo").display().to_string();
+    assert!(
+        proposal.refused[0].contains("foo") && proposal.refused[0].contains(&root),
+        "{:?}",
+        proposal.refused
+    );
+
+    // The curator's work is where it wrote it, for the human, and the branch
+    // has not moved.
+    assert!(checkout.join("foo/SKILL.md").is_file());
+    assert_eq!(git(&store, &["rev-parse", &branch]).trim(), started_at);
+
+    let report = curate::report(&curate::Done::Ran {
+        result: Box::new(result_of(run_id, "I proposed a skill called foo.")),
+        proposal,
+    });
+    assert!(report.contains(&root), "{report}");
+    assert!(report.contains(&checkout.display().to_string()), "{report}");
+}
+
+#[test]
+fn a_proposed_skill_no_user_root_holds_is_committed() {
+    // The other half of build ticket 91: the same user root, a name it does not
+    // hold, and the pass commits as it did before the check existed. An edit to
+    // a skill the store already held is not re-checked, even when a user root
+    // holds its name, because the launch check already covers names the store
+    // holds.
+    let fixture = Fixture::new("admitted");
+    let store = fixture.store();
+    write_skill(&store, "held");
+    git(&store, &["add", "-A"]);
+    git(&store, &["commit", "-qm", "a skill the store holds"]);
+    let home = fixture.home();
+    write_skill(&home.join(".claude/skills"), "foo");
+    write_skill(&home.join(".claude/skills"), "held");
+
+    let run_id = A;
+    let branch = format!("rungs/curate/{run_id}");
+    let checkout = fixture.layout().skill_checkout(run_id);
+    curate::check_out(&store, &checkout, &branch, "HEAD").unwrap();
+    write_skill(&checkout, "bar");
+    std::fs::write(
+        checkout.join("held/SKILL.md"),
+        "---\nname: held\ndescription: Edited by the curator.\n---\n",
+    )
+    .unwrap();
+
+    let proposal = curate::propose(
+        &store,
+        &checkout,
+        &branch,
+        run_id,
+        &result_of(run_id, "I proposed a skill called bar."),
+        &home,
+    )
+    .unwrap();
+
+    assert!(proposal.refused.is_empty(), "{:?}", proposal.refused);
+    assert!(proposal.commit.is_some(), "nothing was committed");
+    assert!(proposal.checkout_removed);
+    assert!(proposal.left.is_empty(), "{:?}", proposal.left);
+    assert!(git(&store, &["show", &format!("{branch}:bar/SKILL.md")]).contains("name: bar"));
+    assert!(git(&store, &["show", &format!("{branch}:held/SKILL.md")]).contains("Edited"));
 }
 
 #[test]

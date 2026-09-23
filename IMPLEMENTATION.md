@@ -792,19 +792,36 @@ which contract 5.3 already requires a reader to treat as unanswered rather than 
 empty listing, and the third of the three collision tests does not run. The other two do,
 and the launcher says so on stderr.
 
-### The write check exists and has no caller
+### The write check, and rung one as its caller
 
 6.4 checks collisions twice: "at write, the curator refuses to create or rename a store
 skill to a name the index already holds, so no collision Hydra causes reaches a run".
-`skills::admit` is that check, and nothing calls it. No code path in this build writes to
-the store: the curator writes through its own gated tool calls, and the step that turns
-those writes into a store commit belongs to rung one. It is written here, with a test,
-for the reason `record::Refusal` was written before any of its four checks existed: one
-home for the rule, so the ticket that acquires the caller does not invent a second one.
+`skills::admit` is that check. The curator writes through its own gated tool calls, so
+the check sits where those writes become a store commit, in `curate::propose`. Build
+ticket 91 wired it, after the second hiring panel's finding G23 pointed out that it had
+been written with a test and no caller.
+
+Before the commit, `propose` lists every skill directory in the checkout whose `SKILL.md`
+was not in the tree at the proposal branch's sha, read from the store's own refs rather than the
+checkout's `HEAD`, which the curator can write, and calls `admit` on each against
+the index over the user's seven roots. The validator makes a skill's name its directory's
+name, so a rename always shows up as a new directory. A skill the curator only edited is
+not re-checked, because the launch check already covers the names the store holds. One
+refusal and the pass commits nothing and removes nothing: the curator's work stays in its
+checkout and the branch stays where it was cut, for a human to rename by hand.
+`Proposal::refused` carries `admit`'s own sentence, which names the skill and the user
+root holding it, and `hydra curate` prints each one. `admit` reads the frontmatter first, so
+a new skill whose `SKILL.md` does not validate is refused at write too, which is spec 6.4's
+validator running where the spec puts it.
+
+**The listing walks the working tree, not `git diff`.** The ticket suggested `git diff
+--name-status` against the starting sha, and that lists tracked paths only, so it never
+shows a directory the curator just created. Measured on a scratch repository while
+writing the check.
 
 The launch check is not a substitute. It fails the whole run, which 6.4 calls harsh and
-justifies by what the write check does to the odds. Until something calls `admit`, every
-badly chosen name costs a refused launch instead of a refused write.
+justifies by what the write check does to the odds. With `admit` called at write, a badly
+chosen name costs a refused commit rather than a refused launch.
 
 ### The three collision tests, and why the cheap two are not redundant
 

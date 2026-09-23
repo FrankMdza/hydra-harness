@@ -474,15 +474,13 @@ pub fn inject(
 
 /// The write-time collision check, harness spec 6.4's first of two.
 ///
-/// **Nothing in this build calls it, and that is a gap rather than a decision.**
-/// 6.4 puts this check on the curator: "at write, the curator refuses to create or
-/// rename a store skill to a name the index already holds, so no collision Hydra
-/// causes reaches a run". No code path in this build writes to the store. The
-/// curator writes through its own gated tool calls, and the step that turns those
-/// writes into a store commit belongs to rung one. So this is the check with its
-/// caller missing, in the shape `record::Refusal` was written in before any of its
-/// four checks existed: one home for the rule, so the ticket that acquires the
-/// caller does not invent a second one.
+/// **Rung one calls it, in [`crate::rungs::curate::propose`].** 6.4 puts this
+/// check on the curator: "at write, the curator refuses to create or rename a
+/// store skill to a name the index already holds, so no collision Hydra causes
+/// reaches a run". The curator writes through its own gated tool calls, so the
+/// check runs at the step that turns those writes into a store commit: every
+/// skill directory the checkout gained since the pass began goes through here
+/// first, and one refusal means no commit. Build ticket 91 wired it.
 ///
 /// **The launch check is not a substitute.** It fails the run, which 6.4 calls
 /// harsh and justifies by what this check does to the odds. Without this, every

@@ -775,8 +775,8 @@ fn the_record_carries_the_sha_the_names_and_the_listing() {
 #[test]
 fn the_write_check_refuses_a_name_the_index_already_holds_and_a_broken_description() {
     // 6.4's first of the two collision checks, plus the write-time validator.
-    // Nothing calls it yet, for the reason its doc comment gives, so this is what
-    // says the rule is right before the caller arrives.
+    // Rung one's `curate::propose` calls it, and `tests/curate.rs` drives that
+    // caller; this is the rule on its own.
     let fixture = Fixture::new("admit");
     let layout = fixture.layout();
     let store = layout.skills();

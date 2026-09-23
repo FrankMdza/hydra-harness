@@ -1,7 +1,7 @@
 # 91 - Rung one calls the write-time collision check
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -40,3 +40,19 @@ Remove "Nothing in this build calls it" from the doc comment and say where it is
 Tests take a scratch `Layout` and a scratch `HOME`, never `Layout::discover()` or the real home.
 Ignore `no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent`. Run
 `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` before you stop.
+
+## Outcome
+
+Built by `claude` on Opus 5.5 under `standard`, run 01a0cfa1-2185, 1.5M tokens, then fixed by the
+session after an Opus review. `curate::propose` lists the checkout's top-level skill directories
+whose `SKILL.md` the store did not hold, calls `skills::admit` on each against the user index, and
+on any refusal commits nothing, removes nothing and returns `Proposal::refused`, which `hydra
+curate` prints. The listing walks the working tree because `git diff --name-status` never shows an
+untracked directory, measured by the agent. The review found the new `cat-file` check ran in the
+curator's checkout, whose git metadata the curator can write; the session moved it to the store,
+against the proposal branch's own ref. The old `rev-parse HEAD` in the checkout stays for build
+ticket 95. It also noted that `admit` validates the frontmatter first, so a malformed new skill is
+refused at write too; the wording now says "a proposed skill" and `IMPLEMENTATION.md` says so.
+Measured on master: with the `admit` call replaced by a no-op,
+`a_proposed_skill_whose_name_a_user_root_holds_is_not_committed` fails; with it, curate 22 and
+skills 27 pass. fmt and clippy clean.

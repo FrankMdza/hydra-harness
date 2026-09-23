@@ -81,6 +81,10 @@ pub struct Proposal {
     pub branch_removed: bool,
     /// Why the checkout or the branch is still there, in git's own words.
     pub left: Vec<String>,
+    /// Skills the write-time check refused, each saying why: a user root holds
+    /// its name, or its `SKILL.md` does not validate. Any entry here means the
+    /// pass committed nothing and removed nothing.
+    pub refused: Vec<String>,
 }
 
 /// Reads the corpus, runs the curator, commits what it proposed.
@@ -137,7 +141,8 @@ pub fn curate(pass: Pass) -> Result<Done> {
             branch,
         }),
         Call::Ended(result) => {
-            let proposal = propose(&store, &checkout, &branch, &run_id, &result)?;
+            let home = crate::env::real_home()?;
+            let proposal = propose(&store, &checkout, &branch, &run_id, &result, &home)?;
             Ok(Done::Ran { result, proposal })
         }
     }
@@ -250,12 +255,19 @@ fn undo_checkout(store: &Path, checkout: &Path, branch: &str) -> Result<()> {
 /// moved is the pass's output, and the first real pass, `01a08d66-76fd`, ended
 /// with `git branch -d` refusing it as not fully merged, which was this function
 /// asking for a deletion it never wanted.
+///
+/// **A skill name a user root already holds stops everything.** Before the
+/// commit, each skill the curator added or renamed goes through
+/// [`crate::skills::admit`] against the index over `home`'s user roots. One
+/// refusal and the pass commits nothing and removes nothing, and
+/// [`Proposal::refused`] names the skill and the root.
 pub fn propose(
     store: &Path,
     checkout: &Path,
     branch: &str,
     run_id: &str,
     result: &RunResult,
+    home: &Path,
 ) -> Result<Proposal> {
     let mut proposal = Proposal {
         branch: branch.to_string(),
@@ -263,9 +275,31 @@ pub fn propose(
         checkout_removed: false,
         branch_removed: false,
         left: Vec::new(),
+        refused: Vec::new(),
     };
 
     let started_at = git(checkout, &["rev-parse", "HEAD"])?.trim().to_string();
+
+    // Harness spec 6.4's write-time check, before anything is committed. A
+    // refusal leaves the checkout and the branch exactly as the curator left
+    // them, so the human can read what it wrote and rename it by hand.
+    let user = crate::skills::index::Index::user_scope(home)?;
+    // The base is the proposal branch as the store holds it, not the checkout's
+    // `HEAD`: the curator can write its checkout's git metadata, and the
+    // store's refs sit behind the deny list. Build ticket 91's review.
+    let base = git(store, &["rev-parse", branch])?.trim().to_string();
+    for name in new_skills(store, checkout, &base)? {
+        if let Err(err) = crate::skills::admit(checkout, &name, &user, home) {
+            proposal.refused.push(format!("{err:#}"));
+        }
+    }
+    if !proposal.refused.is_empty() {
+        proposal.left.push(format!(
+            "{} holds the curator's work uncommitted, because the store refused a proposed skill",
+            checkout.display()
+        ));
+        return Ok(proposal);
+    }
 
     let exclude = crate::provider::own_worktree_paths();
     proposal.commit = commit_everything(checkout, &message(run_id, result), &exclude)?;
@@ -285,6 +319,39 @@ pub fn propose(
         }
     }
     Ok(proposal)
+}
+
+/// The skills in the checkout whose name the store did not hold at `base`,
+/// which are the ones the curator added or renamed.
+///
+/// **It walks the working tree rather than asking `git diff`**, which lists
+/// tracked paths only and so never shows a directory the curator just created.
+/// A skill is a directory holding a `SKILL.md`, and the frontmatter validator
+/// makes its name the directory's, so a rename is always a new directory. A
+/// skill the curator only edited was in the store already, and the launch
+/// check covers the names the store holds.
+fn new_skills(store: &Path, checkout: &Path, base: &str) -> Result<Vec<String>> {
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(checkout)
+        .with_context(|| format!("reading {}", checkout.display()))?
+        .flatten()
+    {
+        if !entry.path().join("SKILL.md").is_file() {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let held = git(
+            store,
+            &["cat-file", "-e", &format!("{base}:{name}/SKILL.md")],
+        );
+        if held.is_err() {
+            names.push(name);
+        }
+    }
+    names.sort();
+    Ok(names)
 }
 
 /// The commit message, which is where everything the pass decided lives.
@@ -498,7 +565,13 @@ pub fn report(done: &Done) -> String {
                     &sha[..12.min(sha.len())],
                     proposal.branch
                 )),
+                None if !proposal.refused.is_empty() => {
+                    text.push_str("  nothing was committed: the store refused a proposed skill\n")
+                }
                 None => text.push_str("  the curator wrote nothing, so there is no proposal\n"),
+            }
+            for refused in &proposal.refused {
+                text.push_str(&format!("  refused: {refused}\n"));
             }
             if proposal.branch_removed {
                 text.push_str(&format!("  branch {} removed\n", proposal.branch));
