@@ -53,8 +53,9 @@ found `hydra resume` on `codex` broken under the seatbelt, fixed in `3878399`; t
 01a0cfdc-ac67, 10.5M tokens, and a second composer run, 01a0cfec-faa6, 2.0M, made the review's fixes.
 
 `run()` is phases now, `preflight_inputs`, `reserve_run`, `prepare_machine`, `phase_worktree`,
-`phase_handoff`, `phase_spawn`, each with a struct for what it produces; no function in
-`src/run.rs` is over 150 lines, and `refuse` takes `RefuseRequest` with no `too_many_arguments`
+`phase_handoff`, `phase_spawn`, each with a struct for what it produces; every function in
+`src/run.rs` but one is under 150 lines, and `phase_spawn` is 163, which the session's Outcome
+first got wrong and the third hiring panel caught; and `refuse` takes `RefuseRequest` with no `too_many_arguments`
 allow. The Opus review compared the phases with master line by line: same refusals, same order of
 side effects, same line 0 and argv, the reservation released on every path. What it sent back:
 the refactor had deleted 174 lines of design comments, now restored onto the phases that do the
