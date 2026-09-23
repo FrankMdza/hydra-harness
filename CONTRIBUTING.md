@@ -43,5 +43,6 @@ environment allowlist, the export allowlist, `config/preamble.md` and `config/mc
 are the things a run must never be able to widen. A change to one of them is a decision, and
 it goes through a map ticket first.
 
-Prose follows the conventions in `CLAUDE.md`. Commit messages say what changed and why in
-plain sentences.
+Prose follows the conventions in `CLAUDE.md`. Hydra's gate binds the runs Hydra launches, not a
+contributor editing Hydra's source; "Nothing here is enforced" in `CLAUDE.md` says why.
+Commit messages say what changed and why in plain sentences.

@@ -20,7 +20,10 @@ So the record decides, not the vendor.
 
 - **The outcome is derived from the event stream.** A run whose every tool call the gate
   refused is `gated`. One refused call among calls that ran is a `permission_decision` on the
-  record, not a run outcome. A run whose tools failed is `failed`, whatever the exit code said.
+  record, not a run outcome. A run that reached its own terminator is `failed` when that frame's
+  `is_error` is true or `agy`'s `status` is not `SUCCESS`, and `completed` otherwise. A harvested
+  run has no terminator and goes by its exit code, `completed` when there is none; a streamed run
+  that stopped without one is `failed` or `crashed`. A failed tool call does not fail the run.
   Four vendors, one contract, one outcome column.
 - **Every run gets its own git worktree.** Seeded from your tree, so the agent sees your
   uncommitted work and cannot touch it. `hydra reap` commits what it did to `hydra/<run-id>`
@@ -182,11 +185,10 @@ did, which is the one thing Hydra was built around.
 
 ## Roadmap
 
-- **Codex under `read-only`, and `hydra resume` on it.** Routed since build ticket 48 under
+- **Codex under `read-only`.** Routed since build ticket 48 under
   `standard` and `permissive`, on the judge panel since 61, writing through `apply_patch` since
   69 because the gate reads the paths out of the patch body. It has no read tool, so map ticket
-  63 refuses `read-only` until a bounded shell read exists. `codex exec resume` takes neither
-  `-C` nor `--sandbox`, so a resume cannot be pinned to a fresh worktree and is refused; build
+  63 refuses `read-only` until a bounded shell read exists. Resume is supported since build
   ticket 71.
 - More vendor CLIs that log in rather than take a key.
 - OpenTelemetry emission from the record, so existing viewers can read it.
@@ -217,20 +219,26 @@ it is every departure from the design with its reason.
 
 Part of Hydra was written by the agents Hydra launches, through `hydra run`, while a Claude
 Code session wrote the tickets, reviewed each worktree diff and applied it to master by hand.
-The corpus in `~/hydra/runs/` is the source for this table, which covers build tickets 01 to
-76, and each ticket an agent wrote names its run id and token count under `## Outcome`.
+The corpus in `~/hydra/runs/` is the source for this table, which covers the build tickets
+resolved by 2026-09-23, 01 to 94 except 80 and 92, and each ticket an agent wrote names its run
+id and token count under `## Outcome`.
 
 | Written by | Build tickets |
 |---|---|
-| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 75 |
+| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 75, 77 to 79, 86, 87, 90, 93 |
 | `cursor-agent` on Grok 4.6 Fast | 21, 30, 33, 35, 37, 38 |
 | `cursor-agent`, no model flag, so the record says none | 17 |
 | `claude` on Sonnet 5 | 18, 22, 23, 26, 27 |
-| `claude` on Haiku 4.5 | 25 |
-| `agy` on Gemini 3.1 Pro | 19, and the drift test of 17 |
-| the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59, 76 |
+| `claude` on Haiku 4.5 | 25, 82 |
+| `claude` on Opus 5.5 | 91 |
+| `agy` on Gemini 3.1 Pro | 19, 94, and the drift test of 17 |
+| `codex`, no model flag, so the record says none | 81, 83, 85, 89 |
+| the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59, 76, 84, 88 |
 
-That is 41 of those 76 build tickets on an agent run, none of them merged unread. Ticket 27, the
+On 77, 78, 81, 82, 85, 86 and 87 an Opus subagent fixed the agent's diff in the worktree before
+the session applied it, and on 82 it rebuilt Haiku's version. From 89 on, an Opus subagent
+reviewed each diff and the session made the fixes on master; every one of those five needed at
+least one. That is 55 of those 92 build tickets on an agent run, none of them merged unread. Ticket 27, the
 interactive mode and its harvest, was the largest single run at 54.7M tokens, 54.0M of them
 cache reads. Ticket 25 was the first Rust ticket given to the cheapest model, and it held.
 The design documents, the policies, the record contract and this README are the session's.
@@ -243,8 +251,10 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 71 decision tickets, 68 of them resolved, with
-the reasoning each document compressed. `CLAUDE.md` is what an agent reads first.
+`.scratch/hydra/map.md` is the design history: 73 decision tickets, all resolved on 2026-09-23,
+with the reasoning each document compressed. `.scratch/hydra/build/plan.md` indexes the build;
+`python3 .scratch/hydra/frontier.py build` prints today's count. `CLAUDE.md` is what an agent
+reads first.
 
 ## Contributing and support
 

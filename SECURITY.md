@@ -16,7 +16,10 @@ Hydra made about it.
   percent-encoded, or spelled with `..`, `//` or `/./` inside an interpreter or nested-shell
   token. The gate refuses a protected path only when its prefix appears whole and in canonical
   form. `docs/harness-spec.md` section 7.4 states this and `tests/gate.rs` fails if someone
-  claims to have closed it.
+  claims to have closed it. A shell command `shlex` cannot split skips the token pass in
+  `gate.py`'s `protected_path_named_by`, so only the raw prefix pass reads it for a protected
+  path; the pattern floor then refuses it as unparseable, and `--allow-floor-escape` lifts that
+  refusal with the rest of the floor.
 - **The gate folds case ASCII only, and Hydra refuses a root it would fold wrong.** The macOS
   filesystem folds `É` too, so `hydra run` refuses when its data root or its checkout resolves
   to a path outside ASCII. The launching repository's `.git` is folded the same way and is not
@@ -36,7 +39,8 @@ Hydra made about it.
   spelling would not. Map ticket 67 holds the question of what the seatbelt is for. The gate
   still decides what a policy allows and writes the record; the kernel is what refuses the
   write. A gated interactive launch, `hydra run --interactive --policy`, runs under the same
-  profile since build ticket 73. Linux launches unwrapped.
+  profile since build ticket 73. A plain `--interactive` run, with no `--policy`, compiles no
+  gate and gets no seatbelt or worktree. Linux launches unwrapped.
 - **The deny list is Hydra's runtime directories, the checkout the binary was built from, and five
   config files.** Build ticket 74 added `hydra_home()` whole, with the run's own worktree and a
   `curate` pass's checkout carved back out. Under `standard` a shell command still reads and writes
@@ -137,10 +141,10 @@ Hydra made about it.
   `--dangerously-bypass-hook-trust` because a per-run hook can never be a hash a human trusted.
   Measured on 0.154.0: a hook that exits non-zero with no JSON answer lets the call through. The
   sha check answers a tamper with a deny rather than an exit code for that reason, and a Python
-  crash inside the gate on this provider is a call that runs. Since 2026-09-22 the gate answers
-  a deny in the caller's dialect for a payload whose `cwd` is not a string, a shell row whose
-  command is not a string, a document nested past the interpreter's limit, and anything
-  `evaluate` raises; before that a `cwd: 5` was a traceback. The run record still shows every
+  crash inside the gate on this provider is a call that runs. Since 2026-09-22 the gate falls back
+  to the worktree for a payload whose `cwd` is not a string and answers a deny in the caller's
+  dialect for a shell row whose command is not a string, a document nested past the interpreter's
+  limit, and anything `evaluate` raises; before that a `cwd: 5` was a traceback. The run record still shows every
   call the hook answered; it cannot show the one it crashed on. Under the seatbelt `codex`
   runs with `--sandbox danger-full-access`, because its own seatbelt does not nest inside
   Hydra's; its `workspace-write` would have bounded writes to the workspace, and Hydra's

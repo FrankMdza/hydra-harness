@@ -2181,10 +2181,10 @@ first slice returned, are gone. Both are in the record and `run_file` is on the 
 `branch` and `diff_stat` are absent rather than null on a run with no checkout, following
 5.5's rule; the rest are always present.
 
-**Reading the record back costs a python process per recorded tool call.** Measured on
-this machine: a record with no calls reads back in 0.6ms, one with two calls in 94ms, so
-the gate is about 47ms a call and it is all of the cost. A 200-call run therefore spends
-about nine seconds after the child exits before a blocking `hydra run` prints anything.
+**Reading the record back costs one Python process per record.** Since build ticket 86, the
+replay hands the gate every tool call of a record in one batch, and falls back to one process
+per call only when the batch fails (`src/policy/replay.rs`). Measured on `hydra show
+01a0c924-a494`: 10.8 s before, 0.21 s after, output identical under `cmp`.
 That is the price of `permission_decision` being a re-evaluation rather than a copy of the
 gate's answer, which contract 7.7 requires and the "Reading a record back" section above
 argues for.
@@ -3069,9 +3069,10 @@ refused at admission. Until 2026-09-12 that meant `policies/` and `config/` only
 15.2 as `PROTECTED_CODE_PATHS` in `evolve.rs`: `src/rungs/review.rs`,
 `src/rungs/evolve.rs`, `src/policy/`, `src/record/` and `src/env.rs`. The spec names those
 rows by role, and the doc comment on the constant says which file each role maps to. The
-hook-config writer is split between `src/policy/` and `write_spawn_config` in `src/run.rs`, and
-`src/run.rs` is not a row, since it is also the whole launch sequence; that gap is on the record
-here rather than closed. Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
+hook-config writer, row 4, is `src/spawn_config.rs` and is on the list; `src/sandbox.rs` and
+`src/containment.rs` joined it on 2026-09-22, and `tests/corpus` with build ticket 79. Map
+ticket 73 turns the list into a floor under a set the human names per pass, build ticket 96.
+Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
 and `test` in the worktree, and a failure is a rejection carrying the output. **Since build
 ticket 75 on 2026-09-22** each step on macOS runs through `/usr/bin/sandbox-exec -f` with the
 profile the proposer's spawn already wrote at `spawn/<proposer-run-id>/sandbox.sb`, and with
@@ -3088,7 +3089,7 @@ plants `tests/zz_hostile.rs` in a scratch worktree, asserts `cargo test` fails a
 false or the test process is already inside a seatbelt, because nested `sandbox-exec` is refused. Each refusal lands on `ouroboros/blocked/<pass-id>` with its reason in the commit
 message, spec 4.9.
 
-**The panel is one `judge` run per provider**, `claude`, `cursor-agent` and `agy`, each handed the
+**The panel is one `judge` run per provider**, `claude`, `cursor-agent`, `agy` and `codex`, each handed the
 whole diff and the checklist of spec 5 in the prompt, no skills and no MCP as `judge` already
 runs. Each answers one closed JSON shape, `{"verdict", "findings": [{"item", "severity",
 "note"}]}`, and `review::parse_judge_answer` takes the whole response as that object: prose
@@ -3414,18 +3415,20 @@ launcher is dead, reused or unparseable is removed by the next reservation. The 
 beside `spawns/` rather than inside it, because `hydra reap` treats every directory under
 `spawns/` as a run's and would have deleted the lock (`tests/cleanup.rs::a_sweep_leaves_pending_reservations_alone`).
 It is on `denied_write_paths`, so the seatbelt denies it too. Interactive launches reserve
-nothing and are not counted against the cap.
+nothing, but they are counted because an interactive launch writes line 0 with the child's pid
+right after the spawn and `live::reserve` counts every live view. The uncounted window is
+between the spawn and line 0.
 
 **A run refused by the cap writes no record.** Contract 8.3 makes a refused spawn a record
 when the refusal is one of section 6's four codes, and the cap is not one of them. Minting
 a fifth is a contract change rather than an implementation, so the refusal goes to stderr
 and no run id is minted.
 
-**The cap is checked and not held, so two launches racing can both pass it.** The count
-comes from a directory scan, and nothing locks between that scan and the fork. Two
-`hydra run` calls started in the same instant with eight already live would leave ten. A
-lock would fix it and would be a second source of truth about how many runs exist, which
-is what D10 spends the run file avoiding; the cap is a brake on an orchestrator issuing
+**Two launches racing for the last slot cannot both take it.** The count comes from a
+directory scan, and a lock on `<root>/reservations/.lock` is held between that scan and the
+reservation. With seven live, the first launcher to take the lock renames its reservation into
+place, and the second reads that file under the same lock and is refused
+(`tests/status.rs::concurrent_launchers_reserve_exactly_the_cap_without_records`). The cap is a brake on an orchestrator issuing
 parallel tool calls, not a quota anyone is defending.
 
 **`--timeout` takes `600`, `30s`, `10m` or `2h`, and defaults to `10m`.** Section 9 says
@@ -3770,16 +3773,11 @@ write bits back before `git worktree remove`, which `worktree::restore_write_bit
   and `cargo test` is one `shell` call; the only thing between a worktree's tests and the
   corpus is a test author who passes a layout. Every launch text now says so, and a
   reviewer reads a new test file for `Layout::discover()` before applying the diff.
-- **A run that can run a shell can set `HYDRA_ROOT` and move where its own children are
-  recorded.** The variable never reaches a child through 6.2's allowlist, so nothing
-  inherits it. What a child can do is export it itself and then invoke `hydra run`, which
-  puts that run's record, worktree and spawn directory under a path of the child's
-  choosing, outside the corpus rung one reads. Harness spec 7.5 already says the gate
-  cannot keep a run away from a binary reached through `shell`, and this is one more
-  spelling of that rather than a new hole: the same shell can call `hydra run` with any
-  flag at all. It is worth writing down because the variable is new. Closing it means
-  reading the override from somewhere a run cannot write, and today the honest statement
-  is that a delegated run's record is where its own environment says.
+- **`HYDRA_ROOT` never reaches a recorded child, and on macOS a run cannot set it for its
+  own.** 6.2's allowlist drops it and, since build ticket 88, `pty::open` clears the
+  environment first. A run that exports it and calls `hydra run` is refused by `src/run.rs`
+  inside a seatbelt (`tests/spawn.rs::hydra_root_is_refused_from_inside_a_seatbelt`). Linux
+  launches unwrapped, so there a run can still move where its children are recorded.
 
 - **An interactive session that exits before its first turn writes no transcript**, and the
   harvest writes a `run_end` with an error naming the path it looked for, since 2026-09-08.

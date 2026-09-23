@@ -1,7 +1,7 @@
 # 94 - README, SECURITY, IMPLEMENTATION and CONTRIBUTING say what the code does
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -71,3 +71,17 @@ the session does those. Do not run `cargo` at all: nothing here needs a build.
 
 All fourteen are done, and your report lists each with the file and the code you checked it
 against. `git diff --stat` touches only the five files above.
+
+## Outcome
+
+Built by `agy` on gemini-3.1-pro-high under `standard`, run 01a0cf8d-1e06, 3.1M tokens, no cargo,
+then fixed by the session after an Opus review, which found eight of the fourteen right and six
+wrong or partly done. What the session corrected: G7, where the counts were wrong the day they were
+written (71 of 73 for a map at 73 of 73) and credited `map.md` with the build tickets, now dated and
+pointing at `frontier.py`; G13, where the heading still said 01 to 76, the `codex` row named no
+model, and "several, including 81 and 87" undercounted seven tickets; G45, which missed the streamed
+run that stops without a terminator; G28, which said the floor alone checks an unparseable command
+while the raw prefix pass reads it first; G8, whose race example had the arithmetic wrong; G9,
+where the agent replaced build 86's measured numbers with filler; G10, which lost the Linux caveat;
+G12, where three rows pointed at `decide_payload`, a wrapper, instead of `evaluate` and
+`Capability::OpaqueShell`. The authorship table now runs to 94. No em dash was introduced.
