@@ -1577,6 +1577,7 @@ pub fn run_start(request: &Request, start: RunStartRequest<'_>) -> RunStart {
         env_allowlist,
         subscription: Some(request.provider.subscription().to_string()),
         resumed_from: request.resumed_from.clone(),
+        may_edit: None,
     }
 }
 

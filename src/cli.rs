@@ -167,6 +167,15 @@ pub enum Command {
         #[arg(long, conflicts_with = "review")]
         task: Option<String>,
 
+        /// A file or directory, repository-relative, the pass may edit. Repeat it
+        /// for more. Without it the pass may edit `src/normalize/` and
+        /// `src/show.rs`. A patch touching anything else is refused before
+        /// review, and naming a protected path refuses the pass before it starts.
+        /// `tests` holds the protected corpus and cannot be named whole, so a new
+        /// test file is named by its own path.
+        #[arg(long = "may-edit", value_name = "PATH", conflicts_with = "review")]
+        may_edit: Vec<String>,
+
         /// Blocked pass id to re-review with human evidence. Map ticket 57.
         #[arg(long, requires = "evidence")]
         review: Option<String>,

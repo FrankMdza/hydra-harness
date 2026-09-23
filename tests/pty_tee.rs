@@ -48,6 +48,7 @@ fn minimal_run_start(pid: u32, start: Option<String>) -> RunStart {
         env_allowlist: Some(vec!["PATH".into()]),
         subscription: Some("none".into()),
         resumed_from: None,
+        may_edit: None,
     }
 }
 

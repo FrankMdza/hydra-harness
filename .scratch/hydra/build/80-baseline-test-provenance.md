@@ -1,7 +1,7 @@
 # 80 - Baseline-test provenance as a mechanism
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 79, 96
 
 ## What
@@ -22,3 +22,8 @@ Admission refuses a patch that touches a test file present at the base commit, w
 pass record carries, and `tests/evolve.rs` drives it on a synthetic patch.
 
 ## Outcome
+
+Closed 2026-09-23 by build ticket 96, whose part 3 is this refusal: `existing_test_hit` in
+`src/rungs/evolve.rs`, with `tests/evolve.rs::an_edit_to_an_existing_test_is_refused_and_a_new_named_test_admitted`
+and the rename and mode-change cases. It reads `base_tree` through the pinned git directory of
+build ticket 95.

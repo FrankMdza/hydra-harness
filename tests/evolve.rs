@@ -12,8 +12,9 @@ use hydra::provider::Provider;
 use hydra::record::validate::check;
 use hydra::run::write_spawn_config;
 use hydra::rungs::evolve::{
-    HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, PROTECTED_CODE_PATHS, ProposerPatch,
-    TASK_DOES_NOT_WAIVE_CHECKLIST, admission_gate, ensure_reviewable, judge_task,
+    DEFAULT_MAY_EDIT, HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, PROTECTED_CODE_PATHS, ProposerPatch,
+    TASK_DOES_NOT_WAIVE_CHECKLIST, admission_gate, admission_refusal, changed_paths,
+    ensure_reviewable, judge_task, may_edit_paragraph, may_edit_set, outside_may_edit,
     pass_run_id_from_branch, patch_over_cap, protected_path_hit, rate_limit_abort,
     review_commit_message, write_harness_end, write_harness_start,
 };
@@ -93,7 +94,13 @@ fn admission_write_is_not_carried_by_the_offered_branch() {
         [".gitignore", "Cargo.toml", "build.rs", "src/lib.rs"]
     );
     assert!(patch.diff.contains("diff --git a/build.rs b/build.rs"));
-    assert!(protected_path_hit(&patch.paths, &repo).is_none());
+    // Since build ticket 96 the floor refuses this patch at admission, on its
+    // first floor path. The rest of the test is about the branch a verdict
+    // writes, which carries the tree read before admission whatever the verdict.
+    assert_eq!(
+        protected_path_hit(&patch.paths, &repo).as_deref(),
+        Some("Cargo.toml")
+    );
     assert!(patch_over_cap(&patch.stat).is_none());
     let clean = pass_answer("pass", "[]");
     let answers = PanelAnswers::new(
@@ -377,6 +384,12 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
         "src/containment.rs",
         "tests/corpus/mod.rs",
         "tests/corpus/README.md",
+        "src/pty.rs",
+        "src/watch.rs",
+        "src/paths.rs",
+        "Cargo.toml",
+        "Cargo.lock",
+        ".cargo/config.toml",
     ];
     for row in rows {
         let hit = protected_path_hit(&[row.to_string()], &repo);
@@ -420,24 +433,328 @@ fn a_diff_naming_a_code_row_of_harness_15_2_is_refused_before_any_judge() {
 }
 
 #[test]
-fn a_diff_outside_the_protected_rows_passes_admission() {
+fn a_path_off_the_floor_is_still_refused_unless_named() {
     // Rung two's own launch sequence, the corpus reader and the curate pass are
-    // not rows, and neither is a file whose name merely starts like one.
+    // not floor rows, and neither is a file whose name merely starts like one.
+    // Until build ticket 96 that was enough to reach the panel; since map
+    // ticket 73 each is refused under the default set, one at a time.
     let repo = PathBuf::from("/scratch/hydra-evolve-rows");
-    let ok = protected_path_hit(
-        &[
-            "src/run.rs".into(),
-            "src/rungs/corpus.rs".into(),
-            "src/rungs/curate.rs".into(),
-            "src/policyholder.rs".into(),
-            "src/recorder.rs".into(),
-            "src/environment.rs".into(),
-            "tests/evolve.rs".into(),
-            "docs/rungs-spec.md".into(),
-        ],
-        &repo,
+    let paths = [
+        "src/run.rs",
+        "src/lib.rs",
+        "src/rungs/corpus.rs",
+        "src/rungs/curate.rs",
+        "src/policyholder.rs",
+        "src/recorder.rs",
+        "src/environment.rs",
+        "src/normalizer.rs",
+        "tests/evolve.rs",
+        "docs/rungs-spec.md",
+        "CLAUDE.md",
+        "IMPLEMENTATION.md",
+    ];
+    let owned: Vec<String> = paths.iter().map(|path| path.to_string()).collect();
+    assert!(protected_path_hit(&owned, &repo).is_none());
+    let defaults = may_edit_set(&[]).unwrap();
+    for path in paths {
+        let hit = outside_may_edit(&[path.to_string()], &defaults, &repo);
+        assert_eq!(hit.as_deref(), Some(path), "{path} passed unnamed");
+    }
+}
+
+fn named(paths: &[&str]) -> Vec<String> {
+    may_edit_set(
+        &paths
+            .iter()
+            .map(|path| path.to_string())
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn an_unnamed_path_is_refused_and_a_named_one_admitted() {
+    let repo = scratch_repo("may-edit");
+    let patch = patch_fixture(&repo, &["src/lib.rs"], "diff", None);
+    let defaults = may_edit_set(&[]).unwrap();
+    assert_eq!(defaults, DEFAULT_MAY_EDIT);
+    let refused = admission_refusal(&patch, &defaults, &repo).unwrap();
+    let reason = refused.expect("an unnamed path reached the panel");
+    assert!(reason.contains("src/lib.rs"), "{reason}");
+    assert!(reason.contains("--may-edit"), "{reason}");
+    assert_eq!(
+        admission_refusal(&patch, &named(&["src/lib.rs"]), &repo).unwrap(),
+        None
     );
-    assert!(ok.is_none(), "{ok:?} was refused");
+    // A directory prefix names everything under it, and a trailing slash or a
+    // leading `./` is the same name.
+    let normalizers = patch_fixture(
+        &repo,
+        &["src/normalize/claude.rs", "src/show.rs"],
+        "diff",
+        None,
+    );
+    assert_eq!(
+        admission_refusal(&normalizers, &defaults, &repo).unwrap(),
+        None
+    );
+    assert_eq!(named(&["./src/normalize/"]), ["src/normalize"]);
+    // One unnamed path among named ones is enough.
+    let mixed = patch_fixture(&repo, &["src/show.rs", "src/cli.rs"], "diff", None);
+    let reason = admission_refusal(&mixed, &defaults, &repo)
+        .unwrap()
+        .unwrap();
+    assert!(reason.contains("src/cli.rs"), "{reason}");
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn run_rs_is_refused_unnamed_and_admitted_named() {
+    // Harness spec 15.2 and map ticket 60 keep `src/run.rs` editable by rung
+    // two, so it is off the floor; map ticket 73 makes it refused unless named.
+    let repo = scratch_repo("may-edit-run");
+    let patch = patch_fixture(&repo, &["src/run.rs", "src/cli.rs"], "diff", None);
+    let reason = admission_refusal(&patch, &may_edit_set(&[]).unwrap(), &repo)
+        .unwrap()
+        .expect("src/run.rs reached the panel unnamed");
+    assert!(reason.contains("src/run.rs"), "{reason}");
+    assert_eq!(
+        admission_refusal(&patch, &named(&["src/run.rs", "src/cli.rs"]), &repo).unwrap(),
+        None
+    );
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn a_floor_path_is_refused_even_when_named() {
+    let repo = scratch_repo("may-edit-floor");
+    for path in [
+        "src/pty.rs",
+        "src/policy/gate.py",
+        "Cargo.lock",
+        ".cargo/config.toml",
+    ] {
+        let patch = patch_fixture(&repo, &[path], "diff", None);
+        // Handed the name directly, past the check that refuses it at launch.
+        let reason = admission_refusal(&patch, &[path.to_string()], &repo)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{path} reached the panel named"));
+        assert_eq!(reason, format!("protected path {path}"));
+    }
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn a_may_edit_reaching_the_floor_refuses_the_pass() {
+    for value in [
+        "src/pty.rs",
+        "src/watch.rs",
+        "src/paths.rs",
+        "Cargo.toml",
+        "cargo.LOCK",
+        ".cargo",
+        "src/policy/gate.py",
+        "src/rungs/evolve.rs",
+        "config",
+        "policies/standard.md",
+        // A directory holding a floor path.
+        "src",
+        "src/rungs",
+        "tests",
+        "tools/build.rs",
+        // Not a path inside the repository, or all of it.
+        ".",
+        "../hydra",
+        "/etc",
+    ] {
+        let err = may_edit_set(&[value.to_string()])
+            .err()
+            .unwrap_or_else(|| panic!("--may-edit {value} was accepted"));
+        assert!(err.to_string().contains(value), "{err}");
+    }
+    // One floor name among good ones refuses the whole set.
+    assert!(may_edit_set(&["src/show.rs".into(), "src/watch.rs".into()]).is_err());
+}
+
+#[test]
+fn a_may_edit_naming_a_floor_path_refuses_before_the_proposer_is_launched() {
+    // The built binary, pointed at a scratch root that does not exist yet.
+    // Refusing before launch means nothing under that root is created: no
+    // pass record, no worktree, no spawn directory.
+    let root = std::env::temp_dir().join(format!("hydra-evolve-floor-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let repo = scratch_repo("may-edit-launch");
+    // `PATH` holds `git` and no provider, so a regression that gets past the
+    // check fails at the launch and still writes the pass record this test
+    // looks for, rather than starting a real `claude`.
+    let bin = repo.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join("git"))
+        .find(|git| git.is_file())
+        .expect("git on PATH");
+    std::os::unix::fs::symlink(real_git, bin.join("git")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["evolve", "--may-edit", "src/pty.rs", "--task", "anything"])
+        .current_dir(&repo)
+        .env("HYDRA_ROOT", &root)
+        .env("HYDRA_HOME", repo.join("hydra-home"))
+        .env("PATH", &bin)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("src/pty.rs"), "{stderr}");
+    assert!(stderr.contains("no name lifts"), "{stderr}");
+    assert!(
+        !root.exists(),
+        "the refused pass wrote under {}",
+        root.display()
+    );
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn build_rs_anywhere_is_refused() {
+    let repo = scratch_repo("build-rs");
+    for path in [
+        "build.rs",
+        "src/normalize/build.rs",
+        "src/show.rs/build.rs",
+        "tools/x/Build.RS",
+    ] {
+        let hit = protected_path_hit(&[path.to_string()], &repo);
+        assert_eq!(hit.as_deref(), Some(path), "{path} reached the panel");
+        // Named or under a named prefix, it is still refused.
+        let patch = patch_fixture(&repo, &[path], "diff", None);
+        let reason = admission_refusal(&patch, &may_edit_set(&[]).unwrap(), &repo)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reason, format!("protected path {path}"));
+    }
+    // A file whose name only ends like one is not a build script.
+    assert!(protected_path_hit(&["src/rebuild.rs".into()], &repo).is_none());
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn an_edit_to_an_existing_test_is_refused_and_a_new_named_test_admitted() {
+    // Build ticket 80. Pass 7 edited `tests/cleanup.rs` and only a judge
+    // caught it; the refusal holds whatever `--may-edit` says.
+    let repo = scratch_repo("baseline-refusal");
+    let patch = patch_fixture(
+        &repo,
+        &["tests/cleanup.rs"],
+        "diff",
+        Some(("tests/cleanup.rs", "#[test]\nfn pins() {}\n")),
+    );
+    let reason = admission_refusal(&patch, &named(&["tests/cleanup.rs"]), &repo)
+        .unwrap()
+        .expect("an edit to a baseline test reached the panel");
+    assert_eq!(reason, "existing test tests/cleanup.rs");
+    // A different case is the same file on macOS.
+    let cased = patch_fixture(&repo, &["tests/Cleanup.rs"], "diff", None);
+    assert!(
+        admission_refusal(&cased, &named(&["tests/Cleanup.rs"]), &repo)
+            .unwrap()
+            .is_some()
+    );
+    // A new file under `tests/`, named, is admitted; unnamed, it is refused.
+    let new = patch_fixture(&repo, &["tests/resolver_prefix.rs"], "diff", None);
+    assert_eq!(
+        admission_refusal(&new, &named(&["tests/resolver_prefix.rs"]), &repo).unwrap(),
+        None
+    );
+    let reason = admission_refusal(&new, &may_edit_set(&[]).unwrap(), &repo)
+        .unwrap()
+        .unwrap();
+    assert!(reason.contains("outside --may-edit"), "{reason}");
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+fn tree_after(repo: &Path, change: impl FnOnce(&Path)) -> (String, String) {
+    let base = git(repo, &["rev-parse", "HEAD^{tree}"]).trim().to_string();
+    change(repo);
+    git(repo, &["add", "-A"]);
+    let tree = git(repo, &["write-tree"]).trim().to_string();
+    (base, tree)
+}
+
+#[test]
+fn a_rename_out_of_a_named_directory_is_refused() {
+    let repo = scratch_repo("rename");
+    std::fs::create_dir_all(repo.join("src/normalize")).unwrap();
+    std::fs::create_dir_all(repo.join("tests")).unwrap();
+    std::fs::write(repo.join("src/normalize/codex.rs"), "pub fn read() {}\n").unwrap();
+    std::fs::write(repo.join("tests/normalize.rs"), "#[test]\nfn reads() {}\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "baseline"]);
+
+    // Both sides of a rename are changed paths, so the side outside the set is
+    // what refuses it.
+    let (base, tree) = tree_after(&repo, |repo| {
+        git(repo, &["mv", "src/normalize/codex.rs", "src/codex.rs"]);
+    });
+    let paths = changed_paths(&repo, &base, &tree).unwrap();
+    assert_eq!(paths, ["src/codex.rs", "src/normalize/codex.rs"]);
+    let mut patch = patch_fixture(&repo, &[], "diff", None);
+    patch.base_tree = base.clone();
+    patch.paths = paths;
+    let reason = admission_refusal(&patch, &may_edit_set(&[]).unwrap(), &repo)
+        .unwrap()
+        .expect("a rename out of the named directory reached the panel");
+    assert!(reason.contains("path src/codex.rs"), "{reason}");
+    git(&repo, &["reset", "-q", "--hard"]);
+
+    // Renaming a baseline test, or changing only its mode, is editing it.
+    let (base, tree) = tree_after(&repo, |repo| {
+        git(
+            repo,
+            &["mv", "tests/normalize.rs", "tests/normalize_codex.rs"],
+        );
+    });
+    let paths = changed_paths(&repo, &base, &tree).unwrap();
+    let reason = admission_refusal(
+        &ProposerPatch {
+            base_tree: base,
+            paths,
+            ..patch_fixture(&repo, &[], "diff", None)
+        },
+        &named(&["tests/normalize_codex.rs"]),
+        &repo,
+    )
+    .unwrap();
+    assert_eq!(reason.as_deref(), Some("existing test tests/normalize.rs"));
+    git(&repo, &["reset", "-q", "--hard"]);
+
+    let (base, tree) = tree_after(&repo, |repo| {
+        use std::os::unix::fs::PermissionsExt;
+        let file = repo.join("tests/normalize.rs");
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    });
+    let paths = changed_paths(&repo, &base, &tree).unwrap();
+    assert_eq!(paths, ["tests/normalize.rs"]);
+    let reason = admission_refusal(
+        &ProposerPatch {
+            base_tree: base,
+            paths,
+            ..patch_fixture(&repo, &[], "diff", None)
+        },
+        &named(&["tests/normalize.rs"]),
+        &repo,
+    )
+    .unwrap();
+    assert_eq!(reason.as_deref(), Some("existing test tests/normalize.rs"));
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn the_proposer_is_told_which_paths_it_may_edit() {
+    let repo = PathBuf::from("/scratch/hydra-evolve-brief");
+    let text = may_edit_paragraph(&repo, &named(&["src/run.rs", "src/cli.rs"]));
+    assert!(text.contains("  - src/run.rs\n  - src/cli.rs\n"), "{text}");
+    assert!(text.contains("refused before review"), "{text}");
+    assert!(text.contains("tests/"), "{text}");
 }
 
 #[test]
@@ -500,7 +817,8 @@ fn the_harness_record_is_two_lines_with_only_contract_fields() {
     let fixture = Fixture::new("harness");
     let pass_id = "01a08000-0000-7000-8000-00000000ev04";
     let path = fixture.layout().run_file(pass_id);
-    write_harness_start(&fixture.layout(), pass_id, &path).unwrap();
+    let may_edit = named(&["src/run.rs", "src/normalize"]);
+    write_harness_start(&fixture.layout(), pass_id, &path, Some(&may_edit)).unwrap();
     write_harness_end(&path, Some(0), None, None).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     assert_eq!(text.lines().count(), 2);
@@ -508,6 +826,11 @@ fn the_harness_record_is_two_lines_with_only_contract_fields() {
     report.assert_ok();
     let start = text.lines().next().unwrap();
     assert!(start.contains(r#""command":"evolve""#));
+    // Build ticket 96: the pass record carries the set the pass ran under.
+    assert!(
+        start.contains(r#""may_edit":["src/run.rs","src/normalize"]"#),
+        "{start}"
+    );
     assert!(start.contains(r#""provider":null"#));
     assert!(!start.contains(r#""skills""#));
 }

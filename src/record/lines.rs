@@ -93,6 +93,12 @@ pub struct RunStart {
     /// `command` is `resume` (contract 5.1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resumed_from: Option<String>,
+    /// The paths a rung-two pass was allowed to edit, on the pass's own harness
+    /// record and absent on every other (build ticket 96, map ticket 73). The
+    /// `--may-edit` values the human typed, or the default set when there were
+    /// none, as repository-relative paths.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub may_edit: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Clone, Debug)]

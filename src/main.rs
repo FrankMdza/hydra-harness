@@ -147,6 +147,7 @@ fn main() -> Result<()> {
         Command::Evolve {
             model,
             task,
+            may_edit,
             review,
             evidence,
             timeout,
@@ -155,6 +156,7 @@ fn main() -> Result<()> {
             let done = hydra::rungs::evolve::evolve(hydra::rungs::evolve::Pass {
                 model,
                 task,
+                may_edit,
                 review,
                 evidence,
                 timeout,

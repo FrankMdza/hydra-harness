@@ -86,6 +86,7 @@ const LATER_RUN_START_FIELDS: &[(&str, Shape, bool)] = &[
     ("env_allowlist", Shape::Names, false),
     ("parent_policy", Shape::Text, false),
     ("resumed_from", Shape::Text, false),
+    ("may_edit", Shape::Names, false),
 ];
 
 /// The four leaves inside `auth`, contract 5.4. The group was checked for

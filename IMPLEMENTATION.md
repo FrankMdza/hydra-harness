@@ -3044,7 +3044,8 @@ is build ticket 69's subject.
 `write_spawn_config` moved out of `run.rs` with a `pub use` back, so `hydra::run::write_spawn_config`
 still resolves at every call site, and the file is harness spec 15.2's row 4 in
 `PROTECTED_CODE_PATHS`; `src/policy/` is row 9 alone now. `run.rs` stays editable by rung two, which
-build ticket 40 measured as the loop's right size. Map ticket 60.
+build ticket 40 measured as the loop's right size. Map ticket 60. Since build ticket 96 a pass edits
+it only when the human names it with `--may-edit`.
 
 **A human asks for a fresh review, since build ticket 64.** `hydra evolve --review <pass-id>
 --evidence <file>` reads the blocked patch off `rungs/blocked/<pass-id>` against the proposer's
@@ -3084,18 +3085,47 @@ and four judges since build ticket 61, three before it. The proposer is a record
 repo, its task the brief spec 4.1 describes, composed by `brief()` from the same corpus selection
 rung one reads. `--model` names the proposer's model and nothing chooses one on the human's behalf.
 
-**Three refusals happen before any judge runs, in this order.** The proposer's diff is read
+**These refusals happen before any judge runs, in this order.** The proposer's diff is read
 against `base_tree` the way `hydra reap` reads one; a diff over `PATCH_LINE_CAP`, 400 lines
-changed, insertions plus deletions, is rejected for size and the proposer is told to split it. A
-diff naming a protected path, checked relative to the repo root and case-insensitively, is
-refused at admission. Until 2026-09-12 that meant `policies/` and `config/` only, and a patch to
-`src/rungs/review.rs` reached the panel; build ticket 40 added the code rows of harness spec
-15.2 as `PROTECTED_CODE_PATHS` in `evolve.rs`: `src/rungs/review.rs`,
-`src/rungs/evolve.rs`, `src/policy/`, `src/record/` and `src/env.rs`. The spec names those
-rows by role, and the doc comment on the constant says which file each role maps to. The
-hook-config writer, row 4, is `src/spawn_config.rs` and is on the list; `src/sandbox.rs` and
-`src/containment.rs` joined it on 2026-09-22, and `tests/corpus` with build ticket 79. Map
-ticket 73 turns the list into a floor under a set the human names per pass, build ticket 96.
+changed, insertions plus deletions, is rejected for size and the proposer is told to split it.
+
+**Since build ticket 96 the human names what a pass may edit, over a floor.** Map ticket 73.
+`hydra evolve` takes a repeatable `--may-edit <path>`, a file or a directory prefix relative to
+the repo root. With none, `DEFAULT_MAY_EDIT` applies: `src/normalize/` and `src/show.rs`.
+`may_edit_set` runs first in `evolve`, before the layout is read, and refuses the pass when a
+name reaches the floor: a floor path, a path inside one, a directory holding one such as `src`
+or `tests`, a file called `build.rs`, or a name outside the repo or equal to it. Then
+`admission_refusal` reads the patch's `changed_paths` in three steps, and the first hit lands the
+pass on the blocked branch with its reason. `diff-tree` runs without rename detection, so a
+rename lists both of its paths.
+
+1. The floor, relative to the repo root and case-insensitively: `policies/`, `config/` and its
+   four files, `PROTECTED_CODE_PATHS`, and any file called `build.rs`. Until 2026-09-12 only the
+   config rows were there, and a patch to `src/rungs/review.rs` reached the panel; build ticket
+   40 added the code rows of harness spec 15.2, `src/rungs/review.rs`, `src/rungs/evolve.rs`,
+   `src/policy/`, `src/record/` and `src/env.rs`, and `src/spawn_config.rs`, `src/sandbox.rs`,
+   `src/containment.rs` and `tests/corpus` followed. Ticket 96 added `src/pty.rs`,
+   `src/watch.rs`, `src/paths.rs`, `Cargo.toml`, `Cargo.lock` and `.cargo/`. The build files are
+   there because the human's own `cargo build` runs them unsandboxed after a merge. The doc
+   comment on the constant says which file each role of the spec's table maps to.
+2. Build ticket 80: a changed path naming a file under `tests/` at `base_tree`, listed with
+   `git ls-tree`, is refused whatever the set says. An edit, a delete, a rename or a mode change
+   to a baseline test never reaches a judge. A new test file passes where the set allows it.
+3. The set: a changed path no named entry holds is refused. `src/run.rs` is off the floor, as
+   harness spec 15.2 and map ticket 60 keep it, so it is refused unless named.
+
+The pass's harness `run_start` carries the set as `may_edit`, a list of paths. Contract 5.5 does
+not list the field yet, and the validator checks its type when it is there. The brief lists the
+set and names both refusals, so a proposer does not spend a pass on a file it cannot edit.
+Map ticket 73's answer leaves two things open: a named file is fully editable, and a unit-test
+probe inside one can be weakened along with the code it guards. A fresh review with `--review`
+runs the same three refusals on the blocked patch, under the set its pass recorded or the
+default for an older pass, and refuses before any judge; until the review of ticket 96 it ran
+none, so a blocked `Cargo.toml` could have come back offerable. The comparison the floor and the
+set use is a copy of its own in `evolve.rs`, because `src/normalize/` is in the default set, and
+`existing_test_hit` reads `base_tree` through the checkout's pinned git directory with replace
+refs off. `rust-toolchain` and `rust-toolchain.toml` are on the floor with the build files.
+
 Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
 and `test` in the worktree, and a failure is a rejection carrying the output. **Since build
 ticket 75 on 2026-09-22** each step on macOS runs through `/usr/bin/sandbox-exec -f` with the
@@ -3740,8 +3770,9 @@ descriptions after admission, both stated in `SECURITY.md`), and `not applicable
 class cannot reach Hydra. `tests/corpus` is on `PROTECTED_CODE_PATHS`, so rung two's admission
 refuses a patch that edits the corpus its patches are judged against. A new class enters as a row
 and, where there is something to pin, a probe in `tests/gate.rs` or `tests/spawn.rs` using the
-shared helpers. Baseline-test provenance, which would protect every test file rather than one
-directory, is build ticket 80, open.
+shared helpers. Baseline-test provenance, which protects every test file present at a pass's
+`base_tree` rather than one directory, closed as build ticket 80 with build ticket 96. `tests/corpus`
+stays a floor row as well, so a new file there is refused too.
 
 **A non-ASCII root is refused before launch** (build 78). The gate folds case ASCII only, and the
 macOS filesystem folds `É` too, so on a root with a cased non-ASCII letter every denial missed the

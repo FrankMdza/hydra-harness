@@ -1,7 +1,7 @@
 # 96 - The human names what a rung-two pass may edit, over a floor, and existing tests are refused
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 89, 90
 
 ## What
@@ -44,3 +44,34 @@ Tests take a scratch `Layout`, never `Layout::discover()`. Ignore
 `no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent`. Run `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` before you stop. `docs/` is the session's: the spec
 sections 4.4 and 15.2 change after this lands.
+
+## Outcome
+
+Built by `claude` on Opus 5.5 under `standard`, run 01a0cfa7-d9c9, 3.9M tokens, then fixed by the
+session after an Opus review, on top of build ticket 95. `--may-edit` is a repeatable flag,
+normalized by `may_edit_set` and refused before launch when it reaches the floor; the default is
+`src/normalize` and `src/show.rs`; `admission_refusal` runs the floor, build ticket 80's
+existing-test refusal and the set, in that order; the harness `run_start` carries `may_edit`; the
+proposer's brief lists the set. evolve went from 26 to 35 tests, each of the agent's new ones
+failing or not compiling against the old code.
+
+What the review changed:
+- `--review` ran none of the refusals, so a fresh review of a branch blocked for `Cargo.toml` or
+  an edited baseline test could come back offerable. It now runs all three under the set the
+  pass recorded, or the default. `a_review_uses_the_set_its_pass_recorded_or_the_default`
+  covers the set it reads; the wiring into `review_blocked` is covered by reading, since that
+  path needs a live layout.
+- The floor and the set compared paths with `normalize::paths::inside`, and `src/normalize/` is
+  in the default set, so an undirected pass could weaken the floor's own comparison. `evolve.rs`
+  has its own copy now, and a test runs the default set through the floor.
+- `existing_test_hit` read `base_tree` through the proposer's checkout, the discovery build 95
+  removed elsewhere; it goes through the pinned context with `--no-replace-objects`.
+- `rust-toolchain` and `rust-toolchain.toml` joined the floor: they point rustup at a toolchain
+  the human's own `cargo` then runs, the same reason as `Cargo.toml`.
+- The brief says a `build.rs` is refused anywhere; the `--may-edit` help says `tests` cannot be
+  named whole, so a new test is named by its path.
+
+Contract 5.5 does not list `may_edit` yet, and spec sections 4.4 and 15.2 describe the old list;
+both are the session's edits to `docs/`. The whole suite passes on master outside a seatbelt
+except the corpus walk in `tests/normalize.rs`, which fails before this change on one record,
+noted in build ticket 95.

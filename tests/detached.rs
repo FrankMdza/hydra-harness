@@ -68,6 +68,7 @@ fn line_zero(cwd: &Path) -> serde_json::Value {
         env_allowlist: Some(vec!["PATH".into()]),
         subscription: Some("none".into()),
         resumed_from: None,
+        may_edit: None,
     })
     .unwrap()
 }

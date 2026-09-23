@@ -26,10 +26,18 @@ use crate::worktree::{Stat, diff_tree_stat, git, seed_tree};
 /// Map ticket 52: a patch over this is rejected for size in one place.
 pub const PATCH_LINE_CAP: usize = 400;
 
+/// What a pass may edit when the human names nothing with `--may-edit`: the
+/// readers of each provider's records and the command that prints one. Map
+/// ticket 73 chose a short default so an undirected pass stays small; a pass
+/// that needs more has to be told so.
+pub const DEFAULT_MAY_EDIT: &[&str] = &["src/normalize", "src/show.rs"];
+
 /// What the human asked for.
 pub struct Pass {
     pub model: Option<String>,
     pub task: Option<String>,
+    /// `--may-edit`, repository-relative. Empty means [`DEFAULT_MAY_EDIT`].
+    pub may_edit: Vec<String>,
     pub review: Option<String>,
     pub evidence: Option<PathBuf>,
     pub timeout: Duration,
@@ -79,6 +87,9 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         return review_blocked(&reviewed_pass_id, &evidence_path, pass);
     }
 
+    // First, before anything is read, launched or written: a name that reaches
+    // the floor refuses the pass rather than the patch.
+    let may_edit = may_edit_set(&pass.may_edit)?;
     let layout = Layout::discover()?;
     crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     let policies = PolicySet::discover()?;
@@ -92,6 +103,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         &selection,
         &repo,
         pass.task.as_deref(),
+        &may_edit,
     );
 
     if pass.dry_run {
@@ -99,7 +111,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     }
 
     let pass_record = layout.run_file(&pass_run_id);
-    write_harness_start(&layout, &pass_run_id, &pass_record)?;
+    write_harness_start(&layout, &pass_run_id, &pass_record, Some(&may_edit))?;
 
     let proposer_run_id = Uuid::now_v7().to_string();
     let proposer_model = pass.model.clone();
@@ -163,12 +175,12 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         }));
     }
 
-    if let Some(path) = protected_path_hit(&patch.paths, &repo) {
+    if let Some(reason) = admission_refusal(&patch, &may_edit, &repo)? {
         let message = commit_message(
             &pass_run_id,
             &proposer_run_id,
             &[],
-            &format!("refused at admission: protected path {path}"),
+            &format!("refused at admission: {reason}"),
         );
         commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
         write_harness_end(&pass_record, Some(0), None, None)?;
@@ -178,7 +190,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
             judge_run_ids: Vec::new(),
             branch: blocked_branch,
             verdict: PanelVerdict::Blocked {
-                reasons: vec![format!("protected path {path}")],
+                reasons: vec![reason],
             },
             approved: None,
             pass_record,
@@ -292,6 +304,7 @@ pub fn brief(
     selection: &corpus::Selection,
     repo: &Path,
     task: Option<&str>,
+    may_edit: &[String],
 ) -> String {
     let mut text = String::new();
     text.push_str(
@@ -306,12 +319,7 @@ pub fn brief(
          the tree it seeded you with.\n\n",
         layout.worktrees().display(),
     ));
-    text.push_str(&format!(
-        "The repository root is {}. Do not touch `policies/`, `config/`, `docs/`, \
-         `.scratch/`, `IMPLEMENTATION.md` or `CLAUDE.md`; a patch naming any protected \
-         path is refused before review.\n\n",
-        repo.display(),
-    ));
+    text.push_str(&may_edit_paragraph(repo, may_edit));
     text.push_str(&format!(
         "Keep the patch under {PATCH_LINE_CAP} lines changed. A larger diff is rejected \
          for size and you are told to split it.\n\n",
@@ -333,9 +341,9 @@ pub fn brief(
     // its own length shortcut waved through. One judge of three caught it.
     text.push_str(
         "Do not edit an existing test so your patch passes. A test that goes red is telling \
-         you the change is wrong. If the behaviour it pins genuinely has to move, say why in \
-         your final message; a quiet edit to a passing test reads as a hidden regression and \
-         gets blocked.\n\n",
+         you the change is wrong. If the behaviour it pins genuinely has to move, leave the \
+         test as it is and say why in your final message: a patch that edits, renames or \
+         deletes a file under `tests/` is refused before review whatever the reason.\n\n",
     );
     text.push_str("## What you may read\n\n");
     text.push_str(
@@ -451,8 +459,13 @@ pub fn patch_over_cap(stat: &Stat) -> Option<usize> {
     (count > PATCH_LINE_CAP).then_some(count)
 }
 
-/// The paths a rung-two patch may not name, relative to the repo root: the five
-/// config rows of harness spec 15.2 and the code rows that sit next to them.
+/// The floor under the named set: paths a rung-two patch may not touch whatever
+/// the human names with `--may-edit`, relative to the repo root. With the five
+/// config rows of harness spec 15.2 and any file called `build.rs`, which
+/// [`protected_path_hit`] adds, these are refused before the named set is read,
+/// and a `--may-edit` that reaches one refuses the pass before it starts. Since
+/// map ticket 73 a path off this list is still refused unless the human named
+/// it, so the floor is what no name lifts and not the whole of what is refused.
 ///
 /// The spec's table names the code rows by role rather than by file. This is
 /// where each one lives: the review module is row 1; `src/rungs/evolve.rs`
@@ -477,35 +490,251 @@ pub const PROTECTED_CODE_PATHS: &[&str] = &[
     "src/sandbox.rs",
     "src/containment.rs",
     // Since build ticket 79. The attack corpus is what rung two's patches are
-    // judged against; a proposer must not delete or rewrite the probes.
+    // judged against. The existing-test refusal covers the files already there;
+    // this row also refuses a new one.
     "tests/corpus",
+    // Since build ticket 96, map ticket 73. The pty and the detached half are
+    // what write every record, and `paths.rs` says where the record and the
+    // runtime directories are. The build files, and `build.rs` by name in
+    // [`protected_path_hit`], run under the human's own `cargo build` after a
+    // merge, outside any seatbelt.
+    "src/pty.rs",
+    "src/watch.rs",
+    "src/paths.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo",
+    // A toolchain file points rustup at another toolchain, which the human's
+    // own `cargo` then runs. Build ticket 96's review.
+    "rust-toolchain",
+    "rust-toolchain.toml",
 ];
 
-/// Case-insensitive check against the config rows of harness spec 15.2 and the
-/// code rows [`PROTECTED_CODE_PATHS`] maps to files.
+/// The config rows of harness spec 15.2, which sit on the floor beside
+/// [`PROTECTED_CODE_PATHS`].
+const PROTECTED_CONFIG_PATHS: &[&str] = &[
+    "policies",
+    "config",
+    "config/preamble.md",
+    "config/mcp.md",
+    "config/export-allowlist.json",
+    "config/env-allowlist.json",
+];
+
+fn floor_roots(repo: &Path) -> Vec<PathBuf> {
+    PROTECTED_CONFIG_PATHS
+        .iter()
+        .chain(PROTECTED_CODE_PATHS)
+        .map(|row| repo.join(row))
+        .collect()
+}
+
+fn is_build_script(path: &str) -> bool {
+    Path::new(path)
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("build.rs"))
+}
+
+/// `path` equals `root` or sits under it, without case. Its own copy rather than
+/// `normalize::paths::inside`: this file is on the floor and `src/normalize/` is
+/// in the default set, so the floor must not lean on a function a pass may edit.
+/// Build ticket 96's review.
+fn inside_floor_compare(path: &Path, root: &Path) -> bool {
+    let fold = |p: &Path| -> String {
+        p.to_string_lossy()
+            .chars()
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let (path, mut root) = (fold(path), fold(root));
+    if path == root {
+        return true;
+    }
+    if !root.ends_with('/') {
+        root.push('/');
+    }
+    path.starts_with(&root)
+}
+
+fn repo_path(repo: &Path, path: &str) -> PathBuf {
+    if Path::new(path).is_absolute() {
+        PathBuf::from(path)
+    } else {
+        repo.join(path)
+    }
+}
+
+/// Case-insensitive check against the floor: the config rows of harness spec
+/// 15.2, the code rows [`PROTECTED_CODE_PATHS`] maps to files, and any file
+/// called `build.rs` wherever it sits.
 pub fn protected_path_hit(paths: &[String], repo: &Path) -> Option<String> {
-    let mut protected = vec![
-        repo.join("policies"),
-        repo.join("config"),
-        repo.join("config").join("preamble.md"),
-        repo.join("config").join("mcp.md"),
-        repo.join("config").join("export-allowlist.json"),
-        repo.join("config").join("env-allowlist.json"),
-    ];
-    protected.extend(PROTECTED_CODE_PATHS.iter().map(|row| repo.join(row)));
-    for path in paths {
-        let file = if Path::new(path).is_absolute() {
-            PathBuf::from(path)
-        } else {
-            repo.join(path)
-        };
-        for root in &protected {
-            if crate::normalize::paths::inside(&file, root) {
-                return Some(path.clone());
+    let floor = floor_roots(repo);
+    paths
+        .iter()
+        .find(|path| {
+            is_build_script(path)
+                || floor
+                    .iter()
+                    .any(|root| inside_floor_compare(&repo_path(repo, path), root))
+        })
+        .cloned()
+}
+
+/// The set a pass may edit: the `--may-edit` values as repository-relative
+/// paths without a trailing slash, or [`DEFAULT_MAY_EDIT`] when there are none.
+/// Refuses a value that leaves the repository or names all of it, and one that
+/// reaches the floor: a floor path, a directory holding one, a path inside one,
+/// or a file called `build.rs`. The pass stops here, before a proposer is
+/// launched, so a human who named the floor learns it before spending one.
+pub fn may_edit_set(named: &[String]) -> Result<Vec<String>> {
+    if named.is_empty() {
+        return Ok(DEFAULT_MAY_EDIT
+            .iter()
+            .map(|path| path.to_string())
+            .collect());
+    }
+    // A scratch root: the check compares names, and nothing has to exist.
+    let repo = Path::new("/repo");
+    let floor = floor_roots(repo);
+    let mut set: Vec<String> = Vec::new();
+    for value in named {
+        let mut parts = Vec::new();
+        for component in Path::new(value).components() {
+            match component {
+                std::path::Component::Normal(part) => parts.push(part.to_string_lossy()),
+                std::path::Component::CurDir => {}
+                _ => bail!(
+                    "--may-edit {value}: name a path inside the repository, relative to its root"
+                ),
             }
         }
+        if parts.is_empty() {
+            bail!("--may-edit {value} names the whole repository, and the floor is inside it");
+        }
+        let path = parts.join("/");
+        let under = repo.join(&path);
+        if is_build_script(&path) {
+            bail!("--may-edit {value} names a build script, which no name lifts");
+        }
+        if let Some(root) = floor
+            .iter()
+            .find(|root| inside_floor_compare(&under, root) || inside_floor_compare(root, &under))
+        {
+            let row = root.strip_prefix(repo).unwrap_or(root).display();
+            bail!("--may-edit {value} reaches the protected path {row}, which no name lifts");
+        }
+        if !set.contains(&path) {
+            set.push(path);
+        }
     }
-    None
+    Ok(set)
+}
+
+/// The first path in `paths` that no entry of `may_edit` holds, compared the way
+/// the floor is, without case.
+pub fn outside_may_edit(paths: &[String], may_edit: &[String], repo: &Path) -> Option<String> {
+    paths
+        .iter()
+        .find(|path| {
+            let file = repo_path(repo, path);
+            !may_edit
+                .iter()
+                .any(|named| inside_floor_compare(&file, &repo.join(named)))
+        })
+        .cloned()
+}
+
+/// The first path in `paths` that names a file under `tests/` present at
+/// `base_tree`. Build ticket 80: a patch may add a test but not edit, rename,
+/// re-mode or delete one the pass started with, whatever `--may-edit` says,
+/// because a proposer that weakens the test guarding its change was caught
+/// only by a judge on pass 6.
+pub fn existing_test_hit(
+    paths: &[String],
+    worktree: &Path,
+    base_tree: &str,
+) -> Result<Option<String>> {
+    existing_test_hit_in(paths, worktree, base_tree)
+}
+
+/// [`existing_test_hit`] through any git location, so a proposer's checkout is
+/// read through Hydra's pinned directories and never its own `.git` file, and
+/// with replace refs off, so a planted `refs/replace/<base_tree>` hides nothing.
+fn existing_test_hit_in<G: crate::worktree::GitLocation + ?Sized>(
+    paths: &[String],
+    worktree: &G,
+    base_tree: &str,
+) -> Result<Option<String>> {
+    let listed = git(
+        worktree,
+        &[
+            "--no-replace-objects",
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "--full-tree",
+            "-z",
+            base_tree,
+            "tests/",
+        ],
+    )?;
+    let baseline: Vec<String> = listed
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    Ok(paths
+        .iter()
+        .find(|path| baseline.contains(&path.to_lowercase()))
+        .cloned())
+}
+
+/// Why admission refuses a patch before any cargo step or judge, if it does:
+/// the floor first, then a baseline test, then a path the human did not name.
+pub fn admission_refusal(
+    patch: &ProposerPatch,
+    may_edit: &[String],
+    repo: &Path,
+) -> Result<Option<String>> {
+    if let Some(path) = protected_path_hit(&patch.paths, repo) {
+        return Ok(Some(format!("protected path {path}")));
+    }
+    let hit = match &patch.git_context {
+        Some(context) => existing_test_hit_in(&patch.paths, context, &patch.base_tree)?,
+        None => existing_test_hit_in(&patch.paths, &patch.worktree, &patch.base_tree)?,
+    };
+    if let Some(path) = hit {
+        return Ok(Some(format!("existing test {path}")));
+    }
+    if let Some(path) = outside_may_edit(&patch.paths, may_edit, repo) {
+        return Ok(Some(format!(
+            "path {path} is outside --may-edit ({})",
+            may_edit.join(", ")
+        )));
+    }
+    Ok(None)
+}
+
+/// The brief's paragraph on what the proposer may edit, so it does not spend a
+/// pass on a file admission refuses.
+pub fn may_edit_paragraph(repo: &Path, may_edit: &[String]) -> String {
+    let mut text = format!(
+        "The repository root is {}. The human allowed this pass to edit only these \
+         paths, each a file or everything under a directory:\n\n",
+        repo.display(),
+    );
+    for path in may_edit {
+        text.push_str(&format!("  - {path}\n"));
+    }
+    text.push_str(
+        "\nA patch that changes, adds, renames or deletes any other path is refused before \
+         review. So is one that touches a file that already exists under `tests/`, even \
+         inside that list, and a file called `build.rs` anywhere; a new test file is fine \
+         where the list allows it. If the task \
+         cannot be done inside these paths, say so in your final message and change \
+         nothing.\n\n",
+    );
+    text
 }
 
 /// What the admission gate ran under, recorded on the pass harness run_end.
@@ -856,6 +1085,22 @@ fn run_judge_panel(
     Ok((judge_run_ids, answers))
 }
 
+/// The `may_edit` a pass recorded on its harness `run_start`, or
+/// [`DEFAULT_MAY_EDIT`] for a pass that recorded none.
+fn reviewed_may_edit(layout: &Layout, pass_id: &str) -> Vec<String> {
+    let recorded = PolicySet::discover().ok().and_then(|policies| {
+        let run = crate::normalize::read_file(&layout.run_file(pass_id), &policies).ok()?;
+        let names = run.run_start()?.body["may_edit"].as_array()?.clone();
+        Some(
+            names
+                .iter()
+                .filter_map(|name| name.as_str().map(str::to_string))
+                .collect::<Vec<_>>(),
+        )
+    });
+    recorded.unwrap_or_else(|| DEFAULT_MAY_EDIT.iter().map(|p| p.to_string()).collect())
+}
+
 fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> Result<Done> {
     let layout = Layout::discover()?;
     crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
@@ -867,10 +1112,18 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
     let blocked_branch = ensure_reviewable(&repo, reviewed_pass_id)?;
     let (patch, proposer_run_id, task) =
         read_blocked_patch(&repo, &blocked_branch, &layout, &policies)?;
+    // A fresh review is not a way around the floor: the reviewed patch meets
+    // the same refusals under the set its pass ran with, or the default for a
+    // pass older than build ticket 96. Build ticket 96's review found every
+    // refusal skipped here, so a blocked `Cargo.toml` could come back offerable.
+    let may_edit = reviewed_may_edit(&layout, reviewed_pass_id);
+    if let Some(reason) = admission_refusal(&patch, &may_edit, &repo)? {
+        bail!("pass {reviewed_pass_id} cannot be reviewed again: {reason}, which no review lifts");
+    }
 
     let pass_run_id = Uuid::now_v7().to_string();
     let pass_record = layout.run_file(&pass_run_id);
-    write_harness_start(&layout, &pass_run_id, &pass_record)?;
+    write_harness_start(&layout, &pass_run_id, &pass_record, None)?;
 
     let judge_prompt = judge_task(&patch, task.as_deref(), Some(&evidence));
     let (judge_run_ids, answers) = run_judge_panel(
@@ -1025,7 +1278,14 @@ pub fn commit_pass_branch(
     Ok(())
 }
 
-pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> Result<()> {
+/// Opens the pass's harness record. `may_edit` is the set the pass was allowed
+/// to edit, and `None` on a `--review` pass, which launches no proposer.
+pub fn write_harness_start(
+    layout: &Layout,
+    pass_run_id: &str,
+    path: &Path,
+    may_edit: Option<&[String]>,
+) -> Result<()> {
     layout.ensure()?;
     let pid = std::process::id();
     // Microseconds, the precision `watch.rs` writes and `procinfo::is_alive`
@@ -1066,6 +1326,7 @@ pub fn write_harness_start(layout: &Layout, pass_run_id: &str, path: &Path) -> R
         env_allowlist: None,
         subscription: None,
         resumed_from: None,
+        may_edit: may_edit.map(<[String]>::to_vec),
     };
     let mut writer = Writer::create(path, pass_run_id, None, None, None)?;
     writer.hydra_line(&start)?;
@@ -1158,7 +1419,9 @@ fn rate_limit_status(raw: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn changed_paths<G: crate::worktree::GitLocation + ?Sized>(
+/// Every path the diff from `base` to `head` touches. No rename detection, so a
+/// rename lists both sides, and a mode change lists the file.
+pub fn changed_paths<G: crate::worktree::GitLocation + ?Sized>(
     worktree: &G,
     base: &str,
     head: &str,
@@ -1220,6 +1483,41 @@ pub fn report(done: &Done) -> String {
 #[cfg(test)]
 mod admission_step_tests {
     use super::*;
+
+    #[test]
+    fn a_review_uses_the_set_its_pass_recorded_or_the_default() {
+        let root = std::env::temp_dir().join(format!("hydra-review-set-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let layout = Layout::at(&root);
+        std::fs::create_dir_all(layout.runs()).unwrap();
+        std::fs::write(
+            layout.run_file("with"),
+            "{\"hydra\":{\"type\":\"run_start\",\"may_edit\":[\"src/run.rs\"]}}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            layout.run_file("without"),
+            "{\"hydra\":{\"type\":\"run_start\"}}\n",
+        )
+        .unwrap();
+        assert_eq!(reviewed_may_edit(&layout, "with"), ["src/run.rs"]);
+        assert_eq!(reviewed_may_edit(&layout, "without"), DEFAULT_MAY_EDIT);
+        assert_eq!(reviewed_may_edit(&layout, "absent"), DEFAULT_MAY_EDIT);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_default_set_clears_the_floor_and_the_floor_holds_toolchain_files() {
+        let named: Vec<String> = DEFAULT_MAY_EDIT.iter().map(|p| p.to_string()).collect();
+        assert_eq!(may_edit_set(&named).unwrap(), named);
+        let repo = Path::new("/repo");
+        for path in ["rust-toolchain", "RUST-TOOLCHAIN.toml"] {
+            assert!(
+                protected_path_hit(&[path.to_string()], repo).is_some(),
+                "{path}"
+            );
+        }
+    }
 
     fn env_probe_output(
         worktree: &Path,
