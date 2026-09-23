@@ -56,7 +56,7 @@
 //! [`Usage`] where the other two providers' counts do.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::Value;
@@ -557,8 +557,13 @@ impl Walk {
         };
 
         let results = self.results_by_call();
+        let replay_inputs: Vec<(&str, &Value, &Path)> = calls
+            .iter()
+            .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
+            .collect();
+        let mut replay_verdicts = replay.decide_all(&replay_inputs).into_iter();
         for (seq, call_id, tool, arguments) in calls {
-            let verdict = match replay.decide(&tool, &arguments, spawn.cwd()) {
+            let verdict = match replay_verdicts.next().expect("one replay answer per call") {
                 Ok(verdict) => verdict,
                 Err(err) => {
                     self.findings.push(Finding::Limit(format!(

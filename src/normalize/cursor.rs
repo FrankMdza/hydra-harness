@@ -25,7 +25,7 @@
 //! carries; the stream's own object survives in `raw`.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -512,7 +512,13 @@ impl Walk {
         };
 
         let results = self.results_by_call();
-        for (seq, call_id, tool, arguments) in calls {
+        let replay_inputs: Vec<(&str, &Value, &Path)> = calls
+            .iter()
+            .filter(|(_, _, tool, _)| cursor_capability(tool) != Some(Capability::Unhooked))
+            .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
+            .collect();
+        let mut replay_verdicts = replay.decide_all(&replay_inputs).into_iter();
+        for (seq, call_id, tool, _arguments) in calls {
             if call_id.is_empty() {
                 // Nothing to join a result to. The policy still answers for the
                 // call, and this says what it could not be checked against.
@@ -555,7 +561,7 @@ impl Walk {
                 continue;
             }
 
-            let verdict = match replay.decide(&tool, &arguments, spawn.cwd()) {
+            let verdict = match replay_verdicts.next().expect("one replay answer per call") {
                 Ok(verdict) => verdict,
                 Err(err) => {
                     self.findings.push(Finding::Limit(format!(

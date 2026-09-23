@@ -1826,8 +1826,14 @@ knows is missing.
 
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a
-`/usr/bin/python3` process per tool call, and that interpreter is now a read-time
-dependency as well as a run-time one. A second implementation of the rules in Rust was
+`/usr/bin/python3` process per record, and that interpreter is now a read-time
+dependency as well as a run-time one. It was one process per tool call until build
+ticket 86 added a batch entry (`<dialect> batch`, a JSON array in and one answer per
+payload out) that runs the same `decide_payload` the hook runs; a record with 3,770 lines
+went from 10.3 s to 0.16 s in `hydra show`, with identical output. The live hook never
+passes `batch`, its argv is built by Hydra. The batch entry sets `PWD` from each payload's
+`cwd` inside that payload's `try`, the single-call entry keeps the environment it
+inherited, and a batch that fails as a whole is asked again one call at a time. A second implementation of the rules in Rust was
 the alternative and it is the wrong trade. The gate decides with the deny list,
 the scope resolution, the `mcp__` prefix rule and a floor that tokenizes shell with
 `shlex`, and a Rust copy that answered `allow` where the gate answered `deny` would

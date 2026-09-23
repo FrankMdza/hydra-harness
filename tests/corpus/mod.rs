@@ -245,9 +245,23 @@ impl Gate {
 
     /// Runs the script in a dialect and hands back the first line it printed.
     pub fn raw_answer(&self, dialect: Option<&str>, payload: Value) -> (Value, i32) {
+        self.raw_answer_in(dialect, payload, None)
+    }
+
+    /// `raw_answer` with PWD set the way a provider sets it for the live hook,
+    /// to the directory the call runs in.
+    pub fn raw_answer_in(
+        &self,
+        dialect: Option<&str>,
+        payload: Value,
+        pwd: Option<&Path>,
+    ) -> (Value, i32) {
         let mut command = Command::new(SHEBANG_PYTHON);
         command.arg(&self.script);
         command.env("HYDRA_PROBE_RUNS", &self.runs);
+        if let Some(pwd) = pwd {
+            command.env("PWD", pwd);
+        }
         if let Some(dialect) = dialect {
             command.arg(dialect);
         }
@@ -413,6 +427,116 @@ impl Gate {
 
     pub fn apply_patch(&self, command: &str) -> Decision {
         self.ask("apply_patch", json!({ "command": command }))
+    }
+
+    pub fn decision_from(&self, dialect: &str, value: &Value) -> Decision {
+        match dialect {
+            "claude" => {
+                let hook = &value["hookSpecificOutput"];
+                let decision = hook["permissionDecision"].as_str().unwrap().to_string();
+                Decision {
+                    allowed: decision == "allow",
+                    reason: hook["permissionDecisionReason"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    exit: 0,
+                }
+            }
+            "cursor" => {
+                let permission = value["permission"].as_str().unwrap().to_string();
+                Decision {
+                    allowed: permission == "allow",
+                    reason: value["user_message"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    exit: 0,
+                }
+            }
+            "agy" => {
+                let decision = value["decision"].as_str().unwrap().to_string();
+                Decision {
+                    allowed: decision == "allow",
+                    reason: value["reason"].as_str().unwrap_or_default().to_string(),
+                    exit: 0,
+                }
+            }
+            other => panic!("unknown dialect {other}"),
+        }
+    }
+
+    /// Runs the batch entry: one interpreter, a JSON array on stdin, one answer
+    /// per payload in order.
+    pub fn batch_ask(&self, dialect: &str, payloads: &[Value]) -> Vec<Decision> {
+        let mut command = Command::new(SHEBANG_PYTHON);
+        command.arg(&self.script);
+        command.env("HYDRA_PROBE_RUNS", &self.runs);
+        command.arg(dialect);
+        command.arg("batch");
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("python3 is on PATH");
+        let body = serde_json::to_string(payloads).unwrap();
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(body.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let answers: Vec<Value> = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+            panic!(
+                "the gate batch entry did not answer in JSON: {stdout:?} ({e})\nstderr: {stderr}"
+            )
+        });
+        answers
+            .iter()
+            .map(|value| self.decision_from(dialect, value))
+            .collect()
+    }
+
+    pub fn claude_payload(&self, tool: &str, input: Value, cwd: &Path) -> Value {
+        json!({
+            "session_id": "d9ca2399-0000-0000-0000-000000000000",
+            "cwd": cwd.to_string_lossy(),
+            "permission_mode": "bypassPermissions",
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool,
+            "tool_input": input,
+            "tool_use_id": "toolu_01Eaek",
+        })
+    }
+
+    pub fn cursor_payload(&self, tool: &str, input: Value, cwd: &Path) -> Value {
+        json!({
+            "conversation_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "model": "composer-2.5",
+            "tool_name": tool,
+            "tool_input": input,
+            "tool_use_id": "tool_1e718bbc-5384-48a2-86a4-e6bcf9c4dbf",
+            "session_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "hook_event_name": "preToolUse",
+            "cursor_version": "2026.09.02-c22c1a3",
+            "workspace_roots": [cwd.to_string_lossy()],
+        })
+    }
+
+    pub fn agy_payload(&self, tool: &str, args: Value, cwd: &Path) -> Value {
+        json!({
+            "artifactDirectoryPath": "/Users/probe/.gemini/antigravity-cli/brain/b631e11b",
+            "conversationId": "b631e11b-4a99-43db-9f37-11a373cdd98a",
+            "modelName": "gemini-3.8-flash-low",
+            "stepIdx": 2,
+            "toolCall": { "name": tool, "args": args },
+            "transcriptPath": "/Users/probe/.gemini/antigravity-cli/brain/b631e11b/t.jsonl",
+            "workspacePaths": [cwd.to_string_lossy()],
+        })
     }
 }
 

@@ -44,6 +44,28 @@ DIALECTS = ("claude", "cursor", "agy")
 # --------------------------------------------------------------------------
 
 
+def answer_for(dialect, allowed, reason):
+    """The decision in the provider's own shape, as a dict."""
+    decision = "allow" if allowed else "deny"
+    if dialect == "claude":
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": decision,
+                "permissionDecisionReason": reason,
+            }
+        }
+    if dialect == "cursor":
+        return {
+            "permission": decision,
+            "user_message": reason,
+            "agent_message": reason,
+        }
+    if dialect == "agy":
+        return {"decision": decision, "reason": reason}
+    raise AssertionError("unreachable: dialect checked in main")
+
+
 def respond(dialect, allowed, reason):
     """Writes the decision in the provider's own shape.
 
@@ -65,26 +87,7 @@ def respond(dialect, allowed, reason):
     another hook's deny. Saying it out loud is what lets a test tell a decision
     from a crash, and a crash on `claude` fails open.
     """
-    decision = "allow" if allowed else "deny"
-    if dialect == "claude":
-        out = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": decision,
-                "permissionDecisionReason": reason,
-            }
-        }
-    elif dialect == "cursor":
-        out = {
-            "permission": decision,
-            "user_message": reason,
-            "agent_message": reason,
-        }
-    elif dialect == "agy":
-        out = {"decision": decision, "reason": reason}
-    else:
-        raise AssertionError("unreachable: dialect checked in main")
-    sys.stdout.write(json.dumps(out))
+    sys.stdout.write(json.dumps(answer_for(dialect, allowed, reason)))
     sys.stdout.write("\n")
 
 
@@ -922,41 +925,31 @@ def evaluate(payload):
     )
 
 
-def main():
-    dialect = sys.argv[1] if len(sys.argv) > 1 else None
-    if dialect not in DIALECTS:
-        deny_without_dialect(
-            "no response dialect on the command line, so the answer cannot be "
-            "spoken in a shape the caller is known to read"
-        )
+def apply_cwd_env(payload, inherited_pwd):
+    """Set PWD from one batch payload's cwd before `evaluate`.
 
-    # The config names the provider this gate was compiled for, and argv names
-    # the shape the caller reads. Both name one binary, so a mismatch means
-    # something is wired wrong, and a gate that shrugged and answered anyway
-    # would be answering with the wrong provider's tool table.
-    if dialect != HYDRA_CONFIG["dialect"]:
-        respond(
-            dialect,
-            False,
-            "hydra/wrong-dialect: this gate was compiled for the {} dialect and "
-            "was asked in {}.".format(HYDRA_CONFIG["dialect"], dialect),
-        )
-        return
+    Only the batch entry calls this. The live hook inherits the child's
+    environment, where PWD is the run's working directory, and that path is
+    left as it was. A batch cannot set PWD once on the process: two calls in
+    one record can carry different cwds, and the gate expands `$PWD` out of
+    its environment per call. A payload with no usable cwd gets the PWD the
+    interpreter started with, not the previous payload's.
+    """
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+    if isinstance(cwd, str) and cwd:
+        os.environ["PWD"] = cwd
+    elif inherited_pwd is None:
+        os.environ.pop("PWD", None)
+    else:
+        os.environ["PWD"] = inherited_pwd
 
-    try:
-        raw = sys.stdin.read()
-        payload = json.loads(raw) if raw.strip() else {}
-    except (ValueError, RecursionError):
-        # A document nested past the interpreter's limit raises RecursionError,
-        # not ValueError, and used to be a traceback: measured 2026-09-22 at a
-        # depth of five thousand.
-        respond(dialect, False, "hydra/bad-payload: the hook payload was not JSON")
-        return
 
+def decide_payload(dialect, payload):
+    """One answer dict for one hook payload."""
     if not isinstance(payload, dict):
-        respond(dialect, False, "hydra/bad-payload: the hook payload was not an object")
-        return
-
+        return answer_for(
+            dialect, False, "hydra/bad-payload: the hook payload was not an object"
+        )
     # Whatever `evaluate` raises is answered as a deny in the caller's own
     # shape. A traceback is exit 1 and nothing on stdout, which `codex` reads
     # as permission (SECURITY.md) and `claude` reads as a non-blocking error;
@@ -971,7 +964,120 @@ def main():
             "hydra/gate-error: the gate raised {} while evaluating this call, "
             "and a gate that cannot decide refuses.".format(type(err).__name__)
         )
-    respond(dialect, allowed, reason)
+    return answer_for(dialect, allowed, reason)
+
+
+def decide_batch_entry(dialect, payload, inherited_pwd):
+    """One answer for one payload of a batch, never a raise.
+
+    `os.environ` refuses a cwd with a NUL in it by raising ValueError. Caught
+    here, that is one deny for that payload rather than a traceback that
+    loses the answers for every other payload in the batch.
+    """
+    try:
+        apply_cwd_env(payload, inherited_pwd)
+    except Exception as err:  # noqa: BLE001, one bad payload is one deny
+        return answer_for(
+            dialect,
+            False,
+            "hydra/gate-error: the gate raised {} setting PWD from this call's "
+            "cwd, and a gate that cannot decide refuses.".format(type(err).__name__),
+        )
+    return decide_payload(dialect, payload)
+
+
+def write_batch(dialect, answers):
+    sys.stdout.write(json.dumps(answers))
+    sys.stdout.write("\n")
+
+
+def wrong_dialect_reason(dialect):
+    return (
+        "hydra/wrong-dialect: this gate was compiled for the {} dialect and "
+        "was asked in {}.".format(HYDRA_CONFIG["dialect"], dialect)
+    )
+
+
+def check_dialect(dialect):
+    """Return a wrong-dialect reason, or None when argv matches the compile."""
+    if dialect not in DIALECTS:
+        deny_without_dialect(
+            "no response dialect on the command line, so the answer cannot be "
+            "spoken in a shape the caller is known to read"
+        )
+    # The config names the provider this gate was compiled for, and argv names
+    # the shape the caller reads. Both name one binary, so a mismatch means
+    # something is wired wrong, and a gate that shrugged and answered anyway
+    # would be answering with the wrong provider's tool table.
+    if dialect != HYDRA_CONFIG["dialect"]:
+        return wrong_dialect_reason(dialect)
+    return None
+
+
+def main_single(dialect):
+    wrong = check_dialect(dialect)
+    if wrong is not None:
+        respond(dialect, False, wrong)
+        return
+
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw) if raw.strip() else {}
+    except (ValueError, RecursionError):
+        # A document nested past the interpreter's limit raises RecursionError,
+        # not ValueError, and used to be a traceback: measured 2026-09-22 at a
+        # depth of five thousand.
+        respond(dialect, False, "hydra/bad-payload: the hook payload was not JSON")
+        return
+
+    answer = decide_payload(dialect, payload)
+    sys.stdout.write(json.dumps(answer))
+    sys.stdout.write("\n")
+
+
+def main_batch(dialect):
+    wrong = check_dialect(dialect)
+    if wrong is not None:
+        write_batch(dialect, [answer_for(dialect, False, wrong)])
+        return
+
+    try:
+        raw = sys.stdin.read()
+        payloads = json.loads(raw) if raw.strip() else []
+    except (ValueError, RecursionError):
+        write_batch(
+            dialect,
+            [answer_for(dialect, False, "hydra/bad-payload: the hook payload was not JSON")],
+        )
+        return
+
+    if not isinstance(payloads, list):
+        write_batch(
+            dialect,
+            [
+                answer_for(
+                    dialect,
+                    False,
+                    "hydra/bad-payload: the batch entry expected a JSON array",
+                )
+            ],
+        )
+        return
+
+    inherited_pwd = os.environ.get("PWD")
+    write_batch(
+        dialect,
+        [decide_batch_entry(dialect, payload, inherited_pwd) for payload in payloads],
+    )
+
+
+def main():
+    dialect = sys.argv[1] if len(sys.argv) > 1 else None
+    batch = len(sys.argv) > 2 and sys.argv[2] == "batch"
+    if batch:
+        main_batch(dialect)
+    else:
+        main_single(dialect)
 
 
 if __name__ == "__main__":

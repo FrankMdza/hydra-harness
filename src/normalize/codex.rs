@@ -20,7 +20,7 @@
 //! 01a0c223-9ec2, the four-step gate probe.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -480,8 +480,13 @@ impl Walk {
         };
 
         let results = self.results_by_call();
-        for (seq, call_id, tool, arguments) in calls {
-            let verdict = match replay.decide(&tool, &arguments, spawn.cwd()) {
+        let replay_inputs: Vec<(&str, &Value, &Path)> = calls
+            .iter()
+            .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
+            .collect();
+        let mut replay_verdicts = replay.decide_all(&replay_inputs).into_iter();
+        for (seq, call_id, tool, _arguments) in calls {
+            let verdict = match replay_verdicts.next().expect("one replay answer per call") {
                 Ok(verdict) => verdict,
                 Err(err) => {
                     self.findings.push(Finding::Limit(format!(

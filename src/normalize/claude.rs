@@ -18,7 +18,7 @@
 //! and is what the Cursor probe in 6.6 was about.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::Value;
@@ -505,11 +505,16 @@ impl Walk {
         };
 
         let results = self.results_by_call();
+        let replay_inputs: Vec<(&str, &Value, &Path)> = calls
+            .iter()
+            .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
+            .collect();
+        let mut replay_verdicts = replay.decide_all(&replay_inputs).into_iter();
         let seqs: Vec<u64> = calls.iter().map(|call| call.0).collect();
         // Empty on a record with no `hook_started` frames, which is what tells
         // the loop below to keep using the seq window instead.
         let groups = Self::group_starts(&calls, &self.starts);
-        for (index, (seq, call_id, tool, arguments)) in calls.into_iter().enumerate() {
+        for (index, (seq, call_id, tool, _arguments)) in calls.into_iter().enumerate() {
             let window = Window {
                 after: seq,
                 before: seqs[index + 1..]
@@ -528,7 +533,7 @@ impl Walk {
                      and no hook answer can be joined to it"
                 )));
             }
-            let verdict = match replay.decide(&tool, &arguments, spawn.cwd()) {
+            let verdict = match replay_verdicts.next().expect("one replay answer per call") {
                 Ok(verdict) => verdict,
                 Err(err) => {
                     self.findings.push(Finding::Limit(format!(

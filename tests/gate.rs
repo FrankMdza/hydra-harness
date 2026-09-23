@@ -26,6 +26,124 @@ use corpus::{Decision, Gate, OTHER, RUN, SHEBANG_PYTHON};
 // ---------------------------------------------------------------------------
 
 #[test]
+fn the_batch_entry_answers_like_the_single_call_entry_on_every_dialect() {
+    let claude = Gate::new("standard");
+    let cursor = Gate::cursor("standard");
+    let agy = Gate::agy("standard");
+
+    let cases: [(&str, &Gate, Vec<Value>); 3] = [
+        ("claude", &claude, {
+            let other = claude.worktree.join("other-cwd");
+            std::fs::create_dir_all(&other).unwrap();
+            std::fs::create_dir_all(claude.worktree.join(".scratch-root")).unwrap();
+            vec![
+                claude.claude_payload(
+                    "Read",
+                    json!({ "file_path": "src/lib.rs" }),
+                    &claude.worktree,
+                ),
+                claude.claude_payload(
+                    "Bash",
+                    json!({
+                        "command": "HYDRA_ROOT=$PWD/.scratch-root cargo test --release --lib",
+                        "description": "a probe",
+                    }),
+                    &claude.worktree,
+                ),
+                claude.claude_payload(
+                    "Bash",
+                    json!({
+                        "command": "HYDRA_ROOT=$PWD/.scratch-root cargo test --release --lib",
+                        "description": "another cwd",
+                    }),
+                    &other,
+                ),
+            ]
+        }),
+        ("cursor", &cursor, {
+            let other = cursor.worktree.join("other-cwd");
+            std::fs::create_dir_all(&other).unwrap();
+            vec![
+                cursor.cursor_payload(
+                    "Write",
+                    json!({
+                        "file_path": cursor.worktree.join("src/new.rs").to_string_lossy(),
+                        "content": "x",
+                    }),
+                    &cursor.worktree,
+                ),
+                cursor.cursor_payload(
+                    "Shell",
+                    json!({ "command": format!("ls {}", cursor.runs.to_string_lossy()) }),
+                    &cursor.worktree,
+                ),
+                cursor.cursor_payload("Read", json!({ "file_path": "README.md" }), &other),
+            ]
+        }),
+        ("agy", &agy, {
+            let other = agy.worktree.join("other-cwd");
+            std::fs::create_dir_all(&other).unwrap();
+            vec![
+                agy.agy_payload(
+                    "read_file",
+                    json!({ "TargetFile": "src/lib.rs" }),
+                    &agy.worktree,
+                ),
+                agy.agy_payload(
+                    "run_command",
+                    json!({ "CommandLine": format!("ls {}", agy.runs.to_string_lossy()) }),
+                    &agy.worktree,
+                ),
+                agy.agy_payload(
+                    "write_to_file",
+                    json!({
+                        "TargetFile": other.join("planted.rs").to_string_lossy(),
+                        "CodeContent": "x",
+                    }),
+                    &other,
+                ),
+            ]
+        }),
+    ];
+
+    for (dialect, gate, payloads) in cases {
+        // The single-call entry reads PWD from its environment, which on a
+        // live run is the provider's and names the call's own directory. The
+        // batch entry reads it off each payload instead, so each single call
+        // here is handed the cwd its payload carries.
+        let singles = payloads
+            .iter()
+            .map(|payload| {
+                let cwd = payload["cwd"]
+                    .as_str()
+                    .or_else(|| payload["workspace_roots"][0].as_str())
+                    .or_else(|| payload["workspacePaths"][0].as_str())
+                    .map(Path::new);
+                let (value, _) = gate.raw_answer_in(Some(dialect), payload.clone(), cwd);
+                gate.decision_from(dialect, &value)
+            })
+            .collect::<Vec<_>>();
+        let batch = gate.batch_ask(dialect, &payloads);
+        assert_eq!(
+            singles.len(),
+            batch.len(),
+            "{dialect}: the batch entry answered a different count"
+        );
+        for (index, (single, batched)) in singles.iter().zip(batch.iter()).enumerate() {
+            assert_eq!(
+                single.allowed, batched.allowed,
+                "{dialect} payload {index}: allow mismatch (single {:?}, batch {:?})",
+                single.reason, batched.reason
+            );
+            assert_eq!(
+                single.reason, batched.reason,
+                "{dialect} payload {index}: reason mismatch"
+            );
+        }
+    }
+}
+
+#[test]
 fn the_script_denies_when_the_dialect_argument_is_absent() {
     // 6.6: `claude` ignores a response in a shape it does not recognise and
     // allows the call, so the script never guesses which shape to answer in.
@@ -2220,6 +2338,56 @@ fn a_payload_whose_cwd_is_not_a_string_is_answered_rather_than_crashed() {
         "a benign command with a malformed cwd was refused: {}",
         decision.reason
     );
+}
+
+#[test]
+fn a_single_call_whose_cwd_holds_a_nul_is_answered_as_before_the_batch_entry() {
+    // The single-call entry is the live hook's. It reads PWD from the
+    // environment the provider handed it and never from the payload, so a cwd
+    // `os.environ` would refuse cannot reach `os.environ` on this path.
+    // Measured 2026-09-22 on master's gate before build ticket 86: this payload
+    // was answered, allowed, exit 0.
+    let gate = Gate::new("standard");
+    let decision = gate.ask_with_dialect(
+        Some("claude"),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": { "command": "ls" },
+            "cwd": "/tmp/a\u{0}b",
+        }),
+    );
+    assert_eq!(decision.exit, 0, "the gate died: {}", decision.reason);
+    assert!(
+        decision.allowed && decision.reason.starts_with("hydra/allow"),
+        "the single-call answer changed: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_batch_payload_whose_cwd_holds_a_nul_costs_that_payload_alone() {
+    // The batch entry sets PWD from each payload's cwd, and `os.environ`
+    // raises ValueError on a NUL. That is one deny for that payload, and the
+    // payload after it is answered as the single-call entry answers it.
+    let gate = Gate::new("standard");
+    let bad = gate.claude_payload(
+        "Bash",
+        json!({ "command": "ls" }),
+        Path::new("/tmp/a\u{0}b"),
+    );
+    let good = gate.claude_payload("Read", json!({ "file_path": "src/lib.rs" }), &gate.worktree);
+    let answers = gate.batch_ask("claude", &[bad, good.clone()]);
+    assert_eq!(answers.len(), 2);
+    assert!(
+        answers[0].denied_for("hydra/gate-error"),
+        "a NUL cwd in a batch was answered {}: {}",
+        answers[0].allowed,
+        answers[0].reason
+    );
+    let single = gate.ask_with_dialect(Some("claude"), good);
+    assert_eq!(answers[1].allowed, single.allowed, "{}", answers[1].reason);
+    assert_eq!(answers[1].reason, single.reason);
 }
 
 #[test]

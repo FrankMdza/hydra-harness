@@ -16,8 +16,9 @@
 //! a disagreement then means the policy directory moved or the environment
 //! differs, never that two spellings of one rule fell out of step.
 //!
-//! Two costs, both in `IMPLEMENTATION.md`. It is a process per tool call, and
-//! `/usr/bin/python3` becomes a read-time dependency as well as a run-time one.
+//! Two costs, both in `IMPLEMENTATION.md`. It is a process per record, and one
+//! per tool call when that record's batch fails, and `/usr/bin/python3` becomes
+//! a read-time dependency as well as a run-time one.
 
 use std::io::Write;
 use std::path::Path;
@@ -113,34 +114,106 @@ impl Replay {
     /// which is what both routed providers send on that event. `cwd` is the
     /// run's own checkout, which is what the child sent, and it matters because
     /// a relative path in a tool argument resolves against it.
+    ///
+    /// This is the single-call entry the live hook uses, one interpreter per
+    /// call. [`Replay::decide_all`] falls back to it when a batch fails.
     pub fn decide(&self, tool: &str, input: &Value, cwd: &Path) -> Result<Verdict> {
+        let payload = self.payload(tool, input, cwd);
+        // The gate expands `$VAR` out of its own environment, and the live
+        // hook's environment is the provider's, where `PWD` is the run's
+        // working directory. A replay that inherits this process's `PWD`
+        // resolves `$PWD/x` under the reader's own cwd, which since build
+        // ticket 74 is a denied path, and reports a leak the gate never
+        // made; measured 2026-09-22 on run 01a0c9d9-6652, five commands
+        // of the shape `HYDRA_ROOT=$PWD/.scratch-root cargo test`.
+        let answer = self.run_gate(false, Some(cwd), &payload)?;
+        verdict_of(self.dialect, &answer)
+    }
+
+    /// The policy's answers for every tool call in one record, one result each.
+    ///
+    /// One interpreter for the whole record when the batch answers. When the
+    /// batch fails as a whole, an interpreter that died or an answer count
+    /// that does not match, each call is asked on its own through
+    /// [`Replay::decide`], so one call the batch could not carry costs that
+    /// call a `Limit` and not every call in the record.
+    pub fn decide_all(&self, calls: &[(&str, &Value, &Path)]) -> Vec<Result<Verdict>> {
+        match self.decide_batch(calls) {
+            Ok(verdicts) => verdicts.into_iter().map(Ok).collect(),
+            Err(_) => calls
+                .iter()
+                .map(|(tool, input, cwd)| self.decide(tool, input, cwd))
+                .collect(),
+        }
+    }
+
+    /// The policy's answers for every tool call in one record, in one interpreter.
+    ///
+    /// The batch entry reads a JSON array of hook payloads on stdin and writes
+    /// one answer per payload, in order. PWD cannot be set once on the process:
+    /// two calls in one record can carry different `cwd`s, so each payload's
+    /// `cwd` field is handed to the gate and the batch entry sets `os.environ`
+    /// from it before evaluating that payload, which is the rule
+    /// [`Replay::decide`] gets by setting the child's environment.
+    pub fn decide_batch(&self, calls: &[(&str, &Value, &Path)]) -> Result<Vec<Verdict>> {
+        if calls.is_empty() {
+            return Ok(Vec::new());
+        }
+        let payloads = Value::Array(
+            calls
+                .iter()
+                .map(|(tool, input, cwd)| self.payload(tool, input, cwd))
+                .collect(),
+        );
+        let answers = self.run_gate(true, None, &payloads)?;
+        let answers = answers.as_array().with_context(|| {
+            format!("the gate batch entry answered {:?}, not an array", answers)
+        })?;
+        if answers.len() != calls.len() {
+            bail!(
+                "the gate answered {} payloads for {} calls",
+                answers.len(),
+                calls.len()
+            );
+        }
+        answers
+            .iter()
+            .map(|answer| verdict_of(self.dialect, answer))
+            .collect()
+    }
+
+    fn payload(&self, tool: &str, input: &Value, cwd: &Path) -> Value {
         let event = match self.dialect {
             Dialect::Claude | Dialect::Agy => "PreToolUse",
             Dialect::Cursor => "preToolUse",
         };
-        let payload = json!({
+        json!({
             "hook_event_name": event,
             "tool_name": tool,
             "tool_input": input,
             "cwd": cwd.to_string_lossy(),
-        });
+        })
+    }
 
+    /// Runs the compiled gate once and reads its stdout as JSON.
+    fn run_gate(&self, batch: bool, pwd: Option<&Path>, stdin: &Value) -> Result<Value> {
         // `-c` rather than a file on disk. The script is one argument and the
         // payload is stdin, so nothing is written anywhere and there is no
         // temporary gate for a concurrent reader to trip over. With `-c`,
-        // `sys.argv[1]` is the dialect, which is what the script reads.
-        let mut child = Command::new(GATE_PYTHON)
+        // `sys.argv[1]` is the dialect and `sys.argv[2]`, when present, is
+        // `batch`.
+        let mut command = Command::new(GATE_PYTHON);
+        command
             .arg("-c")
             .arg(&self.script)
-            .arg(self.dialect.as_str())
-            // The gate expands `$VAR` out of its own environment, and the live
-            // hook's environment is the provider's, where `PWD` is the run's
-            // working directory. A replay that inherits this process's `PWD`
-            // resolves `$PWD/x` under the reader's own cwd, which since build
-            // ticket 74 is a denied path, and reports a leak the gate never
-            // made; measured 2026-09-22 on run 01a0c9d9-6652, five commands
-            // of the shape `HYDRA_ROOT=$PWD/.scratch-root cargo test`.
-            .env("PWD", cwd)
+            .arg(self.dialect.as_str());
+        if batch {
+            command.arg("batch");
+        }
+        if let Some(pwd) = pwd {
+            command.env("PWD", pwd);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -150,43 +223,46 @@ impl Replay {
             .stdin
             .as_mut()
             .context("the gate's stdin closed")?
-            .write_all(payload.to_string().as_bytes())?;
+            .write_all(serde_json::to_string(stdin)?.as_bytes())?;
         let out = child.wait_with_output()?;
 
         let stdout = String::from_utf8_lossy(&out.stdout);
-        let answer: Value = serde_json::from_str(stdout.trim()).with_context(|| {
+        serde_json::from_str(stdout.trim()).with_context(|| {
             format!(
                 "the gate answered something that is not JSON: {:?} (stderr {:?})",
                 stdout,
                 String::from_utf8_lossy(&out.stderr)
             )
-        })?;
-        let (decision, reason) = match self.dialect {
-            Dialect::Claude => {
-                let specific = &answer["hookSpecificOutput"];
-                (
-                    specific["permissionDecision"].as_str(),
-                    specific["permissionDecisionReason"].as_str(),
-                )
-            }
-            Dialect::Cursor => (
-                answer["permission"].as_str(),
-                answer["user_message"].as_str(),
-            ),
-            Dialect::Agy => (answer["decision"].as_str(), answer["reason"].as_str()),
-        };
-        let reason = reason.unwrap_or_default().to_string();
-        match decision {
-            Some("allow") => Ok(Verdict {
-                allowed: true,
-                reason,
-            }),
-            Some("deny") => Ok(Verdict {
-                allowed: false,
-                reason,
-            }),
-            other => bail!("the gate answered {other:?}, which is neither allow nor deny"),
+        })
+    }
+}
+
+fn verdict_of(dialect: Dialect, answer: &Value) -> Result<Verdict> {
+    let (decision, reason) = match dialect {
+        Dialect::Claude => {
+            let specific = &answer["hookSpecificOutput"];
+            (
+                specific["permissionDecision"].as_str(),
+                specific["permissionDecisionReason"].as_str(),
+            )
         }
+        Dialect::Cursor => (
+            answer["permission"].as_str(),
+            answer["user_message"].as_str(),
+        ),
+        Dialect::Agy => (answer["decision"].as_str(), answer["reason"].as_str()),
+    };
+    let reason = reason.unwrap_or_default().to_string();
+    match decision {
+        Some("allow") => Ok(Verdict {
+            allowed: true,
+            reason,
+        }),
+        Some("deny") => Ok(Verdict {
+            allowed: false,
+            reason,
+        }),
+        other => bail!("the gate answered {other:?}, which is neither allow nor deny"),
     }
 }
 
@@ -208,5 +284,49 @@ mod tests {
         // with no prefix is how a reader tells one from Hydra's.
         assert_eq!(reason_code("Rejected: t30 CUR-PROJ says allow"), None);
         assert_eq!(reason_code("hydra/"), None);
+    }
+
+    /// A stand-in gate whose batch entry dies and whose single-call entry
+    /// answers with the PWD it was handed, or dies on a tool named `broken`.
+    const BATCH_DIES: &str = r#"
+import json, os, sys
+if len(sys.argv) > 2:
+    sys.exit(1)
+payload = json.loads(sys.stdin.read())
+if payload["tool_name"] == "broken":
+    sys.exit(1)
+print(json.dumps({"decision": "allow", "reason": "hydra/allow: " + os.environ["PWD"]}))
+"#;
+
+    #[test]
+    fn a_batch_that_fails_as_a_whole_is_asked_again_one_call_at_a_time() {
+        let replay = Replay {
+            script: BATCH_DIES.to_string(),
+            policy: "standard".to_string(),
+            dialect: Dialect::Agy,
+        };
+        let input = json!({});
+        let first = Path::new("/tmp/first");
+        let second = Path::new("/tmp/second");
+        let calls = [
+            ("read_file", &input, first),
+            ("broken", &input, second),
+            ("read_file", &input, second),
+        ];
+        assert!(replay.decide_batch(&calls).is_err());
+
+        let answers = replay.decide_all(&calls);
+        assert_eq!(answers.len(), 3);
+        // The single-call entry gets PWD from the child's environment, as the
+        // live hook does, and each call gets its own.
+        assert_eq!(
+            answers[0].as_ref().unwrap().reason,
+            "hydra/allow: /tmp/first"
+        );
+        assert!(answers[1].is_err(), "{:?}", answers[1]);
+        assert_eq!(
+            answers[2].as_ref().unwrap().reason,
+            "hydra/allow: /tmp/second"
+        );
     }
 }
