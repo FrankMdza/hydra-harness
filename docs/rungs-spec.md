@@ -445,6 +445,18 @@ an exact-case membership test misses it.
 **A protected path changes when a human edits it by hand**, like any other file in any other repo.
 That is what the list is for, not a gap in it.
 
+**Since map ticket 73 the list is a floor under a set the human names.** A pass edits only what
+`--may-edit` names, or a short default set, and a patch touching any other path is refused the same
+way, before any judge. The floor is the protected rows as built plus the files that decide what the
+human's own `cargo` runs after a merge: `Cargo.toml`, `Cargo.lock`, any `build.rs`, `.cargo/` and the
+toolchain files, with `src/pty.rs`, `src/watch.rs` and `src/paths.rs`. No name lifts it, and naming
+it refuses the pass before a proposer launches. A patch that edits, deletes, renames or re-modes a
+file under `tests/` that existed at the pass's base tree is refused whatever the set says, which is
+build ticket 80; a new test file is allowed where the set allows it. A fresh review runs the same
+three refusals. What stays open, and this spec says it rather than dressing it up: a named file is
+fully editable, and a unit-test probe inside a named file can be weakened with the code it guards.
+Build ticket 96 carries it.
+
 **The opening scenario is answered here rather than by the panel.** A patch that removes a check in
 the quorum touches the review module, which is entry 1. It is refused at admission since build
 ticket 40. Between build 36 and build 40 the check covered the five config rows only, so such a

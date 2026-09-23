@@ -261,6 +261,15 @@ produces garbage, and the worktree is what prevents it.
 `--shared-tree` opts out, for the case where you deliberately want two agents in the same files. It
 costs MCP on Cursor (section 6.5) and it is not on the MCP delegate face (section 9).
 
+**Git that Hydra runs in the checkout never trusts the checkout.** The `.git` file at the worktree's
+root is the run's to write, and git reads its configuration from wherever that file points, so every
+git call Hydra makes there, outside any seatbelt, takes its git directory, common directory and
+work tree from the run record or from launch data kept under the deny list (map ticket 72, build
+ticket 95). Inside the run, the parent's `.git` stays denied except the checkout's own index and its
+lock, which `git add` needs, and the shared object store, whose grant is map ticket 74. `hydra reap`
+commits only on `hydra/<run-id>`: a checkout found on any other branch is left for a human, because
+committing a run's tree onto a branch Hydra did not make is how a human's branch would move.
+
 ### 6.4 Skills
 
 One canonical store at `~/hydra/skills/<name>/SKILL.md`, flat, its own git repo living inside the
@@ -1431,6 +1440,14 @@ was false for every pass run in that window. Map ticket 59 found it. Row 4 since
 stays editable by rung two, so only the compiler half under `src/policy/` was refused and a patch to
 `write_spawn_config` reached the panel. Map ticket 60 found it, and the writer is `src/spawn_config.rs`
 now, its own protected row, with `src/policy/` mapped to row 9 alone.
+
+**Since map ticket 73 these rows are the floor of rung two's admission, not the whole of it.** A
+pass may edit only the paths the human names with `--may-edit`, or a default set, so a mechanism
+file that lands outside this table is refused by default rather than admitted by omission, which is
+how `src/sandbox.rs`, `src/pty.rs` and three other files were missed. The floor adds the files the
+human's own `cargo build` runs after a merge and the three files build tickets 78 and 88 put
+mechanisms in; rungs spec 4.4 lists them. `src/run.rs` stays off the floor, as map ticket 60 keeps
+it, and is refused unless named. Build ticket 96.
 
 **Entry 12 arrived from the seam check and is the one row that is not source.** The other eleven are
 things a rung-two patch could propose changing. A patch cannot propose changing the corpus, so its

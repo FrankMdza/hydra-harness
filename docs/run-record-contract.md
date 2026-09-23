@@ -395,6 +395,12 @@ Hydra lines" holds without an exception.
 No gate is compiled, so `floor_lifted` is null and `gate_sha` is absent. `subscription` is null
 because nothing was spent by the pass itself.
 
+**`may_edit`, since build ticket 96, is on a harness run and nowhere else**: the list of
+repository-relative paths the pass was allowed to edit, the human's `--may-edit` values or the
+default set, as the pass normalized them. A pass written before that ticket has no such key, and a
+fresh review reads its absence as the default set. It is not counted in the paragraph below, which
+counts the keys every `run_start` body carries.
+
 **Seven fields of twenty-four are filled, and that number belongs in the contract rather than in a
 reader's discovery.** The twenty-four are the keys of a `run_start` body, the `type` discriminator
 left out: eight of them absent, nine null, seven filled. The count was twenty-eight when this
