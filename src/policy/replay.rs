@@ -187,12 +187,19 @@ impl Replay {
             Dialect::Claude | Dialect::Agy => "PreToolUse",
             Dialect::Cursor => "preToolUse",
         };
-        json!({
+        let mut payload = json!({
             "hook_event_name": event,
             "tool_name": tool,
-            "tool_input": input,
             "cwd": cwd.to_string_lossy(),
-        })
+        });
+        // A recorded call with no arguments reads back as null: every
+        // normalizer clones a missing field, which yields `Value::Null`. The
+        // gate refuses a `tool_input` that is present and null, so a null here
+        // leaves the key out, which the gate reads as a call with no arguments.
+        if !input.is_null() {
+            payload["tool_input"] = input.clone();
+        }
+        payload
     }
 
     /// Runs the compiled gate once and reads its stdout as JSON.
@@ -328,5 +335,22 @@ print(json.dumps({"decision": "allow", "reason": "hydra/allow: " + os.environ["P
             answers[2].as_ref().unwrap().reason,
             "hydra/allow: /tmp/second"
         );
+    }
+
+    #[test]
+    fn a_recorded_call_with_null_arguments_is_sent_without_tool_input() {
+        // The gate refuses a `tool_input` that is present and null, and a
+        // record with no arguments reads back as null, so the replay leaves
+        // the key out rather than report a refusal the live hook never made.
+        let replay = Replay {
+            script: String::new(),
+            policy: "permissive".to_string(),
+            dialect: Dialect::Claude,
+        };
+        let cwd = Path::new("/tmp/run");
+        let absent = replay.payload("Task", &Value::Null, cwd);
+        assert!(absent.get("tool_input").is_none(), "{absent}");
+        let present = replay.payload("Task", &json!({ "prompt": "x" }), cwd);
+        assert_eq!(present["tool_input"], json!({ "prompt": "x" }));
     }
 }

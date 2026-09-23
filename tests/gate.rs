@@ -1577,14 +1577,17 @@ fn a_protected_path_split_or_assembled_still_walks_past() {
     );
 
     // An MCP call under `permissive`, with a doubled slash or the path split
-    // across two fields.
+    // across two fields. Both spellings and the control below are built from
+    // this gate's own root, so the pins hold only while the gate that is asked
+    // really lets its own corpus through.
     let permissive = Gate::new("permissive");
+    let permissive_root = permissive.root.display();
     // If this now denies, the residual is closed and this comment is stale;
     // rewrite the assertion and SECURITY.md.
     for arguments in [
-        json!({ "path": format!("{}//runs/x.jsonl", root) }),
+        json!({ "path": format!("{}//runs/x.jsonl", permissive_root) }),
         json!({
-            "dir": format!("{}/ru", root),
+            "dir": format!("{}/ru", permissive_root),
             "name": "ns/x.jsonl",
         }),
     ] {
@@ -1593,10 +1596,15 @@ fn a_protected_path_split_or_assembled_still_walks_past() {
             "if this now denies, the residual is closed and the comment is stale"
         );
     }
-    let corpus = permissive.runs.join("x.jsonl");
+    let corpus = format!("{}/runs/x.jsonl", permissive_root);
+    assert_eq!(
+        Path::new(&corpus),
+        permissive.runs.join("x.jsonl"),
+        "the control names the same corpus the respellings reach for"
+    );
     assert!(
         permissive
-            .ask("mcp__x__write", json!({ "path": corpus.to_string_lossy() }))
+            .ask("mcp__x__write", json!({ "path": corpus }))
             .denied_for("hydra/protected-path"),
         "the plain MCP spelling must stay refused"
     );
@@ -2611,6 +2619,114 @@ fn a_missing_tool_input_is_allowed_for_a_tool_that_sends_none() {
             decision.allowed,
             "{tool} without tool_input was refused: {}",
             decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_tool_input_that_is_present_and_not_an_object_is_refused_even_when_null() {
+    // Absent reads as `{}`. Present means the key is there, whatever it holds,
+    // so an explicit null is refused like a bool, a number, a string or a list.
+    let gate = Gate::new("permissive");
+    for tool_input in [json!(null), json!(true), json!(1), json!("x"), json!([])] {
+        let decision = gate.ask_with_dialect(
+            Some("claude"),
+            json!({
+                "cwd": gate.worktree.to_string_lossy(),
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Task",
+                "tool_input": tool_input,
+            }),
+        );
+        assert!(
+            decision.denied_for("hydra/bad-payload"),
+            "Task with tool_input {tool_input} was answered {}: {}",
+            decision.allowed,
+            decision.reason
+        );
+    }
+    let missing = gate.ask_with_dialect(
+        Some("claude"),
+        json!({
+            "cwd": gate.worktree.to_string_lossy(),
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Task",
+        }),
+    );
+    assert!(
+        missing.allowed,
+        "Task without tool_input was refused: {}",
+        missing.reason
+    );
+}
+
+#[test]
+fn an_agy_args_that_is_present_and_not_an_object_is_refused_even_when_null() {
+    // `wait` is a `provider_native` row `permissive` grants, and it names no
+    // field the gate reads. A missing `args` is absent and allowed; an `args`
+    // that is there and not an object is refused.
+    let gate = Gate::agy("permissive");
+    let payload = |call: Value| {
+        json!({
+            "conversationId": "b631e11b-4a99-43db-9f37-11a373cdd98a",
+            "stepIdx": 2,
+            "toolCall": call,
+            "workspacePaths": [gate.worktree.to_string_lossy()],
+        })
+    };
+    for args in [json!(null), json!(true), json!(1), json!("x"), json!([])] {
+        let decision = gate.agy_ask(payload(json!({ "name": "wait", "args": args })));
+        assert!(
+            decision.denied_for("hydra/bad-payload"),
+            "wait with args {args} was answered {}: {}",
+            decision.allowed,
+            decision.reason
+        );
+    }
+    let missing = gate.agy_ask(payload(json!({ "name": "wait" })));
+    assert!(
+        missing.allowed,
+        "wait without args was refused: {}",
+        missing.reason
+    );
+}
+
+#[test]
+fn a_foreign_tool_call_key_is_refused_whatever_it_holds() {
+    // Carrying `toolCall` is enough on a claude or a cursor gate. The call
+    // beside it is an ordinary read the gate would otherwise allow.
+    let claude = Gate::new("standard");
+    let cursor = Gate::cursor("standard");
+    for value in [json!([]), json!(null), json!(1), json!("run_command")] {
+        let with_claude = claude.ask_with_dialect(
+            Some("claude"),
+            json!({
+                "cwd": claude.worktree.to_string_lossy(),
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Read",
+                "tool_input": { "file_path": "src/lib.rs" },
+                "toolCall": value,
+            }),
+        );
+        assert!(
+            with_claude.denied_for("hydra/wrong-envelope"),
+            "toolCall {value} on a claude gate was answered {}: {}",
+            with_claude.allowed,
+            with_claude.reason
+        );
+        let with_cursor = cursor.cursor_ask(json!({
+            "conversation_id": "8ccaa19c-fa4f-42d5-82a4-732806f7a312",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "README.md" },
+            "hook_event_name": "preToolUse",
+            "workspace_roots": [cursor.worktree.to_string_lossy()],
+            "toolCall": value,
+        }));
+        assert!(
+            with_cursor.denied_for("hydra/wrong-envelope"),
+            "toolCall {value} on a cursor gate was answered {}: {}",
+            with_cursor.allowed,
+            with_cursor.reason
         );
     }
 }

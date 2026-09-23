@@ -627,7 +627,10 @@ def wrong_dialect_envelope(payload):
     """
     dialect = HYDRA_CONFIG["dialect"]
     has_before_read = payload.get("hook_event_name") == "beforeReadFile"
-    has_tool_call = isinstance(payload.get("toolCall"), dict)
+    # Key presence, whatever the value. `"toolCall": null` or `[]` is still
+    # agy's envelope, and reading it as ours would check a `tool_name` the
+    # sender never meant as the call.
+    has_tool_call = "toolCall" in payload
     if dialect == "claude" and (has_before_read or has_tool_call):
         if has_before_read:
             return "cursor's beforeReadFile"
@@ -673,18 +676,21 @@ def as_tool_call(payload):
     if dialect == "agy":
         call = payload.get("toolCall")
         if isinstance(call, dict):
-            # `args` goes through as it arrived. One that is not an object
-            # reaches `evaluate` as a `tool_input` it cannot read and is refused
-            # there, rather than emptied here into a command line of nothing.
-            args = call.get("args")
+            # `args` goes through as it arrived. One that is not an object,
+            # an explicit null included, reaches `evaluate` as a `tool_input`
+            # it cannot read and is refused there, rather than emptied here
+            # into a command line of nothing. A missing `args` leaves the key
+            # out, so `evaluate` reads it as absent.
             paths = payload.get("workspacePaths")
             workspace = paths[0] if isinstance(paths, list) and paths else None
-            own_cwd = args.get("Cwd") if isinstance(args, dict) else None
-            return {
-                "tool_name": call.get("name"),
-                "tool_input": args,
-                "cwd": own_cwd or workspace,
-            }
+            unwrapped = {"tool_name": call.get("name")}
+            own_cwd = None
+            if "args" in call:
+                args = call["args"]
+                unwrapped["tool_input"] = args
+                own_cwd = args.get("Cwd") if isinstance(args, dict) else None
+            unwrapped["cwd"] = own_cwd or workspace
+            return unwrapped
     return payload
 
 
@@ -739,11 +745,13 @@ def evaluate(payload):
     # `Task`, `mcp__*` and the `provider_native` rows carry optional arguments
     # the gate does not resolve a path from. A present `tool_input` that is not
     # an object is refused, because coercing it to `{}` would empty a shell
-    # command or a path field the gate must read.
-    tool_input = payload.get("tool_input")
-    if tool_input is None:
+    # command or a path field the gate must read. Presence is the key, so an
+    # explicit null is present and refused like `true` or a list.
+    if "tool_input" not in payload:
         tool_input = {}
-    elif not isinstance(tool_input, dict):
+    else:
+        tool_input = payload["tool_input"]
+    if not isinstance(tool_input, dict):
         return False, (
             "hydra/bad-payload: {} carries tool_input the gate cannot read as an "
             "object.".format(tool)

@@ -64,3 +64,13 @@ search query that mentioned one; narrowed to the URL field. `hydra/wrong-envelop
 with 78 applied: gate 90, spawn 30, normalize 81, outcome 42, show 3, lib 193 passed; clippy and
 fmt clean. Built by `cursor-agent` on Composer 2.5 under `standard`, run 01a0cc2a-d2a1, 1.9M tokens;
 an Opus subagent fixed the review's six findings in the worktree.
+
+A second reader, `codex` under `standard` (run 01a0cc4a-ad67, 973k tokens, the review map 68's
+answer asked for), found three more, none a widened permission: an explicit `tool_input: null` was
+read as absent, a foreign `toolCall` key was refused only when it held an object, and two MCP pins
+asked a gate that did not protect their target, so they would have passed with the hole closed.
+Fixed by an Opus subagent: key presence decides both, and `replay.rs` now omits `tool_input` when a
+record's arguments are null so the replay does not report refusals the live gate never made. The
+review is `.scratch/hydra/research/68-review-of-the-fixes-codex.md`. Measured: gate 96, lib 196, and
+the corpus walks over the real 321 records green.
+
