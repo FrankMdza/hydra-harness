@@ -29,7 +29,7 @@ ouroboros src tests` showing only the two things item 2 keeps. Do not run the wh
 ## Outcome
 
 Resolved 2026-09-21. `cursor-agent` on Composer 2.5, run 01a0c4a6-cf6d under `standard`: 18 files,
-five of them `git mv`, 155 insertions and 116 deletions, clippy and fmt clean, evolve, curate,
+five of them `git mv`, 155 insertions and 116 deletions, 2.5M tokens, clippy and fmt clean, evolve, curate,
 gate and cleanup green in the worktree and on master. `pass_run_id_from_branch` reads both
 prefixes with a test on each. The orchestrating session moved `docs/ouroboros-spec.md` to
 `docs/rungs-spec.md` and renamed the subsystem across the documents; the run records, the

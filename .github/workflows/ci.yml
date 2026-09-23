@@ -22,3 +22,10 @@ jobs:
       - run: cargo clippy -- -D warnings
       - run: cargo build --release
       - run: cargo test --release --no-fail-fast -- --test-threads=1
+      # Build ticket 84. The walks above pass on zero records here, so the count goes on the
+      # job summary where a reader of a green run sees it.
+      - name: corpus count
+        run: |
+          cargo test --release --test record_contract every_record_on_this_machine_meets_the_contract -- --nocapture 2>&1 \
+            | { grep '^checked ' || echo "the corpus walk found no runs directory"; } \
+            | tee -a "$GITHUB_STEP_SUMMARY"

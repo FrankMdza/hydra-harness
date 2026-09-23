@@ -158,14 +158,15 @@ already use, one compiled script per spawn in each vendor's hook dialect.
 ## How it compares
 
 Worktree-per-run over several vendor CLIs is a crowded shelf. What is not on it is the record.
+Rows other than Hydra's come from each project's own docs as read on 2026-09-12.
 
-| | Runs several vendor CLIs | Worktree per run | Record per run, contract-checked | Gate compiled per run |
+| | Works with several vendor CLIs | Worktree per run | Record per run, contract-checked | Gate compiled per run |
 |---|---|---|---|---|
-| [ccmanager](https://github.com/kbwo/ccmanager) | 9 | yes | no | container and auto-approve |
-| [vibe-kanban](https://github.com/BloopAI/vibe-kanban) | 10+ | yes | no | no |
-| [Cupcake](https://github.com/eqtylab/cupcake) | 4, via hooks | no | no | yes, OPA/Rego, richer than Hydra's |
-| [Langfuse coding-agent tracing](https://langfuse.com/resources/engineering/coding-agent-tracing) | 3 | no | traces, hosted, no outcome | no |
-| Hydra | 4, `codex` under three policies | yes | yes, outcome derived from the stream | yes, five policies, three dialects |
+| [ccmanager](https://github.com/kbwo/ccmanager) | yes | yes | no | no |
+| [vibe-kanban](https://github.com/BloopAI/vibe-kanban) | yes | yes | no | no |
+| [Cupcake](https://github.com/eqtylab/cupcake) | yes | no | no | yes |
+| [Langfuse coding-agent tracing](https://langfuse.com/resources/engineering/coding-agent-tracing) | yes | no | no | no |
+| Hydra | yes, four | yes | yes, outcome derived from the stream | yes, five policies |
 
 ccmanager has the live dashboard and container isolation Hydra lacks. Cupcake has the policy
 language. Langfuse has the UI and cross-run search. None derives the outcome from what the tools
@@ -205,7 +206,8 @@ first so the design map gets a ticket and the record contract does not fork with
 Twelve commands a human types, the eleven of harness spec 17 plus `doctor`, and two hidden
 ones. 23 test files, green in CI on macOS against an empty corpus; the three walks over the
 real records run only on a machine that has some, so a green CI says the readers compile and
-the fixtures hold, not that every record on this laptop still meets the contract. Rung one has
+the fixtures hold, not that every record on this laptop still meets the contract. The job
+summary prints how many records the walk read, which in CI is zero. Rung one has
 run once against the real corpus and proposed one skill. Rung two has run ten passes and
 offered one patch, a two-word one, on the tenth, and a human merged it; the other nine found
 something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a record:
@@ -215,20 +217,20 @@ it is every departure from the design with its reason.
 
 Part of Hydra was written by the agents Hydra launches, through `hydra run`, while a Claude
 Code session wrote the tickets, reviewed each worktree diff and applied it to master by hand.
-The corpus in `~/hydra/runs/` is the source for this table, and each ticket's `## Outcome`
-names the run id and the token count.
+The corpus in `~/hydra/runs/` is the source for this table, which covers build tickets 01 to
+76, and each ticket an agent wrote names its run id and token count under `## Outcome`.
 
 | Written by | Build tickets |
 |---|---|
-| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 69 |
+| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 75 |
 | `cursor-agent` on Grok 4.6 Fast | 21, 30, 33, 35, 37, 38 |
 | `cursor-agent`, no model flag, so the record says none | 17 |
 | `claude` on Sonnet 5 | 18, 22, 23, 26, 27 |
 | `claude` on Haiku 4.5 | 25 |
 | `agy` on Gemini 3.1 Pro | 19, and the drift test of 17 |
-| the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59 |
+| the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59, 76 |
 
-That is 35 of 69 build tickets on an agent run, none of them merged unread. Ticket 27, the
+That is 41 of those 76 build tickets on an agent run, none of them merged unread. Ticket 27, the
 interactive mode and its harvest, was the largest single run at 54.7M tokens, 54.0M of them
 cache reads. Ticket 25 was the first Rust ticket given to the cheapest model, and it held.
 The design documents, the policies, the record contract and this README are the session's.
@@ -241,7 +243,7 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 64 decision tickets, 63 of them resolved, with
+`.scratch/hydra/map.md` is the design history: 71 decision tickets, 68 of them resolved, with
 the reasoning each document compressed. `CLAUDE.md` is what an agent reads first.
 
 ## Contributing and support

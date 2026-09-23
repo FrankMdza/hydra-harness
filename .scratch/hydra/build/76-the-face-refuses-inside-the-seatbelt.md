@@ -40,3 +40,6 @@ the_known_codes_are_exactly_the_ones_the_gate_and_its_wrappers_write`: 1 passed.
 --all-targets -- -D warnings`: clean. The ticket assumed the check belonged before argument parsing;
 after `read()` is correct so invalid provider and unknown-argument refusals still reach the model
 when the face is inside a seatbelt.
+
+Built by the Claude Code session by hand, with no agent run, so there is no run id or
+token count.

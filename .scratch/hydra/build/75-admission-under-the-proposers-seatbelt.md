@@ -39,3 +39,5 @@ plants `tests/zz_hostile.rs` in a minimal scratch worktree, asserts `cargo test`
 `cargo test --release --test evolve`: 25 passed. `cargo clippy --all-targets -- -D warnings` exited 0.
 The ticket assumed the hostile test could run in a Hydra-launched worktree; nested `sandbox-exec`
 inside the proposer seatbelt is refused, so the test skips there.
+
+Built by `cursor-agent` on Composer 2.5, run 01a0c956-462b under `standard`, 2.8M tokens.

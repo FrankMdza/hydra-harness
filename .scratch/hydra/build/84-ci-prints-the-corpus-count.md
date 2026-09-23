@@ -1,7 +1,7 @@
 # 84 - CI prints how many records its corpus walks read
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -18,3 +18,9 @@ A CI run's summary shows the count; locally the same test prints the real count.
 and `SECURITY.md` or the README, wherever F32 is stated, say the zero is now printed.
 
 ## Outcome
+
+The CI job gains a last step that runs `every_record_on_this_machine_meets_the_contract` alone with
+`--nocapture` and appends its `checked N record(s)` line to `$GITHUB_STEP_SUMMARY`, or a sentence
+saying no runs directory was found. The test already printed the count; nothing in `tests/` changed.
+Measured locally against an empty `HYDRA_ROOT`: `checked 0 record(s) under <tmp>/runs`. The first CI
+run after the push is the measurement on the runner. Done by the session by hand, no agent run.

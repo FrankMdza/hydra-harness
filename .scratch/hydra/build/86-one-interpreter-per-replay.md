@@ -1,7 +1,7 @@
 # 86 - The replay runs one interpreter per record, not one per call
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

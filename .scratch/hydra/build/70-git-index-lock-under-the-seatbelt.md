@@ -51,3 +51,4 @@ goes into the shared `objects/` before the index is touched. The session carved
 rewrote the test's last probe to a write into `refs/heads/`: `git status` and `git add` succeed,
 `git commit` and the ref and `HEAD` writes are refused, 29 of 29 in `tests/spawn.rs`.
 
+Built by `cursor-agent` on Composer 2.5, run 01a0c924-5609 under `standard`, 5.4M tokens.

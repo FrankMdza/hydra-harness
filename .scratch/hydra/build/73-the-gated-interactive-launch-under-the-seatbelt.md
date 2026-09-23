@@ -47,3 +47,5 @@ drew its interface under `sandbox-exec`, answered `pong` and exited 0, and `run_
 `launch_mode: interactive`, `sandbox` b4c17cc9 and `gate_sha` d4870f3a; the spawn directory holds
 `sandbox.sb` beside the gate. 54.6k tokens.
 
+Built by `cursor-agent` on Composer 2.5, run 01a0c955-f7a1 under `standard`, 883k
+tokens; the 54.6k above is the human's measurement run.

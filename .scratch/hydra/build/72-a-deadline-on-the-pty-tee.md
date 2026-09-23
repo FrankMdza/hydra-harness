@@ -43,3 +43,5 @@ path here and the deadline path on Linux where a descendant can keep the slave o
 The ticket assumed a shell `sleep 300 &` stub would hold the slave on every platform;
 on macOS background jobs lose the pty when the session leader exits, so the test uses
 `spawn_with_held_slave` instead.
+
+Built by `cursor-agent` on Composer 2.5, run 01a0c924-a494 under `standard`, 11.8M tokens.

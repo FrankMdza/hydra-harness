@@ -1,7 +1,7 @@
 # 85 - The export verifier stops sharing the redactor's patterns
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

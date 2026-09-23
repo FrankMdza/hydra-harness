@@ -39,5 +39,5 @@ failure the review measured. Gate suite 68 of 69; the one red is build ticket 58
 on a human editing protected config.
 
 Built by `cursor-agent` on `composer-2.5` under `standard`, run `01a0a572-e4ab`, 4 files and
-71 insertions. The report named the ticket 58 failure already in its worktree and attributed it
+71 insertions, 1.2M tokens. The report named the ticket 58 failure already in its worktree and attributed it
 correctly rather than trying to fix it.

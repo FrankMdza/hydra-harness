@@ -55,3 +55,5 @@ seatbelt; that assumption holds on CI and fails only in this population.
 Session note, 2026-09-22: applied to master; `tests/spawn.rs` gained the checkout probe against the
 gate template as well as `target/`; one pong per provider completed under the new profile,
 01a0c960-a3a5, 01a0c960-c1f5, 01a0c960-e174, 01a0c961-009d.
+
+Built by `cursor-agent` on Composer 2.5, run 01a0c956-213e under `standard`, 1.7M tokens.

@@ -43,3 +43,5 @@ then appends `-m` and the task. `tests/resume.rs` gained `codex_argv_carries_exe
 The ticket assumed a resumed session might run in the source run's recorded cwd; the
 measurement showed it runs in the caller's cwd instead, which is the fresh worktree Hydra
 seeds for the continuation.
+
+Built by `cursor-agent` on Composer 2.5, run 01a0c924-7d46 under `standard`, 746k tokens.

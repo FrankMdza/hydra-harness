@@ -43,5 +43,5 @@ expected every non-failed run to be `Completed` or `Gated`. `Crashed` is derived
 the test has that arm now beside the `Failed` one it already had.
 
 Built by `cursor-agent` on `composer-2.5` under `standard`, run `01a0a56f-9a20`, 3 files and 30
-insertions. The report named the four failures it caused and attributed them correctly, and did not
+insertions, 1.4M tokens. The report named the four failures it caused and attributed them correctly, and did not
 fix them; that half was finished here.
