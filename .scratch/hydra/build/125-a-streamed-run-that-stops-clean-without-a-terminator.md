@@ -1,7 +1,7 @@
 # 125 - A streamed run that stops at exit 0 without a terminator is `failed`, and the walk says so
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -50,3 +50,33 @@ one was `agy` at exit 1. This record breaks the assumption, not the contract.
   `failed with exit 0` message. Paste the line into `## Outcome`.
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --test outcome
   --test fixture_corpus --test normalize --test record_contract` pass.
+
+## Outcome
+
+Resolved 2026-09-24. Built by `composer-2.5` on run 01a0d56c-a2b7-7491 under `standard`, about
+1.02M tokens, 0.95M of them cache reads. The session read the diff and applied it with one
+change.
+
+The assertion in `tests/outcome.rs` now skips a `failed` run whose stream carries no
+terminator, and keeps the exit-0 refusal for a `failed` run that has one. No measured `failed`
+run with a terminator exits 0: `agy`'s timeout and codex's `turn.failed` both exit non-zero. The
+comment names both records. `src/outcome.rs` did not change, because `derive` already returns
+`failed` for this shape.
+
+Fixture 11 under `tests/fixtures/records/codex@0.154.0/` is the 01a0d484 shape: two
+`command_execution` items, one `agent_message`, no turn terminator, `run_end` exit 0. The live
+record says `codex-cli 0.154.0`, so the directory label is right. The session changed the
+fixture's items from `output` to `aggregated_output`, the field codex actually writes and the
+one the reader tries first, and regenerated the file with `write_the_fixture_corpus`. README.md
+and IMPLEMENTATION.md count eleven fixtures.
+
+With the assertion change reverted, the fixture walk fails:
+
+```
+assertion `left != right` failed: .../tests/fixtures/records/codex@0.154.0/00000000-0000-7000-8000-000000000011.jsonl: failed with exit 0
+```
+
+On master with the live corpus, `cargo test --test outcome` passes, 47 of 47, and so do
+`fixture_corpus` (3) and `record_contract` (21). fmt and clippy are clean. Inside the worktree
+two diff-stat tests in `outcome.rs` failed on the same inherited `GIT_OBJECT_DIRECTORY` as
+`run::tests`. On master they pass.

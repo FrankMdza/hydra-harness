@@ -295,6 +295,37 @@ fn fixtures() -> Vec<Fixture> {
         .closed(),
     });
 
+    // `codex` stopped on the stream with no turn terminator: command items and
+    // one `agent_message`, `run_end` exit 0. Run 01a0d484's shape, 2026-09-24.
+    let id = fixture_id(11);
+    out.push(Fixture {
+        label: CODEX,
+        provider_version: Some("codex-cli 0.154.0"),
+        subscription: Some("openai"),
+        text: Record::shaped(Shape {
+            run_id: &id,
+            provider: Some("codex"),
+            policy: Some("standard"),
+            policy_sha: Some(&sha),
+            worktree: Some(&layout.worktree(&id)),
+            ..Shape::default()
+        })
+        .raw(json!({"type": "thread.started", "thread_id": "fixture-thread-b"}))
+        .raw(json!({"type": "turn.started"}))
+        .raw(json!({"type": "item.completed", "item": {
+            "type": "command_execution", "id": "c1", "command": "ls",
+            "aggregated_output": "README\n", "exit_code": 0,
+        }}))
+        .raw(json!({"type": "item.completed", "item": {
+            "type": "command_execution", "id": "c2", "command": "head README",
+            "aggregated_output": "probe\n", "exit_code": 0,
+        }}))
+        .raw(json!({"type": "item.completed", "item": {
+            "type": "agent_message", "id": "m1", "text": "still reading",
+        }}))
+        .closed(),
+    });
+
     // A `hydra evolve` pass: contract 5.5's two lines, no provider.
     let id = fixture_id(10);
     out.push(Fixture {

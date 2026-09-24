@@ -229,14 +229,14 @@ against the real 213 records they take six minutes. Since build ticket 84 the CI
 step that runs the contract walk alone and writes its "checked N record(s)" line to the job
 summary, so a green run on the runner's empty root says `checked 0` where a reader can see it.
 **Since build ticket 101 CI walks a fixture corpus too** (panel findings F32 and H14).
-`tests/fixtures/records/` holds ten synthetic records in five directories named by the binary
+`tests/fixtures/records/` holds eleven synthetic records in five directories named by the binary
 that wrote each shape: `claude@2.1.261`, `cursor-agent@2026.09.02-c22c1a3`, `agy@1.1.26`,
 `codex@0.154.0` and `harness`. The ignored test `write_the_fixture_corpus` in
 `tests/fixture_corpus.rs` writes them from the builders in `tests/common`, so no byte comes from
 `~/hydra/runs`, and three tests there guard the directory label, the coverage of every routed
 provider and the harness, and the absence of secrets, home paths and live run ids. Each live walk
 in `record_contract.rs`, `normalize.rs` and `outcome.rs` has a fixture twin with the same
-assertions, and the CI job summary prints both counts, zero live records and ten fixtures. Two
+assertions, and the CI job summary prints both counts, zero live records and eleven fixtures. Two
 limits. The fixture leak walk can catch a reader that invents a leak and cannot catch a real one,
 because a frozen fixture names no gate this build compiles, so a disagreement reads as
 `StalePolicy`; the synthetic tests in `tests/normalize.rs` hold the leak rule. And no fixture

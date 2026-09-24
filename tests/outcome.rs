@@ -1417,10 +1417,19 @@ fn gated_runs_are_the_write_denials(records: &[PathBuf], read: Reader<'_>) -> us
         }
 
         // A provider that ran the task and then died on it is `failed`, contract
-        // 12's second row, and the per-call rule says nothing about it. The first
-        // one landed on 2026-09-07: `agy` timed out waiting for its own model at
-        // 292 seconds, exit 1, with 41 calls answered by the gate before that.
+        // 12's second row, and the per-call rule says nothing about it. Two
+        // landed on this machine: `agy` on 2026-09-07 timed out waiting for its
+        // own model at 292 seconds, exit 1, with 41 gate answers before that and
+        // a terminator on the stream; `codex` on 2026-09-24 (01a0d484) stopped
+        // 27 seconds in with items and one `agent_message` but no turn terminator,
+        // exit 0. Contract 8 reads a streamed run that stopped without a
+        // terminator as `failed` and does not consult the exit code, so exit 0
+        // is allowed when `run.result` is none. Every measured `failed` run that
+        // does carry a terminator exits non-zero.
         if outcome == Outcome::Failed {
+            if run.result.is_none() {
+                continue;
+            }
             let exit = run.run_end().map(|end| end.body["exit_code"].clone());
             assert_ne!(
                 exit,
