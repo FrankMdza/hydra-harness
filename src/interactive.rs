@@ -104,8 +104,9 @@ pub fn prepare_policy_launch(
     )?;
     let injected_names = mcp_plan.injected_names();
 
-    let injected = if policy != "judge" {
-        Some(inject_skills(
+    let mut injected = None;
+    if policy != "judge" {
+        inject_skills(
             layout,
             run_id,
             Provider::Claude,
@@ -114,10 +115,9 @@ pub fn prepare_policy_launch(
                 policy,
                 config: Some(&mcp_file),
             },
-        )?)
-    } else {
-        None
-    };
+            &mut injected,
+        )?;
+    }
 
     if let Some(injected) = &injected
         && !injected.collisions.is_empty()
@@ -211,6 +211,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
     layout.ensure()?;
 
     let invoked_in = std::env::current_dir().context("reading the working directory")?;
+    crate::run::refuse_launch_inside_checkout(&layout, &invoked_in)?;
     let repo = crate::worktree::repo_root(&invoked_in).with_context(|| {
         "a gated interactive run needs a git repo to seed a worktree from. \
          Run it from inside a repository."

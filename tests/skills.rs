@@ -557,6 +557,43 @@ fn on_codex_the_skill_is_a_read_only_copy_with_the_snapshots_bytes() {
 }
 
 #[test]
+fn an_injection_that_fails_partway_names_what_it_left_in_the_checkout() {
+    // Build ticket 99, the third hiring panel's H40. `inject` copied `alpha`,
+    // failed on `beta`, and returned an error with no list, so the failure
+    // record carried no `skills` block and reap held nothing back.
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new("partial-inject");
+    let layout = fixture.layout();
+    let store = Store::open(&layout).unwrap();
+    fixture.store_skill("alpha", "A probe.", None);
+    fixture.store_skill("beta", "A probe.", None);
+    std::fs::write(layout.skills().join("beta/extra.md"), "extra\n").unwrap();
+    let sha = store.pin(RUN_A).unwrap();
+    let snapshot = store.snapshot(&layout, &sha).unwrap();
+    let unreadable = snapshot.join("beta/extra.md");
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let worktree = fixture.checkout(RUN_A);
+
+    let failed = skills::inject(&worktree, Provider::Codex, &snapshot, &sha);
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let failure = failed.expect_err("the copy of beta should have failed");
+    assert!(
+        format!("{:#}", failure.error).contains("beta"),
+        "{:#}",
+        failure.error
+    );
+    assert!(worktree.join(".codex/skills/alpha").is_dir());
+    assert_eq!(
+        failure.partial.linked,
+        vec!["alpha".to_string(), "beta".to_string()],
+        "the failed injection did not name everything it started"
+    );
+    assert_eq!(failure.partial.store_sha, sha);
+}
+
+#[test]
 fn the_copy_check_reports_a_changed_a_missing_and_an_added_file_and_nothing_on_a_fresh_copy() {
     let fixture = Fixture::new("copy-check");
     let layout = fixture.layout();

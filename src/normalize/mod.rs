@@ -739,7 +739,7 @@ impl<'a> ReplaySpawn<'a> {
             // Old records can recover the parent from Hydra's saved launch data;
             // without either source, report the missing scope.
             let found = worktree.and_then(|path| {
-                crate::worktree::CheckoutGit::for_run(layout, run_id, path, None)
+                crate::worktree::CheckoutGit::for_run(run_id, path, None)
                     .ok()
                     .map(|context| context.common_dir().to_path_buf())
             });
