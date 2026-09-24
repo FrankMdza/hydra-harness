@@ -110,14 +110,16 @@ impl CheckoutGit {
 /// hiring panel's H5. So [`GitLocation::command`] sets
 /// `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`. The repository's
 /// own `config` is still read, and a run cannot write it, because the shared
-/// git directory is denied. The one value Hydra still takes from the wider
-/// configuration is who commits, read as data by [`identity`] and passed with
-/// `-c` by [`git_as_author`].
+/// git directory is denied. Hydra still takes three things from the wider
+/// configuration, each read as data and passed with `-c`: who commits, through
+/// [`identity`] and [`git_as_author`], and the excludes file and every
+/// `safe.directory`, through [`pinned_config`].
 pub trait GitLocation {
     fn path(&self) -> &Path;
 
-    /// `git` here reading every level of configuration. Only [`identity`]
-    /// uses it, and `git config --get` runs no program a value names.
+    /// `git` here reading every level of configuration. Only the reads behind
+    /// [`identity`] and [`pinned_config`] use it, and `git config --get-regexp`
+    /// runs no program a value names.
     ///
     /// **Never a run's object directory.** The watcher starts from the child's
     /// environment, which carries the two variables of [`run_object_env`], and
@@ -133,11 +135,15 @@ pub trait GitLocation {
         command
     }
 
+    /// `git` here reading only the repository's own configuration, with the
+    /// values of [`pinned_config`] passed on the command line.
     fn command(&self) -> Command {
+        let pinned = pinned_config(self);
         let mut command = self.configured();
         command
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1");
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(pinned);
         command
     }
 }
@@ -176,26 +182,167 @@ impl GitLocation for CheckoutGit {
     }
 }
 
+/// How long Hydra waits for `git config` to read the wider configuration.
+///
+/// `~/.gitconfig` is a file a run can write, and an `[include]` naming a fifo
+/// makes git block on opening it until something writes the other end. A read
+/// that does not answer in time counts as finding nothing, so the git Hydra
+/// runs next reads no global value rather than hanging reap: the review of
+/// build ticket 99, item 5.
+pub const CONFIG_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `git config -z --get-regexp <pattern>` at `repo` with every level of
+/// configuration read, as `(key, value)` pairs in the order git lists them.
+/// Empty when nothing matches. `None` when git could not start, failed, or did
+/// not answer within [`CONFIG_READ_TIMEOUT`].
+fn read_config<G: GitLocation + ?Sized>(repo: &G, pattern: &str) -> Option<Vec<(String, String)>> {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = repo
+        .configured()
+        .args(["config", "-z", "--get-regexp", pattern])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.read_to_end(&mut bytes);
+        bytes
+    });
+    let deadline = std::time::Instant::now() + CONFIG_READ_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                eprintln!(
+                    "hydra: git config at {} did not answer within {}s, so the git that \
+                     follows gets no value from global configuration",
+                    repo.path().display(),
+                    CONFIG_READ_TIMEOUT.as_secs()
+                );
+                return None;
+            }
+        }
+    };
+    let bytes = reader.join().ok()?;
+    // Exit 1 is "no key matched", which is an answer.
+    if !matches!(status.code(), Some(0) | Some(1)) {
+        return None;
+    }
+    Some(
+        bytes
+            .split(|b| *b == 0)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| {
+                let entry = String::from_utf8_lossy(entry);
+                match entry.split_once('\n') {
+                    Some((key, value)) => (key.to_string(), value.to_string()),
+                    None => (entry.to_string(), String::new()),
+                }
+            })
+            .collect(),
+    )
+}
+
 /// `user.name` and `user.email` as git would resolve them at `repo` with every
 /// level of configuration read, as `-c` arguments. Empty when neither is set,
 /// and git then falls back to its own guess, as it did before.
 ///
 /// **Read as data, never as configuration.** A run that rewrites `~/.gitconfig`
 /// can change the name on a commit Hydra makes of that run's work, and nothing
-/// else.
+/// else. The read gives up after [`CONFIG_READ_TIMEOUT`].
+///
+/// Nothing else a commit reads from global configuration reaches it, so a
+/// human's `commit.gpgSign` does not either: Hydra's commits are unsigned.
 pub fn identity<G: GitLocation + ?Sized>(repo: &G) -> Vec<String> {
+    let values = read_config(repo, r"^user\.(name|email)$").unwrap_or_default();
     let mut args = Vec::new();
     for key in ["user.name", "user.email"] {
-        let Ok(out) = repo.configured().args(["config", "--get", key]).output() else {
-            continue;
-        };
-        let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if out.status.success() && !value.is_empty() {
+        // The last value git lists is the one it would use.
+        if let Some((_, value)) = values.iter().rev().find(|(name, _)| name == key)
+            && !value.trim().is_empty()
+        {
             args.push("-c".to_string());
-            args.push(format!("{key}={value}"));
+            args.push(format!("{key}={}", value.trim()));
         }
     }
     args
+}
+
+/// The `-c` arguments every git Hydra starts carries: the review of build
+/// ticket 99, items 1, 2 and 5. Each value is either fixed here or read as data
+/// through [`GitLocation::configured`], never taken from configuration git
+/// reads on its own.
+///
+/// - `core.attributesFile=/dev/null`. When that key is unset git reads
+///   `$XDG_CONFIG_HOME/git/attributes`, with or without global configuration,
+///   and a run can write that file. An attribute there changes the bytes reap
+///   commits: `*.txt text` turns a CRLF file into LF on `git add`.
+/// - `core.excludesFile`, the file the human's own git reads: the configured
+///   one, or git's default `$XDG_CONFIG_HOME/git/ignore`. Build ticket 99
+///   stopped reading a custom one set in `~/.gitconfig`, so the seed copied
+///   files the human ignores only there into the run's checkout, and reap's
+///   `add -A` committed them. The value names a file, not a program. Anything
+///   but a regular file becomes `/dev/null`, so a fifo there cannot hang git.
+/// - every `safe.directory`. Git honours it only from system, global or
+///   command-line configuration, so without it a repository that needs one
+///   failed [`repo_root`], and `hydra run` launched with no worktree.
+pub fn pinned_config<G: GitLocation + ?Sized>(repo: &G) -> Vec<String> {
+    let values = read_config(repo, r"^(core\.excludesfile|safe\.directory)$").unwrap_or_default();
+    let mut args = vec![
+        "-c".to_string(),
+        "core.attributesFile=/dev/null".to_string(),
+    ];
+    let excludes = match values
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "core.excludesfile")
+    {
+        Some((_, value)) => expand_home(value),
+        None => default_excludes_file(),
+    };
+    let excludes = match excludes {
+        Some(path) if std::fs::metadata(&path).is_ok_and(|meta| meta.is_file()) => {
+            path.display().to_string()
+        }
+        _ => "/dev/null".to_string(),
+    };
+    args.push("-c".to_string());
+    args.push(format!("core.excludesFile={excludes}"));
+    for (_, value) in values.iter().filter(|(key, _)| key == "safe.directory") {
+        args.push("-c".to_string());
+        args.push(format!("safe.directory={value}"));
+    }
+    args
+}
+
+/// `~/` expanded against `HOME`, the one form of a configured path this reads.
+/// `None` for an empty value, which git treats as unset.
+fn expand_home(value: &str) -> Option<PathBuf> {
+    if value.is_empty() {
+        return None;
+    }
+    match value.strip_prefix("~/") {
+        Some(rest) => std::env::var_os("HOME").map(|home| PathBuf::from(home).join(rest)),
+        None => Some(PathBuf::from(value)),
+    }
+}
+
+/// Where git looks for an excludes file when `core.excludesFile` is unset.
+fn default_excludes_file() -> Option<PathBuf> {
+    match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+        Some(config) => Some(PathBuf::from(config).join("git/ignore")),
+        None => std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/git/ignore")),
+    }
 }
 
 /// [`git`] for a command that writes a commit, with [`identity`] in front of
@@ -749,7 +896,7 @@ fn bind_and_seed(repo: &Path, dest: &Path) -> Result<CheckoutGit> {
 
 /// Undoes `git worktree add -b` and the context file beside it. Nothing has
 /// run in the checkout yet, so `--force` discards only what the seed copied.
-fn roll_back(repo: &Path, dest: &Path, branch: &str) -> Result<()> {
+pub fn roll_back(repo: &Path, dest: &Path, branch: &str) -> Result<()> {
     git(
         repo,
         &["worktree", "remove", "--force", &dest.to_string_lossy()],

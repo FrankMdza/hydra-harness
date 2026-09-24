@@ -2,13 +2,69 @@
 //! seatbelt reads no global or system configuration, and still commits under
 //! the identity that configuration names.
 //!
-//! **One test in its own file, because it sets process-wide variables.**
+//! **Its own file, because every test here sets process-wide variables.**
 //! `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` stand in for a `~/.gitconfig` a
-//! run rewrote and a system file the same user owns, and no other test shares
-//! this binary to read them by accident.
+//! run rewrote and a system file the same user owns, and `XDG_CONFIG_HOME` for
+//! the directory git reads its default attributes and ignore files from. No
+//! test in another file shares this binary to read them by accident, and the
+//! tests here take [`ENV`] so they do not read each other's.
+//!
+//! Build ticket 105 added four, one per item of the review of build ticket 99
+//! that changed what Hydra's git reads.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, MutexGuard};
+
+/// Held for the whole of each test, because each one sets the environment.
+static ENV: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Sets `name` for this process, or removes it.
+fn set_env(name: &str, value: Option<&Path>) {
+    // SAFETY: every test in this binary holds `ENV` while it touches the
+    // environment, and none of them reads it from another thread meanwhile.
+    unsafe {
+        match value {
+            Some(value) => std::env::set_var(name, value),
+            None => std::env::remove_var(name),
+        }
+    }
+}
+
+/// A scratch directory for one test, empty.
+fn scratch(name: &str) -> PathBuf {
+    let base = std::env::temp_dir().join(format!("hydra-git-config-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    // Canonical, so a path written into a config matches the one git computes.
+    std::fs::canonicalize(&base).unwrap()
+}
+
+/// A repository at `base/repo` with one commit, made with no global config.
+fn committed_repo(base: &Path) -> PathBuf {
+    let repo = base.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    clean_git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("committed.txt"), "one\n").unwrap();
+    clean_git(&repo, &["add", "-A"]);
+    clean_git(
+        &repo,
+        &[
+            "-c",
+            "user.name=setup",
+            "-c",
+            "user.email=setup@example.invalid",
+            "commit",
+            "-qm",
+            "first",
+        ],
+    );
+    repo
+}
 
 /// Git for the test's own setup, reading neither of the planted files.
 fn clean_git(dir: &Path, args: &[&str]) -> String {
@@ -46,6 +102,7 @@ fn fired(markers: &Path) -> Vec<String> {
 
 #[test]
 fn hydras_git_runs_nothing_global_or_system_config_names_and_keeps_the_identity() {
+    let _env = env_lock();
     let base: PathBuf =
         std::env::temp_dir().join(format!("hydra-git-config-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
@@ -159,5 +216,185 @@ fn hydras_git_runs_nothing_global_or_system_config_names_and_keeps_the_identity(
         std::env::remove_var("GIT_CONFIG_GLOBAL");
         std::env::remove_var("GIT_CONFIG_SYSTEM");
     }
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The review of build ticket 99, item 1, measured there. A human who ignores
+/// a file only through a custom `core.excludesFile` in `~/.gitconfig` still has
+/// it ignored: the seed does not copy it into the run's checkout, and reap's
+/// `add -A` does not commit it when the run writes one of its own.
+#[test]
+fn a_file_ignored_only_by_a_global_excludes_file_is_neither_seeded_nor_committed() {
+    let _env = env_lock();
+    let base = scratch("excludes");
+    let repo = committed_repo(&base);
+    std::fs::write(repo.join("secret.env"), "TOKEN=parent\n").unwrap();
+    std::fs::write(repo.join("kept.txt"), "work in progress\n").unwrap();
+
+    let excludes = base.join("my-ignores");
+    std::fs::write(&excludes, "secret.env\n").unwrap();
+    let global = base.join("gitconfig");
+    std::fs::write(
+        &global,
+        format!(
+            "[user]\n\tname = Global Tester\n\temail = global@example.invalid\n\
+             [core]\n\texcludesFile = {}\n",
+            excludes.display()
+        ),
+    )
+    .unwrap();
+    set_env("GIT_CONFIG_GLOBAL", Some(&global));
+
+    let dest = base.join("checkout");
+    let created = hydra::worktree::create(&repo, &dest, "hydra/excludes", &base.join("seed-index"));
+    let seeded_secret = dest.join("secret.env").exists();
+    let seeded_kept = dest.join("kept.txt").exists();
+
+    // What the run writes, and what reap commits.
+    std::fs::write(dest.join("secret.env"), "TOKEN=child\n").unwrap();
+    std::fs::write(dest.join("work.txt"), "child\n").unwrap();
+    let common = hydra::worktree::git_common_dir(&repo).unwrap();
+    let context = hydra::worktree::CheckoutGit::new(&dest, &common).unwrap();
+    let committed = hydra::worktree::commit_everything(&context, "reap", &[]);
+    set_env("GIT_CONFIG_GLOBAL", None);
+
+    created.unwrap();
+    assert!(
+        seeded_kept,
+        "the seed skipped an untracked file nobody ignores"
+    );
+    assert!(
+        !seeded_secret,
+        "the seed copied a file the human's global excludes file ignores"
+    );
+    let commit = committed.unwrap().expect("the checkout held work");
+    let files = clean_git(&repo, &["ls-tree", "-r", "--name-only", &commit]);
+    assert!(files.contains("work.txt"), "{files}");
+    assert!(
+        !files.contains("secret.env"),
+        "reap committed a file the human's global excludes file ignores: {files}"
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The review of build ticket 99, item 2. Git honours `safe.directory` only
+/// from system, global or command-line configuration, so once Hydra's git read
+/// neither of the first two, a repository owned by someone else stopped being
+/// found at all. `GIT_TEST_ASSUME_DIFFERENT_OWNER` is git's own switch for
+/// making every repository look that way, and release builds read it.
+#[test]
+fn a_repository_that_needs_safe_directory_is_still_found() {
+    let _env = env_lock();
+    let base = scratch("safe-directory");
+    let repo = committed_repo(&base);
+    let global = base.join("gitconfig");
+    std::fs::write(
+        &global,
+        format!("[safe]\n\tdirectory = {}\n", repo.display()),
+    )
+    .unwrap();
+    set_env("GIT_CONFIG_GLOBAL", Some(&global));
+    set_env("GIT_TEST_ASSUME_DIFFERENT_OWNER", Some(Path::new("1")));
+
+    let root = hydra::worktree::repo_root(&repo);
+    let common = hydra::worktree::git_common_dir(&repo);
+    set_env("GIT_TEST_ASSUME_DIFFERENT_OWNER", None);
+    set_env("GIT_CONFIG_GLOBAL", None);
+
+    assert_eq!(
+        root.as_deref(),
+        Some(repo.as_path()),
+        "a repository the human marked safe was not found"
+    );
+    assert_eq!(common, Some(repo.join(".git")));
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The review of build ticket 99, item 5. Git reads
+/// `$XDG_CONFIG_HOME/git/attributes` with global configuration off, and a run
+/// can write that file. `*.txt text` there made reap's `git add` turn the run's
+/// CRLF file into LF, so the commit held bytes the checkout never did.
+#[test]
+fn an_attributes_file_under_xdg_config_home_changes_nothing_reap_commits() {
+    let _env = env_lock();
+    let base = scratch("attributes");
+    let repo = committed_repo(&base);
+    let dest = base.join("checkout");
+    hydra::worktree::create(&repo, &dest, "hydra/attributes", &base.join("seed-index")).unwrap();
+
+    let xdg = base.join("xdg");
+    std::fs::create_dir_all(xdg.join("git")).unwrap();
+    std::fs::write(xdg.join("git/attributes"), "*.txt text\n").unwrap();
+    std::fs::write(dest.join("crlf.txt"), b"one\r\ntwo\r\n").unwrap();
+    set_env("XDG_CONFIG_HOME", Some(&xdg));
+    let common = hydra::worktree::git_common_dir(&repo).unwrap();
+    let context = hydra::worktree::CheckoutGit::new(&dest, &common).unwrap();
+    let committed = hydra::worktree::commit_everything(&context, "reap", &[]);
+    set_env("XDG_CONFIG_HOME", None);
+
+    let commit = committed.unwrap().expect("the checkout held work");
+    let out = Command::new("git")
+        .args(["cat-file", "-p", &format!("{commit}:crlf.txt")])
+        .current_dir(&repo)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.stdout, b"one\r\ntwo\r\n",
+        "reap committed bytes an attributes file the run wrote had converted"
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The review of build ticket 99, item 5. `identity` and every `git` Hydra
+/// starts read `~/.gitconfig` as data first, and a run can write an
+/// `[include]` there naming a fifo. Git blocks opening it until something
+/// writes the other end, so reap would have hung for good. Now each read gives
+/// up after `CONFIG_READ_TIMEOUT` and the git that follows reads no global
+/// value.
+#[test]
+fn a_global_config_that_includes_a_fifo_does_not_hang_hydras_git() {
+    let _env = env_lock();
+    let base = scratch("fifo");
+    let repo = committed_repo(&base);
+    let fifo = base.join("fifo");
+    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success(), "mkfifo failed");
+    let global = base.join("gitconfig");
+    std::fs::write(
+        &global,
+        format!(
+            "[user]\n\tname = Global Tester\n\temail = global@example.invalid\n\
+             [include]\n\tpath = {}\n",
+            fifo.display()
+        ),
+    )
+    .unwrap();
+    set_env("GIT_CONFIG_GLOBAL", Some(&global));
+
+    let (sent, answer) = std::sync::mpsc::channel();
+    let probe = repo.clone();
+    std::thread::spawn(move || {
+        let identity = hydra::worktree::identity(probe.as_path());
+        let root = hydra::worktree::repo_root(&probe);
+        let _ = sent.send((identity, root));
+    });
+    let budget = hydra::worktree::CONFIG_READ_TIMEOUT * 4;
+    let answered = answer.recv_timeout(budget);
+    if answered.is_err() {
+        // Open the other end so the git still blocked on it can finish.
+        let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+    }
+    set_env("GIT_CONFIG_GLOBAL", None);
+
+    let (identity, root) = answered.unwrap_or_else(|_| {
+        panic!("identity and repo_root did not answer within {budget:?} with a fifo included")
+    });
+    assert!(
+        identity.is_empty(),
+        "a read that timed out still answered {identity:?}"
+    );
+    assert_eq!(root.as_deref(), Some(repo.as_path()));
     let _ = std::fs::remove_dir_all(&base);
 }
