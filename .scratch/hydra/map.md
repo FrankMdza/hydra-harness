@@ -310,6 +310,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [73 - What rung two may edit](issues/73-what-rung-two-may-edit.md): resolved 2026-09-23 after a four-reader panel. The human names the paths per pass over a floor no name lifts; existing tests are refused, new ones allowed. Build tickets 80 and 96.
 - [74 - What a run may write in the parent's object store](issues/74-the-object-store-under-the-seatbelt.md): resolved 2026-09-23. A private object store per run, the parent's read as an alternate, reap moves checked objects in from outside. Build ticket 103.
 - [75 - Master of Puppets: an orchestration mode, a mascot, and a ranking of agents](issues/75-master-of-puppets-mode.md): a four-proposer panel agreed the launcher and the mascot are Herdr work, the orchestrator lives outside every run, and cost is window share; it found the interactive record too thin for the mascot and `hydra-in-pane` unable to carry a TUI. Nine decisions graduate to grilling ticket 76; the build order is in research/75.
+- [77 - A small model of Hydra's own](issues/77-a-local-model-for-the-mode.md): the router needs no LLM ($0, a classifier on record features); a generating model waits for a corpus worth fine-tuning, then QLoRA on a rented 3090 and Modal at scale to zero; from scratch at low bit width is $5,700 to $67,000 and does not pay; nothing has been exported yet because the allowlist file does not exist.
 
 
 ## Not yet specified

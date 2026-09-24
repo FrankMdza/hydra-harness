@@ -1,7 +1,7 @@
 # 77 - A small model of Hydra's own: what job, where it trains, where it serves, at what price
 
 Type: research
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-09-24, by the session, at the human's request after ticket 75's local-model note.
 
@@ -28,3 +28,35 @@ One Opus subagent with web search, writing `research/77-a-local-model-for-the-mo
 and limits from the vendors' own pages, dated; GPU-hours for a from-scratch low-bit pretrain at
 100M, 300M and 1B parameters from published reports; one recommended path per job with a monthly
 cost, and what the human gives up by taking it.
+
+## Answer
+
+Resolved 2026-09-24 by an Opus subagent (139k tokens, 76 tool calls, every price from the
+vendor's page with the date, gaps named), in
+[research/77](../research/77-a-local-model-for-the-mode.md).
+
+**Job 1, the classifier and router, needs no model host.** A gradient-boosted or logistic
+classifier on record features trains and runs in Hydra's own process on the Mac, $0 a month; text
+embeddings, if they help, are one cent a month at OpenAI's or Cloudflare's rate.
+
+**Job 2, a generating model, is not worth fine-tuning yet.** 380 unlabeled records teach a 1.5B
+model less than a prompt does. When the corpus justifies it: QLoRA a 1.5B to 4B open model on a
+rented RTX 3090 (RunPod, $0.22 an hour, a few dollars a run), serve it from Modal with scale to
+zero inside the $30 monthly credit, $0 expected and about $5 in a bad month, and the weights come
+back to the Mac. The no-GPU alternative is a gpt-4.1-nano fine-tune at $1 to $3 a month, weights
+kept by OpenAI. Together and Fireworks train cheaply but serve a fine-tune only on a dedicated
+H100, $2,900 to $5,800 a month. Anthropic is out: Claude 3 Haiku was the only fine-tunable Claude
+and Bedrock retires it on 2026-09-10.
+
+**From scratch at low bit width does not pay.** A 1B pretrain at Pythia's token count is about
+$5,700 of rented A100 time and would not write Rust; a BitNet 2B4T-class pretrain is about
+$67,000 by a 6ND estimate, since Microsoft published no GPU-hours.
+
+**Two corrections to ticket 75's note.** Oracle's Always Free tier was halved to 2 OCPU and 12 GB
+on 2026-06-15 and reclaims idle machines, so it is not a host for an endpoint that idles between
+calls. And nothing has ever been exported from Hydra, because `config/export-allowlist.json` does
+not exist; the trainer's input is a file Hydra has not yet written.
+
+Nothing in the mode depends on any of this, as ticket 75's judge asked. The one build that
+follows is the classifier of job 1, and it waits for the mode's own log to carry enough human
+verdicts to label with.
