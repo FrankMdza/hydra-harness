@@ -1,4 +1,4 @@
-# 113 - The mascot reads the pane, and the pet is the mascot
+# 122 - The mascot reads the pane, and the pet is the mascot
 
 Type: build
 Status: claimed

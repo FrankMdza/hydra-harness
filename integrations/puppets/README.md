@@ -21,6 +21,7 @@ python3 integrations/puppets/puppets.py show <goal-id>
 python3 integrations/puppets/puppets.py plan <goal-id> --seat codex --seat cursor-agent:composer-2.5
 python3 integrations/puppets/puppets.py plans <goal-id>
 python3 integrations/puppets/puppets.py choose <goal-id> <provider|path>
+python3 integrations/puppets/puppets.py choose <goal-id> --judge
 python3 integrations/puppets/puppets.py tasks <goal-id>
 python3 integrations/puppets/puppets.py assign <goal-id>
 python3 integrations/puppets/puppets.py set <goal-id> <task> --provider P --model M --policy POL
@@ -73,9 +74,15 @@ answer), or from a file under the run's worktree `docs/proposals/` when one exis
 `sheet.py`'s ranking when sheets have been built under the puppets home, and falls back to a
 default table (recorded as `source: default`) when none exist or nobody qualifies.
 
-`review` opens the task's diff in Hunk, the viewer map ticket 44 chose: `hunk diff` inside the
-run's worktree while it exists, `hunk show hydra/<run-id>` from the repo once it is reaped. Inside
-Herdr it opens in a pane to the right. The mode has no diff viewer of its own.
+`choose --judge` launches the review panel (`claude` opus and `cursor-agent` composer-2.5 under
+`judge`, `codex` under `standard` until map ticket 63) over the finished proposals, records a
+`panel_verdict` with the judge run ids, and writes a `composed` plan when the panel picks one.
+
+`review` launches the same panel over the task diff, records a `review` event, pushes judge
+findings into the live Hunk session as comments when one exists, then opens the diff in Hunk:
+`hunk diff` inside the run's worktree while it exists, `hunk show hydra/<run-id>` from the repo
+once it is reaped. Inside Herdr it opens in a pane to the right. The mode has no diff viewer of
+its own.
 
 Inside Herdr, `launch` runs the binary directly and then opens a pane below the current one
 tailing the run with the bridge's tokens on it. The launch never goes through `hydra-in-pane`,

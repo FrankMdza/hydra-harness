@@ -1,7 +1,7 @@
 # 111 - The panel picks a plan, and its diff findings land in Hunk
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 108
 
 ## What
@@ -36,3 +36,19 @@ verdicts produce a `panel_verdict`; one refusal blocks it and names the seat; a 
 imports its task block. The prompts live in `integrations/puppets/prompts/`. One real `choose
 --judge` on this machine over ticket 75's four proposals, seats `claude` opus, `codex` (standard)
 and `cursor-agent` composer-2.5, with the run ids in the outcome.
+
+## Outcome
+
+Built 2026-09-24 by composer-2.5 on run 01a0d41e-5b15 (2.63M tokens), after a first attempt on
+`codex` (01a0d41b-f171) died at launch on its usage limit until 12:41 PM. `choose --judge` and a
+judged `review`: three seats (`claude` opus under `judge`, `codex` under `standard` because of
+map ticket 63, composer-2.5 under `judge`), parsers with a severity ceiling per checklist item so
+a judge cannot escalate an advisory item, a plan verdict that needs every seat parsed and
+unanimous, a `composed` answer imported as tasks, and major or critical diff findings pushed
+into the Hunk session as comments before Hunk opens. Prompts in `prompts/choose.md` and
+`prompts/diff.md`. 73 tests green on master; the session replaced one em dash in a reason
+string. Not done from the ticket: the one real `choose --judge` over ticket 75's proposals,
+because `codex` is out of credits until 12:41 and the panel never shrinks; the human runs it
+from the session after that. The fourth panel's ticket 118 names what this file still gets
+wrong (Hunk and `git diff` run in a run-writable checkout as the human, the copy out of a
+worktree, the `plan` approval checked nowhere, no lock on the log) and is the next ticket on it.

@@ -11,11 +11,12 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 TASK_CLASSES = frozenset(
     {
@@ -31,6 +32,75 @@ TASK_CLASSES = frozenset(
 TASK_GRADES = frozenset({"low", "medium", "high", "agi"})
 APPROVAL_KINDS = frozenset({"plan", "table", "launch", "diff"})
 VERDICT_RESULTS = frozenset({"applied", "fixed", "rejected"})
+
+PUPPETS_PANEL_SEATS: list[tuple[str, str | None, str]] = [
+    ("claude", "opus", "judge"),
+    ("codex", None, "standard"),
+    ("cursor-agent", "composer-2.5", "judge"),
+]
+
+TASK_DIFF_CHECKLIST: list[tuple[str, bool, str]] = [
+    (
+        "scope_match",
+        False,
+        "The diff implements what the task asked for, naming what is missing if not",
+    ),
+    (
+        "scope_creep",
+        True,
+        "Changes outside the task scope or its named paths without justification",
+    ),
+    (
+        "tests_present",
+        False,
+        "A behaviour change with no test touched, naming the function and file that should have moved",
+    ),
+    (
+        "baseline_test_provenance",
+        False,
+        "A weakened assertion or a test edited without comparing against the baseline",
+    ),
+    (
+        "security_issues",
+        False,
+        "A credential, unsafe construct, or shell interpolation of untrusted text",
+    ),
+    (
+        "error_handling",
+        True,
+        "A recoverable error path silently swallowed or misreported",
+    ),
+    (
+        "dead_code",
+        True,
+        "Obvious dead code, unused imports, or unreachable branches introduced",
+    ),
+    (
+        "naming_clarity",
+        True,
+        "New identifiers that are unclear or fight repo conventions",
+    ),
+    (
+        "self_consistency",
+        False,
+        "The diff contradicts the task text or its own structure",
+    ),
+    (
+        "dependencies",
+        True,
+        "A new dependency the task did not require",
+    ),
+    (
+        "documentation",
+        True,
+        "A user-visible change with no doc update where the task touched docs",
+    ),
+    (
+        "code_quality",
+        True,
+        "Unnecessary duplication or complexity beyond what the task needs",
+    ),
+]
 
 DEFAULT_ASSIGNMENTS: dict[str, tuple[str, str, str]] = {
     "batch_scripting": ("cursor-agent", "composer-2.5", "standard"),
@@ -445,6 +515,366 @@ def extract_tasks_json(text: str) -> list[dict[str, Any]]:
     return tasks
 
 
+def prompts_dir() -> Path:
+    return Path(__file__).resolve().parent / "prompts"
+
+
+def strip_one_fence(text: str) -> str:
+    trimmed = text.strip()
+    if not trimmed.startswith("```"):
+        return trimmed
+    rest = trimmed[3:]
+    if "\n" not in rest:
+        return trimmed
+    tag, body = rest.split("\n", 1)
+    if tag.strip() and tag.strip().lower() != "json":
+        return trimmed
+    body = body.rstrip()
+    if not body.endswith("```"):
+        return trimmed
+    body = body[:-3]
+    if "```" in body:
+        return trimmed
+    return body.strip()
+
+
+@dataclass
+class JudgeFinding:
+    item: str
+    severity: Literal["critical", "major", "minor"]
+    note: str
+
+
+@dataclass
+class JudgeOutcome:
+    provider: str
+    verdict: Literal["pass", "block"] | None
+    findings: list[JudgeFinding]
+    parse_error: str | None = None
+
+
+@dataclass
+class PlanAnswer:
+    provider: str
+    chosen: str | None
+    findings: list[JudgeFinding]
+    composed_plan: str | None = None
+    parse_error: str | None = None
+
+
+def checklist_ceiling(item: str, checklist: list[tuple[str, bool, str]]) -> str | None:
+    for entry_id, advisory, _definition in checklist:
+        if entry_id == item:
+            return "minor" if advisory else "critical"
+    return None
+
+
+def clamp_severity(
+    reported: Literal["critical", "major", "minor"], ceiling: str
+) -> Literal["critical", "major", "minor"]:
+    order = {"minor": 1, "major": 2, "critical": 3}
+    if order[reported] > order[ceiling]:
+        return ceiling  # type: ignore[return-value]
+    return reported
+
+
+def parse_judge_answer(
+    provider: str, text: str, checklist: list[tuple[str, bool, str]] = TASK_DIFF_CHECKLIST
+) -> JudgeOutcome:
+    trimmed = strip_one_fence(text)
+    try:
+        parsed = json.loads(trimmed)
+    except json.JSONDecodeError as err:
+        return JudgeOutcome(provider, None, [], parse_error=str(err))
+    if not isinstance(parsed, dict):
+        return JudgeOutcome(provider, None, [], parse_error="answer is not a JSON object")
+    verdict = parsed.get("verdict")
+    if verdict not in ("pass", "block"):
+        return JudgeOutcome(
+            provider,
+            None,
+            [],
+            parse_error=f"verdict {verdict!r} is not pass or block",
+        )
+    raw_findings = parsed.get("findings")
+    if not isinstance(raw_findings, list):
+        return JudgeOutcome(provider, None, [], parse_error="findings is not an array")
+    findings: list[JudgeFinding] = []
+    for raw in raw_findings:
+        if not isinstance(raw, dict):
+            return JudgeOutcome(provider, None, [], parse_error="finding is not an object")
+        item = raw.get("item")
+        severity = raw.get("severity")
+        note = raw.get("note")
+        if not isinstance(item, str) or not isinstance(note, str):
+            return JudgeOutcome(provider, None, [], parse_error="finding fields must be strings")
+        ceiling = checklist_ceiling(item, checklist)
+        if ceiling is None:
+            return JudgeOutcome(
+                provider,
+                None,
+                [],
+                parse_error=f"unknown checklist item {item!r}",
+            )
+        if severity not in ("critical", "major", "minor"):
+            return JudgeOutcome(
+                provider,
+                None,
+                [],
+                parse_error=f"severity {severity!r} is not critical, major or minor",
+            )
+        findings.append(
+            JudgeFinding(
+                item=item,
+                severity=clamp_severity(severity, ceiling),
+                note=note,
+            )
+        )
+    return JudgeOutcome(provider, verdict, findings)
+
+
+def outcome_blocks(outcome: JudgeOutcome) -> bool:
+    if outcome.parse_error is not None:
+        return True
+    if outcome.verdict == "block":
+        return True
+    return any(finding.severity == "critical" for finding in outcome.findings)
+
+
+def diff_panel_verdict(answers: list[JudgeOutcome]) -> tuple[str, list[str]]:
+    reasons: list[str] = []
+    for outcome in answers:
+        if outcome.parse_error is not None:
+            reasons.append(f"{outcome.provider}: parse error: {outcome.parse_error}")
+            continue
+        if outcome.verdict == "block":
+            reasons.append(f"{outcome.provider}: verdict block")
+        for finding in outcome.findings:
+            if finding.severity == "critical":
+                reasons.append(
+                    f"{outcome.provider}: critical {finding.item}: {finding.note}"
+                )
+    if reasons:
+        return "block", reasons
+    return "pass", []
+
+
+def parse_plan_answer(provider: str, text: str) -> PlanAnswer:
+    trimmed = strip_one_fence(text.strip())
+    try:
+        parsed, _end = json.JSONDecoder().raw_decode(trimmed)
+    except json.JSONDecodeError as err:
+        return PlanAnswer(provider, None, [], parse_error=str(err))
+    if not isinstance(parsed, dict):
+        return PlanAnswer(provider, None, [], parse_error="answer is not a JSON object")
+    chosen = parsed.get("chosen")
+    if not isinstance(chosen, str) or not chosen.strip():
+        return PlanAnswer(provider, None, [], parse_error="chosen must be a non-empty string")
+    raw_findings = parsed.get("findings", [])
+    if not isinstance(raw_findings, list):
+        return PlanAnswer(provider, None, [], parse_error="findings is not an array")
+    findings: list[JudgeFinding] = []
+    for raw in raw_findings:
+        if not isinstance(raw, dict):
+            return PlanAnswer(provider, None, [], parse_error="finding is not an object")
+        item = raw.get("item")
+        severity = raw.get("severity")
+        note = raw.get("note")
+        if not isinstance(item, str) or not isinstance(note, str):
+            return PlanAnswer(provider, None, [], parse_error="finding fields must be strings")
+        if severity not in ("critical", "major", "minor"):
+            return PlanAnswer(
+                provider,
+                None,
+                [],
+                parse_error=f"severity {severity!r} is not critical, major or minor",
+            )
+        findings.append(JudgeFinding(item=item, severity=severity, note=note))
+    composed_plan = None
+    if chosen == "composed":
+        try:
+            tasks = extract_tasks_json(text)
+            composed_plan = json.dumps(tasks, indent=2)
+        except ValueError:
+            composed_plan = None
+    return PlanAnswer(provider, chosen, findings, composed_plan=composed_plan)
+
+
+def plan_panel_verdict(
+    seats: list[tuple[str, str | None, str]], answers: list[PlanAnswer | None]
+) -> tuple[str | None, str | None, list[str]]:
+    reasons: list[str] = []
+    for (provider, _model, _policy), answer in zip(seats, answers):
+        if answer is None:
+            reasons.append(f"missing {provider}")
+            continue
+        if answer.parse_error is not None:
+            reasons.append(f"{provider}: parse error: {answer.parse_error}")
+    if reasons:
+        return None, None, reasons
+    chosen_values = [answer.chosen for answer in answers if answer is not None]
+    if len(set(chosen_values)) != 1:
+        pairs = ", ".join(
+            f"{seat[0]}={answer.chosen}"
+            for seat, answer in zip(seats, answers)
+            if answer is not None
+        )
+        return None, None, [f"disagreement: {pairs}"]
+    chosen = chosen_values[0]
+    composed_text = None
+    if chosen == "composed":
+        for answer in answers:
+            if answer is not None and answer.composed_plan:
+                composed_text = answer.composed_plan
+                break
+        if composed_text is None:
+            return None, None, ["composed chosen but no task block found"]
+    return chosen, composed_text, []
+
+
+def load_choose_prompt(goal_text: str, proposals: list[dict[str, Any]]) -> str:
+    template = (prompts_dir() / "choose.md").read_text(encoding="utf-8")
+    blocks: list[str] = []
+    providers: list[str] = []
+    for proposal in proposals:
+        provider = proposal["provider"]
+        providers.append(provider)
+        path = proposal.get("path")
+        body = Path(path).read_text(encoding="utf-8") if path else ""
+        blocks.append(f"### {provider}\n\n{body.strip()}\n")
+    return (
+        template.replace("{{GOAL}}", goal_text)
+        .replace("{{PROPOSALS}}", "\n".join(blocks))
+        .replace("{{PROVIDER_NAMES}}", ", ".join(providers))
+    )
+
+
+def load_diff_prompt(
+    task_text: str,
+    base_sha: str,
+    projection: str,
+    diff_text: str,
+) -> str:
+    template = (prompts_dir() / "diff.md").read_text(encoding="utf-8")
+    checklist_lines = []
+    for item_id, advisory, definition in TASK_DIFF_CHECKLIST:
+        ceiling = "advisory" if advisory else "critical"
+        checklist_lines.append(f"- {item_id} ({ceiling}): {definition}")
+    return (
+        template.replace("{{TASK}}", task_text)
+        .replace("{{BASE_SHA}}", base_sha)
+        .replace("{{PROJECTION}}", projection.strip() or "(no projection)")
+        .replace("{{DIFF}}", diff_text.strip() or "(empty diff)")
+        .replace("{{CHECKLIST}}", "\n".join(checklist_lines))
+    )
+
+
+def spawn_judge_run(provider: str, model: str | None, policy: str, task_text: str) -> str:
+    return spawn_run(build_run_argv(provider, model, policy, task_text))
+
+
+def wait_for_run(run_id: str) -> None:
+    while not run_file_has_end(run_id):
+        time.sleep(0.05)
+
+
+def read_run_text(run_id: str) -> str:
+    return hydra_show_text(run_id)
+
+
+def run_judge_panel(
+    task_text: str,
+    seats: list[tuple[str, str | None, str]] = PUPPETS_PANEL_SEATS,
+) -> tuple[list[str], list[str], list[str]]:
+    run_ids: list[str] = []
+    policies: list[str] = []
+    texts: list[str] = []
+    for provider, model, policy in seats:
+        run_id = spawn_judge_run(provider, model, policy, task_text)
+        run_ids.append(run_id)
+        policies.append(policy)
+        wait_for_run(run_id)
+        texts.append(read_run_text(run_id))
+    return run_ids, policies, texts
+
+
+def git_diff_text(cwd: Path) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "diff", "HEAD"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ""
+
+
+def first_changed_file(cwd: Path) -> str | None:
+    try:
+        output = subprocess.check_output(
+            ["git", "diff", "--name-only", "HEAD"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    if not output:
+        return None
+    return output.splitlines()[0]
+
+
+def findings_to_hunk_comments(
+    outcomes: list[JudgeOutcome], cwd: Path
+) -> list[dict[str, Any]]:
+    default_file = first_changed_file(cwd) or "."
+    comments: list[dict[str, Any]] = []
+    for outcome in outcomes:
+        for finding in outcome.findings:
+            if finding.severity == "minor":
+                continue
+            comments.append(
+                {
+                    "filePath": default_file,
+                    "hunkNumber": 1,
+                    "summary": (
+                        f"{outcome.provider}: {finding.item} ({finding.severity}) — "
+                        f"{finding.note}"
+                    ),
+                    "author": "puppets",
+                }
+            )
+    return comments
+
+
+def push_hunk_comments(cwd: Path, comments: list[dict[str, Any]]) -> bool:
+    if not comments or not shutil.which("hunk"):
+        return False
+    payload = json.dumps({"comments": comments})
+    proc = subprocess.run(
+        ["hunk", "session", "comment", "apply", "--repo", str(cwd), "--stdin"],
+        input=payload,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def fork_hunk_comment_pusher(cwd: Path, comments: list[dict[str, Any]]) -> None:
+    if not comments:
+        return
+    pid = os.fork()
+    if pid != 0:
+        return
+    for _ in range(30):
+        if push_hunk_comments(cwd, comments):
+            os._exit(0)
+        time.sleep(1)
+    os._exit(1)
+
+
 def load_sheet_module():
     sheet_path = Path(__file__).resolve().parent / "sheet.py"
     if not sheet_path.is_file():
@@ -606,6 +1036,58 @@ def cmd_plans(args: argparse.Namespace) -> int:
 
 
 def cmd_choose(args: argparse.Namespace) -> int:
+    if args.judge:
+        state = fold(args.goal)
+        if state.goal is None:
+            print(f"unknown goal {args.goal}", file=sys.stderr)
+            return 1
+        ready = [plan for plan in state.plans if plan.get("path")]
+        if len(ready) < 2:
+            print("need at least two finished proposals before judging", file=sys.stderr)
+            return 1
+        prompt = load_choose_prompt(state.goal["text"], ready)
+        run_ids, policies, texts = run_judge_panel(prompt)
+        answers = [parse_plan_answer(seat[0], text) for seat, text in zip(PUPPETS_PANEL_SEATS, texts)]
+        for seat, policy, run_id in zip(PUPPETS_PANEL_SEATS, policies, run_ids):
+            print(f"judge {seat[0]} ({policy}) run {run_id}")
+        chosen, composed_text, reasons = plan_panel_verdict(PUPPETS_PANEL_SEATS, answers)
+        if chosen is None:
+            for reason in reasons:
+                print(reason, file=sys.stderr)
+            return 1
+        path = None
+        if chosen == "composed":
+            dest = goal_dir(args.goal) / "plans" / "composed.md"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(
+                "Composed plan.\n\n```json\n" + composed_text + "\n```\n",
+                encoding="utf-8",
+            )
+            path = str(dest)
+        else:
+            for plan in ready:
+                if plan["provider"] == chosen:
+                    path = plan.get("path")
+                    break
+            if path is None:
+                print(f"no plan file for chosen provider {chosen}", file=sys.stderr)
+                return 1
+        append_event(
+            args.goal,
+            {
+                "event": "panel_verdict",
+                "judge_run_ids": run_ids,
+                "judge_policies": policies,
+                "chosen": chosen,
+                "path": path,
+            },
+        )
+        print(f"chosen {chosen} -> {path}")
+        return 0
+
+    if not args.choice:
+        print("specify a provider, a plan path, or --judge", file=sys.stderr)
+        return 1
     chosen = args.choice
     path = None
     if os.path.isfile(chosen):
@@ -797,8 +1279,8 @@ def hunk_argv(run: dict[str, Any], worktrees: Path) -> tuple[list[str], Path]:
 
 
 def cmd_review(args: argparse.Namespace) -> int:
-    """Opens the human's review of a task's diff in Hunk, the diff viewer map ticket 44 chose,
-    rather than in anything of the mode's own. Inside Herdr it goes to a new pane."""
+    """Launches the review panel, records its verdict, pushes findings into Hunk as comments,
+    then opens the human's diff review in Hunk. Inside Herdr it goes to a new pane."""
     state = fold(args.goal)
     task = state.tasks.get(args.task)
     if task is None or not task.run_id:
@@ -809,16 +1291,53 @@ def cmd_review(args: argparse.Namespace) -> int:
     if state.goal and not run.get("repo"):
         run["repo"] = state.goal.get("repo")
     argv, cwd = hunk_argv(run, hydra_root() / "worktrees")
+    base_sha = (state.goal or {}).get("base_sha", "")
+    projection = run.get("result_text") or json.dumps(run, indent=2)
+    diff_text = git_diff_text(cwd)
+    prompt = load_diff_prompt(task.text, base_sha, projection, diff_text)
+    run_ids, policies, texts = run_judge_panel(prompt)
+    outcomes = [
+        parse_judge_answer(seat[0], text) for seat, text in zip(PUPPETS_PANEL_SEATS, texts)
+    ]
+    for seat, policy, run_id in zip(PUPPETS_PANEL_SEATS, policies, run_ids):
+        print(f"judge {seat[0]} ({policy}) run {run_id}")
+    verdict, reasons = diff_panel_verdict(outcomes)
+    if verdict == "block":
+        for reason in reasons:
+            print(reason, file=sys.stderr)
+    append_event(
+        args.goal,
+        {
+            "event": "review",
+            "task": args.task,
+            "judge_run_ids": run_ids,
+            "judge_policies": policies,
+            "verdict": verdict,
+            "reasons": reasons,
+        },
+    )
+    comments = findings_to_hunk_comments(outcomes, cwd)
     pane_id = os.environ.get("HERDR_PANE_ID")
     if os.environ.get("HERDR_ENV") and pane_id:
         split = subprocess.run(
             ["herdr", "pane", "split", pane_id, "--direction", "right", "--cwd", str(cwd)],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         new_pane = json.loads(split.stdout)["result"]["pane"]["pane_id"]
-        subprocess.run(["herdr", "pane", "run", new_pane, " ".join(argv)], capture_output=True, check=True)
-        print(f"{task.run_id} in {new_pane}")
+        subprocess.run(
+            ["herdr", "pane", "run", new_pane, " ".join(argv)],
+            capture_output=True,
+            check=True,
+        )
+        for _ in range(30):
+            if push_hunk_comments(cwd, comments):
+                break
+            time.sleep(1)
+        print(f"{task.run_id} in {new_pane} ({verdict})")
         return 0
+    fork_hunk_comment_pusher(cwd, comments)
     os.chdir(cwd)
     os.execvp(argv[0], argv)
 
@@ -952,7 +1471,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     choose_p = sub.add_parser("choose", help="record panel verdict")
     choose_p.add_argument("goal", help="goal id")
-    choose_p.add_argument("choice", help="provider name or plan file path")
+    choose_p.add_argument(
+        "choice",
+        nargs="?",
+        help="provider name or plan file path (omit with --judge)",
+    )
+    choose_p.add_argument(
+        "--judge",
+        action="store_true",
+        help="launch the panel to pick among finished proposals",
+    )
     choose_p.set_defaults(func=cmd_choose)
 
     tasks_p = sub.add_parser("tasks", help="import tasks from chosen plan")

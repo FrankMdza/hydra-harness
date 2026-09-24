@@ -1,7 +1,7 @@
-# 112 - A local model behind an MCP server, `ask`, over Ollama
+# 121 - A local model behind an MCP server, `ask`, over Ollama
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -32,3 +32,13 @@ covers: the handshake; `tools/list` naming `ask`; a call returning the stub's te
 unreachable as a tool error; the over-length refusal; a malformed request as a JSON-RPC error.
 Then, on this machine, one real call through the server against the running Ollama, its output
 quoted in your report. Do not run cargo. No em dashes in the README.
+
+## Outcome
+
+Renumbered from 112 on 2026-09-24 because a concurrent session took 112. Built by composer-2.5
+on run 01a0d41e-8a6c (0.86M tokens): `integrations/local-llm/hydra-local-llm`, stdio JSON-RPC
+with `initialize`, `tools/list` and `tools/call`, one tool `ask` over Ollama's `/api/generate`,
+prompts over 8,000 characters refused, Ollama down as a tool error, seven tests against a stub
+HTTP server, all green on master; applied as written. The agent's real call through the server
+against the running Ollama returned `four` for `Reply with exactly: four`. The README carries the
+`toml` block for `config/mcp.md`, `admit = ["permissive"]` only, which the human pastes.

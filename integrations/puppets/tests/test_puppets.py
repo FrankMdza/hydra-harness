@@ -433,6 +433,285 @@ class RankedAssignmentTests(PuppetsTestCase):
             puppets.load_sheet_module = original
 
 
+class JudgeParserTests(unittest.TestCase):
+    def test_three_pass_answers_produce_a_pass_verdict(self):
+        answers = [
+            puppets.parse_judge_answer("claude", '{"verdict":"pass","findings":[]}'),
+            puppets.parse_judge_answer(
+                "codex", '{"verdict":"pass","findings":[]}'
+            ),
+            puppets.parse_judge_answer(
+                "cursor-agent", '{"verdict":"pass","findings":[]}'
+            ),
+        ]
+        verdict, reasons = puppets.diff_panel_verdict(answers)
+        self.assertEqual(verdict, "pass")
+        self.assertEqual(reasons, [])
+
+    def test_a_refusal_blocks_and_names_the_seat(self):
+        answers = [
+            puppets.parse_judge_answer("claude", '{"verdict":"pass","findings":[]}'),
+            puppets.parse_judge_answer("codex", "not json at all"),
+            puppets.parse_judge_answer(
+                "cursor-agent", '{"verdict":"pass","findings":[]}'
+            ),
+        ]
+        verdict, reasons = puppets.diff_panel_verdict(answers)
+        self.assertEqual(verdict, "block")
+        self.assertTrue(any("codex" in reason for reason in reasons))
+
+    def test_three_plan_answers_produce_a_panel_verdict(self):
+        answers = [
+            puppets.parse_plan_answer("claude", '{"chosen":"codex","findings":[]}'),
+            puppets.parse_plan_answer("codex", '{"chosen":"codex","findings":[]}'),
+            puppets.parse_plan_answer(
+                "cursor-agent", '{"chosen":"codex","findings":[]}'
+            ),
+        ]
+        chosen, composed, reasons = puppets.plan_panel_verdict(
+            puppets.PUPPETS_PANEL_SEATS, answers
+        )
+        self.assertEqual(chosen, "codex")
+        self.assertIsNone(composed)
+        self.assertEqual(reasons, [])
+
+    def test_a_missing_plan_seat_blocks_and_names_it(self):
+        answers = [
+            puppets.parse_plan_answer("claude", '{"chosen":"codex","findings":[]}'),
+            None,
+            puppets.parse_plan_answer(
+                "cursor-agent", '{"chosen":"codex","findings":[]}'
+            ),
+        ]
+        chosen, _composed, reasons = puppets.plan_panel_verdict(
+            puppets.PUPPETS_PANEL_SEATS, answers
+        )
+        self.assertIsNone(chosen)
+        self.assertIn("missing codex", reasons)
+
+    def test_a_composed_answer_imports_its_task_block(self):
+        text = textwrap.dedent(
+            """\
+            {"chosen":"composed","findings":[]}
+
+            ```json
+            [
+              {
+                "id": "t1",
+                "text": "merge the plans",
+                "class": "docs",
+                "grade": "low",
+                "deps": [],
+                "paths": []
+              }
+            ]
+            ```
+            """
+        )
+        answer = puppets.parse_plan_answer("claude", text)
+        self.assertEqual(answer.chosen, "composed")
+        self.assertIn("merge the plans", answer.composed_plan or "")
+
+
+class ChooseJudgeTests(PuppetsTestCase):
+    def test_choose_judge_records_panel_verdict(self):
+        plan_dir = self.puppets_home / "g1" / "plans"
+        plan_dir.mkdir(parents=True)
+        codex_plan = plan_dir / "codex.md"
+        cursor_plan = plan_dir / "cursor-agent.md"
+        codex_plan.write_text("codex plan\n", encoding="utf-8")
+        cursor_plan.write_text("cursor plan\n", encoding="utf-8")
+        events = [
+            {"event": "goal", "text": "test", "repo": "/repo", "base_sha": "abc"},
+            {
+                "event": "plan_proposed",
+                "provider": "codex",
+                "run_id": "r-codex",
+            },
+            {
+                "event": "plan_ready",
+                "provider": "codex",
+                "run_id": "r-codex",
+                "path": str(codex_plan),
+            },
+            {
+                "event": "plan_proposed",
+                "provider": "cursor-agent",
+                "run_id": "r-cursor",
+            },
+            {
+                "event": "plan_ready",
+                "provider": "cursor-agent",
+                "run_id": "r-cursor",
+                "path": str(cursor_plan),
+            },
+        ]
+        self.write_events("g1", events)
+
+        def fake_panel(task_text, seats=puppets.PUPPETS_PANEL_SEATS):
+            texts = [
+                '{"chosen":"codex","findings":[]}',
+                '{"chosen":"codex","findings":[]}',
+                '{"chosen":"codex","findings":[]}',
+            ]
+            return (
+                ["j-claude", "j-codex", "j-cursor"],
+                [seat[2] for seat in seats],
+                texts,
+            )
+
+        original = puppets.run_judge_panel
+        puppets.run_judge_panel = fake_panel
+        try:
+            self.assertEqual(puppets.main(["choose", "g1", "--judge"]), 0)
+        finally:
+            puppets.run_judge_panel = original
+
+        log = puppets.read_log("g1")
+        verdict = next(row for row in log if row["event"] == "panel_verdict")
+        self.assertEqual(verdict["chosen"], "codex")
+        self.assertEqual(
+            verdict["judge_run_ids"], ["j-claude", "j-codex", "j-cursor"]
+        )
+        self.assertEqual(verdict["path"], str(codex_plan))
+
+    def test_choose_judge_composed_writes_plan_file(self):
+        plan_dir = self.puppets_home / "g1" / "plans"
+        plan_dir.mkdir(parents=True)
+        codex_plan = plan_dir / "codex.md"
+        cursor_plan = plan_dir / "cursor-agent.md"
+        codex_plan.write_text("codex plan\n", encoding="utf-8")
+        cursor_plan.write_text("cursor plan\n", encoding="utf-8")
+        self.write_events(
+            "g1",
+            [
+                {"event": "goal", "text": "test", "repo": "/repo", "base_sha": "abc"},
+                {
+                    "event": "plan_proposed",
+                    "provider": "codex",
+                    "run_id": "r-codex",
+                },
+                {
+                    "event": "plan_ready",
+                    "provider": "codex",
+                    "run_id": "r-codex",
+                    "path": str(codex_plan),
+                },
+                {
+                    "event": "plan_proposed",
+                    "provider": "cursor-agent",
+                    "run_id": "r-cursor",
+                },
+                {
+                    "event": "plan_ready",
+                    "provider": "cursor-agent",
+                    "run_id": "r-cursor",
+                    "path": str(cursor_plan),
+                },
+            ],
+        )
+        composed = textwrap.dedent(
+            """\
+            {"chosen":"composed","findings":[]}
+
+            ```json
+            [
+              {
+                "id": "t1",
+                "text": "merged task",
+                "class": "docs",
+                "grade": "low",
+                "deps": [],
+                "paths": []
+              }
+            ]
+            ```
+            """
+        )
+
+        def fake_panel(task_text, seats=puppets.PUPPETS_PANEL_SEATS):
+            return (
+                ["j1", "j2", "j3"],
+                [seat[2] for seat in seats],
+                [composed, composed, composed],
+            )
+
+        original = puppets.run_judge_panel
+        puppets.run_judge_panel = fake_panel
+        try:
+            self.assertEqual(puppets.main(["choose", "g1", "--judge"]), 0)
+        finally:
+            puppets.run_judge_panel = original
+
+        composed_path = self.puppets_home / "g1" / "plans" / "composed.md"
+        self.assertTrue(composed_path.is_file())
+        state = puppets.fold("g1")
+        self.assertEqual(state.chosen_plan["chosen"], "composed")
+        self.assertEqual(state.chosen_plan["path"], str(composed_path))
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "puppets.py"), "tasks", "g1"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(puppets.fold("g1").tasks["t1"].text, "merged task")
+
+
+class ReviewJudgeTests(PuppetsTestCase):
+    def test_review_records_judge_verdict_without_opening_hunk(self):
+        worktree = self.hydra_root / "worktrees" / "r1"
+        worktree.mkdir(parents=True)
+        (worktree / ".git").mkdir()
+        events = self.base_task_events() + [
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": 1,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "x",
+            },
+            {"event": "run", "task": "t1", "attempt": 1, "run_id": "r1"},
+            {"event": "run_end", "task": "t1", "run_id": "r1", "outcome": "completed", "total_tokens": 1},
+        ]
+        self.write_events("g1", events)
+
+        def fake_panel(task_text, seats=puppets.PUPPETS_PANEL_SEATS):
+            return (
+                ["jr1", "jr2", "jr3"],
+                [seat[2] for seat in seats],
+                [
+                    '{"verdict":"pass","findings":[]}',
+                    '{"verdict":"pass","findings":[]}',
+                    '{"verdict":"pass","findings":[]}',
+                ],
+            )
+
+        original_panel = puppets.run_judge_panel
+        original_exec = puppets.os.execvp
+        original_fork = puppets.fork_hunk_comment_pusher
+        puppets.run_judge_panel = fake_panel
+        puppets.fork_hunk_comment_pusher = lambda *_args, **_kwargs: None
+        puppets.os.execvp = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SystemExit(0)
+        )
+        try:
+            with self.assertRaises(SystemExit):
+                puppets.main(["review", "g1", "t1"])
+        finally:
+            puppets.run_judge_panel = original_panel
+            puppets.fork_hunk_comment_pusher = original_fork
+            puppets.os.execvp = original_exec
+
+        review = next(row for row in puppets.read_log("g1") if row["event"] == "review")
+        self.assertEqual(review["verdict"], "pass")
+        self.assertEqual(review["judge_run_ids"], ["jr1", "jr2", "jr3"])
+        self.assertEqual(review["judge_policies"], ["judge", "standard", "judge"])
+
+
 class HunkArgvTests(unittest.TestCase):
     def test_an_unreaped_run_opens_its_worktree(self):
         tmp = Path(tempfile.mkdtemp())

@@ -2932,8 +2932,21 @@ at least one verdict, and falls back to a default table, recorded as `source: de
 then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
 (`sonnet`, `Sonnet 5`, `claude-sonnet-5`), which the sheet keeps apart on purpose.
 
-Not built: the judged steps (111), and any automatic execution, which map ticket 76 makes wait
-for bounded retries and crash recovery.
+**The judged steps, since build ticket 111.** `choose --judge` and `review` launch three seats,
+`claude` opus and composer-2.5 under `judge` and `codex` under `standard` (map ticket 63), each
+answering one JSON object; every checklist item carries a severity ceiling so an advisory item
+cannot block, a plan verdict needs every seat parsed and unanimous, and major or critical diff
+findings go into the human's Hunk session as comments before it opens. The panel never shrinks
+or substitutes; a missing seat is named and blocks.
+
+**A local model, since build ticket 121.** `integrations/local-llm/hydra-local-llm` is a stdio
+MCP server with one tool, `ask`, over Ollama at `127.0.0.1:11434` (`gemma3:1b-it-qat` by
+default), prompts capped at 8,000 characters, Ollama down as a tool error. It reaches a run only
+when the human adds it to `config/mcp.md`, and its README carries the block to paste, admitting
+`permissive` only. Nothing in the mode depends on it (map ticket 77).
+
+Not built: any automatic execution, which map ticket 76 makes wait for bounded retries and crash
+recovery, and the fourth panel's findings on `puppets.py` (build ticket 118).
 
 ## `hydra resume`, since build ticket 32
 
