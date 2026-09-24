@@ -1596,3 +1596,189 @@ fn an_entry_the_run_staged_against_a_forged_object_is_hashed_again_from_the_chec
         content
     );
 }
+
+// --- build ticket 106: reap imports only what the run's own store holds -----
+
+/// A repository beside the fixture holding one loose blob, `content`, which
+/// stands for any repository the user can read and the run cannot. Answers
+/// the repository and the blob's sha.
+fn other_repository(dir: &Path, content: &str) -> (PathBuf, String) {
+    std::fs::create_dir_all(dir).unwrap();
+    git(dir, &["init", "-q"]);
+    std::fs::write(dir.join("secret"), content).unwrap();
+    let sha = git(dir, &["hash-object", "-w", "secret"])
+        .trim()
+        .to_string();
+    (dir.to_path_buf(), sha)
+}
+
+/// Puts in the run's store a pack index naming `sha` and no pack beside it:
+/// a name for reap to list that the store itself cannot serve.
+fn index_naming(repo: &Path, sha: &str, store: &Path) {
+    let mut pack = Command::new("git")
+        .args(["pack-objects", "-q", "named"])
+        .current_dir(repo)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        writeln!(pack.stdin.take().unwrap(), "{sha}").unwrap();
+    }
+    let name = String::from_utf8(pack.wait_with_output().unwrap().stdout).unwrap();
+    let packs = store.join("pack");
+    std::fs::create_dir_all(&packs).unwrap();
+    std::fs::copy(
+        repo.join(format!("named-{}.idx", name.trim())),
+        packs.join("pack-named.idx"),
+    )
+    .unwrap();
+}
+
+/// The review of build ticket 103, item 1, confirmed there by experiment. The
+/// run writes `info/alternates` in its own store, naming another repository's
+/// objects, plus a pack index naming a blob there, and stages that blob in its
+/// checkout's index under a new path. Reap's `pack-objects` read the store's
+/// alternates, packed the other repository's blob into the parent, and the
+/// commit carried it on the run's branch.
+#[test]
+fn an_alternates_file_in_the_runs_store_brings_nothing_into_the_parent() {
+    let fixture = Fixture::new("store-alternates");
+    let layout = fixture.layout();
+    let run = "01a0d106-0000-7000-8000-000000000001";
+    let checkout = fixture.checkout(run);
+    let env = hydra::worktree::prepare_run_objects(&layout, run, &fixture.repo).unwrap();
+    let store = layout.run_objects(run);
+    let (other, secret) = other_repository(&fixture.root.join("other"), "not the run's\n");
+
+    std::fs::write(
+        store.join("info/alternates"),
+        format!("{}\n", other.join(".git/objects").display()),
+    )
+    .unwrap();
+    index_naming(&other, &secret, &store);
+    // Work of its own, so reap keeps the branch.
+    std::fs::write(checkout.join("work.txt"), "the run's work\n").unwrap();
+    run_git(
+        &checkout,
+        &env,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("100644,{secret},leak.txt"),
+        ],
+    );
+
+    let reaped = reap_one(&layout, run, false);
+    assert_eq!(hydra::reap::failures(&reaped), 0);
+    assert!(
+        !has_object(&fixture.repo, &secret),
+        "reap imported a blob from the repository the store's alternates named"
+    );
+    let files = git(
+        &fixture.repo,
+        &["ls-tree", "-r", "--name-only", &format!("hydra/{run}")],
+    );
+    assert!(files.contains("work.txt"), "{files}");
+    assert!(
+        !files.contains("leak.txt"),
+        "the run's branch carries another repository's blob: {files}"
+    );
+}
+
+/// The review of build ticket 103, item 2. The name listing skipped links, but
+/// `pack-objects` looks names up by itself. A fan-out directory that is a link
+/// into another repository, or a loose object that is a second hard link to
+/// one of its files, led reap to that repository's blob just as an alternates
+/// file did.
+#[test]
+fn a_linked_fan_out_directory_or_a_hard_link_in_the_runs_store_brings_nothing_in() {
+    let fixture = Fixture::new("store-links");
+    let layout = fixture.layout();
+    // One run per case: a name git cannot serve fails the whole
+    // `pack-objects`, and would hide the other case.
+    let store_for = |run: &str| {
+        fixture.checkout(run);
+        hydra::worktree::prepare_run_objects(&layout, run, &fixture.repo).unwrap();
+        layout.run_objects(run)
+    };
+
+    let linked_run = "01a0d106-0000-7000-8000-000000000002";
+    let store = store_for(linked_run);
+    let (linked_repo, linked) = other_repository(&fixture.root.join("linked"), "by a link\n");
+    index_naming(&linked_repo, &linked, &store);
+    std::os::unix::fs::symlink(
+        linked_repo.join(".git/objects").join(&linked[..2]),
+        store.join(&linked[..2]),
+    )
+    .unwrap();
+
+    let hard_run = "01a0d106-0000-7000-8000-000000000004";
+    let store = store_for(hard_run);
+    let (hard_repo, hard) = other_repository(&fixture.root.join("hard"), "by a hard link\n");
+    std::fs::create_dir_all(store.join(&hard[..2])).unwrap();
+    std::fs::hard_link(
+        hard_repo
+            .join(".git/objects")
+            .join(&hard[..2])
+            .join(&hard[2..]),
+        store.join(&hard[..2]).join(&hard[2..]),
+    )
+    .unwrap();
+
+    for run in [linked_run, hard_run] {
+        let reaped = reap_one(&layout, run, false);
+        assert_eq!(hydra::reap::failures(&reaped), 0);
+    }
+    assert!(
+        !has_object(&fixture.repo, &linked),
+        "reap imported a blob through a linked fan-out directory"
+    );
+    assert!(
+        !has_object(&fixture.repo, &hard),
+        "reap imported a blob through a hard link"
+    );
+}
+
+/// The review of build ticket 103, item 3. A store past the cap imports
+/// nothing, and `index-pack` refuses a stream past it, which covers a store
+/// that grows between the walk and the pack. The pack stream for one small
+/// object is larger than its loose file, so a cap of exactly the store's size
+/// passes the walk and stops at `index-pack`.
+#[test]
+fn a_store_over_the_cap_imports_nothing() {
+    let fixture = Fixture::new("store-cap");
+    let layout = fixture.layout();
+    let run = "01a0d106-0000-7000-8000-000000000003";
+    let checkout = fixture.checkout(run);
+    let env = hydra::worktree::prepare_run_objects(&layout, run, &fixture.repo).unwrap();
+    let store = layout.run_objects(run);
+    std::fs::write(checkout.join("own.txt"), "the run's own object\n").unwrap();
+    let own = run_git(&checkout, &env, &["hash-object", "-w", "own.txt"])
+        .trim()
+        .to_string();
+    let size = std::fs::metadata(store.join(&own[..2]).join(&own[2..]))
+        .unwrap()
+        .len();
+
+    for (cap, stage, said) in [
+        (size - 1, "the walk", "reap imports"),
+        (size, "index-pack", "git would not verify"),
+    ] {
+        let err = hydra::worktree::import_run_objects_within(&fixture.repo, &store, cap)
+            .expect_err(&format!("a store over a cap of {cap} bytes was imported"));
+        assert!(
+            format!("{err:#}").contains(said),
+            "{stage} did not refuse it: {err:#}"
+        );
+        assert!(
+            !has_object(&fixture.repo, &own),
+            "{stage} let a store over the cap into the parent: {err:#}"
+        );
+    }
+    let moved = hydra::worktree::import_run_objects(&fixture.repo, &store).unwrap();
+    assert_eq!(moved, 1);
+    assert!(has_object(&fixture.repo, &own));
+}

@@ -133,8 +133,9 @@ pub fn derive(run: &Run) -> Option<Derived> {
     }
 
     // Everything from here reads the stream. The two shapes where the provider
-    // refused its own service come first, because both mean the run never got to
-    // do its work.
+    // refused its own service come first, because both mean the provider
+    // stopped serving the run, whatever it had done before. A `codex` run can
+    // do real work and then hit its limit: 01a0cc9d-8f15 did.
     if let Some(outcome) = provider_refused(run).or_else(|| codex_limit_refusal(run)) {
         return Some(Derived {
             outcome,

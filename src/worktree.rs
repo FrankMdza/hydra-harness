@@ -392,6 +392,61 @@ pub fn prepare_run_objects(
     Ok(run_object_env(&store, &common).to_vec())
 }
 
+/// The most bytes of a run's store reap imports, 1 GiB. Past it the run's work
+/// is committed by hashing the checkout again, which costs time and nothing
+/// else.
+pub const RUN_STORE_IMPORT_CAP: u64 = 1 << 30;
+
+/// [`import_run_objects_within`] with [`RUN_STORE_IMPORT_CAP`].
+pub fn import_run_objects(parent: &Path, store: &Path) -> Result<usize> {
+    import_run_objects_within(parent, store, RUN_STORE_IMPORT_CAP)
+}
+
+/// Leaves in a run's store only regular files, each with one link, in its
+/// fan-out directories and `pack/`, and answers their total size. `info/`
+/// goes whole, and so does anything at the top that is not a real directory.
+/// Nothing is followed: a link is removed as a link.
+fn scrub_run_store(store: &Path) -> Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+
+    let remove = |path: &Path, meta: &std::fs::Metadata| -> Result<()> {
+        if meta.is_dir() {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        }
+        .with_context(|| format!("removing {} from the run's store", path.display()))
+    };
+    let is_hex = |name: &str| name.bytes().all(|b| b.is_ascii_hexdigit());
+    let mut size = 0;
+    for entry in std::fs::read_dir(store)? {
+        let path = entry?.path();
+        let meta = std::fs::symlink_metadata(&path)?;
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let holds_objects = name == "pack" || (name.len() == 2 && is_hex(&name));
+        if name == "info" || !meta.is_dir() {
+            remove(&path, &meta)?;
+            continue;
+        }
+        if !holds_objects {
+            continue;
+        }
+        for inner in std::fs::read_dir(&path)? {
+            let inner = inner?.path();
+            let meta = std::fs::symlink_metadata(&inner)?;
+            if meta.is_file() && meta.nlink() == 1 {
+                size += meta.len();
+            } else {
+                remove(&inner, &meta)?;
+            }
+        }
+    }
+    Ok(size)
+}
+
 /// Moves a run's objects into the parent's store once git has named each one
 /// from its bytes, and answers how many names the store offered.
 ///
@@ -402,19 +457,49 @@ pub fn prepare_run_objects(
 /// bytes arrives under the sha of those bytes, which is an object nobody asked
 /// for. Nothing in the store is copied as a file.
 ///
-/// A store that is not a real directory offers nothing. A link planted there
-/// would only have `index-pack` hash whatever it points at, and reap commits
-/// from the checkout either way: [`unstage_missing_objects`] takes back any
-/// index entry whose object did not arrive.
-pub fn import_run_objects(parent: &Path, store: &Path) -> Result<usize> {
+/// **What git reads is only what the run's own git wrote.** Re-hashing checks
+/// that an object's bytes match its name, not where the bytes came from, and
+/// `pack-objects` outside the seatbelt reads whatever the store leads it to.
+/// So [`scrub_run_store`] first removes `info/` whole, because git reads an
+/// `info/alternates` there even when the store comes from the environment and
+/// the run can write that file: measured by the review of build ticket 103,
+/// it led `pack-objects` to a blob in another repository the user can read,
+/// and reap imported it. The same walk removes every link, every entry that
+/// is not a regular file, and every file with a second hard link, in the fan-out
+/// directories and in `pack/`, so no name resolves outside the store. If an
+/// alternates file is back by the time git would start, nothing is imported.
+///
+/// A store over `cap` bytes imports nothing, and `index-pack` refuses a
+/// stream over `cap` too. Either way reap still commits the run's work: it
+/// hashes the checkout again. [`import_run_objects`] passes
+/// [`RUN_STORE_IMPORT_CAP`].
+///
+/// A store that is not a real directory offers nothing. Reap commits from the
+/// checkout either way: [`unstage_missing_objects`] takes back any index
+/// entry whose object did not arrive.
+pub fn import_run_objects_within(parent: &Path, store: &Path, cap: u64) -> Result<usize> {
     use std::process::Stdio;
 
     if !std::fs::symlink_metadata(store).is_ok_and(|meta| meta.is_dir()) {
         return Ok(0);
     }
+    let size = scrub_run_store(store)?;
+    if size > cap {
+        bail!(
+            "the run's store holds {size} bytes, over the {cap} reap imports; its work is \
+             hashed again from the checkout instead"
+        );
+    }
     let names = store_object_names(parent, store)?;
     if names.is_empty() {
         return Ok(0);
+    }
+    if std::fs::symlink_metadata(store.join("info")).is_ok() {
+        bail!(
+            "{} reappeared after reap removed it, so nothing is imported: git would read an \
+             alternates file there",
+            store.join("info").display()
+        );
     }
     let mut pack = parent
         .command()
@@ -426,9 +511,10 @@ pub fn import_run_objects(parent: &Path, store: &Path) -> Result<usize> {
         .spawn()
         .context("starting git pack-objects over the run's store")?;
     let packed = pack.stdout.take().expect("stdout is piped");
+    let max_input = format!("--max-input-size={cap}");
     let index = parent
         .command()
-        .args(["index-pack", "--stdin", "--strict"])
+        .args(["index-pack", "--stdin", "--strict", &max_input])
         .stdin(Stdio::from(packed))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -455,9 +541,13 @@ pub fn import_run_objects(parent: &Path, store: &Path) -> Result<usize> {
 }
 
 /// Every object name the store's own files offer: loose objects in its
-/// fan-out directories and the entries of each pack index. Links are skipped,
-/// never followed. The names are claims, and [`import_run_objects`] lets git
-/// check them.
+/// fan-out directories and the entries of each pack index. The names are
+/// claims, and [`import_run_objects_within`] lets git check them.
+///
+/// **This listing skips links, and that alone never kept git from following
+/// one.** `pack-objects` looks each name up by itself, through `info/` and
+/// any link in the store, so [`scrub_run_store`] runs first and removes them.
+/// The review of build ticket 103, item 2.
 fn store_object_names(parent: &Path, store: &Path) -> Result<Vec<String>> {
     let is_hex = |name: &str| !name.is_empty() && name.bytes().all(|b| b.is_ascii_hexdigit());
     let real_dir = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());

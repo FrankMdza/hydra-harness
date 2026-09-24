@@ -13,8 +13,9 @@ H42, H44, H45 and H48.
 
 Build ticket 105 changed what 98 and 99 proposed: the admission profile moved to
 `spawn/<pass-id>/admission.sb` and denies `.cargo` configuration file by file, and Hydra's git
-now passes the excludes file and `safe.directory` back with `-c`. Take the sentences from 105's
-Outcome where they differ.
+now passes the excludes file and `safe.directory` back with `-c`. Build ticket 106 changed what
+103 proposed: reap scrubs the run's store before it imports. Take the sentences from 105's and
+106's Outcomes where they differ.
 
 ## Done when
 
