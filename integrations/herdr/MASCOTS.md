@@ -32,10 +32,11 @@ python3 ~/hydra/integrations/herdr/mascot/hydrapet.py --size hd --mode kitty    
 
 ## The watch pane switches between them
 
-`$M --watch` (the `mascot` pane, and what `hy` opens above the session) starts on the last skin
-you chose and cycles with Tab or `m`: the HD dragon (HydraPet's 160-pixel canvas art in half blocks, 48
-columns), the 20-pixel pet, codex sprite, session sprite, agy sprite. `q` quits.
-`--skin codex` picks the first one. The choice is kept in `~/.cache/hydra-mascot-skin`.
+`$M --watch` (the `mascot` pane, and what `hy` opens above the session) has two skins, the
+human's pick on 2026-09-24: the HD dragon (HydraPet's 160-pixel canvas art in half blocks, 48
+columns) and the 20-pixel pet. Tab or `m` switches, `q` quits, `--skin pet` starts on the pet.
+The choice is kept in `~/.cache/hydra-mascot-skin`. The pixel sprites below stay as files you
+can print, but they are not in the pane.
 
 ## 2. The pixel-art sprites, 48 to 60 columns, one file each under `sprites/`
 

@@ -107,19 +107,11 @@ if __name__ == "__main__":
 
 
 class SkinTests(unittest.TestCase):
-    def test_a_sprite_skin_sleeps_and_fires_per_head(self):
-        import random
-        hydra_mascot.load_skin("codex")
-        cells, overlays = hydra_mascot.sprite_frame(["sleeping", "awake", "firing"], [0.0, 0.0, 1.0], 3, random.Random(1))
-        chars = "".join(ch for (ch, _rgb) in overlays.values())
-        self.assertTrue(any(c in "zZ" for c in chars), "the sleeping head drifts z's")
-        self.assertTrue(any(c in "░▒▓█" for c in chars), "the firing head breathes flame")
-        self.assertEqual(len(cells[0]), len(hydra_mascot.PIX_ROWS[0]) + 2 * hydra_mascot.MARGIN)
-
-    def test_skins_cycle_and_the_pet_needs_no_file(self):
-        self.assertEqual(hydra_mascot.SKINS[0], "hd")
+    def test_the_two_skins_alternate(self):
+        self.assertEqual(hydra_mascot.SKINS, ["hd", "pet"])
         hydra_mascot.load_skin("pet")
-        self.assertEqual(hydra_mascot.SKINS[(hydra_mascot.SKINS.index("agy") + 1) % len(hydra_mascot.SKINS)], "hd")
+        with self.assertRaises(SystemExit):
+            hydra_mascot.load_skin("codex")
 
     def test_the_hd_skin_renders_to_cells(self):
         cells = hydra_mascot.hd_cells(0.5, ["awake", "sleeping", "firing"], [0.0, 0.0, 1.0], cols=48)

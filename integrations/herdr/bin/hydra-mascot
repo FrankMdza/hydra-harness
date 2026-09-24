@@ -438,7 +438,7 @@ def list_herdr_panes():
         return []
 
 
-SKINS = ["hd", "pet", "codex", "session", "agy"]
+SKINS = ["hd", "pet"]  # the human's two, 2026-09-24: the HD dragon and the 20-pixel pet
 SKIN_FILE = os.path.join(os.path.expanduser("~"), ".cache", "hydra-mascot-skin")
 
 
@@ -447,9 +447,9 @@ def sprites_dir():
 
 
 def load_skin(name):
-    """The pet and the HD dragon need nothing loaded; a sprite skin loads its file."""
-    if name not in ("pet", "hd"):
-        load_sprite(os.path.join(sprites_dir(), f"hydra-{name}.txt"))
+    """Both skins draw from the vendored HydraPet renderer; nothing to load."""
+    if name not in SKINS:
+        raise SystemExit(f"unknown skin {name}; the pane has {', '.join(SKINS)}")
 
 
 def hd_cells(t, heads, fires, cols=48):
@@ -494,25 +494,6 @@ def save_skin(name):
         pass
 
 
-def sprite_frame(heads, fires, frame, rng):
-    """The pixel sprite driven the way the pet is: a sleeping head closes its eyes and drifts
-    z's, a firing head breathes flame from its own jaw. Uses the sprite loaded by load_skin."""
-    base = pix_cells()
-    mouths = [(x, y // 2, dx, dy) for (x, y, dx, dy) in PIX_MOUTHS]
-    closed = [head_span(base, mouths, i) for i, h in enumerate(heads[: len(mouths)]) if h == "sleeping"]
-    cells = pix_cells(yoff=(frame // 6) % 2, closed_eyes=closed)
-    overlays = {}
-    for i, mouth in enumerate(mouths):
-        head = heads[i] if i < len(heads) else "awake"
-        fire = fires[i] if i < len(fires) else 0.0
-        if head == "sleeping":
-            overlays.update(sleep_cells(cells, mouth, frame))
-        elif fire > 0:
-            length = 8 + int(6 * abs(((frame // 2) % 6) - 3) / 3) + rng.randint(-1, 1)
-            overlays.update(flame_cells(cells, [mouth], length, rng))
-    return cells, overlays
-
-
 def read_key(timeout):
     """One key from the terminal within `timeout` seconds, or None. Outside a tty, sleeps."""
     if not sys.stdin.isatty():
@@ -527,10 +508,9 @@ def read_key(timeout):
 
 def watch_loop(out, scale=2, skin=None):
     """Read pane tokens once a second and drive the mascot from live Hydra runs. Tab or `m`
-    cycles the skin (hd, pet, codex, session, agy), `q` quits; the choice is remembered."""
+    switches between the HD dragon and the 20-pixel pet, `q` quits; the choice is remembered."""
     prev_denials = {}
     flash_until = {}
-    rng = random.Random()
     skin = skin or saved_skin()
     load_skin(skin)
     out.write("\x1b[?25l\x1b[2J")
@@ -555,21 +535,16 @@ def watch_loop(out, scale=2, skin=None):
             out.write("\x1b[H")
             if skin == "hd":
                 draw(hd_cells(now - t0, heads, fires, 24 * scale), out, red=red_flash)
-            elif skin == "pet":
+            else:
                 cells = pet_cells(now - t0, heads, fires, False, scale)
                 draw(cells, out, red=red_flash)
-            else:
-                cells, overlays = sprite_frame(heads, fires, frame, rng)
-                draw(cells, out, red=red_flash, flames=overlays)
             status = f"live={sum(1 for p in panes if is_live_pane(p))}"
             if extra:
                 status += f" +{extra}"
             out.write(f"\x1b[0m {status:<12} skin={skin} (tab switches, q quits)\x1b[K\n")
             out.flush()
             frame += 1
-            # The pet and the HD dragon move on their own, so they get four frames a second;
-            # a sprite only bobs, and two are enough.
-            key = read_key(0.25 if skin in ("pet", "hd") else 0.5)
+            key = read_key(0.25)
             if key in ("\t", "m", "M"):
                 skin = SKINS[(SKINS.index(skin) + 1) % len(SKINS)]
                 load_skin(skin)
@@ -720,7 +695,7 @@ def main():
     ap.add_argument("--watch", action="store_true",
                     help="watch Herdr panes carrying a run_id and drive the mascot from their tokens")
     ap.add_argument("--skin", choices=SKINS,
-                    help="with --watch: which mascot to start with; tab cycles them, the last is remembered")
+                    help="with --watch: hd or pet to start with; Tab switches, the last is remembered")
     ap.add_argument("--fps", type=float, default=8)
     a = ap.parse_args()
     if a.watch:
