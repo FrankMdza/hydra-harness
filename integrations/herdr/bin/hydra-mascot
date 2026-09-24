@@ -403,6 +403,12 @@ def main():
     if a.load:
         sys.stdout.write(open(a.load).read())
         return
+    if a.small and not a.sprite:
+        # The default small sprite is the best of the sprite files beside this script: codex's,
+        # chosen by the human on 2026-09-24 over agy's and the session's.
+        default = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sprites", "hydra-codex.txt")
+        if os.path.exists(default):
+            a.sprite = default
     if a.sprite:
         load_sprite(a.sprite)
         a.small = True
