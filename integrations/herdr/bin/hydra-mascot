@@ -355,7 +355,8 @@ def demo(cells, mouths, seconds, fps, out, frame_source=None):
 
 
 def write_png(cells, path, scale=8):
-    """A preview of the sprite as it would look on screen, one cell as scale x scale pixels,
+    """A preview of the sprite as it would look on screen, one pixel as scale x scale dots (a
+    terminal cell is about twice as tall as wide and holds two pixels, so pixels are square),
     written as a BMP and converted with sips. For checking a sprite file without a terminal."""
     H = len(cells) * 2
     W = len(cells[0])
@@ -368,9 +369,9 @@ def write_png(cells, path, scale=8):
             rgb = (top if y % 2 == 0 else bot) or (20, 20, 24)
             line += bytes([rgb[2], rgb[1], rgb[0]]) * scale
         line += b"\0" * (rowbytes - len(line))
-        for _ in range(scale // 2):
+        for _ in range(scale):
             data += line
-    hs, ws = H * (scale // 2), W * scale
+    hs, ws = H * scale, W * scale
     hdr = b"BM" + struct.pack("<IHHI", 54 + len(data), 0, 0, 54) + struct.pack(
         "<IiiHHIIiiII", 40, ws, hs, 1, 24, 0, len(data), 2835, 2835, 0, 0)
     bmp = path + ".bmp"
