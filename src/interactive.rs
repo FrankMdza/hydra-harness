@@ -337,8 +337,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
         .with_context(|| format!("starting {binary}"))
         .map_err(|err| abandon_policy_launch(&layout, &run_id, &repo, &prep.worktree, err))?;
 
-    let pid = child.id();
-    let process_start_time = crate::procinfo::start_time(pid)?;
+    let start_time = crate::procinfo::start_time(child.id());
 
     let start = RunStart {
         kind: "run_start",
@@ -359,9 +358,9 @@ fn run_gated(request: Request) -> Result<RunResult> {
         worktree: Some(prep.worktree.clone()),
         depth: 0,
         parent_policy: None,
-        pid: Some(pid),
-        process_start_time: process_start_time
-            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
+        // Both filled by `record_then_wait`, from the process and its start time.
+        pid: None,
+        process_start_time: None,
         skills: prep.skills.clone(),
         mcp: Some(prep.mcp.clone()),
         auth: Some(Auth {
@@ -376,16 +375,6 @@ fn run_gated(request: Request) -> Result<RunResult> {
         may_edit: None,
     };
 
-    let mut writer = Writer::create(
-        &run_file,
-        &run_id,
-        None,
-        Some(Provider::Claude.binary()),
-        request.model.as_deref(),
-    )?;
-    writer.hydra_line(&start)?;
-    drop(writer);
-
     eprintln!("hydra: run {run_id}");
     eprintln!("hydra: record {}", run_file.display());
     eprintln!(
@@ -393,7 +382,15 @@ fn run_gated(request: Request) -> Result<RunResult> {
         prep.worktree.path, prep.worktree.branch
     );
 
-    let status = child.wait().context("waiting for claude to exit")?;
+    let status = record_then_wait(
+        &run_file,
+        &run_id,
+        request.model.as_deref(),
+        start,
+        &mut child,
+        start_time,
+        Some(&prep.worktree),
+    )?;
 
     if let Err(err) = harvest(&layout, &run_id, status.code()) {
         eprintln!("hydra: run {run_id} exited but did not harvest: {err:#}");
@@ -458,8 +455,7 @@ fn run_ungated(request: Request) -> Result<RunResult> {
     // Contract 5.2's liveness pair, filled from the process this call itself
     // owns rather than backfilled by a detached watcher: there is no watcher
     // here, `run` is the process holding the child.
-    let pid = child.id();
-    let process_start_time = crate::procinfo::start_time(pid)?;
+    let start_time = crate::procinfo::start_time(child.id());
 
     let start = RunStart {
         kind: "run_start",
@@ -489,9 +485,8 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         worktree: None,
         depth: 0,
         parent_policy: None,
-        pid: Some(pid),
-        process_start_time: process_start_time
-            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
+        pid: None,
+        process_start_time: None,
         skills: None,
         mcp: Some(crate::mcp::record(&mcp_document.sha, &[], None)),
         auth: Some(Auth {
@@ -506,20 +501,18 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         may_edit: None,
     };
 
-    let mut writer = Writer::create(
-        &run_file,
-        &run_id,
-        None,
-        Some(Provider::Claude.binary()),
-        request.model.as_deref(),
-    )?;
-    writer.hydra_line(&start)?;
-    drop(writer);
-
     eprintln!("hydra: run {run_id}");
     eprintln!("hydra: record {}", run_file.display());
 
-    let status = child.wait().context("waiting for claude to exit")?;
+    let status = record_then_wait(
+        &run_file,
+        &run_id,
+        request.model.as_deref(),
+        start,
+        &mut child,
+        start_time,
+        None,
+    )?;
 
     if let Err(err) = harvest(&layout, &run_id, status.code()) {
         eprintln!("hydra: run {run_id} exited but did not harvest: {err:#}");
@@ -529,6 +522,102 @@ fn run_ungated(request: Request) -> Result<RunResult> {
     let policies = crate::policy::PolicySet::discover()?;
     let run = crate::normalize::read_file(&run_file, &policies)?;
     Ok(crate::run::result(&run, &run_file, None, None, &layout))
+}
+
+/// Writes an interactive run's `run_start` once `claude` is running, and then
+/// waits for that process whatever the write did.
+///
+/// **Nothing after the spawn returns early.** The review of build ticket 99,
+/// item 3, left two steps here that could fail with the session already on
+/// the human's terminal: reading the process's start time and writing the
+/// record. Each one used to return at once. That left no record, and it left
+/// `claude` running with nobody waiting on it. Rolling the checkout back
+/// would pull it out from under a live session, so neither failure undoes
+/// anything. Build ticket 107.
+///
+/// A start time that will not read gets a failure record: `run_start` and then
+/// a `run_end` whose `error` names the pid. Contract 5.2 allows a pid only
+/// beside its start time, so `run_start` carries neither and the pid lives in
+/// the error. A record that cannot be written at all is said on stderr with
+/// the pid and the checkout. Either way this waits for the process to exit
+/// and then answers the error, and `checkout` stays for `hydra reap`.
+///
+/// `start_time` is [`crate::procinfo::start_time`]'s answer for the child,
+/// taken by the caller so a test can hand in a failure.
+#[allow(clippy::too_many_arguments)]
+pub fn record_then_wait(
+    run_file: &Path,
+    run_id: &str,
+    model: Option<&str>,
+    mut start: RunStart,
+    child: &mut std::process::Child,
+    start_time: Result<Option<chrono::DateTime<chrono::Utc>>>,
+    checkout: Option<&WorktreeRef>,
+) -> Result<std::process::ExitStatus> {
+    let pid = child.id();
+    let written = match start_time {
+        Ok(start_time) => {
+            start.pid = Some(pid);
+            start.process_start_time =
+                start_time.map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
+            write_start(run_file, run_id, model, &start, None)
+        }
+        Err(err) => {
+            let failure = format!(
+                "claude started as pid {pid}, and its start time could not be read, so this \
+                 record cannot tell that process from a later one with the same pid: {err:#}"
+            );
+            start.pid = None;
+            start.process_start_time = None;
+            write_start(run_file, run_id, model, &start, Some(&failure))
+                .and_then(|()| Err(anyhow::anyhow!(failure)))
+        }
+    };
+    let written = written.map_err(|err| {
+        let err = match checkout {
+            Some(checkout) => err.context(format!(
+                "claude keeps running as pid {pid} in {} on {}, and the checkout stays for \
+                 `hydra reap`",
+                checkout.path, checkout.branch
+            )),
+            None => err.context(format!("claude keeps running as pid {pid}")),
+        };
+        eprintln!("hydra: run {run_id}: {err:#}");
+        err
+    });
+    let status = child.wait().context("waiting for claude to exit");
+    match written {
+        Ok(()) => status,
+        Err(err) => match status {
+            Ok(status) => Err(err.context(format!("claude exited: {status}"))),
+            Err(wait) => Err(err.context(format!("{wait:#}"))),
+        },
+    }
+}
+
+/// `run_start`, and a closing line carrying `failure` when there is one.
+fn write_start(
+    run_file: &Path,
+    run_id: &str,
+    model: Option<&str>,
+    start: &RunStart,
+    failure: Option<&str>,
+) -> Result<()> {
+    let mut writer = Writer::create(
+        run_file,
+        run_id,
+        None,
+        Some(Provider::Claude.binary()),
+        model,
+    )?;
+    writer.hydra_line(start)?;
+    if let Some(failure) = failure {
+        writer.hydra_line(&crate::record::RunEnd::harvested(
+            None,
+            Some(failure.to_string()),
+        ))?;
+    }
+    Ok(())
 }
 
 /// What one harvest attempt did.

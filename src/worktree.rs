@@ -402,72 +402,36 @@ pub fn import_run_objects(parent: &Path, store: &Path) -> Result<usize> {
     import_run_objects_within(parent, store, RUN_STORE_IMPORT_CAP)
 }
 
-/// Leaves in a run's store only regular files, each with one link, in its
-/// fan-out directories and `pack/`, and answers their total size. `info/`
-/// goes whole, and so does anything at the top that is not a real directory.
-/// Nothing is followed: a link is removed as a link.
-fn scrub_run_store(store: &Path) -> Result<u64> {
-    use std::os::unix::fs::MetadataExt;
-
-    let remove = |path: &Path, meta: &std::fs::Metadata| -> Result<()> {
-        if meta.is_dir() {
-            std::fs::remove_dir_all(path)
-        } else {
-            std::fs::remove_file(path)
-        }
-        .with_context(|| format!("removing {} from the run's store", path.display()))
-    };
-    let is_hex = |name: &str| name.bytes().all(|b| b.is_ascii_hexdigit());
-    let mut size = 0;
-    for entry in std::fs::read_dir(store)? {
-        let path = entry?.path();
-        let meta = std::fs::symlink_metadata(&path)?;
-        let name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let holds_objects = name == "pack" || (name.len() == 2 && is_hex(&name));
-        if name == "info" || !meta.is_dir() {
-            remove(&path, &meta)?;
-            continue;
-        }
-        if !holds_objects {
-            continue;
-        }
-        for inner in std::fs::read_dir(&path)? {
-            let inner = inner?.path();
-            let meta = std::fs::symlink_metadata(&inner)?;
-            if meta.is_file() && meta.nlink() == 1 {
-                size += meta.len();
-            } else {
-                remove(&inner, &meta)?;
-            }
-        }
-    }
-    Ok(size)
+/// Where reap copies a run's store before it packs: `reap-import` beside the
+/// store, so `spawn/<run-id>/reap-import` for a run. The run's own write grant
+/// is `spawn/<run-id>/objects` and the rest of `spawn/` is denied to it, so
+/// nothing the run left running can write here.
+pub fn run_store_copy(store: &Path) -> PathBuf {
+    store.with_file_name("reap-import")
 }
 
 /// Moves a run's objects into the parent's store once git has named each one
 /// from its bytes, and answers how many names the store offered.
 ///
 /// **Git re-hashes, so the store cannot lie.** `pack-objects` reads every
-/// object the store's files name, loose or packed, with the store as the only
-/// object directory, and `index-pack --strict` in `parent` computes each
-/// object's name from what it read. A pack whose index maps a sha to other
-/// bytes arrives under the sha of those bytes, which is an object nobody asked
-/// for. Nothing in the store is copied as a file.
+/// object the store's files name, loose or packed, and `index-pack --strict`
+/// in `parent` computes each object's name from what it read. A pack whose
+/// index maps a sha to other bytes arrives under the sha of those bytes, which
+/// is an object nobody asked for.
 ///
-/// **What git reads is only what the run's own git wrote.** Re-hashing checks
-/// that an object's bytes match its name, not where the bytes came from, and
-/// `pack-objects` outside the seatbelt reads whatever the store leads it to.
-/// So [`scrub_run_store`] first removes `info/` whole, because git reads an
-/// `info/alternates` there even when the store comes from the environment and
-/// the run can write that file: measured by the review of build ticket 103,
-/// it led `pack-objects` to a blob in another repository the user can read,
-/// and reap imported it. The same walk removes every link, every entry that
-/// is not a regular file, and every file with a second hard link, in the fan-out
-/// directories and in `pack/`, so no name resolves outside the store. If an
-/// alternates file is back by the time git would start, nothing is imported.
+/// **Git reads a copy, never the run's store.** Re-hashing checks that an
+/// object's bytes match its name, not where the bytes came from, and
+/// `pack-objects` outside the seatbelt reads whatever its object directory
+/// leads it to: an `info/alternates` naming another repository the user can
+/// read, measured by the review of build ticket 103, or a link. Build ticket
+/// 106 removed those from the store in place, and a process the run left
+/// running could write `info/alternates` again between that and the pack.
+/// So [`copy_run_store`] copies the store's objects into [`run_store_copy`],
+/// which the run cannot write, and git packs from there. The copy holds no
+/// `info/`, and each file in it was opened without following a link and
+/// checked as a regular file with one link through the descriptor that was
+/// then read, so no path the run changes afterwards reaches git. Build ticket
+/// 107.
 ///
 /// A store over `cap` bytes imports nothing, and `index-pack` refuses a
 /// stream over `cap` too. Either way reap still commits the run's work: it
@@ -478,38 +442,54 @@ fn scrub_run_store(store: &Path) -> Result<u64> {
 /// checkout either way: [`unstage_missing_objects`] takes back any index
 /// entry whose object did not arrive.
 pub fn import_run_objects_within(parent: &Path, store: &Path, cap: u64) -> Result<usize> {
-    use std::process::Stdio;
+    import_run_objects_racing(parent, store, cap, || {})
+}
 
+/// [`import_run_objects_within`], calling `between` once the copy is made and
+/// before git reads it. A test writes into the run's store there, the moment
+/// a process the run left running would.
+#[doc(hidden)]
+pub fn import_run_objects_racing(
+    parent: &Path,
+    store: &Path,
+    cap: u64,
+    between: impl FnOnce(),
+) -> Result<usize> {
     if !std::fs::symlink_metadata(store).is_ok_and(|meta| meta.is_dir()) {
         return Ok(0);
     }
-    let size = scrub_run_store(store)?;
-    if size > cap {
-        bail!(
-            "the run's store holds {size} bytes, over the {cap} reap imports; its work is \
-             hashed again from the checkout instead"
-        );
-    }
-    let names = store_object_names(parent, store)?;
+    let copy = run_store_copy(store);
+    let imported = copy_run_store(store, &copy, cap).and_then(|()| {
+        between();
+        pack_into_parent(parent, &copy, cap)
+    });
+    let removed = match std::fs::remove_dir_all(&copy) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+        _ => Ok(()),
+    };
+    let imported = imported?;
+    removed.with_context(|| format!("removing {}", copy.display()))?;
+    Ok(imported)
+}
+
+/// `pack-objects` over `objects` alone, piped into `index-pack --strict` in
+/// `parent`.
+fn pack_into_parent(parent: &Path, objects: &Path, cap: u64) -> Result<usize> {
+    use std::process::Stdio;
+
+    let names = store_object_names(parent, objects)?;
     if names.is_empty() {
         return Ok(0);
-    }
-    if std::fs::symlink_metadata(store.join("info")).is_ok() {
-        bail!(
-            "{} reappeared after reap removed it, so nothing is imported: git would read an \
-             alternates file there",
-            store.join("info").display()
-        );
     }
     let mut pack = parent
         .command()
         .args(["pack-objects", "--stdout", "-q"])
-        .env("GIT_OBJECT_DIRECTORY", store)
+        .env("GIT_OBJECT_DIRECTORY", objects)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("starting git pack-objects over the run's store")?;
+        .context("starting git pack-objects over the copy of the run's store")?;
     let packed = pack.stdout.take().expect("stdout is piped");
     let max_input = format!("--max-input-size={cap}");
     let index = parent
@@ -531,13 +511,166 @@ pub fn import_run_objects_within(parent: &Path, store: &Path, cap: u64) -> Resul
     let indexed = index.wait_with_output()?;
     if !packed.status.success() || !indexed.status.success() {
         bail!(
-            "git would not verify the run's objects in {}: {}{}",
-            store.display(),
+            "git would not verify the run's objects copied to {}: {}{}",
+            objects.display(),
             String::from_utf8_lossy(&packed.stderr).trim(),
             String::from_utf8_lossy(&indexed.stderr).trim()
         );
     }
     Ok(names.len())
+}
+
+/// Copies the objects of a run's store into `copy`, a fresh directory: the
+/// loose objects of each fan-out directory and the `.pack` and `.idx` files
+/// of `pack/`. Nothing else, so no `info/`.
+///
+/// **Every step goes through a descriptor.** Each directory and file is opened
+/// relative to the directory above it with `O_NOFOLLOW`, so a link anywhere
+/// fails to open and is skipped. A file is copied only when `fstat` on the
+/// descriptor answers a regular file with one link, and the bytes come from
+/// that same descriptor, so swapping the path afterwards changes nothing that
+/// is read. A second hard link would be a file of another repository, and git
+/// writes every loose object and pack with one.
+///
+/// More than `cap` bytes read fails the copy, counted as the bytes arrive, so
+/// a file that grows while it is read is caught too.
+fn copy_run_store(store: &Path, copy: &Path, cap: u64) -> Result<()> {
+    use std::io::{Read, Write};
+    use std::os::fd::AsFd;
+
+    match std::fs::remove_dir_all(copy) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
+            return Err(err).with_context(|| format!("removing a stale {}", copy.display()));
+        }
+        _ => {}
+    }
+    std::fs::create_dir(copy).with_context(|| format!("creating {}", copy.display()))?;
+
+    let is_hex = |name: &str| !name.is_empty() && name.bytes().all(|b| b.is_ascii_hexdigit());
+    let root = nofollow::open_dir(None, store.as_os_str())
+        .with_context(|| format!("opening {}", store.display()))?;
+    let mut size: u64 = 0;
+    for dir in nofollow::entries(root.as_fd())? {
+        let name = dir.to_string_lossy().into_owned();
+        let pack = name == "pack";
+        if !pack && (name.len() != 2 || !is_hex(&name)) {
+            continue;
+        }
+        // A link, or anything else that is not a directory, fails here.
+        let Ok(inner) = nofollow::open_dir(Some(root.as_fd()), &dir) else {
+            continue;
+        };
+        let target = copy.join(&name);
+        std::fs::create_dir(&target).with_context(|| format!("creating {}", target.display()))?;
+        for file in nofollow::entries(inner.as_fd())? {
+            let file_name = file.to_string_lossy().into_owned();
+            let wanted = if pack {
+                file_name.ends_with(".pack") || file_name.ends_with(".idx")
+            } else {
+                is_hex(&file_name)
+            };
+            if !wanted {
+                continue;
+            }
+            let Ok(source) = nofollow::open_regular(inner.as_fd(), &file) else {
+                continue;
+            };
+            let mut source = std::fs::File::from(source);
+            let mut out = std::fs::File::create_new(target.join(&file_name))
+                .with_context(|| format!("creating {}", target.join(&file_name).display()))?;
+            let room = cap.saturating_sub(size);
+            let copied = std::io::copy(&mut (&mut source).take(room.saturating_add(1)), &mut out)
+                .with_context(|| {
+                format!("copying {name}/{file_name} out of the run's store")
+            })?;
+            size += copied;
+            if size > cap {
+                bail!(
+                    "the run's store holds more than the {cap} bytes reap imports; its work is \
+                     hashed again from the checkout instead"
+                );
+            }
+            out.flush()?;
+        }
+    }
+    Ok(())
+}
+
+/// The descriptor calls [`copy_run_store`] walks the store with.
+mod nofollow {
+    use std::ffi::{CString, OsStr, OsString};
+    use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    use anyhow::{Context, Result};
+
+    fn open(at: Option<BorrowedFd<'_>>, name: &OsStr, flags: libc::c_int) -> Result<OwnedFd> {
+        let name = CString::new(name.as_bytes()).context("a name with a NUL byte")?;
+        let flags = flags | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        // SAFETY: `name` is a valid C string for the call, and `at` is a live
+        // descriptor borrowed for it.
+        let fd = unsafe {
+            match at {
+                Some(dir) => libc::openat(dir.as_raw_fd(), name.as_ptr(), flags),
+                None => libc::open(name.as_ptr(), flags),
+            }
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: `open` just returned this descriptor and nothing else owns it.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    /// A directory, refused when the last component is a link.
+    pub fn open_dir(at: Option<BorrowedFd<'_>>, name: &OsStr) -> Result<OwnedFd> {
+        open(at, name, libc::O_RDONLY | libc::O_DIRECTORY)
+    }
+
+    /// A regular file with one link, refused when it is a link or anything else.
+    /// `O_NONBLOCK` so a fifo cannot hang the open.
+    pub fn open_regular(at: BorrowedFd<'_>, name: &OsStr) -> Result<OwnedFd> {
+        let fd = open(Some(at), name, libc::O_RDONLY | libc::O_NONBLOCK)?;
+        // SAFETY: `stat` is plain data, and `fd` is live for the call.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd.as_raw_fd(), &mut stat) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        anyhow::ensure!(
+            stat.st_mode & libc::S_IFMT == libc::S_IFREG && stat.st_nlink == 1,
+            "not a regular file with one link"
+        );
+        Ok(fd)
+    }
+
+    /// The names in the directory `dir` is open on, without `.` and `..`.
+    pub fn entries(dir: BorrowedFd<'_>) -> Result<Vec<OsString>> {
+        let own = dir.try_clone_to_owned()?;
+        // SAFETY: `fdopendir` takes ownership of the duplicate on success, and
+        // `closedir` below releases it. On failure the duplicate is still ours.
+        let stream = unsafe { libc::fdopendir(own.as_raw_fd()) };
+        if stream.is_null() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        std::mem::forget(own);
+        let mut names = Vec::new();
+        loop {
+            // SAFETY: `stream` is open until `closedir`, and each entry is read
+            // before the next `readdir` call.
+            let entry = unsafe { libc::readdir(stream) };
+            if entry.is_null() {
+                break;
+            }
+            let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+            let name = name.to_bytes();
+            if name != b"." && name != b".." {
+                names.push(OsString::from_vec(name.to_vec()));
+            }
+        }
+        // SAFETY: `stream` came from `fdopendir` and is closed once.
+        unsafe { libc::closedir(stream) };
+        Ok(names)
+    }
 }
 
 /// Every object name the store's own files offer: loose objects in its
@@ -546,8 +679,9 @@ pub fn import_run_objects_within(parent: &Path, store: &Path, cap: u64) -> Resul
 ///
 /// **This listing skips links, and that alone never kept git from following
 /// one.** `pack-objects` looks each name up by itself, through `info/` and
-/// any link in the store, so [`scrub_run_store`] runs first and removes them.
-/// The review of build ticket 103, item 2.
+/// any link in its object directory, the review of build ticket 103, item 2.
+/// So the directory this reads is [`copy_run_store`]'s copy, which holds
+/// neither.
 fn store_object_names(parent: &Path, store: &Path) -> Result<Vec<String>> {
     let is_hex = |name: &str| !name.is_empty() && name.bytes().all(|b| b.is_ascii_hexdigit());
     let real_dir = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());

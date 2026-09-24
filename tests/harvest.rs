@@ -612,3 +612,177 @@ fn a_harvested_run_with_ordinary_assistant_text_is_completed() {
     assert_eq!(derived.outcome, hydra::outcome::Outcome::Completed);
     assert_eq!(derived.source, hydra::outcome::Source::Derived);
 }
+
+/// Line 0 of an ungated interactive run with its liveness pair left for
+/// `record_then_wait` to fill.
+fn unfilled_start(cwd: &Path) -> RunStart {
+    RunStart {
+        kind: "run_start",
+        schema_version: SCHEMA_VERSION,
+        hydra_version: "0.2.0".into(),
+        command: "run".into(),
+        launch_mode: Some("interactive".into()),
+        provider_version: Some("2.1.268 (Claude Code)".into()),
+        provider_session_id: Some("00000000-0000-7000-8000-000000000107".into()),
+        task: Some("probe".into()),
+        policy: None,
+        policy_sha: None,
+        floor_lifted: None,
+        gate_sha: None,
+        sandbox: None,
+        scopes: None,
+        cwd: cwd.display().to_string(),
+        worktree: None,
+        depth: 0,
+        parent_policy: None,
+        pid: None,
+        process_start_time: None,
+        skills: None,
+        mcp: Some(json!({"doc_sha": "abc", "injected": [], "resolved": null})),
+        auth: Some(Auth {
+            mechanism: "subscription-oauth",
+            source: "keychain",
+            allow_billed: false,
+            gated: true,
+        }),
+        env_allowlist: Some(vec!["HOME".into(), "PATH".into()]),
+        subscription: Some("anthropic".into()),
+        resumed_from: None,
+        may_edit: None,
+    }
+}
+
+/// A stand-in for the session: a shell that sleeps and then leaves a file, so
+/// the file says whether the caller waited for it.
+fn session_that_leaves(marker: &Path) -> std::process::Child {
+    std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!("sleep 0.5; : > '{}'", marker.display()))
+        .spawn()
+        .unwrap()
+}
+
+/// Build ticket 107, item 1. The start time is read after `claude` is
+/// running, so a failure there cannot roll the launch back. It closes the
+/// record with the pid in the error and still waits for the session.
+#[test]
+fn a_start_time_that_will_not_read_leaves_a_failure_record_naming_the_pid() {
+    let (layout, home, cwd) = scratch("no-start-time");
+    let run_id = "00000000-0000-7000-8000-000000000171";
+    let run_file = layout.run_file(run_id);
+    let marker = cwd.join("session-exited");
+    let mut child = session_that_leaves(&marker);
+    let pid = child.id();
+    let checkout = WorktreeRef {
+        path: cwd.display().to_string(),
+        branch: format!("hydra/{run_id}"),
+        base_tree: None,
+    };
+
+    let err = hydra::interactive::record_then_wait(
+        &run_file,
+        run_id,
+        None,
+        unfilled_start(&cwd),
+        &mut child,
+        Err(anyhow::anyhow!("sysctl said no")),
+        Some(&checkout),
+    )
+    .expect_err("a start time that did not read is a failed launch");
+
+    assert!(
+        marker.exists(),
+        "record_then_wait returned before the session exited"
+    );
+    let message = format!("{err:#}");
+    assert!(message.contains(&format!("pid {pid}")), "{message}");
+    assert!(message.contains(&checkout.path), "{message}");
+
+    let text = std::fs::read_to_string(&run_file).expect("no record was written");
+    let lines: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert_eq!(lines[0]["hydra"]["pid"], Value::Null);
+    assert_eq!(lines[0]["hydra"]["process_start_time"], Value::Null);
+    assert_eq!(lines[1]["hydra"]["type"], "run_end");
+    let error = lines[1]["hydra"]["error"].as_str().unwrap();
+    assert!(error.contains(&format!("pid {pid}")), "{error}");
+    assert!(error.contains("sysctl said no"), "{error}");
+    hydra::record::validate::check_file(&run_file)
+        .unwrap()
+        .assert_ok();
+
+    // Closed, so `hydra status` never harvests it as abandoned mid-session.
+    assert_eq!(
+        harvest_in(&layout, run_id, None, &home).unwrap(),
+        HarvestOutcome::AlreadyDone
+    );
+}
+
+/// Build ticket 107, item 1. A record that cannot be written at all is said
+/// on stderr, and the launch still waits for the session it started.
+#[test]
+fn a_record_that_cannot_be_written_still_waits_for_the_session() {
+    let (layout, _home, cwd) = scratch("no-record");
+    let run_id = "00000000-0000-7000-8000-000000000172";
+    let run_file = layout.run_file(run_id);
+    // A directory where the record goes, so `Writer::create` fails.
+    std::fs::create_dir_all(&run_file).unwrap();
+    let marker = cwd.join("session-exited");
+    let mut child = session_that_leaves(&marker);
+    let pid = child.id();
+    let start_time = hydra::procinfo::start_time(pid);
+
+    let err = hydra::interactive::record_then_wait(
+        &run_file,
+        run_id,
+        None,
+        unfilled_start(&cwd),
+        &mut child,
+        start_time,
+        None,
+    )
+    .expect_err("a record that could not be written is a failed launch");
+
+    assert!(
+        marker.exists(),
+        "record_then_wait returned before the session exited"
+    );
+    let message = format!("{err:#}");
+    assert!(message.contains(&format!("pid {pid}")), "{message}");
+    assert!(run_file.is_dir());
+}
+
+/// The path every launch takes: the pair lands on line 0 and the call returns
+/// the session's own exit status.
+#[test]
+fn a_recorded_start_carries_the_pid_and_its_start_time() {
+    let (layout, _home, cwd) = scratch("recorded-start");
+    let run_id = "00000000-0000-7000-8000-000000000173";
+    let run_file = layout.run_file(run_id);
+    let marker = cwd.join("session-exited");
+    let mut child = session_that_leaves(&marker);
+    let pid = child.id();
+    let start_time = hydra::procinfo::start_time(pid);
+
+    let status = hydra::interactive::record_then_wait(
+        &run_file,
+        run_id,
+        None,
+        unfilled_start(&cwd),
+        &mut child,
+        start_time,
+        None,
+    )
+    .unwrap();
+
+    assert!(status.success());
+    assert!(marker.exists());
+    let text = std::fs::read_to_string(&run_file).unwrap();
+    let line: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(line["hydra"]["pid"], json!(pid));
+    assert!(line["hydra"]["process_start_time"].is_string(), "{text}");
+    assert_eq!(text.lines().count(), 1);
+}

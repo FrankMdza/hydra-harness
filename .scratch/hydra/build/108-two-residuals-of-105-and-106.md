@@ -1,7 +1,7 @@
 # 108 - Two residuals of build tickets 105 and 106
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -22,3 +22,15 @@ the two vanished from its count.
 Each has a test that fails before, checked by reverting; the suite passes outside a seatbelt.
 
 ## Outcome
+
+Built by an Opus 5.5 subagent in its own worktree, which hit the session's usage limit before it
+wrote this Outcome or reported. The session applied its uncommitted diff to master and ran what it
+touched: lib 209, cleanup 46, harvest 11 and spawn 33 passed, fmt and clippy clean. The new tests
+are `tests/cleanup.rs::an_alternates_file_written_while_reap_imports_brings_nothing_in`, and in
+`tests/harvest.rs`, `a_start_time_that_will_not_read_leaves_a_failure_record_naming_the_pid`,
+`a_record_that_cannot_be_written_still_waits_for_the_session` and
+`a_recorded_start_carries_the_pid_and_its_start_time`. **Not verified:** that each new test fails
+with its fix reverted, which the agent may have done and could not report. That check, and a note
+for `IMPLEMENTATION.md`'s git and interactive sections, are the first thing the next session owes
+this ticket.
+
