@@ -1,7 +1,7 @@
 # 75 - Master of Puppets: an orchestration mode, a mascot, and a ranking of agents
 
 Type: research
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-09-24, by the session, at the human's request.
 
@@ -32,3 +32,32 @@ A design panel of four proposers, one per provider, each writing
 the launch scripts are in `~/.claude/handoffs/2026-09-24-puppets-panel/`. The session
 consolidates, and the human chooses. The 4-bit local model question that came with the request is
 answered by the session in the same consolidation, not by the panel.
+
+## Answer
+
+Resolved 2026-09-24 by the session. The panel ran: `codex` (2.57M tokens), composer-2.5
+(0.91M) and `agy` gemini-3.1-pro-high (0.50M) on recorded `standard` runs, and opus as an
+Agent-tool subagent (0.18M) because the five-hour window sat at 0.60. The consolidation, with
+every kept citation re-checked against 18a9d72, is
+[research/75](../research/75-master-of-puppets-panel.md). Raw proposals are outside the repo in
+`~/.claude/handoffs/2026-09-24-puppets-panel/`.
+
+What the four agree on: the launcher and the mascot are Herdr plugin work; the orchestrator lives
+outside every run; a rate-limited task blocks and is never reassigned; state is one file per goal
+under `~/hydra/puppets/`, which must join the deny list; cost is window share; the corpus has no
+task class and no applied bit, so the per-class ranking starts from the mode's own log.
+
+Where they split, the session chose: a skill plus a Python helper first and Rust after three
+goals; approval on the plan, the batch table and each diff, with per-launch approval only where a
+gate can fail open; one head per live run, capped at four.
+
+What nobody asked and two seats found: an interactive run's record is thin until harvest, so the
+mascot cannot see a refusal beside the very session it was asked for; `hydra-in-pane` cannot carry
+an interactive run; the face's enum omits `codex`; rung two's abort never reads a limit's expiry;
+four documents still say a panel of three.
+
+The nine decisions the code cannot take are grilling ticket
+[76](76-master-of-puppets-decisions.md). The build order is in the research document; its first
+item, the `hy` launcher, is under an hour. The 4-bit local model question is answered at the end
+of the research document: Colab is for jobs, not hosting; BitNet 2B4T is the one model that fits
+beside the agents on 8 GB; and the grade and class classifier needs no LLM at all.
