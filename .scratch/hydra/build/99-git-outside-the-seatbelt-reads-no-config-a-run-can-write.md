@@ -1,7 +1,7 @@
 # 99 - Git outside the seatbelt reads no configuration a run can write, and a failed worktree setup always leaves a record
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 
 
 ## What

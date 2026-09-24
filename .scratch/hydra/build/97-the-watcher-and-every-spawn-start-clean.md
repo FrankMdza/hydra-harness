@@ -1,7 +1,7 @@
 # 97 - The watcher and every spawn Hydra starts get a cleared environment
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 
 
 ## What

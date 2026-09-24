@@ -17,9 +17,10 @@ HERE = pathlib.Path(__file__).parent
 
 def load(issues):
     tickets = {}
-    for f in sorted(issues.glob("[0-9][0-9]-*.md")):
+    # Two digits until build ticket 100; the number is whatever precedes the dash.
+    for f in sorted(issues.glob("[0-9]*-*.md"), key=lambda p: int(p.name.split("-")[0])):
         text = f.read_text()
-        num = f.name[:2]
+        num = f.name.split("-")[0]
         status = re.search(r"^Status: (\w+)", text, re.M)
         ttype = re.search(r"^Type: (\w+)", text, re.M)
         blocked = re.search(r"^Blocked by: (.+)$", text, re.M)

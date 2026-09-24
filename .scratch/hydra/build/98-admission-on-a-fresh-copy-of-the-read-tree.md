@@ -1,7 +1,7 @@
 # 98 - Rung two admits a fresh copy of the tree it read, with a toolchain the proposer cannot change
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 
 
 ## What
