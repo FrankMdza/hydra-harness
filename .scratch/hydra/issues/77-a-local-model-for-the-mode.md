@@ -60,3 +60,18 @@ not exist; the trainer's input is a file Hydra has not yet written.
 Nothing in the mode depends on any of this, as ticket 75's judge asked. The one build that
 follows is the classifier of job 1, and it waits for the mode's own log to carry enough human
 verdicts to label with.
+
+## Addendum, the native low-bit path
+
+Asked by the human after the answer: QLoRA quantizes a base after training and freezes it, which
+is the "compress it the dumb way" they wanted to avoid, and the merged adapter is usually
+re-quantized a second time for serving. The path that keeps their intuition is quantization-aware:
+a base whose weights were trained under the quantizer, plus adapters that merge into the same
+integer grid. Two bases exist to download today: BitNet b1.58 2B4T, pretrained from scratch at
+1.58 bits, and Google's Gemma 3 QAT checkpoints (1B, 4B, 12B, 27B at int4), finished with
+quantization in the loop. On top of either, QA-LoRA (quantization-aware LoRA, Xu et al. 2023)
+trains adapters that fold into the int4 weights without a second quantization; on BitNet, plain
+LoRA over the ternary base with bf16 shadow weights, on the same rented 3090. "Nothing lost" is
+not literally true on either: QAT loses less than post-training quantization, not nothing. The
+recommendation moves to Gemma 3 4B QAT plus QA-LoRA as the default, BitNet 2B4T as the pure
+experiment, same budget as the QLoRA line.
