@@ -643,6 +643,13 @@ fn an_unknown_opaque_token_exports_and_is_named_in_the_summary_without_its_value
     )
     .unwrap();
     assert!(out.is_file());
+    // Only the planted token is under test. The fixture's own path, the
+    // temp directory plus this process's pid, crosses the entropy line on
+    // some pids and warns on `arguments.file_path`, which made this flaky.
+    let warnings: Vec<_> = warnings
+        .into_iter()
+        .filter(|w| w.warning.field.ends_with(".output"))
+        .collect();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert_eq!(warnings[0].source, ELIGIBLE);
     assert_eq!(warnings[0].warning.class, "alphanumeric");
