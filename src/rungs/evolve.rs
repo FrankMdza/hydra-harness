@@ -430,7 +430,6 @@ pub fn read_proposer_patch(
         .context("the proposer record has no base_tree")?;
     let worktree = PathBuf::from(worktree_path);
     let context = crate::worktree::CheckoutGit::for_run(
-        layout,
         &result.run_id,
         &worktree,
         run.run_start().map(|start| &start.body),
@@ -1179,7 +1178,7 @@ fn commit_review_branch(
 ) -> Result<()> {
     let message = format!("{message}\n\nread-tree: {tree}\n");
     let parent = git(repo, &["rev-parse", &format!("{source_branch}^")])?;
-    let commit = git(
+    let commit = crate::worktree::git_as_author(
         repo,
         &[
             "commit-tree",
@@ -1263,7 +1262,7 @@ pub fn commit_pass_branch(
     // both come from the read before admission, and the commit is made in the
     // parent repository. Even an unchanged patch gets a verdict commit (spec
     // 4.9; the first real pass, 01a08129-de0c, left one without a verdict).
-    let verdict_commit = git(
+    let verdict_commit = crate::worktree::git_as_author(
         repo,
         &[
             "commit-tree",

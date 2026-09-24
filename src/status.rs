@@ -180,7 +180,6 @@ fn build(layout: &Layout, run_id: &str, home: &Path) -> Result<Report> {
                     // still holds it.
                     let base = view.worktree.as_ref().and_then(|w| {
                         crate::worktree::CheckoutGit::for_run(
-                            layout,
                             &view.run_id,
                             std::path::Path::new(&w.path),
                             run.run_start().map(|start| &start.body),

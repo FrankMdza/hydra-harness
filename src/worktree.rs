@@ -69,12 +69,7 @@ impl CheckoutGit {
 
     /// Launch data beside the checkout survives record and spawn pruning and is
     /// outside the run's writable directory.
-    pub fn for_run(
-        _layout: &crate::paths::Layout,
-        run_id: &str,
-        path: &Path,
-        start: Option<&serde_json::Value>,
-    ) -> Result<Self> {
+    pub fn for_run(run_id: &str, path: &Path, start: Option<&serde_json::Value>) -> Result<Self> {
         if let Some(common) = start.and_then(|s| s["scopes"]["parent_git_dir"].as_str()) {
             return Self::new(path, Path::new(common));
         }
@@ -99,11 +94,34 @@ impl CheckoutGit {
 
 /// Parent repositories may discover metadata and keep the human's own hooks.
 /// Run checkouts use CheckoutGit.
+///
+/// **Neither reads global or system configuration.** `~/.gitconfig` is a file
+/// a `standard` run can write by shell, and the system file is
+/// `/opt/homebrew/etc/gitconfig` on this Mac, owned by the same user. A filter,
+/// an external diff or a `core.hooksPath` defined there would run from every
+/// git Hydra starts outside the seatbelt, reap's `git add` included: the third
+/// hiring panel's H5. So [`GitLocation::command`] sets
+/// `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`. The repository's
+/// own `config` is still read, and a run cannot write it, because the shared
+/// git directory is denied. The one value Hydra still takes from the wider
+/// configuration is who commits, read as data by [`identity`] and passed with
+/// `-c` by [`git_as_author`].
 pub trait GitLocation {
     fn path(&self) -> &Path;
-    fn command(&self) -> Command {
+
+    /// `git` here reading every level of configuration. Only [`identity`]
+    /// uses it, and `git config --get` runs no program a value names.
+    fn configured(&self) -> Command {
         let mut command = Command::new("git");
         command.current_dir(self.path());
+        command
+    }
+
+    fn command(&self) -> Command {
+        let mut command = self.configured();
+        command
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1");
         command
     }
 }
@@ -124,8 +142,8 @@ impl GitLocation for CheckoutGit {
     fn path(&self) -> &Path {
         &self.path
     }
-    fn command(&self) -> Command {
-        let mut command = self.path.as_path().command();
+    fn configured(&self) -> Command {
+        let mut command = self.path.as_path().configured();
         // A belt on top of the pinned directories: nothing a run could have
         // configured runs a hook or a monitor from a git Hydra starts.
         command
@@ -140,6 +158,38 @@ impl GitLocation for CheckoutGit {
             .env("GIT_WORK_TREE", &self.path);
         command
     }
+}
+
+/// `user.name` and `user.email` as git would resolve them at `repo` with every
+/// level of configuration read, as `-c` arguments. Empty when neither is set,
+/// and git then falls back to its own guess, as it did before.
+///
+/// **Read as data, never as configuration.** A run that rewrites `~/.gitconfig`
+/// can change the name on a commit Hydra makes of that run's work, and nothing
+/// else.
+pub fn identity<G: GitLocation + ?Sized>(repo: &G) -> Vec<String> {
+    let mut args = Vec::new();
+    for key in ["user.name", "user.email"] {
+        let Ok(out) = repo.configured().args(["config", "--get", key]).output() else {
+            continue;
+        };
+        let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && !value.is_empty() {
+            args.push("-c".to_string());
+            args.push(format!("{key}={value}"));
+        }
+    }
+    args
+}
+
+/// [`git`] for a command that writes a commit, with [`identity`] in front of
+/// it, because the configuration the commit would have read it from is
+/// ignored.
+pub(crate) fn git_as_author<G: GitLocation + ?Sized>(repo: &G, args: &[&str]) -> Result<String> {
+    let identity = identity(repo);
+    let mut full: Vec<&str> = identity.iter().map(String::as_str).collect();
+    full.extend(args);
+    git(repo, &full)
 }
 
 pub struct Worktree {
@@ -157,9 +207,9 @@ pub struct Worktree {
 
 /// The repository root containing `dir`, or `None` when `dir` is not in one.
 pub fn repo_root(dir: &Path) -> Option<PathBuf> {
-    let out = Command::new("git")
+    let out = dir
+        .command()
         .args(["rev-parse", "--show-toplevel"])
-        .current_dir(dir)
         .output()
         .ok()?;
     if !out.status.success() {
@@ -179,9 +229,9 @@ pub fn repo_root(dir: &Path) -> Option<PathBuf> {
 /// harness spec 7.5 denies, and it is what `--git-common-dir` answers with from
 /// either side. From a main checkout the two are the same path.
 pub fn git_common_dir(dir: &Path) -> Option<PathBuf> {
-    let out = Command::new("git")
+    let out = dir
+        .command()
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .current_dir(dir)
         .output()
         .ok()?;
     if !out.status.success() {
@@ -239,7 +289,7 @@ pub fn commit_everything<G: GitLocation + ?Sized>(
         args.extend(exclude);
         git(checkout, &args)?;
     }
-    git(checkout, &["commit", "-q", "--no-verify", "-m", message])?;
+    git_as_author(checkout, &["commit", "-q", "--no-verify", "-m", message])?;
     remove_untracked(checkout, exclude)?;
     Ok(Some(
         git(checkout, &["rev-parse", "HEAD"])?.trim().to_string(),
@@ -370,6 +420,12 @@ fn restore_write_bits(_dir: &Path) -> Result<()> {
 /// Creates the run's worktree and seeds it from the parent's working tree.
 ///
 /// `index` is a scratch path for the seed snapshot, outside the checkout.
+///
+/// **A failure after `git worktree add` takes the checkout back out.** The
+/// launch writes no record until this returns, so a checkout and a
+/// `hydra/<run-id>` branch left behind would belong to no record, and only
+/// `reap::orphan_checkouts` would ever find them: the third hiring panel's H39.
+/// If the rollback fails as well, the error names both failures.
 pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Worktree> {
     if !head_exists(repo) {
         bail!(
@@ -391,13 +447,18 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
     )
     .with_context(|| format!("creating a worktree at {}", dest.display()))?;
 
-    let common = git_common_dir(repo).context("parent has no Git directory")?;
-    let context = CheckoutGit::new(dest, &common)?;
-    std::fs::write(
-        dest.with_extension("git-context.json"),
-        serde_json::to_vec(&context)?,
-    )?;
-    seed(repo, &context).with_context(|| "seeding the worktree with uncommitted changes")?;
+    let context = match bind_and_seed(repo, dest) {
+        Ok(context) => context,
+        Err(err) => {
+            return Err(match roll_back(repo, dest, branch) {
+                Ok(()) => err,
+                Err(undo) => err.context(format!(
+                    "and the checkout at {} and branch {branch} could not be removed: {undo:#}",
+                    dest.display()
+                )),
+            });
+        }
+    };
 
     // A snapshot that will not write costs the diff stat and nothing else, so it
     // does not refuse the run. It says so rather than losing the field quietly.
@@ -414,6 +475,34 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
         branch: branch.to_string(),
         seed_tree,
     })
+}
+
+/// Every fallible step [`create`] takes after `git worktree add`.
+fn bind_and_seed(repo: &Path, dest: &Path) -> Result<CheckoutGit> {
+    let common = git_common_dir(repo).context("parent has no Git directory")?;
+    let context = CheckoutGit::new(dest, &common)?;
+    std::fs::write(
+        dest.with_extension("git-context.json"),
+        serde_json::to_vec(&context)?,
+    )?;
+    seed(repo, &context).with_context(|| "seeding the worktree with uncommitted changes")?;
+    Ok(context)
+}
+
+/// Undoes `git worktree add -b` and the context file beside it. Nothing has
+/// run in the checkout yet, so `--force` discards only what the seed copied.
+fn roll_back(repo: &Path, dest: &Path, branch: &str) -> Result<()> {
+    git(
+        repo,
+        &["worktree", "remove", "--force", &dest.to_string_lossy()],
+    )?;
+    git(repo, &["branch", "-D", branch])?;
+    let saved = dest.with_extension("git-context.json");
+    match std::fs::remove_file(&saved) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err).with_context(|| format!("removing {}", saved.display())),
+    }
 }
 
 /// The tree the worktree holds right now, written into the object database.
@@ -520,7 +609,12 @@ impl Stat {
 /// rest of what a build produces, and copying them would put a parent's run records
 /// inside a child's checkout.
 fn seed(repo: &Path, dest: &CheckoutGit) -> Result<()> {
-    let patch = git_bytes(repo, &["diff", "HEAD", "--binary"])?;
+    // No external diff and no textconv: either turns the patch into something
+    // `git apply` cannot read, and both are programs a configuration names.
+    let patch = git_bytes(
+        repo,
+        &["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--binary"],
+    )?;
     if !patch.is_empty() {
         apply_patch(dest, &patch)?;
     }
@@ -572,9 +666,8 @@ fn apply_patch(dest: &CheckoutGit, patch: &[u8]) -> Result<()> {
 }
 
 fn head_exists(repo: &Path) -> bool {
-    Command::new("git")
+    repo.command()
         .args(["rev-parse", "--verify", "HEAD"])
-        .current_dir(repo)
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false)

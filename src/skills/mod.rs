@@ -387,6 +387,7 @@ pub fn skills_in(snapshot: &Path) -> Result<Vec<StoreSkill>> {
 }
 
 /// What one run's injection put in front of the provider.
+#[derive(Debug)]
 pub struct Injected {
     /// Contract 5.3's `skills.store_sha`.
     pub store_sha: String,
@@ -420,13 +421,51 @@ pub const COPY_MISMATCH_NOTE: &str = "the codex skill copy no longer matches the
 /// the checkout, which is a change to the human's work rather than to Hydra's. The
 /// cost is that Hydra's links then show up in `git status`, which is visible rather
 /// than silent.
+///
+/// **A failure partway still says what is on disk.** [`InjectError::partial`]
+/// names every skill a link or a copy was started for, the failing one
+/// included, since a copy can stop half made. The launch records that list, so
+/// `hydra reap` holds those names back from the commit; before build ticket 99
+/// the failure record carried no `skills` block and reap read that as "nothing
+/// was injected", the third hiring panel's H40.
 pub fn inject(
     worktree: &Path,
     provider: Provider,
     snapshot: &Path,
     store_sha: &str,
-) -> Result<Injected> {
-    let root = worktree.join(provider.skill_root());
+) -> std::result::Result<Injected, InjectError> {
+    let mut injected = Injected {
+        store_sha: store_sha.to_string(),
+        linked: Vec::new(),
+        blocked: Vec::new(),
+        root: worktree.join(provider.skill_root()),
+    };
+    match link_skills(&mut injected, provider, snapshot) {
+        Ok(()) => Ok(injected),
+        Err(error) => Err(InjectError {
+            partial: injected,
+            error,
+        }),
+    }
+}
+
+/// An injection that stopped partway, with what it had put in the checkout.
+#[derive(Debug)]
+pub struct InjectError {
+    pub partial: Injected,
+    pub error: anyhow::Error,
+}
+
+impl std::fmt::Display for InjectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#}", self.error)
+    }
+}
+
+impl std::error::Error for InjectError {}
+
+fn link_skills(injected: &mut Injected, provider: Provider, snapshot: &Path) -> Result<()> {
+    let root = injected.root.clone();
     std::fs::create_dir_all(&root).with_context(|| format!("creating {}", root.display()))?;
 
     let ignore = root.join(".gitignore");
@@ -434,8 +473,8 @@ pub fn inject(
         std::fs::write(&ignore, "*\n").with_context(|| format!("writing {}", ignore.display()))?;
     }
 
-    let mut linked = Vec::new();
-    let mut blocked = Vec::new();
+    let linked = &mut injected.linked;
+    let blocked = &mut injected.blocked;
     for skill in skills_in(snapshot)? {
         if !skill.sidecar.admits(provider) {
             continue;
@@ -452,24 +491,19 @@ pub fn inject(
             blocked.push(skill.name);
             continue;
         }
+        // `linked` still names the skills Hydra put in front of the provider,
+        // whether they arrived as links or as copies of the snapshot. The name
+        // goes on before the write, so a failure below leaves it listed.
+        linked.push(skill.name.clone());
         if provider.reads_skills_by_shell() {
-            // `linked` still names the skills Hydra put in front of the provider,
-            // whether they arrived as links or as copies of the snapshot.
             copy_skill_tree(&skill.path, &link)
                 .with_context(|| format!("copying {} into {}", skill.name, root.display()))?;
         } else {
             std::os::unix::fs::symlink(&skill.path, &link)
                 .with_context(|| format!("linking {} into {}", skill.name, root.display()))?;
         }
-        linked.push(skill.name);
     }
-
-    Ok(Injected {
-        store_sha: store_sha.to_string(),
-        linked,
-        blocked,
-        root,
-    })
+    Ok(())
 }
 
 /// The write-time collision check, harness spec 6.4's first of two.

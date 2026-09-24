@@ -187,3 +187,74 @@ fn the_seed_snapshot_leaves_the_childs_own_index_alone() {
         "the seed is not showing as uncommitted work"
     );
 }
+
+// --- build ticket 99 -----------------------------------------------------
+
+#[test]
+fn a_seed_that_fails_after_worktree_add_leaves_no_checkout_and_no_branch() {
+    // The third hiring panel's H39. `create` ran `git worktree add -b` and then
+    // four steps with `?`, and the launch writes no record until `create`
+    // returns, so a failed seed left a checkout and a branch no record named.
+    // An untracked file the seed cannot read fails the copy step.
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = a_repo("rollback");
+    let unreadable = repo.join("secret.txt");
+    std::fs::write(&unreadable, "no\n").unwrap();
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let dest = repo.parent().unwrap().join("rollback-wt");
+    let _ = std::fs::remove_dir_all(&dest);
+    let failed = hydra::worktree::create(&repo, &dest, "hydra/rollback", &index(&repo, "rollback"));
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let err = format!("{:#}", failed.err().expect("the seed should have failed"));
+    assert!(err.contains("secret.txt"), "{err}");
+    assert!(!dest.exists(), "the checkout outlived its failed seed");
+    assert!(
+        !dest.with_extension("git-context.json").exists(),
+        "the saved git context outlived its checkout"
+    );
+    assert!(
+        git(&repo, &["branch", "--list", "hydra/rollback"])
+            .trim()
+            .is_empty(),
+        "the branch outlived its failed seed"
+    );
+    assert_eq!(
+        git(&repo, &["worktree", "list", "--porcelain"])
+            .lines()
+            .filter(|line| line.starts_with("worktree "))
+            .count(),
+        1,
+        "git still lists the rolled-back checkout"
+    );
+}
+
+#[test]
+fn a_launch_from_under_worktrees_is_refused() {
+    // The third hiring panel's H47: launch discovery runs plain git where the
+    // human stands, and inside a run's checkout that git follows a `.git` file
+    // the run can rewrite.
+    let base = std::env::temp_dir().join(format!("hydra-launch-dir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let layout = hydra::paths::Layout::at(base.join("hydra"));
+    let inside = layout
+        .worktree("01a09900-0000-7000-8000-000000000001")
+        .join("src");
+    std::fs::create_dir_all(&inside).unwrap();
+    let outside = base.join("repo");
+    std::fs::create_dir_all(&outside).unwrap();
+
+    let err = hydra::run::refuse_launch_inside_checkout(&layout, &inside)
+        .expect_err("a launch from a run's checkout went ahead");
+    assert!(format!("{err:#}").contains("worktrees"), "{err:#}");
+    hydra::run::refuse_launch_inside_checkout(&layout, &outside).unwrap();
+
+    // The same directory reached through a symlink is the same directory.
+    let link = base.join("alias");
+    std::os::unix::fs::symlink(&inside, &link).unwrap();
+    assert!(hydra::run::refuse_launch_inside_checkout(&layout, &link).is_err());
+
+    let _ = std::fs::remove_dir_all(&base);
+}

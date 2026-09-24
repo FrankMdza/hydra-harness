@@ -373,6 +373,31 @@ pub fn refuse_foreign_checkout(
     )
 }
 
+/// Build ticket 99. A launch from under `worktrees/` refuses before any git
+/// runs there.
+///
+/// A run's checkout holds a `.git` file the run can rewrite, and launch
+/// discovery runs plain git in the directory it was started from. So from
+/// inside a checkout, `git worktree add` followed that file to whatever
+/// repository it named and ran that repository's hooks outside the seatbelt:
+/// the third hiring panel's H47, reproduced with plain git and a decoy
+/// `post-checkout` hook. Nothing a human means to do starts a run there.
+pub fn refuse_launch_inside_checkout(layout: &Layout, dir: &std::path::Path) -> Result<()> {
+    let canonical =
+        |path: &std::path::Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let worktrees = canonical(&layout.worktrees());
+    if canonical(dir).starts_with(&worktrees) {
+        anyhow::bail!(
+            "{} is under {}, where Hydra keeps its runs' checkouts. A checkout's `.git` \
+             file is one its run could rewrite, so Hydra runs no git from there. Launch \
+             from the repository the checkout came from.",
+            dir.display(),
+            worktrees.display()
+        );
+    }
+    Ok(())
+}
+
 fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
     let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
     let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
@@ -526,6 +551,7 @@ fn preflight_inputs(request: &Request) -> Result<PreflightInputs> {
              cannot move the root. Unset the variable, or launch from outside the run."
         );
     }
+    refuse_launch_inside_checkout(&Layout::discover()?, &invoked_in)?;
     let repo = crate::worktree::repo_root(&invoked_in);
     Ok(PreflightInputs {
         invoked_in,
@@ -1084,27 +1110,7 @@ fn phase_handoff(
                 .map(|w| std::path::Path::new(&w.path)),
         )?),
     };
-    // 6.4: the store is pinned, snapshotted and linked into the checkout before
-    // anything asks the provider a question. A run with no checkout has nowhere to
-    // inject into, so it gets no links and its record leaves `skills` absent
-    // rather than null: the question does not apply. A `judge` run is not injected
-    // either, since the policy allows nothing and the diff rides the prompt, and
-    // ticket 25 stopped the links. The MCP group is present either way, which is
-    // 6.5's asymmetry showing up in the record: on `claude` the servers ride the
-    // command line and need no checkout to land in.
-    recording.injected = match &worktree.worktree_ref {
-        Some(worktree_ref) if machine.request.policy != "judge" => Some(inject_skills(
-            &machine.reserved.layout,
-            &machine.reserved.run_id,
-            machine.request.provider,
-            std::path::Path::new(&worktree_ref.path),
-            crate::mcp::Probe {
-                policy: &machine.request.policy,
-                config: mcp_file.as_deref(),
-            },
-        )?),
-        _ => None,
-    };
+    inject_into_checkout(machine, worktree, mcp_file.as_deref(), recording)?;
 
     // 6.1 item 5. A hit fails the run as its own outcome, and the record is the
     // whole of what the caller gets back. It is read before the pre-flight below
@@ -1199,6 +1205,86 @@ fn phase_handoff(
     }))
 }
 
+/// 6.4: the store is pinned, snapshotted and linked into the checkout before
+/// anything asks the provider a question. A run with no checkout has nowhere to
+/// inject into, so it gets no links and its record leaves `skills` absent
+/// rather than null: the question does not apply. A `judge` run is not injected
+/// either, since the policy allows nothing and the diff rides the prompt, and
+/// ticket 25 stopped the links. The MCP group is present either way, which is
+/// 6.5's asymmetry showing up in the record: on `claude` the servers ride the
+/// command line and need no checkout to land in.
+///
+/// The answer lands in `recording` even when a step fails partway, so the
+/// failure record names what reached the checkout; see [`inject_skills`].
+fn inject_into_checkout(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    mcp_file: Option<&std::path::Path>,
+    recording: &mut PostWorktree,
+) -> Result<()> {
+    let Some(worktree_ref) = &worktree.worktree_ref else {
+        return Ok(());
+    };
+    if machine.request.policy == "judge" {
+        return Ok(());
+    }
+    inject_skills(
+        &machine.reserved.layout,
+        &machine.reserved.run_id,
+        machine.request.provider,
+        std::path::Path::new(&worktree_ref.path),
+        crate::mcp::Probe {
+            policy: &machine.request.policy,
+            config: mcp_file,
+        },
+        &mut recording.injected,
+    )
+}
+
+/// **The gate mount is checked on `agy` and on nothing else, free.** 6.6's
+/// table says this provider reads its hook config only when the worktree
+/// arrives as `--add-dir`, "without which it reports `hooks: []` rather than
+/// an error", and that silence is the worst failure mode on the ticket: a run
+/// that looks gated and is not. One read-only slash command rules it out for
+/// no tokens, measured. `claude` needs no equivalent, because its config is an
+/// argument it either accepted or refused to start with, and Cursor's
+/// `failClosed` config would block rather than leak.
+///
+/// A launch that fails here writes the record itself, the same shape a spawn
+/// that could not fork gets: contract 8.3 wants the attempt on disk, and by
+/// this point a worktree, a branch and a compiled gate are on disk with a run
+/// id on them. It is not one of contract 6's four refusals, so it is not
+/// dressed as one: this is a launch that could not start, and it derives
+/// `failed`. The caller writes that record through [`fail_after_handoff`].
+fn agy_gate_mounted(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    handoff: &HandoffReady,
+) -> Result<()> {
+    if machine.request.provider != Provider::Agy {
+        return Ok(());
+    }
+    let checkout = match worktree.worktree_ref.as_ref() {
+        Some(w) => PathBuf::from(&w.path),
+        None => anyhow::bail!("an agy run needs a checkout and this one has none"),
+    };
+    let mounted = agy::hooks_mounted(&checkout).with_context(|| {
+        format!(
+            "asking agy which hooks it loaded for {}, which is what proves the gate is \
+             in front of the run",
+            checkout.display()
+        )
+    });
+    match &mounted {
+        Ok(mounted) if agy::gate_is_mounted(mounted, &handoff.spawn.hook_config) => Ok(()),
+        Ok(mounted) => Err(anyhow::anyhow!(
+            "{}",
+            agy::unmounted_remediation(mounted, &handoff.spawn.hook_config)
+        )),
+        Err(err) => Err(anyhow::anyhow!("{err:#}")),
+    }
+}
+
 fn phase_spawn(
     machine: &mut MachineReady,
     worktree: &WorktreeReady,
@@ -1216,51 +1302,12 @@ fn phase_spawn(
         return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
     }
 
-    // **The gate mount is checked on `agy` and on nothing else, free.** 6.6's
-    // table says this provider reads its hook config only when the worktree
-    // arrives as `--add-dir`, "without which it reports `hooks: []` rather than
-    // an error", and that silence is the worst failure mode on the ticket: a run
-    // that looks gated and is not. One read-only slash command rules it out for
-    // no tokens, measured. `claude` needs no equivalent, because its config is an
-    // argument it either accepted or refused to start with, and Cursor's
-    // `failClosed` config would block rather than leak.
-    //
-    // A launch that fails here writes the record itself, the same shape a spawn
-    // that could not fork gets: contract 8.3 wants the attempt on disk, and by
-    // this point a worktree, a branch and a compiled gate are on disk with a run
-    // id on them. It is not one of contract 6's four refusals, so it is not
-    // dressed as one: this is a launch that could not start, and it derives
-    // `failed`.
-    if machine.request.provider == Provider::Agy {
-        let checkout = match worktree.worktree_ref.as_ref() {
-            Some(w) => PathBuf::from(&w.path),
-            None => {
-                let err = anyhow::anyhow!("an agy run needs a checkout and this one has none");
-                return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
-            }
-        };
-        let mounted = agy::hooks_mounted(&checkout).with_context(|| {
-            format!(
-                "asking agy which hooks it loaded for {}, which is what proves the gate is \
-                 in front of the run",
-                checkout.display()
-            )
-        });
-        let verdict = match &mounted {
-            Ok(mounted) if agy::gate_is_mounted(mounted, &handoff.spawn.hook_config) => Ok(()),
-            Ok(mounted) => Err(anyhow::anyhow!(
-                "{}",
-                agy::unmounted_remediation(mounted, &handoff.spawn.hook_config)
-            )),
-            Err(err) => Err(anyhow::anyhow!("{err:#}")),
-        };
-        if let Err(err) = verdict {
-            // The same three lines `refuse` prints, for the same reason: a
-            // checkout, a branch and a compiled gate are on disk with this run
-            // id on them, and an error naming none of them leaves a human with
-            // an orphan worktree and nothing to type into `hydra reap`.
-            return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
-        }
+    if let Err(err) = agy_gate_mounted(machine, worktree, &handoff) {
+        // The same three lines `refuse` prints, for the same reason: a
+        // checkout, a branch and a compiled gate are on disk with this run
+        // id on them, and an error naming none of them leaves a human with
+        // an orphan worktree and nothing to type into `hydra reap`.
+        return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
     }
 
     let mut argv = match build_argv(machine, worktree, &handoff) {
@@ -1567,17 +1614,36 @@ pub(crate) struct InjectedSkills {
 /// reader to treat an absent `resolved` as unanswered rather than as an empty
 /// listing. The cost is that the third of the three collision tests does not
 /// run, which is said out loud rather than swallowed: the other two still do.
+///
+/// **The answer goes in `slot`, and so does a partial one.** Once anything is
+/// in the checkout, `slot` holds a `skills` group naming it, before any later
+/// step can fail, so the failure record [`PostWorktree::fail`] writes lists
+/// what reap must hold back. Build ticket 99, the third hiring panel's H40.
 pub(crate) fn inject_skills(
     layout: &Layout,
     run_id: &str,
     provider: Provider,
     worktree: &std::path::Path,
     mcp: crate::mcp::Probe<'_>,
-) -> Result<InjectedSkills> {
+    slot: &mut Option<InjectedSkills>,
+) -> Result<()> {
     let store = crate::skills::Store::open(layout)?;
     let store_sha = store.pin(run_id)?;
     let snapshot = store.snapshot(layout, &store_sha)?;
-    let injected = crate::skills::inject(worktree, provider, &snapshot, &store_sha)?;
+    let partial = |injected: &crate::skills::Injected| InjectedSkills {
+        record: crate::skills::record(injected, None),
+        collisions: Vec::new(),
+        store_sha: store_sha.clone(),
+        mcp_resolved: None,
+    };
+    let injected = match crate::skills::inject(worktree, provider, &snapshot, &store_sha) {
+        Ok(injected) => injected,
+        Err(failure) => {
+            *slot = Some(partial(&failure.partial));
+            return Err(failure.error);
+        }
+    };
+    *slot = Some(partial(&injected));
 
     let resolved = match provider.resolve(worktree, mcp) {
         Ok(resolved) => resolved,
@@ -1609,12 +1675,13 @@ pub(crate) fn inject_skills(
         resolved.skills.as_deref(),
     );
 
-    Ok(InjectedSkills {
+    *slot = Some(InjectedSkills {
         record: crate::skills::record(&injected, resolved.skills.as_deref()),
         collisions,
         store_sha,
         mcp_resolved: resolved.mcp,
-    })
+    });
+    Ok(())
 }
 
 /// Writes the record for a launch one of 6.1's pre-flight checks refused.
@@ -1803,7 +1870,6 @@ pub fn result(
     let base_tree = recorded_base_tree.or(seed_tree);
     let diff_stat = match (worktree, base_tree, !run.run_id.is_empty()) {
         (Some(worktree), Some(base), true) => crate::worktree::CheckoutGit::for_run(
-            layout,
             &run.run_id,
             std::path::Path::new(&worktree.path),
             run.run_start().map(|start| &start.body),
@@ -2196,7 +2262,8 @@ mod tests {
         .unwrap();
         store.pin(run_id).unwrap();
 
-        let injected = inject_skills(
+        let mut slot = None;
+        inject_skills(
             &layout,
             run_id,
             Provider::Codex,
@@ -2205,13 +2272,104 @@ mod tests {
                 policy: "standard",
                 config: None,
             },
+            &mut slot,
         )
         .unwrap();
+        let injected = slot.unwrap();
         assert!(
             injected.collisions.is_empty(),
             "the launch-time check read the copy as a project skill: {:?}",
             injected.collisions
         );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_failed_injection_leaves_the_names_it_wrote_where_the_failure_record_reads_them() {
+        // Build ticket 99, H40. `phase_handoff` passes `recording.injected` as
+        // the slot and `PostWorktree::fail` composes line 0 from it, so what the
+        // slot holds after an error is what the `never_started` record says.
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        use crate::paths::Layout;
+        use crate::provider::Provider;
+        use crate::skills::Store;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {} failed", args.join(" "));
+        }
+
+        let base =
+            std::env::temp_dir().join(format!("hydra-inject-partial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["config", "user.email", "test@example.invalid"]);
+        git(&repo, &["config", "user.name", "hydra tests"]);
+        std::fs::write(repo.join("committed.txt"), "one\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-qm", "first"]);
+
+        let layout = Layout::at(base.join("hydra"));
+        layout.ensure().unwrap();
+        let run_id = "01a09900-0000-7000-8000-000000000040";
+        let worktree = layout.worktree(run_id);
+        crate::worktree::create(
+            &repo,
+            &worktree,
+            &format!("hydra/{run_id}"),
+            &layout.seed_index(run_id),
+        )
+        .unwrap();
+
+        let store = Store::open(&layout).unwrap();
+        for name in ["alpha", "beta"] {
+            let dir = layout.skills().join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: A probe.\n---\n\nbody\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(layout.skills().join("beta/extra.md"), "extra\n").unwrap();
+        let sha = store.pin(run_id).unwrap();
+        let unreadable = store.snapshot(&layout, &sha).unwrap().join("beta/extra.md");
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let mut slot = None;
+        let failed = inject_skills(
+            &layout,
+            run_id,
+            Provider::Codex,
+            &worktree,
+            crate::mcp::Probe {
+                policy: "standard",
+                config: None,
+            },
+            &mut slot,
+        );
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert!(failed.is_err(), "the copy of beta should have failed");
+        let recorded = slot.expect("the failure left no `skills` group to record");
+        assert_eq!(recorded.record["store_sha"], sha);
+        assert_eq!(
+            recorded.record["linked"],
+            serde_json::json!(["alpha", "beta"])
+        );
+
+        let _ = Command::new("chmod")
+            .args(["-R", "u+w"])
+            .arg(&base)
+            .output();
         let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -42,7 +42,6 @@
 //! it true under a self-edit.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 
@@ -170,12 +169,7 @@ fn reap_git_context(layout: &Layout, run_id: &str, checkout: &Path) -> Result<Ch
                 .next()
                 .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         });
-    CheckoutGit::for_run(
-        layout,
-        run_id,
-        checkout,
-        start.as_ref().map(|line| &line["hydra"]),
-    )
+    CheckoutGit::for_run(run_id, checkout, start.as_ref().map(|line| &line["hydra"]))
 }
 
 fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) -> Reaped {
@@ -465,9 +459,8 @@ fn commit_then_remove(
 /// hint for the first case is the flag this function already offers.
 fn drop_branch(main: &Path, branch: &str, force: bool) -> Result<(), String> {
     let flag = if force { "-D" } else { "-d" };
-    let out = Command::new("git")
+    let out = crate::worktree::GitLocation::command(main)
         .args(["branch", flag, branch])
-        .current_dir(main)
         .output()
         .map_err(|err| format!("git branch {flag} would not run: {err}"))?;
     if out.status.success() {
