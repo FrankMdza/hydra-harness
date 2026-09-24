@@ -27,7 +27,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 /// What a policy grants. Capabilities rather than provider tool names, because
-/// the three providers share no vocabulary (7.1).
+/// the four providers share no vocabulary (7.1).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
@@ -661,9 +661,11 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
 /// entry, and 15.2 row 9 read to its end.
 ///
 /// The worktree is carved out of the denials because a run writes inside what
-/// Hydra created for it, and two of the three providers read their hook config
+/// Hydra created for it, and two of the four providers read their hook config
 /// out of exactly that directory: `cursor-agent` from `.cursor/hooks.json`,
-/// `agy` from `.agents/hooks.json`. `standard` grants `file_write` over the whole
+/// `agy` from `.agents/hooks.json`. `codex` does not read the `.codex/hooks.json`
+/// Hydra writes there inside a git worktree, so its hook rides its argv
+/// (`src/provider/codex.rs`). `standard` grants `file_write` over the whole
 /// worktree, so before build ticket 44 a run could rewrite the file that points
 /// at its gate. Whether either provider reloads hooks mid-session is not
 /// measured, and the denial does not depend on the answer: the rewritten file
@@ -962,7 +964,7 @@ pub fn write_gate(set: &PolicySet, spawn: &Spawn<'_>) -> Result<()> {
 /// The hook command a provider runs: check the gate against the sha it was
 /// written with, then run it, answering in `dialect`.
 ///
-/// **The script is a file the child can write and the config is not.** All three
+/// **The script is a file the child can write and the config is not.** All four
 /// providers snapshot their hook configuration at process start (6.6), while 7.5
 /// says the script is "read fresh on every invocation". 7.5 closes that for
 /// `judge`, `read-only` and `standard` by scoping their writes to the worktree,

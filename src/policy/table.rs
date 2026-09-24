@@ -1,7 +1,7 @@
 //! The capability table, harness spec 7.1.
 //!
 //! A policy is written in capabilities and a provider speaks tool names, so
-//! Hydra owns the mapping between them. The three providers share no vocabulary,
+//! Hydra owns the mapping between them. The four providers share no vocabulary,
 //! and a policy written in one provider's words does not survive being handed to
 //! another, which is why the table is per provider and the policy is not.
 //!

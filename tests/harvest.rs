@@ -662,7 +662,7 @@ fn session_that_leaves(marker: &Path) -> std::process::Child {
         .unwrap()
 }
 
-/// Build ticket 107, item 1. The start time is read after `claude` is
+/// Build ticket 112, item 1. The start time is read after `claude` is
 /// running, so a failure there cannot roll the launch back. It closes the
 /// record with the pid in the error and still waits for the session.
 #[test]
@@ -714,6 +714,12 @@ fn a_start_time_that_will_not_read_leaves_a_failure_record_naming_the_pid() {
         .unwrap()
         .assert_ok();
 
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&run_file, &policies).unwrap();
+    let derived = hydra::outcome::derive(&run).unwrap();
+    assert_eq!(derived.outcome, hydra::outcome::Outcome::Failed);
+    assert_eq!(derived.source, hydra::outcome::Source::Derived);
+
     // Closed, so `hydra status` never harvests it as abandoned mid-session.
     assert_eq!(
         harvest_in(&layout, run_id, None, &home).unwrap(),
@@ -721,7 +727,29 @@ fn a_start_time_that_will_not_read_leaves_a_failure_record_naming_the_pid() {
     );
 }
 
-/// Build ticket 107, item 1. A record that cannot be written at all is said
+/// A session that exits before its first turn writes no vendor transcript.
+/// Harvest closes the record with an error naming the path it looked for.
+#[test]
+fn a_session_that_wrote_no_transcript_derives_failed() {
+    let (layout, home, cwd) = scratch("no-transcript");
+    let run_id = "00000000-0000-7000-8000-000000000174";
+    let session = "00000000-0000-7000-8000-000000000174";
+    open_interactive_run(&layout, run_id, session, &cwd);
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(outcome, HarvestOutcome::Harvested { records: 0 });
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(error.contains("wrote no transcript"), "{error}");
+
+    let derived = hydra::outcome::derive(&run).unwrap();
+    assert_eq!(derived.outcome, hydra::outcome::Outcome::Failed);
+    assert_eq!(derived.source, hydra::outcome::Source::Derived);
+}
+
+/// Build ticket 112, item 1. A record that cannot be written at all is said
 /// on stderr, and the launch still waits for the session it started.
 #[test]
 fn a_record_that_cannot_be_written_still_waits_for_the_session() {

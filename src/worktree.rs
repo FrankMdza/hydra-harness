@@ -431,7 +431,7 @@ pub fn run_store_copy(store: &Path) -> PathBuf {
 /// `info/`, and each file in it was opened without following a link and
 /// checked as a regular file with one link through the descriptor that was
 /// then read, so no path the run changes afterwards reaches git. Build ticket
-/// 107.
+/// 112.
 ///
 /// A store over `cap` bytes imports nothing, and `index-pack` refuses a
 /// stream over `cap` too. Either way reap still commits the run's work: it

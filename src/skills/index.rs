@@ -206,7 +206,7 @@ mod tests {
         let roots = vec![root.clone()];
 
         // Ticket 24's identity probe. One directory, two names, and the check has
-        // to hit on either because the three providers disagree about which one
+        // to hit on either because the four providers disagree about which one
         // is the skill's name.
         assert_eq!(index.holding("dirname-only", &roots).len(), 1);
         assert_eq!(index.holding("frontmatter-name", &roots).len(), 1);

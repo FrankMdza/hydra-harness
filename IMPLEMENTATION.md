@@ -3157,8 +3157,14 @@ suite's time before. Hydra's commits are unsigned, because `commit.gpgSign` is g
 configuration. A launch is refused under `skill-worktrees/` as well as `worktrees/`, and `hydra
 evolve` refuses there before it discovers a repository. A gated interactive launch that fails
 after its checkout exists rolls the checkout, branch and spawn directory back. Two failures after
-`claude` has started, `procinfo::start_time` and the record's first write, still leave no record;
-build ticket 112 is to write one carrying the pid.
+`claude` has started, `procinfo::start_time` and the record's first write, used to leave no
+record and `claude` running with nobody waiting. Since build ticket 112, `record_then_wait`
+writes `run_start` and a harvested `run_end` whose `error` names the pid when the start time
+will not read, still waits for the session either way, and `derive` reads that error as
+`failed`. `tests/harvest.rs::a_start_time_that_will_not_read_leaves_a_failure_record_naming_the_pid`,
+`a_record_that_cannot_be_written_still_waits_for_the_session`,
+`a_recorded_start_carries_the_pid_and_its_start_time` and
+`a_session_that_wrote_no_transcript_derives_failed` pin it.
 
 - Reap refuses a checkout on any branch but its own before it stages anything, rewrites the
   `.git` file to the trusted directory because `git worktree remove` reads it, and removes the
@@ -3179,14 +3185,15 @@ build ticket 112 is to write one carrying the pid.
   watcher inherits them. Reap runs `import_run_objects` and then `unstage_missing_objects` before
   it commits: `git pack-objects` over the store, piped into `git index-pack --stdin --strict` in
   the parent, which names each object from its bytes, and then every index entry whose object
-  did not arrive is hashed again from the checkout. Since build ticket 106 the import first
-  scrubs the store: `info/` goes whole, since git reads `info/alternates` there even with the
-  store set by environment, and so does every link, every entry that is not a regular file and
-  every file with a second hard link. If `info/` is back by the time `pack-objects` would start,
-  nothing is imported. A store over `RUN_STORE_IMPORT_CAP`, 1 GiB, imports nothing, and
-  `index-pack` gets `--max-input-size` at the same cap. Whatever is not imported is hashed again
-  from the checkout. The window between that last check and `pack-objects` reading the store is
-  open, build ticket 112. The diff stat, rung two's read and `hydra status` stage from indexes
+  did not arrive is hashed again from the checkout. Since build ticket 112, reap copies the
+  store into `spawn/<run-id>/reap-import` with `copy_run_store` and runs `pack-objects` on that
+  copy, which the run cannot write after reap has started, so a process the run left running
+  cannot plant `info/alternates` or a link in the directory git reads. Build ticket 106 scrubbed
+  the store in place; 112 replaced that with the copy. A store over `RUN_STORE_IMPORT_CAP`, 1 GiB,
+  imports nothing, and `index-pack` gets `--max-input-size` at the same cap. Whatever is not
+  imported is hashed again from the checkout. That window is closed;
+  `tests/cleanup.rs::an_alternates_file_written_while_reap_imports_brings_nothing_in` pins it.
+  The diff stat, rung two's read and `hydra status` stage from indexes
   under the spawn directory and need nothing from the run's store. Git inside a run, in any
   repository, uses that store. Measured after the merge on 2026-09-24: under `standard` each of
   the four providers ran `git add` in a real run, printed its own store as

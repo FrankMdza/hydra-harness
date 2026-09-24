@@ -13,9 +13,9 @@ compiler in `src/policy/mod.rs` replaces the `HYDRA_CONFIG` line below with the
 run's own policy and writes the result to `~/hydra/spawn/<run-id>/gate`.
 
 **Nothing here reads a policy file.** 7.5 rules that out: anything read at fire
-time is a file that may have changed since the previous tool call. The three
-providers measured, `claude`, `cursor-agent` and `agy`, snapshot their hook config at
-process start (`codex` is unmeasured), but the config is a
+time is a file that may have changed since the previous tool call. The four
+providers measured, `claude`, `cursor-agent`, `agy` and `codex`, snapshot their hook config at
+process start, but the config is a
 pointer and the script is its target, and the target is read fresh on every
 invocation. The policy is in this file, and the gate denies writes to this file
 under every policy.

@@ -96,7 +96,7 @@ impl Signals {
     /// inside it.
     ///
     /// **It earns its place because it makes the other four unreliable.** All
-    /// three providers close a run reporting success with a failed tool or a
+    /// four providers close a run reporting success with a failed tool or a
     /// denial in it, which is why the contract derives every outcome from the
     /// stream. This is the same check one level up: the derivation said the run
     /// ended cleanly and the tools inside it say otherwise.

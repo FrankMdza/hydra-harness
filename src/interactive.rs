@@ -533,7 +533,7 @@ fn run_ungated(request: Request) -> Result<RunResult> {
 /// record. Each one used to return at once. That left no record, and it left
 /// `claude` running with nobody waiting on it. Rolling the checkout back
 /// would pull it out from under a live session, so neither failure undoes
-/// anything. Build ticket 107.
+/// anything. Build ticket 112.
 ///
 /// A start time that will not read gets a failure record: `run_start` and then
 /// a `run_end` whose `error` names the pid. Contract 5.2 allows a pid only

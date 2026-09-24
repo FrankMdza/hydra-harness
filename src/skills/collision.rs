@@ -37,7 +37,7 @@ pub struct Collision {
 /// `user` is the index over the roots this provider reads in the human's home;
 /// `project` is the one over the checkout's own skills, which are the entries
 /// Hydra did not link. Both are compared on the directory name and the frontmatter
-/// name, because 6.4 asks for both and the three providers disagree about which
+/// name, because 6.4 asks for both and the four providers disagree about which
 /// one is a skill's name.
 ///
 /// `resolved` is what the provider itself reported, or `None` when it could not be

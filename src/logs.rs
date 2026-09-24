@@ -2,7 +2,7 @@
 //!
 //! **Observation is read-only.** Tailing the run file is the only way to watch an
 //! unwatched child: no attach, no input, no answering a permission prompt from
-//! outside. D5 caps the crossings at two, two of three providers cannot be asked
+//! outside. D5 caps the crossings at two, a print-mode provider cannot be asked
 //! anything mid-run anyway, and the gate already decided every permission question
 //! before the process started. So this prints bytes and does nothing else.
 //!

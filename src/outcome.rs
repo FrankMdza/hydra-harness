@@ -195,15 +195,25 @@ pub fn derive(run: &Run) -> Option<Derived> {
             // reason: a run `hydra status` harvested after the fact carries
             // `exit_code: null` because nobody waited on the process, not
             // because none ran.
-            match end.body["exit_code"].as_i64() {
-                Some(0) => Outcome::Completed,
-                Some(_) => Outcome::Failed,
-                // Nobody watched this session exit. The transcript is on
-                // disk and nothing in the record says the session crashed,
-                // which reads closer to completed than to any other outcome
-                // here; the confidence the pair below takes off it is the
-                // honest cost of not having watched.
-                None => Outcome::Completed,
+            //
+            // **`run_end.error` is read here too.** A harvested close with no
+            // body and an error is Hydra saying the launch or harvest failed
+            // after the process started, or that there was nothing to read, not
+            // a session that finished cleanly. Contract 8's `failed` is the
+            // row for a run that ran and did not complete.
+            if end.body["error"].is_string() {
+                Outcome::Failed
+            } else {
+                match end.body["exit_code"].as_i64() {
+                    Some(0) => Outcome::Completed,
+                    Some(_) => Outcome::Failed,
+                    // Nobody watched this session exit. The transcript is on
+                    // disk and nothing in the record says the session crashed,
+                    // which reads closer to completed than to any other outcome
+                    // here; the confidence the pair below takes off it is the
+                    // honest cost of not having watched.
+                    None => Outcome::Completed,
+                }
             }
         }
         None => {

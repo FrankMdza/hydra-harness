@@ -269,7 +269,7 @@ pub fn mcp_undeliverable(policy: &str) -> Option<&'static str> {
 ///
 /// `claude`'s own shape: `mcpServers` keyed by name, a stdio body of `command`,
 /// `args` and `env`, and a remote body of `type` plus `url`. The remote key is
-/// where the three providers part company, so this is the one place the shape is
+/// where the four providers part company, so this is the one place the shape is
 /// written down for this one.
 ///
 /// **An empty object is a real answer.** With `--strict-mcp-config` beside it, an

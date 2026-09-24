@@ -106,16 +106,14 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   gate, `objects/` included. A pack a run forges in its own store lies only to its own git. Reap
   moves the run's objects into the parent from outside the seatbelt with `git pack-objects` and
   `git index-pack --strict`, which names each object from its bytes, so a forged name never
-  reaches the parent or a later worktree. Before it packs anything, reap removes the store's
-  `info/` directory, where git would read an alternates file naming another repository, and
-  every link, every entry that is not a regular file, and every file with a second hard link.
-  So `pack-objects` reads only bytes the run's own git wrote into its store. A store over 1 GiB
-  imports nothing. An index entry whose object did not arrive is hashed again from the checkout.
-  No other git Hydra runs reads the run's store: each one drops the two variables and hashes
-  the checkout itself. Until build ticket 103 `objects/` in the parent kept a full write grant,
-  and a run could plant a pack that mapped an existing sha to other bytes, which git served. What
-  is left: a process the run left running could write `info/alternates` again between reap's
-  last check and the moment `pack-objects` reads the store, build ticket 112.
+  reaches the parent or a later worktree. Reap copies the run's store into `reap-import` beside
+  it and runs `pack-objects` on the copy, which the run cannot write after reap has started, so
+  a process the run left running cannot plant `info/alternates` or a link in the directory git
+  reads. A store over 1 GiB imports nothing. An index entry whose object did not arrive is
+  hashed again from the checkout. No other git Hydra runs reads the run's store: each one drops
+  the two variables and hashes the checkout itself. Until build ticket 103 `objects/` in the
+  parent kept a full write grant, and a run could plant a pack that mapped an existing sha to
+  other bytes, which git served. That window is closed, build ticket 112.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never

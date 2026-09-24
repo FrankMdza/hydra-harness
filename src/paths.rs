@@ -106,7 +106,7 @@ fn is_object_name(sha: &str) -> bool {
 impl Layout {
     /// `~/hydra`, from the real home rather than from `HOME`.
     ///
-    /// Harness spec 6.2: a wrong `HOME` logs three providers out silently, so
+    /// Harness spec 6.2: a wrong `HOME` logs a provider out silently, so
     /// nothing here trusts the variable. [`crate::env::real_home`] reads the
     /// passwd entry.
     ///

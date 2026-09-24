@@ -1,7 +1,7 @@
 # 114 - Build 112 verified by reverting, its outcome bug, and its two sentences
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -75,3 +75,46 @@ steps 4 to 6. `cargo test --test cleanup --test harvest --test outcome` and `car
 green, `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` clean. If step 2
 turns out to need a decision the contract does not make, stop there, do steps 1 and 3 to 6, and
 say so in the report.
+
+## Outcome
+
+Built by `cursor-agent` on `composer-2.5` under `standard`, run 01a0d3f5-50e5-7360, 5.61M
+tokens, the most expensive composer run of the day and the one that earned it. Applied to
+master by hand (`~/.claude/handoffs/2026-09-24-panel4/diff-114.patch`).
+
+Step 1, the revert check, with the literal failures:
+
+| Test | With its fix reverted |
+|---|---|
+| `an_alternates_file_written_while_reap_imports_brings_nothing_in` | `a store naming blobs it does not hold imported cleanly: 2` |
+| `a_start_time_that_will_not_read_leaves_a_failure_record_naming_the_pid` | `record_then_wait returned before the session exited` |
+| `a_record_that_cannot_be_written_still_waits_for_the_session` | `record_then_wait returned before the session exited` |
+| `a_recorded_start_carries_the_pid_and_its_start_time` | `assertion left == right failed left: Null right: Number(<pid>)` |
+
+All four green again after `git checkout`. Build 112 is verified.
+
+Step 2, the bug the fourth panel's `claude` reader found: the harvested arm of `derive` in
+`src/outcome.rs` now reads `run_end.error` before `exit_code`, so a harvested close with an
+error and no body derives `failed`. The pid-carrying failure record and the no-transcript
+record both derived `completed` before; both derive `failed`, `Source::Derived`, now. The
+existing test asserts the outcome and a new one,
+`a_session_that_wrote_no_transcript_derives_failed`, covers the path no test read. Both failed
+before step 2 with `left: Completed, right: Failed`. The agent chose contract 8's `failed` ("the
+task ran and failed"). The ticket had asked for an outcome rung one does not learn from, and
+`failed` is in the learns column; the contract has no row for a failure on Hydra's side after
+the process started, so `failed` is the honest row it has. Whether it wants one is a contract
+question, not this ticket's.
+
+Steps 4 to 6: "build ticket 107" is 112 in `src/worktree.rs`, `src/interactive.rs`,
+`tests/cleanup.rs` and `tests/harvest.rs`; `IMPLEMENTATION.md`'s two passages and
+`SECURITY.md`'s store bullet describe the copy into `reap-import`, say the window is closed and
+name the tests. Both `IMPLEMENTATION.md` passages were in the git section; the interactive
+heading never named 112.
+
+What the agent found on the way: a run's shell carries `GIT_OBJECT_DIRECTORY` and
+`GIT_ALTERNATE_OBJECT_DIRECTORIES`, and a test that runs `git init` inherits them and sees a
+repository with no commits. That is why every composer run on 2026-09-24 reported three
+`run::tests` failures as "pre-existing". The base task now says to unset both.
+
+On master: lib 210, cleanup 46, gate 98, harvest 12, normalize 90, outcome 47; fmt and clippy
+clean.

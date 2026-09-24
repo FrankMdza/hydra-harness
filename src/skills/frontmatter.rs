@@ -2,7 +2,7 @@
 //!
 //! **A YAML parser and not a regex.** An unquoted YAML scalar may not contain a
 //! colon followed by a space, and a `SKILL.md` whose description does breaks on
-//! two of the three providers without a word: ticket 24 measured `agy` dropping
+//! two of the four providers without a word: ticket 24 measured `agy` dropping
 //! the skill from its listing and Cursor keeping it with an empty description.
 //! Both failures are silent, so the store has to refuse the file rather than
 //! discover it later.
@@ -18,7 +18,7 @@
 //! store needs and the file format does not:
 //!
 //! - The frontmatter `name` must equal the directory name. There is no shared
-//!   notion of a skill's identity across the three providers, `claude` keys on the
+//!   notion of a skill's identity across the four providers, `claude` keys on the
 //!   directory and `agy` on the frontmatter, so a store skill where the two
 //!   disagree is a different skill to each of them. Making them equal is what
 //!   gives a store entry one name to collide on.

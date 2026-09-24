@@ -103,7 +103,7 @@ pub struct Message {
     pub block: usize,
 }
 
-/// Contract 7.4. Dark in v1 on all three providers, and nothing constructs it.
+/// Contract 7.4. Dark in v1 on all four providers, and nothing constructs it.
 #[derive(Debug, Clone)]
 pub struct MessageDelta {
     pub seq: u64,
@@ -262,7 +262,7 @@ pub struct Usage {
 /// Section 9's field mapping, normalized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Counts {
-    /// **Net of cache on all three providers** (9.1). Reading it as the prompt
+    /// **Net of cache on all four providers** (9.1). Reading it as the prompt
     /// size is the first of section 9's two traps.
     pub input_tokens: u64,
     pub output_tokens: u64,

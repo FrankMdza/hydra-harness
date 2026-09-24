@@ -1783,7 +1783,7 @@ fn a_store_over_the_cap_imports_nothing() {
     assert!(has_object(&fixture.repo, &own));
 }
 
-// --- build ticket 107: reap packs from a copy the run cannot reach ------------
+// --- build ticket 112: reap packs from a copy the run cannot reach ------------
 
 /// The residual build ticket 106 named. Reap removed `info/` from the store and
 /// checked again, and a process the run left running could write

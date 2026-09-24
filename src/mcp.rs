@@ -1,9 +1,9 @@
 //! The canonical MCP document, and what one launch does with it. Harness spec 6.5.
 //!
 //! One document generates the per-provider file and is none of them. The stdio
-//! server body is byte-identical across the three providers, and the file name,
+//! server body is byte-identical across the four providers, and the file name,
 //! the directory and the remote key all differ, so a document that was any one of
-//! them could not produce the other two.
+//! them could not produce the other three.
 //!
 //! **It is protected config #5** (15.1). An MCP server definition is a command
 //! Hydra spawns, so a run that edits this document runs code of its choosing
@@ -52,7 +52,7 @@ pub struct Document {
     pub servers: Vec<Server>,
 }
 
-/// One server, in the shape all three providers can be generated from.
+/// One server, in the shape all four providers can be generated from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Server {
     pub name: String,
@@ -77,10 +77,11 @@ impl Server {
 
 /// The three transports the document can express.
 ///
-/// The stdio body is identical on all three providers. The remote ones are where
+/// The stdio body is identical on all four providers. The remote ones are where
 /// they differ: `claude` takes `type` plus `url`, `cursor-agent` takes `url`
-/// alone, `agy` takes `serverUrl`, and `agy` refuses `command` and `serverUrl`
-/// together. That difference is why the document is not any provider's own file.
+/// alone, `agy` takes `serverUrl`, `codex` takes `url` in TOML, and `agy`
+/// refuses `command` and `serverUrl` together. That difference is why the
+/// document is not any provider's own file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
     Stdio,
@@ -270,11 +271,11 @@ impl<'a> Plan<'a> {
 
 /// Why a launch of this shape carries no MCP config at all.
 ///
-/// Three providers, two reasons. `claude` answers on the policy name: 6.7's
-/// `judge` argv carries no `--mcp-config`. The other two answer on the tree,
-/// because both read the file out of the worktree: 6.5 gives `cursor-agent` no
-/// injected config outside a checkout Hydra created, and `agy` has nowhere to
-/// write one.
+/// Two reasons. `claude` answers on the policy name: 6.7's `judge` argv carries
+/// no `--mcp-config`. `cursor-agent`, `agy` and `codex` answer on the tree,
+/// because each reads the file out of the worktree: 6.5 gives `cursor-agent` no
+/// injected config outside a checkout Hydra created, and `agy` and `codex` have
+/// nowhere to write one.
 fn undeliverable(provider: Provider, policy: &str, checkout: Checkout) -> Option<&'static str> {
     match provider {
         Provider::Claude => claude::mcp_undeliverable(policy),

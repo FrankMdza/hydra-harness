@@ -1,7 +1,7 @@
 # 119 - Stale "three providers" comments, and the authorship rows 108, 109 and 112
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -27,3 +27,21 @@ and 7 (`docs/reviews/2026-09-24-fourth-panel-claude.md`).
 `grep -rn "three providers" src/` returns only sentences that are true as history and dated.
 The table's rows sum to the number the paragraph gives. `cargo fmt --check` clean. Comments
 and a table only: run `cargo test --lib` once and nothing more.
+
+## Outcome
+
+Built by `cursor-agent` on `composer-2.5` under `standard`, run 01a0d3f8-5272, 0.86M tokens.
+Applied to master by hand except the README hunk, which the session redid because the table had
+moved under it (`~/.claude/handoffs/2026-09-24-panel4/diff-119.patch`). Thirteen files: the
+agent went past the ticket's list by grep, as invited, and left `src/normalize/codex.rs:116`
+("the other three providers") alone, correctly.
+
+Four of its sentences said more than the corpus does and the session rewrote them: `codex`
+does not read `.codex/hooks.json` from a worktree (its hook rides its argv,
+`src/provider/codex.rs`), so `src/policy/mod.rs`'s deny-list doc says two of four again and why
+`codex` is not the third; `src/paths.rs` no longer counts the providers a wrong `HOME` logs out;
+`src/logs.rs` says a print-mode provider cannot be asked anything mid-run rather than "two of
+four"; `src/mcp.rs`'s `undeliverable` doc names the three that answer on the tree instead of
+"the other three ... both". The README rows: 108, 113, 114, 116, 117, 119 and 120 under
+Composer, 115 under Gemini 3.8 Flash, 109 under `codex`, 112 under the Opus subagent, and one
+denominator, 67 of 116. `cargo fmt --check` and clippy clean; lib 210.
