@@ -1,4 +1,4 @@
-# 106 - `hy`: a gated interactive session in a Herdr pane, in one word
+# 107 - `hy`: a gated interactive session in a Herdr pane, in one word
 
 Type: build
 Status: resolved

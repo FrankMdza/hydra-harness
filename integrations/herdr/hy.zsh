@@ -1,5 +1,5 @@
 # hy [model] [policy]: a gated interactive claude session in a new Herdr pane beside this one.
-# Source this file from ~/.zshrc. Build ticket 106.
+# Source this file from ~/.zshrc. Build ticket 107.
 hy() {
     if [ -z "$HERDR_ENV" ]; then
         echo "hy: not inside Herdr" >&2

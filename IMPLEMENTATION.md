@@ -2804,7 +2804,7 @@ is on the `PATH`, and the `agy` run that built the bridge proved it by putting a
 the human's own pane. Harness spec 7.5 already says the gate cannot keep a shell away from a
 binary, and this is that hole with a new name rather than a new one.
 
-**Since build ticket 106, an interactive run has a pane launcher too.** `bin/hydra-in-pane`
+**Since build ticket 107, an interactive run has a pane launcher too.** `bin/hydra-in-pane`
 discards stdout and tails the log, which suits a detached recorded run and not a vendor TUI, so
 `bin/hydra-tui-in-pane` keeps the terminal for the vendor, tees stderr for the `hydra: run <id>`
 line, and puts the same tokens on the pane plus `launch_mode=interactive`. `hy.zsh` is the one-word

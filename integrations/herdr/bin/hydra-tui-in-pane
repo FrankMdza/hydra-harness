@@ -4,7 +4,7 @@
 # The sibling `hydra-in-pane` is for recorded runs: it discards stdout, waits for the launch to
 # return, then tails the log. An interactive run owns the terminal, so this script keeps stdin and
 # stdout on the pty, tees stderr to catch the `hydra: run <id>` line Hydra prints before it waits,
-# and labels the pane from a background subshell. Build ticket 106.
+# and labels the pane from a background subshell. Build ticket 107.
 HYDRA="${HYDRA_BIN:-hydra}"
 
 if [ -z "$HERDR_ENV" ]; then

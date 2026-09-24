@@ -143,7 +143,7 @@ in the text above:
 - A Herdr plugin owning the orchestrator is a portability and recovery choice, not a D10
   violation; an optional plugin calling the CLI adds no dependency. The section above overstated it.
 - The `hy` launcher's tee puts a pipe on the provider's fd 2, so "inherited terminal IO" is true
-  of stdin and stdout only. Build ticket 106 measures it with a human at the keyboard.
+  of stdin and stdout only. Build ticket 107 measures it with a human at the keyboard.
 - The head count is an activity gauge, not a memory gauge. `LIVE_RUN_CAP` limits children and
   measures nothing, and pane enumeration can double-count a run or miss one without a pane.
 - The state location was not unanimous: `agy` put `plan.json` inside the goal's worktree, and the
