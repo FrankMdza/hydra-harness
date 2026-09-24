@@ -13,15 +13,27 @@ standard library and makes no network calls.
 | `HYDRA_BIN` | `hydra` | Binary used for `hydra show <id> --events` |
 | `HYDRA_PUPPETS_HOME` | `$HYDRA_ROOT/puppets` | Goal logs for task labels |
 
-## Dataset
+## Dataset and cursor
 
 `$HYDRA_GRADER_HOME/dataset.jsonl` holds one JSON object per run. Field names
 and types are in [`SCHEMA.md`](SCHEMA.md).
 
-`cursor.json` in the same directory maps each `run_id` to a SHA-256 fingerprint
+`$HYDRA_GRADER_HOME/cursor.json` maps each `run_id` to a SHA-256 fingerprint
 of that record file. A changed fingerprint replaces that run's line on the next
 `once` or `rebuild`. Writes go to a temp file and rename, so a torn dataset
 never exists.
+
+The same directory holds `show-cache.json`, the memoized answers from
+`hydra show --events`.
+
+## Labels
+
+Task labels come from Puppets goal logs under `HYDRA_PUPPETS_HOME`. Each
+`*.jsonl` file is one goal; `labels.py` folds it the same way `puppets fold`
+does and maps each `run_id` to task class, grade, human verdict, and task text.
+When a run id appears in more than one goal log, the last sorted goal id wins.
+Runs with no matching goal log keep the task text from the record and leave the
+label fields null.
 
 ## Commands
 
@@ -69,5 +81,5 @@ corpus; the numbers above replaced it.
 ## Tests
 
 ```
-python3 -m unittest discover -s integrations/grader/tests -v
+python3 -m unittest discover -s integrations/grader/tests
 ```

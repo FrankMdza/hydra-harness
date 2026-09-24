@@ -17,3 +17,4 @@ target/
 # Ignored so `seed_tree` (git add -A) stops carrying it into every run's worktree.
 /docs/status.html
 /puppets/
+/grader/

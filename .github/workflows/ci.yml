@@ -34,3 +34,5 @@ jobs:
       # under the standard library's runner because the macOS image ships no pytest, and the
       # tests are plain unittest cases.
       - run: python3 -m unittest discover -s integrations/puppets/tests -q
+      # The grader integration has the same shape: stdlib unittest on the macOS runner.
+      - run: python3 -m unittest discover -s integrations/grader/tests -q
