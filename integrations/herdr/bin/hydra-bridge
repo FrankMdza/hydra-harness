@@ -4,7 +4,7 @@ import subprocess
 import time
 import sys
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 HYDRA = os.environ.get("HYDRA_BIN", "hydra")
 
@@ -103,6 +103,54 @@ def latest_tool_call(events_data):
     return latest.get("name"), latest.get("seq")
 
 
+def count_denials(events_data):
+    events = events_data.get("events") or []
+    return sum(
+        1
+        for event in events
+        if event.get("type") == "permission_decision" and event.get("decision") == "deny"
+    )
+
+
+def parse_event_ts(ts):
+    if not ts:
+        return None
+    text = ts.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+# `hydra show --events` carries no timestamp on a normalized event (build ticket 122 found it),
+# so a rate cannot be read off one poll. The bridge polls every two seconds; this keeps, per
+# run, the tool-call total at each poll and reads the rate as the growth over the last 30 s.
+TOOL_HISTORY = {}
+
+
+def count_tool_rate(events_data, now=None, run_id=None, history=None):
+    events = events_data.get("events") or []
+    if now is None:
+        now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=30)
+    stamped = [e for e in events if e.get("type") == "tool_call" and parse_event_ts(e.get("ts"))]
+    if stamped:
+        return sum(1 for e in stamped if parse_event_ts(e.get("ts")) >= cutoff)
+    total = sum(1 for e in events if e.get("type") == "tool_call")
+    if run_id is None:
+        return 0
+    history = TOOL_HISTORY if history is None else history
+    samples = history.setdefault(run_id, [])
+    samples.append((now, total))
+    del samples[:-40]
+    older = [count for (at, count) in samples if at <= cutoff]
+    baseline = older[-1] if older else samples[0][1]
+    return max(0, total - baseline)
+
+
 def short_run_id(run_id):
     if not run_id:
         return ""
@@ -135,6 +183,10 @@ def build_tokens(status_json, events_data=None, now=None):
         name, seq = latest_tool_call(events_data)
         if name is not None and seq is not None:
             tokens["last_tool"] = f"{name}@{seq}"
+        tokens["denials"] = str(count_denials(events_data))
+        tokens["tool_rate"] = str(
+            count_tool_rate(events_data, now=now, run_id=status_json.get("run_id"))
+        )
 
     return tokens
 

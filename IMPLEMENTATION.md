@@ -2899,6 +2899,15 @@ alive with no tool names until then; whether the bridge may tail the vendor tran
 map ticket 76's decision G. `bin/hydra-mascot` beside them is a prototype renderer from map ticket
 75 that reads no record yet.
 
+**Since build ticket 122, the mascot reads the pane.** The bridge puts two more tokens on every
+live pane, `denials` (deny decisions so far) and `tool_rate` (tool calls in the last 30 seconds,
+measured as the growth of the total across the bridge's own polls, because a normalized event
+carries no timestamp), and `hydra-mascot --watch`, the `mascot` pane of the plugin, drives the
+HydraPet dragon from `herdr pane list` alone: one head awake per live run, a red flash when a
+pane's denials rise, fire at a rate of six or more, and an interactive pane awake and never
+firing, since its record is thin until the harvest (map ticket 76, decision G). It never reads
+`~/hydra/runs/` and never calls bare `hydra status`.
+
 ## Master of Puppets, since build tickets 108 and 109
 
 Map ticket 75's panel and ticket 76's answers gave the mode its shape: an orchestrator outside

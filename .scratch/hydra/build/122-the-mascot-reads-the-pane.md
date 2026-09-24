@@ -1,7 +1,7 @@
 # 122 - The mascot reads the pane, and the pet is the mascot
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -36,3 +36,17 @@ Also make the pet the default: `hydra-mascot` with no mode flag behaves as `--pe
 without Herdr, and the two bridge tokens have tests. One real `--watch` in a Herdr pane beside a
 stub run (the stub binary from `integrations/herdr/tests/smoke.sh` or a scratch record) shows a
 head wake, and the README of `integrations/herdr/` says how to open the pane. Do not run cargo.
+
+## Outcome
+
+Renumbered from 113 on 2026-09-24 after a collision with the concurrent session. Built by
+composer-2.5 on run 01a0d425-68fa (1.29M tokens): `denials` and `tool_rate` tokens on the
+bridge, `hydra-mascot --watch` driving the HydraPet heads from `herdr pane list` (one head per
+live run up to three, `+n` beyond, a red flash when a pane's denials rise, fire at a tool rate of
+six or more, interactive panes awake and never firing), a `mascot` pane in the manifest, and 15
+tests. The agent found the ticket's premise false: a normalized event from `hydra show --events`
+carries no `ts`, so a rate read off one poll is always zero. The session replaced the rate with
+the growth of the tool-call total across the bridge's own polls over 30 seconds, kept per run,
+with two tests, and loaded the vendored pet renderer once instead of once per frame. 17 herdr
+tests green on master. The agent's live check of `--watch` beside a stub pane showed a head wake;
+the pane opens from the plugin list now that the manifest under the linked path carries it.

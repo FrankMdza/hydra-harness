@@ -94,6 +94,59 @@ class TestMapping(unittest.TestCase):
         live_title = hydra_bridge.build_title(status, tokens)
         self.assertIn("Shell", live_title)
 
+    def test_denials_and_tool_rate_tokens(self):
+        now = datetime(2026, 9, 24, 10, 0, 30, tzinfo=timezone.utc)
+        status = {
+            "run_id": "01a07f18-9a28-7111-971c-f7e260c13cdc",
+            "state": "live",
+            "provider": "claude",
+            "policy": "standard",
+            "started_at": "2026-09-24T09:59:00.000Z",
+        }
+        events = {
+            "events": [
+                {"seq": 1, "type": "tool_call", "name": "Read", "ts": "2026-09-24T10:00:05.000Z"},
+                {"seq": 2, "type": "tool_call", "name": "Shell", "ts": "2026-09-24T10:00:10.000Z"},
+                {"seq": 3, "type": "permission_decision", "decision": "allow"},
+                {"seq": 4, "type": "permission_decision", "decision": "deny"},
+                {"seq": 5, "type": "tool_call", "name": "Write", "ts": "2026-09-24T10:00:20.000Z"},
+                {"seq": 6, "type": "permission_decision", "decision": "deny"},
+                {"seq": 7, "type": "tool_call", "name": "Read", "ts": "2026-09-24T09:59:50.000Z"},
+                {"seq": 8, "type": "tool_call", "name": "Read", "ts": "2026-09-24T10:00:25.000Z"},
+            ]
+        }
+
+        self.assertEqual(hydra_bridge.count_denials(events), 2)
+        self.assertEqual(hydra_hydra_bridge.count_tool_rate(events, now=now), 4)
+
+        tokens = hydra_bridge.build_tokens(status, events_data=events, now=now)
+        self.assertEqual(tokens["denials"], "2")
+        self.assertEqual(tokens["tool_rate"], "4")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ToolRateWithoutTimestamps(unittest.TestCase):
+    """Build ticket 122's finding: normalized events carry no `ts`, so the rate comes from the
+    growth of the tool-call total across the bridge's own polls."""
+
+    def test_rate_is_the_growth_over_thirty_seconds(self):
+        from datetime import datetime, timedelta, timezone
+        history = {}
+        t0 = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+        calls = lambda n: {"events": [{"type": "tool_call", "name": "Bash", "seq": i} for i in range(n)]}
+        self.assertEqual(hydra_bridge.count_tool_rate(calls(3), now=t0, run_id="r", history=history), 0)
+        self.assertEqual(hydra_bridge.count_tool_rate(calls(5), now=t0 + timedelta(seconds=10), run_id="r", history=history), 2)
+        self.assertEqual(hydra_bridge.count_tool_rate(calls(12), now=t0 + timedelta(seconds=31), run_id="r", history=history), 9)
+        self.assertEqual(hydra_bridge.count_tool_rate(calls(12), now=t0 + timedelta(seconds=70), run_id="r", history=history), 0)
+
+    def test_a_stamped_event_still_counts_by_its_timestamp(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 9, 24, 12, 0, 40, tzinfo=timezone.utc)
+        events = {"events": [
+            {"type": "tool_call", "ts": "2026-09-24T12:00:20Z"},
+            {"type": "tool_call", "ts": "2026-09-24T11:59:00Z"},
+        ]}
+        self.assertEqual(hydra_bridge.count_tool_rate(events, now=now, run_id="r", history={}), 1)

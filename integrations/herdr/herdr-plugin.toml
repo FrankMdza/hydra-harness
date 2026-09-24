@@ -10,6 +10,12 @@ title = "Hydra bridge"
 placement = "split"
 command = ["python3", "bin/hydra-bridge"]
 
+[[panes]]
+id = "mascot"
+title = "Hydra mascot"
+placement = "split"
+command = ["python3", "bin/hydra-mascot", "--watch"]
+
 [[actions]]
 id = "run"
 title = "Hydra run in this pane"

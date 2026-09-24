@@ -19,7 +19,7 @@ The image render reads as a dragon at 60 columns and up; below that it is a blob
 sprite is pixel art on a 48 x 28 grid with a nine-colour palette, in the style of the pokemon
 sprites that print at shell start. It bobs one pixel, blinks, and each head can sleep or derp.
 """
-import argparse, os, random, struct, subprocess, sys, tempfile, time
+import argparse, json, os, random, struct, subprocess, sys, tempfile, time
 
 BONE = (232, 226, 210)
 FIRE = [(255, 246, 180), (255, 200, 80), (255, 140, 30), (220, 60, 30), (150, 20, 40)]
@@ -356,15 +356,127 @@ def demo(cells, mouths, seconds, fps, out, frame_source=None):
         out.flush()
 
 
+def pane_tokens(pane):
+    return pane.get("tokens") or {}
+
+
+def pane_run_id(pane):
+    return pane_tokens(pane).get("run_id") or ""
+
+
+def is_live_pane(pane):
+    tokens = pane_tokens(pane)
+    return bool(tokens.get("run_id")) and tokens.get("state") == "live" and tokens.get("alive") == "yes"
+
+
+def is_interactive_pane(pane):
+    return pane_tokens(pane).get("launch_mode") == "interactive"
+
+
+def int_token(pane, name, default=0):
+    try:
+        return int(pane_tokens(pane).get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def compute_watch_frame(panes, prev_denials, flash_until, now):
+    """Map a Herdr pane list to HydraPet head states and fire levels.
+
+    Returns `(heads, fires, extra, red_flash, next_prev_denials, next_flash_until)`.
+    `extra` is how many live runs sit beyond the three visible heads.
+    """
+    live = [pane for pane in panes if is_live_pane(pane)]
+    heads = ["sleeping", "sleeping", "sleeping"]
+    fires = [0.0, 0.0, 0.0]
+    next_prev = dict(prev_denials)
+    next_flash = dict(flash_until)
+    red_flash = False
+
+    if not live:
+        return ["awake", "awake", "awake"], fires, 0, False, next_prev, next_flash
+
+    extra = max(0, len(live) - 3)
+    mapped = live[:3]
+    for i, pane in enumerate(mapped):
+        pane_id = pane.get("pane_id") or f"pane-{i}"
+        heads[i] = "awake"
+        denials = int_token(pane, "denials")
+        prev = prev_denials.get(pane_id, denials)
+        next_prev[pane_id] = denials
+        if denials > prev:
+            next_flash[i] = now + 1.0
+        if next_flash.get(i, 0) > now:
+            red_flash = True
+        if len(live) > 3 and not is_interactive_pane(pane):
+            fires[i] = 1.0
+        elif not is_interactive_pane(pane) and int_token(pane, "tool_rate") >= 6:
+            fires[i] = 1.0
+
+    return heads, fires, extra, red_flash, next_prev, next_flash
+
+
+def list_herdr_panes():
+    try:
+        result = subprocess.run(
+            ["herdr", "pane", "list"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(result.stdout).get("result", {}).get("panes", [])
+    except Exception as err:
+        print(f"Error listing panes: {err}", file=sys.stderr)
+        return []
+
+
+def watch_loop(out, scale=2):
+    """Read pane tokens once a second and drive the pet from live Hydra runs."""
+    prev_denials = {}
+    flash_until = {}
+    out.write("\x1b[?25l\x1b[2J")
+    t0 = time.time()
+    try:
+        while True:
+            now = time.time()
+            panes = list_herdr_panes()
+            heads, fires, extra, red_flash, prev_denials, flash_until = compute_watch_frame(
+                panes, prev_denials, flash_until, now
+            )
+            cells = pet_cells(now - t0, heads, fires, False, scale)
+            out.write("\x1b[H")
+            draw(cells, out, red=red_flash)
+            status = f"live={sum(1 for p in panes if is_live_pane(p))}"
+            if extra:
+                status += f" +{extra}"
+            out.write(f"\x1b[0m {status:<12}\x1b[K\n")
+            out.flush()
+            time.sleep(1)
+    finally:
+        out.write("\x1b[0m\x1b[?25h\n")
+        out.flush()
+
+
+_HYDRAPET = None
+
+
+def hydrapet_module():
+    """The vendored HydraPet renderer, loaded once (`--watch` draws a frame a second)."""
+    global _HYDRAPET
+    if _HYDRAPET is None:
+        import importlib.util
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "hydrapet", os.path.join(here, "..", "mascot", "hydrapet.py"))
+        _HYDRAPET = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_HYDRAPET)
+    return _HYDRAPET
+
+
 def pet_cells(t, heads, fires, pet=False, scale=2):
     """One frame of the compact HydraPet dragon (24 x 24 pixels, drawn per frame by the vendored
     `hydrapet.render_compact_dragon`) as cells, scaled up by whole pixels."""
-    import importlib.util
-    here = os.path.dirname(os.path.abspath(__file__))
-    spec = importlib.util.spec_from_file_location("hydrapet", os.path.join(here, "..", "mascot", "hydrapet.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    grid = mod.render_compact_dragon(t, heads, fires, pet_active=pet)
+    grid = hydrapet_module().render_compact_dragon(t, heads, fires, pet_active=pet)
     h, w = grid.shape[:2]
     px = []
     for y in range(h):
@@ -475,8 +587,13 @@ def main():
     ap.add_argument("--save", help="write the rendered frame as ANSI text to this file and exit")
     ap.add_argument("--load", help="print a frame saved with --save; no image or sips needed")
     ap.add_argument("--demo", type=float, default=0, help="animate for this many seconds")
+    ap.add_argument("--watch", action="store_true",
+                    help="watch Herdr panes carrying a run_id and drive the pet from their tokens")
     ap.add_argument("--fps", type=float, default=8)
     a = ap.parse_args()
+    if a.watch:
+        watch_loop(sys.stdout, a.scale)
+        return
     if a.load:
         sys.stdout.write(open(a.load).read())
         return
