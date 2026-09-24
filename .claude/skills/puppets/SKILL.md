@@ -21,10 +21,12 @@ it before every step instead of remembering.
    launches one proposer per seat. Keep `claude` off planning: the session's own window pays for
    the orchestration. Check swap (`sysctl vm.swapusage`) before three launches; under 1 GB free,
    launch in waves.
-3. `plans <goal>` once the runs have ended (`hydra status`), then read the three plans under
-   `~/hydra/puppets/<goal>/plans/`. Until build ticket 111 lands, you compare them yourself and
-   `choose <goal> <provider>` or `choose <goal> <path>` for a composed plan you wrote. Show the
-   human the choice and the reason; `approve <goal> --plan` is theirs to give, through
+3. `plans <goal>` once the runs have ended (`hydra status`), then `choose <goal> --judge`:
+   three judge seats (claude opus, codex under standard, composer-2.5) read the plans and must
+   agree, or the command names the seat that blocked. If codex is out of credits the panel
+   cannot run; then read the plans yourself and `choose <goal> <provider>`, or `choose <goal>
+   <path>` for a plan you composed, and say in your message that the panel did not sit. Show
+   the human the choice and the reason; `approve <goal> --plan` is theirs, through
    AskUserQuestion, one option marked recommended.
 4. `tasks <goal>` imports the chosen plan's JSON block; `assign <goal>` fills the table from the
    ranking when a verdict backs it and from the default table otherwise. Print the table (task,
@@ -34,8 +36,10 @@ it before every step instead of remembering.
 5. `launch <goal> <task>` for each task whose deps have ended. A `codex` task, or a `high` or
    `agi` task on `claude`, is refused until the human gives `approve --launch <task>`; ask, and
    say why (that gate can fail open). Inside Herdr the launch opens a pane tailing the run.
-6. `wait <goal>` records ended runs. `review <goal> <task>` opens the diff in Hunk for the human;
-   you review it the way build tickets are reviewed: read the worktree diff in full, check the mechanism and not only the green suite, and look for what
+6. `wait <goal>` records ended runs. `review <goal> <task>` runs the three judge seats over the
+   diff, writes their major and critical findings into the Hunk session as comments, and opens
+   Hunk for the human. You review it the way build tickets are reviewed as well: read the
+   worktree diff in full, check the mechanism and not only the green suite, and look for what
    the agent called "preexisting". Show the human the diff and your review; `approve --diff
    <task>` is theirs. Apply by hand, run the suite, `hydra reap <id> --delete-branch`, then
    `verdict <goal> <task> applied|fixed|rejected --note "..."`. `fixed` means you changed the
