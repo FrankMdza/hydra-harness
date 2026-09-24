@@ -12,7 +12,8 @@ its own aspect. Dark pixels are left transparent so the dragon sits on the pane'
     hydra-mascot --image ref.jpeg --width 60 --save ~/.cache/hydra-mascot.ans
     hydra-mascot --load ~/.cache/hydra-mascot.ans            # from .zshrc, like pokemon-colorscripts
     hydra-mascot --small --demo 20                           # the pixel-art sprite, 48 x 15
-    hydra-mascot --pet --demo 20                             # the HydraPet 24-pixel dragon, drawn per frame
+    hydra-mascot --demo 20                                   # the HydraPet dragon, the default since 2026-09-24
+    hydra-mascot --save ~/.cache/hydra-mascot.ans            # its frame for the shell prompt
 
 The image render reads as a dragon at 60 columns and up; below that it is a blob, so the small
 sprite is pixel art on a 48 x 28 grid with a nine-colour palette, in the style of the pokemon
@@ -479,6 +480,8 @@ def main():
     if a.load:
         sys.stdout.write(open(a.load).read())
         return
+    if not (a.pet or a.small or a.sprite or a.image or a.load):
+        a.pet = True  # the human's pick on 2026-09-24: the HydraPet dragon is the mascot
     if a.pet:
         if a.demo:
             pet_demo(a.demo, a.fps, sys.stdout, a.scale)
