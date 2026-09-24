@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 73 of 74 on 2026-09-23, with 74, the object store, open for the human; build tickets 89 to 96 carry the second hiring panel's findings.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
+**The map stands at 74 of 74 on 2026-09-23; build tickets 89 to 96 carry the second hiring panel's findings and 97 to 104 the third's.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -139,7 +139,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 73 of 74 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 74 of 74 resolved
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 

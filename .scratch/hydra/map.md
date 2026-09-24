@@ -308,6 +308,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [71 - `codex` cannot read its own skills](issues/71-codex-cannot-read-its-own-skills.md): resolved 2026-09-22 after a three-reader panel. Copy on `codex`, seatbelt-denied, skill roots off the reap, a hash at exit. Build ticket 87.
 - [72 - Which branch reap may commit on, and what the git carve-out lets a run write](issues/72-reap-and-the-git-carve-out.md): resolved 2026-09-23 after a four-reader panel. Reap commits only on its own branch; every unsandboxed git call takes its git directory from the record; the private carve-out narrows to the index. Build ticket 95.
 - [73 - What rung two may edit](issues/73-what-rung-two-may-edit.md): resolved 2026-09-23 after a four-reader panel. The human names the paths per pass over a floor no name lifts; existing tests are refused, new ones allowed. Build tickets 80 and 96.
+- [74 - What a run may write in the parent's object store](issues/74-the-object-store-under-the-seatbelt.md): resolved 2026-09-23. A private object store per run, the parent's read as an alternate, reap moves checked objects in from outside. Build ticket 103.
 
 
 ## Not yet specified

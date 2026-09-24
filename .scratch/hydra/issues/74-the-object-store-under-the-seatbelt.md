@@ -1,7 +1,7 @@
 # 74 - What a run may write in the parent's object store
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-09-23, by the session, from build ticket 95 part 4, whose premise turned out false.
 
@@ -36,3 +36,11 @@ So creation-only stops deletion and does not stop substitution. The options:
 4. **Leave it and say so.** Today's grant, stated in `SECURITY.md`, which it now is.
 
 Measurements: build ticket 95's Outcome and its Opus review.
+
+## Answer
+
+Resolved 2026-09-23 with the human, after the third hiring panel ranked this among its most serious
+open findings (H1). Option 3, a private object store per run: the run writes objects only into its
+own directory under its spawn and reads the parent's store as an alternate; reap moves the run's
+objects into the parent from outside the seatbelt after git has checked them; the parent's
+`objects/` goes back to fully denied. Build ticket 103.
