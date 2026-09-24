@@ -1351,6 +1351,251 @@ fn admission_refuses_to_copy_a_link_that_leaves_the_tree() {
     assert!(!dir.join("tree").exists(), "a refused copy is discarded");
 }
 
+/// The review of build ticket 99, item 4. `hydra evolve` found its repository
+/// by plain discovery in its own working directory, and inside a run's
+/// checkout that discovery follows a `.git` file the run can rewrite. From
+/// there the pass would have committed its verdict into whatever repository
+/// the run named. It refuses first now, and discovers only from outside.
+#[test]
+fn a_pass_started_inside_a_runs_checkout_is_refused_before_discovery() {
+    let fixture = Fixture::new("pass-repo");
+    let layout = fixture.layout();
+    let parent = scratch_repo("pass-repo");
+    let run_id = "01a08000-0000-7000-8000-0000000105a1";
+    let checkout = layout.worktree(run_id);
+    hydra::worktree::create(
+        &parent,
+        &checkout,
+        &format!("hydra/{run_id}"),
+        &layout.seed_index(run_id),
+    )
+    .unwrap();
+    std::fs::create_dir_all(checkout.join("src")).unwrap();
+
+    for dir in [checkout.clone(), checkout.join("src")] {
+        let err = hydra::rungs::evolve::pass_repo(&layout, &dir)
+            .expect_err("a pass started inside a run's checkout went ahead");
+        assert!(format!("{err:#}").contains("worktrees"), "{err:#}");
+    }
+    let found = hydra::rungs::evolve::pass_repo(&layout, &parent).unwrap();
+    assert_eq!(
+        std::fs::canonicalize(found).unwrap(),
+        std::fs::canonicalize(&parent).unwrap()
+    );
+    std::fs::remove_dir_all(&parent).unwrap();
+}
+
+/// The review of build ticket 98, items 1 and 2, under the real profile.
+///
+/// Item 1: when the toolchain sits under a `.cargo`, as a toolchain installed
+/// into a cargo home does, the profile skipped that `.cargo` whole so the
+/// toolchain stayed readable, and cargo read the `config.toml` beside it.
+///
+/// Item 2: the profile was written inside the admission directory, which the
+/// profile opens to writes, so one step's proposer code could rewrite the
+/// profile the next step ran under.
+#[test]
+fn the_admission_profile_denies_cargo_config_beside_the_toolchain_and_cannot_be_rewritten() {
+    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+        println!("skipped: needs sandbox-exec outside a seatbelt");
+        return;
+    }
+    let fixture = Fixture::new("admission-profile");
+    let layout = fixture.layout();
+    let repo = scratch_repo("admission-profile");
+    let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
+
+    let proposer_id = "01a08000-0000-7000-8000-0000000105b1";
+    let proposer_checkout = layout.worktree(proposer_id);
+    std::fs::create_dir_all(&proposer_checkout).unwrap();
+    let set = PolicySet::discover().unwrap();
+    let proposer_profile = write_spawn_config(
+        &layout,
+        proposer_id,
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&proposer_checkout),
+        None,
+        None,
+        false,
+    )
+    .unwrap()
+    .sandbox_profile
+    .expect("macOS spawn writes a profile beside the gate");
+
+    // A toolchain inside a `.cargo` above the copy, and a configuration a
+    // `standard` run could have written beside it.
+    let cargo = fixture.root.join(".cargo");
+    std::fs::create_dir_all(cargo.join("toolchain/bin")).unwrap();
+    std::fs::write(cargo.join("toolchain/bin/cargo"), "#!/bin/sh\n").unwrap();
+    std::fs::write(
+        cargo.join("config.toml"),
+        "[target.'cfg(all())']\nrunner = \"/usr/bin/true\"\n",
+    )
+    .unwrap();
+    std::fs::write(cargo.join("config"), "[build]\n").unwrap();
+    let toolchain = std::fs::canonicalize(cargo.join("toolchain/bin")).unwrap();
+
+    let dir = layout.spawn("pass-admission-profile").join("admission");
+    let admission = prepare_admission(
+        repo.as_path(),
+        tree.trim(),
+        &dir,
+        &proposer_profile,
+        &toolchain,
+    )
+    .unwrap()
+    .expect("the tree has nothing admission refuses to copy");
+    let under_profile = |script: String| {
+        Command::new("/usr/bin/sandbox-exec")
+            .arg("-f")
+            .arg(&admission.profile)
+            .args(["/bin/sh", "-c"])
+            .arg(script)
+            .output()
+            .unwrap()
+    };
+
+    for config in ["config.toml", "config"] {
+        let read = under_profile(format!("cat '{}'", cargo.join(config).display()));
+        assert!(
+            !read.status.success(),
+            "admission read the .cargo/{config} beside its toolchain: {}",
+            String::from_utf8_lossy(&read.stdout)
+        );
+    }
+    // A `.cargo` that is a symbolic link to a directory a run wrote. A deny on
+    // the two files alone is resolved past, and so is a `file-read*` deny on
+    // the name, because the metadata allow for an ancestor's direct children
+    // outranks it. The `file-read-metadata` deny on the name holds. `spawn/`
+    // stands in here for any ancestor a run can write, `~` among them.
+    let elsewhere = fixture.root.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("config.toml"), "[build]\n").unwrap();
+    let linked = layout.spawns().join(".cargo");
+    std::os::unix::fs::symlink(&elsewhere, &linked).unwrap();
+    let read = under_profile(format!("cat '{}'", linked.join("config.toml").display()));
+    assert!(
+        !read.status.success(),
+        "admission read a config.toml through a .cargo that is a link: {}",
+        String::from_utf8_lossy(&read.stdout)
+    );
+    let toolchain_read = under_profile(format!("cat '{}'", toolchain.join("cargo").display()));
+    assert!(
+        toolchain_read.status.success(),
+        "the toolchain under .cargo is no longer readable: {}",
+        String::from_utf8_lossy(&toolchain_read.stderr)
+    );
+
+    let before = std::fs::read(&admission.profile).unwrap();
+    let rewrite = under_profile(format!(
+        "echo '(allow default)' >> '{}'",
+        admission.profile.display()
+    ));
+    assert!(
+        !rewrite.status.success(),
+        "a step running under the admission profile rewrote it"
+    );
+    assert_eq!(std::fs::read(&admission.profile).unwrap(), before);
+    // The copy itself is still the steps' to write.
+    let write = under_profile(format!(
+        "echo x > '{}'",
+        admission.tree.join("scratch").display()
+    ));
+    assert!(
+        write.status.success(),
+        "{}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+    admission.discard();
+    std::fs::remove_dir_all(&repo).unwrap();
+}
+
+/// The review of build ticket 98, item 3. A copy of the read tree that cannot
+/// be written, because the disk or the object store failed, returned from
+/// `land_proposer_patch` with `?` and left the pass's harness record open. It
+/// blocks the patch now, the way a failing admission step does, and the record
+/// closes. A file where the admission directory goes makes the copy fail.
+#[test]
+fn a_copy_that_cannot_be_prepared_blocks_the_pass_and_closes_its_record() {
+    let fixture = Fixture::new("admission-unprepared");
+    let layout = fixture.layout();
+    let parent = scratch_repo("admission-unprepared");
+    std::fs::create_dir_all(parent.join("src")).unwrap();
+    std::fs::write(parent.join("src/show.rs"), "pub fn shown() {}\n").unwrap();
+    git(&parent, &["add", "-A"]);
+    git(&parent, &["commit", "-qm", "show"]);
+
+    let pass_id = "01a08000-0000-7000-8000-0000000105c1";
+    let proposer_id = "01a08000-0000-7000-8000-0000000105c2";
+    let checkout = layout.worktree(proposer_id);
+    hydra::worktree::create(
+        &parent,
+        &checkout,
+        &format!("hydra/{proposer_id}"),
+        &layout.seed_index(proposer_id),
+    )
+    .unwrap();
+    let base_tree = git(&checkout, &["rev-parse", "HEAD^{tree}"]);
+    std::fs::write(
+        checkout.join("src/show.rs"),
+        "pub fn shown() -> u8 {\n    2\n}\n",
+    )
+    .unwrap();
+    let record = Record::shaped(Shape {
+        run_id: proposer_id,
+        policy: Some("standard"),
+        worktree: Some(&checkout),
+        base_tree: Some(base_tree.trim()),
+        ..Shape::default()
+    })
+    .result(usage_frame())
+    .closed();
+    let run_file = layout.run_file(proposer_id);
+    std::fs::write(&run_file, record).unwrap();
+    let pass_record = layout.run_file(pass_id);
+    let may_edit = may_edit_set(&[]).unwrap();
+    write_harness_start(&layout, pass_id, &pass_record, Some(&may_edit)).unwrap();
+
+    std::fs::create_dir_all(layout.spawn(pass_id)).unwrap();
+    std::fs::write(layout.spawn(pass_id).join("admission"), "in the way\n").unwrap();
+
+    let set = PolicySet::discover().unwrap();
+    let mut reached = 0;
+    let done = hydra::rungs::evolve::land_proposer_patch(
+        &hydra::rungs::evolve::Landing {
+            layout: &layout,
+            policies: &set,
+            repo: &parent,
+            pass_run_id: pass_id,
+            proposer_run_id: proposer_id,
+            may_edit: &may_edit,
+            task: None,
+            toolchain: Path::new("/usr/bin"),
+            pass_record: &pass_record,
+        },
+        &ended_proposer(proposer_id, &run_file),
+        &mut |_, _, _| {
+            reached += 1;
+            Ok((Vec::new(), clean_panel()))
+        },
+    )
+    .expect("a copy that could not be prepared ended the pass with an error");
+
+    assert_eq!(reached, 0, "a patch nobody admitted reached the panel");
+    let hydra::rungs::evolve::Done::Finished(finished) = done else {
+        panic!("the pass did not finish");
+    };
+    assert_eq!(finished.branch, format!("rungs/blocked/{pass_id}"));
+    let message = git(&parent, &["log", "-1", "--format=%B", &finished.branch]);
+    assert!(message.contains("could not be prepared"), "{message}");
+    let record = std::fs::read_to_string(&pass_record).unwrap();
+    assert_eq!(record.lines().count(), 2, "the pass record was left open");
+    check(&record, Some(pass_id)).assert_ok();
+    std::fs::remove_dir_all(&parent).unwrap();
+}
+
 // --- build ticket 101: the pass paths on a live scratch layout -------------
 
 /// Four clean `pass` answers, for a panel closure that should offer.

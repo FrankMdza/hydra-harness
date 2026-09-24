@@ -52,6 +52,39 @@ pub struct PolicyLaunch {
     pub mcp: serde_json::Value,
     pub seed_tree: Option<String>,
     pub scopes: std::collections::BTreeMap<String, String>,
+    /// Map ticket 74, the private object directory a recorded run gets, as
+    /// the two variables the child's environment carries.
+    pub object_env: Vec<(&'static str, String)>,
+}
+
+/// Undoes a gated launch that failed after its checkout was made and before
+/// anything wrote its record: the checkout, its branch, its context file and
+/// the run's spawn directory. The review of build ticket 99, item 3, which
+/// found H39 and H40 still open on this path.
+///
+/// Rollback rather than a failure record, as `worktree::create` chose in build
+/// ticket 99: nothing ran in the checkout, so it holds nothing reap would need
+/// to keep, and a skill linked or copied into it goes with it.
+pub fn abandon_policy_launch(
+    layout: &Layout,
+    run_id: &str,
+    repo: &Path,
+    worktree: &WorktreeRef,
+    err: anyhow::Error,
+) -> anyhow::Error {
+    let undone = crate::worktree::roll_back(repo, Path::new(&worktree.path), &worktree.branch)
+        .and_then(|()| match std::fs::remove_dir_all(layout.spawn(run_id)) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(err.into()),
+        });
+    match undone {
+        Ok(()) => err,
+        Err(undo) => err.context(format!(
+            "and the checkout at {} and branch {} could not be removed: {undo:#}",
+            worktree.path, worktree.branch
+        )),
+    }
 }
 
 /// Compiles the gate, seeds a worktree and links the snapshot, harness spec 3
@@ -78,16 +111,42 @@ pub fn prepare_policy_launch(
         &format!("hydra/{run_id}"),
         &layout.seed_index(run_id),
     )?;
-    let seed_tree = worktree.seed_tree.clone();
-    let cwd = worktree.path.clone();
     let worktree_ref = WorktreeRef {
         path: worktree.path.display().to_string(),
         branch: worktree.branch.clone(),
         base_tree: worktree.seed_tree.clone(),
     };
+    // Every step below can fail, and no record exists yet to say so.
+    finish_policy_launch(
+        layout,
+        run_id,
+        policy,
+        policies,
+        repo,
+        &mcp_document,
+        &worktree,
+        worktree_ref.clone(),
+    )
+    .map_err(|err| abandon_policy_launch(layout, run_id, repo, &worktree_ref, err))
+}
+
+/// What [`prepare_policy_launch`] does once the checkout exists.
+#[allow(clippy::too_many_arguments)]
+fn finish_policy_launch(
+    layout: &Layout,
+    run_id: &str,
+    policy: &str,
+    policies: &crate::policy::PolicySet,
+    repo: &Path,
+    mcp_document: &crate::mcp::Document,
+    worktree: &crate::worktree::Worktree,
+    worktree_ref: WorktreeRef,
+) -> Result<PolicyLaunch> {
+    let seed_tree = worktree.seed_tree.clone();
+    let cwd = worktree.path.clone();
 
     let mcp_plan = crate::mcp::plan(
-        &mcp_document,
+        mcp_document,
         Provider::Claude,
         policy,
         crate::mcp::Checkout::Hydra,
@@ -140,9 +199,12 @@ pub fn prepare_policy_launch(
         store_sha,
         false,
     )?;
+    // The seatbelt this launch runs under denies the parent's `objects/`.
+    let object_env = crate::worktree::prepare_run_objects(layout, run_id, repo)?;
 
     let scopes = spawn.scopes.clone();
     Ok(PolicyLaunch {
+        object_env,
         cwd,
         worktree: worktree_ref,
         spawn,
@@ -227,27 +289,28 @@ fn run_gated(request: Request) -> Result<RunResult> {
     let session = Uuid::now_v7().to_string();
     let run_file = layout.run_file(&run_id);
 
-    let prep = prepare_policy_launch(&layout, &run_id, policy, &policies, &repo, &invoked_in)?;
-
+    // Everything that can fail without a checkout fails before one exists. The
+    // review of build ticket 99, item 3: these three used to come after the
+    // worktree, and a failure left a checkout and a branch no record named.
     let provider_version = Provider::Claude.version()?;
     let mut child_env = ChildEnv::build(Provider::Claude)?;
+    if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
+        anyhow::bail!(
+            "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch \
+             an interactive run without the seatbelt rather than run bare"
+        );
+    }
+
+    let prep = prepare_policy_launch(&layout, &run_id, policy, &policies, &repo, &invoked_in)?;
+
     // Build ticket 57. This arm compiles a gate and seeds a worktree the way a
     // recorded run does, so 7.3 applies to it and the child is marked. The
     // ungated arm below is not marked: it compiles no gate, claims no
     // containment, and marking it would refuse the `hydra run` a human types in
     // their own session.
     child_env.set(crate::containment::MARKER, run_id.clone());
-    // Map ticket 74, the same private object directory a recorded run gets:
-    // the seatbelt below denies the parent's `objects/`.
-    for (name, value) in crate::worktree::prepare_run_objects(&layout, &run_id, &repo)? {
-        child_env.set(name, value);
-    }
-
-    if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
-        anyhow::bail!(
-            "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch \
-             an interactive run without the seatbelt rather than run bare"
-        );
+    for (name, value) in &prep.object_env {
+        child_env.set(name, value.clone());
     }
 
     let (binary, argv) = gated_exec_argv(
@@ -271,7 +334,8 @@ fn run_gated(request: Request) -> Result<RunResult> {
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
-        .with_context(|| format!("starting {binary}"))?;
+        .with_context(|| format!("starting {binary}"))
+        .map_err(|err| abandon_policy_launch(&layout, &run_id, &repo, &prep.worktree, err))?;
 
     let pid = child.id();
     let process_start_time = crate::procinfo::start_time(pid)?;

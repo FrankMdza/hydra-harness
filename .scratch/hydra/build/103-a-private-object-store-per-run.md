@@ -55,7 +55,9 @@ reach.
 **Reap moves what git verifies.** `commit_then_remove` takes the store for a run checkout and
 `None` for a curate checkout. Before staging it calls `worktree::import_run_objects`. That
 function lists the names the store's own files offer: loose fan-out files, plus each pack index
-read with `git show-index`. It skips links and never follows one. It runs `git pack-objects
+read with `git show-index`. The listing skips links, but that did not stop `pack-objects`
+following one, or reading an `info/alternates` the run wrote in its store: build ticket 106
+found both and scrubs the store before listing. It runs `git pack-objects
 --stdout` with the store as the only object directory and pipes the result into `git
 index-pack --stdin --strict` in the parent. `index-pack` names every object from its bytes. No
 file in the store is copied. Then `worktree::unstage_missing_objects` finds each index entry

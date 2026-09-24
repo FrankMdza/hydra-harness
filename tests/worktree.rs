@@ -258,3 +258,25 @@ fn a_launch_from_under_worktrees_is_refused() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// The review of build ticket 99, item 4. A curate pass's checkout of the skill
+/// store lives under `skill-worktrees/` with a `.git` file the pass can write,
+/// the same shape as a run's checkout, and the refusal covered only
+/// `worktrees/`.
+#[test]
+fn a_launch_from_under_skill_worktrees_is_refused() {
+    let base = std::env::temp_dir().join(format!("hydra-launch-skill-dir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let layout = hydra::paths::Layout::at(base.join("hydra"));
+    let inside = layout
+        .skill_worktrees()
+        .join("01a09900-0000-7000-8000-000000000002")
+        .join("alpha");
+    std::fs::create_dir_all(&inside).unwrap();
+
+    let err = hydra::run::refuse_launch_inside_checkout(&layout, &inside)
+        .expect_err("a launch from a curate pass's checkout went ahead");
+    assert!(format!("{err:#}").contains("skill-worktrees"), "{err:#}");
+
+    let _ = std::fs::remove_dir_all(&base);
+}

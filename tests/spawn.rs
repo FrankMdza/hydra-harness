@@ -1004,6 +1004,70 @@ fn an_interactive_policy_launch_writes_a_gate_and_settings() {
     );
 }
 
+/// The review of build ticket 99, item 3: H39 and H40 on the interactive path.
+/// Every step after `worktree::create` in a gated interactive launch can fail,
+/// and the launch writes its record only after all of them. A failure there
+/// used to leave a checkout, a `hydra/<run-id>` branch and whatever skills were
+/// linked into it, with no record naming any of them. The gate script's path is
+/// taken by a directory here, so the last step, `write_spawn_config`, fails
+/// after the checkout, the MCP file and the skills are in place.
+#[test]
+fn a_gated_interactive_launch_that_fails_after_its_checkout_leaves_none_behind() {
+    let (layout, root) = layout();
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?} failed");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    git(&["config", "user.email", "test@example.invalid"]);
+    git(&["config", "user.name", "hydra tests"]);
+    std::fs::write(repo.join("README"), "seed\n").unwrap();
+    git(&["add", "README"]);
+    git(&["commit", "-qm", "seed", "README"]);
+
+    let run_id = "01a09900-0000-7000-8000-000000000105";
+    std::fs::create_dir_all(layout.gate_script(run_id)).unwrap();
+
+    let policies = PolicySet::discover().unwrap();
+    let err = match hydra::interactive::prepare_policy_launch(
+        &layout, run_id, "standard", &policies, &repo, &repo,
+    ) {
+        Ok(_) => panic!("a launch whose gate cannot be written went ahead"),
+        Err(err) => err,
+    };
+    assert!(
+        !format!("{err:#}").contains("could not be removed"),
+        "{err:#}"
+    );
+
+    let checkout = layout.worktree(run_id);
+    assert!(
+        !checkout.exists(),
+        "the checkout outlived the failed launch"
+    );
+    assert!(
+        git(&["branch", "--list", &format!("hydra/{run_id}")])
+            .trim()
+            .is_empty(),
+        "the branch outlived the failed launch"
+    );
+    assert!(
+        !checkout.with_extension("git-context.json").exists(),
+        "the context file outlived the failed launch"
+    );
+    assert!(
+        !layout.spawn(run_id).exists(),
+        "the spawn directory outlived the failed launch"
+    );
+}
+
 #[test]
 fn a_gated_interactive_launch_wraps_claude_in_the_seatbelt() {
     if !hydra::sandbox::wraps_launches() {

@@ -77,6 +77,19 @@ pub fn pass_run_id_from_branch(branch: &str) -> Option<&str> {
 }
 
 /// Reads the corpus, runs the proposer, reviews the patch, lands on a branch.
+/// The repository a pass branches from and commits its verdict into: the one
+/// containing `dir`, which is where the human typed `hydra evolve`.
+///
+/// **Refused under a run's or a curate pass's checkout, before any git runs
+/// there.** Discovery follows the checkout's `.git` file, which its run can
+/// rewrite, so from inside one the pass would have committed into whatever
+/// repository the run named. The review of build ticket 99, item 4.
+pub fn pass_repo(layout: &Layout, dir: &Path) -> Result<PathBuf> {
+    crate::run::refuse_launch_inside_checkout(layout, dir)?;
+    crate::worktree::repo_root(dir)
+        .context("hydra evolve needs a git repository to branch a worktree from")
+}
+
 pub fn evolve(pass: Pass) -> Result<Done> {
     if pass.review.is_some() {
         let reviewed_pass_id = pass.review.clone().unwrap();
@@ -94,8 +107,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     let policies = PolicySet::discover()?;
     let pass_run_id = Uuid::now_v7().to_string();
-    let repo = crate::worktree::repo_root(&std::env::current_dir()?)
-        .context("hydra evolve needs a git repository to branch a worktree from")?;
+    let repo = pass_repo(&layout, &std::env::current_dir()?)?;
     let selection = corpus::select(&layout, &policies)?;
     let brief = brief(
         &pass_run_id,
@@ -324,7 +336,16 @@ pub fn land_proposer_patch(
             toolchain,
         ),
         None => prepare_admission(repo, &patch.tree, &admission_dir, &profile_path, toolchain),
-    }?;
+    };
+    // A copy that could not be written blocks the patch like any other
+    // admission failure, so the pass record below still closes. With `?` here
+    // the pass returned with its record open: the review of build ticket 98,
+    // item 3.
+    let prepared = prepared.unwrap_or_else(|err| {
+        Err(format!(
+            "admission gate: the copy of the read tree could not be prepared: {err:#}"
+        ))
+    });
     let admission = match prepared {
         Ok(prepared) => {
             let result = admission_gate(&prepared, &admission_root);
@@ -837,9 +858,11 @@ pub struct AdmissionGateResult {
 /// `cargo_home` starts empty, so cargo does not read the human's `~/.cargo`,
 /// which a `standard` run can write and whose `runner` turned a failing `cargo
 /// test` into exit 0 when the panel measured it. `profile` is the proposer's
-/// profile with the admission directory opened and every `.cargo` above the
-/// copy denied to reads, because cargo also reads a `config.toml` from each
-/// ancestor of its working directory, and `~/.cargo` is one of them.
+/// profile with the admission directory opened and `.cargo/config` and
+/// `.cargo/config.toml` in every ancestor of the copy denied to reads, because
+/// cargo also reads its configuration from each ancestor of its working
+/// directory, and `~/.cargo` is one of them. It lives beside the admission
+/// directory, where no step can write it.
 /// `toolchain` is the sysroot's `bin`, resolved before the proposer ran.
 pub struct Admission {
     pub tree: PathBuf,
@@ -882,9 +905,15 @@ pub fn admission_toolchain() -> Result<PathBuf> {
     Ok(bin)
 }
 
-/// Writes the copy, the empty cargo home and, on macOS, the admission profile
-/// under `dir`. The inner `Err` is a reason to block the patch; the outer one
-/// is git or the disk breaking.
+/// Writes the copy and the empty cargo home under `dir` and, on macOS, the
+/// admission profile beside `dir` as `<dir>.sb`. The inner `Err` is a reason to
+/// block the patch; the outer one is git or the disk breaking, and
+/// `land_proposer_patch` blocks the patch on that too.
+///
+/// **The profile sits outside `dir`**, because the profile opens `dir` to
+/// writes, and each of the four steps runs proposer code under it. Inside
+/// `dir`, `cargo build` could have rewritten the profile `cargo test` then
+/// ran under: the review of build ticket 98, item 2.
 pub fn prepare_admission<G: crate::worktree::GitLocation + ?Sized>(
     git: &G,
     tree: &str,
@@ -896,9 +925,10 @@ pub fn prepare_admission<G: crate::worktree::GitLocation + ?Sized>(
     let admission = Admission {
         tree: dir.join("tree"),
         cargo_home: dir.join("cargo-home"),
-        profile: dir.join("admission.sb"),
+        profile: dir.with_extension("sb"),
         toolchain: toolchain.to_path_buf(),
     };
+    let _ = std::fs::remove_file(&admission.profile);
     for path in [&admission.tree, &admission.cargo_home] {
         std::fs::create_dir_all(path).with_context(|| format!("creating {}", path.display()))?;
     }
@@ -921,9 +951,9 @@ pub fn prepare_admission<G: crate::worktree::GitLocation + ?Sized>(
     Ok(Ok(admission))
 }
 
-/// The proposer's profile, then the admission directory opened, then every
-/// `.cargo` above the copy closed to reads. SBPL takes the last matching rule,
-/// so the order is what makes each line hold.
+/// The proposer's profile, then the admission directory opened, then cargo's
+/// configuration in every `.cargo` above the copy closed to reads. SBPL takes
+/// the last matching rule, so the order is what makes each line hold.
 fn admission_profile(base: &str, dir: &Path, tree: &Path, toolchain: &Path) -> Result<String> {
     let dir = std::fs::canonicalize(dir).with_context(|| format!("reading {}", dir.display()))?;
     let tree =
@@ -953,15 +983,34 @@ fn admission_profile(base: &str, dir: &Path, tree: &Path, toolchain: &Path) -> R
             "(allow file-read-metadata (literal \"{literal}\") (regex #\"^{parent}/[^/]+$\"))\n"
         ));
     }
+    // In each ancestor, the two names cargo reads its configuration from, and
+    // the `.cargo` name itself. The review of build ticket 98, item 1: this
+    // used to deny each `.cargo` whole and skip the one holding the toolchain,
+    // so a toolchain installed there left its `config.toml` read. Denying the
+    // two files alone would not hold either: measured on 2026-09-24, a `.cargo`
+    // replaced by a symbolic link to another directory is resolved past a
+    // deny on `.cargo/config.toml`, and a deny on the `.cargo` name refuses
+    // it. The `.cargo` holding the toolchain keeps its name readable, so the
+    // toolchain still runs; a run that swaps that one for a link has already
+    // replaced the toolchain, which is open and needs the `PATH` decision.
     for ancestor in tree.ancestors().skip(1) {
-        let config = ancestor.join(".cargo");
-        if toolchain.starts_with(&config) {
-            continue;
-        }
-        text.push_str(&format!(
-            "(deny file-read* (subpath \"{}\"))\n",
-            sbpl_string(&config)
-        ));
+        let cargo = ancestor.join(".cargo");
+        let name = if toolchain.starts_with(&cargo) {
+            String::new()
+        } else {
+            format!(" (literal \"{}\")", sbpl_string(&cargo))
+        };
+        let filters = format!(
+            "{name} (literal \"{}\") (literal \"{}\")",
+            sbpl_string(&cargo.join("config")),
+            sbpl_string(&cargo.join("config.toml"))
+        );
+        // The second line is not redundant. A rule on `file-read-metadata`
+        // outranks one on `file-read*` whatever their order, so the metadata
+        // allow above for an ancestor's direct children let a linked `.cargo`
+        // resolve past the first line. Measured on 2026-09-24.
+        text.push_str(&format!("(deny file-read*{filters})\n"));
+        text.push_str(&format!("(deny file-read-metadata{filters})\n"));
     }
     Ok(text)
 }
@@ -1466,8 +1515,7 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
     let layout = Layout::discover()?;
     crate::paths::refuse_non_ascii_roots(&layout, &crate::paths::hydra_home())?;
     let policies = PolicySet::discover()?;
-    let repo = crate::worktree::repo_root(&std::env::current_dir()?)
-        .context("hydra evolve --review needs a git repository")?;
+    let repo = pass_repo(&layout, &std::env::current_dir()?)?;
     let evidence = std::fs::read_to_string(evidence_path)
         .with_context(|| format!("reading {}", evidence_path.display()))?;
     review_blocked_in(

@@ -382,18 +382,25 @@ pub fn refuse_foreign_checkout(
 /// repository it named and ran that repository's hooks outside the seatbelt:
 /// the third hiring panel's H47, reproduced with plain git and a decoy
 /// `post-checkout` hook. Nothing a human means to do starts a run there.
+///
+/// Since build ticket 105 the same holds under `skill-worktrees/`, where a
+/// curate pass's checkout of the skill store keeps a `.git` file the pass can
+/// write, and `hydra evolve` refuses too, before its own discovery.
 pub fn refuse_launch_inside_checkout(layout: &Layout, dir: &std::path::Path) -> Result<()> {
     let canonical =
         |path: &std::path::Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let worktrees = canonical(&layout.worktrees());
-    if canonical(dir).starts_with(&worktrees) {
-        anyhow::bail!(
-            "{} is under {}, where Hydra keeps its runs' checkouts. A checkout's `.git` \
-             file is one its run could rewrite, so Hydra runs no git from there. Launch \
-             from the repository the checkout came from.",
-            dir.display(),
-            worktrees.display()
-        );
+    let dir = canonical(dir);
+    for checkouts in [layout.worktrees(), layout.skill_worktrees()] {
+        let checkouts = canonical(&checkouts);
+        if dir.starts_with(&checkouts) {
+            anyhow::bail!(
+                "{} is under {}, where Hydra keeps its runs' checkouts. A checkout's `.git` \
+                 file is one its run could rewrite, so Hydra runs no git from there. Launch \
+                 from the repository the checkout came from.",
+                dir.display(),
+                checkouts.display()
+            );
+        }
     }
     Ok(())
 }
