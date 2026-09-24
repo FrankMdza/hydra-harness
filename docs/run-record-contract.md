@@ -140,7 +140,7 @@ Six fields on every line, plus one exception.
 | `parent_run_id` | UUIDv7 or null | written by the parent at spawn, never read back from the child |
 | `seq` | integer | monotonic from 0 within the file, gapless |
 | `ts` | RFC 3339, UTC, millisecond | when Hydra read the line, not when the provider wrote it |
-| `provider` | `claude`, `cursor-agent`, `agy`, or null | the binary, never the model's vendor. Null on a harness run, section 5.5 |
+| `provider` | `claude`, `cursor-agent`, `agy`, `codex`, or null | the binary, never the model's vendor. Null on a harness run, section 5.5. `codex` since build ticket 48; the preface's "makes no claim" covers what its frames carry, not this value, and a reader that rejects it rejects every `codex` record |
 | `model` | string | what the provider reported, or what Hydra passed when it reports none. A display name rather than an id on `cursor-agent`, see section 9.3 |
 | `secret_flag` | array or null | section 13 |
 
@@ -337,6 +337,11 @@ would not be the source of truth. That is the test D10 puts on this section.
 **`env_allowlist` carries names and never values.** The allowlist is `HOME`, `USER`, `PATH`, `TERM`,
 plus `SHELL` and `TMPDIR` for `claude`. Recording the names makes a wrong `HOME` visible after the
 fact, which matters because a wrong `HOME` logs a provider out silently rather than failing.
+`src/env.rs` holds the whole list per provider, and the names Hydra sets itself are on it too:
+`HYDRA_RUN_ID` on every recorded run, `CURSOR_DATA_DIR` on `cursor-agent`, and since build ticket 103
+`GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES` on a run with a checkout. A record
+written before build ticket 97 names `HYDRA_RUN_ID` for a child that never received it;
+`IMPLEMENTATION.md` says why.
 
 ### 5.4 Auth and attribution
 

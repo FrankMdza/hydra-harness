@@ -21,7 +21,8 @@ So the record decides, not the vendor.
 - **The outcome is derived from the event stream.** A run whose every tool call the gate
   refused is `gated`. One refused call among calls that ran is a `permission_decision` on the
   record, not a run outcome. A run that reached its own terminator is `failed` when that frame's
-  `is_error` is true or `agy`'s `status` is not `SUCCESS`, and `completed` otherwise. A harvested
+  `is_error` is true, `agy`'s `status` is not `SUCCESS` or `codex` ended on `turn.failed`, and
+  `completed` otherwise; a `codex` turn that failed on its usage limit is `rate_limited`. A harvested
   run has no terminator and goes by its exit code, `completed` when there is none; a streamed run
   that stopped without one is `failed` or `crashed`. A failed tool call does not fail the run.
   Four vendors, one contract, one outcome column.
@@ -34,14 +35,16 @@ So the record decides, not the vendor.
   to in the wrong one. Any shell command that spells a protected path is refused under every
   policy; one that assembles the path is not, and `SECURITY.md` says what walks past. Measured
   detail: Cursor runs three tools without asking its hook; the record marks them `unhooked`
-  rather than pretending.
-- **No secret reaches the agent through its environment.** The child's environment is built
-  from an allowlist: `HOME`, `USER`, `PATH`, `TERM`, plus `SHELL` and `TMPDIR` for `claude`,
-  `NODE_EXTRA_CA_CERTS` for the two Node providers, the proxy variables when set, and the two
-  names Hydra sets itself. `src/env.rs` is the whole list. The API key exported in your
-  `.zshrc` stays out of the child's `env`. `NODE_OPTIONS` and `PYTHONPATH` are never on the
-  list. What the agent can read off the disk under `standard` is a different question, and
-  `SECURITY.md` answers it.
+  rather than pretending. And on `codex` a gate that crashes before it answers lets the call
+  run, measured again on 2026-09-24; `SECURITY.md` says why Hydra accepts that.
+- **The agent's environment is an allowlist, not your shell.** The child's environment is built
+  from `HOME`, `USER`, `PATH`, `TERM`, plus `SHELL` and `TMPDIR` for `claude`,
+  `NODE_EXTRA_CA_CERTS` for the two Node providers, the proxy variables when set, and the names
+  Hydra sets itself: the run id, `CURSOR_DATA_DIR` on `cursor-agent`, and the run's own git
+  object directories. `src/env.rs` is the whole list. The API key exported in your `.zshrc`
+  stays out of the child's `env`, and since build ticket 97 out of the watcher that owns its pty.
+  `NODE_OPTIONS` and `PYTHONPATH` are never on the list. What the agent can read off the disk
+  under `standard` is a different question, and `SECURITY.md` answers it.
 - **No daemon, no database.** `~/hydra/runs/*.jsonl` is the source of truth. Nothing has to
   be running for the harness to exist, and `hydra status` reconciles live pids against open
   records on demand.
@@ -172,6 +175,20 @@ Rows other than Hydra's come from each project's own docs as read on 2026-09-12.
 | [Langfuse coding-agent tracing](https://langfuse.com/resources/engineering/coding-agent-tracing) | yes | no | no | no |
 | Hydra | yes, four | yes | yes, outcome derived from the stream | yes, five policies |
 
+Where each "yes" comes from, re-read on 2026-09-24. A "no" means the project's README says
+nothing of it, which cannot be quoted.
+
+- ccmanager: "Run multiple AI assistant sessions in parallel across different Git worktrees", for
+  Claude Code, Gemini CLI, Codex CLI, Cursor Agent and five more. Its experimental auto-approval
+  asks Claude Haiku whether a prompt needs a human, which is not a compiled gate.
+- vibe-kanban: the README lists Claude Code, Codex, Gemini CLI, Cursor and six more, and its
+  worktrees show only in a variable that disables "git worktree cleanup". The project now says it
+  is sunsetting.
+- Cupcake: "Cupcake intercepts agent events and evaluates them against user-defined rules written
+  in Open Policy Agent (OPA) Rego", for Claude Code, Cursor, Factory AI and OpenCode.
+- Langfuse: traces Claude Code, OpenAI Codex, Cursor and six more, and says of itself "treat
+  hook-based tracing as telemetry, not enforcement".
+
 ccmanager has the live dashboard and container isolation Hydra lacks. Cupcake has the policy
 language. Langfuse has the UI and cross-run search. None derives the outcome from what the tools
 did, which is the one thing Hydra was built around.
@@ -207,10 +224,12 @@ first so the design map gets a ticket and the record contract does not fork with
 ## Status, in numbers
 
 Twelve commands a human types, the eleven of harness spec 17 plus `doctor`, and two hidden
-ones. 23 test files, green in CI on macOS against an empty corpus; the three walks over the
-real records run only on a machine that has some, so a green CI says the readers compile and
-the fixtures hold, not that every record on this laptop still meets the contract. The job
-summary prints how many records the walk read, which in CI is zero. Rung one has
+ones. 26 test files on 2026-09-24, green in CI on macOS. CI's corpus is empty, so the walks
+over real records check nothing there; beside each one a fixture walk runs the same assertions
+over `tests/fixtures/records/`, ten synthetic records filed by the provider version whose shapes
+they reproduce, and the job summary prints both counts: zero live records and ten fixtures. A
+green CI says the readers handle every shape in the fixtures, not that every record on this
+laptop still meets the contract. Rung one has
 run once against the real corpus and proposed one skill. Rung two has run ten passes and
 offered one patch, a two-word one, on the tenth, and a human merged it; the other nine found
 something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a record:
@@ -220,26 +239,31 @@ it is every departure from the design with its reason.
 
 Part of Hydra was written by the agents Hydra launches, through `hydra run`, while a Claude
 Code session wrote the tickets, reviewed each worktree diff and applied it to master by hand.
-The corpus in `~/hydra/runs/` is the source for this table, which covers the build tickets
-resolved by 2026-09-23, 01 to 94 except 80 and 92, and each ticket an agent wrote names its run
-id and token count under `## Outcome`.
+The corpus in `~/hydra/runs/` and the git history are the sources for this table, which covers
+the 106 build tickets resolved by 2026-09-24: 01 to 108 except 80, which build ticket 96 closed,
+and 108, which is open. Each ticket an agent wrote names its run id and token count under
+`## Outcome`.
 
 | Written by | Build tickets |
 |---|---|
-| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 75, 77 to 79, 86, 87, 90, 93 |
+| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 75, 77 to 79, 86, 87, 90, 92, 93 |
 | `cursor-agent` on Grok 4.6 Fast | 21, 30, 33, 35, 37, 38 |
 | `cursor-agent`, no model flag, so the record says none | 17 |
 | `claude` on Sonnet 5 | 18, 22, 23, 26, 27 |
 | `claude` on Haiku 4.5 | 25, 82 |
-| `claude` on Opus 5.5 | 91 |
+| `claude` on Opus 5.5 | 91, 96 |
 | `agy` on Gemini 3.1 Pro | 19, 94, and the drift test of 17 |
-| `codex`, no model flag, so the record says none | 81, 83, 85, 89 |
-| the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59, 76, 84, 88 |
+| `codex`, no model flag, so the record says none | 81, 83, 85, 89, 95 |
+| a Claude Code subagent on Opus 5.5, in a git worktree of its own and not through `hydra run` | 97 to 106 |
+| the Claude Code session, by hand | 01 to 16, 39 to 47, 49, 52 to 59, 76, 84, 88, 107 |
 
 On 77, 78, 81, 82, 85, 86 and 87 an Opus subagent fixed the agent's diff in the worktree before
-the session applied it, and on 82 it rebuilt Haiku's version. From 89 on, an Opus subagent
-reviewed each diff and the session made the fixes on master; every one of those five needed at
-least one. That is 55 of those 92 build tickets on an agent run, none of them merged unread. Ticket 27, the
+the session applied it, and on 82 it rebuilt Haiku's version. From 89 to 96 an Opus subagent
+reviewed each diff and the session made the fixes on master; every one of those eight needed at
+least one, and on 92 a second Composer run made them. That is 58 of the 106 build tickets on an
+agent run through `hydra run`, none of them merged unread. Tickets 97 to 106, the third hiring
+panel's, went to subagents working on the source directly. Two Opus reviews of their merged code
+opened 105 and 106, and 108 holds what those two left. Ticket 27, the
 interactive mode and its harvest, was the largest single run at 54.7M tokens, 54.0M of them
 cache reads. Ticket 25 was the first Rust ticket given to the cheapest model, and it held.
 The design documents, the policies, the record contract and this README are the session's.
@@ -252,9 +276,11 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 73 decision tickets, all resolved on 2026-09-23,
-with the reasoning each document compressed. `.scratch/hydra/build/plan.md` indexes the build;
-`python3 .scratch/hydra/frontier.py build` prints today's count. `CLAUDE.md` is what an agent
+`.scratch/hydra/map.md` is the design history: 76 decision tickets on 2026-09-24, 75 of them
+resolved, with the reasoning each document compressed; 76, the decisions under a new
+orchestration mode, waits on the human. `.scratch/hydra/build/plan.md` indexes the build, 108
+tickets on 2026-09-24 with 107 resolved; `python3 .scratch/hydra/frontier.py build` prints
+today's count. `CLAUDE.md` is what an agent
 reads first.
 
 ## Contributing and support

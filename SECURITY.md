@@ -3,9 +3,15 @@
 ## What Hydra promises
 
 A run launched by Hydra acts inside its own git worktree, under a named policy compiled into
-the vendor's own pre-tool hook, with an environment built from an allowlist so no credential
-in your shell reaches the agent. Every tool call the hook sees is recorded with the decision
+the vendor's own pre-tool hook. Every tool call the hook sees is recorded with the decision
 Hydra made about it.
+
+The agent's environment is built from an allowlist, `src/env.rs`, plus the few names Hydra sets
+itself, so a key exported in your shell is not in it. Since build ticket 97 the allowlist also
+bounds the watcher, the Hydra process that owns the child's pty and sits outside the seatbelt
+for the whole run: `hydra run` starts it from the child's environment rather than its own. That
+does not keep secrets away from a run under `standard`. A shell command can still read a dotfile
+on disk, and a same-uid `ps -E` still reads the environment of your own terminals.
 
 ## What Hydra does not promise, on purpose
 
@@ -47,16 +53,28 @@ Hydra made about it.
   the rest of the machine: `~/.ssh`, your own `~/.claude` hooks and settings, and any directory on
   `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from. The honest
   sentence is still the one the 2026-09-14 review ended on: the gate bounds what a run may do to
-  Hydra, not what it may do to you. Rung two's admission gate runs `cargo fmt --check`, `clippy`,
-  `build` and `test` on a proposer's worktree under the proposer's own seatbelt profile since
-  build ticket 75, with `HYDRA_ROOT` pointed at an empty scratch root, before any judge reads the
-  patch. Since build ticket 90 each step starts from a cleared environment and gets only
+  Hydra, not what it may do to you.
+- **Rung two's admission gate runs proposer code, on a copy of the tree the judges read.** It
+  runs `cargo fmt --check`, `clippy`, `build` and `test` before any judge reads the patch, under
+  a seatbelt profile since build ticket 75, with `HYDRA_ROOT` pointed at an empty scratch root.
+  Since build ticket 90 each step starts from a cleared environment and gets only
   `ADMISSION_ENV_ALLOWLIST` in `src/env.rs` (`PATH`, `HOME`, `TMPDIR`, `USER`, `LANG`,
-  `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`) plus `HYDRA_ROOT`; an unset or empty name is
-  skipped and a `HOME` that is not the account's is dropped. Before that, the steps inherited the
-  shell that ran `hydra evolve`, API keys and agent sockets included. The seatbelt profile bounds what the steps may do to Hydra and not what they may do to you, so a hostile test
-  can still read `~/.ssh`, and the pass's harness record names the profile sha and the root the
-  steps ran under.
+  `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`) plus `HYDRA_ROOT` and a scratch `CARGO_HOME`; an unset or
+  empty name is skipped and a `HOME` that is not the account's is dropped. Before that, the steps
+  inherited the shell that ran `hydra evolve`, API keys and agent sockets included. Since build
+  ticket 98 the steps run on a fresh copy of the read tree, written byte for byte from the object
+  store after the proposer's run ends, and not in the proposer's checkout. On macOS the
+  proposer's seatbelt cannot write that copy, and neither can any process the proposer left
+  running, because the profile is inherited. Cargo gets an empty cargo home, and the admission
+  profile denies reads of cargo's configuration files in every `.cargo` above the copy, and of
+  the `.cargo` name, so a link planted in its place resolves nowhere. A `runner` or
+  `rustc-wrapper` the proposer wrote into `~/.cargo/config.toml` is not read. `cargo` is the
+  toolchain's own binary, found before the proposer ran, and is called by absolute path. What is
+  not closed: on this machine the toolchain lives in a Homebrew directory the user owns, which a
+  `standard` run can rewrite, and `cc`, `git` and `python3` still resolve through `PATH`. The
+  profile bounds what the steps may do to Hydra and not what they may do to you, so a hostile
+  test can still read `~/.ssh`. The pass's harness record names the profile sha and the root the
+  steps ran under. On Linux the steps run bare.
 - **Inside the seatbelt a run can stage its work and cannot move a branch.** Under the parent
   repository's git directory, only the private `worktrees/<run-id>/index` and `index.lock` are
   writable, since build ticket 95; its `HEAD`, `commondir`, `gitdir` and `logs/`, and the shared
@@ -64,22 +82,40 @@ Hydra made about it.
   fails, and no branch moves from inside a run. `hydra reap` commits from outside, only on
   `hydra/<run-id>` or `rungs/curate/<run-id>`, and refuses any other branch before it stages
   anything.
-- **Git that Hydra runs outside the seatbelt does not trust the checkout's `.git` file.** Every
-  git call Hydra makes in a run's checkout sets `GIT_DIR`, `GIT_COMMON_DIR` and `GIT_WORK_TREE`
-  from the run record's `scopes.parent_git_dir`, or from launch data saved beside the checkout
-  under the deny list, and turns off hooks and fsmonitor. Before build ticket 95 a run could
-  rewrite that file and point Hydra's own git, in reap and in the diff stat at the end of a run,
-  at a configuration it wrote, found by the second hiring panel's Opus reader. One exception:
-  `git worktree remove` reads the file, so reap rewrites it to the trusted directory first. A
-  checkout with neither trusted source is left for a human, and reap says how to remove it.
-- **A run can still write the shared object store, and `~/.gitconfig`.** `objects/` keeps its
-  full write grant. A profile that allows only file creation there lets `git add` work and
-  refuses deletion and overwrite, measured 2026-09-23, but a run can still create a pack that
-  maps an existing sha to other bytes, and git served it. So creation-only stops deletion and not
-  substitution, and what to do about it is map ticket 74, open. Separately, `standard` leaves the home
-  directory writable by shell, so a run can define a filter or a signing program in
-  `~/.gitconfig` that reap's `git add` and `git commit` then run. That is the same class as
-  `~/.zshrc`.
+- **Git that Hydra runs outside the seatbelt trusts neither the checkout's `.git` file nor any
+  configuration a run can write.** Every git call Hydra makes in a run's checkout sets
+  `GIT_DIR`, `GIT_COMMON_DIR` and `GIT_WORK_TREE` from the run record's
+  `scopes.parent_git_dir`, or from launch data saved beside the checkout under the deny list,
+  and turns off hooks and fsmonitor. Before build ticket 95 a run could rewrite that file and
+  point Hydra's own git, in reap and in the diff stat at the end of a run, at a configuration it
+  wrote, found by the second hiring panel's Opus reader. Since build ticket 99 every git call
+  Hydra makes anywhere sets `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, so a
+  filter, an external diff or a hook path a run writes into `~/.gitconfig`, or into a system
+  file the user owns, runs nowhere. Four values still come from that configuration, each read as
+  data and passed back with `-c`: `user.name` and `user.email`, so commits keep their author, and
+  since build ticket 105 `core.excludesFile` and every `safe.directory`. `core.attributesFile` is
+  pinned to `/dev/null`, because git reads `~/.config/git/attributes` even with global
+  configuration off. Hydra's commits are unsigned. A launch from under `~/hydra/worktrees/` or
+  `~/hydra/skill-worktrees/` is refused before any git runs there, and so is `hydra evolve`. One
+  exception: `git worktree remove` reads the checkout's `.git` file, so reap rewrites it to the
+  trusted directory first. A checkout with neither trusted source is left for a human, and reap
+  says how to remove it.
+- **A run writes git objects only into its own store, since build ticket 103.** A run with a
+  checkout gets `GIT_OBJECT_DIRECTORY` pointed at `~/hydra/spawn/<run-id>/objects` and reads the
+  parent's store as an alternate. The parent's `.git` is denied whole to the seatbelt and to the
+  gate, `objects/` included. A pack a run forges in its own store lies only to its own git. Reap
+  moves the run's objects into the parent from outside the seatbelt with `git pack-objects` and
+  `git index-pack --strict`, which names each object from its bytes, so a forged name never
+  reaches the parent or a later worktree. Before it packs anything, reap removes the store's
+  `info/` directory, where git would read an alternates file naming another repository, and
+  every link, every entry that is not a regular file, and every file with a second hard link.
+  So `pack-objects` reads only bytes the run's own git wrote into its store. A store over 1 GiB
+  imports nothing. An index entry whose object did not arrive is hashed again from the checkout.
+  No other git Hydra runs reads the run's store: each one drops the two variables and hashes
+  the checkout itself. Until build ticket 103 `objects/` in the parent kept a full write grant,
+  and a run could plant a pack that mapped an existing sha to other bytes, which git served. What
+  is left: a process the run left running could write `info/alternates` again between reap's
+  last check and the moment `pack-objects` reads the store, build ticket 108.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never
@@ -111,7 +147,11 @@ Hydra made about it.
   file said no credential in your shell reaches the agent. The second hiring panel found it by
   reading the dependency's source. `src/pty.rs` clears the environment before applying the
   allowlist now, and `tests/pty_tee.rs` fails without the clear. Records from before carry an
-  `env_allowlist` that named what Hydra meant to pass, not what the child got.
+  `env_allowlist` that named what Hydra meant to pass, not what the child got. The watcher kept
+  the shell's whole environment one day longer, readable by a same-uid `ps -E` for the length of
+  the run, until build ticket 97 started it from the child's environment; the third hiring panel
+  found it. `tests/detached.rs` reads a running watcher's environment from the kernel and fails
+  on any name the child was not handed.
 - **A run's own hook config is denied to it, since 2026-09-12.** On `cursor-agent` the config
   Hydra writes is `<worktree>/.cursor/hooks.json`, and `standard` may write anywhere in the
   worktree, so before build ticket 44 a run could rewrite the file that points at its gate.
@@ -136,7 +176,13 @@ Hydra made about it.
   permissive` with no `--parent` was a child bounded by nothing. No forging was needed, the flag
   was simply absent, and the adversarial review measured it working. Hydra sets `HYDRA_RUN_ID` in
   every gated child's environment now, and a launch carrying it without a `--parent` naming the
-  same live run writes a `containment` refusal instead of starting. **A child that unsets the
+  same live run writes a `containment` refusal instead of starting. Until build ticket 97, on
+  2026-09-23, the marker reached no recorded child: the launcher set it on its own copy of the
+  child's environment, and the watcher rebuilt the child's environment without it. So from build
+  ticket 57 to 97 a recorded run that relaunched the binary read as a human at depth 0, and only
+  interactive launches, which set the marker on the child directly, were checked. On macOS the
+  seatbelt below still denied such a child the corpus. A recorded `claude` run printed its own
+  run id from `$HYDRA_RUN_ID` after the fix, run 01a0d1fa-c301. **A child that unsets the
   variable walks through this**, because a variable is a thing a process removes from its own
   children's environment. What the check closes is the absent flag, which was the whole of the
   attack as it was measured; what it does not close is a child that means it. Map ticket 62 asked
@@ -168,19 +214,27 @@ Hydra made about it.
   Hydra's; its `workspace-write` would have bounded writes to the workspace, and Hydra's
   profile bounds them to everything but Hydra's own directories, so on macOS a `codex` run's
   writes reach wider than the vendor's default.
+  `tests/drift.rs::a_codex_hook_that_dies_without_answering_lets_the_call_run` re-measures the
+  fail-open with a hook that raises before it answers. It costs one turn, runs only under
+  `HYDRA_DRIFT_PAID=1`, and fails if `codex` starts refusing the call. Its first run, on
+  2026-09-24, passed: a `codex` hook that dies still lets the call run.
 - **The gate is only as good as the vendor build.** It lives in the vendor's own hook dialect,
   and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`
   is where a confirmed change becomes a failing test.
 
 - **The export verifier aborts on the redactor's classes and warns on the rest.** `hydra export`
-  redacts five classes, then re-reads every line with a scan of its own that aborts on a PEM
-  header or a known prefix, including one hidden in a JSON key or a `\u` escape. A long
+  redacts six classes of secret, five by prefix and OpenAI keys by a matcher of their own, then
+  re-reads every line with a scan of its own that aborts on a PEM header or a known prefix,
+  including one hidden in a JSON key or a `\u` escape. A long
   high-entropy token that matches no class is reported after the export by field, class and
   length, and the export still happens: aborting on entropy stopped a third of this machine's
   records on digests that are not secrets. AWS keys, Slack tokens and JWTs are not a named class,
   a secret split by a space or URL-encoded reaches neither check, and `~/hydra/runs/` sits on
-  this laptop beside the dotfiles that hold them.
+  this laptop beside the dotfiles that hold them. Since build ticket 100 `hydra export` refuses an
+  `--out` that is the same file as `preference.jsonl` beside it, compared by device and inode
+  before a byte is written. That covers `Preference.jsonl` on a case-insensitive volume and a
+  symbolic or hard link by any name.
 
 ## Vendor terms
 

@@ -1,4 +1,4 @@
-# 107 - Two residuals of build tickets 105 and 106
+# 108 - Two residuals of build tickets 105 and 106
 
 Type: build
 Status: open
@@ -6,7 +6,9 @@ Blocked by:
 
 ## What
 
-Both named in the Outcomes of 105 and 106.
+Both named in the Outcomes of 105 and 106. Opened as 107 and renumbered on 2026-09-24 by build
+ticket 102: 107 was already the `hy` launcher, and `frontier.py` keys tickets by number, so one of
+the two vanished from its count.
 
 1. Interactive mode: `procinfo::start_time` and the first record write can fail after `claude` has
    started. Rolling back there would pull the checkout from under a live session, so write a failure
