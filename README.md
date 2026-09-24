@@ -240,13 +240,13 @@ it is every departure from the design with its reason.
 Part of Hydra was written by the agents Hydra launches, through `hydra run`, while a Claude
 Code session wrote the tickets, reviewed each worktree diff and applied it to master by hand.
 The corpus in `~/hydra/runs/` and the git history are the sources for this table, which covers
-the 117 build tickets resolved by 2026-09-24: 01 to 120 except 110, 111 and 118, which are
-open. 80 has no row of its own, because build ticket 96 closed it. Each ticket an agent wrote names its run id and token count under
+the 122 build tickets resolved by 2026-09-24, 01 to 122. 80 has no row of its own, because
+build ticket 96 closed it. Each ticket an agent wrote names its run id and token count under
 `## Outcome`.
 
 | Written by | Build tickets |
 |---|---|
-| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 75, 77 to 79, 86, 87, 90, 92, 93, 108, 113, 114, 116, 117, 119, 120 |
+| `cursor-agent` on Composer 2.5 | 20, 24, 28, 29, 31, 32, 34, 36, 48, 50, 51, 60, 61 to 75, 77 to 79, 86, 87, 90, 92, 93, 108, 110, 111, 113, 114, 116 to 122 |
 | `cursor-agent` on Grok 4.6 Fast | 21, 30, 33, 35, 37, 38 |
 | `cursor-agent`, no model flag, so the record says none | 17 |
 | `claude` on Sonnet 5 | 18, 22, 23, 26, 27 |
@@ -261,7 +261,7 @@ open. 80 has no row of its own, because build ticket 96 closed it. Each ticket a
 On 77, 78, 81, 82, 85, 86 and 87 an Opus subagent fixed the agent's diff in the worktree before
 the session applied it, and on 82 it rebuilt Haiku's version. From 89 to 96 an Opus subagent
 reviewed each diff and the session made the fixes on master; every one of those eight needed at
-least one, and on 92 a second Composer run made them. That is 67 of the 116 build tickets on an
+least one, and on 92 a second Composer run made them. That is 72 of the 121 build tickets on an
 agent run through `hydra run`, none of them merged unread. Tickets 97 to 106, the third hiring
 panel's, went to subagents working on the source directly. Two Opus reviews of their merged code
 opened 105 and 106, and 112 holds what those two left. Ticket 27, the
@@ -280,8 +280,8 @@ the skill store.
 `.scratch/hydra/map.md` is the design history: 80 decision tickets on 2026-09-24, 76 of them
 resolved, with the reasoning each document compressed; 76, the decisions under a new
 orchestration mode, and 78 to 80, three questions the fourth panel and a day of vendor drift
-raised, wait on the human. `.scratch/hydra/build/plan.md` indexes the build, 120
-tickets on 2026-09-24 with 117 resolved; `python3 .scratch/hydra/frontier.py build` prints
+raised, wait on the human. `.scratch/hydra/build/plan.md` indexes the build, 122
+tickets on 2026-09-24, all resolved; `python3 .scratch/hydra/frontier.py build` prints
 today's count. `CLAUDE.md` is what an agent
 reads first.
 
