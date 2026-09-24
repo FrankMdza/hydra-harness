@@ -14,10 +14,13 @@
 //! process exits", which is why a test can drive it with `/bin/sh` and spend no
 //! subscription.
 //!
-//! **The spec holds no environment values.** The watcher rebuilds the child's
-//! environment from the allowlist out of what it inherited, because `HTTPS_PROXY`
-//! can carry a password and contract 5.3 keeps values out of the record for the
-//! same reason. Names go in the record; values never touch the disk.
+//! **The spec holds no inherited environment values.** The watcher rebuilds the
+//! child's environment from the allowlist out of what it inherited, because
+//! `HTTPS_PROXY` can carry a password and contract 5.3 keeps values out of the
+//! record for the same reason. Names go in the record; values never touch the
+//! disk. The one exception is `hydra_env`, values Hydra computed itself. What
+//! the watcher inherits is already the allowlist, because [`detach`] starts it
+//! from the child's environment and not from the launcher's.
 //!
 //! **Reading a spec is not reading a record.** Harness spec 5 requires that
 //! interpreting a run never need a spawn artifact, and nothing here interprets:
@@ -58,8 +61,10 @@ pub struct Launch {
     /// Variables Hydra sets for its own purposes, 6.2's second category, by
     /// name and value. **Never an inherited value**: the rule that keeps
     /// secrets off this file is about what the launcher's own environment
-    /// carries, and these are paths Hydra computed. `CURSOR_DATA_DIR` is the
-    /// one lever pulled today.
+    /// carries, and these are values Hydra computed: the containment marker
+    /// `HYDRA_RUN_ID` on every run, and `CURSOR_DATA_DIR` on `cursor-agent`.
+    /// Anything the launcher sets on the child and leaves off this map never
+    /// reaches the child, because [`watch`] rebuilds the allowlist.
     #[serde(default)]
     pub hydra_env: std::collections::BTreeMap<String, String>,
     /// The whole of line 0's body, composed by `hydra run`, with `pid` and
@@ -100,7 +105,15 @@ pub fn write_spec(path: &Path, launch: &Launch) -> Result<()> {
 /// It is a parameter rather than a `current_exe` call inside, because "this
 /// process is hydra" is true of the launcher and not of every caller: the suite
 /// drives this from a test binary.
-pub fn detach(exe: &Path, spec: &Path, log: &Path) -> Result<Child> {
+///
+/// **The watcher starts from `env` and nothing else.** It lives outside the
+/// seatbelt for the whole run, and on macOS any same-uid process reads its
+/// environment with `ps -E`, so a watcher that inherited the launching shell
+/// held `GEMINI_API_KEY` for as long as the child ran. The third hiring panel
+/// measured it, H3. `env` is the child's own environment, the allowlist plus
+/// what Hydra set, because that is the least the watcher can rebuild the
+/// child's from, and it needs nothing else: every path it reads is on the spec.
+pub fn detach(exe: &Path, spec: &Path, log: &Path, env: &ChildEnv) -> Result<Child> {
     use std::os::unix::process::CommandExt;
 
     let out = std::fs::File::create(log).with_context(|| format!("creating {}", log.display()))?;
@@ -113,6 +126,8 @@ pub fn detach(exe: &Path, spec: &Path, log: &Path) -> Result<Child> {
         // Nothing here reads a relative path, and a watcher holding the human's
         // directory would keep a removed worktree alive on the filesystem.
         .current_dir(std::path::Path::new("/"))
+        .env_clear()
+        .envs(env.vars())
         .stdin(Stdio::null())
         .stdout(out)
         .stderr(err);

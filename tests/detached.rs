@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use hydra::env::ChildEnv;
 use hydra::live::{self, State};
 use hydra::paths::Layout;
 use hydra::provider::Provider;
@@ -110,9 +111,69 @@ fn hydra() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_hydra"))
 }
 
+/// What `hydra run` hands the watcher: the child's own environment.
+fn child_env() -> ChildEnv {
+    ChildEnv::build(Provider::Claude).unwrap()
+}
+
+/// The environment another process was exec'd with, name and value, as the
+/// kernel keeps it. The same bytes `ps -E` prints, read without parsing `ps`.
+#[cfg(target_os = "macos")]
+fn environment_of(pid: u32) -> Vec<String> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    let mut size: libc::size_t = 0;
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(rc, 0, "sysctl would not size pid {pid}'s arguments");
+    let mut buf = vec![0u8; size];
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(rc, 0, "sysctl would not read pid {pid}'s arguments");
+    buf.truncate(size);
+
+    // argc, the exec path, NUL padding, argc arguments, then the environment up
+    // to the first empty string.
+    let argc = i32::from_ne_bytes(buf[..4].try_into().unwrap()) as usize;
+    let mut strings = buf[4..].split(|b| *b == 0);
+    strings.next(); // the exec path
+    let mut rest = strings.skip_while(|s| s.is_empty());
+    for _ in 0..argc {
+        rest.next();
+    }
+    rest.take_while(|s| !s.is_empty())
+        .map(|s| String::from_utf8_lossy(s).into_owned())
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn environment_of(pid: u32) -> Vec<String> {
+    std::fs::read(format!("/proc/{pid}/environ"))
+        .unwrap()
+        .split(|b| *b == 0)
+        .filter(|s| !s.is_empty())
+        .map(|s| String::from_utf8_lossy(s).into_owned())
+        .collect()
+}
+
 fn start(layout: &Layout, script: &str) -> std::process::Child {
     let spec = spec_for(layout, script);
-    watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID)).unwrap()
+    watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID), &child_env()).unwrap()
 }
 
 /// One frame, a pause, one frame, then exit. Long enough to be caught mid-run.
@@ -146,6 +207,49 @@ fn the_detached_half_writes_the_record_its_launcher_never_touches() {
         .expect("the detached half filled in its child's pid");
     assert_ne!(pid, std::process::id());
     assert!(view.process_start_time.is_some());
+}
+
+#[test]
+fn the_watcher_holds_the_childs_environment_and_nothing_the_launcher_carried() {
+    // The watcher sits outside the seatbelt for the whole run, and a same-uid
+    // `ps -E` reads its environment. Measured by the third hiring panel, H3: it
+    // held the launching shell whole, `GEMINI_API_KEY` included.
+    let handed = child_env();
+    let allowed: std::collections::BTreeSet<String> = handed.names().into_iter().collect();
+    // Without a name outside the allowlist in this process, an inherited
+    // environment and a cleared one look the same and the test proves nothing.
+    // `cargo test` sets `CARGO_MANIFEST_DIR` and its neighbours.
+    let outside: Vec<String> = std::env::vars()
+        .map(|(name, _)| name)
+        .filter(|name| !allowed.contains(name))
+        .collect();
+    assert!(
+        !outside.is_empty(),
+        "the test process carries nothing outside the allowlist"
+    );
+
+    let layout = sandbox("watcherenv");
+    let mut watcher = start(&layout, &slow_stub(2));
+    let run_file = layout.run_file(RUN_ID);
+    // Line 0 is on disk, so the watcher has exec'd and what the kernel holds
+    // is its own environment rather than the forked launcher's.
+    watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
+    let held = environment_of(watcher.id());
+    watch::wait_for_end(&run_file, &mut watcher, Duration::from_secs(20)).unwrap();
+
+    let held_names: std::collections::BTreeSet<String> = held
+        .iter()
+        .filter_map(|entry| entry.split_once('=').map(|(name, _)| name.to_string()))
+        .collect();
+    let leaked: Vec<&String> = held_names.difference(&allowed).collect();
+    assert!(
+        leaked.is_empty(),
+        "the watcher inherited {leaked:?} from its launcher"
+    );
+    assert_eq!(
+        held_names, allowed,
+        "the watcher lost a name the child needs"
+    );
 }
 
 #[test]
@@ -241,7 +345,8 @@ fn a_binary_that_is_not_there_still_writes_a_record() {
         },
     )
     .unwrap();
-    let mut watcher = watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID)).unwrap();
+    let mut watcher =
+        watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID), &child_env()).unwrap();
 
     let run_file = layout.run_file(RUN_ID);
     watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
@@ -445,7 +550,8 @@ printf '{{"type":"result","subtype":"success","is_error":false}}\n'"#,
     )
     .unwrap();
 
-    let mut watcher = watch::detach(&hydra(), &spec, &layout.watcher_log(run_id)).unwrap();
+    let mut watcher =
+        watch::detach(&hydra(), &spec, &layout.watcher_log(run_id), &child_env()).unwrap();
     let run_file = layout.run_file(run_id);
     watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
     assert_eq!(
@@ -469,7 +575,8 @@ fn a_writer_that_dies_before_closing_is_told_apart_from_a_slow_one() {
     // caller's whole budget.
     let layout = sandbox("writergone");
     let spec = spec_for(&layout, &slow_stub(30));
-    let mut watcher = watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID)).unwrap();
+    let mut watcher =
+        watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID), &child_env()).unwrap();
     let run_file = layout.run_file(RUN_ID);
     watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
 

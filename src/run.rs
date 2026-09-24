@@ -686,12 +686,8 @@ fn prepare_machine(
     // PATH, a missing HOME, a provider binary that is not installed and a repo
     // that already carries the provider's two files are all errors rather than
     // refused spawns, the way they were before delegation existed.
-    let mut child_env = ChildEnv::build(request.provider)?;
-    // 6.2's second category and build ticket 57's whole mechanism: the child is
-    // told which run it is, so that a `hydra run` it launches has something to
-    // check itself against. The name lands in `run_start.env_allowlist` like
-    // every other name passed, so a reader can see the child was marked.
-    child_env.set(crate::containment::MARKER, reserved.run_id.clone());
+    let (child_env, hydra_env) =
+        compose_child_env(request.provider, &reserved.layout, &reserved.run_id)?;
     let provider_version = request.provider.version()?;
     if request.provider == Provider::Codex
         && let Some(remediation) = codex::unsupported_policy(&request.policy)
@@ -718,22 +714,6 @@ fn prepare_machine(
         )?,
         Provider::Claude => {}
     }
-    // 6.2's second category: a variable Hydra sets rather than one it passes
-    // through. `CURSOR_DATA_DIR` moves Cursor's per-project MCP approval state
-    // into the run's spawn directory, so approving an injected server writes
-    // under a path Hydra created rather than into `~/.cursor/`. It is set before
-    // line 0 is composed so the name lands in `env_allowlist`, and it travels to
-    // the detached half by value, because it is a path Hydra computed and not a
-    // secret the launcher inherited.
-    let mut hydra_env = std::collections::BTreeMap::new();
-    if request.provider == Provider::CursorAgent {
-        let data_dir = reserved.layout.cursor_data_dir(&reserved.run_id);
-        std::fs::create_dir_all(&data_dir)
-            .with_context(|| format!("creating {}", data_dir.display()))?;
-        let value = data_dir.display().to_string();
-        child_env.set("CURSOR_DATA_DIR", value.clone());
-        hydra_env.insert("CURSOR_DATA_DIR".to_string(), value);
-    }
     Ok(MachineReady {
         request,
         preflight,
@@ -742,6 +722,46 @@ fn prepare_machine(
         provider_version,
         hydra_env,
     })
+}
+
+/// The child's environment, and the part of it Hydra set rather than passed.
+///
+/// **The second map is what reaches the child.** The launcher never execs the
+/// provider. The detached half does, and it rebuilds the allowlist out of its
+/// own environment, which drops every name the allowlist does not hold. So a
+/// variable Hydra sets reaches the child only by value on the launch spec.
+/// Until build ticket 97 the marker went on the first map alone:
+/// `run_start.env_allowlist` named `HYDRA_RUN_ID`, no recorded child carried
+/// it, and build ticket 57's check read a recorded run's relaunch as a human's.
+fn compose_child_env(
+    provider: Provider,
+    layout: &Layout,
+    run_id: &str,
+) -> Result<(ChildEnv, std::collections::BTreeMap<String, String>)> {
+    let mut child_env = ChildEnv::build(provider)?;
+    let mut hydra_env = std::collections::BTreeMap::new();
+    // 6.2's second category and build ticket 57's whole mechanism: the child is
+    // told which run it is, so that a `hydra run` it launches has something to
+    // check itself against. The name lands in `run_start.env_allowlist` like
+    // every other name passed, so a reader can see the child was marked.
+    hydra_env.insert(crate::containment::MARKER.to_string(), run_id.to_string());
+    // `CURSOR_DATA_DIR` moves Cursor's per-project MCP approval state into the
+    // run's spawn directory, so approving an injected server writes under a path
+    // Hydra created rather than into `~/.cursor/`. It is a path Hydra computed
+    // and not a secret the launcher inherited, so it may travel by value.
+    if provider == Provider::CursorAgent {
+        let data_dir = layout.cursor_data_dir(run_id);
+        std::fs::create_dir_all(&data_dir)
+            .with_context(|| format!("creating {}", data_dir.display()))?;
+        hydra_env.insert(
+            "CURSOR_DATA_DIR".to_string(),
+            data_dir.display().to_string(),
+        );
+    }
+    for (name, value) in &hydra_env {
+        child_env.set(name, value.clone());
+    }
+    Ok((child_env, hydra_env))
 }
 
 fn phase_worktree(machine: &MachineReady) -> Result<WorktreeReady> {
@@ -1310,6 +1330,7 @@ fn phase_spawn(
                 .reserved
                 .layout
                 .watcher_log(&machine.reserved.run_id),
+            &machine.child_env,
         )
     });
 
@@ -1987,6 +2008,40 @@ fn take_model_flag(argv: &mut Vec<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_name_hydra_sets_travels_to_the_detached_half() {
+        // The watcher rebuilds the allowlist from its own environment, so a name
+        // outside it reaches the child only through the spec's `hydra_env`. The
+        // record's `env_allowlist` is `child_env.names()`, and a name there that
+        // does not travel is a record claiming a variable the child never had.
+        let root = std::env::temp_dir().join(format!("hydra-compose-env-{}", std::process::id()));
+        let layout = Layout::at(&root);
+        let run_id = "01996d3c-8f2a-7c31-9b44-000000000097";
+        for provider in [
+            Provider::Claude,
+            Provider::CursorAgent,
+            Provider::Agy,
+            Provider::Codex,
+        ] {
+            let (child_env, hydra_env) = compose_child_env(provider, &layout, run_id).unwrap();
+            assert_eq!(
+                hydra_env
+                    .get(crate::containment::MARKER)
+                    .map(String::as_str),
+                Some(run_id),
+                "{provider:?}: the containment marker does not reach the child"
+            );
+            let rebuilt = ChildEnv::build(provider).unwrap().names();
+            for name in child_env.names() {
+                assert!(
+                    rebuilt.contains(&name) || hydra_env.contains_key(&name),
+                    "{provider:?}: {name} is on line 0 and never reaches the child"
+                );
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     /// The record a launch writes when its detached half never started.
     ///

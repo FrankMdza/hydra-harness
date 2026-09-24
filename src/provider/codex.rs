@@ -269,9 +269,21 @@ pub fn mcp_config(servers: &[&crate::mcp::Server]) -> String {
 }
 
 /// Whether `codex login status` says the binary is logged in.
+///
+/// **The probe gets the run's allowlist, like every other probe.** It used to
+/// inherit the launcher's environment whole, so a `CODEX_HOME` in the shell
+/// made it answer about a login the run would never see, and the vendor binary
+/// got `GEMINI_API_KEY` along the way. The third hiring panel found it, H46.
 pub fn login_status() -> Result<LoginStatus> {
-    let out = Command::new("codex")
+    login_status_of("codex")
+}
+
+fn login_status_of(binary: &str) -> Result<LoginStatus> {
+    let env = crate::env::ChildEnv::build(crate::provider::Provider::Codex)?;
+    let out = Command::new(binary)
         .args(["login", "status"])
+        .env_clear()
+        .envs(env.vars())
         .output()
         .with_context(|| "running codex login status")?;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -365,6 +377,60 @@ pub fn observe(raw: &str) -> Observed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_login_probe_gets_the_allowlist_and_nothing_the_launcher_carries() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // A stub `codex` that writes down the environment it was handed and
+        // answers logged in, so the probe runs and no vendor binary does.
+        let dir = std::env::temp_dir().join(format!("hydra-codex-login-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dump = dir.join("env");
+        let stub = dir.join("codex");
+        std::fs::write(
+            &stub,
+            format!(
+                "#!/bin/sh\n/usr/bin/env > '{}'\necho 'Logged in using ChatGPT'\n",
+                dump.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let allowed: std::collections::BTreeSet<String> =
+            crate::env::ChildEnv::build(crate::provider::Provider::Codex)
+                .unwrap()
+                .names()
+                .into_iter()
+                // What `/bin/sh` exports on its own, whatever it was handed.
+                .chain(["PWD", "SHLVL", "_", "OLDPWD"].map(String::from))
+                .collect();
+        // Without a name outside the allowlist in this process, an inherited
+        // environment and a cleared one look the same and the test proves nothing.
+        // `cargo test` sets `CARGO_MANIFEST_DIR` and its neighbours.
+        assert!(
+            std::env::vars().any(|(name, _)| !allowed.contains(&name)),
+            "the test process carries nothing outside the allowlist"
+        );
+
+        assert_eq!(
+            login_status_of(stub.to_str().unwrap()).unwrap(),
+            LoginStatus::LoggedIn
+        );
+        let seen = std::fs::read_to_string(&dump).unwrap();
+        let leaked: Vec<&str> = seen
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+            .filter(|name| !allowed.contains(*name))
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            leaked.is_empty(),
+            "the login probe inherited {leaked:?} from the launcher"
+        );
+    }
 
     #[test]
     fn the_recorded_argv_names_the_worktree_and_the_belt_flags() {
