@@ -1399,3 +1399,200 @@ fn reap_without_trusted_git_metadata_leaves_checkout_untouched() {
     assert!(checkout.join("child.txt").is_file());
     assert!(layout.spawn(run).is_dir());
 }
+
+// --- the run's own object store, map ticket 74 ------------------------------
+
+/// `git` in a run's checkout the way the run's own git runs there: with the
+/// object directory `hydra run` hands the child.
+fn run_git(checkout: &Path, env: &[(&'static str, String)], args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(checkout)
+        .envs(env.iter().map(|(name, value)| (*name, value)))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "the run's git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+fn has_object(repo: &Path, sha: &str) -> bool {
+    Command::new("git")
+        .args(["cat-file", "-e", sha])
+        .current_dir(repo)
+        .status()
+        .unwrap()
+        .success()
+}
+
+/// The sha git would give `content`, without writing it anywhere.
+fn sha_of(scratch: &Path, content: &str) -> String {
+    std::fs::create_dir_all(scratch).unwrap();
+    std::fs::write(scratch.join("content"), content).unwrap();
+    git(scratch, &["hash-object", "--no-filters", "content"])
+        .trim()
+        .to_string()
+}
+
+/// Plants a pack in `store` whose index claims `claimed` and whose bytes are
+/// `bytes`: map ticket 74's forged pack. Built as a real one-object pack, then
+/// the index's one name and its fan-out table are rewritten. Git does not
+/// check an index's trailing checksum when it reads an object.
+fn forge_pack(scratch: &Path, bytes: &str, claimed: &str, store: &Path) {
+    std::fs::create_dir_all(scratch).unwrap();
+    git(scratch, &["init", "-q"]);
+    std::fs::write(scratch.join("evil"), bytes).unwrap();
+    let real = git(scratch, &["hash-object", "-w", "evil"])
+        .trim()
+        .to_string();
+    let mut pack = Command::new("git")
+        .args(["pack-objects", "-q", "forged"])
+        .current_dir(scratch)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        writeln!(pack.stdin.take().unwrap(), "{real}").unwrap();
+    }
+    let name = String::from_utf8(pack.wait_with_output().unwrap().stdout).unwrap();
+    let base = scratch.join(format!("forged-{}", name.trim()));
+    let hex = |text: &str| -> Vec<u8> {
+        (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+            .collect()
+    };
+    let (real, claimed_bytes) = (hex(&real), hex(claimed));
+    let mut index = std::fs::read(base.with_extension("idx")).unwrap();
+    let at = index
+        .windows(real.len())
+        .position(|window| window == real.as_slice())
+        .unwrap();
+    index[at..at + real.len()].copy_from_slice(&claimed_bytes);
+    // A version 2 index: 8 bytes of header, then 256 cumulative counts.
+    for slot in 0..256usize {
+        let count: u32 = if slot < claimed_bytes[0] as usize {
+            0
+        } else {
+            1
+        };
+        index[8 + slot * 4..12 + slot * 4].copy_from_slice(&count.to_be_bytes());
+    }
+    let packs = store.join("pack");
+    std::fs::create_dir_all(&packs).unwrap();
+    std::fs::copy(base.with_extension("pack"), packs.join("pack-forged.pack")).unwrap();
+    std::fs::write(packs.join("pack-forged.idx"), index).unwrap();
+}
+
+#[test]
+fn reap_moves_the_runs_objects_and_a_forged_pack_reaches_neither_the_parent_nor_a_later_worktree() {
+    let fixture = Fixture::new("run-objects");
+    let layout = fixture.layout();
+    let run = "01a0d103-0000-7000-8000-000000000001";
+    let checkout = fixture.checkout(run);
+    let env = hydra::worktree::prepare_run_objects(&layout, run, &fixture.repo).unwrap();
+    let store = layout.run_objects(run);
+    let scratch = fixture.root.parent().unwrap().join("scratch");
+
+    // The run's own work: a file it staged, and an object only its store holds.
+    std::fs::write(checkout.join("staged.txt"), "the run staged this\n").unwrap();
+    run_git(&checkout, &env, &["add", "staged.txt"]);
+    std::fs::create_dir_all(checkout.join("ignored")).unwrap();
+    std::fs::write(checkout.join("ignored/note"), "only the run's store\n").unwrap();
+    let own = run_git(&checkout, &env, &["hash-object", "-w", "ignored/note"])
+        .trim()
+        .to_string();
+    assert!(!has_object(&fixture.repo, &own), "the run wrote the parent");
+
+    // Map ticket 74's attack: a pack naming the sha of content the human has
+    // not written yet. The run's own git serves the forged bytes.
+    let future = "the human writes this later\n";
+    let claimed = sha_of(&scratch.join("sha"), future);
+    forge_pack(&scratch.join("forge"), "EVIL\n", &claimed, &store);
+    assert_eq!(
+        run_git(&checkout, &env, &["cat-file", "-p", &claimed]),
+        "EVIL\n"
+    );
+
+    let reaped = reap_one(&layout, run, false);
+    assert_eq!(hydra::reap::failures(&reaped), 0);
+    let branch = format!("hydra/{run}");
+    assert_eq!(
+        git(&fixture.repo, &["show", &format!("{branch}:staged.txt")]),
+        "the run staged this\n"
+    );
+    assert_eq!(
+        git(&fixture.repo, &["cat-file", "-p", &own]),
+        "only the run's store\n",
+        "reap did not move the run's object"
+    );
+    assert!(
+        !has_object(&fixture.repo, &claimed),
+        "the forged name reached the parent"
+    );
+
+    // The human then writes that content and commits it, and a later run is
+    // seeded from the parent. Had the forged pack arrived, `git add` would
+    // have found the name already stored and kept the forged bytes.
+    std::fs::write(fixture.repo.join("future.txt"), future).unwrap();
+    git(&fixture.repo, &["add", "future.txt"]);
+    git(&fixture.repo, &["commit", "-qm", "later"]);
+    assert_eq!(git(&fixture.repo, &["show", "HEAD:future.txt"]), future);
+    let later = fixture.checkout("01a0d103-0000-7000-8000-000000000002");
+    assert_eq!(
+        std::fs::read_to_string(later.join("future.txt")).unwrap(),
+        future
+    );
+}
+
+#[test]
+fn an_entry_the_run_staged_against_a_forged_object_is_hashed_again_from_the_checkout() {
+    let fixture = Fixture::new("forged-entry");
+    let layout = fixture.layout();
+    let run = "01a0d103-0000-7000-8000-000000000003";
+    let checkout = fixture.checkout(run);
+    let env = hydra::worktree::prepare_run_objects(&layout, run, &fixture.repo).unwrap();
+    let scratch = fixture.root.parent().unwrap().join("scratch");
+
+    // Planted before the `git add`, so git finds the name stored and writes
+    // nothing: the index names the forged bytes.
+    let content = "what the file really says\n";
+    let claimed = sha_of(&scratch.join("sha"), content);
+    forge_pack(
+        &scratch.join("forge"),
+        "EVIL\n",
+        &claimed,
+        &layout.run_objects(run),
+    );
+    std::fs::write(checkout.join("real.txt"), content).unwrap();
+    // An hour old, so the entry is not racily clean and reap's own `git add`
+    // trusts its stat data instead of hashing the file again.
+    std::fs::File::options()
+        .write(true)
+        .open(checkout.join("real.txt"))
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
+    run_git(&checkout, &env, &["add", "real.txt"]);
+    assert_eq!(
+        run_git(&checkout, &env, &["cat-file", "-p", ":real.txt"]),
+        "EVIL\n"
+    );
+
+    let reaped = reap_one(&layout, run, false);
+    assert_eq!(
+        hydra::reap::failures(&reaped),
+        0,
+        "reap failed on the forged entry"
+    );
+    assert_eq!(
+        git(&fixture.repo, &["show", &format!("hydra/{run}:real.txt")]),
+        content
+    );
+}

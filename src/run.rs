@@ -712,8 +712,12 @@ fn prepare_machine(
     // PATH, a missing HOME, a provider binary that is not installed and a repo
     // that already carries the provider's two files are all errors rather than
     // refused spawns, the way they were before delegation existed.
-    let (child_env, hydra_env) =
-        compose_child_env(request.provider, &reserved.layout, &reserved.run_id)?;
+    let (child_env, hydra_env) = compose_child_env(
+        request.provider,
+        &reserved.layout,
+        &reserved.run_id,
+        preflight.repo.as_deref(),
+    )?;
     let provider_version = request.provider.version()?;
     if request.provider == Provider::Codex
         && let Some(remediation) = codex::unsupported_policy(&request.policy)
@@ -763,6 +767,7 @@ fn compose_child_env(
     provider: Provider,
     layout: &Layout,
     run_id: &str,
+    repo: Option<&std::path::Path>,
 ) -> Result<(ChildEnv, std::collections::BTreeMap<String, String>)> {
     let mut child_env = ChildEnv::build(provider)?;
     let mut hydra_env = std::collections::BTreeMap::new();
@@ -783,6 +788,14 @@ fn compose_child_env(
             "CURSOR_DATA_DIR".to_string(),
             data_dir.display().to_string(),
         );
+    }
+    // Map ticket 74: a run with a checkout writes git objects into its own
+    // directory under the spawn directory and reads the parent's as an
+    // alternate. Two paths Hydra computed, so they travel by value too.
+    if let Some(repo) = repo {
+        for (name, value) in crate::worktree::prepare_run_objects(layout, run_id, repo)? {
+            hydra_env.insert(name.to_string(), value);
+        }
     }
     for (name, value) in &hydra_env {
         child_env.set(name, value.clone());
@@ -2090,7 +2103,8 @@ mod tests {
             Provider::Agy,
             Provider::Codex,
         ] {
-            let (child_env, hydra_env) = compose_child_env(provider, &layout, run_id).unwrap();
+            let (child_env, hydra_env) =
+                compose_child_env(provider, &layout, run_id, None).unwrap();
             assert_eq!(
                 hydra_env
                     .get(crate::containment::MARKER)
@@ -2106,6 +2120,43 @@ mod tests {
                 );
             }
         }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_run_with_a_repo_is_handed_its_own_object_directory() {
+        // Map ticket 74. The seatbelt denies the parent's `objects/`, so a run
+        // whose git is not pointed at its own store cannot `git add` at all.
+        let root = std::env::temp_dir().join(format!("hydra-run-objects-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let init = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let common = crate::worktree::git_common_dir(&repo).unwrap();
+        let layout = Layout::at(root.join("hydra"));
+        let run_id = "01996d3c-8f2a-7c31-9b44-000000000103";
+        let (child_env, hydra_env) =
+            compose_child_env(Provider::Claude, &layout, run_id, Some(&repo)).unwrap();
+        let store = layout.run_objects(run_id);
+        assert_eq!(
+            hydra_env.get("GIT_OBJECT_DIRECTORY"),
+            Some(&store.display().to_string())
+        );
+        assert_eq!(
+            hydra_env.get("GIT_ALTERNATE_OBJECT_DIRECTORIES"),
+            Some(&common.join("objects").display().to_string())
+        );
+        assert!(store.join("pack").is_dir(), "the store was not created");
+        assert!(
+            child_env
+                .names()
+                .contains(&"GIT_OBJECT_DIRECTORY".to_string())
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

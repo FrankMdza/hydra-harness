@@ -279,6 +279,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
         match commit_then_remove(
             &worktree,
             reap_git_context(run_id, &worktree, &start),
+            Some(&layout.run_objects(run_id)),
             &injected,
             &format!("hydra/{run_id}"),
             &format!("hydra reap: what run {run_id} left uncommitted"),
@@ -303,6 +304,7 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
             crate::worktree::git_common_dir(&layout.skills())
                 .ok_or_else(|| anyhow::anyhow!("skill store has no Git directory"))
                 .and_then(|common| CheckoutGit::new(&checkout, &common)),
+            None,
             &injected,
             &format!("rungs/curate/{run_id}"),
             &format!("hydra reap: what curate run {run_id} left uncommitted"),
@@ -447,9 +449,16 @@ fn drop_hydras_ignore(checkout: &Path, context: &CheckoutGit, ignore: &str) -> R
 /// commit message, so those are the arguments. `hydra_branch` is
 /// `hydra/<run-id>` for the one and `rungs/curate/<run-id>` for the other, and
 /// the Git metadata comes from trusted launch data or the skill store.
+///
+/// `objects` is the run's own object directory, map ticket 74, and `None` for
+/// a curate checkout, whose private index lives in the store's denied `.git`
+/// and so holds nothing the curator staged. What git verifies in it goes into
+/// the parent before the commit, and an index entry whose object did not
+/// arrive is staged again from the checkout.
 fn commit_then_remove(
     checkout: &Path,
     context: Result<CheckoutGit>,
+    objects: Option<&Path>,
     injected: &InjectedSkills,
     hydra_branch: &str,
     message: &str,
@@ -490,6 +499,14 @@ fn commit_then_remove(
     // by name instead.
     for ignore in &injected.ignores {
         drop_hydras_ignore(checkout, &context, ignore)?;
+    }
+    if let Some(store) = objects {
+        // A store git would not verify moves nothing, and the entries that
+        // needed it are hashed again from the checkout below.
+        if let Err(err) = crate::worktree::import_run_objects(&main, store) {
+            eprintln!("hydra: reap moved none of the run's objects: {err:#}");
+        }
+        crate::worktree::unstage_missing_objects(&context)?;
     }
     let mut exclude = crate::provider::own_worktree_paths();
     exclude.extend(injected.entries.iter().map(String::as_str));

@@ -637,13 +637,17 @@ pub fn own_write_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
         {
             let private = git_dir.join("worktrees").join(run_id);
             paths.extend([private.join("index"), private.join("index.lock")]);
-            // `git add` writes the blob into the shared object store before it
-            // touches the index, measured 2026-09-22 under a real profile:
-            // "unable to create temporary file: Operation not permitted".
-            // This remains a full write grant until a creation-only profile is
-            // measured successfully. Content addressing does not prevent a run
-            // from deleting or overwriting an existing object. Refs stay denied.
-            paths.push(git_dir.join("objects"));
+            // `git add` writes a blob before it touches the index. Since map
+            // ticket 74 it writes into the run's own object directory under its
+            // spawn directory, where `GIT_OBJECT_DIRECTORY` points, and the
+            // parent's `objects/` stays inside the `.git` denied above. A pack
+            // a run forges there can lie only to the run's own git: reap moves
+            // what git re-hashes and nothing else. Refs stay denied. The path is
+            // taken beside the gate script, which a replay reads off the record,
+            // and is the one [`crate::paths::Layout::run_objects`] names.
+            if let Some(own_spawn) = spawn.gate_script.parent() {
+                paths.push(own_spawn.join("objects"));
+            }
         }
     }
     if let Some(checkout) = spawn.skill_checkout {
@@ -707,7 +711,18 @@ pub fn protected_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
 /// `/var/folders/...` and as `/private/var/folders/...` and a command may use
 /// either.
 fn denied_spellings(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
-    let own: Vec<String> = own_write_paths(spawn).iter().map(|p| resolved(p)).collect();
+    // The run's object directory is left out of this computation, so the
+    // spawn directories stay on the substring list. The run's own git finds
+    // that directory through `GIT_OBJECT_DIRECTORY` and never spells it, and a
+    // command that does spell it is refused, which costs nothing. Counting it
+    // would have taken every sibling's spawn directory, gate script and
+    // `launch.json` off this list for every run that has a checkout.
+    let store = spawn.gate_script.parent().map(|dir| dir.join("objects"));
+    let own: Vec<String> = own_write_paths(spawn)
+        .iter()
+        .filter(|path| Some(path.as_path()) != store.as_deref())
+        .map(|p| resolved(p))
+        .collect();
     // A denied path with one of this spawn's own paths under it cannot go on
     // this list: `~/hydra/worktrees` is denied and the run's own worktree lives
     // in it, so a substring search would refuse the run's own working
@@ -1375,11 +1390,26 @@ mod tests {
         assert_eq!(
             own_write_paths(&spawn),
             vec![
-                worktree,
+                worktree.clone(),
                 git_dir.join("worktrees/r1/index"),
                 git_dir.join("worktrees/r1/index.lock"),
-                git_dir.join("objects")
+                layout.run_objects("r1")
             ]
+        );
+        // Map ticket 74: nothing under the parent's store is the run's.
+        assert!(
+            own_write_paths(&spawn)
+                .iter()
+                .all(|own| !own.starts_with(git_dir.join("objects")))
+        );
+        // And the run's store, under the spawn parent, does not take that
+        // parent off the substring list: a sibling's spawn directory spelled
+        // inside `sh -c '...'` is still refused by the raw pass.
+        let set = PolicySet::discover().unwrap();
+        let spawns = resolved(&layout.spawns());
+        assert!(
+            denied_spellings(&set, &spawn).contains(&spawns),
+            "{spawns} left the substring list"
         );
     }
 
