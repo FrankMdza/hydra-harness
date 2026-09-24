@@ -150,3 +150,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [103 - Each run writes git objects into its own store](103-a-private-object-store-per-run.md)
 - [104 - The suite passes inside a seatbelt](104-the-suite-passes-inside-a-seatbelt.md)
 - [105 - What the review of 97 to 99 found](105-what-the-review-of-97-to-99-found.md)
+- [106 - `hy`: a gated interactive session in a Herdr pane](106-the-hy-launcher.md)
+- [106 - Reap imports only what the run's own store holds](106-reap-imports-nothing-the-store-points-elsewhere-for.md)
