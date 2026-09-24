@@ -3153,7 +3153,7 @@ configuration. A launch is refused under `skill-worktrees/` as well as `worktree
 evolve` refuses there before it discovers a repository. A gated interactive launch that fails
 after its checkout exists rolls the checkout, branch and spawn directory back. Two failures after
 `claude` has started, `procinfo::start_time` and the record's first write, still leave no record;
-build ticket 108 is to write one carrying the pid.
+build ticket 112 is to write one carrying the pid.
 
 - Reap refuses a checkout on any branch but its own before it stages anything, rewrites the
   `.git` file to the trusted directory because `git worktree remove` reads it, and removes the
@@ -3181,7 +3181,7 @@ build ticket 108 is to write one carrying the pid.
   nothing is imported. A store over `RUN_STORE_IMPORT_CAP`, 1 GiB, imports nothing, and
   `index-pack` gets `--max-input-size` at the same cap. Whatever is not imported is hashed again
   from the checkout. The window between that last check and `pack-objects` reading the store is
-  open, build ticket 108. The diff stat, rung two's read and `hydra status` stage from indexes
+  open, build ticket 112. The diff stat, rung two's read and `hydra status` stage from indexes
   under the spawn directory and need nothing from the run's store. Git inside a run, in any
   repository, uses that store. Measured after the merge on 2026-09-24: under `standard` each of
   the four providers ran `git add` in a real run, printed its own store as

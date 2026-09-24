@@ -115,7 +115,7 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   the checkout itself. Until build ticket 103 `objects/` in the parent kept a full write grant,
   and a run could plant a pack that mapped an existing sha to other bytes, which git served. What
   is left: a process the run left running could write `info/alternates` again between reap's
-  last check and the moment `pack-objects` reads the store, build ticket 108.
+  last check and the moment `pack-objects` reads the store, build ticket 112.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
   and `awaitToolCall` without consulting it. The record marks those `unhooked`.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never

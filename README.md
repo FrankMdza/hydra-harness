@@ -240,8 +240,8 @@ it is every departure from the design with its reason.
 Part of Hydra was written by the agents Hydra launches, through `hydra run`, while a Claude
 Code session wrote the tickets, reviewed each worktree diff and applied it to master by hand.
 The corpus in `~/hydra/runs/` and the git history are the sources for this table, which covers
-the 106 build tickets resolved by 2026-09-24: 01 to 108 except 80, which build ticket 96 closed,
-and 108, which is open. Each ticket an agent wrote names its run id and token count under
+the 109 build tickets resolved by 2026-09-24: 01 to 112 except 80, which build ticket 96 closed,
+and 110 and 111, which are open. Each ticket an agent wrote names its run id and token count under
 `## Outcome`.
 
 | Written by | Build tickets |
@@ -263,7 +263,7 @@ reviewed each diff and the session made the fixes on master; every one of those 
 least one, and on 92 a second Composer run made them. That is 58 of the 106 build tickets on an
 agent run through `hydra run`, none of them merged unread. Tickets 97 to 106, the third hiring
 panel's, went to subagents working on the source directly. Two Opus reviews of their merged code
-opened 105 and 106, and 108 holds what those two left. Ticket 27, the
+opened 105 and 106, and 112 holds what those two left. Ticket 27, the
 interactive mode and its harvest, was the largest single run at 54.7M tokens, 54.0M of them
 cache reads. Ticket 25 was the first Rust ticket given to the cheapest model, and it held.
 The design documents, the policies, the record contract and this README are the session's.
@@ -276,10 +276,10 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 76 decision tickets on 2026-09-24, 75 of them
+`.scratch/hydra/map.md` is the design history: 77 decision tickets on 2026-09-24, 76 of them
 resolved, with the reasoning each document compressed; 76, the decisions under a new
-orchestration mode, waits on the human. `.scratch/hydra/build/plan.md` indexes the build, 108
-tickets on 2026-09-24 with 107 resolved; `python3 .scratch/hydra/frontier.py build` prints
+orchestration mode, waits on the human. `.scratch/hydra/build/plan.md` indexes the build, 115
+tickets on 2026-09-24 with 110 resolved; `python3 .scratch/hydra/frontier.py build` prints
 today's count. `CLAUDE.md` is what an agent
 reads first.
 

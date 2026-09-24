@@ -1,7 +1,7 @@
 # Four readers as a hiring panel, third round, 2026-09-23
 
 Reviewed commit `2e03429`, and `04740db` for the `codex` reader, which has the same source; published on 2026-09-24 as written then.
-Build tickets 97 to 106 under `.scratch/hydra/build/` record what was fixed, and build ticket 108 what is still open.
+Build tickets 97 to 106 under `.scratch/hydra/build/` record what was fixed, and build ticket 112 what is still open.
 
 Three readers, `claude`, `cursor-agent` and `agy`, reviewed `2e03429`, and their 37 findings, H1 to
 H37, were checked there first in `verified-three.md`. The fourth, `codex`, launched at 18:35 after
