@@ -34,7 +34,17 @@ which would touch the real `~/hydra`.
 Several tests walk every `.jsonl` under `~/hydra/runs/` and check that each record still
 meets the contract, normalizes, and derives an outcome. That path is `$HYDRA_ROOT/runs` when
 the variable is set, and `~/hydra/runs` from the real home when it is not. Point the variable
-at an empty directory to run the suite without reading your own records.
+at an empty directory to run the suite without reading your own records. Each of those walks has
+a fixture twin that reads `tests/fixtures/records/` instead, so the assertions still run on an
+empty root. A new record shape goes into a new fixture through `tests/fixture_corpus.rs`, never
+as a copy of a real record.
+
+Rung two's admission runs this suite inside a seatbelt, with a cleared environment and several
+test threads. A test that launches the built binary with `HYDRA_ROOT`, or execs a setuid binary
+such as `/bin/ps`, has to check `hydra::sandbox::inside_seatbelt()` and skip with a line on
+stderr, or every rung-two pass fails on it. A test that sets a process-wide variable belongs in
+an integration test file of its own with a lock around it, the way `tests/git_config.rs` does,
+not in a unit test that shares a process with threads that read the environment.
 
 ## What is not open for a pull request
 

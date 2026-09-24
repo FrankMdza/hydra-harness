@@ -371,7 +371,7 @@ panel of four, one branch, exit. No loop, no retries, no memory.
 human types hydra evolve
   -> proposer run           a hydra run child, its own worktree, produces a diff
   -> protected-path check   refuses the whole patch before any review
-  -> admission gate         cargo fmt, clippy, build, test, in the worktree
+  -> admission gate         cargo fmt, clippy, build, test, on a copy of the read tree
   -> panel                  four judge runs, one per routable provider
   -> branch                 rungs/<run-id> or ouroboros/blocked/<run-id>
   -> exit
@@ -465,8 +465,11 @@ found it. Since ticket 40, three of four judges approving it is not a state this
 
 ### 4.5 The admission gate
 
-`cargo fmt --check`, `cargo clippy -D warnings`, `cargo build`, `cargo test`, in the worktree, all
-four before a single judge is dispatched. Deterministic, and they run whether or not any model agrees
+`cargo fmt --check`, `cargo clippy -D warnings`, `cargo build`, `cargo test`, all four before a
+single judge is dispatched. They ran in the proposer's worktree until build ticket 98, and since
+then they run on a fresh copy of the tree the patch was read from, under a profile the proposer's
+leftover processes cannot reach and with a cargo home of their own; `IMPLEMENTATION.md`'s rung-two
+section says what that copy is and what it still leaves open. Deterministic, and they run whether or not any model agrees
 with them.
 
 **Admission failure is not a review outcome.** The pass ends carrying the compiler output on its
@@ -480,11 +483,14 @@ Two refinements the reference implementation earned the hard way:
 **Protected test files come from the baseline sha, not from the patched worktree.** A self-edit that
 adds its own passing test proves nothing.
 
-**Not built as of 2026-09-12.** The admission gate runs `cargo test` in the patched worktree and
-reads nothing from a baseline. The judge item `baseline_test_provenance` in 5.2 polices this
-sentence rather than a mechanism, and it was still the item that blocked pass `01a084d3-bdd3`,
-correctly, when a proposer edited a baseline test. Whether to build the mechanism or to keep the
-rule a judge item is a decision the map has not taken; map ticket 59 lists it.
+**Built since build ticket 96, which closed build ticket 80.** A changed path that names a file
+under `tests/` at the pass's `base_tree` is refused before any judge, whatever the edit set says:
+an edit, a delete, a rename or a mode change. `existing_test_hit` in `src/rungs/evolve.rs` is the
+check. Until then the judge item `baseline_test_provenance` in 5.2 policed this sentence rather
+than a mechanism, and it was the item that blocked pass `01a084d3-bdd3`, correctly, when a
+proposer edited a baseline test. The item stays on the checklist. A unit-test probe inside a
+source file the human names with `--may-edit` can still be weakened with the code it guards, map
+ticket 73.
 
 **The order is load-bearing and it is a checklist item.** A judge dispatched before the four commands
 pass, or an admission failure that still spends review budget, is `admission_gate_order` in section

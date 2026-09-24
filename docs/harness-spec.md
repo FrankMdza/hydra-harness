@@ -1,6 +1,11 @@
 # Hydra harness spec
 
-How Hydra launches, feeds and records the three agent CLIs.
+How Hydra launches, feeds and records the agent CLIs.
+
+This document was written and measured against three providers, `claude`, `cursor-agent` and
+`agy`. `codex` was routed later, by build ticket 48 on 2026-09-20, and `IMPLEMENTATION.md`'s
+section on it says what was measured and where it departs from what follows. Where a sentence
+below says "three providers", it means those three as measured then, unless it names `codex`.
 
 This is one of three documents. `docs/run-record-contract.md` fixes the format Hydra writes and
 Rungs reads. `docs/rungs-spec.md` covers both rungs of self-improvement. The three are
@@ -265,8 +270,11 @@ costs MCP on Cursor (section 6.5) and it is not on the MCP delegate face (sectio
 root is the run's to write, and git reads its configuration from wherever that file points, so every
 git call Hydra makes there, outside any seatbelt, takes its git directory, common directory and
 work tree from the run record or from launch data kept under the deny list (map ticket 72, build
-ticket 95). Inside the run, the parent's `.git` stays denied except the checkout's own index and its
-lock, which `git add` needs, and the shared object store, whose grant is map ticket 74. `hydra reap`
+ticket 95). Since build ticket 99 none of that git reads global or system configuration either.
+Inside the run, the parent's `.git` stays denied except the checkout's own index and its lock,
+which `git add` needs. The run's objects go into a store of its own under its spawn directory, and
+`hydra reap` imports them into the parent only after git has named each one from its bytes (map
+ticket 74, build tickets 103 and 106). `hydra reap`
 commits only on `hydra/<run-id>`: a checkout found on any other branch is left for a human, because
 committing a run's tree onto a branch Hydra did not make is how a human's branch would move.
 
@@ -816,7 +824,7 @@ configure` and `sso`, and Slack webhooks. It lives as one file in the delegation
 beside the five policies, rather than as a field repeated in each of them where a policy edited to
 drop it would be a silent hole. It inherits the protection the policy set already has.
 
-**It applies on all three providers and under every policy, `permissive` included.** The user's own
+**It applies on every provider Hydra routes, `codex` included since build ticket 48, and under every policy, `permissive` included.** The user's own
 guards cover `claude` and `cursor-agent` whatever Hydra does, so exempting `permissive` would empty
 the floor on `agy` alone, which is the one provider where it is the only thing present. `permissive`
 bounds what a delegated agent may do, not what the human may do, and a human who wants a force push
@@ -1276,8 +1284,8 @@ none.
 | `mcp_unavailable` | the launch check or the Cursor pre-flight refused | never |
 | `rate_limited` | the provider refused its own limit | never |
 
-**All three providers exit 0 and report success on a run where the gate refused everything.** So
-`gated` derives from the event stream, never from the exit status. So does every other outcome in
+**All three providers exit 0 and report success on a run where the gate refused everything**, and
+so does `codex`, measured on run 01a0c62b-d005 on 2026-09-21. So `gated` derives from the event stream, never from the exit status. So does every other outcome in
 the lower half of that table.
 
 **The rung-one column says what rung one learns from, never what Hydra keeps.** Every run in this

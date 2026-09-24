@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 75 of 76 on 2026-09-24, ticket 76 a grilling for the human; build tickets 89 to 96 carry the second hiring panel's findings and 97 to 104 the third's.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
+**The map stands at 75 of 76 on 2026-09-24, ticket 76 a grilling for the human; build tickets 89 to 96 carry the second hiring panel's findings and 97 to 106 the third's, and the build stands at 107 of 108 with 108 open.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -73,9 +73,9 @@ document and there should not be one.
   reached from nowhere but `main`; `resolver.rs` turns a run-id prefix into the run it
   names, for `show` and `reap`, and never looks up a full uuid; `record/` is the run record and the validator the tests
   drive; `env.rs` is the allowlist; `pty.rs` owns the child's pty; `provider/claude.rs`,
-  `provider/cursor.rs` and `provider/agy.rs` hold every fact that is true of one binary and
-  not of a model, and the three files beside them in `normalize/` read each one's records
-  back; `policy/` loads the policy set, owns the capability table per provider, and compiles
+  `provider/cursor.rs`, `provider/agy.rs` and `provider/codex.rs` hold every fact that is true
+  of one binary and not of a model, and the four files beside them in `normalize/` read each
+  one's records back; `policy/` loads the policy set, owns the capability table per provider, and compiles
   the gate script;
   `skills/` is the store, the per-sha snapshot, the read-only index over the user's own skill
   roots and the collision check;
@@ -99,8 +99,13 @@ document and there should not be one.
 - `integrations/herdr/`, the Herdr plugin: a launcher that puts the run id on the pane, a poller
   that labels the pane from the record, a graph of one run in the terminal, and a smoke test
   against a live Herdr. Nothing under `src/` imports it, and its README says how to link it.
-- `tests/`, twenty-three files. `record_contract.rs` checks a written record against the contract and walks
-  every record on this machine; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
+- `tests/`, twenty-six files on 2026-09-24. `record_contract.rs` checks a written record against the contract and walks
+  every record on this machine; `fixture_corpus.rs` writes and guards `tests/fixtures/records/`,
+  the synthetic records the fixture walks in `record_contract.rs`, `normalize.rs` and
+  `outcome.rs` read; `git_config.rs` plants a global and a system git config and checks that
+  nothing they name runs from Hydra's git, and that the excludes file, `safe.directory`, the
+  XDG attributes file and a fifo include are handled; `launch_phases.rs` fails a launch after
+  its worktree exists and reads the `never_started` record back; `pty_tee.rs` drives a stub provider so the pty path costs no quota;
   `worktree.rs` covers the seeding; `gate.rs` compiles a real gate per policy and feeds it synthetic
   hook payloads, launching nothing; `spawn.rs` checks that a run writes that gate where the run will
   find it; `normalize.rs` and `outcome.rs` read synthetic records back; `detached.rs` drives the
@@ -122,8 +127,10 @@ document and there should not be one.
   synthetic patches and answers, launching nothing;
   `resolver.rs` feeds the prefix resolver a scratch corpus and launches nothing;
   `drift.rs` runs `claude`'s free probe under `judge`'s
-  flags with stub servers in a scratch `HOME`, skips without the binary, and holds the only
-  tests in the suite that launch a provider.
+  flags with stub servers in a scratch `HOME`, `codex login status`, and a paid `codex` probe of
+  a hook that dies, skips without the binary, and holds the only tests in the suite that launch
+  a provider. `cleanup.rs` also plants a forged pack, an alternates file, a linked fan-out
+  directory and a hard link in a run's object store and reads the parent back.
 - `.scratch/hydra/build/plan.md`, the build index, and `build/NN-slug.md`, one build ticket each.
 - `.scratch/hydra/map.md`, the closed design map. One load gives you the whole design at low
   resolution.
@@ -139,7 +146,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 74 of 74 resolved
+python3 .scratch/hydra/frontier.py          # the design map, 75 of 76 resolved on 2026-09-24
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 

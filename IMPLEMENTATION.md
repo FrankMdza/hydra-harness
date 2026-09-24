@@ -74,7 +74,7 @@ remains at risk is a write to the policy directory or the corpus through a path 
 command assembles.
 
 Provider versions this build has been measured against. The table is the 2026-09-06 reading
-the provider sections cite; `provider::MEASURED_VERSIONS`, `README.md` and `hydra doctor` name
+the provider sections cite, plus `codex`'s from when it was routed; `provider::MEASURED_VERSIONS`, `README.md` and `hydra doctor` name
 the 2026-09-22 reading, `claude` 2.1.268, `cursor-agent` 2026.09.18-9a7762b, `agy` 1.2.8 and
 `codex` 0.154.0, on which the founding measurement was repeated that day: one-step `judge` runs
 01a0c790-8a9d on `claude` (`subtype: success`, `is_error: false`, exit 0) and 01a0c790-9157 on
@@ -88,6 +88,7 @@ here is a date, and `tests/drift.rs` is what re-measures behaviour:
 | `claude` | 2.1.263 | 2026-09-06. The specs were written against 2.1.257. Every flag in 6.7 still runs, and one claim about a flag was half wrong: `--restricted` drops what settings define and keeps what `--mcp-config` passes, which the section on `judge` below has. `tests/drift.rs` re-measures it per suite run |
 | `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-06, unchanged since 2026-09-02. Routed by ticket 09 on this build; the section on it below says what was measured and what was read off the bundle |
 | `agy` | 1.1.26, then 1.1.27 | 2026-09-06. Routed by ticket 10, and **it self-updated in the middle of that ticket**: the probes below were measured on 1.1.26 and the recorded run an hour later reported 1.1.27. Every measured claim held across the move, and the section on it says which came from which build |
+| `codex` | 0.154.0 | 2026-09-20, not routed on 2026-09-06. Built by ticket 48 from map ticket 58's reading of this version, measured on a logged-in binary on 2026-09-21, and still 0.154.0 on 2026-09-22. The section on it below says what was measured. Row added on 2026-09-24, the third hiring panel's H12 |
 
 
 **Built for map ticket 40, closed by build ticket 14 on 2026-09-06.** The deny list now has the
@@ -218,7 +219,19 @@ those return early on an empty corpus through `corpus_or_skip`. Measured: agains
 against the real 213 records they take six minutes. Since build ticket 84 the CI job ends with a
 step that runs the contract walk alone and writes its "checked N record(s)" line to the job
 summary, so a green run on the runner's empty root says `checked 0` where a reader can see it.
-The fixture corpus that would give CI real records to walk (panel finding F32) is not built.
+**Since build ticket 101 CI walks a fixture corpus too** (panel findings F32 and H14).
+`tests/fixtures/records/` holds ten synthetic records in five directories named by the binary
+that wrote each shape: `claude@2.1.261`, `cursor-agent@2026.09.02-c22c1a3`, `agy@1.1.26`,
+`codex@0.154.0` and `harness`. The ignored test `write_the_fixture_corpus` in
+`tests/fixture_corpus.rs` writes them from the builders in `tests/common`, so no byte comes from
+`~/hydra/runs`, and three tests there guard the directory label, the coverage of every routed
+provider and the harness, and the absence of secrets, home paths and live run ids. Each live walk
+in `record_contract.rs`, `normalize.rs` and `outcome.rs` has a fixture twin with the same
+assertions, and the CI job summary prints both counts, zero live records and ten fixtures. Two
+limits. The fixture leak walk can catch a reader that invents a leak and cannot catch a real one,
+because a frozen fixture names no gate this build compiles, so a disagreement reads as
+`StalePolicy`; the synthetic tests in `tests/normalize.rs` hold the leak rule. And no fixture
+has the 2026-09-22 versions yet; a shape change on one of those goes in a new directory.
 
 **A run cannot relaunch the binary and name its own policy since build ticket 57, and the stop is a
 marker.** Harness spec 7.3's rule was enforced nowhere: `Lineage::of` returns depth 0 with no bound
@@ -234,6 +247,16 @@ is `Stale` and refused rather than read as permission, which is also the shape a
 Measured while building it: disable the check and the same launch completes. `hydra run --provider
 claude --policy permissive` with no `--parent`, from a process carrying the marker, ran a real
 `claude` under `permissive` and came back `completed`. The attack was not theoretical.
+
+**Until build ticket 97 the marker reached no recorded child.** The launcher set it on its copy
+of the child's environment, which is what `env_allowlist` reports, but the watcher rebuilds the
+child's environment from the allowlist and the marker was not on the launch spec. Ticket 57's
+measurement and `tests/delegation.rs` planted it by hand, so nothing caught it. Records written
+before build 97 name `HYDRA_RUN_ID` in `env_allowlist` for a child that never had it.
+`src/run.rs::compose_child_env` now puts every name Hydra sets on the spec, and
+`every_name_hydra_sets_travels_to_the_detached_half` fails when one is left off. Measured after
+the merge: `claude` on Haiku under `standard`, run 01a0d1fa-c301, ran `echo $HYDRA_RUN_ID` and
+printed its own run id.
 
 **What it does not close.** A child that unsets the variable walks through, because a variable is a
 thing a process removes from its own children's environment. The check closes the absent flag, which
@@ -302,7 +325,8 @@ hydra evolve [--task "..."] [--model <id>] [--timeout <dur>] [--dry-run]
 
 A launch builds the child's environment from the allowlist (and since build ticket 88 the pty
 clears the inherited environment before applying it; before, recorded runs got the launching
-shell's whole environment, `SECURITY.md` says what that exposed), reads the provider's
+shell's whole environment, `SECURITY.md` says what that exposed; since build ticket 97 the
+watcher starts from the child's environment too), reads the provider's
 version, loads the policy set, the preamble and the canonical MCP document, refuses if
 the concurrency cap is already met, mints a UUIDv7 run id, creates a git worktree and
 seeds it with the parent's uncommitted work, writes the servers the run's policy admits
@@ -996,6 +1020,13 @@ runs launching on a machine whose document names servers for other policies.
 `--strict-mcp-config` is the difference between a run with no servers and a run with
 whatever the human has configured, and it is what lets the record claim the set.
 
+**The `codex` fragment is serialized by the `toml` crate, since build ticket 100.** So any string
+`config/mcp.md` holds, quotes, backslashes and newlines included, reaches `.codex/config.toml` as
+the same string, and a dot or a quote in a server name no longer splits the table header.
+`provider::codex::mcp_config` built it with `format!` before, escaping quotes in `args` and
+nothing else. `env` and `http_headers` are written as sub-tables now rather than inline tables,
+which is the same TOML.
+
 **`mcp.doc_sha` is a sha256 of the whole file, prose included.** So `shasum -a 256
 config/mcp.md` reproduces what a record carries, and a reader holding a record can check
 the document in front of them with one command. It is the opposite call from
@@ -1065,8 +1096,10 @@ be `Strict(file)` or `Unanswerable` and is now the policy name and the file, whi
 what those flags come from. A `judge` record's `mcp.resolved` is `[]` and no longer null.
 
 **`tests/drift.rs` re-measures the vendor per suite run.** Two free tests, a third under
-`HYDRA_DRIFT_PAID=1` that the thinking-text section describes, and since build ticket 48 a
-`codex` login probe; those are the only tests in the suite that launch a provider. The first drives the launch's own producer,
+`HYDRA_DRIFT_PAID=1` that the thinking-text section describes, since build ticket 48 a
+`codex` login probe, and since build ticket 101 a paid `codex` probe of a hook that dies before
+it answers, which passed on its first run on 2026-09-24 and so measured the fail-open
+`SECURITY.md` states; those are the only tests in the suite that launch a provider. The first drives the launch's own producer,
 `claude::resolve_in`, with a `judge` `Probe` and reads its `Resolved` back: `mcp` is
 `Some([])` and `skills` is `None`. The second runs the same stubs with the flags off and
 gets both servers, which is what keeps the first from passing because a stub was
@@ -1721,11 +1754,24 @@ payload does, `gpt-6-astra` on this account, and the record's `model` stays null
 `--model` was passed. `resolve` returns null for `skills.resolved` and `mcp.resolved`, because
 no free probe exists yet.
 
+**A `codex` turn that fails ends on `turn.failed`, and since build ticket 100 that frame is the
+run's terminator.** A message containing "You've hit your usage limit" derives `rate_limited`,
+and any other `turn.failed` derives `failed`. This is a text match, like `cursor-agent`'s. Three
+records on this machine read `rate_limited` now: 01a0cfdb-e5c3, 01a0d02d-f812 and
+01a0cc9d-8f15. The first two derived `failed` before, so rung one was learning from a quota
+failure, the third hiring panel's H4. The last one finished its answer before a compaction step
+hit the limit, and derived `completed` before. A top-level `error` frame is noise, and
+`thread.started`, `turn.started`, `item.started` and `item.updated` are dropped by name. Any
+other frame type the reader does not know raises one `Limit` finding per type instead of
+vanishing.
+
 **Routable under `standard` and `permissive` only.** Codex has no read tool, so under `read-only`
 and `judge` every read would be a shell call the policy denies; the human decided on 2026-09-20
 that those two policies refuse a `codex` launch at pre-flight, in Hydra's words, naming ticket 48,
-and that a bounded shell read for `codex` alone is map ticket 63, open. Until it closes `codex`
-cannot sit on the `evolve` panel. The auth pre-flight, `codex login status`, is the first
+and that a bounded shell read for `codex` alone was map ticket 63. Map ticket 63 closed on
+2026-09-21 on a fact it did not have: `judge` grants no tool on any provider, so a `codex` judge
+needs no read. `judge` opened to `codex` with build ticket 61, the `evolve` panel became four,
+and only `read-only` is still refused. The auth pre-flight, `codex login status`, is the first
 `auth_preflight` refusal any provider writes.
 
 **`apply_patch` is a pathed write since build ticket 69, and was refused `hydra/no-path` under
@@ -1974,6 +2020,15 @@ this build compiles, and only that record can report a `GateLeak` or a `Disagree
 before the field, which is all 207 on this machine today, and every run that compiled no
 gate. The last two downgrade the finding to a `Limit` that says which mark is missing.
 
+**A matching `gate_sha` does not make the replay a pure function of the record.** The gate
+resolves each path with `realpath` against the disk as it is when the record is read, not as it
+was during the run, so a symbolic link that changed or went away since can change the answer
+under the same hash. And `src/policy/replay.rs` runs the gate with the reader's own environment
+and interpreter, setting only `PWD`, while the gate expands `~` and variables from its
+environment. `GateMark` and `cannot_back` downgrade a foreign gate or rebuilt scopes and nothing
+else, so a `Disagreement` on today's gate can come from either. Recording the resolved path with
+each live decision would close the first; it is not built. The third hiring panel's H42.
+
 `ReplaySpawn::cannot_back` is the one door all seven call sites in the three normalizers go
 through, so the adapters cannot drift apart on which question they ask, which is one axis of
 build ticket 55 closed. It names every reason rather than the first: a record can lack the
@@ -2051,9 +2106,14 @@ runs from what Hydra decided toward what the run got to try:
 | 6 | the terminator | `completed`, `failed`, `crashed` by provider | a harvested body, no terminator, or a `result` frame, read three ways |
 | 7 | `outcome_source` | `unknown` on a `completed` with unclassified calls or an unwatched harvest | the outcome stands and the source says how much to trust it |
 
-**Nothing reads the exit status to pick an outcome**, and the rate-limited run below is
-why. It exited 1. The one thing the derivation reads off `exit_code` is whether it exists
-at all, which separates a child that died from a spawn that never happened.
+**Nothing on a streamed run reads the exit status to pick an outcome**, and the rate-limited
+run below is why. It exited 1. On a streamed run the one thing the derivation reads off
+`exit_code` is whether it exists at all, which separates a child that died from a spawn that
+never happened. A harvested interactive run is the exception, row 6's first reading: it has no
+terminator, so `derive` maps `run_end.exit_code` 0 to `completed` and any other code to
+`failed`, and a null code to `completed` with `outcome_source` saying the harvest was not
+watched. Until 2026-09-24 this paragraph said nothing read the exit status at all, which the
+third hiring panel's H10 caught.
 
 **`gated` is "the gate refused everything", as a predicate.** That is contract 8's own
 phrase, and harness spec 12 and tickets 27 and 14 all use the same words. It comes out
@@ -2234,7 +2294,17 @@ interpret a run. Taking a binary and an argv rather than a provider is what lets
 **No environment values go in it.** `HTTPS_PROXY` can carry a password, and contract 5.3
 keeps values out of the record for the same reason, so the detached half rebuilds the
 child's environment from the allowlist out of what it inherited. Names reach the record;
-values never touch the disk.
+values never touch the disk. The names Hydra computes itself, the marker, `CURSOR_DATA_DIR`
+and the run's two object directories, travel by value as `hydra_env`, because they are paths
+and ids and not secrets.
+
+**Every process Hydra starts that runs a provider binary or proposer code starts with
+`env_clear`, since build ticket 97**: the watcher, the pty child, the five probes including the
+`codex` login check, both interactive launches and rung two's admission steps. The watcher
+inherits the child's environment and nothing else, so a same-uid `ps -E` against it reads the
+allowlist; `tests/detached.rs::the_watcher_holds_the_childs_environment_and_nothing_the_launcher_carried`
+reads it from the kernel. `git` and the read-time gate replay still inherit, and build ticket
+97's Outcome has the table of every `Command::new` in `src/`.
 
 **The timeout returns a handle and the handle is not contract 17's result.** Harness spec
 9 degrades a blocking call rather than thinning it, so the two shapes are different on
@@ -2942,8 +3012,11 @@ store at `parent_git_dir/objects/` are own write paths since build ticket 70, ca
 deny on the parent repo's `.git`. The run's ticket carved out the private directory alone and
 its test could not run inside the run's own seatbelt; measured by the session on a real profile,
 `git add` then failed with "unable to create temporary file: Operation not permitted", because
-the blob goes into `objects/` before the index is touched. The store is content-addressed, so a
-run can add objects and cannot alter one; `refs/` and `HEAD` stay denied, so no branch moves from
+the blob goes into `objects/` before the index is touched. This paragraph then said a run could
+add objects and not alter one because the store is content-addressed. That was wrong: map ticket
+74 measured that git serves a forged pack's bytes for a sha when the pack is the only copy, and
+since build ticket 103 a run writes into a store of its own instead, "Git that Hydra runs in a
+run's checkout" below. `refs/` and `HEAD` stay denied, so no branch moves from
 inside and `git commit` fails on its own ref, which is the line this build draws, because `hydra
 reap` commits from outside and the record's diff is against the seeded tree either way.
 `tests/spawn.rs::the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory` drives a real
@@ -2978,7 +3051,8 @@ yet. Map ticket 61.
 
 **Redaction is the four classes and nothing else.** Repository names taken from the
 allowlist entries that are not the exported run's own, replaced by a labelled marker;
-secrets by the same five prefixes the write-time sweep uses; the user's own hook stdout
+secrets by the same five prefixes the write-time sweep uses, plus OpenAI keys by a matcher of
+their own that the sweep does not have, six secret classes in all; the user's own hook stdout
 dropped as the `hook_response` frames; and customer data inside a fixture named in the
 header as the residue no pattern reaches. Section 5.2's fields are dropped with
 `run_start`, `run_end`, `permission_decision` and `usage`. Every output line is then checked
@@ -2993,7 +3067,12 @@ this machine, 145 of the hits being Cursor's `contentBlobId` digests; as a warni
 
 **The output is one header line and one JSON line per run**, `{"events": [...]}` in the
 normalized vocabulary, to `--out <file>`. Nothing on this machine has been exported: the
-allowlist does not exist, and `hydra export --dry-run` says so.
+allowlist does not exist, and `hydra export --dry-run` says so. Since build ticket 100
+`open_events_out` refuses an `--out` that is the same file as `preference.jsonl` beside it,
+compared by device and inode before a byte is written. It opens `--out` without truncating,
+removes a file it created only for the comparison, and truncates only once the comparison
+passes. That covers `Preference.jsonl` on a case-insensitive volume, where the name check alone
+let the preference write replace the events file, and a symbolic or hard link by any name.
 
 ## Git that Hydra runs in a run's checkout, since build ticket 95
 
@@ -3008,6 +3087,38 @@ checkout and under the deny list. Every call through it sets `GIT_DIR`, `GIT_COM
 `GIT_WORK_TREE` and passes `core.hooksPath=/dev/null` and `core.fsmonitor=false`. Calls in a
 parent repository or the skill store still discover normally and keep the human's hooks.
 
+**Since build ticket 99, no git Hydra starts reads global or system configuration.**
+`GitLocation::command` sets `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` for the
+checkout runner and the plain one alike, and `repo_root`, `git_common_dir`, `head_exists` and
+reap's `drop_branch` go through it now. Commits pass the identity git would have resolved, read
+as data by `worktree::identity` and put in front with `-c` by `git_as_author`, because without it
+git guessed one from the hostname and committed anyway. The seed's `git diff HEAD` passes
+`--no-ext-diff --no-textconv`. Git LFS's filters live in global configuration and are not read,
+so a repository that uses LFS gets pointer files in its checkout. `run::refuse_launch_inside_checkout`
+refuses a launch whose directory is under `worktrees/`, before discovery runs git there: the
+third hiring panel reproduced a decoy `post-checkout` hook firing from a checkout's rewritten
+`.git` file. `worktree::create` rolls the checkout, its branch and its context file back if any
+step after `git worktree add` fails. A failed skill injection records a `skills` group naming
+every skill it started, so reap holds those names back. `tests/git_config.rs` plants a global
+and a system git config and checks that nothing they name runs from Hydra's git.
+
+Since build ticket 105, three values still come from the wider configuration, each read as data
+by `git config` and passed back with `-c` by `worktree::pinned_config`: `core.excludesFile`, or
+git's default `~/.config/git/ignore` when it is unset, and every `safe.directory`. Build 99 had
+dropped the first, so the seed copied files the human ignores only through a global excludes file
+into the run's checkout and reap committed them. `core.attributesFile` is pinned to `/dev/null`,
+because git reads `~/.config/git/attributes` even with global configuration off, and an
+attribute there changes the bytes reap commits. An excludes file that is not a regular file
+becomes `/dev/null`. Every one of these reads, and `identity`'s, gives up after five seconds,
+`worktree::CONFIG_READ_TIMEOUT`, so an `[include]` naming a fifo in `~/.gitconfig` cannot hang
+reap. Each git call costs one extra `git config` process for this, not measured against the
+suite's time before. Hydra's commits are unsigned, because `commit.gpgSign` is global
+configuration. A launch is refused under `skill-worktrees/` as well as `worktrees/`, and `hydra
+evolve` refuses there before it discovers a repository. A gated interactive launch that fails
+after its checkout exists rolls the checkout, branch and spawn directory back. Two failures after
+`claude` has started, `procinfo::start_time` and the record's first write, still leave no record;
+build ticket 108 is to write one carrying the pid.
+
 - Reap refuses a checkout on any branch but its own before it stages anything, rewrites the
   `.git` file to the trusted directory because `git worktree remove` reads it, and removes the
   private `logs/` before committing: a checkout launched before this ticket could write there,
@@ -3017,7 +3128,30 @@ parent repository or the skill store still discover normally and keep the human'
   hand. No checkout on this machine was in that state on 2026-09-23.
 - Replaying an old record no longer rediscovers `parent_git_dir` through the checkout for records
   written before scopes carried it; such a record reports the scope as missing instead.
-- The object store keeps its full write grant; map ticket 74.
+- Since build ticket 103, map ticket 74's answer: a run's own git writes into
+  `Layout::run_objects`, `spawn/<run-id>/objects`, through `GIT_OBJECT_DIRECTORY`, and reads the
+  parent's store through `GIT_ALTERNATE_OBJECT_DIRECTORIES`. Both travel on `hydra_env`.
+  `own_write_paths` grants that directory instead of the parent's `objects/`, so the parent's
+  `.git` is denied whole again. The profile also allows metadata reads of the spawn parent
+  itself, because git resolves the path one component at a time, and `denied_spellings` keeps
+  `spawn/` on the substring list. `GitLocation::configured` removes both variables, because the
+  watcher inherits them. Reap runs `import_run_objects` and then `unstage_missing_objects` before
+  it commits: `git pack-objects` over the store, piped into `git index-pack --stdin --strict` in
+  the parent, which names each object from its bytes, and then every index entry whose object
+  did not arrive is hashed again from the checkout. Since build ticket 106 the import first
+  scrubs the store: `info/` goes whole, since git reads `info/alternates` there even with the
+  store set by environment, and so does every link, every entry that is not a regular file and
+  every file with a second hard link. If `info/` is back by the time `pack-objects` would start,
+  nothing is imported. A store over `RUN_STORE_IMPORT_CAP`, 1 GiB, imports nothing, and
+  `index-pack` gets `--max-input-size` at the same cap. Whatever is not imported is hashed again
+  from the checkout. The window between that last check and `pack-objects` reading the store is
+  open, build ticket 108. The diff stat, rung two's read and `hydra status` stage from indexes
+  under the spawn directory and need nothing from the run's store. Git inside a run, in any
+  repository, uses that store. Measured after the merge on 2026-09-24: under `standard` each of
+  the four providers ran `git add` in a real run, printed its own store as
+  `GIT_OBJECT_DIRECTORY`, and `hydra reap` committed the file, `claude` 01a0d227-23ce, `codex`
+  01a0d226-d533, `cursor-agent` 01a0d227-ef37 and `agy` 01a0d228-206c. None strips the variables
+  from its shell tool. Until build ticket 103 the parent's `objects/` kept a full write grant.
 
 ## Rung two: `hydra evolve`, since build ticket 36
 
@@ -3130,8 +3264,8 @@ rename lists both of its paths.
 3. The set: a changed path no named entry holds is refused. `src/run.rs` is off the floor, as
    harness spec 15.2 and map ticket 60 keep it, so it is refused unless named.
 
-The pass's harness `run_start` carries the set as `may_edit`, a list of paths. Contract 5.5 does
-not list the field yet, and the validator checks its type when it is there. The brief lists the
+The pass's harness `run_start` carries the set as `may_edit`, a list of paths. Contract 5.5
+documents the field, and the validator checks its type when it is there. The brief lists the
 set and names both refusals, so a proposer does not spend a pass on a file it cannot edit.
 Map ticket 73's answer leaves two things open: a named file is fully editable, and a unit-test
 probe inside one can be weakened along with the code it guards. A fresh review with `--review`
@@ -3143,7 +3277,8 @@ set use is a copy of its own in `evolve.rs`, because `src/normalize/` is in the 
 refs off. `rust-toolchain` and `rust-toolchain.toml` are on the floor with the build files.
 
 Then the admission gate runs `cargo fmt --check`, `clippy`, `build`
-and `test` in the worktree, and a failure is a rejection carrying the output. **Since build
+and `test`, in the proposer's worktree until build ticket 98 and on a copy of the read tree
+since, and a failure is a rejection carrying the output. **Since build
 ticket 75 on 2026-09-22** each step on macOS runs through `/usr/bin/sandbox-exec -f` with the
 profile the proposer's spawn already wrote at `spawn/<proposer-run-id>/sandbox.sb`, and with
 `HYDRA_ROOT` pointed at an empty scratch root under `spawn/<pass-id>/admission-root/` so the
@@ -3158,6 +3293,59 @@ plants `tests/zz_hostile.rs` in a scratch worktree, asserts `cargo test` fails a
 `<layout>/runs/hostile` does not appear, and returns early when `sandbox::exec_available()` is
 false or the test process is already inside a seatbelt, because nested `sandbox-exec` is refused. Each refusal lands on `ouroboros/blocked/<pass-id>` with its reason in the commit
 message, spec 4.9.
+
+**Since build ticket 98 the four steps run on a copy of the read tree, not in the proposer's
+checkout.** Until then they ran where the proposer, or a process it left running, could still
+change the bytes after the read, and read a `~/.cargo/config.toml` the proposer could write,
+whose `runner` turned a failing `cargo test` into exit 0: the third hiring panel's H38 and H2.
+`prepare_admission` writes `patch.tree` byte for byte from the object store to
+`spawn/<pass-id>/admission/tree` after the proposer's run ends, with `git ls-tree` and `git
+cat-file --batch`. No filter, attribute or export rule applies. A submodule, or a symbolic link
+that is absolute or climbs with `..`, blocks the patch. A file the proposer's checkout ignores
+is not in the tree, so admission no longer compiles it, which closes H19. The proposer's profile
+denies that directory to reads and writes, and a process the proposer left running keeps its
+profile, so nothing done after the read reaches what admission compiles. Nothing in `src/` stops
+those processes; the copy's location is what makes that unnecessary on macOS. The steps run
+under `spawn/<pass-id>/admission.sb`, beside the admission directory and outside what the steps
+can write (build ticket 105; 98 had put it inside). It is the proposer's profile plus three
+things: `admission/` opened, metadata of each ancestor and its direct children opened, and in
+every ancestor of the copy, reads of `.cargo/config`, `.cargo/config.toml` and the `.cargo` name
+itself denied. The `.cargo` holding the toolchain keeps its name readable. Each deny is written
+twice, for `file-read*` and for `file-read-metadata`, because a seatbelt rule on
+`file-read-metadata` outranks one on `file-read*` whatever the order, which build ticket 105
+measured with a `.cargo` swapped for a link. Cargo reads a `config.toml` from each ancestor of its
+working directory as well as from `CARGO_HOME`, and `~/.cargo` is one of those ancestors.
+`CARGO_HOME` is an empty `admission/cargo-home`, and `CARGO_HOME` left `ADMISSION_ENV_ALLOWLIST`.
+`cargo` is called as `<sysroot>/bin/cargo`, with the sysroot read from `rustc --print sysroot`
+before the proposer launches, and that directory goes first on `PATH`. `admission_sandbox` is
+the sha of `admission.sb`. A copy that cannot be written blocks the patch like a failing step,
+and the pass record still closes. The copy and the cargo home are removed after the steps
+finish. Every pass needs the network: `CARGO_HOME` starts empty, so cargo downloads the crates in
+`Cargo.lock` each time, and the four steps took 416 seconds on this repository in build 98's
+measurement. Admission needs `rustc` on every platform, Linux included, because the toolchain
+is found with `rustc --print sysroot`. What stays open: the toolchain's own files are writable
+by the user when Homebrew installed them, and `cc`, `git` and `python3` still resolve through the
+orchestrator's `PATH`. Both are the `PATH` decision the third panel's H2 names. `HOME` still
+reaches admission, so `~/.cargo/credentials.toml` is readable, the home-readable caveat of
+build ticket 90. On Linux no seatbelt stands between a leftover proposer process and the copy.
+
+**Admission runs the whole suite inside a seatbelt, and since build ticket 104 it passes
+there**: all four steps passed under a real admission profile on a copy of this repository in
+515 s. From build ticket 75 to 104 two tests failed inside any seatbelt, so every rung-two pass
+on macOS was blocked at `cargo test`. Three tests cannot mean anything inside a seatbelt, so they
+skip and say so on stderr. `procinfo::tests::our_own_start_time_matches_ps` skips because the
+seatbelt will not exec setuid `/bin/ps`. Two tests in `tests/delegation.rs` skip because the
+binary refuses `HYDRA_ROOT` inside a seatbelt. Outside a seatbelt all three run. The seatbelt
+probes of `tests/corpus/mod.rs` skip inside a seatbelt too, because `sandbox-exec` does not
+nest, so no probe of `tests/spawn.rs` or the corpus runs during admission (the third panel's
+H35); CI and a human's `cargo test` are where they run.
+
+**Since build ticket 101 the path after the proposer is a function a test can drive.**
+`land_proposer_patch` and `review_blocked_in` take the layout, the repository and the judge
+panel as arguments; `hydra evolve` passes the real ones. `tests/evolve.rs` runs both on a
+scratch layout with a panel closure: a fresh review refuses a floor path, and a path outside the
+set its pass recorded, before the panel, and a pass whose checkout changes after admission
+still offers the tree it read. That is build 89's tree half run rather than reasoned.
 
 **The panel is one `judge` run per provider**, `claude`, `cursor-agent`, `agy` and `codex`, each handed the
 whole diff and the checklist of spec 5 in the prompt, no skills and no MCP as `judge` already
@@ -3753,6 +3941,12 @@ CI, `gated` needs every call refused, the concurrency cap was a check without a 
 `run_start` took thirteen positional arguments with two adjacent same-typed `Option` pairs (since
 build ticket 83 it takes one `RunStartRequest` with named fields).
 
+The second and third panels, the same four providers on 2026-09-23 and again that evening, are
+`docs/reviews/2026-09-23-four-readers-second-panel.md` and
+`docs/reviews/2026-09-24-four-readers-third-panel.md`. Build tickets 88 to 96 carry the second's
+findings, G1 to G49, and 97 to 106 the third's, H1 to H48; each paragraph of this file they
+changed names its ticket.
+
 ## What map ticket 68 changed
 
 Map ticket 68 asked for an immune loop and got a narrower answer: no schedule, a corpus rung two
@@ -3819,7 +4013,22 @@ ticket a run that deleted that `.gitignore` got whatever it planted there commit
 provider. With no record, reap holds back the four roots whole. The read-only copies need their
 write bits back before `git worktree remove`, which `worktree::restore_write_bits` does.
 
+Since build ticket 101 reap reads line 0 through a typed view, `LineZero` in `src/reap.rs`, with
+the three fields it acts on: `provider`, `hydra.skills.linked` and `hydra.scopes.parent_git_dir`.
+A `skills` block whose `linked` is not a list of strings, or one under a provider this build
+cannot name, makes the line unreadable, and reap holds every skill root back as it does when
+there is no record. The `Value` reading before it took both as "nothing was injected".
+Since build ticket 99 a failed injection still says what it left: `skills::inject` returns
+`InjectError { partial, error }`, naming each skill before its link or copy is made, and
+`run::inject_skills` writes that list into the launch's `skills` group even on error, so the
+failure record names what reached the checkout and reap holds it back.
+
 ## Rough edges worth knowing
+
+- **A test that launches the built binary with `HYDRA_ROOT`, or execs a setuid binary, has to
+  skip inside a seatbelt**, or it fails rung two's admission, which runs the suite in one.
+  `tests/delegation.rs::launch_with_marker` asserts it is outside one, so a forgotten skip fails
+  loudly. Build ticket 104.
 
 - **`~/hydra` is this checkout on the machine this is developed on**, so everything
   harness spec 5 writes lands inside the source repo and `.gitignore` is what keeps it

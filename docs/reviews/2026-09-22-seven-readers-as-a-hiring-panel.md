@@ -72,10 +72,18 @@ table is the answer to both: it is the corpus, by run id.
 | F27 | open exposure | threat model | a write row whose table field name is wrong was allowed under `permissive` with no denied-path check | fixed: a write with no path is refused under every policy |
 | F28 | open exposure | threat model | a `file://` URL through a fetch tool got no path check | fixed: `network_read` shares `mcp_call`'s raw pass |
 | F29 | open exposure | threat model | every past run's `launch.json`, task string included, was readable from inside a run | fixed: sibling spawn directories read-denied, `tests/spawn.rs` |
-| F30 | design smell | `codex` | the concurrency cap is a check without a reservation; two launchers seeing one slot both proceed | stated in `IMPLEMENTATION.md`, not fixed |
-| F31 | design smell | Opus, crate | `run_start` takes thirteen positional arguments with two adjacent same-typed `Option` pairs | stated in `IMPLEMENTATION.md`, not fixed |
+| F30 | design smell | `codex` | the concurrency cap is a check without a reservation; two launchers seeing one slot both proceed | stated in `IMPLEMENTATION.md`, not fixed on 2026-09-22; fixed afterwards by build ticket 81, see the note below the table |
+| F31 | design smell | Opus, crate | `run_start` takes thirteen positional arguments with two adjacent same-typed `Option` pairs | stated in `IMPLEMENTATION.md`, not fixed on 2026-09-22; fixed afterwards by build ticket 83, see the note below the table |
 | F32 | test gap | all three subagents, Opus, `codex` | the corpus walks are vacuous in CI, which points `HYDRA_ROOT` at an empty root | README now says what green CI means |
 | F33 | open exposure | threat model | the export verifier searches the same five prefixes the redactor removed, so it cannot fire on a class it knows | `SECURITY.md` states it; an independent verifier is not built |
+
+Note of 2026-09-24. The table is as it stood on 2026-09-22, and four rows moved after it. F30:
+build ticket 81 made the cap a reservation, an `flock` held across the scan in `live::reserve`.
+F31: build ticket 83 gave `run_start` one `RunStartRequest` with named fields. F33: build ticket 85
+gave the export verifier a scan of its own. F32: build ticket 101 added a fixture corpus that CI's
+walks read beside the empty live one. A reader in each of the next two panels took F30's "not
+fixed" as current, which is why this note exists: the second panel's G30 and the third's H23, in
+`2026-09-23-four-readers-second-panel.md` and `2026-09-24-four-readers-third-panel.md`.
 
 Map ticket 64, delegation under the seatbelt, was not a panel finding and closed the same evening too:
 the face refuses in Hydra's words from inside a seatbelt, build ticket 76. By the end of the day 27 of
