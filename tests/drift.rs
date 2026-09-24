@@ -381,3 +381,136 @@ fn codex_login_status_still_reports_whether_the_binary_is_logged_in() {
         Err(err) => panic!("{version} login status probe failed: {err:#}"),
     }
 }
+
+/// What `codex` does with a call when its `PreToolUse` hook dies without
+/// answering. Build ticket 101, the third hiring panel's H15.
+///
+/// `SECURITY.md` and `src/provider/codex.rs` say the call runs: a hook that
+/// exits non-zero with no JSON fails open on this provider, measured by hand on
+/// 0.154.0 as probe p3 in build ticket 48's outcome, and nothing re-measured it
+/// since. This launches `codex` with the argv Hydra builds, hook override and
+/// all, pointing at a hook that records that it fired and then crashes with an
+/// uncaught exception, the way a gate with a bug the catch-all misses would. The
+/// task asks for one shell command that creates a file.
+///
+/// **It asserts the measured behaviour, fail open, and says so when it moves.**
+/// A `codex` that starts refusing on a dead hook fails this test with a message
+/// naming the version, and the sentences in `SECURITY.md` and `codex.rs` are
+/// then wrong in the safe direction and need re-measuring.
+///
+/// **It costs quota**, one short `codex exec` turn, so it runs only under
+/// `HYDRA_DRIFT_PAID=1` with `codex` on the `PATH`, and skips otherwise with the
+/// reason on stdout. Everything it writes is under a scratch directory: the
+/// repository `codex` runs in, the hook and the hook's marker.
+#[test]
+fn a_codex_hook_that_dies_without_answering_lets_the_call_run() {
+    if std::env::var("HYDRA_DRIFT_PAID").as_deref() != Ok("1") {
+        println!("skipped: HYDRA_DRIFT_PAID is not set to 1");
+        return;
+    }
+    let Some(version) = codex_version() else {
+        println!("skipped: `codex` is not on the PATH, so there is nothing to measure");
+        return;
+    };
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "hydra-drift-codex-hook-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let _clean = CleanDir(root.clone());
+    // A repository, because a Hydra run is always inside one and `codex exec`
+    // refuses a directory that is not.
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &[
+            "-c",
+            "user.email=drift@example.invalid",
+            "-c",
+            "user.name=drift",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "root",
+        ][..],
+    ] {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    }
+
+    let fired = root.join("hook-fired");
+    let hook = root.join("hook.py");
+    std::fs::write(
+        &hook,
+        format!(
+            "import pathlib\n\
+             pathlib.Path({fired:?}).write_text('fired\\n')\n\
+             raise RuntimeError('the gate died before it answered')\n",
+            fired = fired.display().to_string()
+        ),
+    )
+    .unwrap();
+
+    let target = repo.join("probe-ran");
+    let task = "Run exactly this one shell command and nothing else: touch probe-ran \
+                Then reply with the single word done.";
+    let argv = codex::argv(&codex::Launch {
+        task,
+        model: None,
+        worktree: &repo,
+        hook_file: &hook,
+    });
+    let env = ChildEnv::build(Provider::Codex).unwrap();
+    let child = Command::new("codex")
+        .args(&argv)
+        .current_dir(&repo)
+        .env_clear()
+        .envs(env.vars())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("running codex");
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    let output = match rx.recv_timeout(std::time::Duration::from_secs(180)) {
+        Ok(result) => result.expect("waiting for codex"),
+        Err(_) => {
+            let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+            let _ = waiter.join();
+            panic!("{version} did not finish the probe in 180 seconds");
+        }
+    };
+
+    let said = format!(
+        "exit {}; stdout: {}; stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout).trim(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    assert!(
+        fired.exists(),
+        "{version}: the hook never fired, so this measured nothing about a dead hook. {said}"
+    );
+    assert!(
+        target.exists(),
+        "{version} refused the call its hook died on: a dead hook no longer fails open on \
+         `codex`. SECURITY.md and src/provider/codex.rs say it does, so re-measure and \
+         amend both. {said}"
+    );
+    println!("measured: {version} ran the call its hook died on");
+}

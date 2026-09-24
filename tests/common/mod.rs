@@ -912,3 +912,63 @@ pub fn corpus() -> Vec<PathBuf> {
     paths.sort();
     paths
 }
+
+// --- the fixture corpus, build ticket 101 ----------------------------------
+
+/// The root every path in a fixture record names.
+///
+/// No machine has it, so a fixture never reads as a run on the machine that
+/// reads it, and the walks read fixtures against [`fixture_layout`], whose
+/// scopes resolve to the same paths the records carry.
+pub const FIXTURE_ROOT: &str = "/fixture/hydra";
+
+/// What every fixture run id starts with.
+///
+/// A version 7 uuid whose timestamp is zero, 1970. `Uuid::now_v7` never mints
+/// one, so a fixture id cannot collide with a live run, and a real record copied
+/// into the fixtures fails the sanitization check on its id alone.
+pub const FIXTURE_RUN_PREFIX: &str = "00000000-0000-7000-8000-";
+
+/// `tests/fixtures/records`, one directory per provider binary version.
+pub fn fixture_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/records")
+}
+
+/// The layout the fixture records were written under.
+pub fn fixture_layout() -> Layout {
+    Layout::at(FIXTURE_ROOT)
+}
+
+/// Every fixture record, sorted, never the live corpus.
+///
+/// The live walks read [`corpus`], which is `runs/` under `HYDRA_ROOT` or the
+/// real `~/hydra`. The fixture walks read this. Neither reads the other's
+/// directory, so a green fixture walk says the readers handle every shape in
+/// the fixtures and nothing about the records on a machine.
+pub fn fixture_corpus() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let Ok(labels) = std::fs::read_dir(fixture_dir()) else {
+        return paths;
+    };
+    for label in labels.flatten() {
+        let Ok(entries) = std::fs::read_dir(label.path()) else {
+            continue;
+        };
+        paths.extend(
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl")),
+        );
+    }
+    paths.sort();
+    paths
+}
+
+/// One fixture, normalized against [`fixture_layout`] rather than the real
+/// `~/hydra` that `hydra::normalize::read_file` discovers.
+pub fn read_fixture(path: &Path, policies: &PolicySet) -> hydra::normalize::Run {
+    let text = std::fs::read_to_string(path).unwrap();
+    hydra::normalize::read_with(&text, policies, &fixture_layout())
+        .unwrap_or_else(|err| panic!("{} did not normalize: {err:#}", path.display()))
+}

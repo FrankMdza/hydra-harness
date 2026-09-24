@@ -159,17 +159,79 @@ pub fn reap(
         .collect())
 }
 
-fn reap_git_context(layout: &Layout, run_id: &str, checkout: &Path) -> Result<CheckoutGit> {
+fn reap_git_context(run_id: &str, checkout: &Path, start: &Start) -> Result<CheckoutGit> {
     // A pruned run's record moved to `pruned/`, and it still names the parent.
-    let start = [layout.run_file(run_id), layout.pruned_file(run_id)]
+    let parent = match start {
+        Start::Read(line) => line
+            .hydra
+            .scopes
+            .as_ref()
+            .and_then(|scopes| scopes.parent_git_dir.as_deref()),
+        Start::Missing | Start::Unreadable => None,
+    };
+    CheckoutGit::for_run_from(run_id, checkout, parent)
+}
+
+/// Line 0 as reap reads it: the three fields it acts on, typed.
+///
+/// The third hiring panel's H18. These used to be `serde_json::Value` paths,
+/// and on a `Value` a field of the wrong shape reads exactly like a field that
+/// is absent: a `skills.linked` that was not a list, or a provider this build
+/// cannot name, came out as "nothing was injected", and reap committed what it
+/// should have held back. A typed read tells the two apart. An absent field is
+/// an answer; a field that does not parse makes the whole line one reap could
+/// not read, which it treats as no line at all.
+#[derive(serde::Deserialize)]
+struct LineZero {
+    provider: Option<String>,
+    hydra: StartFields,
+}
+
+#[derive(serde::Deserialize)]
+struct StartFields {
+    #[serde(rename = "type")]
+    kind: String,
+    /// Contract 5.3. Absent when nothing was injected, never null on a record
+    /// this build writes.
+    skills: Option<SkillsFields>,
+    /// Contract 5.1. Absent on a record written before build ticket 15.
+    scopes: Option<ScopesFields>,
+}
+
+#[derive(serde::Deserialize)]
+struct SkillsFields {
+    linked: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ScopesFields {
+    parent_git_dir: Option<PathBuf>,
+}
+
+/// What reading a run's line 0 found.
+enum Start {
+    /// No record under `runs/` or `pruned/`, or one with no line in it.
+    Missing,
+    /// A line 0 that is not a `run_start` in the shape [`LineZero`] names.
+    Unreadable,
+    Read(LineZero),
+}
+
+/// Line 0 from `runs/`, or from `pruned/` for a pruned run.
+fn line_zero(layout: &Layout, run_id: &str) -> Start {
+    let Some(text) = [layout.run_file(run_id), layout.pruned_file(run_id)]
         .iter()
-        .find_map(|file| std::fs::read_to_string(file).ok())
-        .and_then(|text| {
-            text.lines()
-                .next()
-                .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        });
-    CheckoutGit::for_run(run_id, checkout, start.as_ref().map(|line| &line["hydra"]))
+        .find_map(|path| std::fs::read_to_string(path).ok())
+    else {
+        return Start::Missing;
+    };
+    let Some(first) = text.lines().next() else {
+        return Start::Missing;
+    };
+    match serde_json::from_str::<LineZero>(first) {
+        Ok(line) if line.hydra.kind == "run_start" => Start::Read(line),
+        _ => Start::Unreadable,
+    }
 }
 
 fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) -> Reaped {
@@ -210,12 +272,13 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
         spawn_removed: false,
     };
 
-    let injected = injected_skills(layout, run_id);
+    let start = line_zero(layout, run_id);
+    let injected = injected_skills(&start);
 
     if worktree.is_dir() {
         match commit_then_remove(
             &worktree,
-            reap_git_context(layout, run_id, &worktree),
+            reap_git_context(run_id, &worktree, &start),
             &injected,
             &format!("hydra/{run_id}"),
             &format!("hydra reap: what run {run_id} left uncommitted"),
@@ -296,45 +359,46 @@ struct InjectedSkills {
 /// is not read to interpret a run, so it is not read here either.
 ///
 /// **No record means the names are unknown**, which happens only when line 0
-/// was never written or the human pruned with `--delete`. Then every skill
-/// root is held back whole, the rule before this narrowing, because leaking an
+/// was never written or the human pruned with `--delete`. A line 0 that does
+/// not read as [`LineZero`], or a `skills` block under a provider this build
+/// cannot name, is the same case. Then every skill root is held back whole, the rule before this narrowing, because leaking an
 /// injected skill onto a branch is the failure map ticket 71 exists to stop.
-fn injected_skills(layout: &Layout, run_id: &str) -> InjectedSkills {
-    let line_zero = [layout.run_file(run_id), layout.pruned_file(run_id)]
+fn injected_skills(start: &Start) -> InjectedSkills {
+    let every_root = || InjectedSkills {
+        entries: [
+            crate::provider::Provider::Claude,
+            crate::provider::Provider::CursorAgent,
+            crate::provider::Provider::Agy,
+            crate::provider::Provider::Codex,
+        ]
         .iter()
-        .find_map(|path| {
-            let text = std::fs::read_to_string(path).ok()?;
-            serde_json::from_str::<serde_json::Value>(text.lines().next()?).ok()
-        });
-    let Some(line) = line_zero else {
-        return InjectedSkills {
-            entries: [
-                crate::provider::Provider::Claude,
-                crate::provider::Provider::CursorAgent,
-                crate::provider::Provider::Agy,
-                crate::provider::Provider::Codex,
-            ]
-            .iter()
-            .map(|provider| provider.skill_root().to_string())
-            .collect(),
-            ignores: Vec::new(),
-        };
+        .map(|provider| provider.skill_root().to_string())
+        .collect(),
+        ignores: Vec::new(),
     };
-    let skills = &line["hydra"]["skills"];
-    let provider = line["provider"]
-        .as_str()
-        .and_then(|name| name.parse::<crate::provider::Provider>().ok());
-    let (Some(provider), Some(linked)) = (provider, skills["linked"].as_array()) else {
+    let Start::Read(line) = start else {
+        return every_root();
+    };
+    let Some(skills) = &line.hydra.skills else {
         // No `skills` block: nothing was injected, so nothing is held back.
         return InjectedSkills {
             entries: Vec::new(),
             ignores: Vec::new(),
         };
     };
+    // Something was injected under a root this build cannot name, so the
+    // names do not say where to look.
+    let Some(provider) = line
+        .provider
+        .as_deref()
+        .and_then(|name| name.parse::<crate::provider::Provider>().ok())
+    else {
+        return every_root();
+    };
     let root = provider.skill_root();
-    let entries = linked
+    let entries = skills
+        .linked
         .iter()
-        .filter_map(|name| name.as_str())
         // A name is one path component. Anything else was not written by
         // `inject`, and joined onto the root it could name the root itself.
         .filter(|name| {

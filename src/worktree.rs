@@ -70,8 +70,15 @@ impl CheckoutGit {
     /// Launch data beside the checkout survives record and spawn pruning and is
     /// outside the run's writable directory.
     pub fn for_run(run_id: &str, path: &Path, start: Option<&serde_json::Value>) -> Result<Self> {
-        if let Some(common) = start.and_then(|s| s["scopes"]["parent_git_dir"].as_str()) {
-            return Self::new(path, Path::new(common));
+        let common = start.and_then(|s| s["scopes"]["parent_git_dir"].as_str());
+        Self::for_run_from(run_id, path, common.map(Path::new))
+    }
+
+    /// The same, with the record's `scopes.parent_git_dir` already read, for a
+    /// caller that reads line 0 through a typed view.
+    pub fn for_run_from(run_id: &str, path: &Path, parent_git_dir: Option<&Path>) -> Result<Self> {
+        if let Some(common) = parent_git_dir {
+            return Self::new(path, common);
         }
         let saved = path.with_extension("git-context.json");
         let context: Self = serde_json::from_slice(&std::fs::read(&saved).with_context(|| {

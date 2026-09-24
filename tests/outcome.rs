@@ -9,6 +9,8 @@
 //! **Nothing here reads an exit status to expect an outcome.** Where a test sets
 //! one it is checking that the derivation ignored it.
 
+use std::path::{Path, PathBuf};
+
 use hydra::outcome::{Outcome, Source, derive};
 use hydra::record::{Refusal, RunEnd};
 use serde_json::{Value, json};
@@ -1138,16 +1140,55 @@ fn a_cursor_run_whose_only_call_the_gate_refused_is_gated() {
 
 // --- the corpus ----------------------------------------------------------
 
+/// How a walk reads one record: the live walks against the real `~/hydra`,
+/// the fixture walks against `common::fixture_layout`.
+type Reader<'a> = &'a dyn Fn(&Path) -> hydra::normalize::Run;
+
+/// The live walk's reader.
+fn read_live(policies: &hydra::policy::PolicySet) -> impl Fn(&Path) -> hydra::normalize::Run + '_ {
+    move |path| {
+        hydra::normalize::read_file(path, policies)
+            .unwrap_or_else(|err| panic!("{}: {err:#}", path.display()))
+    }
+}
+
 #[test]
 fn every_record_on_this_machine_derives_an_outcome() {
     let policies = policies();
-    let mut seen: Vec<(String, &'static str, &'static str)> = Vec::new();
     let Some(records) = common::corpus_or_skip() else {
         return;
     };
+    let seen = every_record_derives_an_outcome(&records, &read_live(&policies));
+    eprintln!("{seen:#?}");
+}
+
+#[test]
+fn every_fixture_derives_an_outcome() {
+    let policies = policies();
+    let seen = every_record_derives_an_outcome(&common::fixture_corpus(), &|path: &Path| {
+        common::read_fixture(path, &policies)
+    });
+    // One of each outcome the fixtures were built to carry.
+    for outcome in ["completed", "gated", "rate_limited"] {
+        assert!(
+            seen.iter().any(|(_, derived, _)| *derived == outcome),
+            "no fixture derives {outcome}: {seen:?}"
+        );
+    }
+    assert!(
+        seen.iter().any(|(_, _, source)| *source == "refusal"),
+        "no fixture derives from a refusal: {seen:?}"
+    );
+}
+
+/// Every closed record derives an outcome; an open one derives none.
+fn every_record_derives_an_outcome(
+    records: &[PathBuf],
+    read: Reader<'_>,
+) -> Vec<(String, &'static str, &'static str)> {
+    let mut seen: Vec<(String, &'static str, &'static str)> = Vec::new();
     for path in records {
-        let run = hydra::normalize::read_file(&path, &policies)
-            .unwrap_or_else(|err| panic!("{}: {err:#}", path.display()));
+        let run = read(path);
         // A run still being written has no `run_end`, and contract 6 says it is
         // not corrupt. A walk that runs while a child works skips it rather than
         // failing on it, which it did on 2026-09-07 with two runs live.
@@ -1165,11 +1206,8 @@ fn every_record_on_this_machine_derives_an_outcome() {
             derived.source.as_str(),
         ));
     }
-    assert!(
-        !seen.is_empty(),
-        "no records on this machine to derive from"
-    );
-    eprintln!("{seen:#?}");
+    assert!(!seen.is_empty(), "no records to derive from");
+    seen
 }
 
 #[test]
@@ -1179,12 +1217,31 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
     // 1 on a 429. What separates them is the gate's answer per call and the
     // status on the terminator, never the exit code.
     let policies = policies();
-    let mut gated = 0;
     let Some(records) = common::corpus_or_skip() else {
         return;
     };
+    let gated = gated_runs_are_the_write_denials(&records, &read_live(&policies));
+    assert!(
+        gated >= 3,
+        "the three read-only Write denials should still be gated, found {gated}"
+    );
+}
+
+#[test]
+fn the_fixture_write_denial_is_the_only_gated_fixture_on_the_stream() {
+    let policies = policies();
+    let gated = gated_runs_are_the_write_denials(&common::fixture_corpus(), &|path: &Path| {
+        common::read_fixture(path, &policies)
+    });
+    assert_eq!(gated, 1, "the fixtures hold one read-only Write denial");
+}
+
+/// Checks every derived outcome against the per-call rule and the reasons a
+/// run steps out of it, and counts the runs the rule calls gated.
+fn gated_runs_are_the_write_denials(records: &[PathBuf], read: Reader<'_>) -> usize {
+    let mut gated = 0;
     for path in records {
-        let run = hydra::normalize::read_file(&path, &policies).unwrap();
+        let run = read(path);
         let Some(derived) = derive(&run) else {
             continue;
         };
@@ -1301,17 +1358,26 @@ fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
             path.display()
         );
     }
-    assert!(
-        gated >= 3,
-        "the three read-only Write denials should still be gated, found {gated}"
-    );
+    gated
 }
 
 #[test]
 fn the_one_unclassified_result_on_this_machine_is_the_only_unknown() {
     let policies = policies();
-    for path in corpus() {
-        let run = hydra::normalize::read_file(&path, &policies).unwrap();
+    unknown_only_where_a_result_is_unclassified(&corpus(), &read_live(&policies));
+}
+
+#[test]
+fn a_fixture_is_unknown_only_where_a_result_is_unclassified() {
+    let policies = policies();
+    unknown_only_where_a_result_is_unclassified(&common::fixture_corpus(), &|path: &Path| {
+        common::read_fixture(path, &policies)
+    });
+}
+
+fn unknown_only_where_a_result_is_unclassified(records: &[PathBuf], read: Reader<'_>) {
+    for path in records {
+        let run = read(path);
         let Some(derived) = derive(&run) else {
             continue;
         };

@@ -580,24 +580,35 @@ fn every_record_on_this_machine_meets_the_contract() {
     let Some(runs) = common::corpus_runs_dir() else {
         return;
     };
-    let Ok(entries) = std::fs::read_dir(&runs) else {
-        return;
-    };
+    let checked = meets_the_contract(&common::corpus());
+    eprintln!("checked {checked} record(s) under {}", runs.display());
+}
 
-    let mut checked = 0;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let report = hydra::record::validate::check_file(&path).unwrap();
+#[test]
+fn every_fixture_meets_the_contract() {
+    // Build ticket 101. CI's live walk above reads an empty root, so this is the
+    // walk that says something there: the fixture corpus, one directory per
+    // provider binary version, none of it from a real run.
+    let fixtures = common::fixture_corpus();
+    assert!(
+        !fixtures.is_empty(),
+        "no fixtures under {}",
+        common::fixture_dir().display()
+    );
+    let checked = meets_the_contract(&fixtures);
+    eprintln!("checked {checked} fixture record(s) under tests/fixtures/records");
+}
+
+/// Validates each record, naming the file and every problem when one fails.
+fn meets_the_contract(records: &[PathBuf]) -> usize {
+    for path in records {
+        let report = hydra::record::validate::check_file(path).unwrap();
         assert!(
             report.ok(),
             "{} does not meet the contract:\n  {}",
             path.display(),
             report.problems.join("\n  ")
         );
-        checked += 1;
     }
-    eprintln!("checked {checked} record(s) under {}", runs.display());
+    records.len()
 }

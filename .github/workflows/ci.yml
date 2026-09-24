@@ -6,7 +6,8 @@ on:
 jobs:
   check:
     # macOS because the pty, the process-start-time liveness test and the gate dialects are
-    # measured there. The corpus walks read HYDRA_ROOT, which here is an empty scratch root.
+    # measured there. The live corpus walks read HYDRA_ROOT, which here is an empty scratch
+    # root; the fixture walks beside them read tests/fixtures/records (build ticket 101).
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,4 +29,11 @@ jobs:
         run: |
           cargo test --release --test record_contract every_record_on_this_machine_meets_the_contract -- --nocapture 2>&1 \
             | { grep '^checked ' || echo "the corpus walk found no runs directory"; } \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      # Build ticket 101. The fixture walks read a synthetic corpus, one directory per provider
+      # binary version, so this count is never zero on a green run.
+      - name: fixture count
+        run: |
+          cargo test --release --test record_contract every_fixture_meets_the_contract -- --nocapture 2>&1 \
+            | { grep '^checked ' || echo "the fixture walk found no fixtures"; } \
             | tee -a "$GITHUB_STEP_SUMMARY"
