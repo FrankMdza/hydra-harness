@@ -240,8 +240,8 @@ it is every departure from the design with its reason.
 Part of Hydra was written by the agents Hydra launches, through `hydra run`, while a Claude
 Code session wrote the tickets, reviewed each worktree diff and applied it to master by hand.
 The corpus in `~/hydra/runs/` and the git history are the sources for this table, which covers
-the 109 build tickets resolved by 2026-09-24: 01 to 112 except 80, which build ticket 96 closed,
-and 110 and 111, which are open. Each ticket an agent wrote names its run id and token count under
+the 112 build tickets resolved by 2026-09-24: 01 to 117 except 110, 111, 114, 116 and 117, which
+are open. 80 has no row of its own, because build ticket 96 closed it. Each ticket an agent wrote names its run id and token count under
 `## Outcome`.
 
 | Written by | Build tickets |
@@ -276,10 +276,10 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 77 decision tickets on 2026-09-24, 76 of them
+`.scratch/hydra/map.md` is the design history: 78 decision tickets on 2026-09-24, 76 of them
 resolved, with the reasoning each document compressed; 76, the decisions under a new
-orchestration mode, waits on the human. `.scratch/hydra/build/plan.md` indexes the build, 115
-tickets on 2026-09-24 with 110 resolved; `python3 .scratch/hydra/frontier.py build` prints
+orchestration mode, and 78, a read scope Claude Code 2.1.281 needs, wait on the human. `.scratch/hydra/build/plan.md` indexes the build, 117
+tickets on 2026-09-24 with 112 resolved; `python3 .scratch/hydra/frontier.py build` prints
 today's count. `CLAUDE.md` is what an agent
 reads first.
 

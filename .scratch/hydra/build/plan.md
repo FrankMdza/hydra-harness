@@ -160,3 +160,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [113 - `webSearchToolCall`: a Cursor tool the table does not know](113-websearch-is-a-cursor-tool-the-table-does-not-know.md)
 - [114 - Build 112 verified by reverting, and its two sentences](114-build-112-verified-by-reverting.md)
 - [115 - Three comments in `src/` that build 102 found false](115-three-false-comments-in-src.md)
+- [116 - A hook refusal on a live `claude` record reads as a leak](116-a-hook-refusal-on-a-live-claude-record-reads-as-a-leak.md)
+- [117 - `Agent` is `Task` renamed, on Claude Code 2.1.281](117-agent-is-task-renamed.md)
