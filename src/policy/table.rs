@@ -77,7 +77,9 @@ const fn unhooked(name: &'static str) -> Tool {
 
 /// `claude` 2.1.263's twenty-nine tools, read off the `system`/`init` frame on
 /// 2026-09-06. 2.1.261 offered twenty-five on 2026-09-05, and the four
-/// `Task*` list tools arrived between the two.
+/// `Task*` list tools arrived between the two. 2.1.281 renamed `Task` to
+/// `Agent` for subagent spawn; the table keeps both so records from 2.1.263
+/// through 2.1.280 and 2.1.281 onward both read back (thirty rows).
 ///
 /// The init frame lists them on every run at no cost, so ticket 03's normalizer
 /// compares this table against what the provider actually offered and a name
@@ -99,6 +101,9 @@ pub const CLAUDE: &[Tool] = &[
     // subagent gets no run id and writes no run file, and D10 makes the record
     // the source of truth for work the rungs learn from.
     tool("Task", Capability::SubagentSpawn),
+    // 2.1.281 renamed `Task` to `Agent`, measured 2026-09-24 on runs
+    // 01a0d229-cd8f, 01a0d23c-ccc9 and 01a0d3e4-4245.
+    tool("Agent", Capability::SubagentSpawn),
     // The nineteen. Each exists only inside this provider's own product surface
     // and none is granted by any policy in 7.2.
     tool("CronCreate", Capability::ProviderNative),
@@ -489,11 +494,24 @@ mod tests {
                 "{name} is offered by the provider and has no row, so 7.1 denies it"
             );
         }
+        // One row beyond 2.1.263's frame: `Agent`, the name 2.1.281 gave
+        // `Task`. Both stay so records on either side of the rename read back.
+        // Anything else beyond the frame is a name the provider never offered.
         assert_eq!(
             CLAUDE.len(),
-            measured.len(),
+            measured.len() + 1,
             "the table names a tool the provider does not offer"
         );
+        assert!(
+            CLAUDE.iter().any(|t| t.name == "Agent"),
+            "2.1.281 renamed Task to Agent and the table keeps both"
+        );
+    }
+
+    #[test]
+    fn agent_is_task_renamed_on_281() {
+        assert_eq!(claude_capability("Agent"), Some(Capability::SubagentSpawn));
+        assert_eq!(claude_capability("Task"), Some(Capability::SubagentSpawn));
     }
 
     #[test]

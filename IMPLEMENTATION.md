@@ -2070,7 +2070,8 @@ offered twenty-nine names, four more than the twenty-five 2.1.261 offered the da
 `TaskCreate`, `TaskGet`, `TaskList` and `TaskUpdate`. Until this change gave them rows
 they denied under every policy, `permissive` included, which is what the check is for.
 They are `provider_native` now, so it is quiet again and the next rename breaks the first
-record written after it.
+record written after it. Claude Code 2.1.281 renamed `Task` to `Agent` for subagent
+spawn; the table keeps both.
 
 **A `claude` result with no `is_error` is classified from `tool_use_result`, since build
 ticket 37.** On 2.1.263 a successful `Read`, `Edit` or `Write` result carries no `is_error`
@@ -2553,7 +2554,10 @@ file_write (Write).` reached the model verbatim as the tool result with `is_erro
 true`, no file was written, and `result` closed `subtype: success`, `is_error: false`,
 exit 0. **The refusal holds and the terminator lies about it**, which is what contract
 section 8 says to expect of all three providers. `result.permission_denials[]` carries
-the denial with its `tool_use_id`, contract 8.5's corroboration.
+the denial with its `tool_use_id`, contract 8.5's corroboration. Since Claude Code
+2.1.280 the same `is_error: true` result carries `PreToolUse:<Tool> hook error: ` in
+front of the reason; build ticket 116 strips it before `reason_code` reads the gate
+code.
 
 **The flag went on after that, not before.** Run
 `01a07307-2693-7ef0-b572-a565ffcc3190` is the same probe with `bypassPermissions` held

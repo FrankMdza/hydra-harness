@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use hydra::policy::replay::reason_code;
 use hydra::provider::{Provider, codex};
 use serde_json::{Value, json};
 
@@ -709,6 +710,29 @@ fn every_policy_but_permissive_refuses_task() {
         Gate::new("permissive")
             .ask("Task", json!({ "prompt": "go" }))
             .allowed
+    );
+}
+
+#[test]
+fn agent_gets_the_same_gate_answer_as_task_under_standard() {
+    // Claude Code 2.1.281 renamed `Task` to `Agent`; the table keeps both.
+    let gate = Gate::new("standard");
+    let input = json!({ "prompt": "go" });
+    let task = gate.ask_with_dialect(
+        Some("claude"),
+        gate.claude_payload("Task", input.clone(), &gate.worktree),
+    );
+    let agent = gate.ask_with_dialect(
+        Some("claude"),
+        gate.claude_payload("Agent", input, &gate.worktree),
+    );
+    assert_eq!(task.allowed, agent.allowed);
+    assert_eq!(reason_code(&task.reason), reason_code(&agent.reason));
+    assert!(
+        agent.denied_for("hydra/capability"),
+        "Agent was answered {}: {}",
+        agent.allowed,
+        agent.reason
     );
 }
 
@@ -2657,7 +2681,7 @@ fn a_missing_tool_input_is_allowed_for_a_tool_that_sends_none() {
     // so a payload without `tool_input` reads as `{}` and `permissive` grants
     // both. Only a `tool_input` that is present and not an object is refused.
     let gate = Gate::new("permissive");
-    for tool in ["Task", "mcp__server__tool"] {
+    for tool in ["Task", "Agent", "mcp__server__tool"] {
         let decision = gate.ask_with_dialect(
             Some("claude"),
             json!({

@@ -348,9 +348,11 @@ print(json.dumps({"decision": "allow", "reason": "hydra/allow: " + os.environ["P
             dialect: Dialect::Claude,
         };
         let cwd = Path::new("/tmp/run");
-        let absent = replay.payload("Task", &Value::Null, cwd);
-        assert!(absent.get("tool_input").is_none(), "{absent}");
-        let present = replay.payload("Task", &json!({ "prompt": "x" }), cwd);
-        assert_eq!(present["tool_input"], json!({ "prompt": "x" }));
+        for tool in ["Task", "Agent"] {
+            let absent = replay.payload(tool, &Value::Null, cwd);
+            assert!(absent.get("tool_input").is_none(), "{tool}: {absent}");
+            let present = replay.payload(tool, &json!({ "prompt": "x" }), cwd);
+            assert_eq!(present["tool_input"], json!({ "prompt": "x" }), "{tool}");
+        }
     }
 }

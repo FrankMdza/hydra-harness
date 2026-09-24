@@ -162,3 +162,6 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [115 - Three comments in `src/` that build 102 found false](115-three-false-comments-in-src.md)
 - [116 - A hook refusal on a live `claude` record reads as a leak](116-a-hook-refusal-on-a-live-claude-record-reads-as-a-leak.md)
 - [117 - `Agent` is `Task` renamed, on Claude Code 2.1.281](117-agent-is-task-renamed.md)
+- [118 - What the fourth panel found in `puppets.py`](118-what-the-fourth-panel-found-in-puppets.md)
+- [119 - Stale "three providers" comments, and the authorship rows 108, 109 and 112](119-stale-comments-and-the-authorship-rows.md)
+- [120 - CI runs what the tickets claim](120-ci-runs-what-the-tickets-claim.md)

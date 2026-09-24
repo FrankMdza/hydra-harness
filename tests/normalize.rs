@@ -1882,6 +1882,62 @@ fn a_file_with_no_run_start_says_so_rather_than_reading_as_pre_gate() {
 }
 
 #[test]
+fn a_prefixed_hook_refusal_on_an_unclosed_record_is_hydras_deny_not_a_leak() {
+    // Claude Code 2.1.280 prefixes error tool results with
+    // `PreToolUse:<Tool> hook error: ` before the gate reason. A live record has
+    // no `result` frame yet, so the third source must read through the prefix or
+    // the call reads as a gate leak. Build ticket 116.
+    let sandbox = Sandbox::new("prefixed-refusal");
+    let hook_id = "4f041c03-db30-4ae0-96dd-be3022a64b1e";
+    let gate_reason = "hydra/out-of-scope: policy standard allows file_read inside \
+                       worktree or skill_snapshot and /etc/hosts is outside it.";
+    let prefixed = format!("PreToolUse:Read hook error: {gate_reason}");
+    let mut record = Record::gated(&sandbox, "claude", "standard", policies().sha());
+    record.tool_use("toolu_01", "Read", json!({"file_path": "/etc/hosts"}));
+    record.hook_started("Read", hook_id);
+    record.hook_response_id("Read", "deny", gate_reason, hook_id);
+    record.tool_result("toolu_01", &prefixed, true);
+
+    let text = record.unclosed();
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Deny);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+
+    // Closed with 8.5's corroboration, the third source still wins over the list.
+    let mut closed = Record::gated(&sandbox, "claude", "standard", policies().sha());
+    closed.tool_use("toolu_01", "Read", json!({"file_path": "/etc/hosts"}));
+    closed.hook_started("Read", hook_id);
+    closed.hook_response_id("Read", "deny", gate_reason, hook_id);
+    closed.tool_result("toolu_01", &prefixed, true);
+    let text = closed
+        .result(json!({
+            "permission_denials": [{"tool_name": "Read", "tool_use_id": "toolu_01"}],
+        }))
+        .closed();
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Deny);
+    assert_eq!(decisions[0].decider, Decider::HydraPolicy);
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
 fn a_call_the_record_stops_after_is_unknown_rather_than_a_leak() {
     // Ticket 14's abandoned-run class arrives here: Hydra is killed between a
     // `tool_use` block and its result, so the policy denies a call whose fate the

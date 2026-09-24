@@ -873,14 +873,16 @@ impl Walk {
         }
         // The gate's reason arrives verbatim as the tool result with
         // `is_error: true`, which is the one signal a killed run still has.
-        if let Some((ResultStatus::Error, output)) = result
-            && let Some(code) = reason_code(output)
-            && code != "allow"
-        {
-            return Some(Refusal {
-                by: Decider::HydraPolicy,
-                reason: output.clone(),
-            });
+        if let Some((ResultStatus::Error, output)) = result {
+            let output = pretooluse_hook_error_reason(tool, output);
+            if let Some(code) = reason_code(output)
+                && code != "allow"
+            {
+                return Some(Refusal {
+                    by: Decider::HydraPolicy,
+                    reason: output.to_string(),
+                });
+            }
         }
         // 8.5's list. It names the call and carries no reason, so the tool
         // result is the best text available and the attribution is the weakest
@@ -906,6 +908,14 @@ impl Walk {
                     .any(|denial| denial["tool_use_id"].as_str() == Some(call_id))
             })
     }
+}
+
+/// Strips the `PreToolUse:<Tool> hook error: ` prefix Claude Code 2.1.280 added
+/// to error `tool_result` text, only when `<Tool>` is the call's own name.
+/// Build ticket 116.
+fn pretooluse_hook_error_reason<'a>(tool: &str, text: &'a str) -> &'a str {
+    text.strip_prefix(&format!("PreToolUse:{tool} hook error: "))
+        .unwrap_or(text)
 }
 
 /// The content blocks of one `assistant` or `user` message, in order.

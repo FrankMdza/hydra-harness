@@ -743,8 +743,8 @@ def evaluate(payload):
         return False, "hydra/no-tool-name: the payload named no tool"
 
     # A missing `tool_input` stays `{}` for tools the table names no field on:
-    # `Task`, `mcp__*` and the `provider_native` rows carry optional arguments
-    # the gate does not resolve a path from. A present `tool_input` that is not
+    # `Task`, `Agent`, `mcp__*` and the `provider_native` rows carry optional
+    # arguments the gate does not resolve a path from. A present `tool_input` that is not
     # an object is refused, because coercing it to `{}` would empty a shell
     # command or a path field the gate must read. Presence is the key, so an
     # explicit null is present and refused like `true` or a list.

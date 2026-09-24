@@ -1,7 +1,7 @@
 # 116 - A hook refusal on a live `claude` record reads as a leak
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -73,3 +73,21 @@ every completed record for a day, and a live record now reads as a leak.
   `cargo clippy --all-targets -- -D warnings` clean.
 
 The `Agent` half of the panic is build ticket 117, not this one.
+
+## Outcome
+
+Built by `cursor-agent` on `composer-2.5` under `standard`, run 01a0d3ec-aba2-7aa3, 2.21M
+tokens, applied to master by hand (`~/.claude/handoffs/2026-09-24-panel4/diff-116.patch`).
+`pretooluse_hook_error_reason` in `src/normalize/claude.rs` strips the prefix only when the
+tool named is the call's own, and the third refusal source reads through it; `reason_code` is
+unchanged. The agent checked the other readers: `provider_denied` reads
+`system/permission_denied` frames, not this text; harvest's `derive_policy_decisions` scans for
+`hydra/` anywhere; `hook_response` frames carry the bare reason in JSON. None needed the strip.
+The test `a_prefixed_hook_refusal_on_an_unclosed_record_is_hydras_deny_not_a_leak` failed before
+the change with `GateLeak { call_id: "toolu_01", tool: "Read", ... }` and has the closed arm the
+ticket asked for. One sentence in `IMPLEMENTATION.md`'s ticket-02 passage.
+
+On master with 117 applied beside it: normalize 90 of 90 including the walk over this machine's
+records, which had been red since the morning; lib 210, gate 98, outcome 47, fmt and clippy
+clean. The agent reported the same three `run::tests` failures as 113's agent, and for the same
+reason: the worktree, not the code.
