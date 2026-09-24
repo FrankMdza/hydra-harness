@@ -1350,3 +1350,317 @@ fn admission_refuses_to_copy_a_link_that_leaves_the_tree() {
     assert!(refusal.contains("symbolic link"), "{refusal}");
     assert!(!dir.join("tree").exists(), "a refused copy is discarded");
 }
+
+// --- build ticket 101: the pass paths on a live scratch layout -------------
+
+/// Four clean `pass` answers, for a panel closure that should offer.
+fn clean_panel() -> PanelAnswers {
+    let clean = pass_answer("pass", "[]");
+    PanelAnswers::new(
+        parse_judge_answer("claude", &clean),
+        parse_judge_answer("cursor-agent", &clean),
+        parse_judge_answer("agy", &clean),
+        parse_judge_answer("codex", &clean),
+    )
+}
+
+/// A proposer's `RunResult` as `hydra run` hands it back, for a record the
+/// test wrote.
+fn ended_proposer(run_id: &str, run_file: &Path) -> hydra::outcome::RunResult {
+    hydra::outcome::RunResult {
+        run_id: run_id.into(),
+        outcome: Some("completed"),
+        outcome_source: Some("derived"),
+        exit_code: Some(0),
+        error: None,
+        result_text: None,
+        branch: None,
+        diff_stat: None,
+        usage: hydra::outcome::Usage {
+            usage_source: "unknown",
+            estimator: None,
+            counts: None,
+        },
+        run_file: run_file.to_string_lossy().into_owned(),
+    }
+}
+
+/// A pass blocked on `path`, the way a pass leaves one: `rungs/blocked/<pass>`
+/// on top of the base commit with the patch's tree, a commit message naming
+/// the proposer, the proposer's record under the layout with its `base_tree`,
+/// and the pass's own harness record carrying `may_edit` when one is given.
+fn blocked_pass(
+    layout: &Layout,
+    repo: &Path,
+    pass_id: &str,
+    proposer_id: &str,
+    path: &str,
+    may_edit: Option<&[String]>,
+) {
+    let base_tree = git(repo, &["rev-parse", "HEAD^{tree}"]).trim().to_string();
+    git(
+        repo,
+        &["checkout", "-q", "-b", &format!("rungs/blocked/{pass_id}")],
+    );
+    let file = repo.join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "// the reviewed patch\n").unwrap();
+    git(repo, &["add", "-A"]);
+    git(
+        repo,
+        &[
+            "commit",
+            "-qm",
+            &format!(
+                "hydra evolve pass {pass_id}\n\nproposer: {proposer_id}\njudges: (none)\n\nblocked"
+            ),
+        ],
+    );
+    git(repo, &["checkout", "-q", "main"]);
+
+    let record = Record::shaped(Shape {
+        run_id: proposer_id,
+        policy: Some("standard"),
+        worktree: Some(&layout.worktree(proposer_id)),
+        base_tree: Some(&base_tree),
+        ..Shape::default()
+    })
+    .result(usage_frame())
+    .closed();
+    std::fs::write(layout.run_file(proposer_id), record).unwrap();
+    let pass_record = layout.run_file(pass_id);
+    write_harness_start(layout, pass_id, &pass_record, may_edit).unwrap();
+    write_harness_end(&pass_record, Some(0), None, None).unwrap();
+}
+
+/// The third panel's H36, `review_blocked`'s half. Build ticket 96 wired the
+/// refusals into a fresh review and said the wiring was "covered by reading",
+/// because the path started from `Layout::discover()` and ended in four judge
+/// launches. It runs here on a scratch layout with a panel closure, and the
+/// closure fails the test if a refused patch reaches it.
+#[test]
+fn a_fresh_review_refuses_before_the_panel_what_its_pass_could_not_edit() {
+    let policies = PolicySet::discover().unwrap();
+    for (name, path, may_edit, refused) in [
+        ("floor", "Cargo.toml", None, Some("Cargo.toml")),
+        // `--may-edit` refuses to name the floor, so a record naming it is
+        // written by hand: the review still refuses what no name lifts.
+        (
+            "floor-named",
+            "Cargo.toml",
+            Some(vec!["Cargo.toml".to_string()]),
+            Some("Cargo.toml"),
+        ),
+        ("unnamed", "src/run.rs", None, Some("src/run.rs")),
+        ("named", "src/run.rs", Some(named(&["src/run.rs"])), None),
+        ("default", "src/show.rs", None, None),
+    ] {
+        let fixture = Fixture::new(&format!("review-wiring-{name}"));
+        let layout = fixture.layout();
+        let repo = scratch_repo(&format!("review-wiring-{name}"));
+        let pass_id = "01a08000-0000-7000-8000-0000000101a1";
+        let proposer_id = "01a08000-0000-7000-8000-0000000101a2";
+        blocked_pass(
+            &layout,
+            &repo,
+            pass_id,
+            proposer_id,
+            path,
+            may_edit.as_deref(),
+        );
+
+        let mut reached = 0;
+        let mut prompt_seen = String::new();
+        let done = hydra::rungs::evolve::review_blocked_in(
+            &layout,
+            &policies,
+            &repo,
+            pass_id,
+            "the human's evidence",
+            &mut |_, prompt, _| {
+                reached += 1;
+                prompt_seen = prompt.to_string();
+                Ok((Vec::new(), clean_panel()))
+            },
+        );
+
+        match refused {
+            Some(floor_path) => {
+                let err = done.err().unwrap_or_else(|| {
+                    panic!("{name}: a review of a patch on {path} was not refused")
+                });
+                let said = format!("{err:#}");
+                assert!(said.contains("cannot be reviewed again"), "{name}: {said}");
+                assert!(said.contains(floor_path), "{name}: {said}");
+                assert_eq!(reached, 0, "{name}: a refused patch reached the panel");
+                // Nothing was opened for a pass that never started.
+                let records = std::fs::read_dir(layout.runs()).unwrap().count();
+                assert_eq!(records, 2, "{name}: a refused review wrote a record");
+            }
+            None => {
+                let done = done.unwrap_or_else(|err| panic!("{name}: {err:#}"));
+                assert_eq!(reached, 1, "{name}");
+                assert!(prompt_seen.contains(path), "{name}: {prompt_seen}");
+                assert!(prompt_seen.contains("the human's evidence"), "{name}");
+                let hydra::rungs::evolve::Done::Finished(finished) = done else {
+                    panic!("{name}: the review did not finish");
+                };
+                assert_eq!(finished.branch, format!("rungs/{}", finished.pass_run_id));
+                assert_eq!(
+                    git(
+                        &repo,
+                        &["rev-parse", &format!("{}^{{tree}}", finished.branch)]
+                    ),
+                    git(
+                        &repo,
+                        &["rev-parse", &format!("rungs/blocked/{pass_id}^{{tree}}")]
+                    ),
+                    "{name}: the offered branch is not the reviewed tree"
+                );
+                let record = std::fs::read_to_string(&finished.pass_record).unwrap();
+                check(&record, Some(&finished.pass_run_id)).assert_ok();
+            }
+        }
+        std::fs::remove_dir_all(&repo).unwrap();
+    }
+}
+
+/// The patch the tree-half test's proposer wrote, formatted the way `cargo
+/// fmt --check` wants it.
+const SHOW_READ: &str = "pub fn shown() -> u8 {\n    2\n}\n";
+
+/// The third panel's H36, G42's tree half. Build ticket 89 made the verdict
+/// commit carry the tree read before admission, and said that the old code
+/// would have carried a later edit was "reasoned, not run": the test could not
+/// compile against it. This drives the whole path after the proposer, the one
+/// `hydra evolve` runs, on a scratch layout: the read, the refusals, admission
+/// on its copy, the panel and the commit. The panel closure stands in for a
+/// process the proposer left running and edits the checkout after admission,
+/// which is the last moment before the commit. The offered branch carries the
+/// read tree and none of the edit.
+#[test]
+fn a_pass_offers_the_tree_it_read_whatever_the_checkout_holds_at_the_verdict() {
+    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+        println!("skipped: admission needs sandbox-exec outside a seatbelt");
+        return;
+    }
+    let fixture = Fixture::new("land-tree");
+    let layout = fixture.layout();
+    let parent = scratch_repo("land-tree");
+    std::fs::create_dir_all(parent.join("src")).unwrap();
+    std::fs::write(
+        parent.join("Cargo.toml"),
+        "[package]\nname = \"land-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(parent.join(".gitignore"), "/target\n/Cargo.lock\n").unwrap();
+    std::fs::write(parent.join("src/lib.rs"), "pub mod show;\n").unwrap();
+    std::fs::write(
+        parent.join("src/show.rs"),
+        "pub fn shown() -> u8 {\n    1\n}\n",
+    )
+    .unwrap();
+    git(&parent, &["add", "-A"]);
+    git(&parent, &["commit", "-qm", "a crate admission can build"]);
+
+    let pass_id = "01a08000-0000-7000-8000-0000000101b1";
+    let proposer_id = "01a08000-0000-7000-8000-0000000101b2";
+    let checkout = layout.worktree(proposer_id);
+    hydra::worktree::create(
+        &parent,
+        &checkout,
+        &format!("hydra/{proposer_id}"),
+        &layout.seed_index(proposer_id),
+    )
+    .unwrap();
+    let base_tree = git(&checkout, &["rev-parse", "HEAD^{tree}"]);
+    std::fs::write(checkout.join("src/show.rs"), SHOW_READ).unwrap();
+
+    let set = PolicySet::discover().unwrap();
+    write_spawn_config(
+        &layout,
+        proposer_id,
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&checkout),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let record = Record::shaped(Shape {
+        run_id: proposer_id,
+        policy: Some("standard"),
+        worktree: Some(&checkout),
+        base_tree: Some(base_tree.trim()),
+        ..Shape::default()
+    })
+    .result(usage_frame())
+    .closed();
+    let run_file = layout.run_file(proposer_id);
+    std::fs::write(&run_file, record).unwrap();
+    let pass_record = layout.run_file(pass_id);
+    let may_edit = may_edit_set(&[]).unwrap();
+    write_harness_start(&layout, pass_id, &pass_record, Some(&may_edit)).unwrap();
+    let toolchain = admission_toolchain().unwrap();
+
+    let mut prompt_seen = String::new();
+    let done = hydra::rungs::evolve::land_proposer_patch(
+        &hydra::rungs::evolve::Landing {
+            layout: &layout,
+            policies: &set,
+            repo: &parent,
+            pass_run_id: pass_id,
+            proposer_run_id: proposer_id,
+            may_edit: &may_edit,
+            task: Some("change what show prints"),
+            toolchain: &toolchain,
+            pass_record: &pass_record,
+        },
+        &ended_proposer(proposer_id, &run_file),
+        &mut |_, prompt, _| {
+            prompt_seen = prompt.to_string();
+            // After admission and before the commit: a leftover process
+            // rewrites the reviewed file and plants a protected one.
+            std::fs::write(checkout.join("src/show.rs"), "// written after the read\n").unwrap();
+            std::fs::create_dir_all(checkout.join("src/policy")).unwrap();
+            std::fs::write(checkout.join("src/policy/guard.rs"), "// planted\n").unwrap();
+            Ok((Vec::new(), clean_panel()))
+        },
+    )
+    .unwrap();
+
+    let hydra::rungs::evolve::Done::Finished(finished) = done else {
+        panic!("the pass did not finish");
+    };
+    let branch = format!("rungs/{pass_id}");
+    assert_eq!(
+        finished.branch,
+        branch,
+        "the pass was not offered: {:?}",
+        match &finished.verdict {
+            PanelVerdict::Blocked { reasons } => reasons.clone(),
+            PanelVerdict::Offerable(_) => Vec::new(),
+        }
+    );
+    assert!(prompt_seen.contains("-    1\n+    2"), "{prompt_seen}");
+    let approved = finished
+        .approved
+        .expect("an offered pass carries its patch");
+    let offered_tree = git(&parent, &["rev-parse", &format!("{branch}^{{tree}}")]);
+    assert_eq!(offered_tree.trim(), approved.tree());
+    assert_eq!(
+        git(&parent, &["show", &format!("{branch}:src/show.rs")]),
+        SHOW_READ,
+        "the offered branch carries an edit made after the read"
+    );
+    let files = git(&parent, &["ls-tree", "-r", "--name-only", &branch]);
+    assert!(
+        !files.contains("src/policy/guard.rs"),
+        "the offered branch carries a file planted after the read: {files}"
+    );
+    let record = std::fs::read_to_string(&pass_record).unwrap();
+    check(&record, Some(pass_id)).assert_ok();
+    std::fs::remove_dir_all(&parent).unwrap();
+}

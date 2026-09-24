@@ -518,6 +518,62 @@ fn with_no_record_to_name_the_injected_skills_the_whole_root_is_held_back() {
 }
 
 #[test]
+fn a_line_zero_reap_cannot_read_holds_every_root_back() {
+    // Build ticket 101, the third panel's H18. Reap reads line 0 through a
+    // typed view, so a `skills` block in a shape it does not know, or a
+    // provider it cannot name, is a line it could not read. That is the
+    // no-record case, and every root is held back. Read as loose `Value`
+    // paths, both shapes came out as "nothing was injected", and the
+    // injected copy was committed.
+    for (name, provider, linked) in [
+        ("linked-not-a-list", "codex", json!("injected")),
+        ("provider-unknown", "hermes", json!(["injected"])),
+    ] {
+        let fixture = Fixture::new(&format!("skill-root-{name}"));
+        let layout = fixture.layout();
+        let (sha, snapshot) =
+            one_skill_snapshot(&layout, "injected", "01a07730-a1b2-7c3d-8e4f-500000000017");
+        let run = "01a07730-a1b2-7c3d-8e4f-500000000018";
+        let checkout = fixture.checkout(run);
+        skills::inject(&checkout, Provider::Codex, &snapshot, &sha).unwrap();
+        write_skill_run(&layout, run, provider, &["injected"], &sha);
+        let path = layout.run_file(run);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        lines[0]["hydra"]["skills"]["linked"] = linked;
+        let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        std::fs::write(&path, text).unwrap();
+
+        // Hydra's ignore file would hide the copy on its own, so it goes, the
+        // way a run can remove it.
+        let root = checkout.join(".codex/skills");
+        std::fs::remove_file(root.join(".gitignore")).unwrap();
+        Command::new("chmod")
+            .args(["-R", "u+w"])
+            .arg(&root)
+            .status()
+            .unwrap();
+        std::fs::write(checkout.join("child.txt"), "the edit\n").unwrap();
+
+        let reaped = reap_one(&layout, run, false);
+        let swept = worktree_of(&reaped[0]);
+        assert!(swept.committed.is_some(), "{name}: nothing was committed");
+        let tree = git(
+            &fixture.repo,
+            &["ls-tree", "-r", "--name-only", &format!("hydra/{run}")],
+        );
+        assert!(tree.contains("child.txt"), "{name}: {tree}");
+        assert!(
+            !tree.contains(".codex/skills"),
+            "{name}: an injected skill reached the branch: {tree}"
+        );
+    }
+}
+
+#[test]
 fn a_checkout_holding_only_hydras_own_files_commits_nothing_and_drops_the_branch() {
     let fixture = Fixture::new("only-hydra-files");
     std::fs::create_dir_all(fixture.repo.join(".cursor")).unwrap();

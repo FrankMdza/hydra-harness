@@ -151,52 +151,129 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         }
     };
 
-    let patch = read_proposer_patch(&layout, &policies, &proposer)?;
+    land_proposer_patch(
+        &Landing {
+            layout: &layout,
+            policies: &policies,
+            repo: &repo,
+            pass_run_id: &pass_run_id,
+            proposer_run_id: &proposer_run_id,
+            may_edit: &may_edit,
+            task: pass.task.as_deref(),
+            toolchain: &toolchain,
+            pass_record: &pass_record,
+        },
+        &proposer,
+        &mut |pass_run_id, prompt, record| {
+            run_judge_panel(
+                pass_run_id,
+                prompt,
+                proposer_model.clone(),
+                pass.timeout,
+                record,
+            )
+        },
+    )
+}
+
+/// The four judges of a pass, as an argument: the pass id, the prompt every
+/// judge gets and the pass record a judge that cannot run closes. `hydra
+/// evolve` passes [`run_judge_panel`], which launches them. A test passes a
+/// closure, so the path from the read patch to the verdict branch runs on a
+/// scratch layout with nothing launched, and a closure that fails the test
+/// says the panel was reached when it should not have been.
+pub type JudgePanel<'a> =
+    dyn FnMut(&str, &str, &Path) -> Result<(Vec<String>, review::PanelAnswers)> + 'a;
+
+/// What [`land_proposer_patch`] needs from the pass that launched the proposer.
+pub struct Landing<'a> {
+    pub layout: &'a Layout,
+    pub policies: &'a PolicySet,
+    /// The parent repository the verdict branch is written in.
+    pub repo: &'a Path,
+    pub pass_run_id: &'a str,
+    pub proposer_run_id: &'a str,
+    pub may_edit: &'a [String],
+    pub task: Option<&'a str>,
+    /// Resolved before the proposer ran, [`admission_toolchain`].
+    pub toolchain: &'a Path,
+    /// The pass's harness record, opened by [`write_harness_start`] and closed here.
+    pub pass_record: &'a Path,
+}
+
+/// Everything a pass does after its proposer ends: read the patch once, the
+/// size cap, the refusals, the rate-limit check, admission on a copy of the
+/// read tree, the panel, and the verdict branch, which carries the read tree.
+pub fn land_proposer_patch(
+    landing: &Landing<'_>,
+    proposer: &RunResult,
+    panel: &mut JudgePanel<'_>,
+) -> Result<Done> {
+    let Landing {
+        layout,
+        policies,
+        repo,
+        pass_run_id,
+        proposer_run_id,
+        may_edit,
+        task,
+        toolchain,
+        pass_record,
+    } = *landing;
+    let finished = |branch: String, verdict: PanelVerdict, judge_run_ids: Vec<String>| {
+        let approved = match &verdict {
+            PanelVerdict::Offerable(patch) => Some(patch.clone()),
+            PanelVerdict::Blocked { .. } => None,
+        };
+        Done::Finished(Finished {
+            pass_run_id: pass_run_id.to_string(),
+            proposer_run_id: proposer_run_id.to_string(),
+            judge_run_ids,
+            branch,
+            verdict,
+            approved,
+            pass_record: pass_record.to_path_buf(),
+        })
+    };
+
+    let patch = read_proposer_patch(layout, policies, proposer)?;
     let blocked_branch = format!("rungs/blocked/{pass_run_id}");
     let offerable_branch = format!("rungs/{pass_run_id}");
 
     if let Some(count) = patch_over_cap(&patch.stat) {
         let message = commit_message(
-            &pass_run_id,
-            &proposer_run_id,
+            pass_run_id,
+            proposer_run_id,
             &[],
             &format!("rejected for size: {count} lines changed exceeds cap of {PATCH_LINE_CAP}"),
         );
-        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None, None)?;
-        return Ok(Done::Finished(Finished {
-            pass_run_id,
-            proposer_run_id,
-            judge_run_ids: Vec::new(),
-            branch: blocked_branch,
-            verdict: PanelVerdict::Blocked {
+        commit_pass_branch(repo, &patch, &blocked_branch, &message)?;
+        write_harness_end(pass_record, Some(0), None, None)?;
+        return Ok(finished(
+            blocked_branch,
+            PanelVerdict::Blocked {
                 reasons: vec![format!("patch size {count} exceeds {PATCH_LINE_CAP}")],
             },
-            approved: None,
-            pass_record,
-        }));
+            Vec::new(),
+        ));
     }
 
-    if let Some(reason) = admission_refusal(&patch, &may_edit, &repo)? {
+    if let Some(reason) = admission_refusal(&patch, may_edit, repo)? {
         let message = commit_message(
-            &pass_run_id,
-            &proposer_run_id,
+            pass_run_id,
+            proposer_run_id,
             &[],
             &format!("refused at admission: {reason}"),
         );
-        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None, None)?;
-        return Ok(Done::Finished(Finished {
-            pass_run_id,
-            proposer_run_id,
-            judge_run_ids: Vec::new(),
-            branch: blocked_branch,
-            verdict: PanelVerdict::Blocked {
+        commit_pass_branch(repo, &patch, &blocked_branch, &message)?;
+        write_harness_end(pass_record, Some(0), None, None)?;
+        return Ok(finished(
+            blocked_branch,
+            PanelVerdict::Blocked {
                 reasons: vec![reason],
             },
-            approved: None,
-            pass_record,
-        }));
+            Vec::new(),
+        ));
     }
 
     // Spec 4.7 aborts a review when a judge cannot answer; a proposer that met
@@ -210,7 +287,7 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     // `bail!` here and end the pass `failed`, which spec 4.10 reserves for git
     // or the worktree breaking. The review of 2026-09-19 found the two paths
     // disagreeing, so both end the same way now.
-    let frame_abort = rate_limit_abort(&layout)?;
+    let frame_abort = rate_limit_abort(layout)?;
     if frame_abort.is_some()
         || matches!(proposer.outcome, Some("rate_limited") | Some("auth_failed"))
     {
@@ -221,42 +298,32 @@ pub fn evolve(pass: Pass) -> Result<Done> {
                 proposer.outcome.unwrap_or("refused")
             ),
         };
-        let message = commit_message(&pass_run_id, &proposer_run_id, &[], &reason);
-        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None, None)?;
-        return Ok(Done::Finished(Finished {
-            pass_run_id,
-            proposer_run_id,
-            judge_run_ids: Vec::new(),
-            branch: blocked_branch,
-            verdict: PanelVerdict::Blocked {
+        let message = commit_message(pass_run_id, proposer_run_id, &[], &reason);
+        commit_pass_branch(repo, &patch, &blocked_branch, &message)?;
+        write_harness_end(pass_record, Some(0), None, None)?;
+        return Ok(finished(
+            blocked_branch,
+            PanelVerdict::Blocked {
                 reasons: vec![reason],
             },
-            approved: None,
-            pass_record,
-        }));
+            Vec::new(),
+        ));
     }
 
-    let admission_root = layout.spawn(&pass_run_id).join("admission-root");
+    let admission_root = layout.spawn(pass_run_id).join("admission-root");
     std::fs::create_dir_all(admission_root.join("runs"))
         .with_context(|| format!("creating {}", admission_root.display()))?;
-    let profile_path = crate::sandbox::profile_path(&layout.spawn(&proposer_run_id));
-    let admission_dir = layout.spawn(&pass_run_id).join("admission");
+    let profile_path = crate::sandbox::profile_path(&layout.spawn(proposer_run_id));
+    let admission_dir = layout.spawn(pass_run_id).join("admission");
     let prepared = match &patch.git_context {
         Some(context) => prepare_admission(
             context,
             &patch.tree,
             &admission_dir,
             &profile_path,
-            &toolchain,
+            toolchain,
         ),
-        None => prepare_admission(
-            repo.as_path(),
-            &patch.tree,
-            &admission_dir,
-            &profile_path,
-            &toolchain,
-        ),
+        None => prepare_admission(repo, &patch.tree, &admission_dir, &profile_path, toolchain),
     }?;
     let admission = match prepared {
         Ok(prepared) => {
@@ -274,59 +341,35 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     };
     if let Some(output) = admission.output {
         let message = commit_message(
-            &pass_run_id,
-            &proposer_run_id,
+            pass_run_id,
+            proposer_run_id,
             &[],
             &format!("admission gate failed:\n\n{output}"),
         );
-        commit_pass_branch(&repo, &patch, &blocked_branch, &message)?;
-        write_harness_end(&pass_record, Some(0), None, Some(&admission.run))?;
-        return Ok(Done::Finished(Finished {
-            pass_run_id,
-            proposer_run_id,
-            judge_run_ids: Vec::new(),
-            branch: blocked_branch,
-            verdict: PanelVerdict::Blocked {
+        commit_pass_branch(repo, &patch, &blocked_branch, &message)?;
+        write_harness_end(pass_record, Some(0), None, Some(&admission.run))?;
+        return Ok(finished(
+            blocked_branch,
+            PanelVerdict::Blocked {
                 reasons: vec!["admission gate failed".into()],
             },
-            approved: None,
-            pass_record,
-        }));
+            Vec::new(),
+        ));
     }
 
-    let judge_prompt = judge_task(&patch, pass.task.as_deref(), None);
-    let (judge_run_ids, answers) = run_judge_panel(
-        &pass_run_id,
-        &judge_prompt,
-        proposer_model,
-        pass.timeout,
-        &pass_record,
-    )?;
+    let judge_prompt = judge_task(&patch, task, None);
+    let (judge_run_ids, answers) = panel(pass_run_id, &judge_prompt, pass_record)?;
 
-    let verdict = review::panel_verdict(&pass_run_id, &patch.tree, &answers);
-    let (branch, approved, body) = match &verdict {
-        PanelVerdict::Offerable(patch) => (
-            offerable_branch.clone(),
-            Some(patch.clone()),
-            verdict_body(&answers, true),
-        ),
-        PanelVerdict::Blocked { .. } => {
-            (blocked_branch.clone(), None, verdict_body(&answers, false))
-        }
+    let verdict = review::panel_verdict(pass_run_id, &patch.tree, &answers);
+    let (branch, body) = match &verdict {
+        PanelVerdict::Offerable(_) => (offerable_branch, verdict_body(&answers, true)),
+        PanelVerdict::Blocked { .. } => (blocked_branch, verdict_body(&answers, false)),
     };
-    let message = commit_message(&pass_run_id, &proposer_run_id, &judge_run_ids, &body);
-    commit_pass_branch(&repo, &patch, &branch, &message)?;
-    write_harness_end(&pass_record, Some(0), None, Some(&admission.run))?;
+    let message = commit_message(pass_run_id, proposer_run_id, &judge_run_ids, &body);
+    commit_pass_branch(repo, &patch, &branch, &message)?;
+    write_harness_end(pass_record, Some(0), None, Some(&admission.run))?;
 
-    Ok(Done::Finished(Finished {
-        pass_run_id,
-        proposer_run_id,
-        judge_run_ids,
-        branch,
-        verdict,
-        approved,
-        pass_record,
-    }))
+    Ok(finished(branch, verdict, judge_run_ids))
 }
 
 /// What the proposer is told. Contract 5.1 stores this verbatim as `run_start.task`.
@@ -1297,7 +1340,9 @@ pub fn read_blocked_patch(
     let message = git(repo, &["log", "-1", "--format=%B", blocked_branch])?;
     let proposer_run_id = proposer_run_id_from_message(&message)?;
     let record_path = layout.run_file(&proposer_run_id);
-    let run = crate::normalize::read_file(&record_path, policies)
+    let text = std::fs::read_to_string(&record_path)
+        .with_context(|| format!("reading proposer record {}", record_path.display()))?;
+    let run = crate::normalize::read_with(&text, policies, layout)
         .with_context(|| format!("reading proposer record {}", record_path.display()))?;
     let base_tree = run
         .run_start()
@@ -1401,17 +1446,19 @@ fn run_judge_panel(
 
 /// The `may_edit` a pass recorded on its harness `run_start`, or
 /// [`DEFAULT_MAY_EDIT`] for a pass that recorded none.
-fn reviewed_may_edit(layout: &Layout, pass_id: &str) -> Vec<String> {
-    let recorded = PolicySet::discover().ok().and_then(|policies| {
-        let run = crate::normalize::read_file(&layout.run_file(pass_id), &policies).ok()?;
-        let names = run.run_start()?.body["may_edit"].as_array()?.clone();
-        Some(
-            names
-                .iter()
-                .filter_map(|name| name.as_str().map(str::to_string))
-                .collect::<Vec<_>>(),
-        )
-    });
+fn reviewed_may_edit(layout: &Layout, policies: &PolicySet, pass_id: &str) -> Vec<String> {
+    let recorded = std::fs::read_to_string(layout.run_file(pass_id))
+        .ok()
+        .and_then(|text| {
+            let run = crate::normalize::read_with(&text, policies, layout).ok()?;
+            let names = run.run_start()?.body["may_edit"].as_array()?.clone();
+            Some(
+                names
+                    .iter()
+                    .filter_map(|name| name.as_str().map(str::to_string))
+                    .collect::<Vec<_>>(),
+            )
+        });
     recorded.unwrap_or_else(|| DEFAULT_MAY_EDIT.iter().map(|p| p.to_string()).collect())
 }
 
@@ -1423,30 +1470,58 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
         .context("hydra evolve --review needs a git repository")?;
     let evidence = std::fs::read_to_string(evidence_path)
         .with_context(|| format!("reading {}", evidence_path.display()))?;
-    let blocked_branch = ensure_reviewable(&repo, reviewed_pass_id)?;
+    review_blocked_in(
+        &layout,
+        &policies,
+        &repo,
+        reviewed_pass_id,
+        &evidence,
+        &mut |pass_run_id, prompt, record| {
+            run_judge_panel(
+                pass_run_id,
+                prompt,
+                pass.model.clone(),
+                pass.timeout,
+                record,
+            )
+        },
+    )
+}
+
+/// A fresh review of a blocked pass, `hydra evolve --review`, against the
+/// layout, policy set and repository the caller names.
+///
+/// `hydra evolve` reaches it through [`evolve`] with the real `~/hydra`, the
+/// working directory's repository and [`run_judge_panel`]. The split is for
+/// the third hiring panel's H36: the refusals below used to be wired in by
+/// reading only, because nothing could drive this path without launching four
+/// judges.
+pub fn review_blocked_in(
+    layout: &Layout,
+    policies: &PolicySet,
+    repo: &Path,
+    reviewed_pass_id: &str,
+    evidence: &str,
+    panel: &mut JudgePanel<'_>,
+) -> Result<Done> {
+    let blocked_branch = ensure_reviewable(repo, reviewed_pass_id)?;
     let (patch, proposer_run_id, task) =
-        read_blocked_patch(&repo, &blocked_branch, &layout, &policies)?;
+        read_blocked_patch(repo, &blocked_branch, layout, policies)?;
     // A fresh review is not a way around the floor: the reviewed patch meets
     // the same refusals under the set its pass ran with, or the default for a
     // pass older than build ticket 96. Build ticket 96's review found every
     // refusal skipped here, so a blocked `Cargo.toml` could come back offerable.
-    let may_edit = reviewed_may_edit(&layout, reviewed_pass_id);
-    if let Some(reason) = admission_refusal(&patch, &may_edit, &repo)? {
+    let may_edit = reviewed_may_edit(layout, policies, reviewed_pass_id);
+    if let Some(reason) = admission_refusal(&patch, &may_edit, repo)? {
         bail!("pass {reviewed_pass_id} cannot be reviewed again: {reason}, which no review lifts");
     }
 
     let pass_run_id = Uuid::now_v7().to_string();
     let pass_record = layout.run_file(&pass_run_id);
-    write_harness_start(&layout, &pass_run_id, &pass_record, None)?;
+    write_harness_start(layout, &pass_run_id, &pass_record, None)?;
 
-    let judge_prompt = judge_task(&patch, task.as_deref(), Some(&evidence));
-    let (judge_run_ids, answers) = run_judge_panel(
-        &pass_run_id,
-        &judge_prompt,
-        pass.model,
-        pass.timeout,
-        &pass_record,
-    )?;
+    let judge_prompt = judge_task(&patch, task.as_deref(), Some(evidence));
+    let (judge_run_ids, answers) = panel(&pass_run_id, &judge_prompt, &pass_record)?;
 
     let verdict = review::panel_verdict(&pass_run_id, &patch.tree, &answers);
     let offerable_branch = format!("rungs/{pass_run_id}");
@@ -1470,7 +1545,7 @@ fn review_blocked(reviewed_pass_id: &str, evidence_path: &Path, pass: Pass) -> R
         &judge_run_ids,
         &body,
     );
-    commit_review_branch(&repo, &blocked_branch, &patch.tree, &branch, &message)?;
+    commit_review_branch(repo, &blocked_branch, &patch.tree, &branch, &message)?;
     write_harness_end(&pass_record, Some(0), None, None)?;
 
     Ok(Done::Finished(Finished {
@@ -1814,9 +1889,19 @@ mod admission_step_tests {
             "{\"hydra\":{\"type\":\"run_start\"}}\n",
         )
         .unwrap();
-        assert_eq!(reviewed_may_edit(&layout, "with"), ["src/run.rs"]);
-        assert_eq!(reviewed_may_edit(&layout, "without"), DEFAULT_MAY_EDIT);
-        assert_eq!(reviewed_may_edit(&layout, "absent"), DEFAULT_MAY_EDIT);
+        let policies = PolicySet::discover().unwrap();
+        assert_eq!(
+            reviewed_may_edit(&layout, &policies, "with"),
+            ["src/run.rs"]
+        );
+        assert_eq!(
+            reviewed_may_edit(&layout, &policies, "without"),
+            DEFAULT_MAY_EDIT
+        );
+        assert_eq!(
+            reviewed_may_edit(&layout, &policies, "absent"),
+            DEFAULT_MAY_EDIT
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
