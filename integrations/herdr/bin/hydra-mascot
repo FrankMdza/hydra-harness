@@ -75,6 +75,32 @@ TOP = 6      # transparent pixel rows above, so the centre head's blast has some
 PIX_MOUTHS = [(MARGIN + 0, TOP + 5, -1, 0), (MARGIN + 23, TOP - 1, 0, -1), (MARGIN + 47, TOP + 5, 1, 0)]
 
 
+def load_sprite(path):
+    """A sprite file: the pixel map first, one character per pixel, then a blank line, then
+    lines `X r g b` for the palette and `mouth x y dx dy` for each jaw (pixel coordinates,
+    direction as a unit step). `.` is transparent. Sets PIX_ROWS, PAL and PIX_MOUTHS."""
+    global PIX_ROWS, PAL, PIX_MOUTHS
+    text = open(path).read()
+    head, _, tail = text.partition("\n\n")
+    rows = [r for r in head.split("\n") if r and not r.startswith("#")]
+    width = max(len(r) for r in rows)
+    PIX_ROWS = [r.ljust(width, ".") for r in rows]
+    pal, mouths = {}, []
+    for line in tail.split("\n"):
+        parts = line.split()
+        if not parts or parts[0].startswith("#"):
+            continue
+        if parts[0] == "mouth":
+            x, y, dx, dy = (int(v) for v in parts[1:5])
+            mouths.append((MARGIN + x, TOP + y, dx, dy))
+        elif len(parts) == 4 and len(parts[0]) == 1:
+            pal[parts[0]] = tuple(int(v) for v in parts[1:4])
+    if not mouths:
+        raise SystemExit(f"{path}: no `mouth x y dx dy` line")
+    PAL = pal
+    PIX_MOUTHS = mouths
+
+
 def pix_cells(yoff=0, blink=False, closed_eyes=None):
     """The pixel map as (top, bottom) cell pairs, moved down `yoff` pixels. `blink` closes every
     eye; `closed_eyes` closes the eyes whose x falls in a (start, end) range."""
@@ -245,11 +271,19 @@ def sleep_cells(cells, mouth, frame):
     rows, cols = len(cells), len(cells[0])
     cx, cy = mouth_cell(cells, mouth)
     out = {}
+    side = 1 if mouth[2] >= 0 else -1  # the z's drift away from the jaw
     for i, ch in enumerate("zZz"):
-        r = cy - 3 - ((frame // 3 + i * 2) % 5)
-        c = cx + 2 + i + (frame // 6 + i) % 2
+        r = cy - 2 - ((frame // 4 + i * 2) % 5)
+        c = cx + side * (2 + i + (frame // 6 + i) % 2)
         if 0 <= r < rows and 0 <= c < cols:
             out[(r, c)] = (ch, (150, 170, 220))
+    # a snot bubble that grows at the nostril and pops
+    stage = (frame // 8) % 6
+    if stage < 5:
+        ch = "∘○◯◯◯"[stage]
+        r, c = cy - 1, cx + side
+        if 0 <= r < rows and 0 <= c < cols:
+            out[(r, c)] = (ch, (170, 210, 230))
     return out
 
 
@@ -270,16 +304,23 @@ def derp_cells(cells, mouth, frame):
 def demo(cells, mouths, seconds, fps, out, frame_source=None):
     """`frame_source(pose, frame, sleeper_span)` returns the cells for this frame when the sprite
     is a pixel map that can bob and blink; None keeps the image render still."""
-    rng = random.Random(7)
+    rng = random.Random()
     out.write("\x1b[?25l\x1b[2J")
     phase = [("idle", 3), ("working", 3), ("sleep", 4), ("refused", 1), ("derp", 3), ("fire", 4)]
     sleeper = rng.randrange(len(mouths))
     derp = rng.randrange(len(mouths))
+    cycle_len = sum(secs for _, secs in phase)
+    last_cycle = 0
     t0 = time.time()
     frame = 0
     try:
         while time.time() - t0 < seconds:
-            elapsed = (time.time() - t0) % sum(s for _, s in phase)
+            cycle = int((time.time() - t0) // cycle_len)
+            if cycle != last_cycle:
+                last_cycle = cycle
+                sleeper = rng.randrange(len(mouths))
+                derp = rng.choice([i for i in range(len(mouths)) if i != sleeper] or [0])
+            elapsed = (time.time() - t0) % cycle_len
             pose, acc = "idle", 0
             for name, secs in phase:
                 acc += secs
@@ -295,8 +336,7 @@ def demo(cells, mouths, seconds, fps, out, frame_source=None):
             elif pose == "working":
                 draw(cells, out, shift=(frame // 3) % 2)
             elif pose == "sleep":
-                draw(cells, out, brightness=0.9, dim_cols=head_span(cells, mouths, sleeper),
-                     flames=sleep_cells(cells, mouths[sleeper], frame))
+                draw(cells, out, flames=sleep_cells(cells, mouths[sleeper], frame))
             elif pose == "derp":
                 draw(cells, out, shift=(frame // 5) % 2,
                      flames=derp_cells(cells, mouths[derp], frame))
@@ -314,9 +354,36 @@ def demo(cells, mouths, seconds, fps, out, frame_source=None):
         out.flush()
 
 
+def write_png(cells, path, scale=8):
+    """A preview of the sprite as it would look on screen, one cell as scale x scale pixels,
+    written as a BMP and converted with sips. For checking a sprite file without a terminal."""
+    H = len(cells) * 2
+    W = len(cells[0])
+    rowbytes = (W * scale * 3 + 3) & ~3
+    data = bytearray()
+    for y in range(H - 1, -1, -1):
+        line = bytearray()
+        for x in range(W):
+            top, bot = cells[y // 2][x]
+            rgb = (top if y % 2 == 0 else bot) or (20, 20, 24)
+            line += bytes([rgb[2], rgb[1], rgb[0]]) * scale
+        line += b"\0" * (rowbytes - len(line))
+        for _ in range(scale // 2):
+            data += line
+    hs, ws = H * (scale // 2), W * scale
+    hdr = b"BM" + struct.pack("<IHHI", 54 + len(data), 0, 0, 54) + struct.pack(
+        "<IiiHHIIiiII", 40, ws, hs, 1, 24, 0, len(data), 2835, 2835, 0, 0)
+    bmp = path + ".bmp"
+    open(bmp, "wb").write(hdr + data)
+    subprocess.run(["sips", "-s", "format", "png", bmp, "--out", path], check=True, capture_output=True)
+    os.remove(bmp)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", help="the reference image; required unless --load or --small")
+    ap.add_argument("--sprite", help="a sprite file (map, palette, mouths); implies --small")
+    ap.add_argument("--png", help="with --small or --sprite: write a scaled PNG preview and exit")
     ap.add_argument("--small", action="store_true",
                     help="the pixel-art sprite, 48 columns of dragon plus margins for the fire, 15 rows")
     ap.add_argument("--width", type=int, default=70)
@@ -334,6 +401,12 @@ def main():
     a = ap.parse_args()
     if a.load:
         sys.stdout.write(open(a.load).read())
+        return
+    if a.sprite:
+        load_sprite(a.sprite)
+        a.small = True
+    if a.small and a.png:
+        write_png(pix_cells(), a.png)
         return
     if a.small:
         mouths = [(x, y // 2, dx, dy) for (x, y, dx, dy) in PIX_MOUTHS]
