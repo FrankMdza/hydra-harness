@@ -692,12 +692,23 @@ fn a_cursor_gate_carves_out_its_own_cursor_data_for_reads() {
     )
     .unwrap();
     let config = compiled_config(&claude.gate);
+    let worktree = layout.spawn("r2").join("no-worktree");
+    let expected = hydra::provider::claude::projects_dir(&worktree)
+        .unwrap()
+        .to_string_lossy()
+        .to_lowercase();
     let own = config["own_read_paths"]
         .as_array()
         .unwrap_or_else(|| panic!("own_read_paths missing from {config}"));
-    assert!(
-        own.is_empty(),
-        "a claude launch should carry no own_read_paths entry, got {own:?}"
+    assert_eq!(
+        own.len(),
+        1,
+        "a claude launch should carry exactly one own_read_paths entry, got {own:?}"
+    );
+    assert_eq!(
+        own[0].as_str(),
+        Some(expected.as_str()),
+        "claude should carve out {expected}, got {own:?}"
     );
 }
 

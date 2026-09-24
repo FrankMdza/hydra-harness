@@ -784,18 +784,25 @@ pub fn write_denied_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
 /// of a file the provider itself wrote there is refused as out-of-scope unless
 /// this list names it. On `cursor-agent` it is the run's own `cursor-data/`,
 /// which is where `CURSOR_DATA_DIR` points and where Cursor writes the terminal
-/// files it then reads to answer `awaitToolCall`. No other provider adds an
-/// entry: their binaries do not ask the hook to read a path under the spawn
-/// directory.
+/// files it then reads to answer `awaitToolCall`. On `claude` it is
+/// `~/.claude/projects/<slug>/`, where `<slug>` is
+/// [`crate::provider::claude::project_slug`] of the run's worktree and Claude
+/// Code 2.1.281 writes large tool output under `tool-results/` there. Each entry
+/// is read-only: writes there are not carved out.
 pub fn own_read_paths(spawn: &Spawn<'_>) -> Vec<PathBuf> {
-    if spawn.provider != crate::provider::Provider::CursorAgent {
-        return Vec::new();
-    }
-    // The gate lives at `<spawn>/<run-id>/gate`; `cursor-data/` sits beside it,
-    // which is what [`crate::paths::Layout::cursor_data_dir`] names.
-    match spawn.gate_script.parent() {
-        Some(dir) => vec![dir.join("cursor-data")],
-        None => Vec::new(),
+    match spawn.provider {
+        crate::provider::Provider::CursorAgent => {
+            // The gate lives at `<spawn>/<run-id>/gate`; `cursor-data/` sits beside
+            // it, which is what [`crate::paths::Layout::cursor_data_dir`] names.
+            match spawn.gate_script.parent() {
+                Some(dir) => vec![dir.join("cursor-data")],
+                None => Vec::new(),
+            }
+        }
+        crate::provider::Provider::Claude => crate::provider::claude::projects_dir(spawn.worktree)
+            .map(|dir| vec![dir])
+            .unwrap_or_default(),
+        _ => Vec::new(),
     }
 }
 
@@ -894,9 +901,8 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         // The own carve-out is applied here, so a run naming its own worktree
         // is not refused.
         "denied_spellings": denied_spellings(set, spawn),
-        // The matching read carve-out. Empty on every provider but
-        // `cursor-agent`, whose own `cursor-data/` is the one path under the
-        // spawn directory a gated tool call has reason to open.
+        // The matching read carve-out. `cursor-agent` names its own
+        // `cursor-data/`; `claude` names its own `~/.claude/projects/<slug>/`.
         "own_read_paths": own_read_paths(spawn)
             .iter()
             .map(|p| resolved(p))
@@ -1472,7 +1478,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_cursor_spawn_carves_out_its_cursor_data_for_reads() {
+    fn only_cursor_and_claude_carve_out_their_own_provider_data_for_reads() {
         let layout = crate::paths::Layout::at("/tmp/hydra-own-read");
         let worktree = layout.worktree("r1");
         let gate = layout.gate_script("r1");
@@ -1489,7 +1495,10 @@ mod tests {
             gate_script: &gate,
             floor_lifted: false,
         };
-        assert!(own_read_paths(&base).is_empty());
+        assert_eq!(
+            own_read_paths(&base),
+            vec![crate::provider::claude::projects_dir(&worktree).unwrap()]
+        );
         let cursor = Spawn {
             provider: crate::provider::Provider::CursorAgent,
             ..base

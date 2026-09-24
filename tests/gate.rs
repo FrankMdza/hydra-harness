@@ -1070,6 +1070,46 @@ fn the_cursor_gate_config_carries_no_unhooked_tool() {
 }
 
 #[test]
+fn a_claude_run_may_read_its_own_tool_results() {
+    // Build ticket 123: Claude Code 2.1.281 writes large tool output under
+    // `~/.claude/projects/<slug>/<session>/tool-results/` and reads it back.
+    let gate = Gate::new("standard");
+    let own_dir = hydra::provider::claude::projects_dir(&gate.worktree).unwrap();
+    // Nothing is created under the real home: `gate.py` resolves the path with
+    // `realpath`, which only needs the existing prefix, `~/.claude/projects`.
+    let tool_result = own_dir.join("session-id/tool-results/x.txt");
+
+    assert!(
+        gate.read_from(&tool_result).allowed,
+        "Read of own tool-results: {}",
+        gate.read_from(&tool_result).reason
+    );
+
+    let other = gate.worktree.join("other-worktree");
+    let sibling = hydra::provider::claude::projects_dir(&other)
+        .unwrap()
+        .join("session-id/tool-results/x.txt");
+    assert!(
+        gate.read_from(&sibling).denied_for("hydra/out-of-scope"),
+        "Read of another slug's tool-results"
+    );
+
+    let settings = hydra::env::real_home()
+        .unwrap()
+        .join(".claude/settings.json");
+    assert!(
+        gate.read_from(&settings).denied_for("hydra/out-of-scope"),
+        "Read of ~/.claude/settings.json"
+    );
+
+    assert!(
+        gate.write_to(&own_dir.join("x.txt"))
+            .denied_for("hydra/out-of-scope"),
+        "Write into the carved-out directory"
+    );
+}
+
+#[test]
 fn a_cursor_run_may_read_its_own_cursor_data() {
     // Build ticket 38: Cursor answers `awaitToolCall` by reading the
     // background task's output under the run's own `cursor-data/`, and that

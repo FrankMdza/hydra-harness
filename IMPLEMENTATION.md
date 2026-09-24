@@ -1340,7 +1340,10 @@ the replay, which sees a `taskId` and no path, and the runtime answer stands as 
 out for reads**: `own_read_paths` beside `own_write_paths` in the compiled config, one entry
 on `cursor-agent` and none elsewhere, checked in `gate.py` before the denied-parent check
 and only when the policy grants `file_read` at all, so `judge` still refuses and a sibling's
-spawn directory stays denied. Measured on run 01a0811e-d401 the same evening: a `standard`
+spawn directory stays denied. **Build ticket 123 added the same carve-out on `claude` for
+`~/.claude/projects/<slug>/`**, where `<slug>` is Claude Code's name for the run's worktree,
+so a `Read` of large tool output under `tool-results/` is allowed and every other path under
+`~/.claude` stays refused. Measured on run 01a0811e-d401 the same evening: a `standard`
 Composer run started `sleep 8 && echo slept` in the background, awaited it, and got `slept`
 and exit 0 back, with no disagreement on the record. A fourth unhooked tool shows up the way
 these did, `unknown_tool` beside a completed result. The two corpus walks pass with no skip.

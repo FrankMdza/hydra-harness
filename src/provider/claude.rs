@@ -533,18 +533,28 @@ pub fn probe_argv(session: &str, mcp: crate::mcp::Probe<'_>) -> Vec<String> {
     argv
 }
 
-/// Where `--session-id` puts a probe's transcript.
+/// The project directory Claude Code uses for a cwd's transcript and tool output.
 ///
 /// **The cwd is canonicalized first.** Claude Code slugs the path it resolved,
 /// not the one it was handed: a probe run in `/tmp/x` on macOS writes to
-/// `-private-tmp-x`, measured 2026-09-06 on 2.1.263. A run's own worktree lives
-/// under `~/hydra/` and crosses no link, so this changes nothing there and makes
-/// the scratch directories a test uses reachable.
-pub fn transcript_path(home: &Path, cwd: &Path, session: &str) -> std::path::PathBuf {
+/// `-private-tmp-x`, measured 2026-09-06 on 2.1.263. On 2.1.281 large tool output
+/// above the inline limit is written under `<this>/tool-results/` and the model
+/// reads it back with `Read`. A run's own worktree lives under `~/hydra/` and
+/// crosses no link, so this changes nothing there and makes the scratch
+/// directories a test uses reachable.
+pub fn projects_dir_for(home: &Path, cwd: &Path) -> PathBuf {
     let resolved = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-    home.join(".claude/projects")
-        .join(project_slug(&resolved))
-        .join(format!("{session}.jsonl"))
+    home.join(".claude/projects").join(project_slug(&resolved))
+}
+
+/// [`projects_dir_for`] with the account's own home from [`crate::env::real_home`].
+pub fn projects_dir(cwd: &Path) -> anyhow::Result<PathBuf> {
+    Ok(projects_dir_for(&crate::env::real_home()?, cwd))
+}
+
+/// Where `--session-id` puts a probe's transcript.
+pub fn transcript_path(home: &Path, cwd: &Path, session: &str) -> std::path::PathBuf {
+    projects_dir_for(home, cwd).join(format!("{session}.jsonl"))
 }
 
 /// The servers a probe's transcript says resolved, contract 5.3's `mcp.resolved`.
@@ -572,14 +582,15 @@ fn said(out: &std::process::Output) -> Option<String> {
 
 /// Claude Code's name for a project directory under `~/.claude/projects/`.
 ///
-/// Measured on 2.1.263 against three paths, one of them holding a dot and an
-/// underscore: every character that is not a letter, a digit or a hyphen becomes a
-/// hyphen, and the leading `/` becomes the leading hyphen that way too.
+/// Measured on 2.1.263 and 2.1.281 against paths holding a dot and an underscore,
+/// and on macOS against `/private/var/folders/...` after canonicalization: every
+/// character outside `[A-Za-z0-9-]` becomes a hyphen, and the leading `/` becomes
+/// the leading hyphen that way too.
 ///
 /// A wrong answer here is a missing file rather than a wrong listing, because
 /// [`resolved_skills`] names the transcript with `--session-id` and reads that
 /// exact path.
-fn project_slug(path: &Path) -> String {
+pub fn project_slug(path: &Path) -> String {
     path.to_string_lossy()
         .chars()
         .map(|c| {
@@ -1031,7 +1042,8 @@ mod tests {
     fn the_project_slug_flattens_everything_that_is_not_a_letter_or_a_digit() {
         // Measured on 2.1.263 by running the probe in a directory called
         // `slug.probe_1` and reading the name it created under
-        // `~/.claude/projects/`.
+        // `~/.claude/projects/`. On 2.1.281 delegation runs under
+        // `/private/var/folders/...` after canonicalization, not `/var/folders/...`.
         assert_eq!(
             project_slug(Path::new("/tmp/scratch/slug.probe_1")),
             "-tmp-scratch-slug-probe-1"
@@ -1041,6 +1053,10 @@ mod tests {
                 "/Users/USER/hydra/worktrees/01a07484-1667-7500-b299-2889144b84c1"
             )),
             "-Users-USER-hydra-worktrees-01a07484-1667-7500-b299-2889144b84c1"
+        );
+        assert_eq!(
+            project_slug(Path::new("/private/var/folders/ab/cd/ef/T/foobar")),
+            "-private-var-folders-ab-cd-ef-T-foobar"
         );
     }
 
