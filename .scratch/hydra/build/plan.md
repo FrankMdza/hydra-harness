@@ -165,3 +165,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [118 - What the fourth panel found in `puppets.py`](118-what-the-fourth-panel-found-in-puppets.md)
 - [119 - Stale "three providers" comments, and the authorship rows 108, 109 and 112](119-stale-comments-and-the-authorship-rows.md)
 - [120 - CI runs what the tickets claim](120-ci-runs-what-the-tickets-claim.md)
+- [112 - A local model behind an MCP server, `ask`, over Ollama](112-a-local-model-behind-the-mcp-face.md)
+- [113 - The mascot reads the pane, and the pet is the mascot](113-the-mascot-reads-the-pane.md)

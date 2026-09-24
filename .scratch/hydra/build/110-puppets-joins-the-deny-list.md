@@ -1,7 +1,7 @@
 # 110 - `~/hydra/puppets/` joins the deny list and the seatbelt profile
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 108
 
 ## What

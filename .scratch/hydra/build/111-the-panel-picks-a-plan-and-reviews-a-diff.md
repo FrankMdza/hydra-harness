@@ -1,7 +1,7 @@
 # 111 - The panel picks a plan, and its diff findings land in Hunk
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 108
 
 ## What
