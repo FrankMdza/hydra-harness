@@ -36,14 +36,17 @@ it before every step instead of remembering.
 5. `launch <goal> <task>` for each task whose deps have ended. A `codex` task, or a `high` or
    `agi` task on `claude`, is refused until the human gives `approve --launch <task>`; ask, and
    say why (that gate can fail open). Inside Herdr the launch opens a pane tailing the run.
-6. `wait <goal>` records ended runs. `review <goal> <task>` runs the three judge seats over the
-   diff, writes their major and critical findings into the Hunk session as comments, and opens
-   Hunk for the human. You review it the way build tickets are reviewed as well: read the
-   worktree diff in full, check the mechanism and not only the green suite, and look for what
-   the agent called "preexisting". Show the human the diff and your review; `approve --diff
-   <task>` is theirs. Apply by hand, run the suite, `hydra reap <id> --delete-branch`, then
-   `verdict <goal> <task> applied|fixed|rejected --note "..."`. `fixed` means you changed the
-   diff before applying; say what.
+6. `wait <goal>` records ended runs. Then `hydra reap <run-id>` without `--delete-branch`: the
+   diff moves to the branch `hydra/<run-id>` and the worktree goes, because nothing of the mode
+   runs git or Hunk inside a checkout a run could write (build 118). `review <goal> <task>` runs
+   the three judge seats over `base_sha...branch`, writes their major and critical findings into
+   the Hunk session as comments, and opens Hunk on the branch. You review it the way build
+   tickets are reviewed as well: read the diff in full, check the mechanism and not only the
+   green suite, and look for what the agent called "preexisting". Show the human the diff and
+   your review; `approve --diff <task>` is theirs and binds to that run. Apply from the branch
+   (`git diff <base_sha>...hydra/<run-id> | git apply`), run the suite, commit, delete the
+   branch, then `verdict <goal> <task> applied|fixed|rejected --note "..."`. `fixed` means you
+   changed the diff before applying; say what.
 7. A launch refused for an ambiguous intent means a crash between intent and run. Run
    `hydra status`, find the run if it exists, and `reconcile <goal> <task> <attempt> --run-id
    <id>` or `--abandon`. Never relaunch blind.

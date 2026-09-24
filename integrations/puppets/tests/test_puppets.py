@@ -266,6 +266,9 @@ class PuppetsTestCase(unittest.TestCase):
                 "path": str(plan_path),
             },
         ]
+        events.append(
+            {"event": "approval", "kind": "plan", "ref": None, "revision": 0, "yes": True}
+        )
         self.write_events("g1", events)
         result = subprocess.run(
             [sys.executable, str(ROOT / "puppets.py"), "tasks", "g1"],
@@ -387,6 +390,57 @@ class SessionReviewTests(PuppetsTestCase):
         self.assertEqual(puppets.main(["approve", "g1", "--diff", "t1"]), 0)
         self.assertEqual(puppets.main(["verdict", "g1", "t1", "applied"]), 0)
         self.assertEqual(puppets.fold("g1").tasks["t1"].status, "applied")
+
+    def test_diff_approval_binds_to_run_id(self):
+        events = self.base_task_events()
+        events += [
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": 1,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "x",
+            },
+            {"event": "run", "task": "t1", "attempt": 1, "run_id": "r1"},
+            {
+                "event": "run_end",
+                "task": "t1",
+                "run_id": "r1",
+                "outcome": "completed",
+                "total_tokens": 1,
+            },
+            {
+                "event": "approval",
+                "kind": "diff",
+                "ref": "t1",
+                "run_id": "r1",
+                "revision": 2,
+                "yes": True,
+            },
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": 2,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "y",
+            },
+            {"event": "run", "task": "t1", "attempt": 2, "run_id": "r2"},
+            {
+                "event": "run_end",
+                "task": "t1",
+                "run_id": "r2",
+                "outcome": "completed",
+                "total_tokens": 1,
+            },
+        ]
+        self.write_events("g1", events)
+        self.assertEqual(puppets.main(["verdict", "g1", "t1", "applied"]), 1)
+        self.assertEqual(puppets.main(["approve", "g1", "--diff", "t1"]), 0)
+        self.assertEqual(puppets.main(["verdict", "g1", "t1", "applied"]), 0)
 
 
 class RankedAssignmentTests(PuppetsTestCase):
@@ -648,6 +702,11 @@ class ChooseJudgeTests(PuppetsTestCase):
         state = puppets.fold("g1")
         self.assertEqual(state.chosen_plan["chosen"], "composed")
         self.assertEqual(state.chosen_plan["path"], str(composed_path))
+        events = puppets.read_log("g1")
+        events.append(
+            {"event": "approval", "kind": "plan", "ref": None, "revision": 0, "yes": True}
+        )
+        self.write_events("g1", events)
         result = subprocess.run(
             [sys.executable, str(ROOT / "puppets.py"), "tasks", "g1"],
             env=self.env,
@@ -664,6 +723,20 @@ class ReviewJudgeTests(PuppetsTestCase):
         worktree = self.hydra_root / "worktrees" / "r1"
         worktree.mkdir(parents=True)
         (worktree / ".git").mkdir()
+        seen_cwd: list[Path] = []
+
+        def fake_show(run_id: str) -> dict:
+            return {
+                "run_id": run_id,
+                "branch": f"hydra/{run_id}",
+                "repo": str(self.tmp),
+                "result_text": "",
+            }
+
+        def fake_diff(repo, base_sha, branch):
+            seen_cwd.append(repo)
+            return "diff text"
+
         events = self.base_task_events() + [
             {
                 "event": "launch_intent",
@@ -693,7 +766,11 @@ class ReviewJudgeTests(PuppetsTestCase):
         original_panel = puppets.run_judge_panel
         original_exec = puppets.os.execvp
         original_fork = puppets.fork_hunk_comment_pusher
+        original_show = puppets.hydra_show_run
+        original_diff = puppets.git_diff_branch
         puppets.run_judge_panel = fake_panel
+        puppets.hydra_show_run = fake_show
+        puppets.git_diff_branch = fake_diff
         puppets.fork_hunk_comment_pusher = lambda *_args, **_kwargs: None
         puppets.os.execvp = lambda *_args, **_kwargs: (_ for _ in ()).throw(
             SystemExit(0)
@@ -705,28 +782,169 @@ class ReviewJudgeTests(PuppetsTestCase):
             puppets.run_judge_panel = original_panel
             puppets.fork_hunk_comment_pusher = original_fork
             puppets.os.execvp = original_exec
+            puppets.hydra_show_run = original_show
+            puppets.git_diff_branch = original_diff
 
         review = next(row for row in puppets.read_log("g1") if row["event"] == "review")
         self.assertEqual(review["verdict"], "pass")
         self.assertEqual(review["judge_run_ids"], ["jr1", "jr2", "jr3"])
         self.assertEqual(review["judge_policies"], ["judge", "standard", "judge"])
+        self.assertEqual(seen_cwd, [Path(self.tmp)])
+        self.assertNotIn(worktree, seen_cwd)
+
+    def test_review_refuses_without_branch(self):
+        events = self.base_task_events() + [
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": 1,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "x",
+            },
+            {"event": "run", "task": "t1", "attempt": 1, "run_id": "r1"},
+        ]
+        self.write_events("g1", events)
+        original_show = puppets.hydra_show_run
+        puppets.hydra_show_run = lambda run_id: {"run_id": run_id, "result_text": ""}
+        try:
+            self.assertEqual(puppets.main(["review", "g1", "t1"]), 1)
+        finally:
+            puppets.hydra_show_run = original_show
 
 
 class HunkArgvTests(unittest.TestCase):
-    def test_an_unreaped_run_opens_its_worktree(self):
+    def test_never_uses_worktree_even_when_it_exists(self):
         tmp = Path(tempfile.mkdtemp())
-        (tmp / "r1").mkdir()
-        argv, cwd = puppets.hunk_argv({"run_id": "r1", "branch": "hydra/r1"}, tmp)
-        self.assertEqual((argv, cwd), (["hunk", "diff"], tmp / "r1"))
+        worktree = tmp / "worktrees" / "r1"
+        worktree.mkdir(parents=True)
+        argv, cwd = puppets.hunk_argv(
+            {"run_id": "r1", "branch": "hydra/r1", "repo": "/repo"}
+        )
+        self.assertEqual(argv, ["hunk", "show", "hydra/r1"])
+        self.assertEqual(cwd, Path("/repo"))
+        self.assertNotEqual(cwd, worktree)
         shutil.rmtree(tmp)
 
     def test_a_reaped_run_opens_its_branch_from_the_repo(self):
-        tmp = Path(tempfile.mkdtemp())
-        argv, cwd = puppets.hunk_argv({"run_id": "r1", "branch": "hydra/r1", "repo": "/repo"}, tmp)
+        argv, cwd = puppets.hunk_argv(
+            {"run_id": "r1", "branch": "hydra/r1", "repo": "/repo"}
+        )
         self.assertEqual((argv, cwd), (["hunk", "show", "hydra/r1"], Path("/repo")))
         with self.assertRaises(RuntimeError):
-            puppets.hunk_argv({"run_id": "r2"}, tmp)
-        shutil.rmtree(tmp)
+            puppets.hunk_argv({"run_id": "r2"})
+
+
+class Ticket118Tests(PuppetsTestCase):
+    def test_tasks_refused_without_plan_approval(self):
+        plan_path = self.puppets_home / "g1" / "plans" / "chosen.md"
+        plan_path.parent.mkdir(parents=True)
+        plan_path.write_text(
+            textwrap.dedent(
+                """\
+                ```json
+                [{"id": "t1", "text": "x", "class": "docs", "grade": "low", "deps": [], "paths": []}]
+                ```
+                """
+            ),
+            encoding="utf-8",
+        )
+        events = [
+            {"event": "goal", "text": "test", "repo": "/repo", "base_sha": "abc"},
+            {
+                "event": "panel_verdict",
+                "judge_run_ids": [],
+                "chosen": "codex",
+                "path": str(plan_path),
+            },
+        ]
+        self.write_events("g1", events)
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "puppets.py"), "tasks", "g1"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("plan approval", result.stderr)
+
+    def test_plans_skips_symlink_and_falls_back_to_result_text(self):
+        run_id = "plan-run-symlink"
+        proposal_dir = (
+            self.hydra_root / "worktrees" / run_id / "docs" / "proposals"
+        )
+        proposal_dir.mkdir(parents=True)
+        secret = Path(self.tmp) / "secret.md"
+        secret.write_text("stolen\n", encoding="utf-8")
+        (proposal_dir / "plan.md").symlink_to(secret)
+        run_file = self.hydra_root / "runs" / f"{run_id}.jsonl"
+        run_file.write_text(
+            '{"hydra":{"type":"run_start"}}\n{"hydra":{"type":"run_end"}}\n',
+            encoding="utf-8",
+        )
+        events = [
+            {"event": "goal", "text": "test", "repo": "/repo", "base_sha": "abc"},
+            {"event": "plan_proposed", "provider": "codex", "run_id": run_id},
+        ]
+        self.write_events("g1", events)
+        original = puppets.hydra_show_text
+        puppets.hydra_show_text = lambda _run_id: "safe plan\n"
+        try:
+            self.assertEqual(puppets.main(["plans", "g1"]), 0)
+        finally:
+            puppets.hydra_show_text = original
+        dest = self.puppets_home / "g1" / "plans" / "codex.md"
+        self.assertEqual(dest.read_text(encoding="utf-8"), "safe plan\n")
+        self.assertNotIn("stolen", dest.read_text(encoding="utf-8"))
+
+    def test_read_log_tolerates_torn_last_line(self):
+        path = self.puppets_home / "g1.jsonl"
+        path.write_text(
+            '{"seq":1,"ts":"t","event":"goal","text":"x","repo":"/r","base_sha":"a"}\n'
+            '{"seq":2,"ts":"t","event":"approval","kind":"plan","revision":0,"yes":true,',
+            encoding="utf-8",
+        )
+        events = puppets.read_log("g1")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event"], "goal")
+
+    def test_append_event_assigns_monotonic_seq_under_lock(self):
+        import threading
+
+        self.write_events(
+            "g1",
+            [{"event": "goal", "text": "x", "repo": "/r", "base_sha": "a"}],
+        )
+        errors: list[Exception] = []
+
+        def writer(kind: str) -> None:
+            try:
+                puppets.append_event(
+                    "g1",
+                    {
+                        "event": "approval",
+                        "kind": kind,
+                        "ref": None,
+                        "revision": 0,
+                        "yes": True,
+                    },
+                )
+            except Exception as err:
+                errors.append(err)
+
+        threads = [
+            threading.Thread(target=writer, args=("plan",)),
+            threading.Thread(target=writer, args=("table",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+        seqs = sorted(row["seq"] for row in puppets.read_log("g1") if row["event"] == "approval")
+        self.assertEqual(seqs, [2, 3])
 
 
 class PuppetsLiveTest(unittest.TestCase):

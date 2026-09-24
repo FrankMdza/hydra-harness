@@ -1,7 +1,7 @@
 # 118 - What the fourth panel found in `puppets.py`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -30,3 +30,15 @@ this ticket after 111 lands, or coordinate on the file.
 Each of the four has a test in `integrations/puppets/tests/test_puppets.py` that fails before
 the change, and the README says what an approval is. `python3 -m pytest integrations/puppets`
 green. Nothing under `src/` changes.
+
+## Outcome
+
+Built 2026-09-24 by composer-2.5 on run 01a0d428-9ddf (1.35M tokens), applied as written: Hunk
+and `git diff` run from the repository over `base_sha...hydra/<run-id>` and never inside a
+checkout a run can write, so `review` now asks for a reap first and refuses a run with no branch;
+a plan is copied out of a worktree through `O_NOFOLLOW`, regular file, one link, 10 MiB cap, the
+way reap copies since build 106, with `result_text` as the fallback; `tasks` needs a plan
+approval; a diff approval carries the run id it was given for and `verdict` checks it; the log is
+appended under an exclusive `flock` and a torn last line is skipped on read. The README says an
+approval is a log line the CLI checks, never a proof a human was present. 89 tests green on
+master. The session's puppets skill now reaps before it reviews.

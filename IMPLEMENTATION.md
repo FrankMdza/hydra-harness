@@ -2954,8 +2954,13 @@ default), prompts capped at 8,000 characters, Ollama down as a tool error. It re
 when the human adds it to `config/mcp.md`, and its README carries the block to paste, admitting
 `permissive` only. Nothing in the mode depends on it (map ticket 77).
 
+**Since build ticket 118**, nothing in the mode runs git or Hunk inside a checkout a run can
+write: `review` reaps first and opens Hunk on `base_sha...hydra/<run-id>` from the repository, a
+plan is copied out of a worktree the way reap copies a file, `tasks` needs a plan approval, a diff
+approval binds to a run id, and the log is appended under a lock and read past a torn last line.
+
 Not built: any automatic execution, which map ticket 76 makes wait for bounded retries and crash
-recovery, and the fourth panel's findings on `puppets.py` (build ticket 118).
+recovery.
 
 ## `hydra resume`, since build ticket 32
 

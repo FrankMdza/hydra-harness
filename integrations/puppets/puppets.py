@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -32,6 +34,7 @@ TASK_CLASSES = frozenset(
 TASK_GRADES = frozenset({"low", "medium", "high", "agi"})
 APPROVAL_KINDS = frozenset({"plan", "table", "launch", "diff"})
 VERDICT_RESULTS = frozenset({"applied", "fixed", "rejected"})
+PLAN_COPY_CAP = 10 * 1024 * 1024
 
 PUPPETS_PANEL_SEATS: list[tuple[str, str | None, str]] = [
     ("claude", "opus", "judge"),
@@ -148,21 +151,39 @@ def read_log(goal_id: str) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
     events: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if line:
-                events.append(json.loads(line))
+    raw = path.read_bytes()
+    lines = raw.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if not line.endswith(b"\n"):
+            break
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            if index == len(lines) - 1:
+                break
+            raise
     return events
 
 
 def append_event(goal_id: str, body: dict[str, Any]) -> dict[str, Any]:
     path = goal_log_path(goal_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    events = read_log(goal_id)
-    record = {"seq": len(events) + 1, "ts": utc_now(), **body}
-    with path.open("a", encoding="utf-8") as handle:
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        events: list[dict[str, Any]] = []
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        record = {"seq": len(events) + 1, "ts": utc_now(), **body}
         handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+        handle.flush()
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     return record
 
 
@@ -270,6 +291,7 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
                 {
                     "kind": event["kind"],
                     "ref": event.get("ref"),
+                    "run_id": event.get("run_id"),
                     "revision": event["revision"],
                     "yes": event["yes"],
                     "seq": seq,
@@ -326,6 +348,7 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
                 if (
                     approval["kind"] == "diff"
                     and approval["ref"] == event["task"]
+                    and approval.get("run_id") == event.get("run_id")
                     and approval["revision"] == revision
                     and approval["yes"]
                     and approval["seq"] not in consumed_approvals
@@ -351,7 +374,10 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
 
 
 def approval_available(
-    state: GoalState, kind: str, ref: str | None = None
+    state: GoalState,
+    kind: str,
+    ref: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any] | None:
     for approval in state.approvals:
         if (
@@ -363,6 +389,8 @@ def approval_available(
         ):
             continue
         if kind in ("launch", "diff") and approval.get("ref") != ref:
+            continue
+        if kind == "diff" and run_id is not None and approval.get("run_id") != run_id:
             continue
         return approval
     return None
@@ -798,11 +826,38 @@ def run_judge_panel(
     return run_ids, policies, texts
 
 
-def git_diff_text(cwd: Path) -> str:
+def copy_regular_file(src: Path, dest: Path, cap: int = PLAN_COPY_CAP) -> None:
+    """Copy one regular file without following links, size-capped."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(src, flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError(f"{src} is not a regular file")
+        if st.st_nlink != 1:
+            raise ValueError(f"{src} has {st.st_nlink} links")
+        if st.st_size > cap:
+            raise ValueError(f"{src} exceeds the {cap} byte cap")
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            data = handle.read(cap + 1)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if len(data) > cap:
+        raise ValueError(f"{src} exceeds the {cap} byte cap")
+    dest.write_bytes(data)
+
+
+def git_diff_branch(repo: Path, base_sha: str, branch: str) -> str:
+    if not base_sha or not branch:
+        return ""
     try:
         return subprocess.check_output(
-            ["git", "diff", "HEAD"],
-            cwd=cwd,
+            ["git", "diff", f"{base_sha}...{branch}"],
+            cwd=repo,
             text=True,
             stderr=subprocess.DEVNULL,
         )
@@ -810,11 +865,13 @@ def git_diff_text(cwd: Path) -> str:
         return ""
 
 
-def first_changed_file(cwd: Path) -> str | None:
+def first_changed_file(repo: Path, base_sha: str, branch: str) -> str | None:
+    if not base_sha or not branch:
+        return None
     try:
         output = subprocess.check_output(
-            ["git", "diff", "--name-only", "HEAD"],
-            cwd=cwd,
+            ["git", "diff", "--name-only", f"{base_sha}...{branch}"],
+            cwd=repo,
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
@@ -826,9 +883,9 @@ def first_changed_file(cwd: Path) -> str | None:
 
 
 def findings_to_hunk_comments(
-    outcomes: list[JudgeOutcome], cwd: Path
+    outcomes: list[JudgeOutcome], repo: Path, base_sha: str, branch: str
 ) -> list[dict[str, Any]]:
-    default_file = first_changed_file(cwd) or "."
+    default_file = first_changed_file(repo, base_sha, branch) or "."
     comments: list[dict[str, Any]] = []
     for outcome in outcomes:
         for finding in outcome.findings:
@@ -1010,11 +1067,25 @@ def cmd_plans(args: argparse.Namespace) -> int:
             continue
         run_id = plan["run_id"]
         src_dir = hydra_root() / "worktrees" / run_id / "docs" / "proposals"
-        sources = sorted(p for p in src_dir.iterdir() if p.is_file()) if src_dir.is_dir() else []
+        sources = (
+            sorted(
+                p
+                for p in src_dir.iterdir()
+                if p.is_file() and not p.is_symlink()
+            )
+            if src_dir.is_dir()
+            else []
+        )
         target = dest / f"{plan['provider']}.md"
-        if sources:
-            shutil.copy2(sources[0], target)
-        else:
+        copied_from_worktree = False
+        for source in sources:
+            try:
+                copy_regular_file(source, target)
+                copied_from_worktree = True
+                break
+            except (OSError, ValueError) as err:
+                print(f"skipping {source}: {err}", file=sys.stderr)
+        if not copied_from_worktree:
             if not run_file_has_end(run_id):
                 print(f"{plan['provider']} run {run_id} has not ended", file=sys.stderr)
                 continue
@@ -1110,6 +1181,13 @@ def cmd_tasks(args: argparse.Namespace) -> int:
     if state.chosen_plan is None or not state.chosen_plan.get("path"):
         print("no chosen plan with a path", file=sys.stderr)
         return 1
+    if approval_available(state, "plan") is None:
+        print(
+            f"missing plan approval at revision {state.revision}; "
+            f"approve with: approve {args.goal} --plan",
+            file=sys.stderr,
+        )
+        return 1
     plan_text = Path(state.chosen_plan["path"]).read_text(encoding="utf-8")
     tasks = extract_tasks_json(plan_text)
     for task in tasks:
@@ -1201,16 +1279,20 @@ def cmd_approve(args: argparse.Namespace) -> int:
     if ref is not None and ref not in state.tasks:
         print(f"unknown task {ref}", file=sys.stderr)
         return 1
-    append_event(
-        args.goal,
-        {
-            "event": "approval",
-            "kind": kind,
-            "ref": ref,
-            "revision": state.revision,
-            "yes": True,
-        },
-    )
+    body: dict[str, Any] = {
+        "event": "approval",
+        "kind": kind,
+        "ref": ref,
+        "revision": state.revision,
+        "yes": True,
+    }
+    if kind == "diff":
+        task = state.tasks[ref]
+        if not task.run_id:
+            print(f"task {ref} has no run to approve a diff for", file=sys.stderr)
+            return 1
+        body["run_id"] = task.run_id
+    append_event(args.goal, body)
     return 0
 
 
@@ -1263,17 +1345,16 @@ def hydra_show_run(run_id: str) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
-def hunk_argv(run: dict[str, Any], worktrees: Path) -> tuple[list[str], Path]:
-    """How Hunk opens a run's diff, and where from. An unreaped run still has its worktree, so
-    `hunk diff` there shows the uncommitted tree; a reaped run has only its branch, which the
-    record carries, so `hunk show <branch>` from the repo. Map ticket 45 measured both."""
+def hunk_argv(run: dict[str, Any]) -> tuple[list[str], Path]:
+    """How Hunk opens a run's diff from the repository, never from a run-writable checkout."""
     run_id = run.get("run_id") or ""
-    worktree = worktrees / run_id
-    if run_id and worktree.is_dir():
-        return ["hunk", "diff"], worktree
     branch = run.get("branch")
     if not branch:
-        raise RuntimeError(f"run {run_id} has no branch to show")
+        raise RuntimeError(
+            f"run {run_id} has no branch; review opens Hunk on the reaped branch from the "
+            "repository, not inside a run-writable checkout. If the diff exists only in an "
+            "unreaped worktree, reap first."
+        )
     repo = Path(run.get("repo") or os.getcwd())
     return ["hunk", "show", branch], repo
 
@@ -1290,10 +1371,15 @@ def cmd_review(args: argparse.Namespace) -> int:
     run.setdefault("run_id", task.run_id)
     if state.goal and not run.get("repo"):
         run["repo"] = state.goal.get("repo")
-    argv, cwd = hunk_argv(run, hydra_root() / "worktrees")
+    try:
+        argv, cwd = hunk_argv(run)
+    except RuntimeError as err:
+        print(str(err), file=sys.stderr)
+        return 1
     base_sha = (state.goal or {}).get("base_sha", "")
+    branch = run["branch"]
     projection = run.get("result_text") or json.dumps(run, indent=2)
-    diff_text = git_diff_text(cwd)
+    diff_text = git_diff_branch(cwd, base_sha, branch)
     prompt = load_diff_prompt(task.text, base_sha, projection, diff_text)
     run_ids, policies, texts = run_judge_panel(prompt)
     outcomes = [
@@ -1316,7 +1402,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             "reasons": reasons,
         },
     )
-    comments = findings_to_hunk_comments(outcomes, cwd)
+    comments = findings_to_hunk_comments(outcomes, cwd, base_sha, branch)
     pane_id = os.environ.get("HERDR_PANE_ID")
     if os.environ.get("HERDR_ENV") and pane_id:
         split = subprocess.run(
@@ -1423,10 +1509,13 @@ def cmd_verdict(args: argparse.Namespace) -> int:
     if task is None or not task.run_id:
         print(f"task {args.task} has no run", file=sys.stderr)
         return 1
-    if args.result in ("applied", "fixed") and approval_available(state, "diff", args.task) is None:
+    if (
+        args.result in ("applied", "fixed")
+        and approval_available(state, "diff", args.task, task.run_id) is None
+    ):
         print(
-            f"missing diff approval for task {args.task} at revision {state.revision}; "
-            f"approve with: approve {state.goal_id} --diff {args.task}",
+            f"missing diff approval for task {args.task} run {task.run_id} at revision "
+            f"{state.revision}; approve with: approve {state.goal_id} --diff {args.task}",
             file=sys.stderr,
         )
         return 1

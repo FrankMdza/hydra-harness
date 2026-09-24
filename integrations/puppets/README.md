@@ -1,7 +1,9 @@
 # Master of Puppets
 
 A Python helper for the Master of Puppets mode: one append-only JSONL log per goal, state derived
-by folding the log, and task launches through the Hydra binary with human approvals enforced.
+by folding the log, and task launches through the Hydra binary. Approvals are lines appended to
+the goal log that the CLI checks before acting; anything that can run the CLI can write one, and
+the helper does not verify that a human typed it.
 
 Nothing under `src/` imports this directory. Hydra works with it stopped.
 
@@ -47,7 +49,7 @@ One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}
 | `human_plan` | `accepted`, `note` |
 | `task` | `id`, `text`, `class`, `grade`, `deps`, `paths` |
 | `assignment` | `task`, `provider`, `model`, `policy`, `source` |
-| `approval` | `kind`, `ref`, `revision`, `yes` |
+| `approval` | `kind`, `ref`, `run_id` (diff only), `revision`, `yes` |
 | `launch_intent` | `task`, `attempt`, `provider`, `model`, `policy`, `argv_sha256` |
 | `run` | `task`, `attempt`, `run_id` |
 | `run_end` | `task`, `run_id`, `outcome`, `total_tokens` |
@@ -58,19 +60,25 @@ One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}
 `class` is one of `batch_scripting`, `rust_off_launch_path`, `rust_launch_path`,
 `security_review`, `research`, `docs`, `probe`. `grade` is `low`, `medium`, `high` or `agi`.
 
-Approvals bind to a plan revision (the count of `task` and `assignment` events). A launch needs
-a table approval at the current revision, and one table approval covers every launch at that
-revision (map ticket 76, decision C: the table once per batch). Tasks on `codex`, or `high`/`agi`
-on `claude`, also need a per-task launch approval because those gates can fail open; that one is
-spent by the launch. A verdict of `applied` or `fixed` needs a diff approval for the task at the
-current revision; `rejected` needs none.
+Approvals bind to a plan revision (the count of `task` and `assignment` events). The CLI checks
+for an unconsumed `yes` line at the current revision before each gated step:
+
+| Kind | Checked before | Binds to |
+|---|---|---|
+| `plan` | `tasks` | current revision |
+| `table` | `launch` | current revision; one covers every launch at that revision (map ticket 76, decision C) |
+| `launch` | `launch` for `codex`, or `high`/`agi` on `claude` | task id and revision; spent by the launch |
+| `diff` | `verdict applied` or `verdict fixed` | task id, the task's current `run_id`, and revision; spent by the verdict |
+
+`rejected` needs no diff approval. A later `assignment` voids approvals at an older revision.
 
 A `launch_intent` with no following `run` event is ambiguous after a crash. `launch` refuses until
 the human settles it with `reconcile`, either naming the run id `hydra status` shows for that
 attempt or abandoning it. Nothing is relaunched by the helper.
 
 `plans` takes a proposer's plan from its run's `result_text` (the brief asks for the plan as the
-answer), or from a file under the run's worktree `docs/proposals/` when one exists. `assign` asks
+answer), or copies one regular file from the run's worktree `docs/proposals/` when one exists.
+The copy does not follow links, refuses non-regular files, and is size-capped. `assign` asks
 `sheet.py`'s ranking when sheets have been built under the puppets home, and falls back to a
 default table (recorded as `source: default`) when none exist or nobody qualifies.
 
@@ -79,10 +87,12 @@ default table (recorded as `source: default`) when none exist or nobody qualifie
 `panel_verdict` with the judge run ids, and writes a `composed` plan when the panel picks one.
 
 `review` launches the same panel over the task diff, records a `review` event, pushes judge
-findings into the live Hunk session as comments when one exists, then opens the diff in Hunk:
-`hunk diff` inside the run's worktree while it exists, `hunk show hydra/<run-id>` from the repo
-once it is reaped. Inside Herdr it opens in a pane to the right. The mode has no diff viewer of
-its own.
+findings into the live Hunk session as comments when one exists, then opens the diff in Hunk with
+`hunk show <branch>` from the goal's repository. Git diff for the panel uses the same branch from
+the run record, never a run-writable checkout. If the run record has no branch, review refuses:
+an unreaped worktree is the only place an uncommitted diff might live, and the helper will not
+run git or Hunk there. Inside Herdr it opens in a pane to the right. The mode has no diff viewer
+of its own.
 
 Inside Herdr, `launch` runs the binary directly and then opens a pane below the current one
 tailing the run with the bridge's tokens on it. The launch never goes through `hydra-in-pane`,
