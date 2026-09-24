@@ -157,3 +157,8 @@ For `CLAUDE.md`'s layout list, the `tests/` entry: "twenty-six files", and after
 `record_contract.rs`: "`fixture_corpus.rs` writes and guards `tests/fixtures/records/`, the
 synthetic records the fixture walks in `record_contract.rs`, `normalize.rs` and `outcome.rs`
 read;". The `drift.rs` sentence gains: "and a paid `codex` probe of a hook that dies".
+
+Run by the session on 2026-09-24 after the merge, with `HYDRA_DRIFT_PAID=1`:
+`drift.rs::a_codex_hook_that_dies_without_answering_lets_the_call_run` passed in 12.9 s against the
+installed `codex`, so a codex hook that dies still fails open, now measured by a test and not only
+by hand.
