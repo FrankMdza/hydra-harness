@@ -2963,6 +2963,13 @@ write: `review` reaps first and opens Hunk on `base_sha...hydra/<run-id>` from t
 plan is copied out of a worktree the way reap copies a file, `tasks` needs a plan approval, a diff
 approval binds to a run id, and the log is appended under a lock and read past a torn last line.
 
+**The first goal ran on 2026-09-24**, `ea69da1f`: the grader under `integrations/grader/`, six
+tasks, six diffs approved by the human, one security review whose critical finding the session
+fixed. `docs/reviews/2026-09-24-master-of-puppets-first-goal.md` lists every run of the day and
+what the review found. Two things the first goal taught: a plan approval must survive the import
+of its tasks (fixed), and neither judge panel can sit while `codex` is out of credits, so the
+session chose the plan and reviewed the diffs and said so each time.
+
 Not built: any automatic execution, which map ticket 76 makes wait for bounded retries and crash
 recovery.
 
