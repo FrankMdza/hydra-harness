@@ -11,12 +11,52 @@ its own aspect. Dark pixels are left transparent so the dragon sits on the pane'
     hydra-mascot --image ref.jpeg --width 96 --demo 30       # animate for 30 s
     hydra-mascot --image ref.jpeg --width 60 --save ~/.cache/hydra-mascot.ans
     hydra-mascot --load ~/.cache/hydra-mascot.ans            # from .zshrc, like pokemon-colorscripts
+    hydra-mascot --small --demo 20                           # the 11x36 hand-drawn sprite
+
+The image render reads as a dragon at 60 columns and up; below that it is a blob, so the small
+sprite is drawn by hand (the opus proposal's idle frame from map ticket 75).
 """
 import argparse, os, random, struct, subprocess, sys, tempfile, time
 
 BONE = (232, 226, 210)
 FIRE = [(255, 246, 180), (255, 200, 80), (255, 140, 30), (220, 60, 30), (150, 20, 40)]
 SHADES = "░▒▓█"
+
+
+SMALL = """\
+  ◢◣◢◣◢◣      ◢◣◢◣◢◣      ◢◣◢◣◢◣
+ ▟█████▙▄▄   ▟█████▙▄▄   ▟█████▙▄▄
+ ██ ◉ █████▙ ██ ◉ █████▙ ██ ◉ █████▙
+ ▜██▄▄▄▄▄▟▀  ▜██▄▄▄▄▄▟▀  ▜██▄▄▄▄▄▟▀
+   ▜██▙        ▐██▌        ▟██▛
+     ▜██▙      ▐██▌      ▟██▛
+ ◢██◣  ▀███▄▄▄▄████▄▄▄▄███▀  ◢██◣
+◢████◣▄▄▟██████████████████▙▄▄◢████◣
+▀▀▀▜███████▛▀▀▀▀▀▀▀▀▀▀▀▀▜███████▛▀▀▀
+      ▐███▌              ▐███▌
+      ▀▀▀▀▘              ▝▀▀▀▀"""
+
+SMALL_MOUTHS = [(0.30, 0.30), (0.63, 0.30), (0.97, 0.30)]
+
+
+def small_cells():
+    """The hand-drawn sprite as cells: every glyph is a solid bone cell, eyes amber. Returned in
+    the same (top, bottom) shape as an image render so draw() and the poses work unchanged; the
+    glyph itself is kept in a parallel grid."""
+    lines = SMALL.split("\n")
+    width = max(len(l) for l in lines)
+    cells, glyphs = [], []
+    for line in lines:
+        row, grow = [], []
+        for ch in line.ljust(width):
+            if ch == " ":
+                row.append((None, None)); grow.append(" ")
+            elif ch == "◉":
+                row.append(((255, 176, 40), (255, 176, 40))); grow.append(ch)
+            else:
+                row.append((BONE, BONE)); grow.append(ch)
+        cells.append(row); glyphs.append(grow)
+    return cells, glyphs
 
 
 def shrink(image, width, rows, crop):
@@ -83,6 +123,9 @@ def tint(rgb, k):
     return tuple(min(255, int(ch * k)) for ch in rgb)
 
 
+GLYPHS = None  # set for the hand-drawn sprite: a grid of the character to print per cell
+
+
 def draw(cells, out, brightness=1.0, shift=0, red=False, flames=None, dim_cols=None):
     """Emit one frame. `flames` maps (row, col) to (char, rgb) drawn over the sprite, and
     `dim_cols` is a (start, end) column range drawn at a third of the brightness."""
@@ -104,7 +147,9 @@ def draw(cells, out, brightness=1.0, shift=0, red=False, flames=None, dim_cols=N
             if red:
                 t = t and (255, t[1] // 3, t[2] // 3)
                 b = b and (255, b[1] // 3, b[2] // 3)
-            if t and b:
+            if GLYPHS:
+                parts.append(f"\x1b[0m\x1b[38;2;{t[0]};{t[1]};{t[2]}m{GLYPHS[r][c]}")
+            elif t and b:
                 parts.append(f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m\x1b[48;2;{b[0]};{b[1]};{b[2]}m▀")
             elif t:
                 parts.append(f"\x1b[0m\x1b[38;2;{t[0]};{t[1]};{t[2]}m▀")
@@ -220,7 +265,9 @@ def demo(cells, mouths, seconds, fps, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--image", help="the reference image; required unless --load")
+    ap.add_argument("--image", help="the reference image; required unless --load or --small")
+    ap.add_argument("--small", action="store_true",
+                    help="the hand-drawn 11x36 sprite instead of a render of the image")
     ap.add_argument("--width", type=int, default=70)
     ap.add_argument("--crop", default="40,80,1480,2660",
                     help="y,x,h,w in source pixels; the default fits the 2816x1536 reference")
@@ -237,8 +284,16 @@ def main():
     if a.load:
         sys.stdout.write(open(a.load).read())
         return
+    if a.small:
+        global GLYPHS
+        cells, GLYPHS = small_cells()
+        if a.demo:
+            demo(cells, SMALL_MOUTHS, a.demo, a.fps, sys.stdout)
+        else:
+            draw(cells, sys.stdout)
+        return
     if not a.image:
-        ap.error("--image is required unless --load is given")
+        ap.error("--image is required unless --load or --small is given")
     crop = [int(v) for v in a.crop.split(",")] if a.crop else None
     mask = [float(v) for v in a.mask.split(",")] if a.mask else None
     mouths = [tuple(float(v) for v in m.split(",")) for m in a.mouths.split(";")]
