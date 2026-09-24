@@ -367,7 +367,7 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
     for approval in state.approvals:
         if approval["seq"] in consumed_approvals:
             approval["consumed"] = True
-        elif approval["revision"] != revision:
+        elif approval["kind"] != "plan" and approval["revision"] != revision:
             approval["voided"] = True
 
     return state
@@ -385,8 +385,11 @@ def approval_available(
             or approval.get("voided")
             or not approval["yes"]
             or approval["kind"] != kind
-            or approval["revision"] != state.revision
         ):
+            continue
+        # A plan approval is about the chosen plan, not the task table: importing the plan's
+        # tasks moves the revision and must not void the approval that allowed the import.
+        if kind != "plan" and approval["revision"] != state.revision:
             continue
         if kind in ("launch", "diff") and approval.get("ref") != ref:
             continue

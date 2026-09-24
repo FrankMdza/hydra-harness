@@ -224,12 +224,12 @@ first so the design map gets a ticket and the record contract does not fork with
 ## Status, in numbers
 
 Twelve commands a human types, the eleven of harness spec 17 plus `doctor`, and two hidden
-ones. 26 test files on 2026-09-24, green in CI on macOS. CI's corpus is empty, so the walks
-over real records check nothing there; beside each one a fixture walk runs the same assertions
-over `tests/fixtures/records/`, twelve synthetic records filed by the provider version whose shapes
-they reproduce, and the job summary prints both counts: zero live records and twelve fixtures. A
-green CI says the readers handle every shape in the fixtures, not that every record on this
-laptop still meets the contract. Rung one has
+ones. 27 test files on 2026-09-24, green in CI on macOS. CI never walks the live corpus under
+`~/hydra/runs/`; that is `hydra doctor --walk` on the machine that launched the runs. The fixture
+walks in `cargo test` run the same assertions over `tests/fixtures/records/`, twelve synthetic
+records filed by the provider version whose shapes they reproduce, and the CI job summary prints
+how many fixtures it checked. A green CI says the readers handle every shape in the fixtures, not
+that every record on this laptop still meets the contract. Rung one has
 run once against the real corpus and proposed one skill. Rung two has run ten passes and
 offered one patch, a two-word one, on the tenth, and a human merged it; the other nine found
 something real, and `IMPLEMENTATION.md` says what. Read that file before trusting a record:

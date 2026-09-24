@@ -11,11 +11,17 @@ use anyhow::Result;
 use crate::paths::Layout;
 use crate::policy::PolicySet;
 use crate::provider::Provider;
+use crate::walk;
 
 /// What [`run`] printed and whether anything a launch needs was missing.
 pub struct Report {
     pub text: String,
     pub missing: bool,
+}
+
+/// Walks the layout's `runs/` directory and prints one line per finding.
+pub fn run_walk(layout: &Layout) -> Result<walk::Report> {
+    walk::walk_corpus(layout)
 }
 
 /// Prints the report to stdout through the caller. Returns exit 1 material as

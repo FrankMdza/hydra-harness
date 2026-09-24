@@ -960,6 +960,20 @@ class BoardTests(PuppetsTestCase):
         self.assertIn("waiting on you: table", text)
 
 
+class PlanApprovalTests(PuppetsTestCase):
+    def test_a_plan_approval_survives_the_import_of_its_tasks(self):
+        events = [
+            {"event": "goal", "text": "t", "repo": "/repo", "base_sha": "abc"},
+            {"event": "panel_verdict", "judge_run_ids": [], "chosen": "composed", "path": None},
+            {"event": "approval", "kind": "plan", "ref": None, "revision": 0, "yes": True},
+            {"event": "task", "id": "t1", "text": "x", "class": "docs", "grade": "low", "deps": [], "paths": []},
+        ]
+        self.write_events("g1", events)
+        state = puppets.fold("g1")
+        self.assertIsNotNone(puppets.approval_available(state, "plan"))
+        self.assertIsNone(puppets.approval_available(state, "table"))
+
+
 class PuppetsLiveTest(unittest.TestCase):
     def test_new_and_show_without_launch(self):
         env = os.environ.copy()

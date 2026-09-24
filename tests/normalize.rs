@@ -3,22 +3,21 @@
 //! Two kinds of test. The synthetic ones build a record line by line and ask what
 //! the normalizer makes of one frame shape, which is the only way to reach a
 //! disagreement or a gate leak, because neither has ever happened on this
-//! machine. The corpus ones walk `~/hydra/runs/` and are the ones that would
-//! catch a frame shape this file guessed wrong.
+//! machine. The fixture corpus walk is the regression half in `cargo test`; the
+//! live walk over `~/hydra/runs/` is `hydra doctor --walk` (build ticket 126).
 //!
 //! Every test that touches a policy compiles the real gate and runs it, so these
 //! cost a python process per tool call and launch no provider.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use hydra::normalize::{Decider, Decision, Event, Finding, ResultStatus, Role, UsageSource};
 use serde_json::json;
 
 mod common;
 use common::{
-    RUN_ID, Record, Sandbox, Shape, agy_usage, corpus, cursor_read_blocked,
-    cursor_read_blocked_late, cursor_read_ok, cursor_shell_rejected, cursor_usage, policies,
-    usage_frame,
+    RUN_ID, Record, Sandbox, Shape, agy_usage, cursor_read_blocked, cursor_read_blocked_late,
+    cursor_read_ok, cursor_shell_rejected, cursor_usage, policies, usage_frame,
 };
 
 // --- one frame at a time -------------------------------------------------
@@ -1581,343 +1580,77 @@ fn the_judge_websearch_fixture_reads_as_unhooked_denied() {
     );
 }
 
-// --- the corpus ----------------------------------------------------------
+// --- the fixture corpus walk, build ticket 126 --------------------------------
 
-/// How a walk reads one record: the live walks against the real `~/hydra`,
-/// the fixture walks against `common::fixture_layout`.
-type Reader<'a> = &'a dyn Fn(&Path) -> hydra::normalize::Run;
-
-/// The live walk's reader.
-fn read_live(policies: &hydra::policy::PolicySet) -> impl Fn(&Path) -> hydra::normalize::Run + '_ {
-    move |path| {
-        hydra::normalize::read_file(path, policies)
-            .unwrap_or_else(|err| panic!("{} did not normalize: {err:#}", path.display()))
+fn fixture_read(
+    policies: &hydra::policy::PolicySet,
+) -> impl Fn(&Path) -> anyhow::Result<hydra::normalize::Run> + '_ {
+    move |path: &Path| {
+        let text = std::fs::read_to_string(path)?;
+        hydra::normalize::read_with(&text, policies, &common::fixture_layout())
     }
 }
 
-#[test]
-fn every_record_on_this_machine_normalizes() {
-    let policies = policies();
-    let (gated, pre_gate, harness) = every_record_normalizes(&corpus(), &read_live(&policies));
-    eprintln!("normalized {gated} gated, {pre_gate} pre-gate and {harness} harness record(s)");
+fn assert_no_walk_findings(findings: &[hydra::walk::Finding]) {
+    assert!(
+        findings.is_empty(),
+        "walk findings:\n{}",
+        findings
+            .iter()
+            .map(|finding| format!("  {}: {}", finding.path.display(), finding.assertion))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
 
 #[test]
 fn every_fixture_normalizes() {
     let policies = policies();
-    let (gated, pre_gate, harness) =
-        every_record_normalizes(&common::fixture_corpus(), &|path: &Path| {
-            common::read_fixture(path, &policies)
-        });
+    let fixtures = common::fixture_corpus();
+    let read = fixture_read(&policies);
+    let (findings, counts) = hydra::walk::check_normalizes(&fixtures, &read);
+    assert_no_walk_findings(&findings);
     assert!(
-        gated >= 1 && pre_gate >= 1 && harness >= 1,
-        "the fixtures hold {gated} gated, {pre_gate} pre-gate and {harness} harness record(s)"
+        counts.gated >= 1 && counts.pre_gate >= 1 && counts.harness >= 1,
+        "the fixtures hold {} gated, {} pre-gate and {} harness record(s)",
+        counts.gated,
+        counts.pre_gate,
+        counts.harness
     );
-}
-
-/// Counts gated, pre-gate and harness records, asserting what holds of each.
-fn every_record_normalizes(records: &[PathBuf], read: Reader<'_>) -> (usize, usize, usize) {
-    let mut gated = 0;
-    let mut pre_gate = 0;
-    let mut harness = 0;
-    for path in records {
-        let run = read(path);
-        assert!(run.run_start().is_some(), "{}", path.display());
-        // Contract 5.5: a harness run has no provider, two lines and no decision
-        // to derive. The first ones landed on 2026-09-08 with `hydra evolve`.
-        if run.provider.is_none() {
-            let start = run.run_start().unwrap();
-            assert_eq!(
-                start.body["command"].as_str(),
-                Some("evolve"),
-                "{}",
-                path.display()
-            );
-            assert_eq!(run.tool_calls().count(), 0, "{}", path.display());
-            harness += 1;
-            continue;
-        }
-        assert!(
-            matches!(
-                run.provider.as_deref(),
-                Some("claude") | Some("cursor-agent") | Some("agy") | Some("codex")
-            ),
-            "{}: {:?}",
-            path.display(),
-            run.provider
-        );
-
-        match run.policy {
-            // 7.2.1 and 5.6: a run with no policy has nothing to re-evaluate.
-            None => {
-                assert_eq!(
-                    run.permission_decisions().count(),
-                    0,
-                    "{} has no policy and still produced a decision",
-                    path.display()
-                );
-                pre_gate += 1;
-            }
-            Some(_) => {
-                assert_eq!(
-                    run.permission_decisions().count(),
-                    run.tool_calls().count(),
-                    "{} owes one decision per call",
-                    path.display()
-                );
-                gated += 1;
-            }
-        }
-        // 7.8: never a bare null, on every record.
-        assert!(run.usage().is_some(), "{}", path.display());
-    }
-    (gated, pre_gate, harness)
-}
-
-#[test]
-fn the_recorded_write_denial_derives_to_a_deny_under_capability() {
-    let policies = policies();
-    let Some(records) = common::corpus_or_skip() else {
-        return;
-    };
-    write_denials_derive_to_a_deny(&records, &read_live(&policies));
 }
 
 #[test]
 fn the_fixture_write_denial_derives_to_a_deny_under_capability() {
     let policies = policies();
-    write_denials_derive_to_a_deny(&common::fixture_corpus(), &|path: &Path| {
-        common::read_fixture(path, &policies)
-    });
-}
-
-fn write_denials_derive_to_a_deny(records: &[PathBuf], read: Reader<'_>) {
-    let mut seen = 0;
-    for path in records {
-        let run = read(path);
-        if run.policy.as_deref() != Some("read-only") {
-            continue;
-        }
-        for call in run.tool_calls().filter(|call| call.name == "Write") {
-            let decision = run
-                .permission_decisions()
-                .find(|decision| decision.call_id == call.call_id)
-                .expect("one per call");
-            assert_eq!(decision.decision, Decision::Deny);
-            assert_eq!(decision.decider, Decider::HydraPolicy);
-            assert!(
-                decision.reason.starts_with("hydra/capability:"),
-                "{}",
-                decision.reason
-            );
-            seen += 1;
-        }
-    }
-    // The three read-only runs ticket 02 measured each asked for one Write.
-    assert!(seen >= 1, "no recorded Write denial to check against");
-}
-
-/// The one record on this machine where the gate did stay silent, kept in the
-/// corpus on purpose. Run 01a0c223-9ec2 is build ticket 48's measurement that
-/// `codex` 0.154.0 reads no project hook file inside a git worktree: the file
-/// was in place, `cat ~/hydra/runs/nothing.jsonl` ran, and the reader files
-/// both calls as leaks, which is the reader being right. The launcher hands
-/// the hook over on the command line since that day, and run 01a0c231-6583 is
-/// the same probe refused. A second id here needs the same sentence.
-const MEASURED_SILENT_GATES: &[&str] = &["01a0c223-9ec2-72e0-b5d4-e29782d692b0"];
-
-#[test]
-fn no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent() {
-    let policies = policies();
-    no_gate_leaked_or_stayed_silent(&corpus(), &read_live(&policies));
+    let read = fixture_read(&policies);
+    let (findings, seen) = hydra::walk::check_write_denials(&common::fixture_corpus(), &read);
+    assert_no_walk_findings(&findings);
+    assert!(seen >= 1, "no fixture Write denial to check against");
 }
 
 #[test]
 fn no_fixture_shows_a_gate_that_leaked_or_stayed_silent() {
     let policies = policies();
-    no_gate_leaked_or_stayed_silent(&common::fixture_corpus(), &|path: &Path| {
-        common::read_fixture(path, &policies)
-    });
-}
-
-fn no_gate_leaked_or_stayed_silent(records: &[PathBuf], read: Reader<'_>) {
-    for path in records {
-        let run = read(path);
-        if MEASURED_SILENT_GATES.iter().any(|id| run.run_id == *id) {
-            // Under the policy set it ran under, the record reads as two
-            // leaks. Once the set moves, build ticket 49's rule files the same
-            // disagreement as a `StalePolicy` beside a limit saying the gate
-            // named is not the one compiled here, because a replay under
-            // today's set cannot tell a changed gate from a leak. Either
-            // reading is the reader being right about this record.
-            assert!(
-                run.findings.iter().any(|finding| match finding {
-                    Finding::GateLeak { .. } | Finding::StalePolicy { .. } => true,
-                    Finding::Limit(text) => text.contains("not the one compiled here"),
-                    _ => false,
-                }),
-                "{}: the measured silent gate reads as neither a leak nor a moved policy: {:?}",
-                path.display(),
-                run.findings
-            );
-            continue;
-        }
-        let leaks: Vec<_> = run
-            .findings
-            .iter()
-            .filter(|finding| {
-                matches!(
-                    finding,
-                    Finding::GateLeak { .. }
-                        | Finding::SubagentLeak { .. }
-                        // Every gated call on this machine has a gate answer in
-                        // the stream, which is what makes the fail-open check
-                        // worth having rather than noise.
-                        | Finding::Ungated { .. }
-                )
-            })
-            .collect();
-        assert!(leaks.is_empty(), "{}: {leaks:?}", path.display());
-
-        // Every record on this machine predates `run_start.scopes`, so every one
-        // of them that had a decision to derive says once that it rebuilt the
-        // paths. The walk has to keep reading those records rather than treat
-        // the limit as a fault, which is what build ticket 15 asks of it.
-        let rebuilt = run
-            .findings
-            .iter()
-            .filter(|finding| common::rebuilt_the_scopes(finding))
-            .count();
-        assert!(
-            rebuilt <= 1,
-            "{}: the reader said it rebuilt the scopes {rebuilt} times, and it is once per record",
-            path.display()
-        );
-    }
-}
-
-#[test]
-fn normalizing_writes_nothing() {
-    let policies = policies();
-    normalizing_changes_no_byte(corpus, &read_live(&policies));
+    let read = fixture_read(&policies);
+    let findings = hydra::walk::check_gate_leaks(&common::fixture_corpus(), &read);
+    assert_no_walk_findings(&findings);
 }
 
 #[test]
 fn normalizing_the_fixtures_writes_nothing() {
     let policies = policies();
-    normalizing_changes_no_byte(common::fixture_corpus, &|path: &Path| {
-        common::read_fixture(path, &policies)
-    });
-}
-
-/// Contract 11 forbids a normalized field on disk, and the cheapest check that
-/// it stays that way is that reading the corpus changes no byte of it.
-fn normalizing_changes_no_byte(corpus: fn() -> Vec<PathBuf>, read: Reader<'_>) {
-    let before: Vec<(PathBuf, Vec<u8>)> = corpus()
-        .into_iter()
-        .map(|path| {
-            let bytes = std::fs::read(&path).unwrap();
-            (path, bytes)
-        })
-        .collect();
-    if before.is_empty() {
-        return;
-    }
-
-    for (path, _) in &before {
-        read(path);
-    }
-
-    // A child may be writing while this runs, and a launch may add a file, so
-    // the check is that nothing this read owns changed: no file went away, and
-    // every byte that was there is still there in its place. A writer appending
-    // to a live record is the one other process allowed to touch the corpus.
-    assert!(
-        corpus().len() >= before.len(),
-        "normalizing removed a file under runs/"
-    );
-    for (path, bytes) in &before {
-        let after = std::fs::read(path).unwrap();
-        assert!(
-            after.starts_with(bytes),
-            "{}: bytes that were there before the read are not there after it",
-            path.display()
-        );
-    }
-}
-
-#[test]
-fn the_recorded_shell_denial_and_the_call_beside_it_derive_apart() {
-    // One `standard` run asked for two `Bash` calls: one naming `~/hydra/runs`,
-    // one writing inside its own worktree. 7.5 refuses the first under every
-    // policy and the second is ordinary shell, so a re-evaluation that collapsed
-    // them would be caught here and nowhere else in this file.
-    let policies = policies();
-    let Some(records) = common::corpus_or_skip() else {
-        return;
-    };
-    assert_eq!(
-        shell_pairs_derive_apart(&records, &read_live(&policies)),
-        1,
-        "the ticket 06 measurement is the only run of this shape"
-    );
+    let read = fixture_read(&policies);
+    let findings = hydra::walk::check_normalizing_writes_nothing(&common::fixture_corpus(), &read);
+    assert_no_walk_findings(&findings);
 }
 
 #[test]
 fn the_fixture_shell_denial_and_the_call_beside_it_derive_apart() {
     let policies = policies();
-    let pairs = shell_pairs_derive_apart(&common::fixture_corpus(), &|path: &Path| {
-        common::read_fixture(path, &policies)
-    });
+    let read = fixture_read(&policies);
+    let (findings, pairs) = hydra::walk::check_shell_pairs(&common::fixture_corpus(), &read);
+    assert_no_walk_findings(&findings);
     assert_eq!(pairs, 1, "the fixtures hold one run of this shape");
-}
-
-/// Counts the runs of ticket 06's shape and checks how each derives.
-fn shell_pairs_derive_apart(records: &[PathBuf], read: Reader<'_>) -> usize {
-    let mut pairs = 0;
-    for path in records {
-        let run = read(path);
-        if run.policy.as_deref() != Some("standard") {
-            continue;
-        }
-        let shell: Vec<_> = run
-            .tool_calls()
-            .filter(|call| call.name == "Bash")
-            .collect();
-        if shell.len() != 2 {
-            continue;
-        }
-        // The shape is the ticket 06 measurement's and not merely "two shell
-        // calls": the first names the corpus, the second does not. An `evolve`
-        // proposer on 2026-09-21 made two allowed `cargo` calls under `standard`
-        // and matched the count alone, which blocked a pass at admission.
-        let names_corpus = |call: &hydra::normalize::ToolCall| {
-            call.arguments["command"]
-                .as_str()
-                .is_some_and(|command| command.contains("hydra/runs"))
-        };
-        if !names_corpus(shell[0]) || names_corpus(shell[1]) {
-            continue;
-        }
-        let decision_for = |call_id: &str| {
-            run.permission_decisions()
-                .find(|decision| decision.call_id == call_id)
-                .map(|decision| (decision.decision, decision.decider, decision.reason.clone()))
-                .expect("one per call")
-        };
-
-        let (decision, decider, reason) = decision_for(&shell[0].call_id);
-        assert_eq!(decision, Decision::Deny);
-        assert_eq!(decider, Decider::HydraPolicy);
-        assert!(reason.starts_with("hydra/protected-path:"), "{reason}");
-
-        let (decision, decider, reason) = decision_for(&shell[1].call_id);
-        assert_eq!(decision, Decision::Allow);
-        assert_eq!(decider, Decider::HydraPolicy);
-        assert!(reason.starts_with("hydra/allow:"), "{reason}");
-        pairs += 1;
-    }
-    pairs
 }
 
 #[test]

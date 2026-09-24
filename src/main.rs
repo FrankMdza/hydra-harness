@@ -196,12 +196,23 @@ fn main() -> Result<()> {
                 anyhow::bail!("{failed} of {} could not be pruned", pruned.len());
             }
         }
-        Command::Doctor => {
+        Command::Doctor { walk } => {
             let layout = Layout::discover()?;
-            let report = hydra::doctor::run(&layout)?;
-            print!("{}", report.text);
-            if report.missing {
-                std::process::exit(1);
+            if walk {
+                let report = hydra::doctor::run_walk(&layout)?;
+                for finding in &report.findings {
+                    println!("{}: {}", finding.path.display(), finding.assertion);
+                }
+                println!("checked {} record(s)", report.records_read);
+                if !report.findings.is_empty() {
+                    std::process::exit(1);
+                }
+            } else {
+                let report = hydra::doctor::run(&layout)?;
+                print!("{}", report.text);
+                if report.missing {
+                    std::process::exit(1);
+                }
             }
         }
         Command::Export { out, dry_run } => {

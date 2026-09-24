@@ -215,7 +215,12 @@ pub enum Command {
 
     /// Report what a launch would find: the data root, policies, provider versions,
     /// policy sha and protected configs. Launches no provider and runs no probe.
-    Doctor,
+    Doctor {
+        /// Walk every record under `runs/` with the same assertions the fixture
+        /// walks use, and exit non-zero on a finding.
+        #[arg(long)]
+        walk: bool,
+    },
 
     /// The one path by which anything leaves this machine, harness spec 14.
     Export {
@@ -303,7 +308,12 @@ mod tests {
     fn doctor_is_a_command_this_binary_answers_to() {
         use clap::Parser;
         let cli = super::Cli::try_parse_from(["hydra", "doctor"]).unwrap();
-        assert!(matches!(cli.command, super::Command::Doctor));
+        assert!(matches!(
+            cli.command,
+            super::Command::Doctor { walk: false }
+        ));
+        let cli = super::Cli::try_parse_from(["hydra", "doctor", "--walk"]).unwrap();
+        assert!(matches!(cli.command, super::Command::Doctor { walk: true }));
     }
 
     use super::*;

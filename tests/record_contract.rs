@@ -574,41 +574,32 @@ fn a_record_carries_the_paths_its_gate_was_compiled_against() {
 }
 
 #[test]
-fn every_record_on_this_machine_meets_the_contract() {
-    // Multi-machine use is a non-goal, so the corpus this checks is the one on the
-    // laptop Hydra runs on. Nothing here fails on a machine that has run nothing.
-    let Some(runs) = common::corpus_runs_dir() else {
-        return;
-    };
-    let checked = meets_the_contract(&common::corpus());
-    eprintln!("checked {checked} record(s) under {}", runs.display());
-}
-
-#[test]
 fn every_fixture_meets_the_contract() {
-    // Build ticket 101. CI's live walk above reads an empty root, so this is the
-    // walk that says something there: the fixture corpus, one directory per
-    // provider binary version, none of it from a real run.
+    // Build ticket 101. The live walk over `~/hydra/runs/` is `hydra doctor --walk`
+    // (build ticket 126); this is the regression half CI runs: the fixture corpus,
+    // one directory per provider binary version, none of it from a real run.
     let fixtures = common::fixture_corpus();
     assert!(
         !fixtures.is_empty(),
         "no fixtures under {}",
         common::fixture_dir().display()
     );
-    let checked = meets_the_contract(&fixtures);
-    eprintln!("checked {checked} fixture record(s) under tests/fixtures/records");
+    let findings = hydra::walk::check_contract(&fixtures);
+    assert_no_walk_findings(&findings);
+    eprintln!(
+        "checked {} fixture record(s) under tests/fixtures/records",
+        fixtures.len()
+    );
 }
 
-/// Validates each record, naming the file and every problem when one fails.
-fn meets_the_contract(records: &[PathBuf]) -> usize {
-    for path in records {
-        let report = hydra::record::validate::check_file(path).unwrap();
-        assert!(
-            report.ok(),
-            "{} does not meet the contract:\n  {}",
-            path.display(),
-            report.problems.join("\n  ")
-        );
-    }
-    records.len()
+fn assert_no_walk_findings(findings: &[hydra::walk::Finding]) {
+    assert!(
+        findings.is_empty(),
+        "walk findings:\n{}",
+        findings
+            .iter()
+            .map(|finding| format!("  {}: {}", finding.path.display(), finding.assertion))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }

@@ -49,5 +49,6 @@ pub mod skills;
 pub mod spawn_config;
 pub mod status;
 pub mod usage;
+pub mod walk;
 pub mod watch;
 pub mod worktree;

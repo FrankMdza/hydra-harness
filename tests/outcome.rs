@@ -3,22 +3,20 @@
 //! Same two kinds of test as the normalizer's suite. The synthetic ones reach
 //! frame shapes this machine has never produced, which is most of the enum: no
 //! run here has ever been rate limited, crashed, or refused at launch. The corpus
-//! ones walk `~/hydra/runs/` and are what would catch a rule written against a
-//! shape that does not occur.
+//! ones are the fixture corpus walk; the live walk over `~/hydra/runs/` is
+//! `hydra doctor --walk` (build ticket 126).
 //!
 //! **Nothing here reads an exit status to expect an outcome.** Where a test sets
 //! one it is checking that the derivation ignored it.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use hydra::outcome::{Outcome, Source, derive};
 use hydra::record::{Refusal, RunEnd};
 use serde_json::{Value, json};
 
 mod common;
-use common::{
-    Record, Sandbox, Shape, corpus, cursor_read_blocked, cursor_usage, policies, usage_frame,
-};
+use common::{Record, Sandbox, Shape, cursor_read_blocked, cursor_usage, policies, usage_frame};
 
 /// The derivation, off a synthetic record.
 fn outcome_of(sandbox: &Sandbox, text: &str) -> Option<(Outcome, Source)> {
@@ -1228,303 +1226,63 @@ fn a_cursor_run_whose_only_call_the_gate_refused_is_gated() {
 
 // --- the corpus ----------------------------------------------------------
 
-/// How a walk reads one record: the live walks against the real `~/hydra`,
-/// the fixture walks against `common::fixture_layout`.
-type Reader<'a> = &'a dyn Fn(&Path) -> hydra::normalize::Run;
-
-/// The live walk's reader.
-fn read_live(policies: &hydra::policy::PolicySet) -> impl Fn(&Path) -> hydra::normalize::Run + '_ {
-    move |path| {
-        hydra::normalize::read_file(path, policies)
-            .unwrap_or_else(|err| panic!("{}: {err:#}", path.display()))
+fn fixture_read(
+    policies: &hydra::policy::PolicySet,
+) -> impl Fn(&Path) -> anyhow::Result<hydra::normalize::Run> + '_ {
+    move |path: &Path| {
+        let text = std::fs::read_to_string(path)?;
+        hydra::normalize::read_with(&text, policies, &common::fixture_layout())
     }
 }
 
-#[test]
-fn every_record_on_this_machine_derives_an_outcome() {
-    let policies = policies();
-    let Some(records) = common::corpus_or_skip() else {
-        return;
-    };
-    let seen = every_record_derives_an_outcome(&records, &read_live(&policies));
-    eprintln!("{seen:#?}");
+fn assert_no_walk_findings(findings: &[hydra::walk::Finding]) {
+    assert!(
+        findings.is_empty(),
+        "walk findings:\n{}",
+        findings
+            .iter()
+            .map(|finding| format!("  {}: {}", finding.path.display(), finding.assertion))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
 
 #[test]
 fn every_fixture_derives_an_outcome() {
     let policies = policies();
-    let seen = every_record_derives_an_outcome(&common::fixture_corpus(), &|path: &Path| {
-        common::read_fixture(path, &policies)
-    });
+    let read = fixture_read(&policies);
+    let (findings, seen) = hydra::walk::check_outcomes(&common::fixture_corpus(), &read);
+    assert_no_walk_findings(&findings);
+    assert!(!seen.is_empty(), "no fixture records to derive from");
     // One of each outcome the fixtures were built to carry.
     for outcome in ["completed", "gated", "rate_limited"] {
         assert!(
-            seen.iter().any(|(_, derived, _)| *derived == outcome),
+            seen.iter().any(|derived| derived.outcome == outcome),
             "no fixture derives {outcome}: {seen:?}"
         );
     }
     assert!(
-        seen.iter().any(|(_, _, source)| *source == "refusal"),
+        seen.iter().any(|derived| derived.source == "refusal"),
         "no fixture derives from a refusal: {seen:?}"
-    );
-}
-
-/// Every closed record derives an outcome; an open one derives none.
-fn every_record_derives_an_outcome(
-    records: &[PathBuf],
-    read: Reader<'_>,
-) -> Vec<(String, &'static str, &'static str)> {
-    let mut seen: Vec<(String, &'static str, &'static str)> = Vec::new();
-    for path in records {
-        let run = read(path);
-        // A run still being written has no `run_end`, and contract 6 says it is
-        // not corrupt. A walk that runs while a child works skips it rather than
-        // failing on it, which it did on 2026-09-07 with two runs live.
-        let Some(derived) = derive(&run) else {
-            assert!(
-                run.run_end().is_none(),
-                "{} has a run_end and no outcome came out of it",
-                path.display()
-            );
-            continue;
-        };
-        seen.push((
-            run.run_id.clone(),
-            derived.outcome.as_str(),
-            derived.source.as_str(),
-        ));
-    }
-    assert!(!seen.is_empty(), "no records to derive from");
-    seen
-}
-
-#[test]
-fn the_recorded_write_denials_are_the_only_gated_runs_on_this_machine() {
-    // Every record here whose provider got as far as answering reports
-    // `subtype: success` and `terminal_reason: completed`, and one of them exits
-    // 1 on a 429. What separates them is the gate's answer per call and the
-    // status on the terminator, never the exit code.
-    let policies = policies();
-    let Some(records) = common::corpus_or_skip() else {
-        return;
-    };
-    let gated = gated_runs_are_the_write_denials(&records, &read_live(&policies));
-    assert!(
-        gated >= 3,
-        "the three read-only Write denials should still be gated, found {gated}"
     );
 }
 
 #[test]
 fn the_fixture_write_denial_is_the_only_gated_fixture_on_the_stream() {
     let policies = policies();
-    let gated = gated_runs_are_the_write_denials(&common::fixture_corpus(), &|path: &Path| {
-        common::read_fixture(path, &policies)
-    });
+    let read = fixture_read(&policies);
+    let (findings, gated) =
+        hydra::walk::check_gated_write_denials(&common::fixture_corpus(), &read);
+    assert_no_walk_findings(&findings);
     assert_eq!(gated, 1, "the fixtures hold one read-only Write denial");
-}
-
-/// Checks every derived outcome against the per-call rule and the reasons a
-/// run steps out of it, and counts the runs the rule calls gated.
-fn gated_runs_are_the_write_denials(records: &[PathBuf], read: Reader<'_>) -> usize {
-    let mut gated = 0;
-    for path in records {
-        let run = read(path);
-        let Some(derived) = derive(&run) else {
-            continue;
-        };
-        let outcome = derived.outcome;
-
-        // A launch Hydra refused has no stream at all, so the per-call rule below
-        // is about a different question. Contract 8.2 calls that outcome a fact
-        // Hydra wrote rather than a reading, and this loop only checks readings.
-        if derived.source == Source::Refusal {
-            assert!(
-                !outcome.rung_one_learns(),
-                "{}: a refused launch came out {}",
-                path.display(),
-                outcome.as_str()
-            );
-            continue;
-        }
-
-        // A provider that refused its own service never reached the gate, so the
-        // per-call rule has nothing to say about it.
-        let status = run
-            .result
-            .as_ref()
-            .and_then(|result| result["api_error_status"].as_u64());
-        if status.is_some() {
-            assert!(
-                !outcome.rung_one_learns(),
-                "{}: api_error_status {status:?} came out {}",
-                path.display(),
-                outcome.as_str()
-            );
-            continue;
-        }
-
-        // A `codex` turn that failed ends on `turn.failed`, and build ticket 100
-        // reads it. Four landed on 2026-09-22 and 2026-09-23: three on the usage
-        // limit, which rung one must not learn from, and one the provider's own
-        // content filter stopped, which is `failed`.
-        if run
-            .result
-            .as_ref()
-            .is_some_and(|result| result["type"] == "turn.failed")
-        {
-            let quota = run.result.as_ref().unwrap()["error"]["message"]
-                .as_str()
-                .is_some_and(|text| text.contains("usage limit"));
-            let expected = if quota {
-                Outcome::RateLimited
-            } else {
-                Outcome::Failed
-            };
-            assert_eq!(outcome, expected, "{}", path.display());
-            continue;
-        }
-
-        // A provider that refused in prose on the pty never wrote a terminator,
-        // which is what `cursor-agent` does on its monthly limit: one sentence,
-        // exit 1, no frame. Contract 8 reads that off `noise`, and the per-call
-        // rule has nothing to read. Three of these landed on 2026-09-07.
-        if run.result.is_none() && !outcome.rung_one_learns() {
-            continue;
-        }
-
-        // A run Hydra refused before the spawn has no calls for the per-call rule
-        // to read, and contract 8.2 makes `refusal` the source anyway: `derive`
-        // reads it ahead of anything on the stream. Ticket 07's skill collision
-        // check is what first put one of these in the corpus.
-        if let Some(code) = run.run_end().and_then(|end| end.body["refusal"].as_str()) {
-            assert_eq!(
-                outcome,
-                hydra::record::Refusal::outcome_of(code),
-                "{}: refusal {code}",
-                path.display()
-            );
-            assert!(
-                !outcome.rung_one_learns(),
-                "{}: a refused launch taught no lesson",
-                path.display()
-            );
-            assert_eq!(
-                derive(&run).unwrap().source,
-                hydra::outcome::Source::Refusal
-            );
-            continue;
-        }
-
-        // A provider that ran the task and then died on it is `failed`, contract
-        // 12's second row, and the per-call rule says nothing about it. Two
-        // landed on this machine: `agy` on 2026-09-07 timed out waiting for its
-        // own model at 292 seconds, exit 1, with 41 gate answers before that and
-        // a terminator on the stream; `codex` on 2026-09-24 (01a0d484) stopped
-        // 27 seconds in with items and one `agent_message` but no turn terminator,
-        // exit 0. Contract 8 reads a streamed run that stopped without a
-        // terminator as `failed` and does not consult the exit code, so exit 0
-        // is allowed when `run.result` is none. Every measured `failed` run that
-        // does carry a terminator exits non-zero.
-        if outcome == Outcome::Failed {
-            if run.result.is_none() {
-                continue;
-            }
-            let exit = run.run_end().map(|end| end.body["exit_code"].clone());
-            assert_ne!(
-                exit,
-                Some(serde_json::json!(0)),
-                "{}: failed with exit 0",
-                path.display()
-            );
-            continue;
-        }
-
-        // A child the kernel killed. `Crashed` is derived from the signal on
-        // `run_end.error`, so the gate's per-call answer says nothing about it:
-        // the run was stopped from outside and its calls were all allowed up to
-        // the moment it died. One landed on 2026-09-15, when six runs were live
-        // on an 8 GB machine and the OOM killer took one of them.
-        if outcome == Outcome::Crashed {
-            let error = run
-                .run_end()
-                .and_then(|end| end.body["error"].as_str().map(str::to_string));
-            assert!(
-                error.is_some_and(|said| said.contains("signal")),
-                "{}: came out crashed with no signal on run_end.error",
-                path.display()
-            );
-            continue;
-        }
-
-        let refused = run
-            .permission_decisions()
-            .filter(|d| d.decision == hydra::normalize::Decision::Deny)
-            .count();
-        let calls = run.permission_decisions().count();
-        let expected = if calls > 0 && refused == calls {
-            gated += 1;
-            Outcome::Gated
-        } else {
-            Outcome::Completed
-        };
-
-        assert_eq!(
-            outcome,
-            expected,
-            "{}: {calls} call(s), {refused} refused",
-            path.display()
-        );
-    }
-    gated
-}
-
-#[test]
-fn the_one_unclassified_result_on_this_machine_is_the_only_unknown() {
-    let policies = policies();
-    unknown_only_where_a_result_is_unclassified(&corpus(), &read_live(&policies));
 }
 
 #[test]
 fn a_fixture_is_unknown_only_where_a_result_is_unclassified() {
     let policies = policies();
-    unknown_only_where_a_result_is_unclassified(&common::fixture_corpus(), &|path: &Path| {
-        common::read_fixture(path, &policies)
-    });
-}
-
-fn unknown_only_where_a_result_is_unclassified(records: &[PathBuf], read: Reader<'_>) {
-    for path in records {
-        let run = read(path);
-        let Some(derived) = derive(&run) else {
-            continue;
-        };
-        let source = derived.source;
-        // A harvested run with no body at all, a session that exited before its
-        // first turn and wrote no transcript, has nothing to read an outcome
-        // from and says so on `run_end.error`. Its source is unknown for a
-        // different reason than the rule below tests, so it steps out. First
-        // one landed 2026-09-08, run 01a07f6b-147d.
-        let empty_harvest = run
-            .run_end()
-            .is_some_and(|end| end.body["error"].is_string())
-            && run.messages().next().is_none()
-            && run.tool_results().next().is_none();
-        if empty_harvest {
-            continue;
-        }
-        let unclassified = run
-            .tool_results()
-            .any(|r| r.status == hydra::normalize::ResultStatus::Unclassified);
-        let completed = derive(&run).unwrap().outcome == Outcome::Completed;
-
-        assert_eq!(
-            source == Source::Unknown,
-            unclassified && completed,
-            "{}",
-            path.display()
-        );
-    }
+    let read = fixture_read(&policies);
+    let findings = hydra::walk::check_unknown_sources(&common::fixture_corpus(), &read);
+    assert_no_walk_findings(&findings);
 }
 
 // --- agy: the terminator says how it went in a field of its own -----------

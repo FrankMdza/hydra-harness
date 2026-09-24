@@ -218,29 +218,26 @@ searches each for a denied spelling, which is the raw pass of build ticket 56 ap
 door. Measured: disable it and the same call comes back `hydra/allow: policy permissive allows
 mcp_call`. `config/mcp.md` admits no writing server today, so nothing had fired.
 
-**The corpus walks honour `HYDRA_ROOT` since build ticket 51.** `corpus_runs_dir` in
-`tests/common/mod.rs` is the one place that answers where they read, and `tests/record_contract.rs`
-goes through it rather than building the path from `real_home()` itself. The CI workflow had been
-setting the variable and claiming the walks read it, which was false; CI passed because the runner's
-home holds no corpus. Four tests measure a particular record rather than checking every one, and
-those return early on an empty corpus through `corpus_or_skip`. Measured: against an empty
-`HYDRA_ROOT`, `normalize`, `outcome` and `record_contract` pass 139 of 139 in under a second;
-against the real 213 records they take six minutes. Since build ticket 84 the CI job ends with a
-step that runs the contract walk alone and writes its "checked N record(s)" line to the job
-summary, so a green run on the runner's empty root says `checked 0` where a reader can see it.
-**Since build ticket 101 CI walks a fixture corpus too** (panel findings F32 and H14).
+**The live corpus walk is `hydra doctor --walk` since build ticket 126** (map ticket 80). The
+assertions moved into `src/walk.rs`; the command walks `Layout::discover()`'s `runs/` directory,
+prints one line per finding and exits non-zero when there is any. `cargo test` no longer reads
+`~/hydra/runs/` on any machine: the fixture walks in `tests/record_contract.rs`, `tests/normalize.rs`
+and `tests/outcome.rs` call the same functions over `tests/fixtures/records/`. CI sets
+`HYDRA_ROOT` at an empty scratch root and never runs the live walk; the session's pre-push script
+should run `hydra doctor --walk` beside `cargo test`. `corpus_runs_dir` and `corpus_or_skip` in
+`tests/common/mod.rs` remain for tests that launch a stub with `HYDRA_ROOT`, not for corpus walks.
+**Since build ticket 101 CI walks a fixture corpus** (panel findings F32 and H14).
 `tests/fixtures/records/` holds twelve synthetic records in five directories named by the binary
 that wrote each shape: `claude@2.1.261`, `cursor-agent@2026.09.02-c22c1a3`, `agy@1.1.26`,
 `codex@0.154.0` and `harness`. The ignored test `write_the_fixture_corpus` in
 `tests/fixture_corpus.rs` writes them from the builders in `tests/common`, so no byte comes from
 `~/hydra/runs`, and three tests there guard the directory label, the coverage of every routed
-provider and the harness, and the absence of secrets, home paths and live run ids. Each live walk
-in `record_contract.rs`, `normalize.rs` and `outcome.rs` has a fixture twin with the same
-assertions, and the CI job summary prints both counts, zero live records and twelve fixtures. Two
-limits. The fixture leak walk can catch a reader that invents a leak and cannot catch a real one,
-because a frozen fixture names no gate this build compiles, so a disagreement reads as
-`StalePolicy`; the synthetic tests in `tests/normalize.rs` hold the leak rule. And no fixture
-has the 2026-09-22 versions yet; a shape change on one of those goes in a new directory.
+provider and the harness, and the absence of secrets, home paths and live run ids. The CI job
+summary prints how many fixtures the contract walk checked. Two limits. The fixture leak walk can
+catch a reader that invents a leak and cannot catch a real one, because a frozen fixture names no
+gate this build compiles, so a disagreement reads as `StalePolicy`; the synthetic tests in
+`tests/normalize.rs` hold the leak rule. And no fixture has the 2026-09-22 versions yet; a shape
+change on one of those goes in a new directory.
 
 **A run cannot relaunch the binary and name its own policy since build ticket 57, and the stop is a
 marker.** Harness spec 7.3's rule was enforced nowhere: `Lineage::of` returns depth 0 with no bound
