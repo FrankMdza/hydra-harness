@@ -1,7 +1,7 @@
 # 127 - The walk assertions in `src/walk.rs` keep the comments that said why
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -32,3 +32,18 @@ scopes once, the `agy` timeout and the codex seat behind the `failed` rule, and 
   listed in your report with a reason.
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --lib --test
   doctor --test normalize --test outcome --test record_contract` pass.
+
+## Outcome
+
+Resolved 2026-09-24. Built by `composer-2.5` on run 01a0d587-e3e1 under `standard`, about 0.59M
+tokens. The session applied the diff as written.
+
+`src/walk.rs` gains 94 comment lines, and `git diff -w` shows no code change. Six short doc
+comments build 126 wrote were replaced by the originals. Each `check_*` function now carries the
+doc comment of the test it came from, and the inline reasons are back at their assertions:
+contract 5.5 and 7.8 in `check_normalizes`, ticket 48's silent gate, the `Ungated` fail-open
+note and build 15's rebuilt scopes in `check_gate_leaks`, contract 11 in
+`check_normalizing_writes_nothing`, and the eight per-outcome comments in
+`check_gated_write_denials`. Dropped on purpose: the doc comments on the old `Reader` alias and
+`read_live`, which described test wiring that no longer exists. fmt and clippy are clean, and
+doctor 2 and normalize 87 pass on master.

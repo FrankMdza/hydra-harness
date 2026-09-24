@@ -96,7 +96,10 @@ fn push(findings: &mut Vec<Finding>, path: &Path, assertion: impl Into<String>) 
     });
 }
 
-/// Contract validation, one problem per finding.
+/// Validates each record, naming the file and every problem when one fails.
+///
+/// Multi-machine use is a non-goal, so the corpus this checks is the one on the
+/// laptop Hydra runs on. Nothing here fails on a machine that has run nothing.
 pub fn check_contract(paths: &[PathBuf]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in paths {
@@ -121,7 +124,7 @@ pub fn check_contract(paths: &[PathBuf]) -> Vec<Finding> {
     findings
 }
 
-/// Normalization shape checks. Returns counts for fixture tests that measure them.
+/// Counts gated, pre-gate and harness records, asserting what holds of each.
 pub fn check_normalizes(
     paths: &[PathBuf],
     read: &dyn Fn(&Path) -> Result<Run>,
@@ -140,6 +143,8 @@ pub fn check_normalizes(
             push(&mut findings, path, "missing run_start");
             continue;
         }
+        // Contract 5.5: a harness run has no provider, two lines and no decision
+        // to derive. The first ones landed on 2026-09-08 with `hydra evolve`.
         if run.provider.is_none() {
             let start = run.run_start().unwrap();
             if start.body["command"].as_str() != Some("evolve") {
@@ -170,6 +175,7 @@ pub fn check_normalizes(
             continue;
         }
         match run.policy {
+            // 7.2.1 and 5.6: a run with no policy has nothing to re-evaluate.
             None => {
                 if run.permission_decisions().count() != 0 {
                     push(
@@ -193,6 +199,7 @@ pub fn check_normalizes(
                 counts.gated += 1;
             }
         }
+        // 7.8: never a bare null, on every record.
         if run.usage().is_none() {
             push(&mut findings, path, "missing usage");
         }
@@ -258,10 +265,17 @@ pub fn check_write_denials(
             }
         }
     }
+    // The three read-only runs ticket 02 measured each asked for one Write.
     (findings, seen)
 }
 
-/// Run ids whose silent gate is a measured exception, not a regression.
+/// The one record on this machine where the gate did stay silent, kept in the
+/// corpus on purpose. Run 01a0c223-9ec2 is build ticket 48's measurement that
+/// `codex` 0.154.0 reads no project hook file inside a git worktree: the file
+/// was in place, `cat ~/hydra/runs/nothing.jsonl` ran, and the reader files
+/// both calls as leaks, which is the reader being right. The launcher hands
+/// the hook over on the command line since that day, and run 01a0c231-6583 is
+/// the same probe refused. A second id here needs the same sentence.
 const MEASURED_SILENT_GATES: &[&str] = &["01a0c223-9ec2-72e0-b5d4-e29782d692b0"];
 
 /// Gate leaks, ungated calls and stale-policy disagreements.
@@ -276,6 +290,12 @@ pub fn check_gate_leaks(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) 
             }
         };
         if MEASURED_SILENT_GATES.iter().any(|id| run.run_id == *id) {
+            // Under the policy set it ran under, the record reads as two
+            // leaks. Once the set moves, build ticket 49's rule files the same
+            // disagreement as a `StalePolicy` beside a limit saying the gate
+            // named is not the one compiled here, because a replay under
+            // today's set cannot tell a changed gate from a leak. Either
+            // reading is the reader being right about this record.
             let ok = run.findings.iter().any(|finding| match finding {
                 NormalizeFinding::GateLeak { .. } | NormalizeFinding::StalePolicy { .. } => true,
                 NormalizeFinding::Limit(text) => text.contains("not the one compiled here"),
@@ -301,6 +321,9 @@ pub fn check_gate_leaks(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) 
                     finding,
                     NormalizeFinding::GateLeak { .. }
                         | NormalizeFinding::SubagentLeak { .. }
+                        // Every gated call on this machine has a gate answer in
+                        // the stream, which is what makes the fail-open check
+                        // worth having rather than noise.
                         | NormalizeFinding::Ungated { .. }
                 )
             })
@@ -308,6 +331,11 @@ pub fn check_gate_leaks(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) 
         if !leaks.is_empty() {
             push(&mut findings, path, format!("gate finding: {leaks:?}"));
         }
+
+        // Every record on this machine predates `run_start.scopes`, so every one
+        // of them that had a decision to derive says once that it rebuilt the
+        // paths. The walk has to keep reading those records rather than treat
+        // the limit as a fault, which is what build ticket 15 asks of it.
         let rebuilt = run
             .findings
             .iter()
@@ -326,7 +354,8 @@ pub fn check_gate_leaks(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) 
     findings
 }
 
-/// Contract 11: normalizing must change no byte of a record on disk.
+/// Contract 11 forbids a normalized field on disk, and the cheapest check that
+/// it stays that way is that reading the corpus changes no byte of it.
 pub fn check_normalizing_writes_nothing(
     paths: &[PathBuf],
     read: &dyn Fn(&Path) -> Result<Run>,
@@ -344,6 +373,10 @@ pub fn check_normalizing_writes_nothing(
             push(&mut findings, path, err.to_string());
         }
     }
+    // A child may be writing while this runs, and a launch may add a file, so
+    // the check is that nothing this read owns changed: no file went away, and
+    // every byte that was there is still there in its place. A writer appending
+    // to a live record is the one other process allowed to touch the corpus.
     let after_count = paths.len();
     if after_count < before.len() {
         findings.push(Finding {
@@ -369,7 +402,12 @@ pub fn check_normalizing_writes_nothing(
     findings
 }
 
-/// Ticket 06's shape: two `Bash` calls where the first names the corpus and the second does not.
+/// Counts the runs of ticket 06's shape and checks how each derives.
+///
+/// One `standard` run asked for two `Bash` calls: one naming `~/hydra/runs`,
+/// one writing inside its own worktree. 7.5 refuses the first under every
+/// policy and the second is ordinary shell, so a re-evaluation that collapsed
+/// them would be caught here and nowhere else in this file.
 pub fn check_shell_pairs(
     paths: &[PathBuf],
     read: &dyn Fn(&Path) -> Result<Run>,
@@ -394,6 +432,10 @@ pub fn check_shell_pairs(
         if shell.len() != 2 {
             continue;
         }
+        // The shape is the ticket 06 measurement's and not merely "two shell
+        // calls": the first names the corpus, the second does not. An `evolve`
+        // proposer on 2026-09-21 made two allowed `cargo` calls under `standard`
+        // and matched the count alone, which blocked a pass at admission.
         let names_corpus = |call: &crate::normalize::ToolCall| {
             call.arguments["command"]
                 .as_str()
@@ -479,6 +521,9 @@ pub fn check_outcomes(
                 continue;
             }
         };
+        // A run still being written has no `run_end`, and contract 6 says it is
+        // not corrupt. A walk that runs while a child works skips it rather than
+        // failing on it, which it did on 2026-09-07 with two runs live.
         match derive(&run) {
             Some(derived) => {
                 seen.push(DerivedOutcome {
@@ -500,7 +545,13 @@ pub fn check_outcomes(
     (findings, seen)
 }
 
-/// Per-call outcome rule and the reasons a run steps out of it.
+/// Checks every derived outcome against the per-call rule and the reasons a
+/// run steps out of it, and counts the runs the rule calls gated.
+///
+/// Every record here whose provider got as far as answering reports
+/// `subtype: success` and `terminal_reason: completed`, and one of them exits
+/// 1 on a 429. What separates them is the gate's answer per call and the
+/// status on the terminator, never the exit code.
 pub fn check_gated_write_denials(
     paths: &[PathBuf],
     read: &dyn Fn(&Path) -> Result<Run>,
@@ -520,6 +571,9 @@ pub fn check_gated_write_denials(
         };
         let outcome = derived.outcome;
 
+        // A launch Hydra refused has no stream at all, so the per-call rule below
+        // is about a different question. Contract 8.2 calls that outcome a fact
+        // Hydra wrote rather than a reading, and this loop only checks readings.
         if derived.source == Source::Refusal {
             if outcome.rung_one_learns() {
                 push(
@@ -531,6 +585,8 @@ pub fn check_gated_write_denials(
             continue;
         }
 
+        // A provider that refused its own service never reached the gate, so the
+        // per-call rule has nothing to say about it.
         let status = run
             .result
             .as_ref()
@@ -546,6 +602,10 @@ pub fn check_gated_write_denials(
             continue;
         }
 
+        // A `codex` turn that failed ends on `turn.failed`, and build ticket 100
+        // reads it. Four landed on 2026-09-22 and 2026-09-23: three on the usage
+        // limit, which rung one must not learn from, and one the provider's own
+        // content filter stopped, which is `failed`.
         if run
             .result
             .as_ref()
@@ -569,10 +629,18 @@ pub fn check_gated_write_denials(
             continue;
         }
 
+        // A provider that refused in prose on the pty never wrote a terminator,
+        // which is what `cursor-agent` does on its monthly limit: one sentence,
+        // exit 1, no frame. Contract 8 reads that off `noise`, and the per-call
+        // rule has nothing to read. Three of these landed on 2026-09-07.
         if run.result.is_none() && !outcome.rung_one_learns() {
             continue;
         }
 
+        // A run Hydra refused before the spawn has no calls for the per-call rule
+        // to read, and contract 8.2 makes `refusal` the source anyway: `derive`
+        // reads it ahead of anything on the stream. Ticket 07's skill collision
+        // check is what first put one of these in the corpus.
         if let Some(code) = run.run_end().and_then(|end| end.body["refusal"].as_str()) {
             let expected = record::Refusal::outcome_of(code);
             if outcome != expected {
@@ -595,6 +663,16 @@ pub fn check_gated_write_denials(
             continue;
         }
 
+        // A provider that ran the task and then died on it is `failed`, contract
+        // 12's second row, and the per-call rule says nothing about it. Two
+        // landed on this machine: `agy` on 2026-09-07 timed out waiting for its
+        // own model at 292 seconds, exit 1, with 41 gate answers before that and
+        // a terminator on the stream; `codex` on 2026-09-24 (01a0d484) stopped
+        // 27 seconds in with items and one `agent_message` but no turn terminator,
+        // exit 0. Contract 8 reads a streamed run that stopped without a
+        // terminator as `failed` and does not consult the exit code, so exit 0
+        // is allowed when `run.result` is none. Every measured `failed` run that
+        // does carry a terminator exits non-zero.
         if outcome == Outcome::Failed {
             if run.result.is_none() {
                 continue;
@@ -606,6 +684,11 @@ pub fn check_gated_write_denials(
             continue;
         }
 
+        // A child the kernel killed. `Crashed` is derived from the signal on
+        // `run_end.error`, so the gate's per-call answer says nothing about it:
+        // the run was stopped from outside and its calls were all allowed up to
+        // the moment it died. One landed on 2026-09-15, when six runs were live
+        // on an 8 GB machine and the OOM killer took one of them.
         if outcome == Outcome::Crashed {
             let error = run
                 .run_end()
@@ -664,6 +747,11 @@ pub fn check_unknown_sources(
             continue;
         };
         let source = derived.source;
+        // A harvested run with no body at all, a session that exited before its
+        // first turn and wrote no transcript, has nothing to read an outcome
+        // from and says so on `run_end.error`. Its source is unknown for a
+        // different reason than the rule below tests, so it steps out. First
+        // one landed 2026-09-08, run 01a07f6b-147d.
         let empty_harvest = run
             .run_end()
             .is_some_and(|end| end.body["error"].is_string())
