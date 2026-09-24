@@ -1082,7 +1082,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
         if model:
             body["model"] = model
         append_event(args.goal, body)
-        print(f"proposed {provider} run {run_id}")
+        pane = attach_pane(run_id, provider, "standard")
+        print(f"proposed {provider} run {run_id}" + (f" in {pane}" if pane else ""))
     return 0
 
 
