@@ -12,6 +12,7 @@ its own aspect. Dark pixels are left transparent so the dragon sits on the pane'
     hydra-mascot --image ref.jpeg --width 60 --save ~/.cache/hydra-mascot.ans
     hydra-mascot --load ~/.cache/hydra-mascot.ans            # from .zshrc, like pokemon-colorscripts
     hydra-mascot --small --demo 20                           # the pixel-art sprite, 48 x 15
+    hydra-mascot --pet --demo 20                             # the HydraPet 24-pixel dragon, drawn per frame
 
 The image render reads as a dragon at 60 columns and up; below that it is a blob, so the small
 sprite is pixel art on a 48 x 28 grid with a nine-colour palette, in the style of the pokemon
@@ -354,6 +355,78 @@ def demo(cells, mouths, seconds, fps, out, frame_source=None):
         out.flush()
 
 
+def pet_cells(t, heads, fires, pet=False, scale=2):
+    """One frame of the compact HydraPet dragon (24 x 24 pixels, drawn per frame by the vendored
+    `hydrapet.render_compact_dragon`) as cells, scaled up by whole pixels."""
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("hydrapet", os.path.join(here, "..", "mascot", "hydrapet.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    grid = mod.render_compact_dragon(t, heads, fires, pet_active=pet)
+    h, w = grid.shape[:2]
+    px = []
+    for y in range(h):
+        row = []
+        for x in range(w):
+            r, g, b, a = (int(v) for v in grid[y, x])
+            row.append(None if a < 40 else (r * a // 255, g * a // 255, b * a // 255))
+        px.append([v for v in row for _ in range(scale)])
+    px = [row for row in px for _ in range(scale)]
+    cells = []
+    for y in range(0, len(px) - 1, 2):
+        cells.append([(px[y][x], px[y + 1][x]) for x in range(len(px[0]))])
+    return cells
+
+
+def pet_demo(seconds, fps, out, scale):
+    """The pet's own art, driven by the same pose cycle as the sprites: idle, working, one head
+    asleep, refused (a red flash), the meme head (hearts, the pet's nearest gesture), fire."""
+    rng = random.Random()
+    out.write("\x1b[?25l\x1b[2J")
+    phase = [("idle", 3), ("working", 3), ("sleep", 4), ("refused", 1), ("derp", 3), ("fire", 4)]
+    cycle_len = sum(secs for _, secs in phase)
+    sleeper = rng.randrange(3)
+    t0 = time.time()
+    frame = 0
+    last_cycle = 0
+    try:
+        while time.time() - t0 < seconds:
+            now = time.time() - t0
+            cycle = int(now // cycle_len)
+            if cycle != last_cycle:
+                last_cycle = cycle
+                sleeper = rng.randrange(3)
+            elapsed = now % cycle_len
+            pose, acc = "idle", 0
+            for name, secs in phase:
+                acc += secs
+                if elapsed < acc:
+                    pose = name
+                    break
+            heads = ["awake", "awake", "awake"]
+            fires = [0.0, 0.0, 0.0]
+            pet = False
+            if pose == "sleep":
+                heads[sleeper] = "sleeping"
+            elif pose == "fire":
+                heads = ["firing", "firing", "firing"]
+                fires = [1.0, 1.0, 1.0]
+            elif pose == "derp":
+                pet = True
+            speed = 2.0 if pose == "working" else 1.0
+            cells = pet_cells(now * speed, heads, fires, pet, scale)
+            out.write("\x1b[H")
+            draw(cells, out, red=(pose == "refused" and frame % 2 == 0))
+            out.write(f"\x1b[0m {pose:<8}\x1b[K\n")
+            out.flush()
+            frame += 1
+            time.sleep(1 / fps)
+    finally:
+        out.write("\x1b[0m\x1b[?25h\n")
+        out.flush()
+
+
 def write_png(cells, path, scale=8):
     """A preview of the sprite as it would look on screen, one pixel as scale x scale dots (a
     terminal cell is about twice as tall as wide and holds two pixels, so pixels are square),
@@ -385,6 +458,9 @@ def main():
     ap.add_argument("--image", help="the reference image; required unless --load or --small")
     ap.add_argument("--sprite", help="a sprite file (map, palette, mouths); implies --small")
     ap.add_argument("--png", help="with --small or --sprite: write a scaled PNG preview and exit")
+    ap.add_argument("--pet", action="store_true",
+                    help="the HydraPet compact dragon (mascot/hydrapet.py), drawn per frame; needs numpy")
+    ap.add_argument("--scale", type=int, default=2, help="with --pet: whole-pixel upscale, 2 gives 48 columns")
     ap.add_argument("--small", action="store_true",
                     help="the pixel-art sprite, 48 columns of dragon plus margins for the fire, 15 rows")
     ap.add_argument("--width", type=int, default=70)
@@ -402,6 +478,19 @@ def main():
     a = ap.parse_args()
     if a.load:
         sys.stdout.write(open(a.load).read())
+        return
+    if a.pet:
+        if a.demo:
+            pet_demo(a.demo, a.fps, sys.stdout, a.scale)
+            return
+        cells = pet_cells(0.3, ["awake", "awake", "awake"], [0.0, 0.0, 0.0], False, a.scale)
+        if a.png:
+            write_png(cells, a.png)
+        elif a.save:
+            with open(a.save, "w") as f:
+                draw(cells, f)
+        else:
+            draw(cells, sys.stdout)
         return
     if a.small and not a.sprite:
         # The default small sprite is the best of the sprite files beside this script: codex's,
