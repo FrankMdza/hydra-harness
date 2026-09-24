@@ -117,6 +117,12 @@ class SkinTests(unittest.TestCase):
         self.assertEqual(len(cells[0]), len(hydra_mascot.PIX_ROWS[0]) + 2 * hydra_mascot.MARGIN)
 
     def test_skins_cycle_and_the_pet_needs_no_file(self):
-        self.assertEqual(hydra_mascot.SKINS[0], "pet")
+        self.assertEqual(hydra_mascot.SKINS[0], "hd")
         hydra_mascot.load_skin("pet")
-        self.assertEqual(hydra_mascot.SKINS[(hydra_mascot.SKINS.index("agy") + 1) % len(hydra_mascot.SKINS)], "pet")
+        self.assertEqual(hydra_mascot.SKINS[(hydra_mascot.SKINS.index("agy") + 1) % len(hydra_mascot.SKINS)], "hd")
+
+    def test_the_hd_skin_renders_to_cells(self):
+        cells = hydra_mascot.hd_cells(0.5, ["awake", "sleeping", "firing"], [0.0, 0.0, 1.0], cols=48)
+        self.assertEqual((len(cells), len(cells[0])), (24, 48))
+        filled = sum(1 for row in cells for (t, b) in row if t or b)
+        self.assertGreater(filled, 100)

@@ -438,7 +438,7 @@ def list_herdr_panes():
         return []
 
 
-SKINS = ["pet", "codex", "session", "agy"]
+SKINS = ["hd", "pet", "codex", "session", "agy"]
 SKIN_FILE = os.path.join(os.path.expanduser("~"), ".cache", "hydra-mascot-skin")
 
 
@@ -447,9 +447,35 @@ def sprites_dir():
 
 
 def load_skin(name):
-    """The pet needs nothing loaded; a sprite skin loads its file into the module globals."""
-    if name != "pet":
+    """The pet and the HD dragon need nothing loaded; a sprite skin loads its file."""
+    if name not in ("pet", "hd"):
         load_sprite(os.path.join(sprites_dir(), f"hydra-{name}.txt"))
+
+
+def hd_cells(t, heads, fires, cols=48):
+    """One frame of the HydraPet HD dragon (the 160-pixel canvas art of the vendored
+    `hydrapet.py`, drawn per frame) box-averaged down to `cols` columns of half blocks, so it is
+    `cols` by `cols // 2` rows on screen. Transparent where the canvas is."""
+    import numpy as np
+    img = hydrapet_module().render_hd_dragon(t, heads, fires, pet_active=False)
+    h, w = img.shape[:2]
+    rows = cols // 2
+    ph = rows * 2
+    px = []
+    for y in range(ph):
+        row = []
+        y0, y1 = int(y * h / ph), max(int((y + 1) * h / ph), int(y * h / ph) + 1)
+        for x in range(cols):
+            x0, x1 = int(x * w / cols), max(int((x + 1) * w / cols), int(x * w / cols) + 1)
+            box = img[y0:y1, x0:x1].reshape(-1, 4).astype("float32")
+            a = box[:, 3].mean()
+            if a < 40:
+                row.append(None)
+                continue
+            rgb = (box[:, :3] * (box[:, 3:4] / 255.0)).sum(axis=0) / max(1.0, (box[:, 3] / 255.0).sum())
+            row.append(tuple(int(v) for v in rgb))
+        px.append(row)
+    return [[(px[y][x], px[y + 1][x]) for x in range(cols)] for y in range(0, ph - 1, 2)]
 
 
 def saved_skin():
@@ -501,7 +527,7 @@ def read_key(timeout):
 
 def watch_loop(out, scale=2, skin=None):
     """Read pane tokens once a second and drive the mascot from live Hydra runs. Tab or `m`
-    cycles the skin (pet, codex, session, agy), `q` quits; the choice is remembered."""
+    cycles the skin (hd, pet, codex, session, agy), `q` quits; the choice is remembered."""
     prev_denials = {}
     flash_until = {}
     rng = random.Random()
@@ -515,15 +541,21 @@ def watch_loop(out, scale=2, skin=None):
         import termios, tty
         old_tty = termios.tcgetattr(sys.stdin)
         tty.setcbreak(sys.stdin.fileno())
+    panes = []
+    last_poll = 0.0
     try:
         while True:
             now = time.time()
-            panes = list_herdr_panes()
+            if now - last_poll >= 1.0:
+                panes = list_herdr_panes()
+                last_poll = now
             heads, fires, extra, red_flash, prev_denials, flash_until = compute_watch_frame(
                 panes, prev_denials, flash_until, now
             )
             out.write("\x1b[H")
-            if skin == "pet":
+            if skin == "hd":
+                draw(hd_cells(now - t0, heads, fires, 24 * scale), out, red=red_flash)
+            elif skin == "pet":
                 cells = pet_cells(now - t0, heads, fires, False, scale)
                 draw(cells, out, red=red_flash)
             else:
@@ -535,12 +567,16 @@ def watch_loop(out, scale=2, skin=None):
             out.write(f"\x1b[0m {status:<12} skin={skin} (tab switches, q quits)\x1b[K\n")
             out.flush()
             frame += 1
-            key = read_key(1)
+            # The pet and the HD dragon move on their own, so they get four frames a second;
+            # a sprite only bobs, and two are enough.
+            key = read_key(0.25 if skin in ("pet", "hd") else 0.5)
             if key in ("\t", "m", "M"):
                 skin = SKINS[(SKINS.index(skin) + 1) % len(SKINS)]
                 load_skin(skin)
                 save_skin(skin)
                 out.write("\x1b[2J")
+            elif key in ("1", "2", "3", "s", "f") :
+                pass  # reserved: the pane reads runs, not keys, for what a head does
             elif key in ("q", "Q", "\x03"):
                 break
     finally:
