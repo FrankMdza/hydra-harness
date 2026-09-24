@@ -117,7 +117,7 @@ class TestMapping(unittest.TestCase):
         }
 
         self.assertEqual(hydra_bridge.count_denials(events), 2)
-        self.assertEqual(hydra_hydra_bridge.count_tool_rate(events, now=now), 4)
+        self.assertEqual(hydra_bridge.count_tool_rate(events, now=now), 4)
 
         tokens = hydra_bridge.build_tokens(status, events_data=events, now=now)
         self.assertEqual(tokens["denials"], "2")
