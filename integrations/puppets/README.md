@@ -28,6 +28,7 @@ python3 integrations/puppets/puppets.py approve <goal-id> --table
 python3 integrations/puppets/puppets.py approve <goal-id> --launch <task>
 python3 integrations/puppets/puppets.py launch <goal-id> <task>
 python3 integrations/puppets/puppets.py wait <goal-id>
+python3 integrations/puppets/puppets.py review <goal-id> <task>
 python3 integrations/puppets/puppets.py reconcile <goal-id> <task> <attempt> --run-id <id> | --abandon
 python3 integrations/puppets/puppets.py verdict <goal-id> <task> applied|fixed|rejected
 ```
@@ -71,6 +72,10 @@ attempt or abandoning it. Nothing is relaunched by the helper.
 answer), or from a file under the run's worktree `docs/proposals/` when one exists. `assign` asks
 `sheet.py`'s ranking when sheets have been built under the puppets home, and falls back to a
 default table (recorded as `source: default`) when none exist or nobody qualifies.
+
+`review` opens the task's diff in Hunk, the viewer map ticket 44 chose: `hunk diff` inside the
+run's worktree while it exists, `hunk show hydra/<run-id>` from the repo once it is reaped. Inside
+Herdr it opens in a pane to the right. The mode has no diff viewer of its own.
 
 Inside Herdr, `launch` runs the binary directly and then opens a pane below the current one
 tailing the run with the bridge's tokens on it. The launch never goes through `hydra-in-pane`,

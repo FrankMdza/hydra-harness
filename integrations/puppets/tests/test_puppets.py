@@ -433,6 +433,23 @@ class RankedAssignmentTests(PuppetsTestCase):
             puppets.load_sheet_module = original
 
 
+class HunkArgvTests(unittest.TestCase):
+    def test_an_unreaped_run_opens_its_worktree(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "r1").mkdir()
+        argv, cwd = puppets.hunk_argv({"run_id": "r1", "branch": "hydra/r1"}, tmp)
+        self.assertEqual((argv, cwd), (["hunk", "diff"], tmp / "r1"))
+        shutil.rmtree(tmp)
+
+    def test_a_reaped_run_opens_its_branch_from_the_repo(self):
+        tmp = Path(tempfile.mkdtemp())
+        argv, cwd = puppets.hunk_argv({"run_id": "r1", "branch": "hydra/r1", "repo": "/repo"}, tmp)
+        self.assertEqual((argv, cwd), (["hunk", "show", "hydra/r1"], Path("/repo")))
+        with self.assertRaises(RuntimeError):
+            puppets.hunk_argv({"run_id": "r2"}, tmp)
+        shutil.rmtree(tmp)
+
+
 class PuppetsLiveTest(unittest.TestCase):
     def test_new_and_show_without_launch(self):
         env = os.environ.copy()

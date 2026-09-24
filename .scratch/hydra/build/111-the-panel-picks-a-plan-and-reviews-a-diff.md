@@ -1,10 +1,16 @@
-# 111 - The panel picks a plan, and reviews a diff, in a closed shape
+# 111 - The panel picks a plan, and its diff findings land in Hunk
 
 Type: build
 Status: open
 Blocked by: 108
 
 ## What
+
+Amended 2026-09-24 by the human: the human's diff review is Hunk, not anything the mode builds.
+`puppets.py review <goal> <task>` already opens `hunk diff` in the run's worktree or `hunk show
+hydra/<run-id>` after a reap (build 108's review added it). What this ticket adds on the diff side
+is only the judges' findings pushed into that Hunk session as comments, through `hunk session
+comment apply --stdin`, which map ticket 45 measured (`filePath`, `summary`, `hunkNumber`).
 
 The two judged steps of Master of Puppets that ticket 108 stubs: `choose` records a verdict with
 an empty judge list, and there is no review of a task's diff. Both become `judge`-policy runs, one

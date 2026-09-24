@@ -774,6 +774,55 @@ def cmd_launch(args: argparse.Namespace) -> int:
     return 0
 
 
+def hydra_show_run(run_id: str) -> dict[str, Any]:
+    proc = subprocess.run([hydra_bin(), "show", run_id], capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
+    return json.loads(proc.stdout)
+
+
+def hunk_argv(run: dict[str, Any], worktrees: Path) -> tuple[list[str], Path]:
+    """How Hunk opens a run's diff, and where from. An unreaped run still has its worktree, so
+    `hunk diff` there shows the uncommitted tree; a reaped run has only its branch, which the
+    record carries, so `hunk show <branch>` from the repo. Map ticket 45 measured both."""
+    run_id = run.get("run_id") or ""
+    worktree = worktrees / run_id
+    if run_id and worktree.is_dir():
+        return ["hunk", "diff"], worktree
+    branch = run.get("branch")
+    if not branch:
+        raise RuntimeError(f"run {run_id} has no branch to show")
+    repo = Path(run.get("repo") or os.getcwd())
+    return ["hunk", "show", branch], repo
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    """Opens the human's review of a task's diff in Hunk, the diff viewer map ticket 44 chose,
+    rather than in anything of the mode's own. Inside Herdr it goes to a new pane."""
+    state = fold(args.goal)
+    task = state.tasks.get(args.task)
+    if task is None or not task.run_id:
+        print(f"task {args.task} has no run", file=sys.stderr)
+        return 1
+    run = hydra_show_run(task.run_id)
+    run.setdefault("run_id", task.run_id)
+    if state.goal and not run.get("repo"):
+        run["repo"] = state.goal.get("repo")
+    argv, cwd = hunk_argv(run, hydra_root() / "worktrees")
+    pane_id = os.environ.get("HERDR_PANE_ID")
+    if os.environ.get("HERDR_ENV") and pane_id:
+        split = subprocess.run(
+            ["herdr", "pane", "split", pane_id, "--direction", "right", "--cwd", str(cwd)],
+            capture_output=True, text=True, check=True,
+        )
+        new_pane = json.loads(split.stdout)["result"]["pane"]["pane_id"]
+        subprocess.run(["herdr", "pane", "run", new_pane, " ".join(argv)], capture_output=True, check=True)
+        print(f"{task.run_id} in {new_pane}")
+        return 0
+    os.chdir(cwd)
+    os.execvp(argv[0], argv)
+
+
 def cmd_reconcile(args: argparse.Namespace) -> int:
     """Settles a launch intent with no run after it: either the run id the human found with
     `hydra status`, or abandonment. Nothing is relaunched here."""
@@ -943,6 +992,11 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--run-id", help="the run hydra status shows for this attempt")
     group.add_argument("--abandon", action="store_true", help="no run was ever started")
     rec_p.set_defaults(func=cmd_reconcile)
+
+    review_p = sub.add_parser("review", help="open a task's diff in Hunk")
+    review_p.add_argument("goal", help="goal id")
+    review_p.add_argument("task", help="task id")
+    review_p.set_defaults(func=cmd_review)
 
     wait_p = sub.add_parser("wait", help="poll pending runs for completion")
     wait_p.add_argument("goal", help="goal id")

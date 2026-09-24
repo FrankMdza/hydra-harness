@@ -34,8 +34,8 @@ it before every step instead of remembering.
 5. `launch <goal> <task>` for each task whose deps have ended. A `codex` task, or a `high` or
    `agi` task on `claude`, is refused until the human gives `approve --launch <task>`; ask, and
    say why (that gate can fail open). Inside Herdr the launch opens a pane tailing the run.
-6. `wait <goal>` records ended runs. Review each diff the way build tickets are reviewed: read
-   the worktree diff in full, check the mechanism and not only the green suite, and look for what
+6. `wait <goal>` records ended runs. `review <goal> <task>` opens the diff in Hunk for the human;
+   you review it the way build tickets are reviewed: read the worktree diff in full, check the mechanism and not only the green suite, and look for what
    the agent called "preexisting". Show the human the diff and your review; `approve --diff
    <task>` is theirs. Apply by hand, run the suite, `hydra reap <id> --delete-branch`, then
    `verdict <goal> <task> applied|fixed|rejected --note "..."`. `fixed` means you changed the
