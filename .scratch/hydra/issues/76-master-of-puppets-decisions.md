@@ -32,6 +32,11 @@ mascot's refused pose on an interactive run waits on G.
 - I. Does the mode's review panel inherit rung two's rules against shrinking and substitution, or
   may planning run with two seats when one is limited?
 
+- J. Added by the judge (research/75, "The judge"): before any automatic execution, who owns crash
+  recovery, bounded retries, cancellation, the concurrency limit on this machine, dependency
+  integration and the immutable review artifact, and does approval authority live outside every
+  file an agent can write?
+
 ## Not to answer here
 
 The mascot's look, the sprite set and the frame count are build work on the opus proposal's

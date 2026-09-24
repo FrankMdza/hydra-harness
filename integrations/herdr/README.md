@@ -7,10 +7,17 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
 
 ## What is here
 
-- `herdr-plugin.toml`, the manifest. One action, `run`, and one plugin pane, `bridge`.
+- `herdr-plugin.toml`, the manifest. Two actions, `run` and `interactive`, and one plugin pane,
+  `bridge`.
 - `bin/hydra-in-pane`, run inside a pane. Takes `hydra run` arguments verbatim, launches the run
   with `--timeout 0`, puts `run_id`, `provider` and `policy` on the pane as tokens, reports
   `working`, and then replaces itself with `hydra logs --follow` so the pane shows the stream.
+- `bin/hydra-tui-in-pane`, run inside a pane. Takes `hydra run --interactive` arguments verbatim,
+  keeps the terminal for the vendor's own interface, tees stderr to catch the run id, and puts the
+  same tokens on the pane plus `launch_mode=interactive`. The record stays thin until the harvest
+  at exit, so the bridge shows the pane alive with no tool names until then.
+- `hy.zsh`, a shell function to source from `~/.zshrc`: `hy [model] [policy]` splits a pane beside
+  the current one and runs a gated interactive `claude` there. Defaults are `sonnet` and `standard`.
 - `bin/hydra-bridge`, a poller. Every two seconds it lists the panes carrying a `run_id` token,
   reads `hydra status` for each, and reports on change. The state table at the top of the file
   is the whole policy. Resolved 2026-09-07, map ticket 49.

@@ -2804,6 +2804,17 @@ is on the `PATH`, and the `agy` run that built the bridge proved it by putting a
 the human's own pane. Harness spec 7.5 already says the gate cannot keep a shell away from a
 binary, and this is that hole with a new name rather than a new one.
 
+**Since build ticket 106, an interactive run has a pane launcher too.** `bin/hydra-in-pane`
+discards stdout and tails the log, which suits a detached recorded run and not a vendor TUI, so
+`bin/hydra-tui-in-pane` keeps the terminal for the vendor, tees stderr for the `hydra: run <id>`
+line, and puts the same tokens on the pane plus `launch_mode=interactive`. `hy.zsh` is the one-word
+entry: `hy [model] [policy]` splits a pane and runs it. Measured with a stub in a live pane; the
+real `claude` session under the seatbelt is still the human's to run. The record of an
+interactive run stays `run_start` alone until the harvest at exit, so the bridge labels the pane
+alive with no tool names until then; whether the bridge may tail the vendor transcript instead is
+map ticket 76's decision G. `bin/hydra-mascot` beside them is a prototype renderer from map ticket
+75 that reads no record yet.
+
 ## `hydra resume`, since build ticket 32
 
 Harness spec 5's session identity and spec 17's ninth row. `src/resume.rs`, written by

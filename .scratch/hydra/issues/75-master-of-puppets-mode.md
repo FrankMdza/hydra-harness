@@ -56,7 +56,7 @@ mascot cannot see a refusal beside the very session it was asked for; `hydra-in-
 an interactive run; the face's enum omits `codex`; rung two's abort never reads a limit's expiry;
 four documents still say a panel of three.
 
-The nine decisions the code cannot take are grilling ticket
+A `codex` judge over the consolidation (0.64M tokens under `standard`; under `judge` it was gated on its first read, map ticket 63) said accept with changes and named the codex proposal best; the research document's "The judge" section carries what it corrected. The ten decisions the code cannot take are grilling ticket
 [76](76-master-of-puppets-decisions.md). The build order is in the research document; its first
 item, the `hy` launcher, is under an hour. The 4-bit local model question is answered at the end
 of the research document: Colab is for jobs, not hosting; BitNet 2B4T is the one model that fits

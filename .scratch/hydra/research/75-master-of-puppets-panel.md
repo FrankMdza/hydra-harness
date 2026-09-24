@@ -129,7 +129,44 @@ Graduated to grilling ticket 76. In one sentence each:
 - H. Is cost the window share over hand-entered budgets, and who revises a budget?
 - I. Does the mode's review panel inherit rung two's rules against shrinking and substitution?
 
+## The judge
+
+The consolidation above went to `codex` as a judge, the mode's own last step run on itself. The
+first attempt, under the `judge` policy (run 01a0d229-ffd9), was gated on its first read: `codex`
+has no file tool but the shell, and `judge` denies the shell, which is map ticket 63 and a fact the
+mode has to carry: a `codex` judge runs under `standard` until 63 is built. The second attempt
+(run 01a0d22b-6516, 0.64M tokens, `standard`) answered `accept_with_changes` and named the codex
+proposal the best of the four, "because it most clearly distinguishes a convenient manual workflow
+from a controller with enforceable authority". The session accepts that verdict. What it corrects
+in the text above:
+
+- A Herdr plugin owning the orchestrator is a portability and recovery choice, not a D10
+  violation; an optional plugin calling the CLI adds no dependency. The section above overstated it.
+- The `hy` launcher's tee puts a pipe on the provider's fd 2, so "inherited terminal IO" is true
+  of stdin and stdout only. Build ticket 106 measures it with a human at the keyboard.
+- The head count is an activity gauge, not a memory gauge. `LIVE_RUN_CAP` limits children and
+  measures nothing, and pane enumeration can double-count a run or miss one without a pane.
+- The state location was not unanimous: `agy` put `plan.json` inside the goal's worktree, and the
+  external protected location is a correction of that, not a consensus.
+- The spec says only `claude` is confirmed to write an append-only transcript; the other three are
+  unmeasured, not incapable.
+
+What the consolidation dropped from the codex proposal and should not have: a deterministic
+controller owns execution authority and the skill only assists; approval must be isolated from
+files an agent can write and from Herdr metadata, because a `standard` run has already reached the
+human's live Herdr pane (`IMPLEMENTATION.md:2802`); launch intent is persisted before spawning and
+reconciled after a crash by a unique attempt id, never relaunched blind; reviewed trees are frozen
+and an apply approval binds to the integration base; a synthesized plan is a new candidate that
+gets its own review; rankings carry uncertainty and repair effort, so a repaired diff does not count
+as a first-pass success. The judge's build-order changes: the small fixes (face enum, stale
+documents, rate-limit expiry) move before anything that reuses the quota check; the manual plan
+pilot moves ahead of the mascot animation; item 5 splits into plan schema and manual pilot, durable
+launch and recovery, and artifact-bound review; and three goals are a checkpoint for a Rust
+rewrite, not a mandate. Ticket 76 gains decision J for the prerequisites the judge listed.
+
 ## A local model, Colab, and training at 4 bits from the start
+
+Session material, not a panel conclusion, and no dependency of the mode.
 
 Answered by the session on 2026-09-24, not by the panel.
 
