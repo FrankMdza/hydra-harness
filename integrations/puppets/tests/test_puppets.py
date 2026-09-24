@@ -947,6 +947,19 @@ class Ticket118Tests(PuppetsTestCase):
         self.assertEqual(seqs, [2, 3])
 
 
+class BoardTests(PuppetsTestCase):
+    def test_board_names_what_the_human_still_owes(self):
+        import io, contextlib
+        self.write_events("g1", self.base_task_events())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(puppets.main(["board", "g1"]), 0)
+        text = out.getvalue()
+        self.assertIn("t1", text)
+        self.assertIn("cursor-agent composer-2.5", text)
+        self.assertIn("waiting on you: table", text)
+
+
 class PuppetsLiveTest(unittest.TestCase):
     def test_new_and_show_without_launch(self):
         env = os.environ.copy()

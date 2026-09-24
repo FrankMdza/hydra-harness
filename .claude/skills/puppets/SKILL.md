@@ -11,8 +11,8 @@ what comes back, and ask the human at the three points the log demands. Nothing 
 without the human's diff approval.
 
 Set `HYDRA_BIN=~/hydra/target/release/hydra` and run every command as
-`python3 integrations/puppets/puppets.py <command>`. `show <goal>` prints the folded state; read
-it before every step instead of remembering.
+`python3 integrations/puppets/puppets.py <command>`. `board <goal>` prints the state at a glance and
+what the human still owes; `show <goal>` is the same as JSON. Read one before every step.
 
 ## The loop
 

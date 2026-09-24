@@ -19,7 +19,8 @@ Nothing under `src/` imports this directory. Hydra works with it stopped.
 
 ```
 python3 integrations/puppets/puppets.py new "goal text"
-python3 integrations/puppets/puppets.py show <goal-id>
+python3 integrations/puppets/puppets.py show <goal-id>     # the state as JSON
+python3 integrations/puppets/puppets.py board <goal-id>    # the state at a glance, and what the human still owes
 python3 integrations/puppets/puppets.py plan <goal-id> --seat codex --seat cursor-agent:composer-2.5
 python3 integrations/puppets/puppets.py plans <goal-id>
 python3 integrations/puppets/puppets.py choose <goal-id> <provider|path>

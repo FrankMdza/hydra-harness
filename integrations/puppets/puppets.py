@@ -984,6 +984,49 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_board(args: argparse.Namespace) -> int:
+    """The goal at a glance: plans, tasks with their assignment and status, and what the
+    human still has to approve. `show` is the same state as JSON."""
+    state = fold(args.goal)
+    if state.goal is None:
+        print(f"unknown goal {args.goal}", file=sys.stderr)
+        return 1
+    print(f"goal {state.goal_id}  revision {state.revision}")
+    print(f"  {state.goal['text']}")
+    if state.plans:
+        print("plans")
+        for plan in state.plans:
+            ready = "ready" if plan.get("path") else "running"
+            print(f"  {plan['provider']:<13} {plan['run_id'][:8]}  {ready}")
+    if state.chosen_plan:
+        print(f"chosen  {state.chosen_plan['chosen']}  judges {len(state.chosen_plan['judge_run_ids'])}")
+    if state.tasks:
+        print("tasks")
+        print(f"  {'id':<12} {'class':<21} {'grade':<6} {'agent':<28} {'status':<9} run")
+        for task in state.tasks.values():
+            agent = "(unassigned)"
+            if task.assignment:
+                agent = f"{task.assignment['provider']} {task.assignment.get('model') or ''}".strip()
+            run = (task.run_id or "")[:8]
+            verdict = f"  {task.human_result}" if task.human_result else ""
+            print(f"  {task.id:<12} {task.task_class:<21} {task.grade:<6} {agent:<28} {task.status:<9} {run}{verdict}")
+    pending = []
+    if state.plans and state.chosen_plan and approval_available(state, "plan") is None:
+        pending.append("plan")
+    if state.tasks and approval_available(state, "table") is None:
+        pending.append("table")
+    for task in state.tasks.values():
+        if task.assignment and needs_launch_approval(task) and task.status in ("assigned",) \
+                and approval_available(state, "launch", task.id) is None:
+            pending.append(f"launch {task.id}")
+        if task.status == "ended" and approval_available(state, "diff", task.id, task.run_id) is None:
+            pending.append(f"diff {task.id}")
+    if state.dangling_intents:
+        pending.append("reconcile " + ", ".join(f"{i['task']}#{i['attempt']}" for i in state.dangling_intents))
+    print("waiting on you: " + (", ".join(pending) if pending else "nothing"))
+    return 0
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     state = fold(args.goal)
     print(json.dumps(state_to_dict(state), indent=2))
@@ -1539,6 +1582,10 @@ def build_parser() -> argparse.ArgumentParser:
     new_p = sub.add_parser("new", help="start a goal")
     new_p.add_argument("goal_text", help="goal description")
     new_p.set_defaults(func=cmd_new)
+
+    board_p = sub.add_parser("board", help="the goal at a glance")
+    board_p.add_argument("goal", help="goal id")
+    board_p.set_defaults(func=cmd_board)
 
     show_p = sub.add_parser("show", help="fold and print goal state")
     show_p.add_argument("goal", help="goal id")
