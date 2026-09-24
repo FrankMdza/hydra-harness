@@ -107,6 +107,17 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
             escape(&canonical(own_spawn))
         ));
     }
+    // Git resolves `GIT_OBJECT_DIRECTORY` one component at a time, and the
+    // `lstat` of the spawn parent itself was refused: "Invalid path
+    // '<root>/spawn': Operation not permitted", measured 2026-09-24. Map ticket
+    // 74 puts a run's object store under its spawn directory, so the parent's
+    // own metadata is readable. Its listing and every sibling stay denied.
+    if spawn.parent_git_dir.is_some() {
+        lines.push(format!(
+            r#"(allow file-read-metadata (literal "{}"))"#,
+            escape(&canonical(&spawn.layout.spawns()))
+        ));
+    }
     for path in policy::own_write_paths(spawn) {
         let own = canonical(&path);
         lines.push(format!(

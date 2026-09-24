@@ -111,9 +111,18 @@ pub trait GitLocation {
 
     /// `git` here reading every level of configuration. Only [`identity`]
     /// uses it, and `git config --get` runs no program a value names.
+    ///
+    /// **Never a run's object directory.** The watcher starts from the child's
+    /// environment, which carries the two variables of [`run_object_env`], and
+    /// a git that inherited them would read a pack the run forged and write
+    /// Hydra's own objects where the run can rewrite them. So every git Hydra
+    /// starts drops both and reads the parent's store alone.
     fn configured(&self) -> Command {
         let mut command = Command::new("git");
-        command.current_dir(self.path());
+        command
+            .current_dir(self.path())
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES");
         command
     }
 
@@ -190,6 +199,248 @@ pub(crate) fn git_as_author<G: GitLocation + ?Sized>(repo: &G, args: &[&str]) ->
     let mut full: Vec<&str> = identity.iter().map(String::as_str).collect();
     full.extend(args);
     git(repo, &full)
+}
+
+/// What a run's own git is told about objects, map ticket 74: write into
+/// `store`, the run's directory under its spawn directory, and read the
+/// parent's store as an alternate.
+///
+/// **Environment, because git has no other way to move a checkout's object
+/// directory.** No configuration key names one, and a private `commondir`
+/// would move the refs with it. A run can unset either variable; its git then
+/// writes into the parent's `objects/`, which the seatbelt and the gate both
+/// deny, so `git add` fails rather than landing anywhere shared. The cost is
+/// that git inside the run, in any repository, reads and writes this store.
+pub fn run_object_env(store: &Path, common: &Path) -> [(&'static str, String); 2] {
+    [
+        ("GIT_OBJECT_DIRECTORY", store.display().to_string()),
+        (
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            common.join("objects").display().to_string(),
+        ),
+    ]
+}
+
+/// Creates the run's object directory beside its gate and answers
+/// [`run_object_env`] for it, or nothing when `repo` has no git directory.
+pub fn prepare_run_objects(
+    layout: &crate::paths::Layout,
+    run_id: &str,
+    repo: &Path,
+) -> Result<Vec<(&'static str, String)>> {
+    let Some(common) = git_common_dir(repo) else {
+        return Ok(Vec::new());
+    };
+    let store = layout.run_objects(run_id);
+    for dir in [store.join("info"), store.join("pack")] {
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    Ok(run_object_env(&store, &common).to_vec())
+}
+
+/// Moves a run's objects into the parent's store once git has named each one
+/// from its bytes, and answers how many names the store offered.
+///
+/// **Git re-hashes, so the store cannot lie.** `pack-objects` reads every
+/// object the store's files name, loose or packed, with the store as the only
+/// object directory, and `index-pack --strict` in `parent` computes each
+/// object's name from what it read. A pack whose index maps a sha to other
+/// bytes arrives under the sha of those bytes, which is an object nobody asked
+/// for. Nothing in the store is copied as a file.
+///
+/// A store that is not a real directory offers nothing. A link planted there
+/// would only have `index-pack` hash whatever it points at, and reap commits
+/// from the checkout either way: [`unstage_missing_objects`] takes back any
+/// index entry whose object did not arrive.
+pub fn import_run_objects(parent: &Path, store: &Path) -> Result<usize> {
+    use std::process::Stdio;
+
+    if !std::fs::symlink_metadata(store).is_ok_and(|meta| meta.is_dir()) {
+        return Ok(0);
+    }
+    let names = store_object_names(parent, store)?;
+    if names.is_empty() {
+        return Ok(0);
+    }
+    let mut pack = parent
+        .command()
+        .args(["pack-objects", "--stdout", "-q"])
+        .env("GIT_OBJECT_DIRECTORY", store)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("starting git pack-objects over the run's store")?;
+    let packed = pack.stdout.take().expect("stdout is piped");
+    let index = parent
+        .command()
+        .args(["index-pack", "--stdin", "--strict"])
+        .stdin(Stdio::from(packed))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("starting git index-pack in the parent")?;
+    {
+        use std::io::Write;
+        let mut input = pack.stdin.take().expect("stdin is piped");
+        for name in &names {
+            writeln!(input, "{name}")?;
+        }
+    }
+    let packed = pack.wait_with_output()?;
+    let indexed = index.wait_with_output()?;
+    if !packed.status.success() || !indexed.status.success() {
+        bail!(
+            "git would not verify the run's objects in {}: {}{}",
+            store.display(),
+            String::from_utf8_lossy(&packed.stderr).trim(),
+            String::from_utf8_lossy(&indexed.stderr).trim()
+        );
+    }
+    Ok(names.len())
+}
+
+/// Every object name the store's own files offer: loose objects in its
+/// fan-out directories and the entries of each pack index. Links are skipped,
+/// never followed. The names are claims, and [`import_run_objects`] lets git
+/// check them.
+fn store_object_names(parent: &Path, store: &Path) -> Result<Vec<String>> {
+    let is_hex = |name: &str| !name.is_empty() && name.bytes().all(|b| b.is_ascii_hexdigit());
+    let real_dir = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());
+    let real_file = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file());
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(store)? {
+        let entry = entry?;
+        let fan = entry.file_name().to_string_lossy().into_owned();
+        if fan.len() != 2 || !is_hex(&fan) || !real_dir(&entry.path()) {
+            continue;
+        }
+        for object in std::fs::read_dir(entry.path())? {
+            let object = object?;
+            let rest = object.file_name().to_string_lossy().into_owned();
+            if is_hex(&rest) && real_file(&object.path()) {
+                names.push(format!("{fan}{rest}"));
+            }
+        }
+    }
+    let packs = store.join("pack");
+    if real_dir(&packs) {
+        for entry in std::fs::read_dir(&packs)? {
+            let path = entry?.path();
+            if path.extension().is_none_or(|ext| ext != "idx") || !real_file(&path) {
+                continue;
+            }
+            let out = parent
+                .command()
+                .arg("show-index")
+                .stdin(std::fs::File::open(&path)?)
+                .output()?;
+            if !out.status.success() {
+                continue;
+            }
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if let Some(name) = line.split_whitespace().nth(1).filter(|name| is_hex(name)) {
+                    names.push(name.to_string());
+                }
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+/// Takes out of the checkout's index every entry whose object the parent's
+/// store does not hold, and answers their paths.
+///
+/// Called by reap after [`import_run_objects`]. An entry the run staged
+/// against an object that failed git's check would otherwise stop the commit,
+/// or, if the stat data still matched, keep a name whose bytes were never
+/// verified. Removed from the index, the path is hashed again from the
+/// checkout by the `git add -A` that follows. A submodule entry names a
+/// commit in another repository and is left alone.
+pub fn unstage_missing_objects<G: GitLocation + ?Sized>(checkout: &G) -> Result<Vec<String>> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let listing = git_bytes(checkout, &["ls-files", "--stage", "-z"])?;
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for record in listing.split(|b| *b == 0).filter(|r| !r.is_empty()) {
+        let Some(tab) = record.iter().position(|b| *b == b'\t') else {
+            continue;
+        };
+        let head = String::from_utf8_lossy(&record[..tab]).into_owned();
+        let mut fields = head.split(' ');
+        let (Some(mode), Some(sha)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        if mode != "160000" {
+            entries.push((sha.to_string(), record[tab + 1..].to_vec()));
+        }
+    }
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut check = checkout
+        .command()
+        .args(["cat-file", "--batch-check=%(objectname) %(objecttype)"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    // Fed from a thread: git answers line by line, and a large index would
+    // fill the answer pipe while this side was still writing questions.
+    let questions: String = entries.iter().map(|(sha, _)| format!("{sha}\n")).collect();
+    let mut input = check.stdin.take().expect("stdin is piped");
+    let feeder = std::thread::spawn(move || input.write_all(questions.as_bytes()));
+    let out = check.wait_with_output()?;
+    feeder
+        .join()
+        .map_err(|_| anyhow::anyhow!("the thread feeding git cat-file panicked"))??;
+    if !out.status.success() {
+        bail!(
+            "git cat-file --batch-check failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let answers: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let missing: Vec<&Vec<u8>> = entries
+        .iter()
+        .zip(&answers)
+        .filter(|(_, answer)| answer.ends_with(" missing"))
+        .map(|((_, path), _)| path)
+        .collect();
+    if missing.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut remove = checkout
+        .command()
+        .args(["update-index", "--force-remove", "-z", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    {
+        let mut input = remove.stdin.take().expect("stdin is piped");
+        for path in &missing {
+            input.write_all(path)?;
+            input.write_all(&[0])?;
+        }
+    }
+    let out = remove.wait_with_output()?;
+    if !out.status.success() {
+        bail!(
+            "git update-index --force-remove failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(missing
+        .iter()
+        .map(|path| String::from_utf8_lossy(path).into_owned())
+        .collect())
 }
 
 pub struct Worktree {
@@ -724,7 +975,34 @@ fn git_bytes<G: GitLocation + ?Sized>(repo: &G, args: &[&str]) -> Result<Vec<u8>
 
 #[cfg(test)]
 mod tests {
-    use super::inside_checkout;
+    use super::{CheckoutGit, GitLocation, inside_checkout};
+
+    #[test]
+    fn no_git_hydra_starts_inherits_a_runs_object_directory() {
+        // The watcher's environment is the child's, and the child's carries
+        // both variables. Every runner has to take them back out.
+        let checkout = CheckoutGit::new(
+            std::path::Path::new("/tmp/wt/r1"),
+            std::path::Path::new("/tmp/parent/.git"),
+        )
+        .unwrap();
+        let plain = std::path::Path::new("/tmp/parent");
+        for command in [
+            checkout.command(),
+            checkout.configured(),
+            plain.command(),
+            plain.configured(),
+        ] {
+            for name in ["GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"] {
+                assert!(
+                    command
+                        .get_envs()
+                        .any(|(key, value)| key == name && value.is_none()),
+                    "{name} is inherited by {command:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn an_exclude_entry_that_names_the_checkout_or_leaves_it_is_skipped() {

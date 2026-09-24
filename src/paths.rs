@@ -298,6 +298,14 @@ impl Layout {
         self.spawn(run_id).join("stat-index")
     }
 
+    /// The one git object directory a run with a checkout may write, map
+    /// ticket 74. The run's own git is pointed here by environment and reads
+    /// the parent's store as an alternate; `hydra reap` moves what git verifies
+    /// out of it into the parent, and it goes with the spawn directory.
+    pub fn run_objects(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join("objects")
+    }
+
     /// What `hydra run` hands the detached half of the launch, harness spec 9.
     ///
     /// It is read once, before the record exists, and every fact it carries is

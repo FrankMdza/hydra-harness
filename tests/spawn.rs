@@ -1548,16 +1548,94 @@ fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
         "git carve-out profile did not load: {profile_loads}"
     );
 
-    let status = under_seatbelt(&profile, &format!("cd '{wt}' && git status --porcelain"));
+    // Map ticket 74: the run's git is handed its own object directory by the
+    // same function `hydra run` calls, and the parent's `objects/` is denied.
+    let exports: String = hydra::worktree::prepare_run_objects(&layout, "r1", &repo)
+        .unwrap()
+        .iter()
+        .map(|(name, value)| format!("export {name}='{value}'; "))
+        .collect();
+    assert!(
+        exports.contains("GIT_OBJECT_DIRECTORY"),
+        "no object directory for a run with a checkout: {exports}"
+    );
+    let store = layout.run_objects("r1");
+    let parent_objects = repo.join(".git/objects");
+    let objects_before = files_under(&parent_objects);
+
+    let status = under_seatbelt(
+        &profile,
+        &format!("{exports}cd '{wt}' && git status --porcelain"),
+    );
     assert!(status.contains("rc=0"), "git status failed: {status}");
 
-    let add = under_seatbelt(&profile, &format!("cd '{wt}' && git add changed.txt"));
+    // Without the variables the run's git writes into the parent's store,
+    // which is where build ticket 70's grant used to let it.
+    let bare_add = under_seatbelt(&profile, &format!("cd '{wt}' && git add changed.txt"));
+    assert!(
+        refused(&bare_add),
+        "git add wrote into the parent's objects/: {bare_add}"
+    );
+    eprintln!("git add without the run's store, under the real profile: {bare_add}");
+    // Git needs the spawn parent's own metadata to resolve the store's path.
+    // Its listing stays denied.
+    let listing = under_seatbelt(
+        &profile,
+        &format!("ls '{}'", canonical_subpath(&layout.spawns())),
+    );
+    assert!(refused(&listing), "the spawn parent was listed: {listing}");
+    let planted = under_seatbelt(
+        &profile,
+        &format!(
+            "mkdir -p '{0}/pack' && echo x > '{0}/pack/planted.pack'",
+            canonical_subpath(&parent_objects)
+        ),
+    );
+    assert!(
+        refused(&planted),
+        "a pack was planted in the parent: {planted}"
+    );
+    assert_eq!(
+        files_under(&parent_objects),
+        objects_before,
+        "the parent's store changed"
+    );
+
+    let add = under_seatbelt(
+        &profile,
+        &format!("{exports}cd '{wt}' && git add changed.txt"),
+    );
     assert!(add.contains("rc=0"), "git add failed: {add}");
+    let staged = under_seatbelt(
+        &profile,
+        &format!("{exports}cd '{wt}' && git diff --cached --name-only"),
+    );
+    assert!(staged.contains("changed.txt"), "nothing staged: {staged}");
+    let blob = String::from_utf8(
+        std::process::Command::new("git")
+            .args(["hash-object", "changed.txt"])
+            .current_dir(&worktree)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    assert!(
+        store.join(&blob[..2]).join(&blob[2..]).is_file(),
+        "the blob is not in the run's store"
+    );
+    assert_eq!(
+        files_under(&parent_objects),
+        objects_before,
+        "git add reached the parent's store"
+    );
 
     let commit = under_seatbelt(
         &profile,
         &format!(
-            "cd '{wt}' && git -c user.email=test@example.invalid -c user.name=test commit -m test"
+            "{exports}cd '{wt}' && git -c user.email=test@example.invalid -c user.name=test commit -m test"
         ),
     );
     assert!(
@@ -1582,59 +1660,30 @@ fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
         assert!(refused(&out), "private {name} write should fail: {out}");
         assert_eq!(std::fs::read(&target).unwrap(), before);
     }
+    let objects = canonical_subpath(&parent_objects);
+    assert!(
+        !profile_text.contains(&format!(r#"(allow file-write* (subpath "{objects}"))"#)),
+        "the profile still grants the parent's objects/:\n{profile_text}"
+    );
+}
 
-    // Measure creation-only object access independently of the production grant.
-    // Nested seatbelts return above, so a skipped probe is never called a success.
-    let objects = canonical_subpath(&repo.join(".git/objects"));
-    let full_grant = format!(r#"(allow file-write* (subpath "{objects}"))"#);
-    assert!(profile_text.contains(&full_grant));
-    let candidate = profile_text.replace(&full_grant, &format!(
-        "(deny file-write-data (subpath \"{objects}\"))\n(deny file-write-unlink (subpath \"{objects}\"))\n(allow file-write-create (subpath \"{objects}\"))"
-    ));
-    let candidate_path = layout.spawn("r1").join("objects-create-only.sb");
-    std::fs::write(&candidate_path, candidate).unwrap();
-    std::fs::write(
-        worktree.join("fresh-blob.txt"),
-        "a fresh object for ticket 95\n",
-    )
-    .unwrap();
-    std::fs::write(worktree.join("existing-blob.txt"), "hello\n").unwrap();
-    let fresh = under_seatbelt(
-        &candidate_path,
-        &format!("cd '{wt}' && git add fresh-blob.txt"),
-    );
-    let existing = under_seatbelt(
-        &candidate_path,
-        &format!("cd '{wt}' && git add existing-blob.txt"),
-    );
-    eprintln!("creation-only objects, new blob: {fresh}");
-    eprintln!("creation-only objects, existing blob: {existing}");
-    assert!(
-        !fresh.contains("sandbox_apply") && !existing.contains("sandbox_apply"),
-        "creation-only profile did not load"
-    );
-    let sentinel = repo.join(".git/objects/existing-object-probe");
-    std::fs::write(&sentinel, "keep these bytes\n").unwrap();
-    let overwrite = under_seatbelt(
-        &candidate_path,
-        &format!("echo replaced > '{}'", canonical_subpath(&sentinel)),
-    );
-    let unlink = under_seatbelt(
-        &candidate_path,
-        &format!("rm '{}'", canonical_subpath(&sentinel)),
-    );
-    assert!(
-        refused(&overwrite),
-        "creation-only object overwrite succeeded: {overwrite}"
-    );
-    assert!(
-        refused(&unlink),
-        "creation-only object unlink succeeded: {unlink}"
-    );
-    assert_eq!(
-        std::fs::read_to_string(sentinel).unwrap(),
-        "keep these bytes\n"
-    );
+/// Every file under `dir`, relative, sorted: the parent's object store before
+/// and after, compared whole.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        for entry in std::fs::read_dir(&next).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                out.push(path.strip_prefix(dir).unwrap().to_path_buf());
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 #[test]

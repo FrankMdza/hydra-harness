@@ -237,6 +237,11 @@ fn run_gated(request: Request) -> Result<RunResult> {
     // containment, and marking it would refuse the `hydra run` a human types in
     // their own session.
     child_env.set(crate::containment::MARKER, run_id.clone());
+    // Map ticket 74, the same private object directory a recorded run gets:
+    // the seatbelt below denies the parent's `objects/`.
+    for (name, value) in crate::worktree::prepare_run_objects(&layout, &run_id, &repo)? {
+        child_env.set(name, value);
+    }
 
     if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
         anyhow::bail!(
