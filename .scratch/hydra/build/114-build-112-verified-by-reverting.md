@@ -118,3 +118,11 @@ repository with no commits. That is why every composer run on 2026-09-24 reporte
 
 On master: lib 210, cleanup 46, gate 98, harvest 12, normalize 90, outcome 47; fmt and clippy
 clean.
+
+The full suite then caught what the six files the ticket names did not:
+`tests/status.rs::a_dead_interactive_run_is_harvested_by_status_one` expects `completed` with
+source `unknown` for a dead session harvested with its transcript, and the harvest writes an
+error on that record too ("harvested after the run already exited, so the exit code was not
+observed"). The agent's rule read any error as `failed`. The session narrowed it: an error
+counts as a failure only when the body holds no message, which is the two records this ticket
+is about and not the one status harvests. status 20, harvest 12, outcome 47, lib 210 after.

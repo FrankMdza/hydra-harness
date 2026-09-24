@@ -196,12 +196,17 @@ pub fn derive(run: &Run) -> Option<Derived> {
             // `exit_code: null` because nobody waited on the process, not
             // because none ran.
             //
-            // **`run_end.error` is read here too.** A harvested close with no
-            // body and an error is Hydra saying the launch or harvest failed
-            // after the process started, or that there was nothing to read, not
-            // a session that finished cleanly. Contract 8's `failed` is the
-            // row for a run that ran and did not complete.
-            if end.body["error"].is_string() {
+            // **`run_end.error` is read here too, when nothing was harvested.**
+            // A harvested close with an error and no message in the body is
+            // Hydra saying the launch or harvest failed after the process
+            // started, or that there was nothing to read, not a session that
+            // finished cleanly. Contract 8's `failed` is the row for a run that
+            // ran and did not complete. Build ticket 114. A harvest that did
+            // read a transcript writes an error too, "the exit code was not
+            // observed", and that one is about confidence, not the outcome:
+            // the arm below reads it as the null exit code it describes.
+            let nothing_harvested = run.messages().next().is_none();
+            if end.body["error"].is_string() && nothing_harvested {
                 Outcome::Failed
             } else {
                 match end.body["exit_code"].as_i64() {
