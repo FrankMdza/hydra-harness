@@ -155,3 +155,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [108 - Two residuals of 105 and 106](108-two-residuals-of-105-and-106.md)
 - [108 - `puppets.py`: the goal log, its fold, and the launcher](108-puppets-log-and-launcher.md)
 - [109 - `sheet.py`: a spec sheet per agent, and two rankings from the corpus](109-the-spec-sheet-and-the-rankings.md)
+- [110 - `~/hydra/puppets/` joins the deny list and the seatbelt profile](110-puppets-joins-the-deny-list.md)
+- [111 - The panel picks a plan, and reviews a diff, in a closed shape](111-the-panel-picks-a-plan-and-reviews-a-diff.md)
