@@ -1,8 +1,8 @@
 # 102 - The documents after the third panel
 
 Type: build
-Status: open
-Blocked by: 97, 98, 99, 100, 101, 103
+Status: claimed
+Blocked by: 97, 98, 99, 100, 101, 103, 104, 105, 106
 
 ## What
 
