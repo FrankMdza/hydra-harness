@@ -153,3 +153,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [106 - Reap imports only what the run's own store holds](106-reap-imports-nothing-the-store-points-elsewhere-for.md)
 - [107 - `hy`: a gated interactive session in a Herdr pane](107-the-hy-launcher.md)
 - [108 - Two residuals of 105 and 106](108-two-residuals-of-105-and-106.md)
+- [108 - `puppets.py`: the goal log, its fold, and the launcher](108-puppets-log-and-launcher.md)
+- [109 - `sheet.py`: a spec sheet per agent, and two rankings from the corpus](109-the-spec-sheet-and-the-rankings.md)

@@ -37,6 +37,29 @@ mascot's refused pose on an interactive run waits on G.
   integration and the immutable review artifact, and does approval authority live outside every
   file an agent can write?
 
+## Answer, partial
+
+Answered with the human on 2026-09-24 through AskUserQuestion, one recommended option per
+question, the four that block the first build. D to H stay open and block nothing in the manual
+pilot.
+
+- **A. Yes.** A proposed assignment table (task, provider, model, policy) confirmed by the human
+  once per batch is the human choosing the model. Changing any row after confirmation reopens the
+  table.
+- **B. `~/hydra/puppets/`**, one append-only JSONL per goal, outside every worktree. It joins the
+  deny list. That list turned out to live in code, `denied_write_paths` in `src/policy/mod.rs`,
+  not in the five protected configs, so joining it is build ticket 110 rather than a human edit.
+- **C. The plan once, the assignment table once per batch, and every diff.** Per-launch approval
+  only where a gate can fail open: `codex` on a dead hook, `claude` on a gate that fails to start.
+  An approval binds to a plan revision and is consumed once.
+- **I and J. The orchestrator is this session with a skill plus `puppets.py`**, and the first
+  version is a manual pilot over the log: proposers launched by the helper, tasks and table edited
+  by the human, launches fired by the session, diffs applied by the human. Automatic execution
+  waits for bounded retries, crash recovery with a unique attempt per launch, and approval kept
+  outside every file an agent can write. Rust after three goals, as a checkpoint.
+
+Build tickets 108 to 111 carry the code.
+
 ## Not to answer here
 
 The mascot's look, the sprite set and the frame count are build work on the opus proposal's
