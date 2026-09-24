@@ -16,3 +16,4 @@ target/
 # Frank's own status page, kept on this machine and out of the repository.
 # Ignored so `seed_tree` (git add -A) stops carrying it into every run's worktree.
 /docs/status.html
+puppets/
