@@ -164,3 +164,11 @@ replacing the last bullet:
 
 `README.md` and `CLAUDE.md`: no file count changes. `tests/cleanup.rs` now also plants a forged
 pack in a run's store and reads the parent and a later worktree back.
+
+Measured by the session on master after the merge, 2026-09-24, the question the Outcome left open:
+each provider under `standard` ran `git add` inside a real run and printed its own store as
+`GIT_OBJECT_DIRECTORY`. The blob landed in `spawn/<run-id>/objects`, and `hydra reap` committed a
+tree holding the file: `claude` haiku 01a0d227-23ce, `codex` 01a0d226-d533, `cursor-agent`
+composer-2.5 01a0d227-ef37, `agy` gemini-3.8-flash-low 01a0d228-206c. None of the four strips the
+variables from its shell tool.
+

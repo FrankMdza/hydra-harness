@@ -1,7 +1,7 @@
 # 105 - What the review of 97 to 99 found
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 103
 
 ## What
