@@ -243,6 +243,16 @@ impl Layout {
         self.root.join("spawn")
     }
 
+    /// `~/hydra/puppets/`, where Master of Puppets keeps one append-only JSONL
+    /// per goal, map ticket 76 decision B.
+    ///
+    /// **Outside every worktree and denied to every gated run.** A run that can
+    /// rewrite its own assignment or approval walks around the mode, so the log
+    /// is data a run may read if its scope reaches it and never write.
+    pub fn puppets(&self) -> PathBuf {
+        self.root.join("puppets")
+    }
+
     /// Where `hydra prune` moves a run file to.
     ///
     /// **A fifth place, and the design names four.** Harness spec 5's table says

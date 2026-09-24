@@ -1788,6 +1788,57 @@ fn the_seatbelt_refuses_a_checkout_write_and_allows_the_worktree() {
 }
 
 #[test]
+fn the_goal_log_is_denied_and_the_seatbelt_profile_names_puppets() {
+    // Map ticket 76, build ticket 110: `~/hydra/puppets/` holds one append-only
+    // JSONL per goal. A gated run must not write there, and the seatbelt profile
+    // the spawn writes must name the directory under its deny rules.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    std::fs::create_dir_all(layout.puppets()).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    let target = layout.puppets().join("x.jsonl");
+    let payload = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": target.to_string_lossy(),
+            "content": "x",
+        },
+        "cwd": worktree,
+    });
+    let answer = ask_through_the_hook(&spawn.hook_config, &payload.to_string());
+    assert!(
+        answer.contains("\"deny\"") && answer.contains("hydra/protected-path"),
+        "gate allowed a write to the goal log: {answer}"
+    );
+
+    if !hydra::sandbox::wraps_launches() {
+        return;
+    }
+    let profile = spawn.sandbox_profile.unwrap();
+    let text = std::fs::read_to_string(&profile).unwrap();
+    let puppets = canonical_subpath(&layout.puppets()).to_lowercase();
+    assert!(
+        text.to_lowercase().contains(&puppets),
+        "profile does not deny writes to puppets:\n{text}"
+    );
+}
+
+#[test]
 fn the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own() {
     if !seatbelt_exec_or_skip(
         "the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own",

@@ -116,6 +116,15 @@ under `permissive`, and that a write inside the fixture's own worktree still all
 `tests/spawn.rs::the_seatbelt_refuses_a_checkout_write_and_allows_the_worktree` drives the real
 profile: `echo x > <hydra_home>/target/probe` is refused and the worktree write succeeds.
 
+**Built for map ticket 76, closed by build ticket 110 on 2026-09-24.** `layout.puppets()` joins
+`denied_write_paths` under every policy. Master of Puppets keeps one append-only JSONL per goal
+there, and a run that rewrites its own assignment or approval walks around the mode. Reads stay
+as they were: the log is data a run may read if its scope reaches it, and under `standard` it
+does not. The seatbelt profile picks the deny up through `write_denies` like every other entry.
+`tests/spawn.rs::the_goal_log_is_denied_and_the_seatbelt_profile_names_puppets` compiles a
+`standard` gate for a scratch layout, feeds a `Write` to `<layout>/puppets/x.jsonl` and reads
+`protected-path` back, and asserts the profile the same spawn writes names the directory.
+
 Ticket 40's hand-measured matrix is two tests in `tests/gate.rs` now,
 `a_write_the_matrix_allowed_on_2026_09_06_is_protected_now` and
 `a_shell_command_the_matrix_allowed_is_refused_now_unless_it_is_the_runs_own_scratch`: 13 write probes across all five policies and a shell table for
@@ -2923,8 +2932,8 @@ at least one verdict, and falls back to a default table, recorded as `source: de
 then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
 (`sonnet`, `Sonnet 5`, `claude-sonnet-5`), which the sheet keeps apart on purpose.
 
-Not built: `~/hydra/puppets/` on the deny list (ticket 110), the judged steps (111), and any
-automatic execution, which map ticket 76 makes wait for bounded retries and crash recovery.
+Not built: the judged steps (111), and any automatic execution, which map ticket 76 makes wait
+for bounded retries and crash recovery.
 
 ## `hydra resume`, since build ticket 32
 

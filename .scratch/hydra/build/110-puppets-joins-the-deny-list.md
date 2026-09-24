@@ -1,7 +1,7 @@
 # 110 - `~/hydra/puppets/` joins the deny list and the seatbelt profile
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 108
 
 ## What
@@ -22,3 +22,15 @@ compiles a `standard` gate for a scratch `Layout` (never `Layout::discover()`), 
 same spawn writes names the directory under its deny rules. `IMPLEMENTATION.md`'s deny-list
 paragraph names the new entry. `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
 and the suite green.
+
+## Outcome
+
+Built 2026-09-24 by composer-2.5 on run 01a0d41b-c2cf (1.26M tokens): `Layout::puppets()`,
+the entry in `denied_write_paths`, one test that compiles a `standard` gate for a scratch
+layout, sends a `Write` under `<layout>/puppets/` through the real hook and reads
+`hydra/protected-path` back, then checks the seatbelt profile names the directory. No change to
+`src/sandbox.rs` was needed: the profile already takes its write denies from the same list, which
+the ticket had assumed it did not. Applied as written. The agent's report named "pre-existing
+failures" in `run::tests` and the git-parent spawn tests under a full parallel run; on master
+after applying, `cargo test --test spawn` passed 34 of 34 and `run::tests` 6 of 6, so those were
+the worktree's, not the tree's. fmt and clippy clean.
