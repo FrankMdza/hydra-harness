@@ -55,6 +55,16 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
     def build(self):
         return sheet.build(self.runs, self.home, self.vendors, str(self.stub))
 
+    def test_aliases_merge_spellings(self):
+        self.record('a', model='sonnet')
+        self.record('b', model='Sonnet 5')
+        self.record('c', model='claude-sonnet-5')
+        sheets = self.build()
+        claude = [s for s in sheets if s['provider'] == 'claude' and s['model'] == 'sonnet']
+        self.assertEqual(len(claude), 1)
+        self.assertEqual(claude[0]['sample_size'], 3)
+        self.assertEqual(claude[0]['recorded_models'], ['Sonnet 5', 'claude-sonnet-5', 'sonnet'])
+
     def test_corpus_cache_and_rollup(self):
         self.record('a', rates=(.1,.3), outcome='gated')
         self.record('b', provider='codex', model=None, policy='judge', text='```json\n{"verdict":"pass","findings":[]}\n```')

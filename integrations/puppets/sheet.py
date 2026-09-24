@@ -3,6 +3,7 @@ import argparse
 from collections import Counter
 from datetime import datetime
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -13,6 +14,12 @@ import tempfile
 from urllib.parse import quote
 
 HERE = Path(__file__).resolve().parent
+_models_spec = importlib.util.spec_from_file_location('puppets_models', HERE / 'models.py')
+_models = importlib.util.module_from_spec(_models_spec)
+_models_spec.loader.exec_module(_models)
+canonical = _models.canonical
+load_aliases = _models.load_aliases
+
 POLICIES = ['judge', 'read-only', 'standard', 'permissive', 'curate']
 CHECKLIST = set('secrets_check security_issues tests_affected self_consistency code_quality cross_platform changelog_accuracy approved_patch_unreachable severity_ceiling_table reviewer_failure_fails_closed panel_size_unshrunk protected_path_set admission_gate_order baseline_test_provenance env_allowlist_intact hook_config_written_fresh hook_dialect_coverage billed_spend_gate delegation_depth_cap curator_write_surface evidence_is_read_only worktree_containment record_append_only record_source_fields raw_frame_preserved export_losslessness provider_claim_dated no_new_crossing no_daemon spec_matches_code'.split())
 
@@ -76,7 +83,7 @@ def utilization(raw):
     return None
 
 
-def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0):
+def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0, aliases=None):
     """Build sheets; cache by run id and content hash so live records refresh."""
     runs, home = Path(runs), Path(home)
     hydra = hydra or os.environ.get('HYDRA_BIN', 'hydra')
@@ -85,6 +92,7 @@ def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0):
     if not math.isfinite(cache_read_weight) or cache_read_weight < 0:
         raise ValueError('cache_read_weight must be finite and nonnegative')
     vendors = read_json(HERE / 'vendors.json') if vendors is None else vendors
+    aliases = load_aliases() if aliases is None else aliases
     cache = read_json(home / 'sheet-cache.json', {})
     records = {}
     for path in sorted(runs.glob('*.jsonl')):
@@ -134,17 +142,25 @@ def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0):
             judge_parsed=judge_parsed(projection.get('result_text')) if start.get('policy') == 'judge' else None,
             window_share=(rates[-1] - rates[0]) if len(rates) >= 2 and rates[-1] >= rates[0] else None)
     write_json(home / 'sheet-cache.json', cache)
-    groups = {(v['provider'], v.get('model')): [] for v in vendors}
+    groups = {}
+    recorded_models = {}
+    for v in vendors:
+        key = canonical(v['provider'], v.get('model'), aliases)
+        groups.setdefault(key, [])
+        recorded_models.setdefault(key, set())
     for record in records.values():
         root, seen = record, {record['run_id']}
         while root.get('parent_run_id') in records and root['parent_run_id'] not in seen:
             seen.add(root['parent_run_id'])
             root = records[root['parent_run_id']]
         record['task_id'] = root.get('parent_run_id') or root['run_id']
-        groups.setdefault((record['provider'], record['model']), []).append(record)
+        key = canonical(record['provider'], record.get('model'), aliases)
+        groups.setdefault(key, []).append(record)
+        recorded_models.setdefault(key, set()).add(record.get('model'))
     sheets = []
     for (provider, model), rows in sorted(groups.items(), key=lambda pair: (pair[0][0], pair[0][1] or '')):
-        vendor = next((v for v in vendors if (v['provider'], v.get('model')) == (provider, model)), {})
+        vendor = next((v for v in vendors
+                       if canonical(v['provider'], v.get('model'), aliases) == (provider, model)), {})
         facts = {k: vendor.get(k) for k in ('as_of', 'source_url', 'context_tokens', 'thinking_levels', 'plan', 'windows', 'window_budget_tokens')}
         budget = facts['window_budget_tokens']
         for row in rows:
@@ -152,7 +168,9 @@ def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0):
                 tokens = row['tokens']
                 row['window_share'] = ((tokens['raw_input'] * cache_read_weight + tokens['output_tokens']) / budget
                     if budget is not None and budget > 0 and 'raw_input' in tokens and 'output_tokens' in tokens else None)
-        sheet = dict(provider=provider, model=model, vendor=facts, available=vendor.get('available', True),
+        spellings = sorted(recorded_models.get((provider, model), ()), key=lambda m: m or '')
+        sheet = dict(provider=provider, model=model, recorded_models=spellings, vendor=facts,
+            available=vendor.get('available', True),
             policies=vendor.get('policies', [p for p in POLICIES if not (provider == 'codex' and p == 'read-only')]),
             cache_read_weight=cache_read_weight, runs=rows, sample_size=len(rows),
             independent_tasks=len({r['task_id'] for r in rows}),
