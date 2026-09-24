@@ -546,6 +546,22 @@ fn no_marker_at_all_is_a_human_and_launches_anything() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Whether the binary will honour `HYDRA_ROOT` in this process, printing that
+/// the test skipped when it will not.
+///
+/// Inside a seatbelt `hydra run` refuses the variable before it reads the
+/// marker, build ticket 57's review fix, so every launch below would get that
+/// sentence instead of the one under test. The positive assertion would fail
+/// and the negative ones would pass without testing anything. Rung two's
+/// admission runs the suite inside a seatbelt. Build ticket 104.
+fn binary_takes_hydra_root_or_skip(test_name: &str) -> bool {
+    if hydra::sandbox::inside_seatbelt() {
+        eprintln!("skipped {test_name}: inside a seatbelt, where the binary refuses HYDRA_ROOT");
+        return false;
+    }
+    true
+}
+
 /// The binary, launched the way a run's own shell would launch it.
 ///
 /// Drives the built binary rather than `run::run` because the marker is read out
@@ -553,6 +569,11 @@ fn no_marker_at_all_is_a_human_and_launches_anything() {
 /// other test in this file. The refusal lands before the provider is probed, so
 /// nothing here needs a provider installed and nothing costs quota.
 fn launch_with_marker(root: &std::path::Path, marker: Option<&str>, args: &[&str]) -> String {
+    assert!(
+        !hydra::sandbox::inside_seatbelt(),
+        "call binary_takes_hydra_root_or_skip first: inside a seatbelt every launch is refused \
+         for HYDRA_ROOT before the containment check reads the marker"
+    );
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_hydra"));
     command
         .args(args)
@@ -571,6 +592,11 @@ fn launch_with_marker(root: &std::path::Path, marker: Option<&str>, args: &[&str
 
 #[test]
 fn a_run_relaunching_the_binary_without_a_parent_is_refused_and_recorded() {
+    if !binary_takes_hydra_root_or_skip(
+        "a_run_relaunching_the_binary_without_a_parent_is_refused_and_recorded",
+    ) {
+        return;
+    }
     // Build ticket 57 and the one critical finding of the adversarial review.
     // `standard` grants shell, shell reaches the binary, and until this landed
     // `hydra run --policy permissive` with no `--parent` was a child bounded by
@@ -653,6 +679,11 @@ fn a_run_relaunching_the_binary_without_a_parent_is_refused_and_recorded() {
 
 #[test]
 fn a_launch_with_no_marker_is_not_refused_by_the_containment_check() {
+    if !binary_takes_hydra_root_or_skip(
+        "a_launch_with_no_marker_is_not_refused_by_the_containment_check",
+    ) {
+        return;
+    }
     let (layout, root) = layout();
     let _ = layout;
     let said = launch_with_marker(

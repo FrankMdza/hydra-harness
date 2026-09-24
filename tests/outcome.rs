@@ -421,6 +421,94 @@ fn a_codex_skill_copy_that_changed_does_not_change_the_outcome() {
 }
 
 #[test]
+fn a_codex_turn_that_hit_its_usage_limit_is_rate_limited_and_not_failed() {
+    // Record 01a0cfdb-e5c3's shape, 0.154.0, 2026-09-23: a tool item started,
+    // then a top-level `error` frame and `turn.failed` with the same sentence,
+    // then exit 1. Before build ticket 100 it derived `failed`, which rung one
+    // learns from. 01a0cc9d-8f15 carries the sentence behind a prefix, and
+    // 01a0ca7d-f703 is a `turn.failed` that is not a quota, which stays
+    // `failed`.
+    let sandbox = Sandbox::new("codex-limit");
+    let worktree = sandbox.worktree();
+    let codex = |message: &str| {
+        let mut record = Record::shaped(Shape {
+            provider: Some("codex"),
+            policy: Some("standard"),
+            policy_sha: Some(policies().sha()),
+            worktree: Some(&worktree),
+            ..Shape::default()
+        });
+        record.raw(json!({"type": "thread.started", "thread_id": "t"}));
+        record.raw(json!({"type": "turn.started"}));
+        record.raw(json!({"type": "item.started", "item": {
+            "id": "item_4", "type": "command_execution",
+            "command": "/bin/zsh -lc \"sed -n '382,700p' src/run.rs\"",
+            "aggregated_output": "", "exit_code": null, "status": "in_progress",
+        }}));
+        record.raw(json!({"type": "error", "message": message}));
+        record.raw(json!({"type": "turn.failed", "error": {"message": message}}));
+        record.closed_with(json!({"exit_code": 1, "error": null}))
+    };
+    let limit = "You've hit your usage limit. Upgrade to Pro \
+                 (https://chatgpt.com/explore/pro), visit \
+                 https://chatgpt.com/codex/settings/usage to purchase more credits or try \
+                 again at 6:31 PM.";
+
+    assert_eq!(
+        outcome_of(&sandbox, &codex(limit)),
+        Some((Outcome::RateLimited, Source::Derived))
+    );
+    assert_eq!(
+        outcome_of(
+            &sandbox,
+            &codex(&format!("Error running remote compact task: {limit}"))
+        ),
+        Some((Outcome::RateLimited, Source::Derived))
+    );
+    assert_eq!(
+        outcome_of(
+            &sandbox,
+            &codex("This content was flagged for possible cybersecurity risk.")
+        ),
+        Some((Outcome::Failed, Source::Derived))
+    );
+
+    // Every frame in that record is one the reader knows, so it names no
+    // limit; a frame type it does not know is named once.
+    let run = hydra::normalize::read_with(&codex(limit), &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings.iter().any(|finding| matches!(
+            finding,
+            hydra::normalize::Finding::Limit(text) if text.contains("frame of type")
+        )),
+        "{:?}",
+        run.findings
+    );
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&worktree),
+        ..Shape::default()
+    });
+    record.raw(json!({"type": "turn.paused"}));
+    record.raw(json!({"type": "turn.paused"}));
+    let text = record.closed_with(json!({"exit_code": 0, "error": null}));
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let named: Vec<_> = run
+        .findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding,
+                hydra::normalize::Finding::Limit(text) if text.contains("frame of type turn.paused")
+            )
+        })
+        .collect();
+    assert_eq!(named.len(), 1, "{:?}", run.findings);
+}
+
+#[test]
 fn a_run_with_no_ending_has_no_outcome() {
     // Contract 6: `run_end` is not guaranteed to exist, and 8.6 gives the case to
     // `hydra status` rather than to a reader. Either the child is still going or
@@ -1273,6 +1361,27 @@ fn gated_runs_are_the_write_denials(records: &[PathBuf], read: Reader<'_>) -> us
                 path.display(),
                 outcome.as_str()
             );
+            continue;
+        }
+
+        // A `codex` turn that failed ends on `turn.failed`, and build ticket 100
+        // reads it. Four landed on 2026-09-22 and 2026-09-23: three on the usage
+        // limit, which rung one must not learn from, and one the provider's own
+        // content filter stopped, which is `failed`.
+        if run
+            .result
+            .as_ref()
+            .is_some_and(|result| result["type"] == "turn.failed")
+        {
+            let quota = run.result.as_ref().unwrap()["error"]["message"]
+                .as_str()
+                .is_some_and(|text| text.contains("usage limit"));
+            let expected = if quota {
+                Outcome::RateLimited
+            } else {
+                Outcome::Failed
+            };
+            assert_eq!(outcome, expected, "{}", path.display());
             continue;
         }
 

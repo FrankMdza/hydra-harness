@@ -389,7 +389,7 @@ pub fn write_config(
         }
         Provider::Codex => {
             let file = codex::claim(worktree, "MCP config", codex::mcp_file)?;
-            let body = codex::mcp_config(servers);
+            let body = codex::mcp_config(servers)?;
             std::fs::write(&file, body).with_context(|| format!("writing {}", file.display()))?;
             Ok(file)
         }

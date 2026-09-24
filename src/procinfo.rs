@@ -106,6 +106,16 @@ mod tests {
 
     #[test]
     fn our_own_start_time_matches_ps() {
+        // `/bin/ps` is setuid, and a seatbelt refuses to exec a setuid binary
+        // whatever its profile allows, so inside one this test has no witness.
+        // Rung two's admission runs the suite inside one. Build ticket 104.
+        if crate::sandbox::inside_seatbelt() {
+            eprintln!(
+                "skipped our_own_start_time_matches_ps: inside a seatbelt, which refuses to \
+                 exec setuid /bin/ps"
+            );
+            return;
+        }
         let pid = std::process::id();
         let ours = start_time(pid).unwrap().expect("we are running");
 

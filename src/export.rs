@@ -361,14 +361,53 @@ pub fn export_with_signoff(
         allowlist.sha
     );
 
-    let mut file =
-        std::fs::File::create(out).with_context(|| format!("creating {}", out.display()))?;
+    let mut file = open_events_out(out)?;
     writeln!(file, "{header}")?;
     for line in lines {
         writeln!(file, "{line}")?;
     }
     crate::export_preference::write_preference_lines(out, &preference_lines, &signoff.sha)?;
     Ok(warnings)
+}
+
+/// Opens `--out` for the events, refusing it when it is the preference sibling
+/// under another name.
+///
+/// The name check above catches one spelling. A case-insensitive volume, the
+/// default on macOS, makes `Preference.jsonl` the same file, and so does a
+/// symbolic or hard link by any name. So the file is opened without
+/// truncating, and its device and inode are compared with the sibling's before
+/// a byte is written. A file this call created for the comparison is removed
+/// on refusal; one that was already there is left as it was.
+fn open_events_out(out: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::MetadataExt;
+
+    let existed = out.exists();
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(out)
+        .with_context(|| format!("creating {}", out.display()))?;
+    let sibling = crate::export_preference::preference_path(out);
+    if let Ok(theirs) = std::fs::metadata(&sibling) {
+        let ours = file.metadata()?;
+        if ours.dev() == theirs.dev() && ours.ino() == theirs.ino() {
+            drop(file);
+            if !existed {
+                let _ = std::fs::remove_file(out);
+            }
+            bail!(
+                "--out {} is the same file as {}, the preference file written beside it, and \
+                 the second write would truncate the first",
+                out.display(),
+                sibling.display()
+            );
+        }
+    }
+    file.set_len(0)
+        .with_context(|| format!("truncating {}", out.display()))?;
+    Ok(file)
 }
 
 pub(crate) fn own_repo(run: &crate::normalize::Run, repos: &[PathBuf]) -> Option<PathBuf> {
