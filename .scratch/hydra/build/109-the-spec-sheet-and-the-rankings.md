@@ -1,7 +1,7 @@
 # 109 - `sheet.py`: a spec sheet per agent, and two rankings from the corpus
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -69,3 +69,17 @@ budget is null, the prior-only ranking when no verdicts exist, and a ranking tha
 two `applied` verdicts. You cannot read `~/hydra/runs/` from your worktree; the session runs
 `build` against the real corpus after review. Do not run cargo. No em dashes in the README
 section you add to `integrations/puppets/README.md` (create it if ticket 108's run has not).
+
+## Outcome
+
+Built 2026-09-24 by `codex` on run 01a0d36f-4447 (1.56M tokens): `sheet.py`, `vendors.json`,
+`priors.json`, `tests/test_sheet.py`, seven tests green, all applied as written. Codex narrowed the
+ticket's "exclude every command but `run`" to keep `resume` records under their root task, and
+read `parse_judge_answer`'s serde structs to accept extra keys, both right. Built over the real
+corpus by the session: 26 provider and model pairs from 380 records, `hydra show --events` once
+per record, about four minutes cold. What the first ranking showed: with the ticket's priors,
+composer-2.5 (a 4, b 2) does not clear the `low` bound of 0.5, so a prior-only ranking put sonnet
+first for scripts, against the memory the priors were seeded from. The session did not retune
+the priors; `puppets.py assign` uses the ranking only once a verdict backs it and the default
+table until then, so the priors decide nothing on their own. Codex also appended a section to
+`IMPLEMENTATION.md`; the session wrote its own instead.

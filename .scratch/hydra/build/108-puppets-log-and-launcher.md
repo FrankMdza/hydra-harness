@@ -1,7 +1,7 @@
 # 108 - `puppets.py`: the goal log, its fold, and the launcher
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -82,3 +82,17 @@ reported and not relaunched; `plans` copying a file out of a worktree path; `tas
 JSON block. Then `puppets.py new` through `show` work against the real binary on this machine
 without launching a provider. `integrations/puppets/README.md` says how to run it and lists the
 events. Do not run cargo. Prose in the README follows the repo's rules: no em dashes.
+
+## Outcome
+
+Built 2026-09-24 by composer-2.5 on run 01a0d36f-1612 (1.35M tokens), `integrations/puppets/`:
+`puppets.py`, `prompts/plan.md`, `tests/test_puppets.py`, `README.md`; eleven tests green. The
+session's review changed five mechanisms before master, each with a test: a table approval is no
+longer spent by the first launch, because decision C says the table once per batch; `plans` reads
+the proposal from the run's `result_text`, since the brief asks for the plan as the answer and the
+agent had looked only for a worktree file; the launch runs the binary directly and attaches a
+Herdr pane afterwards, because routing through `hydra-in-pane` would have blocked until the run
+ended; `reconcile` settles a dangling intent, which nothing could clear; and a verdict of
+`applied` or `fixed` needs a diff approval. `assign` now asks `sheet.py`'s ranking and takes it
+only when a verdict backs it. Twenty-three tests green on master. Assumed by the ticket and false:
+that the agent should look for the plan in the worktree.

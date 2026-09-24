@@ -2885,6 +2885,42 @@ alive with no tool names until then; whether the bridge may tail the vendor tran
 map ticket 76's decision G. `bin/hydra-mascot` beside them is a prototype renderer from map ticket
 75 that reads no record yet.
 
+## Master of Puppets, since build tickets 108 and 109
+
+Map ticket 75's panel and ticket 76's answers gave the mode its shape: an orchestrator outside
+every run, a log per goal, approvals bound to a plan revision, and a ranking of agents from the
+corpus. `integrations/puppets/` is that, in Python, and nothing under `src/` imports it.
+
+`puppets.py` keeps one append-only JSONL per goal under `~/hydra/puppets/` and derives state by
+folding it, the way an outcome is derived from a record and never stored. Its events are the
+fourteen the README lists; `revision` is the count of `task` and `assignment` events, and an
+approval carries the revision it was given at. A table approval covers every launch at its
+revision (decision C, the table once per batch); a `launch` approval, required on `codex` and on
+`high` or `agi` tasks on `claude` because those gates can fail open, and a `diff` approval, required
+before a verdict of `applied` or `fixed`, are each spent by one use. `launch` writes
+`launch_intent` before it spawns `hydra run --timeout 0` and `run` the moment the id is read off
+stderr; an intent with no run after it blocks every launch until the human settles it with
+`reconcile`, and the helper never relaunches on its own. Plans are launched one proposer per seat
+with `prompts/plan.md`, read back from each run's `result_text`, and imported as tasks from the
+chosen plan's fenced JSON block. The judged choice and the diff review are build ticket 111;
+until then `choose` records an empty judge list.
+
+`sheet.py` builds one JSON per provider and model pair from the records: provider, model and
+timestamps from line 0, policy and subscription from `run_start`, the outcome and usage from
+`hydra show --events` (cached by content hash, never the exit code), denials from the
+`permission_decision` events, judge answers checked against `parse_judge_answer`'s vocabulary,
+and resumed runs grouped under their root. `vendors.json` holds the hand-kept facts, null until
+someone dates them, and cost is window share: the `seven_day` delta on `claude`, tokens over a
+vendor budget elsewhere, null when the budget is null. `rank` orders agents by cost over the
+10th percentile of a beta posterior on first-pass acceptance, seeded from `priors.json` and
+moved only by `human_verdict` events. `puppets.py assign` takes the ranking only when it rests on
+at least one verdict, and falls back to a default table, recorded as `source: default`, until
+then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
+(`sonnet`, `Sonnet 5`, `claude-sonnet-5`), which the sheet keeps apart on purpose.
+
+Not built: `~/hydra/puppets/` on the deny list (ticket 110), the judged steps (111), and any
+automatic execution, which map ticket 76 makes wait for bounded retries and crash recovery.
+
 ## `hydra resume`, since build ticket 32
 
 Harness spec 5's session identity and spec 17's ninth row. `src/resume.rs`, written by
