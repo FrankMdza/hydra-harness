@@ -175,6 +175,8 @@ pub const CURSOR: &[Tool] = &[
     // `own_read_paths` carves out; if that answer and this row differ, the
     // replay records a Disagreement. Build ticket 38.
     unhooked("awaitToolCall"),
+    // Measured 2026-09-24 on cursor-agent 2026.09.23-86fc751 under `standard`.
+    unhooked("WebSearch"),
     tool("Fetch", Capability::NetworkRead),
     // Feeds stdin to a background shell command, and carries no command for the
     // floor or the path check to read. It was `shell` until build ticket 59,
@@ -638,7 +640,12 @@ mod tests {
 
     #[test]
     fn unhooked_cursor_rows_are_known_and_carry_no_path() {
-        for name in ["ReadLints", "getMcpToolsToolCall", "awaitToolCall"] {
+        for name in [
+            "ReadLints",
+            "getMcpToolsToolCall",
+            "awaitToolCall",
+            "WebSearch",
+        ] {
             assert_eq!(
                 cursor_capability(name),
                 Some(Capability::Unhooked),

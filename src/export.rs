@@ -1,8 +1,8 @@
 //! `hydra export`, harness spec 14.
 //!
 //! The one path by which anything leaves this machine: default deny, allowlisted
-//! by path, redacted in four fixed classes, verified before anything is written.
-//! Typed by a human and reachable from no run.
+//! by path, redacted four ways across six secret classes, verified before
+//! anything is written. Typed by a human and reachable from no run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;

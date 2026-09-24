@@ -11,12 +11,12 @@
 //! orchestrator and nothing below is ever written to a run file.
 //!
 //! **Nothing on a streamed run reads the exit status to decide an outcome.** The
-//! three providers measured, `claude`, `cursor-agent` and `agy`, exit 0 and report
-//! success on a run the gate refused (`codex` is unmeasured), so the
-//! exit code is carried through to the caller as a fact and never consulted as a
-//! signal on that path. [`derive`]'s harvested interactive arm reads
-//! `run_end.exit_code` when there is no result-shaped terminator, and the
-//! null-exit-code arm below reads only whether a process ever started.
+//! four providers measured, `claude`, `cursor-agent`, `agy` and `codex`, exit 0
+//! and report success on a run the gate refused, so the exit code is carried
+//! through to the caller as a fact and never consulted as a signal on that
+//! path. [`derive`]'s harvested interactive arm reads `run_end.exit_code` when
+//! there is no result-shaped terminator, and the null-exit-code arm below reads
+//! only whether a process ever started.
 
 use serde::Serialize;
 use serde_json::Value;
@@ -380,8 +380,8 @@ fn codex_turn_failed(run: &Run, frame: &Value) -> bool {
 /// `codex` reports no status code. Records 01a0cfdb-e5c3 and 01a0d02d-f812, on
 /// 0.154.0 on 2026-09-23, end on `turn.failed` whose `error.message` starts
 /// "You've hit your usage limit.", and 01a0cc9d-8f15 carries the same sentence
-/// behind "Error running remote compact task: ". Before this reading all three
-/// derived `failed`, and rung one learned from them.
+/// behind "Error running remote compact task: ". Before this reading two
+/// derived `failed` and one `completed`, and rung one learned from all three.
 ///
 /// **This is a text match, and it is written down as one**, for the reason
 /// [`cursor_stderr_refusal`] gives: the alternative files an exhausted quota as

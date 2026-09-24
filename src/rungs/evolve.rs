@@ -858,11 +858,11 @@ pub struct AdmissionGateResult {
 /// `cargo_home` starts empty, so cargo does not read the human's `~/.cargo`,
 /// which a `standard` run can write and whose `runner` turned a failing `cargo
 /// test` into exit 0 when the panel measured it. `profile` is the proposer's
-/// profile with the admission directory opened and `.cargo/config` and
-/// `.cargo/config.toml` in every ancestor of the copy denied to reads, because
-/// cargo also reads its configuration from each ancestor of its working
-/// directory, and `~/.cargo` is one of them. It lives beside the admission
-/// directory, where no step can write it.
+/// profile with the admission directory opened and `.cargo/config`,
+/// `.cargo/config.toml` and the `.cargo` name itself in every ancestor of the
+/// copy denied to reads, because cargo also reads its configuration from each
+/// ancestor of its working directory, and `~/.cargo` is one of them. It lives
+/// beside the admission directory, where no step can write it.
 /// `toolchain` is the sysroot's `bin`, resolved before the proposer ran.
 pub struct Admission {
     pub tree: PathBuf,

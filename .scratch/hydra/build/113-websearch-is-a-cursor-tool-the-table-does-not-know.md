@@ -1,7 +1,7 @@
 # 113 - `webSearchToolCall`: a Cursor tool the table does not know
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -62,3 +62,24 @@ This is provider drift doing what map ticket 43 said it would: the table is the 
 - The `as_hook_call` unit test in `src/normalize/cursor.rs` covers the new mapping.
 - `cargo test --test normalize --test gate` and `cargo test --lib` green, `cargo fmt --check`
   and `cargo clippy --all-targets -- -D warnings` clean.
+
+## Outcome
+
+Built by `cursor-agent` on `composer-2.5` under `standard`, run 01a0d3e2-1098, 1.34M tokens, 14
+minutes, applied to master by hand from the worktree diff (`~/.claude/handoffs/2026-09-24-panel4/diff-113.patch`).
+Five files: the `webSearchToolCall` to `WebSearch` mapping and its unit test in
+`src/normalize/cursor.rs`; `unhooked("WebSearch")` and a fourth name in the table's own test in
+`src/policy/table.rs`; `a_cursor_websearch_call_is_the_providers_decision` in
+`tests/normalize.rs`, which failed before the change with `left: "webSearchToolCall", right:
+"WebSearch"`; a fourth name in `the_cursor_gate_config_carries_no_unhooked_tool` in
+`tests/gate.rs`; one sentence in `IMPLEMENTATION.md`'s unhooked-rows paragraph.
+`src/provider/cursor.rs` holds no measured-build constant, so nothing moved there. On master:
+lib 209, gate 97, normalize 88 of 89 pass, fmt and clippy clean.
+
+The agent reported three `run::tests` failures as pre-existing. On master they pass; inside the
+run's worktree `git init` leaves `git_common_dir` at `None`, which is the worktree, not the code.
+
+The one test still red is the corpus walk itself, and no longer on this record: with the Cursor
+row in place it walks on to run 01a0d3e4-4245, a live `claude` record, and files two leaks the
+gate did not commit. Build tickets 116 and 117 hold those, and map ticket 78 the scope question
+under them.

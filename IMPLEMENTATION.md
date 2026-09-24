@@ -1305,10 +1305,11 @@ the second means logging out. A signal death reports the same exit code 1 throug
 pty, which is why the detached half now writes the signal into `run_end.error` and the
 derivation reads that note first.
 
-**Three tools Cursor runs without asking the hook, and the table says so, since build
+**Four tools Cursor runs without asking the hook, and the table says so, since build
 ticket 35.** Map ticket 51 measured it three times on 2026-09-08: `ReadLints` with a
 list-valued `paths`, `getMcpToolsToolCall` listing an MCP server's tools, and
-`awaitToolCall` waiting on a background task, all completed with results under
+`awaitToolCall` waiting on a background task; build ticket 113 added `WebSearch` on
+2026-09-24. All completed with results under
 `read-only` and `standard`, none with a `hydra gate:` line in the spawn's `cursor-data`,
 while a `Read` outside the worktree in the same runs was refused with Hydra's reason. They
 are `unhooked(name)` rows now, `Capability::Unhooked`, which the compiler leaves out of

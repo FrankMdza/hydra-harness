@@ -119,6 +119,7 @@ fn as_hook_call(kind: &str, args: &Value) -> Option<(String, Value)> {
         "readLintsToolCall" => ("ReadLints".into(), args.clone()),
         "getMcpToolsToolCall" => ("getMcpToolsToolCall".into(), args.clone()),
         "awaitToolCall" => ("awaitToolCall".into(), args.clone()),
+        "webSearchToolCall" => ("WebSearch".into(), args.clone()),
         "webFetchToolCall" => ("Fetch".into(), json!({ "url": args["url"] })),
         "taskToolCall" => ("task".into(), args.clone()),
         "writeShellStdinToolCall" => ("WriteShellStdin".into(), args.clone()),
@@ -911,6 +912,14 @@ mod tests {
             as_hook_call("getMcpToolsToolCall", &json!({ "server": "hydra" })).unwrap();
         assert_eq!(name, "getMcpToolsToolCall");
         assert_eq!(input["server"], "hydra");
+
+        let (name, input) = as_hook_call(
+            "webSearchToolCall",
+            &json!({ "searchTerm": "rust async", "toolCallId": "tool_1" }),
+        )
+        .unwrap();
+        assert_eq!(name, "WebSearch");
+        assert_eq!(input["searchTerm"], "rust async");
 
         assert!(as_hook_call("semSearchToolCall", &json!({})).is_none());
     }

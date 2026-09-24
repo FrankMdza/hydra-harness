@@ -1409,6 +1409,71 @@ fn a_cursor_readlints_call_is_the_providers_decision() {
 }
 
 #[test]
+fn a_cursor_websearch_call_is_the_providers_decision() {
+    // Build ticket 113: Cursor runs WebSearch without asking the hook, measured
+    // 2026-09-24 on cursor-agent 2026.09.23-86fc751 under `standard`.
+    let sandbox = Sandbox::new("cursor-unhooked-websearch");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("standard"), Some(policies().sha()))
+        .cursor_call(
+            "tool_22b4e38e",
+            "webSearchToolCall",
+            json!({
+                "searchTerm": "rust async runtime comparison",
+                "toolCallId": "tool_22b4e38e"
+            }),
+            json!({"success": {
+                "references": [{
+                    "title": "Web search results",
+                    "url": "",
+                    "chunk": "Links:\n1. [Tokio](https://tokio.rs)\n"
+                }]
+            }}),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let calls: Vec<_> = run.tool_calls().collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].name, "WebSearch");
+    assert_eq!(
+        calls[0].capability,
+        Some(hydra::policy::Capability::Unhooked)
+    );
+    assert_eq!(
+        calls[0].arguments["searchTerm"],
+        "rust async runtime comparison"
+    );
+
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].call_id, "tool_22b4e38e");
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::Provider);
+    assert_eq!(
+        decisions[0].reason,
+        "hydra/unhooked: WebSearch is run by cursor-agent without asking the hook"
+    );
+    let derived_code = decisions[0]
+        .reason
+        .strip_prefix("hydra/")
+        .and_then(|rest| rest.split(':').next());
+    assert_eq!(derived_code, Some("unhooked"));
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
 fn a_cursor_await_call_is_the_providers_decision() {
     let sandbox = Sandbox::new("cursor-unhooked-await");
     let ws = sandbox.worktree();
