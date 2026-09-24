@@ -148,3 +148,4 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [101 - A fixture corpus for CI, a codex dead-hook probe, and tests with a live layout](101-fixtures-and-live-layout-tests.md)
 - [102 - The documents after the third panel](102-the-documents-after-the-third-panel.md)
 - [103 - Each run writes git objects into its own store](103-a-private-object-store-per-run.md)
+- [104 - The suite passes inside a seatbelt](104-the-suite-passes-inside-a-seatbelt.md)

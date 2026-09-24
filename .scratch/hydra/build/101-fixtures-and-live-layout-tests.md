@@ -1,7 +1,7 @@
 # 101 - A fixture corpus for CI, a codex dead-hook probe, and tests with a live layout
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 
 
 ## What

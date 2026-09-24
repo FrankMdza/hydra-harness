@@ -1,7 +1,7 @@
 # 103 - Each run writes git objects into its own store
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 99
 
 ## What

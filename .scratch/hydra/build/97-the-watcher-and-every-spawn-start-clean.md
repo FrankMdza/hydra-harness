@@ -119,3 +119,6 @@ For `IMPLEMENTATION.md`, wherever the environment allowlist is described:
 > `env_clear`: the watcher, the pty child, the five probes including the `codex` login check,
 > both interactive launches and rung two's admission steps. `git` and the read-time gate replay
 > still inherit, and build ticket 97's Outcome has the table.
+
+Measured by the session on master after the merge: `claude` haiku under `standard`, run
+01a0d1fa-c301, ran `echo $HYDRA_RUN_ID` and printed its own run id.

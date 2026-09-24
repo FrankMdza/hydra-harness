@@ -1,7 +1,7 @@
 # 100 - A codex quota failure reads as rate limited, export refuses an output that aliases its sibling, and the codex MCP fragment is real TOML
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 
 
 ## What
