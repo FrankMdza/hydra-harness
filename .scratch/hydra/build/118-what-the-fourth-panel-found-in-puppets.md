@@ -1,7 +1,7 @@
 # 118 - What the fourth panel found in `puppets.py`
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
