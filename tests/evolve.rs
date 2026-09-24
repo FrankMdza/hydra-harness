@@ -12,11 +12,12 @@ use hydra::provider::Provider;
 use hydra::record::validate::check;
 use hydra::run::write_spawn_config;
 use hydra::rungs::evolve::{
-    DEFAULT_MAY_EDIT, HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, PROTECTED_CODE_PATHS, ProposerPatch,
-    TASK_DOES_NOT_WAIVE_CHECKLIST, admission_gate, admission_refusal, changed_paths,
-    ensure_reviewable, judge_task, may_edit_paragraph, may_edit_set, outside_may_edit,
-    pass_run_id_from_branch, patch_over_cap, protected_path_hit, rate_limit_abort,
-    review_commit_message, write_harness_end, write_harness_start,
+    Admission, DEFAULT_MAY_EDIT, HUMAN_EVIDENCE_HEADING, PATCH_LINE_CAP, PROTECTED_CODE_PATHS,
+    ProposerPatch, TASK_DOES_NOT_WAIVE_CHECKLIST, admission_gate, admission_refusal,
+    admission_toolchain, changed_paths, ensure_reviewable, judge_task, may_edit_paragraph,
+    may_edit_set, outside_may_edit, pass_run_id_from_branch, patch_over_cap, prepare_admission,
+    protected_path_hit, rate_limit_abort, review_commit_message, write_harness_end,
+    write_harness_start,
 };
 use hydra::rungs::review::{
     ApprovedPatch, CHECKLIST_ENTRIES, CHECKLIST_IDS, PanelAnswers, PanelVerdict, VerdictField,
@@ -1131,7 +1132,14 @@ fn admission_runs_under_the_proposers_seatbelt_and_refuses_a_hostile_test() {
     std::fs::write(worktree.join("tests/zz_hostile.rs"), hostile).unwrap();
     let admission_root = layout.spawn("pass-admission").join("admission-root");
     std::fs::create_dir_all(admission_root.join("runs")).unwrap();
-    let result = admission_gate(&worktree, &profile, &admission_root);
+    // The worktree stands in for the copy here; the copy has its own test below.
+    let admission = Admission {
+        tree: worktree.clone(),
+        cargo_home: worktree.join("cargo-home"),
+        profile,
+        toolchain: admission_toolchain().unwrap(),
+    };
+    let result = admission_gate(&admission, &admission_root);
     let output = result.output.expect("a hostile test should fail admission");
     assert!(output.contains("cargo test"), "{output}");
     assert!(
@@ -1140,4 +1148,205 @@ fn admission_runs_under_the_proposers_seatbelt_and_refuses_a_hostile_test() {
     );
     assert!(result.run.profile_sha.is_some(), "profile sha is recorded");
     assert_eq!(result.run.hydra_root, admission_root.to_string_lossy());
+}
+
+const READ_TREE_FAILS: &str = "#[cfg(test)]
+mod tests {
+    #[test]
+    fn read_tree() {
+        panic!(\"the read tree fails\");
+    }
+}
+";
+
+const CHECKOUT_PASSES: &str = "#[cfg(test)]
+mod tests {
+    #[test]
+    fn read_tree() {}
+}
+";
+
+/// Build ticket 98, H2 and H38 of the third hiring panel. The read tree holds a
+/// failing test. After the read, a proposer process that outlived its run makes
+/// the test pass in the checkout and plants a cargo `runner` of `/usr/bin/true`
+/// in a `.cargo` above everything, where `~/.cargo` sits on this machine. Run in
+/// the checkout the old way, admission passes. Run on the copy it fails, with
+/// the read tree's own panic.
+#[test]
+fn admission_runs_on_a_copy_of_the_read_tree_that_nothing_after_the_read_reaches() {
+    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+        return;
+    }
+    let fixture = Fixture::new("admission-copy");
+    let layout = fixture.layout();
+    let parent = scratch_repo("admission-copy");
+    let run_id = "01a08000-0000-7000-8000-00000000ad03";
+    let checkout = layout.worktree(run_id);
+    hydra::worktree::create(
+        &parent,
+        &checkout,
+        &format!("hydra/{run_id}"),
+        &layout.seed_index(run_id),
+    )
+    .unwrap();
+    let base_tree = git(&checkout, &["rev-parse", "HEAD^{tree}"]);
+    std::fs::create_dir_all(checkout.join("src")).unwrap();
+    std::fs::write(
+        checkout.join("Cargo.toml"),
+        "[package]\nname = \"copy-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(checkout.join(".gitignore"), "/target\n/Cargo.lock\n").unwrap();
+    std::fs::write(checkout.join("src/lib.rs"), READ_TREE_FAILS).unwrap();
+    let record = Record::shaped(Shape {
+        run_id,
+        worktree: Some(&checkout),
+        base_tree: Some(base_tree.trim()),
+        ..Shape::default()
+    })
+    .result(usage_frame())
+    .closed();
+    let run_file = layout.run_file(run_id);
+    std::fs::write(&run_file, record).unwrap();
+    let result = hydra::outcome::RunResult {
+        run_id: run_id.into(),
+        outcome: Some("completed"),
+        outcome_source: Some("derived"),
+        exit_code: Some(0),
+        error: None,
+        result_text: None,
+        branch: None,
+        diff_stat: None,
+        usage: hydra::outcome::Usage {
+            usage_source: "unknown",
+            estimator: None,
+            counts: None,
+        },
+        run_file: run_file.to_string_lossy().into_owned(),
+    };
+    let set = PolicySet::discover().unwrap();
+    let patch = hydra::rungs::evolve::read_proposer_patch(&layout, &set, &result).unwrap();
+    let proposer_profile = write_spawn_config(
+        &layout,
+        run_id,
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&checkout),
+        None,
+        None,
+        false,
+    )
+    .unwrap()
+    .sandbox_profile
+    .expect("macOS spawn writes a profile beside the gate");
+
+    // After the read: the checkout changes and a cargo configuration appears.
+    std::fs::write(checkout.join("src/lib.rs"), CHECKOUT_PASSES).unwrap();
+    std::fs::create_dir_all(fixture.root.join(".cargo")).unwrap();
+    std::fs::write(
+        fixture.root.join(".cargo/config.toml"),
+        "[target.'cfg(all())']\nrunner = \"/usr/bin/true\"\n",
+    )
+    .unwrap();
+    let toolchain = admission_toolchain().unwrap();
+    let hydra_root = layout.spawn("pass-admission-copy").join("admission-root");
+    std::fs::create_dir_all(hydra_root.join("runs")).unwrap();
+
+    // The old shape, the steps in the checkout, passes a tree nobody read.
+    let old_cargo_home = checkout.join("target/old-cargo-home");
+    let old = admission_gate(
+        &Admission {
+            tree: checkout.clone(),
+            cargo_home: old_cargo_home,
+            profile: proposer_profile.clone(),
+            toolchain: toolchain.clone(),
+        },
+        &hydra_root,
+    );
+    assert_eq!(old.output, None, "the checkout should pass the old way");
+
+    let dir = layout.spawn("pass-admission-copy").join("admission");
+    let admission = prepare_admission(
+        patch.git_context.as_ref().unwrap(),
+        &patch.tree,
+        &dir,
+        &proposer_profile,
+        &toolchain,
+    )
+    .unwrap()
+    .expect("the read tree has nothing admission refuses to copy");
+    assert_eq!(
+        std::fs::read_to_string(admission.tree.join("src/lib.rs")).unwrap(),
+        READ_TREE_FAILS
+    );
+    // A process that kept the proposer's profile cannot write the copy.
+    let write = Command::new("/usr/bin/sandbox-exec")
+        .arg("-f")
+        .arg(&proposer_profile)
+        .args(["/bin/sh", "-c"])
+        .arg(format!(
+            "echo x > '{}'",
+            admission.tree.join("src/lib.rs").display()
+        ))
+        .output()
+        .unwrap();
+    assert!(
+        !write.status.success(),
+        "the proposer's profile wrote the copy"
+    );
+
+    // What the admission profile opens is the copy and ancestor metadata; a
+    // sibling run's spawn directory stays closed to it.
+    let sibling = layout.spawn("sibling-run").join("launch.json");
+    std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
+    std::fs::write(&sibling, "{}").unwrap();
+    for probe in [&["/bin/cat"][..], &["/usr/bin/stat", "-f", "%z"][..]] {
+        let read = Command::new("/usr/bin/sandbox-exec")
+            .arg("-f")
+            .arg(&admission.profile)
+            .args(probe)
+            .arg(&sibling)
+            .output()
+            .unwrap();
+        assert!(
+            !read.status.success(),
+            "{probe:?} read a sibling's spawn file"
+        );
+    }
+
+    let gate = admission_gate(&admission, &hydra_root);
+    admission.discard();
+    let output = gate
+        .output
+        .expect("the read tree's failing test should fail admission");
+    assert!(output.contains("cargo test failed"), "{output}");
+    assert!(output.contains("the read tree fails"), "{output}");
+    assert!(!dir.join("tree").exists(), "the copy is discarded");
+}
+
+/// A symbolic link that leaves the tree would have admission compile bytes the
+/// judges never saw, so the copy refuses it rather than writing it.
+#[test]
+fn admission_refuses_to_copy_a_link_that_leaves_the_tree() {
+    let repo = scratch_repo("admission-link");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::os::unix::fs::symlink("/etc/hosts", repo.join("src/lib.rs")).unwrap();
+    std::os::unix::fs::symlink("../README", repo.join("src/up")).unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "links"]);
+    let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
+    let dir = repo.join("admission");
+    let refusal = prepare_admission(
+        repo.as_path(),
+        tree.trim(),
+        &dir,
+        &repo.join("missing.sb"),
+        Path::new("/usr/bin"),
+    )
+    .unwrap()
+    .err()
+    .expect("a link out of the tree is refused");
+    assert!(refusal.contains("symbolic link"), "{refusal}");
+    assert!(!dir.join("tree").exists(), "a refused copy is discarded");
 }

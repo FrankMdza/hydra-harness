@@ -109,6 +109,8 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     if pass.dry_run {
         return Ok(Done::Considered { brief });
     }
+    // Before the proposer runs, while the toolchain is as the human left it.
+    let toolchain = admission_toolchain()?;
 
     let pass_record = layout.run_file(&pass_run_id);
     write_harness_start(&layout, &pass_run_id, &pass_record, Some(&may_edit))?;
@@ -239,7 +241,37 @@ pub fn evolve(pass: Pass) -> Result<Done> {
     std::fs::create_dir_all(admission_root.join("runs"))
         .with_context(|| format!("creating {}", admission_root.display()))?;
     let profile_path = crate::sandbox::profile_path(&layout.spawn(&proposer_run_id));
-    let admission = admission_gate(&patch.worktree, &profile_path, &admission_root);
+    let admission_dir = layout.spawn(&pass_run_id).join("admission");
+    let prepared = match &patch.git_context {
+        Some(context) => prepare_admission(
+            context,
+            &patch.tree,
+            &admission_dir,
+            &profile_path,
+            &toolchain,
+        ),
+        None => prepare_admission(
+            repo.as_path(),
+            &patch.tree,
+            &admission_dir,
+            &profile_path,
+            &toolchain,
+        ),
+    }?;
+    let admission = match prepared {
+        Ok(prepared) => {
+            let result = admission_gate(&prepared, &admission_root);
+            prepared.discard();
+            result
+        }
+        Err(refusal) => AdmissionGateResult {
+            run: AdmissionRun {
+                profile_sha: None,
+                hydra_root: admission_root.to_string_lossy().into_owned(),
+            },
+            output: Some(refusal),
+        },
+    };
     if let Some(output) = admission.output {
         let message = commit_message(
             &pass_run_id,
@@ -749,30 +781,309 @@ pub struct AdmissionGateResult {
     pub output: Option<String>,
 }
 
-/// `cargo fmt --check`, `clippy`, `build` and `test` in the worktree, spec 4.5.
-/// On macOS each step runs through the proposer's seatbelt profile with
-/// `HYDRA_ROOT` pointed at `hydra_root`; elsewhere it runs bare with the same
-/// variable.
-pub fn admission_gate(
-    worktree: &Path,
-    profile_path: &Path,
-    hydra_root: &Path,
-) -> AdmissionGateResult {
+/// Where the four admission steps run and with what. Build ticket 98, findings
+/// H2 and H38 of the third hiring panel.
+///
+/// `tree` is a copy of the read tree, written from the object store after the
+/// proposer's run ended and under the pass's own spawn directory. The
+/// proposer's profile denies that directory to reads and writes, and a process
+/// the proposer left running keeps that profile, so nothing it does after the
+/// read reaches the bytes the steps compile. Until this ticket the steps ran in
+/// the proposer's checkout, which it could still write.
+///
+/// `cargo_home` starts empty, so cargo does not read the human's `~/.cargo`,
+/// which a `standard` run can write and whose `runner` turned a failing `cargo
+/// test` into exit 0 when the panel measured it. `profile` is the proposer's
+/// profile with the admission directory opened and every `.cargo` above the
+/// copy denied to reads, because cargo also reads a `config.toml` from each
+/// ancestor of its working directory, and `~/.cargo` is one of them.
+/// `toolchain` is the sysroot's `bin`, resolved before the proposer ran.
+pub struct Admission {
+    pub tree: PathBuf,
+    pub cargo_home: PathBuf,
+    pub profile: PathBuf,
+    pub toolchain: PathBuf,
+}
+
+impl Admission {
+    /// Removes the copy and the cargo home, which hold a whole build.
+    pub fn discard(&self) {
+        let _ = std::fs::remove_dir_all(&self.tree);
+        let _ = std::fs::remove_dir_all(&self.cargo_home);
+    }
+}
+
+/// The `bin` directory of the sysroot the human's `rustc` reports. `hydra
+/// evolve` asks before the proposer runs, so the answer names the toolchain as
+/// the human left it, and admission then calls `cargo` by that absolute path.
+pub fn admission_toolchain() -> Result<PathBuf> {
+    let out = Command::new("rustc")
+        .args(["--print", "sysroot"])
+        .output()
+        .context("running rustc --print sysroot to find the toolchain admission uses")?;
+    if !out.status.success() {
+        bail!(
+            "rustc --print sysroot failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let sysroot = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let bin = std::fs::canonicalize(sysroot.join("bin"))
+        .with_context(|| format!("reading {}", sysroot.join("bin").display()))?;
+    if !bin.join("cargo").is_file() {
+        bail!(
+            "{} holds no cargo, and admission calls cargo by that path",
+            bin.display()
+        );
+    }
+    Ok(bin)
+}
+
+/// Writes the copy, the empty cargo home and, on macOS, the admission profile
+/// under `dir`. The inner `Err` is a reason to block the patch; the outer one
+/// is git or the disk breaking.
+pub fn prepare_admission<G: crate::worktree::GitLocation + ?Sized>(
+    git: &G,
+    tree: &str,
+    dir: &Path,
+    proposer_profile: &Path,
+    toolchain: &Path,
+) -> Result<std::result::Result<Admission, String>> {
+    let _ = std::fs::remove_dir_all(dir);
+    let admission = Admission {
+        tree: dir.join("tree"),
+        cargo_home: dir.join("cargo-home"),
+        profile: dir.join("admission.sb"),
+        toolchain: toolchain.to_path_buf(),
+    };
+    for path in [&admission.tree, &admission.cargo_home] {
+        std::fs::create_dir_all(path).with_context(|| format!("creating {}", path.display()))?;
+    }
+    if let Some(refusal) = materialize_tree(git, tree, &admission.tree)? {
+        admission.discard();
+        return Ok(Err(refusal));
+    }
+    if crate::sandbox::wraps_launches() {
+        let Ok(base) = std::fs::read_to_string(proposer_profile) else {
+            admission.discard();
+            return Ok(Err(format!(
+                "admission gate: seatbelt profile missing at {}",
+                proposer_profile.display()
+            )));
+        };
+        let text = admission_profile(&base, dir, &admission.tree, toolchain)?;
+        std::fs::write(&admission.profile, text)
+            .with_context(|| format!("writing {}", admission.profile.display()))?;
+    }
+    Ok(Ok(admission))
+}
+
+/// The proposer's profile, then the admission directory opened, then every
+/// `.cargo` above the copy closed to reads. SBPL takes the last matching rule,
+/// so the order is what makes each line hold.
+fn admission_profile(base: &str, dir: &Path, tree: &Path, toolchain: &Path) -> Result<String> {
+    let dir = std::fs::canonicalize(dir).with_context(|| format!("reading {}", dir.display()))?;
+    let tree =
+        std::fs::canonicalize(tree).with_context(|| format!("reading {}", tree.display()))?;
+    let mut text = format!("{}\n", base.trim_end());
+    for operation in ["file-read*", "file-write*"] {
+        text.push_str(&format!(
+            "(allow {operation} (subpath \"{}\"))\n",
+            sbpl_string(&dir)
+        ));
+    }
+    // The copy sits under the spawn directories, which the proposer's profile
+    // denies to reads. `rustfmt` and rustc's dep-info step stat a name in every
+    // ancestor and stop at the first refusal, measured on 2026-09-23, so each
+    // ancestor and its direct children are open to metadata, and nothing more:
+    // a sibling run's files still refuse `stat`, a listing and a read.
+    if dir.to_string_lossy().contains('"') {
+        bail!("{} cannot be written into a seatbelt regex", dir.display());
+    }
+    for ancestor in dir.ancestors().skip(1) {
+        let literal = sbpl_string(ancestor);
+        let parent = match ancestor.to_string_lossy().as_ref() {
+            "/" => String::new(),
+            path => regex_escape(path),
+        };
+        text.push_str(&format!(
+            "(allow file-read-metadata (literal \"{literal}\") (regex #\"^{parent}/[^/]+$\"))\n"
+        ));
+    }
+    for ancestor in tree.ancestors().skip(1) {
+        let config = ancestor.join(".cargo");
+        if toolchain.starts_with(&config) {
+            continue;
+        }
+        text.push_str(&format!(
+            "(deny file-read* (subpath \"{}\"))\n",
+            sbpl_string(&config)
+        ));
+    }
+    Ok(text)
+}
+
+fn regex_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if "\\.+*?()[]{}^$|".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn sbpl_string(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+}
+
+/// Writes the blobs of `tree` under `dest` byte for byte, from `git cat-file`.
+/// `git checkout-index` would apply filters and line-ending attributes, and
+/// `git archive` would drop `export-ignore` paths, so neither writes exactly
+/// the tree the judges read. `Some` is a refusal: a submodule, or a symbolic
+/// link that is absolute or climbs with `..`, either of which would have
+/// admission compile bytes that are not in the tree.
+fn materialize_tree<G: crate::worktree::GitLocation + ?Sized>(
+    git: &G,
+    tree: &str,
+    dest: &Path,
+) -> Result<Option<String>> {
+    use std::ffi::OsStr;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Component;
+    use std::process::Stdio;
+
+    let listing = git
+        .command()
+        .args(["ls-tree", "-r", "-z", "--full-tree", tree])
+        .output()
+        .context("running git ls-tree on the read tree")?;
+    if !listing.status.success() {
+        bail!(
+            "git ls-tree {tree} failed: {}",
+            String::from_utf8_lossy(&listing.stderr).trim()
+        );
+    }
+    let mut entries = Vec::new();
+    for line in listing.stdout.split(|b| *b == 0).filter(|l| !l.is_empty()) {
+        let tab = line
+            .iter()
+            .position(|b| *b == b'\t')
+            .context("git ls-tree printed an entry with no path")?;
+        let path = PathBuf::from(OsStr::from_bytes(&line[tab + 1..]));
+        let meta = String::from_utf8_lossy(&line[..tab]).into_owned();
+        let mut fields = meta.split(' ');
+        let (Some(mode), Some(kind), Some(sha)) = (fields.next(), fields.next(), fields.next())
+        else {
+            bail!("git ls-tree printed {meta:?}");
+        };
+        if kind != "blob" {
+            return Ok(Some(format!(
+                "admission copies files only, and {} is a {kind}",
+                path.display()
+            )));
+        }
+        if !path.components().all(|c| matches!(c, Component::Normal(_))) {
+            bail!("git ls-tree named {}, outside the tree", path.display());
+        }
+        entries.push((mode.to_string(), sha.to_string(), path));
+    }
+
+    let mut child = git
+        .command()
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("running git cat-file --batch")?;
+    let mut stdin = child.stdin.take().context("git cat-file has no stdin")?;
+    let request: String = entries
+        .iter()
+        .map(|(_, sha, _)| format!("{sha}\n"))
+        .collect();
+    // Written from a thread so a full stdout pipe cannot stall the request.
+    let writer = std::thread::spawn(move || stdin.write_all(request.as_bytes()));
+    let mut out = BufReader::new(child.stdout.take().context("git cat-file has no stdout")?);
+    let mut refusal = None;
+    for (mode, sha, path) in &entries {
+        let mut header = String::new();
+        out.read_line(&mut header)?;
+        let size: usize = header
+            .trim_end()
+            .strip_prefix(&format!("{sha} blob "))
+            .and_then(|size| size.parse().ok())
+            .with_context(|| format!("git cat-file answered {header:?} for {sha}"))?;
+        let mut bytes = vec![0; size + 1];
+        out.read_exact(&mut bytes)?;
+        bytes.pop();
+        if refusal.is_some() {
+            continue;
+        }
+        let target = dest.join(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        if mode == "120000" {
+            let link = Path::new(OsStr::from_bytes(&bytes));
+            if link.is_absolute() || link.components().any(|c| c == Component::ParentDir) {
+                refusal = Some(format!(
+                    "{} is a symbolic link to {}, which admission would read outside the tree",
+                    path.display(),
+                    link.display()
+                ));
+                continue;
+            }
+            std::os::unix::fs::symlink(link, &target)
+                .with_context(|| format!("linking {}", target.display()))?;
+            continue;
+        }
+        std::fs::write(&target, &bytes).with_context(|| format!("writing {}", target.display()))?;
+        let bits = if mode == "100755" { 0o755 } else { 0o644 };
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(bits))?;
+    }
+    writer
+        .join()
+        .map_err(|_| anyhow::anyhow!("the git cat-file writer panicked"))?
+        .context("writing to git cat-file")?;
+    drop(out);
+    let status = child.wait_with_output()?;
+    if !status.status.success() {
+        bail!(
+            "git cat-file --batch failed: {}",
+            String::from_utf8_lossy(&status.stderr).trim()
+        );
+    }
+    Ok(refusal)
+}
+
+/// `cargo fmt --check`, `clippy`, `build` and `test` in the copy, spec 4.5,
+/// with the `cargo` of [`Admission::toolchain`]. On macOS each step runs
+/// through [`Admission::profile`] with `HYDRA_ROOT` pointed at `hydra_root`;
+/// elsewhere it runs bare with the same variable.
+pub fn admission_gate(admission: &Admission, hydra_root: &Path) -> AdmissionGateResult {
     let run = AdmissionRun {
-        profile_sha: admission_profile_sha(profile_path),
+        profile_sha: admission_profile_sha(&admission.profile),
         hydra_root: hydra_root.to_string_lossy().into_owned(),
     };
-    let steps: &[(&str, &[&str])] = &[
-        ("cargo", &["fmt", "--check"]),
+    let cargo = admission.toolchain.join("cargo");
+    let steps: &[&[&str]] = &[
+        &["fmt", "--check"],
         // `--` before `-D`: without it cargo reads the flag as its own and
         // refuses, which is what blocked the second real pass, 01a0814a-c730 on
         // 2026-09-08, on a patch nobody had judged.
-        ("cargo", &["clippy", "--", "-D", "warnings"]),
-        ("cargo", &["build"]),
-        ("cargo", &["test"]),
+        &["clippy", "--", "-D", "warnings"],
+        &["build"],
+        &["test"],
     ];
-    for (bin, args) in steps {
-        match run_admission_step(worktree, profile_path, hydra_root, bin, args) {
+    for args in steps {
+        match run_admission_step(admission, hydra_root, &cargo, args) {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
@@ -780,7 +1091,7 @@ pub fn admission_gate(
                 return AdmissionGateResult {
                     run,
                     output: Some(format!(
-                        "{bin} {} failed:\n{stdout}{stderr}",
+                        "cargo {} failed:\n{stdout}{stderr}",
                         args.join(" ")
                     )),
                 };
@@ -805,8 +1116,13 @@ fn admission_profile_sha(profile_path: &Path) -> Option<String> {
         .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
 }
 
-fn apply_admission_env(cmd: &mut Command, hydra_root: &Path) -> Result<(), String> {
-    let env = crate::env::admission_env().map_err(|err| format!("admission gate: {err}"))?;
+fn apply_admission_env(
+    cmd: &mut Command,
+    admission: &Admission,
+    hydra_root: &Path,
+) -> Result<(), String> {
+    let env = crate::env::admission_env(&admission.toolchain, &admission.cargo_home)
+        .map_err(|err| format!("admission gate: {err}"))?;
     cmd.env_clear();
     for (name, value) in env {
         cmd.env(name, value);
@@ -816,17 +1132,16 @@ fn apply_admission_env(cmd: &mut Command, hydra_root: &Path) -> Result<(), Strin
 }
 
 fn run_admission_step(
-    worktree: &Path,
-    profile_path: &Path,
+    admission: &Admission,
     hydra_root: &Path,
-    bin: &str,
+    bin: &Path,
     args: &[&str],
 ) -> Result<std::process::Output, String> {
     let mut cmd = if crate::sandbox::wraps_launches() {
-        if !profile_path.is_file() {
+        if !admission.profile.is_file() {
             return Err(format!(
                 "admission gate: seatbelt profile missing at {}",
-                profile_path.display()
+                admission.profile.display()
             ));
         }
         if !crate::sandbox::exec_available() {
@@ -837,7 +1152,7 @@ fn run_admission_step(
             );
         }
         let mut cmd = Command::new("/usr/bin/sandbox-exec");
-        cmd.arg("-f").arg(profile_path).arg(bin);
+        cmd.arg("-f").arg(&admission.profile).arg(bin);
         cmd
     } else {
         Command::new(bin)
@@ -845,10 +1160,10 @@ fn run_admission_step(
     // One tail for both branches, so no admission step reaches `output()`
     // without the cleared environment, and the test that drives this tail
     // covers the seatbelt branch too.
-    cmd.args(args).current_dir(worktree);
-    apply_admission_env(&mut cmd, hydra_root)?;
+    cmd.args(args).current_dir(&admission.tree);
+    apply_admission_env(&mut cmd, admission, hydra_root)?;
     cmd.output()
-        .map_err(|err| format!("{bin} {}: {err}", args.join(" ")))
+        .map_err(|err| format!("{} {}: {err}", bin.display(), args.join(" ")))
 }
 
 /// Fixed sentence in every judge prompt when a task is present. Map ticket 57.
@@ -1518,66 +1833,81 @@ mod admission_step_tests {
         }
     }
 
-    fn env_probe_output(
-        worktree: &Path,
-        profile_path: &Path,
-        hydra_root: &Path,
-    ) -> std::process::Output {
-        if crate::sandbox::inside_seatbelt() {
+    /// The canary rides on a child copy of this test binary and never on this
+    /// process. `set_var` here would race every other test thread that reads
+    /// the environment, which is finding H16 of the third hiring panel.
+    const CANARY: &str = "HYDRA_ADMISSION_CANARY";
+    const PROBE: &str = "rungs::evolve::admission_step_tests::admission_env_probe";
+
+    /// Does nothing unless the canary is set, which only
+    /// [`run_admission_step_clears_the_parent_environment`] does, on the child
+    /// it spawns. Then it runs `/usr/bin/env` as an admission step and prints
+    /// what the step saw.
+    #[test]
+    fn admission_env_probe() {
+        if std::env::var_os(CANARY).is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("hydra-admission-env-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let admission = Admission {
+            tree: dir.join("tree"),
+            cargo_home: dir.join("cargo-home"),
+            profile: dir.join("admission.sb"),
+            toolchain: dir.join("toolchain"),
+        };
+        std::fs::create_dir_all(&admission.tree).unwrap();
+        std::fs::write(&admission.profile, "(version 1)\n(allow default)\n").unwrap();
+        let hydra_root = dir.join("hydra-root");
+        let out = if crate::sandbox::inside_seatbelt() || !crate::sandbox::wraps_launches() {
             // Nested `sandbox-exec` is refused on macOS, and admission runs from
             // outside the seatbelt. Inside one, drive the tail both branches of
             // `run_admission_step` share; outside, the function itself.
             let mut cmd = Command::new("/usr/bin/env");
-            cmd.current_dir(worktree);
-            apply_admission_env(&mut cmd, hydra_root).unwrap();
+            cmd.current_dir(&admission.tree);
+            apply_admission_env(&mut cmd, &admission, &hydra_root).unwrap();
             cmd.output().unwrap()
         } else {
-            run_admission_step(worktree, profile_path, hydra_root, "/usr/bin/env", &[]).unwrap()
-        }
+            run_admission_step(&admission, &hydra_root, Path::new("/usr/bin/env"), &[]).unwrap()
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("admission-probe-start");
+        println!("{}", String::from_utf8_lossy(&out.stdout));
+        println!("admission-probe-end");
     }
 
     #[test]
     fn run_admission_step_clears_the_parent_environment() {
-        // SAFETY: the test owns this name and removes it before returning.
-        unsafe {
-            std::env::set_var("HYDRA_ADMISSION_CANARY", "planted");
-        }
-
-        let worktree =
-            std::env::temp_dir().join(format!("hydra-admission-env-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&worktree);
-        std::fs::create_dir_all(&worktree).unwrap();
-        let hydra_root = worktree.join("hydra-root");
-        std::fs::create_dir_all(&hydra_root).unwrap();
-
-        let profile_path = if crate::sandbox::wraps_launches() {
-            if !crate::sandbox::exec_available() {
-                unsafe {
-                    std::env::remove_var("HYDRA_ADMISSION_CANARY");
-                }
-                return;
-            }
-            let profile = worktree.join("admission.sb");
-            std::fs::write(&profile, "(version 1)\n(allow default)\n").unwrap();
-            profile
-        } else {
-            worktree.join("unused.sb")
-        };
-
-        let out = env_probe_output(&worktree, &profile_path, &hydra_root);
-        // SAFETY: paired with the set above, and before any assert can return.
-        unsafe {
-            std::env::remove_var("HYDRA_ADMISSION_CANARY");
-        }
-        let _ = std::fs::remove_dir_all(&worktree);
+        let exe = std::env::current_exe().unwrap();
+        let out = Command::new(exe)
+            .args([PROBE, "--exact", "--nocapture", "--test-threads=1"])
+            .env(CANARY, "planted")
+            .output()
+            .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "the probe failed:\n{stdout}");
+        let seen = stdout
+            .split_once("admission-probe-start")
+            .and_then(|(_, rest)| rest.split_once("admission-probe-end"))
+            .map(|(seen, _)| seen)
+            .unwrap_or_else(|| panic!("the probe did not run:\n{stdout}"));
         assert!(
-            !stdout.contains("HYDRA_ADMISSION_CANARY=planted"),
-            "admission step inherited the parent environment:\n{stdout}"
+            !seen.contains("HYDRA_ADMISSION_CANARY=planted"),
+            "admission step inherited the parent environment:\n{seen}"
         );
         assert!(
-            stdout.contains("HYDRA_ROOT="),
-            "admission step did not set HYDRA_ROOT:\n{stdout}"
+            seen.contains("HYDRA_ROOT="),
+            "admission step did not set HYDRA_ROOT:\n{seen}"
+        );
+        assert!(
+            seen.lines()
+                .any(|line| line.starts_with("CARGO_HOME=") && line.ends_with("cargo-home")),
+            "admission step did not get the scratch cargo home:\n{seen}"
+        );
+        assert!(
+            seen.lines().any(|line| line.starts_with("PATH=")
+                && line.split(':').next().unwrap().ends_with("/toolchain")),
+            "the toolchain is not first on PATH:\n{seen}"
         );
     }
 }
