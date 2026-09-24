@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 PUPPETS = Path(__file__).resolve().parents[1] / "puppets"
@@ -48,7 +49,7 @@ def write_json(path: Path, value) -> None:
 def read_jsonl(path: Path) -> list[dict]:
     if not path.is_file():
         return []
-    return committed_lines(path.read_bytes())
+    return committed_lines(path.read_bytes())[0]
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -60,13 +61,18 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
     temp.replace(path)
 
 
-def committed_lines(data: bytes) -> list[dict]:
+def committed_lines(data: bytes) -> tuple[list[dict], int]:
+    """The parsed complete lines and how many bytes they cover. A torn tail is left out; a
+    complete line that does not parse raises, and the caller decides what to do with the
+    record."""
     lines = []
+    covered = 0
     for line in data.splitlines(keepends=True):
         if not line.endswith(b"\n"):
             break
         lines.append(json.loads(line))
-    return lines
+        covered += len(line)
+    return lines, covered
 
 
 def duration_seconds(first: dict, lines: list[dict]) -> float | None:
@@ -76,8 +82,11 @@ def duration_seconds(first: dict, lines: list[dict]) -> float | None:
     )
     if not end.get("ended_at"):
         return None
-    started = datetime.fromisoformat(first["ts"].replace("Z", "+00:00"))
-    ended = datetime.fromisoformat(end["ended_at"].replace("Z", "+00:00"))
+    try:
+        started = datetime.fromisoformat(str(first.get("ts")).replace("Z", "+00:00"))
+        ended = datetime.fromisoformat(str(end["ended_at"]).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
     return (ended - started).total_seconds()
 
 
@@ -100,7 +109,17 @@ def refresh_show_answer(
             text=True,
             check=True,
         )
-    answer = json.loads(result.stdout)
+    full = json.loads(result.stdout)
+    projection = full.get("projection") or {}
+    # Only what a dataset row reads. The first version cached the whole answer, every event
+    # of every record unredacted, which put a raw copy of the corpus beside the redacted
+    # dataset (the security review of goal ea69da1f).
+    answer = {
+        "projection": {
+            "outcome": projection.get("outcome"),
+            "usage": {"counts": (projection.get("usage") or {}).get("counts") or {}},
+        }
+    }
     cache[run_id] = {"fingerprint": fingerprint, "answer": answer}
     return answer
 
@@ -131,13 +150,22 @@ def record_row(
 
 
 def scan_record(path: Path) -> dict | None:
+    """One record, or None when it is not a provider run or cannot be read. A garbled line
+    skips this record and names it on stderr rather than ending the pass for every other one."""
     data = path.read_bytes()
-    lines = committed_lines(data)
+    try:
+        lines, covered = committed_lines(data)
+    except (json.JSONDecodeError, UnicodeDecodeError) as err:
+        print(f"grader: skipping {path.name}: {err}", file=sys.stderr)
+        return None
     if not lines:
         return None
     first = lines[0]
-    start = first.get("hydra", {})
-    if not first.get("provider") or start.get("command") not in ("run", "resume"):
+    if not isinstance(first, dict):
+        print(f"grader: skipping {path.name}: line 0 is not an object", file=sys.stderr)
+        return None
+    start = first.get("hydra") or {}
+    if not first.get("provider") or not first.get("run_id") or start.get("command") not in ("run", "resume"):
         return None
     return {
         "path": path,
@@ -145,7 +173,7 @@ def scan_record(path: Path) -> dict | None:
         "lines": lines,
         "first": first,
         "run_id": first["run_id"],
-        "fingerprint": hashlib.sha256(data).hexdigest(),
+        "fingerprint": hashlib.sha256(data[:covered]).hexdigest(),
     }
 
 

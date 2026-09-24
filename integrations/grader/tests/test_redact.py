@@ -160,3 +160,20 @@ class JsonRedactionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NonAsciiBeforeAKey(unittest.TestCase):
+    """The security review of goal ea69da1f: a character index used into a byte array
+    mis-scanned any text with an accent before the key."""
+
+    def test_legacy_key_after_an_accent(self):
+        out = redact_string("\u00e9 sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD")
+        self.assertEqual(out, "\u00e9 [REDACTED:openai_api_key]")
+
+    def test_project_key_after_accents_keeps_the_tail(self):
+        out = redact_string("\u00e9\u00e9\u00e9 sk-proj-planted_openai-key-value-0123 tail")
+        self.assertEqual(out, "\u00e9\u00e9\u00e9 [REDACTED:openai_api_key] tail")
+
+    def test_dict_keys_are_redacted_too(self):
+        out = redact_value({"sk-ant-planted": "AIzaPlanted"})
+        self.assertEqual(out, {"[REDACTED:anthropic_api_key]": "[REDACTED:google_api_key]"})

@@ -12,59 +12,41 @@ OPENAI_PROJECT_BODY = 20
 OPENAI_LEGACY_BODY = 32
 
 
-def _token_byte(b: int) -> bool:
-    if b >= 128:
-        return False
-    c = chr(b)
-    return c.isalnum() or c in "_-"
+def _token_char(c: str) -> bool:
+    return c.isascii() and (c.isalnum() or c in "_-")
 
 
 def openai_key_spans(text: str) -> list[tuple[int, int]]:
-    """Byte spans of OpenAI keys in ``text``, left to right."""
-    bytes_arr = text.encode("utf-8")
+    """Character spans of OpenAI keys in ``text``, left to right. One index space, the
+    string's: the first port mixed str.find offsets with a UTF-8 byte array and mis-scanned
+    any text with a non-ASCII character before the key (the security review of goal ea69da1f)."""
     spans: list[tuple[int, int]] = []
     from_idx = 0
+    n = len(text)
     while True:
-        rel = text[from_idx:].find("sk-")
-        if rel == -1:
+        at = text.find("sk-", from_idx)
+        if at == -1:
             break
-        at = from_idx + rel
         from_idx = at + 3
-        if at > 0 and _token_byte(bytes_arr[at - 1]):
+        if at > 0 and _token_char(text[at - 1]):
             continue
         rest = text[at + 3 :]
-        body_start: int
-        min_len: int
-
-        matched_kind = next(
-            (kind for kind in ("proj-", "svcacct-", "admin-") if rest.startswith(kind)),
-            None,
-        )
-        if matched_kind is not None:
-            body_start = at + 3 + len(matched_kind)
-
-            def allowed(b: int) -> bool:
-                c = chr(b)
-                return c.isalnum() or c in "_-"
-
+        kind = next((k for k in ("proj-", "svcacct-", "admin-") if rest.startswith(k)), None)
+        if kind is not None:
+            body_start = at + 3 + len(kind)
+            allowed = _token_char
             min_len = OPENAI_PROJECT_BODY
         else:
             body_start = at + 3
-
-            def allowed(b: int) -> bool:
-                return chr(b).isalnum()
-
+            allowed = lambda c: c.isascii() and c.isalnum()  # noqa: E731
             min_len = OPENAI_LEGACY_BODY
-
-        length = 0
         pos = body_start
-        while pos < len(bytes_arr) and allowed(bytes_arr[pos]):
-            length += 1
+        while pos < n and allowed(text[pos]):
             pos += 1
-        end = body_start + length
-        if length >= min_len and (end == len(bytes_arr) or not _token_byte(bytes_arr[end])):
-            spans.append((at, end))
-            from_idx = end
+        length = pos - body_start
+        if length >= min_len and (pos == n or not _token_char(text[pos])):
+            spans.append((at, pos))
+            from_idx = pos
     return spans
 
 
@@ -116,5 +98,5 @@ def redact_value(value: Any) -> Any:
     if isinstance(value, list):
         return [redact_value(item) for item in value]
     if isinstance(value, dict):
-        return {key: redact_value(val) for key, val in value.items()}
+        return {redact_string(key) if isinstance(key, str) else key: redact_value(val) for key, val in value.items()}
     return value

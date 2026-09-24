@@ -255,3 +255,50 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewFindingsTests(unittest.TestCase):
+    """The security review of goal ea69da1f: a garbled record must not end the pass, and the
+    show cache must hold nothing but what a row reads."""
+
+    def setUp(self):
+        import tempfile, textwrap
+        self.root = Path(tempfile.mkdtemp())
+        self.runs = self.root / "runs"
+        self.runs.mkdir()
+        self.home = self.root / "grader"
+        self.stub = self.root / "hydra"
+        self.stub.write_text(textwrap.dedent("""\
+            #!/bin/bash
+            if [ "$1" = "show" ]; then
+              echo '{"projection":{"outcome":"completed","usage":{"counts":{"total_tokens":7}},"result_text":"secret body"},"events":[{"type":"tool_call","name":"Bash"}]}'
+              exit 0
+            fi
+            exit 1
+            """))
+        self.stub.chmod(0o755)
+        good = {"provider": "claude", "model": "sonnet", "run_id": "r-good", "ts": "2026-09-24T10:00:00Z",
+                "hydra": {"type": "run_start", "command": "run", "policy": "standard", "task": "hello"}}
+        (self.runs / "r-good.jsonl").write_text(json.dumps(good) + "\n")
+        (self.runs / "r-bad.jsonl").write_text('{"provider": "claude", "run_id": "r-bad", "ts": "x", "hydra": {"command": "run"}}\n{not json}\n')
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.root)
+
+    def test_a_garbled_record_is_skipped_and_the_rest_collected(self):
+        import io, contextlib
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            n = grader.collect(runs=self.runs, home=self.home, hydra=str(self.stub), jobs=1)
+        self.assertEqual(n, 1)
+        rows = [json.loads(l) for l in (self.home / "dataset.jsonl").read_text().splitlines()]
+        self.assertEqual([r["run_id"] for r in rows], ["r-good"])
+        self.assertIn("r-bad", err.getvalue())
+
+    def test_the_cache_holds_only_outcome_and_counts(self):
+        grader.collect(runs=self.runs, home=self.home, hydra=str(self.stub), jobs=1)
+        cache = json.loads((self.home / "show-cache.json").read_text())
+        answer = cache["r-good"]["answer"]
+        self.assertEqual(answer, {"projection": {"outcome": "completed", "usage": {"counts": {"total_tokens": 7}}}})
+        self.assertNotIn("secret body", (self.home / "show-cache.json").read_text())

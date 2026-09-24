@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -69,7 +69,7 @@ def collect(
     """Refresh stale rows and return how many were written."""
     runs = runs or (records.hydra_root() / "runs")
     home = home or records.grader_home()
-    hydra = hydra or __import__("os").environ.get("HYDRA_BIN", "hydra")
+    hydra = hydra or os.environ.get("HYDRA_BIN", "hydra")
     cursor_path = home / "cursor.json"
     dataset_path = home / "dataset.jsonl"
 
