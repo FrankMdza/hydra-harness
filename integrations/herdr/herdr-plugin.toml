@@ -15,3 +15,9 @@ id = "run"
 title = "Hydra run in this pane"
 contexts = ["workspace"]
 command = ["bash", "bin/hydra-in-pane"]
+
+[[actions]]
+id = "interactive"
+title = "Hydra gated interactive claude in this pane"
+contexts = ["workspace"]
+command = ["bash", "bin/hydra-tui-in-pane", "--provider", "claude", "--policy", "standard"]

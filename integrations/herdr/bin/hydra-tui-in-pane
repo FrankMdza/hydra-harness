@@ -1,0 +1,45 @@
+#!/bin/bash
+# hydra-tui-in-pane: `hydra run --interactive` in this Herdr pane, with the run id on the pane.
+#
+# The sibling `hydra-in-pane` is for recorded runs: it discards stdout, waits for the launch to
+# return, then tails the log. An interactive run owns the terminal, so this script keeps stdin and
+# stdout on the pty, tees stderr to catch the `hydra: run <id>` line Hydra prints before it waits,
+# and labels the pane from a background subshell. Build ticket 107.
+HYDRA="${HYDRA_BIN:-hydra}"
+
+if [ -z "$HERDR_ENV" ]; then
+    echo "hydra-tui-in-pane: not inside Herdr, HERDR_ENV is unset" >&2
+    exit 1
+fi
+
+TMP_ERR=$(mktemp)
+
+label_pane() {
+    local run_id=""
+    for _ in $(seq 1 150); do
+        run_id=$(grep -m1 '^hydra: run ' "$TMP_ERR" 2>/dev/null | awk '{print $3}')
+        [ -n "$run_id" ] && break
+        sleep 0.2
+    done
+    [ -z "$run_id" ] && return 0
+    local status_json provider policy
+    status_json=$("$HYDRA" status "$run_id" 2>/dev/null) || return 0
+    provider=$(echo "$status_json" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("provider", ""))')
+    policy=$(echo "$status_json" | python3 -c 'import sys, json; print(json.load(sys.stdin).get("policy", ""))')
+    herdr pane report-metadata "$HERDR_PANE_ID" --source hydra-bridge \
+        --token "run_id=$run_id" \
+        --token "provider=$provider" \
+        --token "policy=$policy" \
+        --token "launch_mode=interactive" >/dev/null
+    herdr pane report-agent "$HERDR_PANE_ID" --source hydra-bridge --agent hydra --state working >/dev/null
+}
+
+label_pane &
+LABELER=$!
+
+"$HYDRA" run --interactive "$@" 2> >(tee "$TMP_ERR" >&2)
+RC=$?
+
+wait "$LABELER" 2>/dev/null
+rm -f "$TMP_ERR"
+exit $RC

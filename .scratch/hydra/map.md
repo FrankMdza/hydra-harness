@@ -309,6 +309,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [72 - Which branch reap may commit on, and what the git carve-out lets a run write](issues/72-reap-and-the-git-carve-out.md): resolved 2026-09-23 after a four-reader panel. Reap commits only on its own branch; every unsandboxed git call takes its git directory from the record; the private carve-out narrows to the index. Build ticket 95.
 - [73 - What rung two may edit](issues/73-what-rung-two-may-edit.md): resolved 2026-09-23 after a four-reader panel. The human names the paths per pass over a floor no name lifts; existing tests are refused, new ones allowed. Build tickets 80 and 96.
 - [74 - What a run may write in the parent's object store](issues/74-the-object-store-under-the-seatbelt.md): resolved 2026-09-23. A private object store per run, the parent's read as an alternate, reap moves checked objects in from outside. Build ticket 103.
+- [75 - Master of Puppets: an orchestration mode, a mascot, and a ranking of agents](issues/75-master-of-puppets-mode.md): a four-proposer panel agreed the launcher and the mascot are Herdr work, the orchestrator lives outside every run, and cost is window share; it found the interactive record too thin for the mascot and `hydra-in-pane` unable to carry a TUI. Nine decisions graduate to grilling ticket 76; the build order is in research/75.
 
 
 ## Not yet specified
