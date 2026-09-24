@@ -217,55 +217,60 @@ pub fn mcp_undeliverable(checkout: Checkout) -> Option<&'static str> {
 }
 
 /// The `.codex/config.toml` fragment for admitted servers, 6.5.
-pub fn mcp_config(servers: &[&crate::mcp::Server]) -> String {
+///
+/// **Serialized by the `toml` crate, not by `format!`.** The values come from
+/// `config/mcp.md`, which the human writes, and a quote, a backslash or a
+/// newline in a command, an argument, an env value, a URL, a header or a server
+/// name has to reach `codex` as the same string. The hand-built version escaped
+/// quotes in `args` and nothing else. The third hiring panel found it, H43.
+pub fn mcp_config(servers: &[&crate::mcp::Server]) -> Result<String> {
     use crate::mcp::Transport;
+    use toml::{Table, Value};
 
-    let mut out = String::new();
+    let strings = |map: &std::collections::BTreeMap<String, String>| -> Table {
+        map.iter()
+            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+            .collect()
+    };
+    let mut table = Table::new();
     for server in servers {
-        out.push_str(&format!("\n[mcp_servers.{}]\n", server.name));
+        let mut entry = Table::new();
         match server.transport {
             Transport::Stdio => {
-                out.push_str(&format!(
-                    "command = \"{}\"\n",
-                    server.command.clone().unwrap_or_default()
-                ));
+                entry.insert(
+                    "command".into(),
+                    Value::String(server.command.clone().unwrap_or_default()),
+                );
                 if !server.args.is_empty() {
-                    let args = server
-                        .args
-                        .iter()
-                        .map(|arg| format!("\"{}\"", arg.replace('"', "\\\"")))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    out.push_str(&format!("args = [{args}]\n"));
+                    entry.insert(
+                        "args".into(),
+                        Value::Array(server.args.iter().cloned().map(Value::String).collect()),
+                    );
                 }
                 if !server.env.is_empty() {
-                    let pairs = server
-                        .env
-                        .iter()
-                        .map(|(key, value)| format!("\"{key}\" = \"{value}\""))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    out.push_str(&format!("env = {{ {pairs} }}\n"));
+                    entry.insert("env".into(), Value::Table(strings(&server.env)));
                 }
             }
             Transport::Http | Transport::Sse => {
-                out.push_str(&format!(
-                    "url = \"{}\"\n",
-                    server.url.clone().unwrap_or_default()
-                ));
+                entry.insert(
+                    "url".into(),
+                    Value::String(server.url.clone().unwrap_or_default()),
+                );
                 if !server.headers.is_empty() {
-                    let pairs = server
-                        .headers
-                        .iter()
-                        .map(|(key, value)| format!("\"{key}\" = \"{value}\""))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    out.push_str(&format!("http_headers = {{ {pairs} }}\n"));
+                    entry.insert(
+                        "http_headers".into(),
+                        Value::Table(strings(&server.headers)),
+                    );
                 }
             }
         }
+        table.insert(server.name.clone(), Value::Table(entry));
     }
-    out
+    let mut root = Table::new();
+    if !table.is_empty() {
+        root.insert("mcp_servers".into(), Value::Table(table));
+    }
+    toml::to_string(&root).context("serializing the codex MCP config")
 }
 
 /// Whether `codex login status` says the binary is logged in.
@@ -524,12 +529,65 @@ mod tests {
             url: Some("https://example.invalid/mcp".into()),
             headers: Default::default(),
         };
-        let body = mcp_config(&[&stdio, &remote]);
+        let body = mcp_config(&[&stdio, &remote]).unwrap();
         assert!(body.contains("[mcp_servers.probe]"));
         assert!(body.contains("command = \"/usr/bin/python3\""));
         assert!(body.contains("args = [\"-u\"]"));
         assert!(body.contains("[mcp_servers.remote]"));
         assert!(body.contains("url = \"https://example.invalid/mcp\""));
+    }
+
+    #[test]
+    fn quotes_backslashes_and_newlines_round_trip_through_the_mcp_fragment() {
+        // Third panel, H43: every string the document can put in the fragment
+        // parses back as the same string, the server name included.
+        use crate::mcp::{Server, Transport};
+        let hostile = "a \"quoted\" C:\\path\\ and\na newline, a ' and a ]";
+        let pair = |key: &str| [(format!("{key} \"k\""), hostile.to_string())].into();
+        let stdio = Server {
+            name: "odd.name \"x\"".into(),
+            transport: Transport::Stdio,
+            admit: vec!["standard".into()],
+            command: Some(format!("/bin/{hostile}")),
+            args: vec![hostile.into(), "\\".into()],
+            env: pair("ENV"),
+            url: None,
+            headers: Default::default(),
+        };
+        let remote = Server {
+            name: "remote".into(),
+            transport: Transport::Sse,
+            admit: vec!["standard".into()],
+            command: None,
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some(format!("https://example.invalid/{hostile}")),
+            headers: pair("Header"),
+        };
+        let body = mcp_config(&[&stdio, &remote]).unwrap();
+        let parsed: toml::Table =
+            toml::from_str(&body).unwrap_or_else(|err| panic!("{err}\n{body}"));
+        let servers = parsed["mcp_servers"].as_table().unwrap();
+        assert_eq!(servers.len(), 2, "{body}");
+
+        let odd = servers["odd.name \"x\""].as_table().unwrap();
+        assert_eq!(odd["command"].as_str(), stdio.command.as_deref());
+        let args: Vec<_> = odd["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|arg| arg.as_str().unwrap())
+            .collect();
+        assert_eq!(args, [hostile, "\\"]);
+        assert_eq!(odd["env"]["ENV \"k\""].as_str(), Some(hostile));
+
+        let remote_table = servers["remote"].as_table().unwrap();
+        assert_eq!(remote_table["url"].as_str(), remote.url.as_deref());
+        assert_eq!(
+            remote_table["http_headers"]["Header \"k\""].as_str(),
+            Some(hostile)
+        );
+        assert!(mcp_config(&[]).unwrap().trim().is_empty());
     }
 
     #[test]

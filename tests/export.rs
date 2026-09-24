@@ -550,6 +550,71 @@ fn out_named_preference_jsonl_is_refused_before_anything_is_written() {
     assert!(!out.exists());
 }
 
+#[test]
+fn out_naming_the_preference_file_by_another_spelling_is_refused() {
+    // Third panel, H41. The name check compares one spelling. On a
+    // case-insensitive volume `Preference.jsonl` is the preference file, and a
+    // symbolic or hard link to it by any name is too. Each is refused before a
+    // byte is written, and the preference file already there survives.
+    let fixture = Fixture::new("collision-alias");
+    fixture.write_allowlist();
+    seed_corpus(&fixture);
+    let preference = fixture.root.join("preference.jsonl");
+    let kept = "an earlier export's preference file\n";
+    std::fs::write(&preference, kept).unwrap();
+
+    let symbolic = fixture.root.join("events-link.jsonl");
+    std::os::unix::fs::symlink(&preference, &symbolic).unwrap();
+    let hard = fixture.root.join("events-hard.jsonl");
+    std::fs::hard_link(&preference, &hard).unwrap();
+    let mut aliases = vec![symbolic, hard];
+
+    let folded = fixture.root.join("Preference.jsonl");
+    let case_insensitive = folded.exists();
+    if case_insensitive {
+        aliases.push(folded.clone());
+    } else {
+        eprintln!("this volume is case sensitive, so Preference.jsonl is its own file here");
+    }
+
+    for out in &aliases {
+        let err = export(
+            &fixture.layout(),
+            &fixture.allowlist_path(),
+            Some(out),
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("same file"), "{}: {err}", out.display());
+        assert_eq!(
+            std::fs::read_to_string(&preference).unwrap(),
+            kept,
+            "{} truncated the preference file",
+            out.display()
+        );
+    }
+
+    // With no preference file yet, the folded spelling is still one file with
+    // the sibling the export would write, and the refusal leaves nothing behind.
+    if case_insensitive {
+        for alias in &aliases {
+            std::fs::remove_file(alias).unwrap();
+        }
+        std::fs::remove_file(&preference).unwrap_or(());
+        let err = export(
+            &fixture.layout(),
+            &fixture.allowlist_path(),
+            Some(&folded),
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("same file"), "{err}");
+        assert!(!preference.exists() && !folded.exists());
+    }
+}
+
 const OPAQUE_SECRET: &str = "q7Kx2Vm9Za4Nc8Rt1By6Hw3Df0Lp5JsUeQiWoAsEdFgHjKlZxCvBnM987654321";
 
 /// The entropy warnings the verifier raises on `text` as one exported value.

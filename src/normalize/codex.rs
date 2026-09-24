@@ -63,6 +63,7 @@ struct Walk {
     /// Tool calls keyed by the id the stream names, for pairing results.
     calls: HashMap<String, (u64, String, Value)>,
     unknown_tools: Vec<String>,
+    unread_frames: Vec<String>,
 }
 
 pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
@@ -182,8 +183,43 @@ impl Walk {
                 self.add_counts(&raw["usage"]);
                 self.emit_usage();
             }
-            _ => {}
+            // Measured on record 01a0cfdb-e5c3, 0.154.0, 2026-09-23: a turn the
+            // provider could not finish ends on `turn.failed` carrying
+            // `error.message`, and the same sentence arrives just before it as
+            // a top-level `error` frame. The frame is this run's terminator, so
+            // it is kept as the result the way `turn.completed` is, and the
+            // outcome derivation reads its message.
+            Some("turn.failed") => {
+                self.result = Some(raw.clone());
+                self.add_counts(&raw["usage"]);
+                self.emit_usage();
+            }
+            Some("error") => {
+                if let Some(message) = raw["message"].as_str() {
+                    self.noise.push(message.to_string());
+                }
+            }
+            // Read and dropped on purpose. `item.started` is the half of a
+            // tool item whose `item.completed` carries everything, the session
+            // id on `thread.started` has no field in contract 7.2 yet, and
+            // `turn.started` says nothing a later frame does not.
+            Some("thread.started" | "turn.started" | "item.started" | "item.updated") => {}
+            Some(other) => self.note_unread_frame(other),
+            None => self.note_unread_frame("(none)"),
         }
+    }
+
+    /// One finding per frame type this reader drops, so a shape the provider
+    /// adds later is named in the record's reading rather than lost in silence.
+    fn note_unread_frame(&mut self, kind: &str) {
+        if self.unread_frames.iter().any(|known| known == kind) {
+            return;
+        }
+        self.unread_frames.push(kind.to_string());
+        self.findings.push(Finding::Limit(format!(
+            "a frame of type {kind} is one this reader does not know, so nothing was derived \
+             from it"
+        )));
     }
 
     fn item_completed(&mut self, seq: u64, item: &Value) {

@@ -135,7 +135,7 @@ pub fn derive(run: &Run) -> Option<Derived> {
     // Everything from here reads the stream. The two shapes where the provider
     // refused its own service come first, because both mean the run never got to
     // do its work.
-    if let Some(outcome) = provider_refused(run) {
+    if let Some(outcome) = provider_refused(run).or_else(|| codex_limit_refusal(run)) {
         return Some(Derived {
             outcome,
             source: Source::Derived,
@@ -260,8 +260,14 @@ pub fn derive(run: &Run) -> Option<Derived> {
             // purpose: `SUCCESS` on that frame is worth nothing, since the same
             // run reports it with every tool call denied, which is what
             // `refused_everything` above is for.
+            //
+            // **`codex` ends a turn it could not finish on `turn.failed`**, a
+            // frame with no `is_error`. Without this row that run reads
+            // `completed`. The usage-limit spelling of it never gets here,
+            // because [`codex_limit_refusal`] read it first.
             if result["is_error"].as_bool() == Some(true)
                 || agy_status(run, result).is_some_and(|status| status != "SUCCESS")
+                || codex_turn_failed(run, result)
             {
                 Outcome::Failed
             } else {
@@ -361,6 +367,31 @@ fn cursor_stderr_refusal(run: &Run) -> Option<Outcome> {
         }
     }
     None
+}
+
+/// Whether a `codex` run's terminator is the frame of a turn that failed.
+fn codex_turn_failed(run: &Run, frame: &Value) -> bool {
+    run.provider.as_deref() == Some("codex") && frame["type"].as_str() == Some("turn.failed")
+}
+
+/// The usage-limit sentence a `codex` turn fails with.
+///
+/// `codex` reports no status code. Records 01a0cfdb-e5c3 and 01a0d02d-f812, on
+/// 0.154.0 on 2026-09-23, end on `turn.failed` whose `error.message` starts
+/// "You've hit your usage limit.", and 01a0cc9d-8f15 carries the same sentence
+/// behind "Error running remote compact task: ". Before this reading all three
+/// derived `failed`, and rung one learned from them.
+///
+/// **This is a text match, and it is written down as one**, for the reason
+/// [`cursor_stderr_refusal`] gives: the alternative files an exhausted quota as
+/// a task failure. A reworded sentence sends the run back to `failed`.
+fn codex_limit_refusal(run: &Run) -> Option<Outcome> {
+    let result = run.result.as_ref()?;
+    if !codex_turn_failed(run, result) {
+        return None;
+    }
+    let message = result["error"]["message"].as_str()?;
+    (message.contains("You've hit your usage limit")).then_some(Outcome::RateLimited)
 }
 
 /// The session-limit sentence a harvested `claude` interactive run reports.
