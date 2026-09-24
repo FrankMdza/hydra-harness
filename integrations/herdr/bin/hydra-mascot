@@ -11,10 +11,11 @@ its own aspect. Dark pixels are left transparent so the dragon sits on the pane'
     hydra-mascot --image ref.jpeg --width 96 --demo 30       # animate for 30 s
     hydra-mascot --image ref.jpeg --width 60 --save ~/.cache/hydra-mascot.ans
     hydra-mascot --load ~/.cache/hydra-mascot.ans            # from .zshrc, like pokemon-colorscripts
-    hydra-mascot --small --demo 20                           # the 11x36 hand-drawn sprite
+    hydra-mascot --small --demo 20                           # the pixel-art sprite, 48 x 15
 
 The image render reads as a dragon at 60 columns and up; below that it is a blob, so the small
-sprite is drawn by hand (the opus proposal's idle frame from map ticket 75).
+sprite is pixel art on a 48 x 28 grid with a nine-colour palette, in the style of the pokemon
+sprites that print at shell start. It bobs one pixel, blinks, and each head can sleep or derp.
 """
 import argparse, os, random, struct, subprocess, sys, tempfile, time
 
@@ -23,40 +24,73 @@ FIRE = [(255, 246, 180), (255, 200, 80), (255, 140, 30), (220, 60, 30), (150, 20
 SHADES = "░▒▓█"
 
 
-SMALL = """\
-  ◢◣◢◣◢◣      ◢◣◢◣◢◣      ◢◣◢◣◢◣
- ▟█████▙▄▄   ▟█████▙▄▄   ▟█████▙▄▄
- ██ ◉ █████▙ ██ ◉ █████▙ ██ ◉ █████▙
- ▜██▄▄▄▄▄▟▀  ▜██▄▄▄▄▄▟▀  ▜██▄▄▄▄▄▟▀
-   ▜██▙        ▐██▌        ▟██▛
-     ▜██▙      ▐██▌      ▟██▛
- ◢██◣  ▀███▄▄▄▄████▄▄▄▄███▀  ◢██◣
-◢████◣▄▄▟██████████████████▙▄▄◢████◣
-▀▀▀▜███████▛▀▀▀▀▀▀▀▀▀▀▀▀▜███████▛▀▀▀
-      ▐███▌              ▐███▌
-      ▀▀▀▀▘              ▝▀▀▀▀"""
+PIX = """\
+.....KK...K.......KH....HK.......K...KK.........
+....KHHK.KHK.....KHH....HHK.....KHK.KHHK........
+..KKLLGGKGGK.....KLLKKKKLLK.....KGGKGGLLKK......
+.KLLEGGGGGGGK....KLGGGGGGLK....KGGGGGGGELLK.....
+KLGGGGGGGGGGK...KGEGGGGGGEGK...KGGGGGGGGGGLK....
+KBWBWBWdGGGGK...KGGGGGGGGGGK...KGGGGdWBWBWBK....
+.KKKKKKKdGGGK...KGBWBWWBWBGK...KGGGdKKKKKKK.....
+........KLGGK....KGKKKKKKGK....KGGLK............
+........KLGGK.....KLGGGGLK.....KGGLK............
+.........KLGGK....KLGGGGLK....KGGLK.............
+..........KLGGK...KLGGGGLK...KGGLK..............
+...........KLGGK..KLGGGGLK..KGGLK...............
+............KLGGKKKLGGGGLKKKGGLK................
+.....KK......KLGGGGGGGGGGGGGGLK......KK.........
+....KggK.....KGGGGGGGGGGGGGGGGK.....KggK........
+...KgGggK...KGGGGGGBBBBBBGGGGGGK...KggGgK.......
+..KgGgggGKKKGGGGGGBBBBBBBBGGGGGGKKKGgggGgK......
+.KgGgggGgggGGGGGGGBBBBBBBBGGGGGGGgggGgggGgK.....
+KgGgggGgggGgggGGGGBBBBBBBBGGGGgggGgggGgggGgK....
+KgggGgggGgggGgggGGGBBBBBBGGGgggGgggGgggGgggK....
+.KKgggGgggGgggGgGGGGBBBBGGGGgGgggGgggGgggKK.....
+...KKKgggGgggKKKGGGGGGGGGGGGKKKgggGgggKKK.......
+......KKKKKK..KGGGGKKKKKKGGGGK..KKKKKK..........
+..............KLGGGK....KGGGLK..................
+..............KLGGGK....KGGGLK..................
+.............KWLGGGK....KGGGLWK.................
+............KWWKKKKK....KKKKKWWK................
+............KKKK............KKKK................
+"""
 
-SMALL_MOUTHS = [(0.30, 0.30), (0.63, 0.30), (0.97, 0.30)]
+PAL = {
+    "K": (24, 20, 32),      # outline
+    "G": (82, 150, 128),    # scales
+    "L": (122, 190, 160),   # scale highlight
+    "d": (52, 108, 92),     # shade under the jaw
+    "g": (44, 96, 84),      # wing membrane
+    "B": (214, 226, 176),   # belly
+    "E": (232, 48, 40),     # eye
+    "W": (246, 246, 236),   # teeth and claws
+    "H": (226, 214, 176),   # horns
+}
+PIX_ROWS = [r for r in PIX.split("\n") if r]
+assert all(len(r) == len(PIX_ROWS[0]) for r in PIX_ROWS), "ragged pixel map"
+MARGIN = 12  # transparent columns on each side, so the side heads have room to breathe fire
+TOP = 6      # transparent pixel rows above, so the centre head's blast has somewhere to go
+# (x, y, dx, dy) per jaw in pixel space: the left head breathes left, the right head right, and
+# the centre head faces you, so its blast goes straight up from between the horns.
+PIX_MOUTHS = [(MARGIN + 0, TOP + 5, -1, 0), (MARGIN + 23, TOP - 1, 0, -1), (MARGIN + 47, TOP + 5, 1, 0)]
 
 
-def small_cells():
-    """The hand-drawn sprite as cells: every glyph is a solid bone cell, eyes amber. Returned in
-    the same (top, bottom) shape as an image render so draw() and the poses work unchanged; the
-    glyph itself is kept in a parallel grid."""
-    lines = SMALL.split("\n")
-    width = max(len(l) for l in lines)
-    cells, glyphs = [], []
-    for line in lines:
-        row, grow = [], []
-        for ch in line.ljust(width):
-            if ch == " ":
-                row.append((None, None)); grow.append(" ")
-            elif ch == "◉":
-                row.append(((255, 176, 40), (255, 176, 40))); grow.append(ch)
-            else:
-                row.append((BONE, BONE)); grow.append(ch)
-        cells.append(row); glyphs.append(grow)
-    return cells, glyphs
+def pix_cells(yoff=0, blink=False, closed_eyes=None):
+    """The pixel map as (top, bottom) cell pairs, moved down `yoff` pixels. `blink` closes every
+    eye; `closed_eyes` closes the eyes whose x falls in a (start, end) range."""
+    h = len(PIX_ROWS) + TOP
+    w = len(PIX_ROWS[0]) + 2 * MARGIN
+    grid = [["."] * w for _ in range(h + 2)]
+    for y, row in enumerate(PIX_ROWS):
+        for x, ch in enumerate(row):
+            gx = x + MARGIN
+            if ch == "E" and (blink or (closed_eyes and closed_eyes[0] <= gx < closed_eyes[1])):
+                ch = "K"
+            grid[y + TOP + yoff][gx] = ch
+    cells = []
+    for y in range(0, h + 2, 2):
+        cells.append([(PAL.get(grid[y][x]), PAL.get(grid[y + 1][x])) for x in range(w)])
+    return cells
 
 
 def shrink(image, width, rows, crop):
@@ -123,9 +157,6 @@ def tint(rgb, k):
     return tuple(min(255, int(ch * k)) for ch in rgb)
 
 
-GLYPHS = None  # set for the hand-drawn sprite: a grid of the character to print per cell
-
-
 def draw(cells, out, brightness=1.0, shift=0, red=False, flames=None, dim_cols=None):
     """Emit one frame. `flames` maps (row, col) to (char, rgb) drawn over the sprite, and
     `dim_cols` is a (start, end) column range drawn at a third of the brightness."""
@@ -147,9 +178,7 @@ def draw(cells, out, brightness=1.0, shift=0, red=False, flames=None, dim_cols=N
             if red:
                 t = t and (255, t[1] // 3, t[2] // 3)
                 b = b and (255, b[1] // 3, b[2] // 3)
-            if GLYPHS:
-                parts.append(f"\x1b[0m\x1b[38;2;{t[0]};{t[1]};{t[2]}m{GLYPHS[r][c]}")
-            elif t and b:
+            if t and b:
                 parts.append(f"\x1b[38;2;{t[0]};{t[1]};{t[2]}m\x1b[48;2;{b[0]};{b[1]};{b[2]}m▀")
             elif t:
                 parts.append(f"\x1b[0m\x1b[38;2;{t[0]};{t[1]};{t[2]}m▀")
@@ -162,16 +191,27 @@ def draw(cells, out, brightness=1.0, shift=0, red=False, flames=None, dim_cols=N
 
 
 def flame_cells(cells, mouths, length, rng):
-    """A tongue of fire per mouth, rising to the right, brightest at the jaw."""
+    """A tongue of fire per mouth. A mouth is (fx, fy) in fractions, rising to the right, or
+    (col, row, dx, dy) in cell space with its own direction."""
     rows = len(cells)
     cols = len(cells[0])
     flames = {}
-    for fx, fy in mouths:
-        cx, cy = int(fx * cols), int(fy * rows)
+    for m in mouths:
+        if len(m) == 2:
+            cx, cy, dx, dy = int(m[0] * cols), int(m[1] * rows), 1, -0.45
+        else:
+            cx, cy, dx, dy = m
         for d in range(1, length):
             spread = rng.randint(-1, 1) if d > 2 else 0
-            r = cy - int(d * 0.45) + spread
-            c = cx + d
+            if dy == 0:
+                r = cy - int(d * 0.35) + spread
+                c = cx + d * dx
+            elif dx == 0:
+                r = cy + d * dy
+                c = cx + spread
+            else:
+                r = cy + int(d * dy) + spread
+                c = cx + d * dx
             if not (0 <= r < rows and 0 <= c < cols):
                 continue
             t = d / length
@@ -179,15 +219,22 @@ def flame_cells(cells, mouths, length, rng):
             ch = SHADES[min(3, int(heat * 4))]
             rgb = FIRE[min(4, int(t * 5))]
             flames[(r, c)] = (ch, rgb)
-            if d > length // 2 and rng.random() < 0.4:
+            if d > length // 2 and rng.random() < 0.4 and r - 1 >= 0:
                 flames[(r - 1, c)] = ("░", FIRE[4])
     return flames
+
+
+def mouth_cell(cells, m):
+    """(col, row) of a mouth given as fractions or as cell coordinates."""
+    if len(m) == 2:
+        return int(m[0] * len(cells[0])), int(m[1] * len(cells))
+    return m[0], m[1]
 
 
 def head_span(cells, mouths, i):
     """The column range of head i, halfway to its neighbours."""
     cols = len(cells[0])
-    xs = sorted(m[0] for m in mouths)
+    xs = sorted(mouth_cell(cells, m)[0] / cols for m in mouths)
     lo = 0 if i == 0 else (xs[i - 1] + xs[i]) / 2
     hi = 1.0 if i == len(xs) - 1 else (xs[i] + xs[i + 1]) / 2
     return int(lo * cols), int(hi * cols)
@@ -196,7 +243,7 @@ def head_span(cells, mouths, i):
 def sleep_cells(cells, mouth, frame):
     """z's drifting up from a sleeping head."""
     rows, cols = len(cells), len(cells[0])
-    cx, cy = int(mouth[0] * cols), int(mouth[1] * rows)
+    cx, cy = mouth_cell(cells, mouth)
     out = {}
     for i, ch in enumerate("zZz"):
         r = cy - 3 - ((frame // 3 + i * 2) % 5)
@@ -209,7 +256,7 @@ def sleep_cells(cells, mouth, frame):
 def derp_cells(cells, mouth, frame):
     """The meme head: tongue out, one eye wandering."""
     rows, cols = len(cells), len(cells[0])
-    cx, cy = int(mouth[0] * cols), int(mouth[1] * rows)
+    cx, cy = mouth_cell(cells, mouth)
     out = {}
     for d in range(2):
         if cy + 1 < rows and cx + d < cols:
@@ -220,7 +267,9 @@ def derp_cells(cells, mouth, frame):
     return out
 
 
-def demo(cells, mouths, seconds, fps, out):
+def demo(cells, mouths, seconds, fps, out, frame_source=None):
+    """`frame_source(pose, frame, sleeper_span)` returns the cells for this frame when the sprite
+    is a pixel map that can bob and blink; None keeps the image render still."""
     rng = random.Random(7)
     out.write("\x1b[?25l\x1b[2J")
     phase = [("idle", 3), ("working", 3), ("sleep", 4), ("refused", 1), ("derp", 3), ("fire", 4)]
@@ -238,6 +287,8 @@ def demo(cells, mouths, seconds, fps, out):
                     pose = name
                     break
             out.write("\x1b[H")
+            if frame_source:
+                cells = frame_source(pose, frame, head_span(cells, mouths, sleeper))
             if pose == "idle":
                 k = 0.85 + 0.15 * abs(((frame // 4) % 4) - 2) / 2
                 draw(cells, out, brightness=k)
@@ -267,7 +318,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--image", help="the reference image; required unless --load or --small")
     ap.add_argument("--small", action="store_true",
-                    help="the hand-drawn 11x36 sprite instead of a render of the image")
+                    help="the pixel-art sprite, 48 columns of dragon plus margins for the fire, 15 rows")
     ap.add_argument("--width", type=int, default=70)
     ap.add_argument("--crop", default="40,80,1480,2660",
                     help="y,x,h,w in source pixels; the default fits the 2816x1536 reference")
@@ -285,12 +336,21 @@ def main():
         sys.stdout.write(open(a.load).read())
         return
     if a.small:
-        global GLYPHS
-        cells, GLYPHS = small_cells()
+        mouths = [(x, y // 2, dx, dy) for (x, y, dx, dy) in PIX_MOUTHS]
+
+        def source(pose, frame, sleeper_span):
+            bob = (frame // 6) % 2 if pose in ("idle", "working", "derp") else 0
+            blink = pose == "idle" and frame % 40 in (0, 1)
+            closed = sleeper_span if pose == "sleep" else None
+            return pix_cells(yoff=bob, blink=blink, closed_eyes=closed)
+
         if a.demo:
-            demo(cells, SMALL_MOUTHS, a.demo, a.fps, sys.stdout)
+            demo(pix_cells(), mouths, a.demo, a.fps, sys.stdout, frame_source=source)
+        elif a.save:
+            with open(a.save, "w") as f:
+                draw(pix_cells(), f)
         else:
-            draw(cells, sys.stdout)
+            draw(pix_cells(), sys.stdout)
         return
     if not a.image:
         ap.error("--image is required unless --load or --small is given")
