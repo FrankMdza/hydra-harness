@@ -39,20 +39,27 @@ const NODE_CA: &str = "NODE_EXTRA_CA_CERTS";
 
 /// Passed to rung-two's admission gate after `env_clear`. `CARGO_TARGET_DIR` is
 /// left off on purpose: forwarding it would build outside the worktree and share
-/// artifacts with the human's own builds.
+/// artifacts with the human's own builds. `CARGO_HOME` is not forwarded either,
+/// since build ticket 98: [`admission_env`] points it at a scratch directory, so
+/// a `config.toml` a proposer wrote into the human's cargo home is never read.
 pub const ADMISSION_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
     "TMPDIR",
     "USER",
     "LANG",
-    "CARGO_HOME",
     "RUSTUP_HOME",
     "RUSTUP_TOOLCHAIN",
 ];
 
 /// The environment `cargo` and `rustc` see during rung-two's admission gate.
-pub fn admission_env() -> Result<BTreeMap<String, String>> {
+///
+/// `toolchain` is the `bin` directory of the sysroot `hydra evolve` resolved
+/// before the proposer ran. It goes first on `PATH`, so `rustc`, `rustfmt`,
+/// `cargo-clippy` and `clippy-driver` come from the directory of the `cargo`
+/// admission names by absolute path, whatever a proposer later put in an
+/// earlier `PATH` directory. `cargo_home` is the scratch cargo home.
+pub fn admission_env(toolchain: &Path, cargo_home: &Path) -> Result<BTreeMap<String, String>> {
     let mut vars = BTreeMap::new();
     for name in ADMISSION_ENV_ALLOWLIST {
         let Ok(value) = std::env::var(name) else {
@@ -75,6 +82,16 @@ pub fn admission_env() -> Result<BTreeMap<String, String>> {
         ),
         Some(_) => {}
     }
+    let toolchain = toolchain
+        .to_str()
+        .filter(|dir| !dir.is_empty() && !dir.contains(':'))
+        .ok_or_else(|| anyhow!("{} cannot go on PATH", toolchain.display()))?;
+    let path = format!("{toolchain}:{}", vars["PATH"]);
+    vars.insert("PATH".to_string(), path);
+    vars.insert(
+        "CARGO_HOME".to_string(),
+        cargo_home.to_string_lossy().into_owned(),
+    );
 
     Ok(vars)
 }
