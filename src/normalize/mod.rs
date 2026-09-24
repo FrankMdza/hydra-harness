@@ -358,6 +358,14 @@ pub enum Finding {
     /// Something the derivation could not do, said out loud rather than papered
     /// over with a default.
     Limit(String),
+    /// The provider ran a tool without asking the hook, and the policy denies
+    /// the row's capability. Not a [`GateLeak`]: the hook never fired, so the
+    /// gate did not leak. Map ticket 79.
+    UnhookedDenied {
+        call_id: String,
+        tool: String,
+        reason: String,
+    },
 }
 
 /// One run, normalized.

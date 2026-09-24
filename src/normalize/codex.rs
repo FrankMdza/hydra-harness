@@ -33,7 +33,7 @@ use super::{
 use crate::paths::Layout;
 use crate::policy::PolicySet;
 use crate::policy::replay::Replay;
-use crate::policy::table::codex_capability;
+use crate::policy::table::{codex_capability, codex_is_unhooked};
 use crate::provider::Provider;
 
 /// A refusal the record shows, as against one the policy implies.
@@ -226,6 +226,7 @@ impl Walk {
         match item["type"].as_str() {
             Some("command_execution") => self.command_execution(seq, item),
             Some("mcp_tool_call") => self.mcp_tool_call(seq, item),
+            Some("web_search") => self.web_search(seq, item),
             Some("apply_patch") | Some("file_change") => self.apply_patch(seq, item),
             Some("agent_message") => {
                 if let Some(text) = item["text"].as_str().filter(|text| !text.is_empty()) {
@@ -307,6 +308,37 @@ impl Walk {
             call_id: item_id(item, seq),
             status,
             output: message,
+            truncated: false,
+        }));
+    }
+
+    /// Hosted web search never reaches the hook on 0.154.0. The item shape is
+    /// not measured on a Hydra run yet; `query` is the field name map ticket 58
+    /// read off the hooks reference.
+    fn web_search(&mut self, seq: u64, item: &Value) {
+        let call_id = item_id(item, seq);
+        let name = "WebSearch".to_string();
+        let capability = codex_capability(&name);
+        let arguments = match item.get("query") {
+            Some(query) => json!({ "query": query }),
+            None => json!({}),
+        };
+        self.events.push(Event::ToolCall(ToolCall {
+            seq,
+            call_id: call_id.clone(),
+            name,
+            arguments,
+            capability,
+        }));
+        let output = item["results"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| item["results"].to_string());
+        self.events.push(Event::ToolResult(ToolResult {
+            seq,
+            call_id,
+            status: ResultStatus::Ok,
+            output,
             truncated: false,
         }));
     }
@@ -515,13 +547,61 @@ impl Walk {
             }
         };
 
+        let policy = policies.get(&name).expect("policy name matched run_start");
         let results = self.results_by_call();
         let replay_inputs: Vec<(&str, &Value, &Path)> = calls
             .iter()
+            .filter(|(_, _, tool, _)| !codex_is_unhooked(tool))
             .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
             .collect();
         let mut replay_verdicts = replay.decide_all(&replay_inputs).into_iter();
         for (seq, call_id, tool, _arguments) in calls {
+            if codex_is_unhooked(&tool) {
+                let capability = codex_capability(&tool).expect("unhooked row");
+                let allowed = policy.allows_capability(capability);
+                let result = results.get(&call_id);
+                let refusal = result.and_then(|(status, output)| refusal_in(*status, output));
+                if let Some(refusal) = &refusal
+                    && let Some(code) = hydra_voice(&refusal.reason)
+                    && code != "allow"
+                {
+                    self.findings.push(Finding::Disagreement {
+                        call_id: call_id.clone(),
+                        derived: if allowed {
+                            Decision::Allow
+                        } else {
+                            Decision::Deny
+                        },
+                        derived_code: Some(if allowed {
+                            "unhooked".into()
+                        } else {
+                            "capability".into()
+                        }),
+                        gate_said: Decision::Deny,
+                        gate_code: Some(code.to_string()),
+                    });
+                }
+                // The decision is what happened: the provider ran the call. A
+                // policy that denies the capability is a finding beside it, not
+                // a `Deny`, which would say the call was refused when it ran.
+                if !allowed {
+                    self.findings.push(Finding::UnhookedDenied {
+                        call_id: call_id.clone(),
+                        tool: tool.clone(),
+                        reason: policy.capability_deny_reason(capability, &tool),
+                    });
+                }
+                decisions.push(Some(PermissionDecision {
+                    seq,
+                    call_id: call_id.clone(),
+                    decision: Decision::Allow,
+                    decider: Decider::Provider,
+                    reason: format!(
+                        "hydra/unhooked: {tool} is run by codex without asking the hook"
+                    ),
+                }));
+                continue;
+            }
             let verdict = match replay_verdicts.next().expect("one replay answer per call") {
                 Ok(verdict) => verdict,
                 Err(err) => {

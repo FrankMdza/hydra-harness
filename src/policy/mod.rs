@@ -51,10 +51,6 @@ pub enum Capability {
     /// The tools that exist only inside one provider's own product surface and
     /// that no policy in 7.2 grants. See `table.rs` for why this row exists.
     ProviderNative,
-    /// A tool the provider runs without asking the hook. No policy grants it,
-    /// and the compiler skips the row so `gate.py` never sees a name it cannot
-    /// answer for. Map ticket 51.
-    Unhooked,
     /// A shell facility that carries no command for the gate to read.
     ///
     /// `WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy`
@@ -95,7 +91,6 @@ impl Capability {
             Capability::SubagentSpawn => "subagent_spawn",
             Capability::SkillInvoke => "skill_invoke",
             Capability::ProviderNative => "provider_native",
-            Capability::Unhooked => "unhooked",
             Capability::OpaqueShell => "opaque_shell",
         }
     }
@@ -212,6 +207,29 @@ impl Policy {
     /// The set this policy grants, as capability-scope pairs.
     fn grants(&self) -> std::collections::BTreeSet<Allow> {
         self.allow.iter().copied().collect()
+    }
+
+    /// Whether this policy grants the capability at all, with no path to check.
+    ///
+    /// Provider-native tools sit outside what the five policies regulate, so an
+    /// unhooked row carrying that capability always passes here. Map ticket 79.
+    pub fn allows_capability(&self, capability: Capability) -> bool {
+        if capability == Capability::ProviderNative {
+            return true;
+        }
+        self.allow
+            .iter()
+            .any(|entry| entry.capability == capability)
+    }
+
+    /// The reason an unhooked replay uses when the policy denies a capability.
+    pub fn capability_deny_reason(&self, capability: Capability, tool: &str) -> String {
+        format!(
+            "hydra/capability: policy {} does not allow {} ({}).",
+            self.name,
+            capability.as_str(),
+            tool
+        )
     }
 
     /// True when `self` grants everything `other` does.
@@ -822,10 +840,9 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     let mut path_fields = serde_json::Map::new();
     let mut patch_path_tools = serde_json::Map::new();
     for t in table.tools {
-        // Unhooked rows exist for the replay, not for the hook. Compiling one
-        // would add a capability `gate.py` does not know, and the hook never
-        // asks.
-        if matches!(t.capability, Capability::Unhooked) {
+        // Unhooked rows exist for the replay, not for the hook. The hook never
+        // fires for them, so the compiled config does not name them.
+        if t.unhooked {
             continue;
         }
         tools.insert(t.name.to_string(), t.capability.as_str().into());

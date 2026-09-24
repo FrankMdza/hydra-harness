@@ -407,6 +407,9 @@ fn signals(run: &Run, abandoned: bool) -> Signals {
                 &recorded[..12.min(recorded.len())]
             )),
             Finding::Limit(said) => signals.limits.push(said.clone()),
+            Finding::UnhookedDenied { tool, reason, .. } => signals.disagreements.push(format!(
+                "the provider ran {tool} without asking the hook, and the policy denies it: {reason}"
+            )),
         }
     }
     signals

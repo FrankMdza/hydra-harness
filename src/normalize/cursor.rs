@@ -36,10 +36,9 @@ use super::{
     UsageSource, hydra_voice, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
-use crate::policy::Capability;
 use crate::policy::PolicySet;
 use crate::policy::replay::Replay;
-use crate::policy::table::cursor_capability;
+use crate::policy::table::{cursor_capability, cursor_is_unhooked};
 use crate::provider::Provider;
 
 /// The `result.usage` keys section 9 maps. An object with none of them says
@@ -512,10 +511,11 @@ impl Walk {
             }
         };
 
+        let policy = policies.get(&name).expect("policy name matched run_start");
         let results = self.results_by_call();
         let replay_inputs: Vec<(&str, &Value, &Path)> = calls
             .iter()
-            .filter(|(_, _, tool, _)| cursor_capability(tool) != Some(Capability::Unhooked))
+            .filter(|(_, _, tool, _)| !cursor_is_unhooked(tool))
             .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
             .collect();
         let mut replay_verdicts = replay.decide_all(&replay_inputs).into_iter();
@@ -533,21 +533,41 @@ impl Walk {
                 refusal_in(*status, output, self.cases.get(&call_id).copied())
             });
 
-            if cursor_capability(&tool) == Some(Capability::Unhooked) {
+            if cursor_is_unhooked(&tool) {
                 // The provider ran this without asking the hook. The table
-                // says so, so the derived decision is the provider's, not a
-                // leak. If the hook ever does fire, the gate's own answer is
-                // in the result and the two sources disagree.
+                // says so; the replay judges the row's real capability with no
+                // path to check. If the hook ever does fire, the gate's own
+                // answer is in the result and the two sources disagree.
+                let capability = cursor_capability(&tool).expect("unhooked row");
+                let allowed = policy.allows_capability(capability);
                 if let Some(refusal) = &refusal
                     && let Some(code) = hydra_voice(&refusal.reason)
                     && code != "allow"
                 {
                     self.findings.push(Finding::Disagreement {
                         call_id: call_id.clone(),
-                        derived: Decision::Allow,
-                        derived_code: Some("unhooked".into()),
+                        derived: if allowed {
+                            Decision::Allow
+                        } else {
+                            Decision::Deny
+                        },
+                        derived_code: Some(if allowed {
+                            "unhooked".into()
+                        } else {
+                            "capability".into()
+                        }),
                         gate_said: Decision::Deny,
                         gate_code: Some(code.to_string()),
+                    });
+                }
+                // The decision is what happened: the provider ran the call. A
+                // policy that denies the capability is a finding beside it, not
+                // a `Deny`, which would say the call was refused when it ran.
+                if !allowed {
+                    self.findings.push(Finding::UnhookedDenied {
+                        call_id: call_id.clone(),
+                        tool: tool.clone(),
+                        reason: policy.capability_deny_reason(capability, &tool),
                     });
                 }
                 decisions.push(Some(PermissionDecision {

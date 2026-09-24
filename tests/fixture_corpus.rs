@@ -326,6 +326,43 @@ fn fixtures() -> Vec<Fixture> {
         .closed(),
     });
 
+    // `cursor-agent` searches the web under `judge` without asking the hook.
+    let id = fixture_id(12);
+    let worktree = layout.worktree(&id);
+    out.push(Fixture {
+        label: CURSOR,
+        provider_version: Some("2026.09.02-c22c1a3"),
+        subscription: Some("cursor"),
+        text: Record::shaped(Shape {
+            run_id: &id,
+            provider: Some("cursor-agent"),
+            policy: Some("judge"),
+            policy_sha: Some(&sha),
+            worktree: Some(&worktree),
+            ..Shape::default()
+        })
+        .cursor_init()
+        .cursor_user("search the web for tokio")
+        .cursor_call(
+            "tool_judge",
+            "webSearchToolCall",
+            json!({
+                "searchTerm": "rust async runtime comparison",
+                "toolCallId": "tool_judge"
+            }),
+            json!({"success": {
+                "references": [{
+                    "title": "Web search results",
+                    "url": "",
+                    "chunk": "Links:\n1. [Tokio](https://tokio.rs)\n"
+                }]
+            }}),
+        )
+        .cursor_assistant("Found Tokio.")
+        .cursor_result("Found Tokio.", Some(cursor_usage()))
+        .closed(),
+    });
+
     // A `hydra evolve` pass: contract 5.5's two lines, no provider.
     let id = fixture_id(10);
     out.push(Fixture {

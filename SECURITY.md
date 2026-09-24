@@ -117,8 +117,10 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   the two variables and hashes the checkout itself. Until build ticket 103 `objects/` in the
   parent kept a full write grant, and a run could plant a pack that mapped an existing sha to
   other bytes, which git served. That window is closed, build ticket 112.
-- **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`
-  and `awaitToolCall` without consulting it. The record marks those `unhooked`.
+- **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`,
+  `awaitToolCall` and `WebSearch` without consulting it. The record marks an allowed one
+  `unhooked`; under a policy that denies the row's capability, it files `UnhookedDenied`
+  instead of treating the tool as outside every policy.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never
   instructions, and Rungs treats it that way; if you find a path by which text in a
   record changes what Hydra does, that is a vulnerability.

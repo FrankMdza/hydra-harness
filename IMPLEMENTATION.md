@@ -229,14 +229,14 @@ against the real 213 records they take six minutes. Since build ticket 84 the CI
 step that runs the contract walk alone and writes its "checked N record(s)" line to the job
 summary, so a green run on the runner's empty root says `checked 0` where a reader can see it.
 **Since build ticket 101 CI walks a fixture corpus too** (panel findings F32 and H14).
-`tests/fixtures/records/` holds eleven synthetic records in five directories named by the binary
+`tests/fixtures/records/` holds twelve synthetic records in five directories named by the binary
 that wrote each shape: `claude@2.1.261`, `cursor-agent@2026.09.02-c22c1a3`, `agy@1.1.26`,
 `codex@0.154.0` and `harness`. The ignored test `write_the_fixture_corpus` in
 `tests/fixture_corpus.rs` writes them from the builders in `tests/common`, so no byte comes from
 `~/hydra/runs`, and three tests there guard the directory label, the coverage of every routed
 provider and the harness, and the absence of secrets, home paths and live run ids. Each live walk
 in `record_contract.rs`, `normalize.rs` and `outcome.rs` has a fixture twin with the same
-assertions, and the CI job summary prints both counts, zero live records and eleven fixtures. Two
+assertions, and the CI job summary prints both counts, zero live records and twelve fixtures. Two
 limits. The fixture leak walk can catch a reader that invents a leak and cannot catch a real one,
 because a frozen fixture names no gate this build compiles, so a disagreement reads as
 `StalePolicy`; the synthetic tests in `tests/normalize.rs` hold the leak rule. And no fixture
@@ -1321,12 +1321,16 @@ list-valued `paths`, `getMcpToolsToolCall` listing an MCP server's tools, and
 2026-09-24. All completed with results under
 `read-only` and `standard`, none with a `hydra gate:` line in the spawn's `cursor-data`,
 while a `Read` outside the worktree in the same runs was refused with Hydra's reason. They
-are `unhooked(name)` rows now, `Capability::Unhooked`, which the compiler leaves out of
-`gate.py`'s config so the gate is unchanged, and the replay records a call to one as a
-`permission_decision` with `decision: allow`, `decider: provider` and the reason
-`hydra/unhooked: <tool> is run by cursor-agent without asking the hook`: not a leak,
-because no gate was asked, and not `external`, because nothing denied. If the hook ever
-fires for one, the gate's own answer stands and the replay reports a `Disagreement`.
+are `unhooked(name, capability)` rows now: a flag on the row keeps the real capability,
+which the compiler leaves out of `gate.py`'s config so the gate is unchanged. The replay
+judges the capability with no path to check. Where the policy allows it, the call reads as
+a `permission_decision` with `decision: allow`, `decider: provider` and the reason
+`hydra/unhooked: <tool> is run by cursor-agent without asking the hook`. Where the policy
+denies it, the decision is `deny`, `decider: provider`, and a `Finding::UnhookedDenied`
+says the provider ran the tool without asking the hook. That is not a leak, because no gate
+was asked, and not `external`, because nothing denied. If the hook ever fires for one, the
+gate's own answer stands and the replay reports a `Disagreement`. Map ticket 79, build
+ticket 124; `codex`'s `WebSearch` row follows the same rule.
 **The risk per tool today.** `ReadLints` returns `totalFiles: 0` for every path, `/etc/hosts`
 and a file that cannot parse included, in print mode and in the interactive TUI: there is no
 language server behind the CLI, so it reads nothing. `getMcpToolsToolCall` names the tools

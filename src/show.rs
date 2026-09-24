@@ -178,5 +178,15 @@ fn finding_json(finding: &Finding) -> Value {
             json!({"type": "stale_policy", "recorded": recorded, "current": current})
         }
         Finding::Limit(text) => json!({"type": "limit", "text": text}),
+        Finding::UnhookedDenied {
+            call_id,
+            tool,
+            reason,
+        } => json!({
+            "type": "unhooked_denied",
+            "call_id": call_id,
+            "tool": tool,
+            "reason": reason,
+        }),
     }
 }

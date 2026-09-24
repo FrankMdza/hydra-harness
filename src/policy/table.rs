@@ -33,6 +33,9 @@ pub struct Tool {
     /// `command_field` and from `changes[].path` on replay, not from one path
     /// argument.
     pub patch_paths: bool,
+    /// The hook never fires for this tool. The compiler skips the row; the replay
+    /// judges the row's real [`capability`] instead.
+    pub unhooked: bool,
 }
 
 const fn tool(name: &'static str, capability: Capability) -> Tool {
@@ -41,6 +44,7 @@ const fn tool(name: &'static str, capability: Capability) -> Tool {
         capability,
         path_field: None,
         patch_paths: false,
+        unhooked: false,
     }
 }
 
@@ -50,6 +54,7 @@ const fn pathed(name: &'static str, capability: Capability, field: &'static str)
         capability,
         path_field: Some(field),
         patch_paths: false,
+        unhooked: false,
     }
 }
 
@@ -60,18 +65,20 @@ const fn patch_write(name: &'static str) -> Tool {
         capability: Capability::FileWrite,
         path_field: None,
         patch_paths: true,
+        unhooked: false,
     }
 }
 
-/// A tool the provider runs without asking the hook. The replay records the
-/// provider's own decision; the compiler skips the row, so the gate never
-/// sees a name it cannot answer for.
-const fn unhooked(name: &'static str) -> Tool {
+/// A tool the provider runs without asking the hook. The compiler skips the
+/// row, so the gate never sees a name it cannot answer for; the replay still
+/// judges the real capability.
+const fn unhooked(name: &'static str, capability: Capability) -> Tool {
     Tool {
         name,
-        capability: Capability::Unhooked,
+        capability,
         path_field: None,
         patch_paths: false,
+        unhooked: true,
     }
 }
 
@@ -172,16 +179,18 @@ pub const CURSOR: &[Tool] = &[
     // was measured 2026-09-08 under `read-only`; getMcpToolsToolCall arrived
     // the same day as an unknown name with a completed result. The compiler
     // skips the rows, so the gate's compiled config does not name them.
-    unhooked("ReadLints"),
-    unhooked("getMcpToolsToolCall"),
+    // ReadLints carries a `paths` list, not one path field, so the replay
+    // judges `file_read` from the capability alone. Map ticket 79.
+    unhooked("ReadLints", Capability::FileRead),
+    unhooked("getMcpToolsToolCall", Capability::ProviderNative),
     // Stays an unhooked row for the replay: the record carries no path. The
     // hook that fires is a `Read` of the task's output under the run's own
     // `cursor-data/` (`beforeReadFile`, or `preToolUse` on `Read`), which
     // `own_read_paths` carves out; if that answer and this row differ, the
     // replay records a Disagreement. Build ticket 38.
-    unhooked("awaitToolCall"),
+    unhooked("awaitToolCall", Capability::ProviderNative),
     // Measured 2026-09-24 on cursor-agent 2026.09.23-86fc751 under `standard`.
-    unhooked("WebSearch"),
+    unhooked("WebSearch", Capability::NetworkRead),
     tool("Fetch", Capability::NetworkRead),
     // Feeds stdin to a background shell command, and carries no command for the
     // floor or the path check to read. It was `shell` until build ticket 59,
@@ -352,13 +361,13 @@ pub const AGY_COMMAND_FIELD: &str = "CommandLine";
 ///
 /// **Reads are `Bash`, not a file tool**, which is the whole of build ticket 48
 /// item 4. **`mcp__*` is a prefix**, like `claude`, and matches before the table.
-/// **Hosted tools never reach the hook** and carry [`Capability::Unhooked`].
+/// **Hosted tools never reach the hook** and carry an unhooked row instead.
 pub const CODEX: &[Tool] = &[
     tool("Bash", Capability::Shell),
     patch_write("apply_patch"),
     tool("update_plan", Capability::ProviderNative),
     tool("spawn_agent", Capability::SubagentSpawn),
-    unhooked("WebSearch"),
+    unhooked("WebSearch", Capability::NetworkRead),
 ];
 
 /// The `tool_input` field carrying the shell command or patch body.
@@ -424,6 +433,19 @@ impl Table {
             .find(|entry| entry.name == tool)
             .map(|entry| entry.capability)
     }
+
+    /// Whether the table marks this tool as one the hook never fires for.
+    pub fn is_unhooked(&self, tool: &str) -> bool {
+        if let Some(prefix) = self.mcp_prefix
+            && tool.starts_with(prefix)
+        {
+            return false;
+        }
+        self.tools
+            .iter()
+            .find(|entry| entry.name == tool)
+            .is_some_and(|entry| entry.unhooked)
+    }
 }
 
 /// What capability a `claude` tool name answers to, or `None` when the table
@@ -437,6 +459,11 @@ pub fn cursor_capability(tool: &str) -> Option<Capability> {
     Table::of(crate::provider::Provider::CursorAgent).capability(tool)
 }
 
+/// Whether `cursor-agent` runs this tool without asking the hook.
+pub fn cursor_is_unhooked(tool: &str) -> bool {
+    Table::of(crate::provider::Provider::CursorAgent).is_unhooked(tool)
+}
+
 /// The same for `agy`.
 pub fn agy_capability(tool: &str) -> Option<Capability> {
     Table::of(crate::provider::Provider::Agy).capability(tool)
@@ -445,6 +472,11 @@ pub fn agy_capability(tool: &str) -> Option<Capability> {
 /// The same for `codex`.
 pub fn codex_capability(tool: &str) -> Option<Capability> {
     Table::of(crate::provider::Provider::Codex).capability(tool)
+}
+
+/// Whether `codex` runs this tool without asking the hook.
+pub fn codex_is_unhooked(tool: &str) -> bool {
+    Table::of(crate::provider::Provider::Codex).is_unhooked(tool)
 }
 
 #[cfg(test)]
@@ -627,6 +659,9 @@ mod tests {
     #[test]
     fn every_write_tool_names_the_field_the_gate_checks() {
         for t in CLAUDE.iter().chain(CURSOR).chain(AGY) {
+            if t.unhooked {
+                continue;
+            }
             if matches!(t.capability, Capability::FileWrite | Capability::FileRead) {
                 assert!(
                     t.path_field.is_some(),
@@ -658,18 +693,16 @@ mod tests {
 
     #[test]
     fn unhooked_cursor_rows_are_known_and_carry_no_path() {
-        for name in [
-            "ReadLints",
-            "getMcpToolsToolCall",
-            "awaitToolCall",
-            "WebSearch",
+        for (name, capability) in [
+            ("ReadLints", Capability::FileRead),
+            ("getMcpToolsToolCall", Capability::ProviderNative),
+            ("awaitToolCall", Capability::ProviderNative),
+            ("WebSearch", Capability::NetworkRead),
         ] {
-            assert_eq!(
-                cursor_capability(name),
-                Some(Capability::Unhooked),
-                "{name}"
-            );
+            assert!(cursor_is_unhooked(name), "{name}");
+            assert_eq!(cursor_capability(name), Some(capability), "{name}");
             let row = CURSOR.iter().find(|t| t.name == name).unwrap();
+            assert!(row.unhooked, "{name}");
             assert!(
                 row.path_field.is_none(),
                 "{name} has no field the gate could read"
@@ -701,7 +734,8 @@ mod tests {
         );
         assert_eq!(codex_capability("Bash"), Some(Capability::Shell));
         assert_eq!(codex_capability("apply_patch"), Some(Capability::FileWrite));
-        assert_eq!(codex_capability("WebSearch"), Some(Capability::Unhooked));
+        assert!(codex_is_unhooked("WebSearch"));
+        assert_eq!(codex_capability("WebSearch"), Some(Capability::NetworkRead));
         assert_eq!(
             codex_capability("spawn_agent"),
             Some(Capability::SubagentSpawn)

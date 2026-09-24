@@ -1385,7 +1385,7 @@ fn a_cursor_readlints_call_is_the_providers_decision() {
     assert_eq!(calls[0].name, "ReadLints");
     assert_eq!(
         calls[0].capability,
-        Some(hydra::policy::Capability::Unhooked)
+        Some(hydra::policy::Capability::FileRead)
     );
     assert_eq!(
         calls[0].arguments["paths"],
@@ -1438,7 +1438,7 @@ fn a_cursor_websearch_call_is_the_providers_decision() {
     assert_eq!(calls[0].name, "WebSearch");
     assert_eq!(
         calls[0].capability,
-        Some(hydra::policy::Capability::Unhooked)
+        Some(hydra::policy::Capability::NetworkRead)
     );
     assert_eq!(
         calls[0].arguments["searchTerm"],
@@ -1491,7 +1491,7 @@ fn a_cursor_await_call_is_the_providers_decision() {
     assert_eq!(calls[0].name, "awaitToolCall");
     assert_eq!(
         calls[0].capability,
-        Some(hydra::policy::Capability::Unhooked)
+        Some(hydra::policy::Capability::ProviderNative)
     );
     assert_eq!(calls[0].arguments["taskId"], "bg-1");
 
@@ -1505,6 +1505,77 @@ fn a_cursor_await_call_is_the_providers_decision() {
     );
     assert!(
         common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn a_cursor_websearch_under_judge_is_a_finding_the_hook_never_saw() {
+    let sandbox = Sandbox::new("cursor-unhooked-websearch-judge");
+    let ws = sandbox.worktree();
+    let text = Record::cursor(&ws, Some("judge"), Some(policies().sha()))
+        .cursor_call(
+            "tool_judge",
+            "webSearchToolCall",
+            json!({
+                "searchTerm": "rust async runtime comparison",
+                "toolCallId": "tool_judge"
+            }),
+            json!({"success": {
+                "references": [{
+                    "title": "Web search results",
+                    "url": "",
+                    "chunk": "Links:\n1. [Tokio](https://tokio.rs)\n"
+                }]
+            }}),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::Provider);
+    // The call ran, so the decision says so; the policy's view is the finding.
+    assert!(
+        decisions[0].reason.starts_with("hydra/unhooked: WebSearch"),
+        "{}",
+        decisions[0].reason
+    );
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::UnhookedDenied { call_id, tool, reason }
+                if call_id == "tool_judge"
+                    && tool == "WebSearch"
+                    && reason.starts_with("hydra/capability: policy judge does not allow network_read")
+        )),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn the_judge_websearch_fixture_reads_as_unhooked_denied() {
+    let policies = policies();
+    let path = common::fixture_dir()
+        .join("cursor-agent@2026.09.02-c22c1a3")
+        .join("00000000-0000-7000-8000-000000000012.jsonl");
+    assert!(
+        path.is_file(),
+        "run fixture_corpus write_the_fixture_corpus"
+    );
+    let run = common::read_fixture(&path, &policies);
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::Provider);
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::UnhookedDenied { tool, .. } if tool == "WebSearch"
+        )),
         "{:?}",
         run.findings
     );
