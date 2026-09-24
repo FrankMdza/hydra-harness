@@ -20,7 +20,7 @@ jobs:
           echo "HYDRA_ROOT=$RUNNER_TEMP/hydra-ci" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/hydra-ci/runs"
       - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
+      - run: cargo clippy --all-targets -- -D warnings
       - run: cargo build --release
       - run: cargo test --release --no-fail-fast -- --test-threads=1
       # Build ticket 84. The walks above pass on zero records here, so the count goes on the
@@ -37,3 +37,7 @@ jobs:
           cargo test --release --test record_contract every_fixture_meets_the_contract -- --nocapture 2>&1 \
             | { grep '^checked ' || echo "the fixture walk found no fixtures"; } \
             | tee -a "$GITHUB_STEP_SUMMARY"
+      # Build ticket 120. Master of Puppets has no Rust tests; this is its only suite. It runs
+      # under the standard library's runner because the macOS image ships no pytest, and the
+      # tests are plain unittest cases.
+      - run: python3 -m unittest discover -s integrations/puppets/tests -q
