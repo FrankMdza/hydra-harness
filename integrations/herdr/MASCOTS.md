@@ -30,6 +30,12 @@ python3 ~/hydra/integrations/herdr/mascot/hydrapet.py --size 20 --mode ansi
 python3 ~/hydra/integrations/herdr/mascot/hydrapet.py --size hd --mode kitty    # the 160 px canvas art, Kitty graphics
 ```
 
+## The watch pane switches between them
+
+`$M --watch` (the `mascot` pane, and what `hy` opens above the session) starts on the last skin
+you chose and cycles with Tab or `m`: pet, codex sprite, session sprite, agy sprite. `q` quits.
+`--skin codex` picks the first one. The choice is kept in `~/.cache/hydra-mascot-skin`.
+
 ## 2. The pixel-art sprites, 48 to 60 columns, one file each under `sprites/`
 
 Pokemon-colorscripts style: one character per pixel, a palette, the jaws marked for fire.

@@ -103,6 +103,14 @@ def load_sprite(path):
     PIX_MOUTHS = mouths
 
 
+def eye_closed(x, closed_eyes):
+    """`closed_eyes` is one (start, end) column span or a list of them."""
+    if not closed_eyes:
+        return False
+    spans = closed_eyes if isinstance(closed_eyes[0], (list, tuple)) else [closed_eyes]
+    return any(a <= x < b for a, b in spans)
+
+
 def pix_cells(yoff=0, blink=False, closed_eyes=None):
     """The pixel map as (top, bottom) cell pairs, moved down `yoff` pixels. `blink` closes every
     eye; `closed_eyes` closes the eyes whose x falls in a (start, end) range."""
@@ -112,7 +120,7 @@ def pix_cells(yoff=0, blink=False, closed_eyes=None):
     for y, row in enumerate(PIX_ROWS):
         for x, ch in enumerate(row):
             gx = x + MARGIN
-            if ch == "E" and (blink or (closed_eyes and closed_eyes[0] <= gx < closed_eyes[1])):
+            if ch == "E" and (blink or eye_closed(gx, closed_eyes)):
                 ch = "K"
             grid[y + TOP + yoff][gx] = ch
     cells = []
@@ -430,12 +438,83 @@ def list_herdr_panes():
         return []
 
 
-def watch_loop(out, scale=2):
-    """Read pane tokens once a second and drive the pet from live Hydra runs."""
+SKINS = ["pet", "codex", "session", "agy"]
+SKIN_FILE = os.path.join(os.path.expanduser("~"), ".cache", "hydra-mascot-skin")
+
+
+def sprites_dir():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sprites")
+
+
+def load_skin(name):
+    """The pet needs nothing loaded; a sprite skin loads its file into the module globals."""
+    if name != "pet":
+        load_sprite(os.path.join(sprites_dir(), f"hydra-{name}.txt"))
+
+
+def saved_skin():
+    try:
+        name = open(SKIN_FILE).read().strip()
+        return name if name in SKINS else SKINS[0]
+    except OSError:
+        return SKINS[0]
+
+
+def save_skin(name):
+    try:
+        os.makedirs(os.path.dirname(SKIN_FILE), exist_ok=True)
+        open(SKIN_FILE, "w").write(name + "\n")
+    except OSError:
+        pass
+
+
+def sprite_frame(heads, fires, frame, rng):
+    """The pixel sprite driven the way the pet is: a sleeping head closes its eyes and drifts
+    z's, a firing head breathes flame from its own jaw. Uses the sprite loaded by load_skin."""
+    base = pix_cells()
+    mouths = [(x, y // 2, dx, dy) for (x, y, dx, dy) in PIX_MOUTHS]
+    closed = [head_span(base, mouths, i) for i, h in enumerate(heads[: len(mouths)]) if h == "sleeping"]
+    cells = pix_cells(yoff=(frame // 6) % 2, closed_eyes=closed)
+    overlays = {}
+    for i, mouth in enumerate(mouths):
+        head = heads[i] if i < len(heads) else "awake"
+        fire = fires[i] if i < len(fires) else 0.0
+        if head == "sleeping":
+            overlays.update(sleep_cells(cells, mouth, frame))
+        elif fire > 0:
+            length = 8 + int(6 * abs(((frame // 2) % 6) - 3) / 3) + rng.randint(-1, 1)
+            overlays.update(flame_cells(cells, [mouth], length, rng))
+    return cells, overlays
+
+
+def read_key(timeout):
+    """One key from the terminal within `timeout` seconds, or None. Outside a tty, sleeps."""
+    if not sys.stdin.isatty():
+        time.sleep(timeout)
+        return None
+    import select
+    ready, _, _ = select.select([sys.stdin], [], [], timeout)
+    if ready:
+        return sys.stdin.read(1)
+    return None
+
+
+def watch_loop(out, scale=2, skin=None):
+    """Read pane tokens once a second and drive the mascot from live Hydra runs. Tab or `m`
+    cycles the skin (pet, codex, session, agy), `q` quits; the choice is remembered."""
     prev_denials = {}
     flash_until = {}
+    rng = random.Random()
+    skin = skin or saved_skin()
+    load_skin(skin)
     out.write("\x1b[?25l\x1b[2J")
     t0 = time.time()
+    frame = 0
+    old_tty = None
+    if sys.stdin.isatty():
+        import termios, tty
+        old_tty = termios.tcgetattr(sys.stdin)
+        tty.setcbreak(sys.stdin.fileno())
     try:
         while True:
             now = time.time()
@@ -443,16 +522,31 @@ def watch_loop(out, scale=2):
             heads, fires, extra, red_flash, prev_denials, flash_until = compute_watch_frame(
                 panes, prev_denials, flash_until, now
             )
-            cells = pet_cells(now - t0, heads, fires, False, scale)
             out.write("\x1b[H")
-            draw(cells, out, red=red_flash)
+            if skin == "pet":
+                cells = pet_cells(now - t0, heads, fires, False, scale)
+                draw(cells, out, red=red_flash)
+            else:
+                cells, overlays = sprite_frame(heads, fires, frame, rng)
+                draw(cells, out, red=red_flash, flames=overlays)
             status = f"live={sum(1 for p in panes if is_live_pane(p))}"
             if extra:
                 status += f" +{extra}"
-            out.write(f"\x1b[0m {status:<12}\x1b[K\n")
+            out.write(f"\x1b[0m {status:<12} skin={skin} (tab switches, q quits)\x1b[K\n")
             out.flush()
-            time.sleep(1)
+            frame += 1
+            key = read_key(1)
+            if key in ("\t", "m", "M"):
+                skin = SKINS[(SKINS.index(skin) + 1) % len(SKINS)]
+                load_skin(skin)
+                save_skin(skin)
+                out.write("\x1b[2J")
+            elif key in ("q", "Q", "\x03"):
+                break
     finally:
+        if old_tty is not None:
+            import termios
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tty)
         out.write("\x1b[0m\x1b[?25h\n")
         out.flush()
 
@@ -588,11 +682,13 @@ def main():
     ap.add_argument("--load", help="print a frame saved with --save; no image or sips needed")
     ap.add_argument("--demo", type=float, default=0, help="animate for this many seconds")
     ap.add_argument("--watch", action="store_true",
-                    help="watch Herdr panes carrying a run_id and drive the pet from their tokens")
+                    help="watch Herdr panes carrying a run_id and drive the mascot from their tokens")
+    ap.add_argument("--skin", choices=SKINS,
+                    help="with --watch: which mascot to start with; tab cycles them, the last is remembered")
     ap.add_argument("--fps", type=float, default=8)
     a = ap.parse_args()
     if a.watch:
-        watch_loop(sys.stdout, a.scale)
+        watch_loop(sys.stdout, a.scale, a.skin)
         return
     if a.load:
         sys.stdout.write(open(a.load).read())
