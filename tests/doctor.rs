@@ -1,0 +1,68 @@
+//! `hydra doctor` and `hydra doctor --walk`, build ticket 126.
+
+mod common;
+
+use std::process::Command;
+
+use serde_json::json;
+
+use common::{Record, Sandbox, Shape, policies};
+
+#[test]
+fn walk_reports_a_failed_run_with_a_terminator_and_exit_zero() {
+    let sandbox = Sandbox::new("doctor-walk-bad");
+    let layout = sandbox.layout();
+    let run_id = "00000000-0000-7000-8000-000000000099";
+    std::fs::create_dir_all(layout.worktree(run_id)).unwrap();
+    let text = Record::shaped(Shape {
+        run_id,
+        provider: Some("agy"),
+        worktree: Some(&layout.worktree(run_id)),
+        ..Shape::default()
+    })
+    .agy_init(&["view_file"])
+    .agy_user()
+    .agy_result("ERROR", "stopped", None)
+    .closed_with(json!({ "exit_code": 0 }));
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, text).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "{stdout}");
+    assert!(stdout.contains(path.to_str().unwrap()), "{stdout}");
+    assert!(stdout.contains("failed with exit 0"), "{stdout}");
+    assert!(stdout.contains("checked 1 record(s)"), "{stdout}");
+}
+
+#[test]
+fn walk_passes_on_a_clean_scratch_corpus() {
+    let sandbox = Sandbox::new("doctor-walk-clean");
+    let layout = sandbox.layout();
+    let run_id = "00000000-0000-7000-8000-000000000098";
+    std::fs::create_dir_all(layout.worktree(run_id)).unwrap();
+    let text = Record::shaped(Shape {
+        run_id,
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&layout.worktree(run_id)),
+        ..Shape::default()
+    })
+    .assistant(json!([{"type": "text", "text": "ok"}]))
+    .result(serde_json::json!({"subtype": "success", "is_error": false}))
+    .closed();
+    std::fs::write(layout.run_file(run_id), text).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    assert!(stdout.contains("checked 1 record(s)"), "{stdout}");
+}

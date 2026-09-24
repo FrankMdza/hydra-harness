@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 79 of 80 on 2026-09-24, ticket 76 a grilling for the human; build tickets 89 to 96 carry the second hiring panel's findings, 97 to 106 the third's, and 123 to 126 the answers to map 78 to 80, and the build stands at 122 of 126.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
+**The map stands at 79 of 80 on 2026-09-24, ticket 76 a grilling for the human; build tickets 89 to 96 carry the second hiring panel's findings, 97 to 106 the third's, and 123 to 126 the answers to map 78 to 80, and the build stands at 126 of 127.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -99,8 +99,10 @@ document and there should not be one.
 - `integrations/herdr/`, the Herdr plugin: a launcher that puts the run id on the pane, a poller
   that labels the pane from the record, a graph of one run in the terminal, and a smoke test
   against a live Herdr. Nothing under `src/` imports it, and its README says how to link it.
-- `tests/`, twenty-six files on 2026-09-24. `record_contract.rs` checks a written record against the contract and walks
-  every record on this machine; `fixture_corpus.rs` writes and guards `tests/fixtures/records/`,
+- `tests/`, twenty-seven files on 2026-09-24. `record_contract.rs` checks a written record against the contract and walks
+  the fixture corpus; since build ticket 126 the walk over every record on this machine is
+  `hydra doctor --walk`, its assertions live in `src/walk.rs`, and `doctor.rs` drives it on a scratch
+  corpus; `fixture_corpus.rs` writes and guards `tests/fixtures/records/`,
   the synthetic records the fixture walks in `record_contract.rs`, `normalize.rs` and
   `outcome.rs` read; `git_config.rs` plants a global and a system git config and checks that
   nothing they name runs from Hydra's git, and that the excludes file, `safe.directory`, the

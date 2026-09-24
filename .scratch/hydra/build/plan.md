@@ -171,3 +171,4 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [124 - An unhooked row keeps its capability, and the replay judges it](124-an-unhooked-row-keeps-its-capability.md)
 - [125 - A streamed run that stops at exit 0 without a terminator is `failed`, and the walk says so](125-a-streamed-run-that-stops-clean-without-a-terminator.md)
 - [126 - The walk over this machine's records moves to `hydra doctor --walk`](126-the-live-walk-moves-to-hydra-doctor.md)
+- [127 - The walk assertions in `src/walk.rs` keep the comments that said why](127-the-walks-keep-their-reasons.md)
