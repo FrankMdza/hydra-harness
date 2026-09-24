@@ -167,3 +167,7 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [120 - CI runs what the tickets claim](120-ci-runs-what-the-tickets-claim.md)
 - [121 - A local model behind an MCP server, `ask`, over Ollama](121-a-local-model-behind-the-mcp-face.md)
 - [122 - The mascot reads the pane, and the pet is the mascot](122-the-mascot-reads-the-pane.md)
+- [123 - A `claude` run reads back the tool output Claude Code saved for it](123-claude-reads-its-own-tool-results.md)
+- [124 - An unhooked row keeps its capability, and the replay judges it](124-an-unhooked-row-keeps-its-capability.md)
+- [125 - A streamed run that stops at exit 0 without a terminator is `failed`, and the walk says so](125-a-streamed-run-that-stops-clean-without-a-terminator.md)
+- [126 - The walk over this machine's records moves to `hydra doctor --walk`](126-the-live-walk-moves-to-hydra-doctor.md)

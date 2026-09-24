@@ -1,7 +1,7 @@
 # 78 - Claude Code writes a big tool output under `~/.claude/projects/` and reads it back; `standard` refuses the read
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-09-24, by the session, from the corpus walk failing on run 01a0d3e4-4245 (build ticket 116 holds the normalizer half).
 
@@ -42,4 +42,21 @@ covers no other slug. Option 2 first if the probe is cheap.
 
 ## Answer
 
-(pending, needs the human)
+Resolved 2026-09-24 by the human, option 1.
+
+`own_read_paths` gains one entry on `claude`: `~/.claude/projects/<slug>/`, where `<slug>` is
+the one Claude Code derives from this run's worktree path. The carve-out is for reads only. It
+names no other slug and nothing else under `~/.claude`. Hydra computes the slug at launch and
+writes the directory into `run_start.scopes` beside Cursor's `cursor-data/`, so the replay reads
+back the path the gate was compiled with rather than recomputing it.
+
+The slug rule belongs to Claude Code, not to Hydra. If a later build changes it, the carve-out
+misses and the loss comes back as `hydra/out-of-scope` on a `Read` under `tool-results/`. The
+corpus walk will see that, and that is how it should surface.
+
+Before building the carve-out, the build ticket spends a few minutes looking for a setting that
+moves the tool-results directory without moving the rest of `~/.claude`. If one exists on
+2.1.281, it wins, because then nothing under `~/.claude` gets opened at all. `CLAUDE_CONFIG_DIR`
+does not qualify: it also moves the skills.
+
+Build ticket 123.

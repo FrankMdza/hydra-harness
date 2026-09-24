@@ -1,7 +1,7 @@
 # 79 - Should an unhooked row keep the tool's real capability?
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-09-24, by the session, from the fourth panel's `claude` reader (weakness 3 and "Before publishing" item 5 in `docs/reviews/2026-09-24-fourth-panel-claude.md`) on build ticket 113.
 
@@ -42,4 +42,21 @@ walk already claims to check.
 
 ## Answer
 
-(pending, needs the human)
+Resolved 2026-09-24 by the human, option 2.
+
+An unhooked row keeps the tool's real capability, and "unhooked" becomes a flag on the row
+instead of a capability. The compiler leaves a flagged row out of the gate, as it does today,
+because the hook never fires for it. The replay evaluates the policy against the row's real
+capability. Where the policy allows it, the call reads as it does now, allowed and decided by
+the provider. Where the policy denies it, the replay files a finding that names the provider as
+the one who ran the tool. Under `standard` all four Cursor rows read as they do today. Under
+`judge` or `read-only` a web search becomes a finding.
+
+This covers every unhooked row, not only Cursor's. `CODEX` in `src/policy/table.rs` has
+`unhooked("WebSearch")` too, and the same reasoning applies to it.
+
+The three older Cursor rows each need a capability. `ReadLints` reads the run's own data.
+`getMcpToolsToolCall` and `awaitToolCall` are provider-native. The build ticket checks each
+against its measured record before committing to that.
+
+Build ticket 124.
