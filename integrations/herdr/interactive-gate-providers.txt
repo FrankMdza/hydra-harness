@@ -1,0 +1,4 @@
+# Providers whose interactive gate has been measured in their own TUI.
+# "Measured" means a build ticket Outcome showed a gate refusal arriving in that provider's TUI.
+# Build 130 adds cursor-agent, agy and codex one at a time.
+claude

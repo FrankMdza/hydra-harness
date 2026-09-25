@@ -1,7 +1,7 @@
 # 129 - `hy` asks which provider and which model, and offers only a measured gate
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -39,3 +39,26 @@ change.
   and naming `cursor-agent` refuses with the reason. No Herdr and no provider are launched; stub
   `herdr` and `hydra-tui-in-pane` on `PATH`.
 - `bash -n` and `zsh -n` on `hy.zsh` pass, and the existing Herdr tests pass.
+
+## Outcome
+
+Resolved 2026-09-24. Built by `composer-2.5` on run 01a0d618-3015 under `standard`, about 0.61M
+tokens. The session applied the diff with one change.
+
+`integrations/herdr/interactive-gate-providers.txt` is the list of providers with a measured
+interactive gate, one per line, and holds `claude`. Its comment says what "measured" means and
+that build 130 adds the others. `hy` with no arguments prompts for a provider from that list and
+then a model, listing that provider's rows from `integrations/puppets/vendors.json` and accepting
+free text. `hy <model> [policy]` still launches `claude` as before. Naming `cursor-agent`, `agy`
+or `codex` refuses in one line that points at build 130. `HYDRA_HERDR` overrides the directory so
+the tests can run from a worktree.
+
+The session's change: an empty model answer fell back to `sonnet` for every provider. It now
+defaults only for `claude`, and asks for a name otherwise, so the first provider build 130 adds
+does not launch with a Claude model name.
+
+`integrations/herdr/tests/test_hy.py` stubs `herdr` on `PATH`. `hy sonnet standard` builds the
+same `hydra-tui-in-pane` line as before; the prompt path picking `claude` and a model builds it
+too; `hy cursor-agent` refuses. The refusal test failed before the change, when `hy cursor-agent`
+took `cursor-agent` as a model name and launched. On master: 22 Herdr tests pass, and `zsh -n` and
+`bash -n` pass on `hy.zsh`.
