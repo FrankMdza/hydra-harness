@@ -1,7 +1,7 @@
 # 128 - The secret classes export and the grader share, widened together
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

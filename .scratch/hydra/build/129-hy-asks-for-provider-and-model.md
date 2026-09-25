@@ -1,7 +1,7 @@
 # 129 - `hy` asks which provider and which model, and offers only a measured gate
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

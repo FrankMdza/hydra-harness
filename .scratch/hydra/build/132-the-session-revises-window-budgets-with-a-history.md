@@ -1,7 +1,7 @@
 # 132 - A `rate_limited` record revises that provider's window budget, and the file keeps the history
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

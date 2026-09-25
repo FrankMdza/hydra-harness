@@ -1,7 +1,7 @@
 # 131 - The bridge reads `claude`'s transcript live, so the mascot poses a refusal during a session
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
