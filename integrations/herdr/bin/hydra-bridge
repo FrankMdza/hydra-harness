@@ -8,6 +8,29 @@ from datetime import datetime, timedelta, timezone
 
 HYDRA = os.environ.get("HYDRA_BIN", "hydra")
 
+# Gate codes the normalizer recognises in a refusal reason (`src/normalize/mod.rs`).
+GATE_CODES = (
+    "allow",
+    "capability",
+    "out-of-scope",
+    "protected-path",
+    "floor",
+    "no-path",
+    "unknown-tool",
+    "gate-tampered",
+    "no-tool-name",
+    "bad-payload",
+    "wrong-dialect",
+    "wrong-envelope",
+    "gate-error",
+    "seatbelt-delegation",
+)
+
+# Per-run transcript tail: byte offset read and cumulative gate refusals counted.
+TRANSCRIPT_STATE = {}
+
+_open = open
+
 # 2026-09-07: timed_out and abandoned map to unknown.
 MAPPING = {
     "live": ("working", "live"),
@@ -112,6 +135,126 @@ def count_denials(events_data):
     )
 
 
+def hydra_voice(text):
+    rest = text
+    while True:
+        at = rest.find("hydra/")
+        if at < 0:
+            return None
+        after = rest[at + len("hydra/") :]
+        colon = after.find(":")
+        if colon >= 0:
+            code = after[:colon]
+            if code in GATE_CODES:
+                return code
+        rest = after
+
+
+def project_slug(path):
+    # Source: `project_slug` in `src/provider/claude.rs`.
+    return "".join(
+        c if c.isascii() and (c.isalnum() or c == "-") else "-" for c in str(path)
+    )
+
+
+def projects_dir_for(home, cwd):
+    try:
+        resolved = os.path.realpath(cwd)
+    except OSError:
+        resolved = cwd
+    return os.path.join(home, ".claude", "projects", project_slug(resolved))
+
+
+def transcript_path(home, cwd, session):
+    return os.path.join(projects_dir_for(home, cwd), f"{session}.jsonl")
+
+
+def read_run_start(run_file):
+    try:
+        with _open(run_file, encoding="utf-8") as handle:
+            line = handle.readline()
+    except OSError:
+        return None
+    if not line.strip():
+        return None
+    try:
+        envelope = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    body = envelope.get("hydra")
+    if not isinstance(body, dict) or body.get("type") != "run_start":
+        return None
+    return body
+
+
+def tool_result_output(block):
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+            elif isinstance(item, dict):
+                parts.append(json.dumps(item))
+        return "\n".join(parts)
+    if content is None:
+        return ""
+    return str(content)
+
+
+def transcript_record_denials(record):
+    if record.get("type") != "user":
+        return 0
+    content = record.get("message", {}).get("content")
+    if not isinstance(content, list):
+        return 0
+    count = 0
+    for block in content:
+        if block.get("type") != "tool_result":
+            continue
+        if block.get("is_error") is True:
+            output = tool_result_output(block)
+            if hydra_voice(output):
+                count += 1
+    return count
+
+
+def count_denials_in_transcript_text(text):
+    count = 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        count += transcript_record_denials(record)
+    return count
+
+
+def poll_interactive_denials(run_id, home, cwd, session):
+    path = transcript_path(home, cwd, session)
+    state = TRANSCRIPT_STATE.setdefault(run_id, {"offset": 0, "denials": 0})
+    try:
+        with _open(path, "rb") as handle:
+            handle.seek(state["offset"])
+            chunk = handle.read()
+    except OSError:
+        return None
+    # Claude may be halfway through a line when this reads. Consume only through the last
+    # newline and leave the fragment for the next poll, or a refusal on it is lost for good.
+    end = chunk.rfind(b"\n") + 1
+    if state["offset"] == 0 and end == 0:
+        return None
+    state["offset"] += end
+    state["denials"] += count_denials_in_transcript_text(
+        chunk[:end].decode("utf-8", errors="replace")
+    )
+    return state["denials"]
+
+
 def parse_event_ts(ts):
     if not ts:
         return None
@@ -157,7 +300,7 @@ def short_run_id(run_id):
     return run_id[:8]
 
 
-def build_tokens(status_json, events_data=None, now=None):
+def build_tokens(status_json, events_data=None, now=None, interactive_denials=None):
     tokens = {
         "run_id": status_json.get("run_id") or "",
         "provider": status_json.get("provider") or "",
@@ -179,11 +322,15 @@ def build_tokens(status_json, events_data=None, now=None):
     if elapsed is not None:
         tokens["elapsed"] = str(elapsed)
 
+    if interactive_denials is not None:
+        tokens["denials"] = str(interactive_denials)
+
     if events_data is not None:
         name, seq = latest_tool_call(events_data)
         if name is not None and seq is not None:
             tokens["last_tool"] = f"{name}@{seq}"
-        tokens["denials"] = str(count_denials(events_data))
+        if interactive_denials is None:
+            tokens["denials"] = str(count_denials(events_data))
         tokens["tool_rate"] = str(
             count_tool_rate(events_data, now=now, run_id=status_json.get("run_id"))
         )
@@ -297,6 +444,18 @@ def report_pane(pane_id, herdr_state, label, tokens, title):
         print(f"Error reporting pane {pane_id}: {err}", file=sys.stderr)
 
 
+def claude_home():
+    return os.environ.get("HOME") or os.path.expanduser("~")
+
+
+def is_interactive_claude(status_json, run_start):
+    if status_json.get("provider") != "claude":
+        return False
+    if run_start and run_start.get("launch_mode") == "interactive":
+        return True
+    return False
+
+
 def main():
     last_reported = {}
 
@@ -313,12 +472,30 @@ def main():
             if not status_json:
                 continue
 
+            run_start = None
+            run_file = status_json.get("run_file")
+            if run_file:
+                run_start = read_run_start(run_file)
+
+            interactive_denials = None
             events_data = None
             if status_json.get("state") == "live":
-                events_data = get_hydra_events(run_id)
+                if is_interactive_claude(status_json, run_start) and run_start:
+                    session = run_start.get("provider_session_id")
+                    cwd = run_start.get("cwd")
+                    if session and cwd:
+                        interactive_denials = poll_interactive_denials(
+                            run_id, claude_home(), cwd, session
+                        )
+                else:
+                    events_data = get_hydra_events(run_id)
 
             herdr_state, label = get_herdr_state_and_label(status_json)
-            tokens = build_tokens(status_json, events_data=events_data)
+            tokens = build_tokens(
+                status_json,
+                events_data=events_data,
+                interactive_denials=interactive_denials,
+            )
             title = build_title(status_json, tokens)
             key = report_key(herdr_state, label, tokens, title)
 

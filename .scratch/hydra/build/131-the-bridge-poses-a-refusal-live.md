@@ -1,7 +1,7 @@
 # 131 - The bridge reads `claude`'s transcript live, so the mascot poses a refusal during a session
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -38,3 +38,33 @@ first.
   lines at a time, with one refusal on the second batch. The bridge's token goes from unset to
   `0` to `1` across three polls, and it never opens a file outside the scratch `HOME`.
 - The existing Herdr tests pass.
+
+## Outcome
+
+Resolved 2026-09-24. Built by `composer-2.5` on run 01a0d618-6b6e under `standard`, about 1.33M
+tokens. The session applied the diff with one fix and one test.
+
+For a live pane whose run is `claude` and whose `run_start` says `launch_mode: interactive`,
+`hydra-bridge` reads the record's `run_start` through `run_file` from `hydra status`, finds the
+transcript at `~/.claude/projects/<slug of the realpath of cwd>/<provider_session_id>.jsonl`, and
+counts error `tool_result` blocks whose text carries a gate code in Hydra's voice, 2.1.280's
+`PreToolUse:<Tool> hook error:` prefix included. The slug function is ported to Python with a
+comment naming `project_slug` in `src/provider/claude.rs`. The count feeds the `denials` token
+the recorded path already writes, and for these panes the bridge skips `hydra show --events`.
+Nothing under `src/` changed, and nothing writes under `~/.claude`.
+
+The session's fix: the agent read to the current end of the file and moved the offset past
+whatever it got. A poll that landed while Claude was mid-line skipped the fragment as bad JSON,
+and the rest of that line on the next poll too, so a refusal written across a poll boundary was
+lost for good. The bridge now reads bytes, consumes only through the last newline, and leaves the
+fragment for the next poll. `test_a_refusal_split_across_two_polls_is_counted_once` writes half a
+refusal line, polls, writes the rest, polls twice: unset, then 1, then 1. On the agent's version it
+fails with `AssertionError: 0 is not None`.
+
+The agent's `test_denials_from_unset_to_zero_to_one` writes a fake transcript into a scratch
+`HOME` two lines at a time and checks that every `open()` stays inside it. It failed before the
+change with `AttributeError: ... TRANSCRIPT_STATE`. On master all 24 Herdr tests pass.
+
+Not measured: the human's one `hy` session so far (01a0d56e-ba1b) left no transcript at the path
+the harvest expected, so whether a live session writes where this reads is still open. The next
+`hy` session that sends a message answers both at once.

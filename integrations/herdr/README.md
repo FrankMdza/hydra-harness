@@ -75,6 +75,12 @@ seq from `hydra show --events`, `denials` as the count of `permission_decision` 
 `elapsed` as seconds since `started_at`, and `tokens` as the projection total once the run ended.
 It also sets a title from the provider, the short run id, and the outcome or the last tool name.
 
+On a live interactive `claude` run the record stays thin until harvest, so the bridge tails that
+session's append-only transcript under `~/.claude/projects/<slug>/` read-only, counting error
+`tool_result` lines that carry Hydra's gate voice the same way the normalizer does. A missing or
+unreadable transcript leaves `denials` unset. A Claude Code format change breaks the mascot's
+refusal pose, not Hydra's record or gate.
+
 ## Test
 
 ```
