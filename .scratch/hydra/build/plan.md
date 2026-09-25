@@ -173,3 +173,7 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [126 - The walk over this machine's records moves to `hydra doctor --walk`](126-the-live-walk-moves-to-hydra-doctor.md)
 - [127 - The walk assertions in `src/walk.rs` keep the comments that said why](127-the-walks-keep-their-reasons.md)
 - [128 - The secret classes export and the grader share, widened together](128-the-secret-classes-export-and-the-grader-share.md)
+- [129 - `hy` asks which provider and which model, and offers only a measured gate](129-hy-asks-for-provider-and-model.md)
+- [130 - An interactive run on `cursor-agent`, `agy` and `codex`, with the gate measured in each TUI](130-an-interactive-gate-on-the-other-three.md)
+- [131 - The bridge reads `claude`'s transcript live, so the mascot poses a refusal during a session](131-the-bridge-poses-a-refusal-live.md)
+- [132 - A `rate_limited` record revises that provider's window budget, and the file keeps the history](132-the-session-revises-window-budgets-with-a-history.md)
