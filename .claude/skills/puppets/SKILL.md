@@ -56,6 +56,9 @@ what the human still owes; `show <goal>` is the same as JSON. Read one before ev
 - Launch without the table approval, or apply without the diff approval. The helper refuses the
   first; the second is on you.
 - Reassign a rate-limited task on your own. Mark it in your reply and let the human `set` it.
+  Then run `python3 integrations/puppets/sheet.py budget <run-id>` on the run that ended
+  `rate_limited` and paste its one line to the human before you rank or assign again (map 76-H,
+  build 132). If it refuses for want of a window, say so; the window is the human's to fill.
 - Edit the log by hand. Every state change is a command.
 - Hand an agent `docs/`, `config/` or `.scratch/` edits.
 
