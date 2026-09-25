@@ -81,8 +81,7 @@ The session changed the gate test. As written, it created `session-id/tool-resul
 the real `~/.claude/projects/` for its scratch worktree and a sibling, and the agent's three runs
 of it left five directories there, `*-T-hydra-gate-*-worktrees-own*`. `gate.py` resolves paths
 with `realpath`, which only needs the existing prefix, so the test now creates nothing, and a
-rerun left no new directory. The five directories are still there, waiting for the human to
-remove them.
+rerun left no new directory. The human removed the five directories on 2026-09-25.
 
 `a_claude_run_may_read_its_own_tool_results` in `tests/gate.rs`: the own `Read` is allowed; a
 `Read` under another slug, a `Read` of `~/.claude/settings.json`, and a `Write` into the
