@@ -42,6 +42,27 @@ class RedactPrefixTests(unittest.TestCase):
             self.assertIn("[REDACTED:", json.dumps(redacted))
 
 
+    def test_widened_prefixes_are_redacted(self) -> None:
+        hook = "https://" + "hooks.slack.com/services/T00/B00/planted"
+        cases = [
+            ("AKIAPlantedSecretKey", "aws_access_key", "PlantedSecretKey"),
+            (
+                "aws_secret_access_key=planted-aws-secret-value",
+                "aws_secret_access_key",
+                "planted-aws-secret-value",
+            ),
+            ("AWS_SECRET_ACCESS_KEY=planted-aws-env-secret", "aws_secret_access_key", "planted-aws-env-secret"),
+            ("xoxb-planted-slack-bot-token", "slack_bot_token", "planted-slack-bot-token"),
+            (hook, "slack_webhook", "hooks.slack.com"),
+            ("github_pat_plantedtokenvalue", "github_fine_grained_pat", "plantedtokenvalue"),
+            ("gho_plantedoauthtokenvalue", "github_oauth_token", "plantedoauthtokenvalue"),
+        ]
+        for text, label, leaked in cases:
+            redacted = redact_string(text)
+            self.assertIn(f"[REDACTED:{label}]", redacted, text)
+            self.assertNotIn(leaked, redacted, text)
+
+
 class PemRedactionTests(unittest.TestCase):
     def test_pem_block_is_redacted_to_footer_not_first_space(self) -> None:
         body = (

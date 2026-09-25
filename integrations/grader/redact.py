@@ -56,13 +56,25 @@ def redact_secrets(text: str) -> str:
         ("AIza", "google_api_key"),
         ("sk-ant-", "anthropic_api_key"),
         ("ghp_", "github_pat"),
+        ("github_pat_", "github_fine_grained_pat"),
+        ("gho_", "github_oauth_token"),
         ("ya29.", "google_oauth_token"),
+        ("AKIA", "aws_access_key"),
+        ("aws_secret_access_key=", "aws_secret_access_key"),
+        ("AWS_SECRET_ACCESS_KEY=", "aws_secret_access_key"),
+        ("xoxb-", "slack_bot_token"),
+        ("hooks.slack.com", "slack_webhook"),
         ("-----BEGIN", "pem_private_key"),
     ]:
         while True:
             at = out.find(prefix)
             if at == -1:
                 break
+            if prefix == "hooks.slack.com":
+                if at >= 8 and out[at - 8 : at] == "https://":
+                    at -= 8
+                elif at >= 7 and out[at - 7 : at] == "http://":
+                    at -= 7
             if prefix == "-----BEGIN":
                 footer_rel = out[at:].find("-----END")
                 if footer_rel != -1:

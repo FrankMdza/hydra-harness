@@ -3140,7 +3140,9 @@ yet. Map ticket 61.
 **Redaction is the four classes and nothing else.** Repository names taken from the
 allowlist entries that are not the exported run's own, replaced by a labelled marker;
 secrets by the same five prefixes the write-time sweep uses, plus OpenAI keys by a matcher of
-their own that the sweep does not have, six secret classes in all; the user's own hook stdout
+their own that the sweep does not have, six secret classes until build ticket 128 added six more
+that only export and the grader redact (AWS access keys, `aws_secret_access_key=` in either case,
+Slack `xoxb-` tokens and webhooks, GitHub `github_pat_` and `gho_`), twelve in all; the user's own hook stdout
 dropped as the `hook_response` frames; and customer data inside a fixture named in the
 header as the residue no pattern reaches. Section 5.2's fields are dropped with
 `run_start`, `run_end`, `permission_decision` and `usage`. Every output line is then checked

@@ -685,6 +685,25 @@ fn openai_keys_are_redacted_and_short_sk_in_prose_is_not() {
 }
 
 #[test]
+fn widened_secret_classes_abort_the_verifier() {
+    let hook = concat!("https://", "hooks.slack.com/services/T00/B00/planted");
+    for text in [
+        "AKIAPlantedSecretKey",
+        "aws_secret_access_key=planted-aws-secret-value",
+        "AWS_SECRET_ACCESS_KEY=planted-aws-env-secret",
+        "xoxb-planted-slack-bot-token",
+        hook,
+        "github_pat_plantedtokenvalue",
+        "gho_plantedoauthtokenvalue",
+    ] {
+        let line = json!({"events": [{"output": text}]}).to_string();
+        assert!(hydra::export::verify_export_line(&line).is_err(), "{text}");
+        let key = json!({"arguments": {text: "value"}}).to_string();
+        assert!(hydra::export::verify_export_line(&key).is_err(), "{text}");
+    }
+}
+
+#[test]
 fn a_prefix_secret_and_a_pem_header_still_abort_in_values_and_keys() {
     for text in [
         "-----BEGIN RSA PRIVATE KEY-----\r\nshort-body\r\n-----END RSA PRIVATE KEY-----",

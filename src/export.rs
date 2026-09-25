@@ -1,7 +1,7 @@
 //! `hydra export`, harness spec 14.
 //!
 //! The one path by which anything leaves this machine: default deny, allowlisted
-//! by path, redacted four ways across six secret classes, verified before
+//! by path, redacted four ways across twelve secret classes, verified before
 //! anything is written. Typed by a human and reachable from no run.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -579,11 +579,26 @@ fn redact_secrets(text: &str) -> String {
         ("AIza", "google_api_key"),
         ("sk-ant-", "anthropic_api_key"),
         ("ghp_", "github_pat"),
+        ("github_pat_", "github_fine_grained_pat"),
+        ("gho_", "github_oauth_token"),
         ("ya29.", "google_oauth_token"),
+        ("AKIA", "aws_access_key"),
+        ("aws_secret_access_key=", "aws_secret_access_key"),
+        ("AWS_SECRET_ACCESS_KEY=", "aws_secret_access_key"),
+        ("xoxb-", "slack_bot_token"),
+        ("hooks.slack.com", "slack_webhook"),
         ("-----BEGIN", "pem_private_key"),
     ] {
         while let Some(at) = out.find(prefix) {
-            // Four classes are one token. The fifth is a header whose value
+            let mut at = at;
+            if prefix == "hooks.slack.com" {
+                if out[..at].ends_with("https://") {
+                    at -= 8;
+                } else if out[..at].ends_with("http://") {
+                    at -= 7;
+                }
+            }
+            // Every class but one is a single token. The PEM header's value
             // runs past every space to a footer, so the cut is the end of the
             // `-----END ...-----` line when there is one, and the end of the
             // text when there is not. Cutting at the first space left the key
@@ -725,9 +740,21 @@ fn scan_text(text: &str, path: &str, warnings: &mut Vec<EntropyWarning>) -> bool
     // The prefixes are the redactor's own, matched anywhere in the text as
     // the redactor matches them, so a hit also means the redactor missed.
     if text.contains("-----BEGIN")
-        || ["AIza", "sk-ant-", "ghp_", "ya29."]
-            .iter()
-            .any(|prefix| text.contains(prefix))
+        || [
+            "AIza",
+            "sk-ant-",
+            "ghp_",
+            "github_pat_",
+            "gho_",
+            "ya29.",
+            "AKIA",
+            "aws_secret_access_key=",
+            "AWS_SECRET_ACCESS_KEY=",
+            "xoxb-",
+            "hooks.slack.com",
+        ]
+        .iter()
+        .any(|prefix| text.contains(prefix))
         || !openai_key_spans(text).is_empty()
     {
         return true;
@@ -897,6 +924,47 @@ mod tests {
         ] {
             let redacted = redact_string(&format!("key `{key}`, done"), &[]);
             assert_eq!(redacted, "key `[REDACTED:openai_api_key]`, done");
+        }
+    }
+
+    #[test]
+    fn widened_secret_classes_are_redacted() {
+        let hook = concat!("https://", "hooks.slack.com/services/T00/B00/planted");
+        for (text, label, leaked) in [
+            ("AKIAPlantedSecretKey", "aws_access_key", "PlantedSecretKey"),
+            (
+                "aws_secret_access_key=planted-aws-secret-value",
+                "aws_secret_access_key",
+                "planted-aws-secret-value",
+            ),
+            (
+                "xoxb-planted-slack-bot-token",
+                "slack_bot_token",
+                "planted-slack-bot-token",
+            ),
+            (
+                "AWS_SECRET_ACCESS_KEY=planted-aws-env-secret",
+                "aws_secret_access_key",
+                "planted-aws-env-secret",
+            ),
+            (hook, "slack_webhook", "hooks.slack.com"),
+            (
+                "github_pat_plantedtokenvalue",
+                "github_fine_grained_pat",
+                "plantedtokenvalue",
+            ),
+            (
+                "gho_plantedoauthtokenvalue",
+                "github_oauth_token",
+                "plantedoauthtokenvalue",
+            ),
+        ] {
+            let redacted = redact_string(text, &[]);
+            assert!(
+                redacted.contains(&format!("[REDACTED:{label}]")),
+                "{text} -> {redacted}"
+            );
+            assert!(!redacted.contains(leaked), "{text} -> {redacted}");
         }
     }
 
