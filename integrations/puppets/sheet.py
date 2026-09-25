@@ -1,7 +1,7 @@
 """Corpus spec sheets and conservative, window-share rankings (stdlib only)."""
 import argparse
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import importlib.util
 import json
@@ -22,6 +22,7 @@ load_aliases = _models.load_aliases
 
 POLICIES = ['judge', 'read-only', 'standard', 'permissive', 'curate']
 CHECKLIST = set('secrets_check security_issues tests_affected self_consistency code_quality cross_platform changelog_accuracy approved_patch_unreachable severity_ceiling_table reviewer_failure_fails_closed panel_size_unshrunk protected_path_set admission_gate_order baseline_test_provenance env_allowlist_intact hook_config_written_fresh hook_dialect_coverage billed_spend_gate delegation_depth_cap curator_write_surface evidence_is_read_only worktree_containment record_append_only record_source_fields raw_frame_preserved export_losslessness provider_claim_dated no_new_crossing no_daemon spec_matches_code'.split())
+
 
 
 def read_json(path, default=None):
@@ -83,16 +84,47 @@ def utilization(raw):
     return None
 
 
-def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0, aliases=None):
-    """Build sheets; cache by run id and content hash so live records refresh."""
+def parse_iso(ts):
+    return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+
+
+def token_spend(counts, cache_read_weight=1.0):
+    if not isinstance(counts, dict):
+        return None
+    raw = counts.get('raw_input')
+    out = counts.get('output_tokens')
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool) or not math.isfinite(raw):
+        return None
+    if not isinstance(out, (int, float)) or isinstance(out, bool) or not math.isfinite(out):
+        return None
+    return raw * cache_read_weight + out
+
+
+def window_duration(vendor, provider):
+    windows = vendor.get('windows')
+    if isinstance(windows, str):
+        text = windows.strip().lower()
+        if text.endswith('d'):
+            return timedelta(days=float(text[:-1]))
+        if text.endswith('h'):
+            return timedelta(hours=float(text[:-1]))
+    if isinstance(windows, dict):
+        if windows.get('days') is not None:
+            return timedelta(days=float(windows['days']))
+        if windows.get('hours') is not None:
+            return timedelta(hours=float(windows['hours']))
+    # No default. codex ran out on 2026-09-24 and came back three days later, so a guessed
+    # span sums the wrong runs and writes a budget far too small. Map 76-H.
+    raise ValueError(f'no window for {provider} in vendors.json; set its "windows" ("5h", "7d") '
+                     'or pass --since')
+
+
+def corpus_records(runs, home, hydra=None):
+    """Load run metadata from a corpus; cache hydra show answers in home."""
     runs, home = Path(runs), Path(home)
     hydra = hydra or os.environ.get('HYDRA_BIN', 'hydra')
     if not runs.is_dir():
         raise ValueError(f'runs directory does not exist: {runs}')
-    if not math.isfinite(cache_read_weight) or cache_read_weight < 0:
-        raise ValueError('cache_read_weight must be finite and nonnegative')
-    vendors = read_json(HERE / 'vendors.json') if vendors is None else vendors
-    aliases = load_aliases() if aliases is None else aliases
     cache = read_json(home / 'sheet-cache.json', {})
     records = {}
     for path in sorted(runs.glob('*.jsonl')):
@@ -128,20 +160,98 @@ def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0, aliases=N
         usage = projection.get('usage') or {}
         end = next((v['hydra'] for v in reversed(lines) if v.get('hydra', {}).get('type') == 'run_end'), {})
         duration = None
-        if end.get('ended_at'):
-            duration = (datetime.fromisoformat(end['ended_at'].replace('Z', '+00:00')) - datetime.fromisoformat(first['ts'].replace('Z', '+00:00'))).total_seconds()
+        ended_at = end.get('ended_at')
+        if ended_at:
+            duration = (parse_iso(ended_at) - parse_iso(first['ts'])).total_seconds()
         rates = [utilization(v.get('raw')) for v in lines if isinstance(v.get('raw'), dict) and v['raw'].get('type') == 'rate_limit_event']
         rates = [v for v in rates if v is not None]
+        policy = start.get('policy')
         records[run_id] = dict(run_id=run_id, provider=first['provider'], model=first.get('model'),
             parent_run_id=first.get('parent_run_id') or start.get('resumed_from'), ts=first['ts'],
-            policy=start.get('policy'), subscription=start.get('subscription'),
+            ended_at=ended_at, policy=policy, subscription=start.get('subscription'),
             provider_version=start.get('provider_version'), launch_mode=start.get('launch_mode'),
             duration_seconds=duration, outcome=projection.get('outcome'),
             usage_source=usage.get('usage_source', 'unavailable'), tokens=usage.get('counts') or {},
-            denials=sum(e.get('type') == 'permission_decision' and e.get('decision') == 'deny' for e in answer.get('events', [])),
-            judge_parsed=judge_parsed(projection.get('result_text')) if start.get('policy') == 'judge' else None,
+            denials=sum(e.get('type') == 'permission_decision' and e.get('decision') == 'deny'
+                        for e in answer.get('events', [])),
+            judge_parsed=judge_parsed(projection.get('result_text')) if policy == 'judge' else None,
             window_share=(rates[-1] - rates[0]) if len(rates) >= 2 and rates[-1] >= rates[0] else None)
     write_json(home / 'sheet-cache.json', cache)
+    return records
+
+
+def revise_budget(run_id, runs, vendors_path, hydra=None, home=None, cache_read_weight=1.0, aliases=None,
+                  since=None):
+    """Set window_budget_tokens from a rate_limited run's closed window; return a summary line."""
+    runs = Path(runs)
+    vendors_path = Path(vendors_path)
+    home = Path(home) if home is not None else vendors_path.parent
+    hydra = hydra or os.environ.get('HYDRA_BIN', 'hydra')
+    if not math.isfinite(cache_read_weight) or cache_read_weight < 0:
+        raise ValueError('cache_read_weight must be finite and nonnegative')
+    records = corpus_records(runs, home, hydra)
+    if run_id not in records:
+        raise ValueError(f'no such run in corpus: {run_id}')
+    trigger = records[run_id]
+    if trigger.get('outcome') != 'rate_limited':
+        raise ValueError(f'run {run_id} is not rate_limited')
+    if trigger['provider'] == 'claude':
+        raise ValueError('claude window budgets come from utilization, not token spend')
+    if not trigger.get('ended_at'):
+        raise ValueError(f'run {run_id} has no run_end')
+    aliases = load_aliases() if aliases is None else aliases
+    key = canonical(trigger['provider'], trigger.get('model'), aliases)
+    vendors = read_json(vendors_path)
+    vendor = next((v for v in vendors
+                   if canonical(v['provider'], v.get('model'), aliases) == key), None)
+    if vendor is None:
+        raise ValueError(f'no vendor row for {key[0]!r} model {key[1]!r}')
+    window_end = parse_iso(trigger['ended_at'])
+    if since is not None:
+        window_start = parse_iso(since)
+    else:
+        window_start = window_end - window_duration(vendor, trigger['provider'])
+    run_ids = []
+    total = 0
+    for record in records.values():
+        if canonical(record['provider'], record.get('model'), aliases) != key:
+            continue
+        if not record.get('ended_at'):
+            continue
+        started = parse_iso(record['ts'])
+        ended = parse_iso(record['ended_at'])
+        if ended < window_start or started > window_end:
+            continue
+        spend = token_spend(record['tokens'], cache_read_weight)
+        if spend is None:
+            continue
+        run_ids.append(record['run_id'])
+        total += spend
+    run_ids.sort()
+    if not run_ids:
+        raise ValueError(f'no token spend in window for {run_id}')
+    history = vendor.setdefault('budget_history', [])
+    previous = vendor.get('window_budget_tokens')
+    if (previous == total and history and history[-1].get('new') == total
+            and sorted(history[-1].get('run_ids', [])) == run_ids):
+        return None
+    entry = dict(previous=previous, new=total, date=datetime.now(tz=window_end.tzinfo).date().isoformat(),
+                 run_ids=run_ids, outside_spend_possible=True)
+    history.append(entry)
+    vendor['window_budget_tokens'] = total
+    write_json(vendors_path, vendors)
+    return (f"{trigger['provider']} window_budget_tokens: {previous} -> {total} "
+            f"(runs: {', '.join(run_ids)}; outside_spend_possible: true)")
+
+
+def build(runs, home, vendors=None, hydra=None, cache_read_weight=1.0, aliases=None):
+    """Build sheets; cache by run id and content hash so live records refresh."""
+    runs, home = Path(runs), Path(home)
+    if not math.isfinite(cache_read_weight) or cache_read_weight < 0:
+        raise ValueError('cache_read_weight must be finite and nonnegative')
+    vendors = read_json(HERE / 'vendors.json') if vendors is None else vendors
+    aliases = load_aliases() if aliases is None else aliases
+    records = corpus_records(runs, home, hydra)
     groups = {}
     recorded_models = {}
     for v in vendors:
@@ -262,11 +372,17 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     default_root = Path(os.environ.get('HYDRA_ROOT', Path.home() / 'hydra'))
     default_home = Path(os.environ.get('HYDRA_PUPPETS_HOME', default_root / 'puppets'))
-    for command in ('build', 'rank', 'show'):
+    for command in ('build', 'budget', 'rank', 'show'):
         p = commands.add_parser(command)
         p.add_argument('--home', type=Path, default=default_home)
         if command == 'build':
             p.add_argument('--runs', type=Path, default=default_root / 'runs')
+            p.add_argument('--cache-read-weight', type=float, default=1.0)
+        elif command == 'budget':
+            p.add_argument('run_id')
+            p.add_argument('--runs', type=Path, default=default_root / 'runs')
+            p.add_argument('--vendors', type=Path, default=HERE / 'vendors.json')
+            p.add_argument('--since', help='window start, ISO 8601, when vendors.json names no window')
             p.add_argument('--cache-read-weight', type=float, default=1.0)
         elif command == 'rank':
             p.add_argument('--class', dest='task_class', required=True)
@@ -283,6 +399,13 @@ def main():
             parser.error('cache-read-weight must be finite and nonnegative')
         sheets = build(args.runs, args.home, cache_read_weight=args.cache_read_weight)
         print(json.dumps({'agents': len(sheets)}))
+    elif args.command == 'budget':
+        if not math.isfinite(args.cache_read_weight) or args.cache_read_weight < 0:
+            parser.error('cache-read-weight must be finite and nonnegative')
+        line = revise_budget(args.run_id, args.runs, args.vendors, home=args.home,
+                             cache_read_weight=args.cache_read_weight, since=args.since)
+        if line:
+            print(line)
     elif args.command == 'show':
         path = args.home / 'agents' / filename(args.provider, args.model)
         if not path.exists():

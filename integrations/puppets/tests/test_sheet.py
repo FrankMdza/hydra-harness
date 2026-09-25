@@ -35,20 +35,20 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
                         dict(provider='codex', model=None, window_budget_tokens=None)]
 
     def record(self, ident, provider='claude', model='sonnet', parent=None,
-               command='run', policy='standard', ended=True, rates=(), outcome='completed', text=None):
-        envelope = dict(run_id=ident, parent_run_id=parent, provider=provider, model=model,
-                        ts='2026-09-24T00:00:00Z')
+               command='run', policy='standard', ended=True, rates=(), outcome='completed', text=None,
+               tokens=None, ts='2026-09-24T00:00:00Z', ended_at='2026-09-24T00:00:10Z'):
+        counts = tokens or {'raw_input': 100, 'cache_read_tokens': 80, 'output_tokens': 20}
+        envelope = dict(run_id=ident, parent_run_id=parent, provider=provider, model=model, ts=ts)
         rows = [dict(envelope, hydra=dict(type='run_start', command=command, policy=policy,
                 subscription='test', provider_version='1', launch_mode='recorded'))]
         for rate in rates:
             rows.append(dict(envelope, raw={'type':'rate_limit_event', 'rate_limit_info':{
                 'unifiedWindows':{'seven_day':{'utilization':rate}}}}))
         if ended:
-            rows.append(dict(envelope, hydra=dict(type='run_end', ended_at='2026-09-24T00:00:10Z', exit_code=0)))
+            rows.append(dict(envelope, hydra=dict(type='run_end', ended_at=ended_at, exit_code=0)))
         (self.runs / (ident + '.jsonl')).write_text(''.join(json.dumps(v)+'\n' for v in rows))
         self.table[ident] = {'projection':{'outcome':outcome if ended else None,
-             'result_text':text, 'usage':{'usage_source':'provider', 'counts':{
-             'raw_input':100, 'cache_read_tokens':80, 'output_tokens':20}}},
+             'result_text':text, 'usage':{'usage_source':'provider', 'counts':counts}},
              'events':[{'type':'permission_decision', 'decision':'deny'}]}
         (self.root / 'table.json').write_text(json.dumps(self.table))
 
@@ -148,6 +148,55 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
         self.assertGreater(json.loads(cli('build','--runs',str(self.runs)).stdout)['agents'], 0)
         self.assertEqual(json.loads(cli('show','claude','sonnet').stdout)['sample_size'], 1)
         self.assertTrue(json.loads(cli('rank','--class','rust','--grade','medium','--provider','claude').stdout))
+
+    def test_budget_from_rate_limited(self):
+        vendors_path = self.root / 'vendors.json'
+        vendors_path.write_text(json.dumps([dict(provider='codex', model=None, windows='5h',
+            window_budget_tokens=None)]))
+        self.record('run-a', provider='codex', model=None,
+                    tokens={'raw_input': 1000, 'output_tokens': 200, 'cache_read_tokens': 0},
+                    ts='2026-09-24T10:00:00Z', ended_at='2026-09-24T10:05:00Z')
+        self.record('run-b', provider='codex', model=None,
+                    tokens={'raw_input': 500, 'output_tokens': 100, 'cache_read_tokens': 0},
+                    ts='2026-09-24T11:00:00Z', ended_at='2026-09-24T11:05:00Z')
+        self.record('run-c', provider='codex', model=None, outcome='rate_limited',
+                    tokens={'raw_input': 300, 'output_tokens': 50, 'cache_read_tokens': 0},
+                    ts='2026-09-24T12:00:00Z', ended_at='2026-09-24T12:05:00Z')
+        expected = 1000 + 200 + 500 + 100 + 300 + 50
+        line = sheet.revise_budget('run-c', self.runs, vendors_path, str(self.stub),
+                                   home=self.home)
+        self.assertIn('2150', line)
+        self.assertIn('run-a', line)
+        self.assertIn('run-b', line)
+        self.assertIn('run-c', line)
+        vendors = json.loads(vendors_path.read_text())
+        self.assertEqual(vendors[0]['window_budget_tokens'], expected)
+        history = vendors[0]['budget_history']
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]['previous'], None)
+        self.assertEqual(history[0]['new'], expected)
+        self.assertEqual(sorted(history[0]['run_ids']), ['run-a', 'run-b', 'run-c'])
+        self.assertTrue(history[0]['outside_spend_possible'])
+        again = sheet.revise_budget('run-c', self.runs, vendors_path, str(self.stub),
+                                    home=self.home)
+        self.assertIsNone(again)
+        vendors = json.loads(vendors_path.read_text())
+        self.assertEqual(len(vendors[0]['budget_history']), 1)
+
+    def test_budget_refuses_without_a_window(self):
+        # Map 76-H: no guessed window. With none in vendors.json the command asks for one.
+        vendors_path = self.root / 'vendors.json'
+        vendors_path.write_text(json.dumps([dict(provider='codex', model=None, windows=None,
+            window_budget_tokens=None)]))
+        self.record('run-c', provider='codex', model=None, outcome='rate_limited',
+                    tokens={'raw_input': 300, 'output_tokens': 50, 'cache_read_tokens': 0},
+                    ts='2026-09-24T12:00:00Z', ended_at='2026-09-24T12:05:00Z')
+        with self.assertRaisesRegex(ValueError, 'no window for codex'):
+            sheet.revise_budget('run-c', self.runs, vendors_path, str(self.stub), home=self.home)
+        self.assertIsNone(json.loads(vendors_path.read_text())[0]['window_budget_tokens'])
+        line = sheet.revise_budget('run-c', self.runs, vendors_path, str(self.stub), home=self.home,
+                                   since='2026-09-24T00:00:00Z')
+        self.assertIn('350', line)
 
     def test_goal_event_format_and_class_filter(self):
         self.record('a')

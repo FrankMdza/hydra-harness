@@ -117,6 +117,7 @@ Unchanged records reuse `sheet-cache.json`. Partial final lines wait for the nex
 
 ```sh
 python3 integrations/puppets/sheet.py build --runs /path/to/runs --home /path/to/puppets
+python3 integrations/puppets/sheet.py budget <run-id> --runs /path/to/runs
 python3 integrations/puppets/sheet.py show claude sonnet --home /path/to/puppets
 python3 integrations/puppets/sheet.py rank --class rust_launch_path --grade medium --home /path/to/puppets
 python3 integrations/puppets/sheet.py rank --class security_review --grade low --provider codex --home /path/to/puppets
@@ -146,6 +147,16 @@ A missing pair or a decreasing counter produces null. Other providers use
 The weight defaults to 1 because the ticket supplies no measured discount; set
 `build --cache-read-weight` to change it. Missing usage or budget produces null.
 These are per-run measurements, not isolated causal estimates of subscription spend.
+When a run ends `rate_limited`, the session calls `sheet.py budget <run-id>` to set
+`window_budget_tokens` in `vendors.json` to the summed token spend of every Hydra run
+for that provider in the window that just closed. The window's length is the row's
+`windows` (`"5h"`, `"7d"`), or `--since <ISO time>` for the start; with neither the command
+refuses rather than guess. Claude is refused, because its cost comes from utilization.
+Each write appends a `budget_history` entry with the previous value, the new one, the
+date, the run ids summed, and `outside_spend_possible` (true when spending outside Hydra
+could have shared the window). The command prints one line for the human; relay it.
+To undo one revision, remove the last `budget_history` entry on that vendor row and
+set `window_budget_tokens` back to that entry's `previous` value.
 
 Import `rank(sheets, task_class, grade, verdicts=None, policy=None)` to obtain ordered
 rows with provider, model, bound, cost, score, verdict sample size and cost sample size.
