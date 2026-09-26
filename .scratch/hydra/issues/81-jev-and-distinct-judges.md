@@ -66,3 +66,6 @@ not fix that. Different evidence per seat and adversarial roles help some.
   export allowlist.
 
 Build tickets 133 and 134.
+
+Build 134's probe, 2026-09-26: on 25 agent diffs Jev ranked well (AUC 0.964) and calibrated badly
+(Brier 0.33 against 0.13 for the base rate). Its Outcome holds the numbers.
