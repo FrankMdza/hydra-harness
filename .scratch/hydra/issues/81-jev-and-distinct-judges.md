@@ -1,7 +1,7 @@
 # 81 - Jev, and a judge panel whose seats differ even on one model
 
 Type: research
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-09-25, by the session, at the human's request, with codex out of its weekly quota
 until 2026-09-27 and the judge panel unable to sit.
@@ -36,4 +36,33 @@ Two questions the human asked together.
 
 ## Answer
 
-(pending, research by `hydra run`)
+Resolved 2026-09-26. Research by `composer-2.5` on run 01a0d756-7074, saved as
+[research/81](../research/81-jev-and-distinct-judges.md) with the session's check of three
+sources. Two decisions with the human through AskUserQuestion.
+
+What the research found. Jev is real and cheap: $0.042 per million input tokens, output free,
+typed `noul`, `choice` and `score` answers with a `confidence`, 64k context. Independent
+measurements put it well behind good LLMs on hard labels (a median 11.6 macro-F1 points behind the
+best per task, on 7,977 human labels), and its calibration varies by dataset. It cannot write a
+judge's `note`. RLCD is unpublished, so there is nothing to copy; the usable part for ticket 77's
+local model is a proper scoring rule and temperature scaling. On panels: nine frontier judges carry
+about 2.18 independent votes (mean error correlation 0.391), and prompt or temperature variants do
+not fix that. Different evidence per seat and adversarial roles help some.
+
+- **81-a. A degraded panel, declared.** When a seat's provider is out, the human may approve, per
+  goal, a panel whose missing seat is filled by an available provider with a different role (a
+  devil's advocate or a security reader) and a different slice of evidence (the diff alone, or the
+  diff with its tests). The verdict carries `degraded` in the goal's log and is never reported as a
+  full panel. This amends map 76-I for the mode's review panel only; rung two's panel keeps its rule
+  against substitution. Every seat gets a distinct role and evidence slice even on a full panel,
+  since that costs nothing.
+- **81-b. Probe Jev now, on committed diffs.** The human asked why diffs would be public and what
+  earlier decision governs them. Harness spec 14 governs run records; a diff already committed to
+  master is the author's code, which the four routed vendors already read on every run. Sending it
+  to Typesafe adds a fifth vendor, and no record text leaves. The probe uses about 30 build
+  tickets' diffs, labelled by their `## Outcome` (applied as written, or changed by the session),
+  asks checklist questions as `noul`, and scores calibration against the labels. Jev never votes
+  and never replaces a seat. A live pre-filter over uncommitted diffs or records waits for the
+  export allowlist.
+
+Build tickets 133 and 134.

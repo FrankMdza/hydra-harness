@@ -177,3 +177,5 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [130 - An interactive run on `cursor-agent`, `agy` and `codex`, with the gate measured in each TUI](130-an-interactive-gate-on-the-other-three.md)
 - [131 - The bridge reads `claude`'s transcript live, so the mascot poses a refusal during a session](131-the-bridge-poses-a-refusal-live.md)
 - [132 - A `rate_limited` record revises that provider's window budget, and the file keeps the history](132-the-session-revises-window-budgets-with-a-history.md)
+- [133 - The mode's judge panel can sit degraded, declared, with a role and evidence slice per seat](133-a-degraded-panel-declared.md)
+- [134 - A Jev probe on committed build diffs, scored against their Outcomes](134-a-jev-probe-on-committed-diffs.md)

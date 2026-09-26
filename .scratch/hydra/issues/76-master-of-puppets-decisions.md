@@ -100,6 +100,9 @@ left D to H without one.
 
 Build tickets 129 to 132. D and E carry none.
 
+Map ticket 81-a, 2026-09-26, amended I for the mode's panel: a degraded panel, declared and approved
+per goal, may fill a missing seat. Rung two keeps the rule.
+
 ## Not to answer here
 
 The mascot's look, the sprite set and the frame count are build work on the opus proposal's
