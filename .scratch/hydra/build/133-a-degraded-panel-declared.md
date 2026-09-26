@@ -1,7 +1,7 @@
 # 133 - The mode's judge panel can sit degraded, declared, with a role and evidence slice per seat
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -45,3 +45,32 @@ This is the other session's territory. Check `git log -3 -- integrations/puppets
   the approval; with it, the substitute runs in codex's role and the verdict event carries
   `degraded: true`; an approval from an earlier plan revision does not count.
 - The puppets suite passes (`python3 -m unittest discover integrations/puppets/tests`).
+
+## Outcome
+
+Resolved 2026-09-26. Built by `composer-2.5` on run 01a0ded9-8e70 under `standard`, about 1.81M
+tokens. The session applied the diff with two fixes and one test repair, and wrote the skill step.
+
+A seat is a `PanelSeat`: provider, model, policy, role and evidence. The three roles are
+`reviewer` (evidence `diff+task`), `adversary` (`diff`) and `security` (`diff+tests`), and
+`build_diff_panel_prompts` and `build_choose_panel_prompts` give each seat only its role and its
+slice. `parse_judge_answer`'s shape is unchanged. A provider is out when its row in
+`vendors.json` says `"available": false`. A panel with a seat out refuses and names `approve <goal>
+--degraded <missing>=<substitute[:model]>`, which records a revision-bound approval. With it, the
+substitute runs in the missing seat's role and slice, and the `panel_verdict` and `review` events
+carry `degraded: true` and the substitutions. `board` labels them degraded. A comment at the seat
+table says rung two's panel in `src/rungs/review.rs` does not substitute.
+
+The session's fixes. First, the substitute inherited the missing seat's policy, so composer
+standing in for codex would have judged under codex's `standard`, with write and network access,
+where its own seat runs `judge`. It now takes its own seat's policy, or `judge` if it has none. The
+degraded test asserts `judge`, and with the old line it fails with `'standard' != 'judge'`. Second,
+the stand-in's answer was parsed under the missing provider's name; it is now parsed under the
+provider that wrote it. The test repair: `test_panel_degraded.py` called `cmd_review` in process
+with `execvp` stubbed, so `cmd_review`'s `chdir` into a temporary checkout stayed behind, and the
+next test file failed on `getcwd`. The test now restores the working directory.
+
+The skill: the agent could not write under `.claude/skills`, because the gate denies it from a
+run, which is harness spec 6.4 working. The session rewrote step 3: mark a provider out in
+`vendors.json`, offer the degraded panel through AskUserQuestion, and fall back to choosing alone
+and saying so. On master the puppets suite passes, 118 tests.

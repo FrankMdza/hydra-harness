@@ -602,7 +602,7 @@ class ChooseJudgeTests(PuppetsTestCase):
         ]
         self.write_events("g1", events)
 
-        def fake_panel(task_text, seats=puppets.PUPPETS_PANEL_SEATS):
+        def fake_panel(seat_prompts):
             texts = [
                 '{"chosen":"codex","findings":[]}',
                 '{"chosen":"codex","findings":[]}',
@@ -610,7 +610,7 @@ class ChooseJudgeTests(PuppetsTestCase):
             ]
             return (
                 ["j-claude", "j-codex", "j-cursor"],
-                [seat[2] for seat in seats],
+                [resolved.policy for resolved, _text in seat_prompts],
                 texts,
             )
 
@@ -683,10 +683,10 @@ class ChooseJudgeTests(PuppetsTestCase):
             """
         )
 
-        def fake_panel(task_text, seats=puppets.PUPPETS_PANEL_SEATS):
+        def fake_panel(seat_prompts):
             return (
                 ["j1", "j2", "j3"],
-                [seat[2] for seat in seats],
+                [resolved.policy for resolved, _text in seat_prompts],
                 [composed, composed, composed],
             )
 
@@ -752,10 +752,10 @@ class ReviewJudgeTests(PuppetsTestCase):
         ]
         self.write_events("g1", events)
 
-        def fake_panel(task_text, seats=puppets.PUPPETS_PANEL_SEATS):
+        def fake_panel(seat_prompts):
             return (
                 ["jr1", "jr2", "jr3"],
-                [seat[2] for seat in seats],
+                [resolved.policy for resolved, _text in seat_prompts],
                 [
                     '{"verdict":"pass","findings":[]}',
                     '{"verdict":"pass","findings":[]}',

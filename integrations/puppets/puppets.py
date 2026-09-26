@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Iterator, Literal, NamedTuple
 
 TASK_CLASSES = frozenset(
     {
@@ -32,15 +32,47 @@ TASK_CLASSES = frozenset(
     }
 )
 TASK_GRADES = frozenset({"low", "medium", "high", "agi"})
-APPROVAL_KINDS = frozenset({"plan", "table", "launch", "diff"})
+APPROVAL_KINDS = frozenset({"plan", "table", "launch", "diff", "degraded"})
 VERDICT_RESULTS = frozenset({"applied", "fixed", "rejected"})
 PLAN_COPY_CAP = 10 * 1024 * 1024
 
-PUPPETS_PANEL_SEATS: list[tuple[str, str | None, str]] = [
-    ("claude", "opus", "judge"),
-    ("codex", None, "standard"),
-    ("cursor-agent", "composer-2.5", "judge"),
+class PanelSeat(NamedTuple):
+    provider: str
+    model: str | None
+    policy: str
+    role: str
+    evidence: str
+
+
+# Rung two's panel in src/rungs/review.rs keeps its own seat table and never substitutes;
+# only this mode panel may sit degraded with human approval (map 81-a).
+PUPPETS_PANEL_SEATS: list[PanelSeat] = [
+    PanelSeat("claude", "opus", "judge", "reviewer", "diff+task"),
+    PanelSeat("codex", None, "standard", "adversary", "diff"),
+    PanelSeat("cursor-agent", "composer-2.5", "judge", "security", "diff+tests"),
 ]
+
+PANEL_ROLE_BRIEF = {
+    "reviewer": (
+        "Your role is reviewer: decide whether the diff does what the task asked, "
+        "naming what is missing if not."
+    ),
+    "adversary": (
+        "Your role is adversary: argue the diff should be rejected; name the strongest reason."
+    ),
+    "security": (
+        "Your role is security: apply the checklist items about secrets, paths, gates and the record."
+    ),
+}
+
+SECURITY_CHECKLIST_ITEMS = frozenset(
+    {
+        "security_issues",
+        "baseline_test_provenance",
+        "tests_present",
+        "scope_creep",
+    }
+)
 
 TASK_DIFF_CHECKLIST: list[tuple[str, bool, str]] = [
     (
@@ -138,6 +170,100 @@ def hydra_bin() -> str:
     return os.environ.get("HYDRA_BIN", "hydra")
 
 
+def vendors_json_path() -> Path:
+    override = os.environ.get("HYDRA_PUPPETS_VENDORS")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent / "vendors.json"
+
+
+def provider_available(provider: str) -> bool:
+    """Whether a routed provider is marked available in vendors.json (not a live probe)."""
+    path = vendors_json_path()
+    try:
+        vendors = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    rows = [row for row in vendors if row.get("provider") == provider]
+    if not rows:
+        return True
+    provider_row = next(
+        (row for row in rows if row.get("model") in (None, "")),
+        rows[0],
+    )
+    return bool(provider_row.get("available", True))
+
+
+def parse_degraded_substitution(spec: str) -> tuple[str, str, str | None]:
+    """Parse missing=substitute or missing=substitute:model."""
+    if "=" not in spec:
+        raise ValueError("expected missing=substitute-provider[:model]")
+    missing, rhs = spec.split("=", 1)
+    missing = missing.strip()
+    if not missing:
+        raise ValueError("missing provider name required")
+    if ":" in rhs:
+        substitute, model = rhs.split(":", 1)
+        substitute = substitute.strip()
+        model = model.strip() or None
+    else:
+        substitute = rhs.strip()
+        model = None
+    if not substitute:
+        raise ValueError("substitute provider required")
+    return missing, substitute, model
+
+
+def resolve_panel_seats(state: GoalState) -> tuple[list[ResolvedSeat], list[dict[str, Any]], str | None]:
+    resolved: list[ResolvedSeat] = []
+    substitutions: list[dict[str, Any]] = []
+    for seat in PUPPETS_PANEL_SEATS:
+        if provider_available(seat.provider):
+            resolved.append(
+                ResolvedSeat(
+                    seat=seat,
+                    provider=seat.provider,
+                    model=seat.model,
+                    policy=seat.policy,
+                )
+            )
+            continue
+        approval = approval_available(state, "degraded", ref=seat.provider)
+        if approval is None:
+            return (
+                [],
+                [],
+                f"{seat.provider} is unavailable; approve with: approve {state.goal_id} "
+                f"--degraded {seat.provider}=<substitute-provider[:model]>",
+            )
+        substitute = approval.get("substitute") or ""
+        model = approval.get("model") or None
+        if not substitute:
+            return [], [], f"degraded approval for {seat.provider} has no substitute"
+        # The substitute keeps its own seat's policy, or `judge`, never the missing seat's:
+        # codex sits under `standard` only because `judge` blocked its first read, and a
+        # stand-in has no reason to inherit write and network access. Map 81-a.
+        own = next((s.policy for s in PUPPETS_PANEL_SEATS if s.provider == substitute), "judge")
+        resolved.append(
+            ResolvedSeat(
+                seat=seat,
+                provider=substitute,
+                model=model,
+                policy=own,
+                substituted=True,
+                missing_provider=seat.provider,
+            )
+        )
+        substitutions.append(
+            {
+                "missing": seat.provider,
+                "substitute": substitute,
+                "model": model or "",
+            }
+        )
+    return resolved, substitutions, None
+
+
 def goal_log_path(goal_id: str) -> Path:
     return puppets_home() / f"{goal_id}.jsonl"
 
@@ -201,6 +327,19 @@ class TaskState:
     attempt: int | None = None
     outcome: str | None = None
     human_result: str | None = None
+    review_verdict: str | None = None
+    review_degraded: bool = False
+    review_substitutions: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class ResolvedSeat:
+    seat: PanelSeat
+    provider: str
+    model: str | None
+    policy: str
+    substituted: bool = False
+    missing_provider: str | None = None
 
 
 @dataclass
@@ -252,6 +391,8 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
                 "judge_run_ids": event.get("judge_run_ids", []),
                 "chosen": event["chosen"],
                 "path": event.get("path"),
+                "degraded": event.get("degraded", False),
+                "substitutions": event.get("substitutions", []),
             }
         elif name == "human_plan":
             state.human_plan = {"accepted": event["accepted"], "note": event.get("note")}
@@ -287,17 +428,21 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
             if task.status == "pending":
                 task.status = "assigned"
         elif name == "approval":
-            state.approvals.append(
-                {
-                    "kind": event["kind"],
-                    "ref": event.get("ref"),
-                    "run_id": event.get("run_id"),
-                    "revision": event["revision"],
-                    "yes": event["yes"],
-                    "seq": seq,
-                    "consumed": False,
-                }
-            )
+            entry: dict[str, Any] = {
+                "kind": event["kind"],
+                "ref": event.get("ref"),
+                "run_id": event.get("run_id"),
+                "revision": event["revision"],
+                "yes": event["yes"],
+                "seq": seq,
+                "consumed": False,
+            }
+            if event["kind"] == "degraded":
+                entry["missing"] = event["missing"]
+                entry["substitute"] = event["substitute"]
+                if event.get("model"):
+                    entry["model"] = event["model"]
+            state.approvals.append(entry)
         elif name == "launch_intent":
             key = (event["task"], event["attempt"])
             intents[key] = event
@@ -357,7 +502,11 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
         elif name == "intent_abandoned":
             intents.pop((event["task"], event["attempt"]), None)
         elif name == "review":
-            pass
+            task = state.tasks.get(event["task"])
+            if task is not None:
+                task.review_verdict = event.get("verdict")
+                task.review_degraded = event.get("degraded", False)
+                task.review_substitutions = list(event.get("substitutions") or [])
 
     state.revision = revision
     for key, intent in intents.items():
@@ -390,6 +539,8 @@ def approval_available(
         # A plan approval is about the chosen plan, not the task table: importing the plan's
         # tasks moves the revision and must not void the approval that allowed the import.
         if kind != "plan" and approval["revision"] != state.revision:
+            continue
+        if kind == "degraded" and approval.get("missing") != ref:
             continue
         if kind in ("launch", "diff") and approval.get("ref") != ref:
             continue
@@ -732,10 +883,11 @@ def parse_plan_answer(provider: str, text: str) -> PlanAnswer:
 
 
 def plan_panel_verdict(
-    seats: list[tuple[str, str | None, str]], answers: list[PlanAnswer | None]
+    seats: list[PanelSeat], answers: list[PlanAnswer | None]
 ) -> tuple[str | None, str | None, list[str]]:
     reasons: list[str] = []
-    for (provider, _model, _policy), answer in zip(seats, answers):
+    for seat, answer in zip(seats, answers):
+        provider = seat.provider
         if answer is None:
             reasons.append(f"missing {provider}")
             continue
@@ -746,7 +898,7 @@ def plan_panel_verdict(
     chosen_values = [answer.chosen for answer in answers if answer is not None]
     if len(set(chosen_values)) != 1:
         pairs = ", ".join(
-            f"{seat[0]}={answer.chosen}"
+            f"{seat.provider}={answer.chosen}"
             for seat, answer in zip(seats, answers)
             if answer is not None
         )
@@ -785,10 +937,12 @@ def load_diff_prompt(
     base_sha: str,
     projection: str,
     diff_text: str,
+    checklist: list[tuple[str, bool, str]] | None = None,
 ) -> str:
     template = (prompts_dir() / "diff.md").read_text(encoding="utf-8")
+    checklist = checklist if checklist is not None else TASK_DIFF_CHECKLIST
     checklist_lines = []
-    for item_id, advisory, definition in TASK_DIFF_CHECKLIST:
+    for item_id, advisory, definition in checklist:
         ceiling = "advisory" if advisory else "critical"
         checklist_lines.append(f"- {item_id} ({ceiling}): {definition}")
     return (
@@ -798,6 +952,154 @@ def load_diff_prompt(
         .replace("{{DIFF}}", diff_text.strip() or "(empty diff)")
         .replace("{{CHECKLIST}}", "\n".join(checklist_lines))
     )
+
+
+def test_paths_from_diff(diff_text: str) -> str:
+    """Unified-diff hunks whose paths look like tests."""
+    if not diff_text.strip():
+        return "(no test paths in diff)"
+    keep: list[str] = []
+    current: list[str] = []
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git ") or line.startswith("--- ") or line.startswith("+++ "):
+            path_bits = line.split()
+            path = path_bits[-1] if path_bits else ""
+            if path.startswith("b/"):
+                path = path[2:]
+            is_test = (
+                "/tests/" in path
+                or path.startswith("tests/")
+                or "test_" in path
+                or path.endswith("_test.rs")
+                or "/test/" in path
+            )
+            if is_test:
+                if current:
+                    keep.extend(current)
+                    keep.append("")
+                current = [line]
+            else:
+                current = []
+        elif current and (
+            line.startswith("@@")
+            or line.startswith("+")
+            or line.startswith("-")
+            or line.startswith(" ")
+        ):
+            current.append(line)
+    if current:
+        keep.extend(current)
+    return "\n".join(keep).strip() or "(no test paths in diff)"
+
+
+def build_diff_seat_prompt(
+    seat: PanelSeat,
+    task_text: str,
+    base_sha: str,
+    projection: str,
+    diff_text: str,
+) -> str:
+    role_line = PANEL_ROLE_BRIEF[seat.role]
+    parts = [f"You are one judge on a three-seat panel reviewing a task diff.\n\n## Role\n\n{role_line}\n"]
+    if seat.evidence == "diff+task":
+        parts.append(f"## Task\n\n{task_text}\n")
+    if seat.evidence in ("diff", "diff+task", "diff+tests"):
+        parts.append(
+            "## Diff\n\n```diff\n"
+            + (diff_text.strip() or "(empty diff)")
+            + "\n```\n"
+        )
+    if seat.evidence == "diff+tests":
+        parts.append(f"## Projection\n\n{projection.strip() or '(no projection)'}\n")
+        parts.append(
+            "## Tests in diff\n\n```diff\n"
+            + test_paths_from_diff(diff_text)
+            + "\n```\n"
+        )
+        parts.append(f"## Base\n\nRepository base at `{base_sha}`.\n")
+    checklist = TASK_DIFF_CHECKLIST
+    if seat.role == "security":
+        checklist = [row for row in TASK_DIFF_CHECKLIST if row[0] in SECURITY_CHECKLIST_ITEMS]
+    parts.append(
+        "## Instructions\n\nReview against the checklist for your role. Answer in exactly one JSON "
+        "object and nothing else:\n\n"
+        '```json\n{"verdict": "pass" | "block", "findings": [{"item": <checklist id>, '
+        '"severity": "critical" | "major" | "minor", "note": <string>}]}\n```\n\n'
+        "Checklist items:\n\n"
+    )
+    for item_id, advisory, definition in checklist:
+        ceiling = "advisory" if advisory else "critical"
+        parts.append(f"- {item_id} ({ceiling}): {definition}\n")
+    return "".join(parts)
+
+
+def build_diff_panel_prompts(
+    resolved: list[ResolvedSeat],
+    task_text: str,
+    base_sha: str,
+    projection: str,
+    diff_text: str,
+) -> list[tuple[ResolvedSeat, str]]:
+    return [
+        (
+            seat,
+            build_diff_seat_prompt(seat.seat, task_text, base_sha, projection, diff_text),
+        )
+        for seat in resolved
+    ]
+
+
+def build_choose_seat_prompt(
+    seat: PanelSeat,
+    goal_text: str,
+    proposal_blocks: str,
+    provider_names: str,
+) -> str:
+    role_line = PANEL_ROLE_BRIEF[seat.role]
+    parts = [
+        "You are one judge on a three-seat panel choosing a work plan.\n\n",
+        f"## Role\n\n{role_line}\n\n",
+    ]
+    if seat.evidence == "diff+task":
+        parts.append(f"## Goal\n\n{goal_text}\n\n")
+    if seat.evidence in ("diff", "diff+task", "diff+tests"):
+        parts.append(f"## Proposals\n\n{proposal_blocks}\n")
+    if seat.evidence == "diff+tests":
+        parts.append(
+            "## Note\n\nWeigh test and verification coverage in each proposal before you choose.\n\n"
+        )
+    parts.append(
+        "## Instructions\n\n"
+        f"Pick exactly one proposer name ({provider_names}) or `composed` when no single proposal "
+        "is best.\n\n"
+        "Answer in exactly one JSON object and nothing else:\n\n"
+        '```json\n{"chosen": "<provider>|composed", "findings": []}\n```\n'
+    )
+    return "".join(parts)
+
+
+def build_choose_panel_prompts(
+    resolved: list[ResolvedSeat],
+    goal_text: str,
+    proposals: list[dict[str, Any]],
+) -> list[tuple[ResolvedSeat, str]]:
+    blocks: list[str] = []
+    providers: list[str] = []
+    for proposal in proposals:
+        provider = proposal["provider"]
+        providers.append(provider)
+        path = proposal.get("path")
+        body = Path(path).read_text(encoding="utf-8") if path else ""
+        blocks.append(f"### {provider}\n\n{body.strip()}\n")
+    proposal_blocks = "\n".join(blocks)
+    provider_names = ", ".join(providers)
+    return [
+        (
+            seat,
+            build_choose_seat_prompt(seat.seat, goal_text, proposal_blocks, provider_names),
+        )
+        for seat in resolved
+    ]
 
 
 def spawn_judge_run(provider: str, model: str | None, policy: str, task_text: str) -> str:
@@ -814,16 +1116,15 @@ def read_run_text(run_id: str) -> str:
 
 
 def run_judge_panel(
-    task_text: str,
-    seats: list[tuple[str, str | None, str]] = PUPPETS_PANEL_SEATS,
+    seat_prompts: list[tuple[ResolvedSeat, str]],
 ) -> tuple[list[str], list[str], list[str]]:
     run_ids: list[str] = []
     policies: list[str] = []
     texts: list[str] = []
-    for provider, model, policy in seats:
-        run_id = spawn_judge_run(provider, model, policy, task_text)
+    for resolved, task_text in seat_prompts:
+        run_id = spawn_judge_run(resolved.provider, resolved.model, resolved.policy, task_text)
         run_ids.append(run_id)
-        policies.append(policy)
+        policies.append(resolved.policy)
         wait_for_run(run_id)
         texts.append(read_run_text(run_id))
     return run_ids, policies, texts
@@ -1002,7 +1303,20 @@ def cmd_board(args: argparse.Namespace) -> int:
             ready = "ready" if plan.get("path") else "running"
             print(f"  {plan['provider']:<13} {plan['run_id'][:8]}  {ready}")
     if state.chosen_plan:
-        print(f"chosen  {state.chosen_plan['chosen']}  judges {len(state.chosen_plan['judge_run_ids'])}")
+        if state.chosen_plan.get("degraded"):
+            subs = state.chosen_plan.get("substitutions") or []
+            sub_text = ", ".join(
+                f"{s['missing']}->{s['substitute']}" for s in subs
+            )
+            print(
+                f"chosen (degraded panel)  {state.chosen_plan['chosen']}  "
+                f"judges {len(state.chosen_plan['judge_run_ids'])}  {sub_text}"
+            )
+        else:
+            print(
+                f"chosen  {state.chosen_plan['chosen']}  "
+                f"judges {len(state.chosen_plan['judge_run_ids'])}"
+            )
     if state.tasks:
         print("tasks")
         print(f"  {'id':<12} {'class':<21} {'grade':<6} {'agent':<28} {'status':<9} run")
@@ -1012,6 +1326,11 @@ def cmd_board(args: argparse.Namespace) -> int:
                 agent = f"{task.assignment['provider']} {task.assignment.get('model') or ''}".strip()
             run = (task.run_id or "")[:8]
             verdict = f"  {task.human_result}" if task.human_result else ""
+            if task.review_verdict and not task.human_result:
+                label = task.review_verdict
+                if task.review_degraded:
+                    label = f"{label} (degraded panel)"
+                verdict = f"  review {label}"
             print(f"  {task.id:<12} {task.task_class:<21} {task.grade:<6} {agent:<28} {task.status:<9} {run}{verdict}")
     pending = []
     if state.plans and state.chosen_plan and approval_available(state, "plan") is None:
@@ -1163,11 +1482,19 @@ def cmd_choose(args: argparse.Namespace) -> int:
         if len(ready) < 2:
             print("need at least two finished proposals before judging", file=sys.stderr)
             return 1
-        prompt = load_choose_prompt(state.goal["text"], ready)
-        run_ids, policies, texts = run_judge_panel(prompt)
-        answers = [parse_plan_answer(seat[0], text) for seat, text in zip(PUPPETS_PANEL_SEATS, texts)]
-        for seat, policy, run_id in zip(PUPPETS_PANEL_SEATS, policies, run_ids):
-            print(f"judge {seat[0]} ({policy}) run {run_id}")
+        resolved, substitutions, refusal = resolve_panel_seats(state)
+        if refusal:
+            print(refusal, file=sys.stderr)
+            return 1
+        seat_prompts = build_choose_panel_prompts(resolved, state.goal["text"], ready)
+        run_ids, policies, texts = run_judge_panel(seat_prompts)
+        answers = [
+            parse_plan_answer(resolved.provider, text)
+            for resolved, text in zip(resolved, texts)
+        ]
+        for resolved, policy, run_id in zip(resolved, policies, run_ids):
+            note = f" for {resolved.missing_provider}" if resolved.substituted else ""
+            print(f"judge {resolved.provider}{note} ({policy}) run {run_id}")
         chosen, composed_text, reasons = plan_panel_verdict(PUPPETS_PANEL_SEATS, answers)
         if chosen is None:
             for reason in reasons:
@@ -1198,6 +1525,8 @@ def cmd_choose(args: argparse.Namespace) -> int:
                 "judge_policies": policies,
                 "chosen": chosen,
                 "path": path,
+                "degraded": bool(substitutions),
+                "substitutions": substitutions,
             },
         )
         print(f"chosen {chosen} -> {path}")
@@ -1312,6 +1641,27 @@ def cmd_set(args: argparse.Namespace) -> int:
 
 def cmd_approve(args: argparse.Namespace) -> int:
     state = fold(args.goal)
+    if args.degraded:
+        if args.plan or args.table or args.launch or args.diff:
+            print("use --degraded without --plan, --table, --launch or --diff", file=sys.stderr)
+            return 1
+        try:
+            missing, substitute, model = parse_degraded_substitution(args.degraded)
+        except ValueError as err:
+            print(str(err), file=sys.stderr)
+            return 1
+        body: dict[str, Any] = {
+            "event": "approval",
+            "kind": "degraded",
+            "missing": missing,
+            "substitute": substitute,
+            "revision": state.revision,
+            "yes": True,
+        }
+        if model:
+            body["model"] = model
+        append_event(args.goal, body)
+        return 0
     if args.plan:
         kind, ref = "plan", None
     elif args.table:
@@ -1321,7 +1671,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     elif args.diff:
         kind, ref = "diff", args.diff
     else:
-        print("specify --plan, --table, --launch or --diff", file=sys.stderr)
+        print("specify --plan, --table, --launch, --diff or --degraded", file=sys.stderr)
         return 1
     if ref is not None and ref not in state.tasks:
         print(f"unknown task {ref}", file=sys.stderr)
@@ -1427,13 +1777,21 @@ def cmd_review(args: argparse.Namespace) -> int:
     branch = run["branch"]
     projection = run.get("result_text") or json.dumps(run, indent=2)
     diff_text = git_diff_branch(cwd, base_sha, branch)
-    prompt = load_diff_prompt(task.text, base_sha, projection, diff_text)
-    run_ids, policies, texts = run_judge_panel(prompt)
+    resolved, substitutions, refusal = resolve_panel_seats(state)
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return 1
+    seat_prompts = build_diff_panel_prompts(
+        resolved, task.text, base_sha, projection, diff_text
+    )
+    run_ids, policies, texts = run_judge_panel(seat_prompts)
     outcomes = [
-        parse_judge_answer(seat[0], text) for seat, text in zip(PUPPETS_PANEL_SEATS, texts)
+        parse_judge_answer(resolved.provider, text)
+        for resolved, text in zip(resolved, texts)
     ]
-    for seat, policy, run_id in zip(PUPPETS_PANEL_SEATS, policies, run_ids):
-        print(f"judge {seat[0]} ({policy}) run {run_id}")
+    for resolved, policy, run_id in zip(resolved, policies, run_ids):
+        note = f" for {resolved.missing_provider}" if resolved.substituted else ""
+        print(f"judge {resolved.provider}{note} ({policy}) run {run_id}")
     verdict, reasons = diff_panel_verdict(outcomes)
     if verdict == "block":
         for reason in reasons:
@@ -1447,6 +1805,8 @@ def cmd_review(args: argparse.Namespace) -> int:
             "judge_policies": policies,
             "verdict": verdict,
             "reasons": reasons,
+            "degraded": bool(substitutions),
+            "substitutions": substitutions,
         },
     )
     comments = findings_to_hunk_comments(outcomes, cwd, base_sha, branch)
@@ -1645,6 +2005,11 @@ def build_parser() -> argparse.ArgumentParser:
     approve_p.add_argument("--table", action="store_true")
     approve_p.add_argument("--launch", metavar="TASK")
     approve_p.add_argument("--diff", metavar="TASK")
+    approve_p.add_argument(
+        "--degraded",
+        metavar="MISSING=SUBSTITUTE",
+        help="approve a degraded panel when a seat's provider is unavailable",
+    )
     approve_p.set_defaults(func=cmd_approve)
 
     launch_p = sub.add_parser("launch", help="launch a task run")

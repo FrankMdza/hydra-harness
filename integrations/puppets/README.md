@@ -29,6 +29,7 @@ python3 integrations/puppets/puppets.py tasks <goal-id>
 python3 integrations/puppets/puppets.py assign <goal-id>
 python3 integrations/puppets/puppets.py set <goal-id> <task> --provider P --model M --policy POL
 python3 integrations/puppets/puppets.py approve <goal-id> --table
+python3 integrations/puppets/puppets.py approve <goal-id> --degraded codex=cursor-agent:composer-2.5
 python3 integrations/puppets/puppets.py approve <goal-id> --launch <task>
 python3 integrations/puppets/puppets.py launch <goal-id> <task>
 python3 integrations/puppets/puppets.py wait <goal-id>
@@ -46,15 +47,15 @@ One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}
 | `goal` | `text`, `repo`, `base_sha` |
 | `plan_proposed` | `provider`, `model`, `run_id` |
 | `plan_ready` | `provider`, `run_id`, `path` |
-| `panel_verdict` | `judge_run_ids`, `chosen`, `path` |
+| `panel_verdict` | `judge_run_ids`, `chosen`, `path`; optional `degraded`, `substitutions` |
 | `human_plan` | `accepted`, `note` |
 | `task` | `id`, `text`, `class`, `grade`, `deps`, `paths` |
 | `assignment` | `task`, `provider`, `model`, `policy`, `source` |
-| `approval` | `kind`, `ref`, `run_id` (diff only), `revision`, `yes` |
+| `approval` | `kind`, `ref`, `run_id` (diff only), `revision`, `yes`; degraded adds `missing`, `substitute`, `model` |
 | `launch_intent` | `task`, `attempt`, `provider`, `model`, `policy`, `argv_sha256` |
 | `run` | `task`, `attempt`, `run_id` |
 | `run_end` | `task`, `run_id`, `outcome`, `total_tokens` |
-| `review` | `task`, `judge_run_ids`, `verdict` |
+| `review` | `task`, `judge_run_ids`, `verdict`; optional `degraded`, `substitutions` |
 | `human_verdict` | `task`, `run_id`, `result`, `note` |
 | `intent_abandoned` | `task`, `attempt` |
 
@@ -84,11 +85,19 @@ The copy does not follow links, refuses non-regular files, and is size-capped. `
 default table (recorded as `source: default`) when none exist or nobody qualifies.
 
 `choose --judge` launches the review panel (`claude` opus and `cursor-agent` composer-2.5 under
-`judge`, `codex` under `standard` until map ticket 63) over the finished proposals, records a
-`panel_verdict` with the judge run ids, and writes a `composed` plan when the panel picks one.
+`judge`, `codex` under `standard` until map ticket 63) over the finished proposals. Each seat
+has a distinct role and evidence slice (reviewer with task context, adversary with proposals
+alone, security with test coverage). When a seat's provider is marked unavailable in
+`vendors.json`, the panel refuses until the human records
+`approve <goal-id> --degraded missing=substitute[:model]`. A degraded run fills the missing
+seat's role with the substitute; the log carries `degraded: true` and the substitution, and
+`board` labels the verdict as a degraded panel rather than a full one. Rung two's panel in
+`src/rungs/review.rs` never substitutes. Records a `panel_verdict` with the judge run ids, and
+writes a `composed` plan when the panel picks one.
 
-`review` launches the same panel over the task diff, records a `review` event, pushes judge
-findings into the live Hunk session as comments when one exists, then opens the diff in Hunk with
+`review` launches the same panel over the task diff with the same role and slice rules and the
+same degraded path. It records a `review` event, pushes judge findings into the live Hunk session
+as comments when one exists, then opens the diff in Hunk with
 `hunk show <branch>` from the goal's repository. Git diff for the panel uses the same branch from
 the run record, never a run-writable checkout. If the run record has no branch, review refuses:
 an unreaped worktree is the only place an uncommitted diff might live, and the helper will not

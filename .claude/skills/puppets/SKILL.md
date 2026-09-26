@@ -23,8 +23,13 @@ what the human still owes; `show <goal>` is the same as JSON. Read one before ev
    launch in waves.
 3. `plans <goal>` once the runs have ended (`hydra status`), then `choose <goal> --judge`:
    three judge seats (claude opus, codex under standard, composer-2.5) read the plans and must
-   agree, or the command names the seat that blocked. If codex is out of credits the panel
-   cannot run; then read the plans yourself and `choose <goal> <provider>`, or `choose <goal>
+   agree, or the command names the seat that blocked. Each seat has its own role and slice of
+   evidence (build 133). When a provider is out of quota, set `"available": false` on its row in
+   `integrations/puppets/vendors.json` (and back when it resets); the panel then refuses and names
+   `approve <goal> --degraded <missing>=<substitute[:model]>`. Offer the human that degraded panel
+   through AskUserQuestion (map 81-a): the substitute takes the missing seat's role and slice under
+   its own policy, and the verdict is logged and reported as degraded, never as a full panel. If
+   the human declines, read the plans yourself and `choose <goal> <provider>`, or `choose <goal>
    <path>` for a plan you composed, and say in your message that the panel did not sit. Show
    the human the choice and the reason; `approve <goal> --plan` is theirs, through
    AskUserQuestion, one option marked recommended.
