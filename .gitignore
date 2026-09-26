@@ -18,3 +18,7 @@ target/
 /docs/status.html
 /puppets/
 /grader/
+
+# Secrets the author keeps beside the checkout. Ignored, so the worktree seed never copies them into a run.
+.env
+.env.*
