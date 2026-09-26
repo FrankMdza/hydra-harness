@@ -124,9 +124,16 @@ hy() {
         return 1
     fi
 
-    top=$(herdr pane split "$HERDR_PANE_ID" --direction right --cwd "$PWD" --env "HYDRA_BIN=$bin" \
+    # The session gets a worktree of the repo it starts in. Outside any repo, Hydra's own
+    # checkout is that repo, so `hy` works from any directory once ~/.zshrc sources this file.
+    local dir="$PWD"
+    if ! git -C "$dir" rev-parse --show-toplevel >/dev/null 2>&1; then
+        dir="$HOME/hydra"
+        echo "hy: $PWD is not inside a git repo; the session works on $dir" >&2
+    fi
+    top=$(herdr pane split "$HERDR_PANE_ID" --direction right --cwd "$dir" --env "HYDRA_BIN=$bin" \
         | python3 -c 'import sys, json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])') || return 1
-    bottom=$(herdr pane split "$top" --direction down --ratio 0.3 --cwd "$PWD" --env "HYDRA_BIN=$bin" \
+    bottom=$(herdr pane split "$top" --direction down --ratio 0.3 --cwd "$dir" --env "HYDRA_BIN=$bin" \
         | python3 -c 'import sys, json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])') || return 1
     herdr pane run "$top" "python3 $here/bin/hydra-mascot --watch" >/dev/null
     herdr pane run "$bottom" "bash $here/bin/hydra-tui-in-pane --provider $provider --model $model --policy $policy" >/dev/null
