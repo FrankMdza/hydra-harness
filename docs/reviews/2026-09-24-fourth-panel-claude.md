@@ -22,11 +22,6 @@ Level: mid-level harness or agent-infrastructure engineer. A senior loop is poss
 candidate finds the ticket 112 bug and the puppets checkout problem on their own when shown the
 functions.
 
-For the recruiter: "We read your Hydra repository closely and want to talk. The record that decides
-a run's outcome from what the tools actually did, and your gate compiled into four vendors' hook
-formats, are the kind of work our harness team does, and we'd like to go through a few of your
-design decisions with you in a technical interview."
-
 ## Scores
 
 | Axis | Score | Evidence |

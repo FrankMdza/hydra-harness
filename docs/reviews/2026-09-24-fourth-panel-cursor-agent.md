@@ -10,8 +10,6 @@ The deciding reason is that the repository's central claim is implemented in cod
 
 Interview level: **mid-level**, with room to argue senior only if the candidate owns the security tradeoffs and the agent-authorship process out loud.
 
-Recruiter outreach (two sentences): "We reviewed your Hydra harness repo: the record contract, per-vendor gate compiler, and outcome derivation from tool streams are implemented and tested, not slideware. We'd like a mid-level systems interview focused on how you designed the sandbox boundaries, closed the third panel's findings, and worked with agents that wrote much of the Rust."
-
 ## Scores
 
 | Axis | Score | Evidence |

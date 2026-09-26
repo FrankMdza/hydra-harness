@@ -277,13 +277,18 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 80 decision tickets on 2026-09-24, 76 of them
-resolved, with the reasoning each document compressed; 76, the decisions under a new
-orchestration mode, and 78 to 80, three questions the fourth panel and a day of vendor drift
-raised, wait on the human. `.scratch/hydra/build/plan.md` indexes the build, 122
-tickets on 2026-09-24, all resolved; `python3 .scratch/hydra/frontier.py build` prints
-today's count. `CLAUDE.md` is what an agent
-reads first.
+`.scratch/hydra/map.md` is the design history: 81 decision and research tickets on
+2026-09-26, with the reasoning each document compressed. `.scratch/hydra/build/plan.md`
+indexes the build, 132 tickets on the same day, and every resolved one ends in an `## Outcome`
+that says what the session changed in the agent's diff before applying it.
+`python3 .scratch/hydra/frontier.py` and `python3 .scratch/hydra/frontier.py build` print
+today's counts. `CLAUDE.md` is what an agent reads first.
+
+Many tickets point at `~/.claude/handoffs/...`, and some at paths under `/Users/USER`. Those are
+the author's private working notes on the author's own machine: session handoffs, panel briefs, launch
+scripts and raw proposals. They are not in this repository, and nothing here needs them to build or
+to run. Where a ticket's reasoning depended on one, the ticket or its research file says what it
+found.
 
 ## Contributing and support
 

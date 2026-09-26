@@ -2,7 +2,7 @@
 
 Reviewed commit `ca2020f` on 2026-09-24. Build tickets 113 to 120 under `.scratch/hydra/build/` record what the session closed the same afternoon; map tickets 78 to 80 are open grillings for the human.
 
-Three readers, `claude`, `cursor-agent` and `agy`, reviewed `ca2020f`. The brief was the third panel's with three changes: each reader is the hiring manager and writes two sentences for the recruiter; a section "Master of Puppets, read cold"; and the question whether a corpus walk that goes red on vendor drift is the design working or a suite that goes red whenever a vendor ships. I checked their findings against the code and against those tickets' Outcomes before writing this file.
+Three readers, `claude`, `cursor-agent` and `agy`, reviewed `ca2020f`. The brief was the third panel's with three changes: each reader is the hiring manager and names an interview level; a section "Master of Puppets, read cold"; and the question whether a corpus walk that goes red on vendor drift is the design working or a suite that goes red whenever a vendor ships. I checked their findings against the code and against those tickets' Outcomes before writing this file.
 
 The fourth seat, `codex`, was launched three times and never wrote a report. Run 01a0d3e1-56f2 at 14:45 UTC died at 118 record lines on its usage limit; 01a0d483-b756 at 17:43 UTC stopped at 35 lines; the limit now reads "try again at Sep 27th, 2026 11:04 PM". Its partial text on the first attempt is not a review: it said the third panel's security repairs were substantive, that the documents understated the object-import repair while overstating ticket 112's interactive failure handling, and that marking the new Cursor tool "unhooked" would classify the gap rather than enforce a policy on it. I treat that as a fragment, not a fourth verdict. The `cursor-agent` seat was tried first on `claude-opus-5-thinking-high`, which came back `rate_limited` in six record lines (Cursor's premium allowance resets 2026-09-29), then on Composer 2.5.
 
@@ -171,3 +171,8 @@ What the session verified, and how: I1 and I2 by reading `src/outcome.rs`'s harv
 The drafter read in full the third panel's consolidated report for shape and voice, the three reader reports, build tickets 113 to 120 and map tickets 78 to 80, and counted words with `wc` and `file:line` citations with a regex (166, 137 and 60). It did not run the suite, build or launch a provider, and could not read `~/hydra/runs`.
 
 Not done by anyone: verify I13, I20 and I24 against fresh lines; reproduce the outcome bug or the puppets findings on a live run; read the `codex` partial records beyond their last frames.
+
+The two readers' outreach blurbs, the sentences the brief asked each hiring manager to write for a
+recruiter, were removed from their raw reports on 2026-09-26 before the repository went public. They
+praised the repository in the voice of a company that does not exist, and in a public repository
+that reads as an endorsement. Nothing else in the reports changed.
