@@ -93,6 +93,8 @@ fn a_post_worktree_handoff_failure_through_run_writes_never_started() {
         resumed_from: None,
         resume_session_id: None,
         working_dir: Some(repo),
+        quiet: false,
+        handed_off: None,
     });
 
     // SAFETY: restores the prior `HYDRA_ROOT` so parallel tests are not affected.

@@ -124,6 +124,8 @@ pub fn resume_in(layout: &Layout, request: Request) -> Result<Call> {
         resumed_from: Some(request.run_id.clone()),
         resume_session_id: Some(session_id),
         working_dir: Some(cwd),
+        quiet: false,
+        handed_off: None,
     })
 }
 

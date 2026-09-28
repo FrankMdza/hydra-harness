@@ -96,7 +96,19 @@ pub struct Request {
     /// Where to seed the worktree from, when the caller is not the cwd Hydra was
     /// invoked in. `hydra resume` passes the source run's `cwd`.
     pub working_dir: Option<PathBuf>,
+    /// Prints nothing on stderr. Build ticket 142: a gated session's launcher
+    /// sets it, because its stderr is the terminal `claude` is drawing on. The
+    /// lines go nowhere, since the seat's own record carries the run id, the
+    /// worktree and any refusal they would have named.
+    pub quiet: bool,
+    /// Called once, when the run's detached half exists and this process can
+    /// exit without taking the run with it. Build ticket 142: the launcher
+    /// waits on it before the harvest ends the session's process.
+    pub handed_off: Option<HandedOff>,
 }
+
+/// What [`Request::handed_off`] calls.
+pub type HandedOff = Box<dyn FnOnce() + Send>;
 
 /// What a call gets back: the run, or a way to come back to it.
 ///
@@ -424,6 +436,8 @@ pub struct RefuseRequest<'a> {
     pub seed_tree: Option<&'a str>,
     pub layout: &'a Layout,
     pub parent_run_id: Option<&'a str>,
+    /// [`Request::quiet`], carried to the two lines a refusal prints.
+    pub quiet: bool,
 }
 
 /// What the pre-run checks produced before a run id is minted.
@@ -443,6 +457,8 @@ struct ReservedRun {
     run_id: String,
     run_file: PathBuf,
     reservation: Option<crate::live::Reservation>,
+    /// [`Request::quiet`], here because every failure path reads this struct.
+    quiet: bool,
 }
 
 /// Machine facts read after the attempt has been judged.
@@ -600,6 +616,7 @@ fn reserve_on_layout(
         run_id,
         run_file,
         reservation: Some(reservation),
+        quiet: request.quiet,
     })
 }
 
@@ -657,6 +674,7 @@ fn refuse_escalation(
         seed_tree: None,
         layout: &reserved.layout,
         parent_run_id: reserved.lineage.parent_run_id(),
+        quiet: reserved.quiet,
     })?))
 }
 
@@ -707,6 +725,7 @@ fn refuse_narrowing(
         seed_tree: None,
         layout: &reserved.layout,
         parent_run_id: reserved.lineage.parent_run_id(),
+        quiet: reserved.quiet,
     })?))
 }
 
@@ -888,9 +907,10 @@ impl PostWorktree {
                 &line_zero,
                 &err,
             ),
-            Err(e) => {
+            Err(e) if !machine.reserved.quiet => {
                 eprintln!("hydra: this run could not be recorded either: {e:#}");
             }
+            Err(_) => {}
         }
         err
     }
@@ -902,7 +922,7 @@ fn announce_launch_failure(
     announce: bool,
     err: &anyhow::Error,
 ) {
-    if !announce {
+    if !announce || reserved.quiet {
         return;
     }
     eprintln!("hydra: run {} did not launch", reserved.run_id);
@@ -926,7 +946,8 @@ fn record_never_started(
         line_zero,
         err,
         reserved.lineage.parent_run_id(),
-    ) {
+    ) && !reserved.quiet
+    {
         eprintln!("hydra: this run could not be recorded either: {second:#}");
     }
 }
@@ -1019,6 +1040,7 @@ fn refuse_handoff(
         seed_tree: worktree.seed_tree.as_deref(),
         layout: &machine.reserved.layout,
         parent_run_id: machine.reserved.lineage.parent_run_id(),
+        quiet: machine.reserved.quiet,
     }))
 }
 
@@ -1258,6 +1280,7 @@ fn inject_into_checkout(
             config: mcp_file,
         },
         &mut recording.injected,
+        machine.reserved.quiet,
     )
 }
 
@@ -1406,10 +1429,16 @@ fn phase_spawn(
         Err(err) => return Err(fail_after_handoff(machine, worktree, &handoff, err, false)),
     };
 
-    eprintln!("hydra: run {}", machine.reserved.run_id);
-    eprintln!("hydra: record {}", machine.reserved.run_file.display());
-    if let Some(w) = &worktree.worktree_ref {
-        eprintln!("hydra: worktree {} on {}", w.path, w.branch);
+    if let Some(handed_off) = machine.request.handed_off.take() {
+        handed_off();
+    }
+
+    if !machine.reserved.quiet {
+        eprintln!("hydra: run {}", machine.reserved.run_id);
+        eprintln!("hydra: record {}", machine.reserved.run_file.display());
+        if let Some(w) = &worktree.worktree_ref {
+            eprintln!("hydra: worktree {} on {}", w.path, w.branch);
+        }
     }
 
     // Line 0 first, so a handle always carries a pid and a watcher that died on
@@ -1524,7 +1553,9 @@ fn wait_for_call_end(
                     &machine.reserved.layout,
                 ),
                 Err(err) => {
-                    eprintln!("hydra: the record is written and would not read back: {err:#}");
+                    if !machine.reserved.quiet {
+                        eprintln!("hydra: the record is written and would not read back: {err:#}");
+                    }
                     // The exit code is the detached half's to know, so it comes
                     // off the closing line rather than out of this process's
                     // memory. That read is a tail and a `serde_json` call, which
@@ -1646,6 +1677,7 @@ pub(crate) fn inject_skills(
     worktree: &std::path::Path,
     mcp: crate::mcp::Probe<'_>,
     slot: &mut Option<InjectedSkills>,
+    quiet: bool,
 ) -> Result<()> {
     let store = crate::skills::Store::open(layout)?;
     let store_sha = store.pin(run_id)?;
@@ -1668,17 +1700,19 @@ pub(crate) fn inject_skills(
     let resolved = match provider.resolve(worktree, mcp) {
         Ok(resolved) => resolved,
         Err(err) => {
-            eprintln!(
-                "hydra: {provider} would not say what it resolved, so the record \
-                 cannot: {err:#}"
-            );
+            if !quiet {
+                eprintln!(
+                    "hydra: {provider} would not say what it resolved, so the record \
+                     cannot: {err:#}"
+                );
+            }
             crate::provider::Resolved::default()
         }
     };
     // 6.5 gives the fatal pre-flight to Cursor alone, so a server that would not
     // start is a line on stderr and a difference between `injected` and
     // `resolved` in the record, rather than a refused launch.
-    for failure in &resolved.failed_mcp {
+    for failure in resolved.failed_mcp.iter().filter(|_| !quiet) {
         eprintln!("hydra: an injected MCP server did not start: {failure}");
     }
 
@@ -1722,8 +1756,10 @@ pub(crate) fn inject_skills(
 /// what removes them, the same as for a run that spawned, and a human who wants to
 /// see what was refused can look at the directory.
 pub fn refuse(request: RefuseRequest<'_>) -> Result<Call> {
-    eprintln!("hydra: run {} refused", request.run_id);
-    eprintln!("hydra: {}", request.remediation);
+    if !request.quiet {
+        eprintln!("hydra: run {} refused", request.run_id);
+        eprintln!("hydra: {}", request.remediation);
+    }
 
     // Contract 4: the edge goes on every line of the child's file, including the
     // two a refused spawn gets, because a refused child is still a child.
@@ -2331,6 +2367,7 @@ mod tests {
                 config: None,
             },
             &mut slot,
+            false,
         )
         .unwrap();
         let injected = slot.unwrap();
@@ -2413,6 +2450,7 @@ mod tests {
                 config: None,
             },
             &mut slot,
+            false,
         );
         std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
 

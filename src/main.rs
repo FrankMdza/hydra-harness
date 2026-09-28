@@ -49,6 +49,8 @@ fn main() -> Result<()> {
                     resumed_from: None,
                     resume_session_id: None,
                     working_dir: None,
+                    quiet: false,
+                    handed_off: None,
                 })?;
                 // D7: hydra run returns JSON on stdout. Two shapes, because
                 // harness spec 9 degrades a blocking call to a handle rather

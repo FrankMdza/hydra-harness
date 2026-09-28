@@ -216,6 +216,7 @@ fn the_refusal_writes_a_record_that_derives_mcp_unavailable() {
         seed_tree: None,
         layout: &layout,
         parent_run_id: None,
+        quiet: false,
     })
     .unwrap();
 
@@ -498,6 +499,7 @@ fn the_pre_flight_refusal_writes_a_record_that_derives_mcp_unavailable() {
         seed_tree: None,
         layout: &layout,
         parent_run_id: None,
+        quiet: false,
     })
     .unwrap();
 

@@ -479,6 +479,8 @@ fn read(arguments: &Value, parent: Option<&str>) -> Result<Request> {
         resumed_from: None,
         resume_session_id: None,
         working_dir: None,
+        quiet: false,
+        handed_off: None,
     })
 }
 

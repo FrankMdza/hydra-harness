@@ -1,7 +1,7 @@
 # 142 - The seats launcher holds under a hostile session
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -47,3 +47,20 @@ fmt, clippy `--all-targets -D warnings`, `tests/seats.rs`, `tests/gate.rs`, `car
 `IMPLEMENTATION.md` and `SECURITY.md` in the passages 140 wrote.
 
 ## Outcome
+
+Run `01a0e7c7` (claude opus, `standard`), applied as written. Each item has a test that failed with
+its fix switched off: 60 requests an hour whatever the decision, one `hydra/request-cap` line then
+silence, `MAX_REQUEST` 64 KB; at most 4 connections, a deadline for the whole line, a write
+timeout, a sleep after a failed accept; a `Flight` that counts a seat from its `seat_request` line
+until `handed_off` fires after the watcher detaches, with `stop` waiting up to 60 s; `quiet` on
+every `run::run` print the launcher reaches (the "no diff stat" line in `run::result` excepted); and
+an exact server match in the gate. Untested on stubs: the accept-error sleep, the write timeout,
+and whether real `run::run` calls `handed_off` and stays quiet, which needs a live launch.
+
+Open, for the map: a seat that never hands off before the session ends has no place on the record.
+The contract gives `seat_request` three decisions; the launcher names such seats on stderr after
+`claude` exits, and their run ids are already in the request line's `runs`. The session fixed a
+stale `IMPLEMENTATION.md` sentence saying the contract did not name `seat_request`. Master: fmt,
+clippy, lib 217, seats 18 (live-kernel tests included), gate 111, spawn 35, mcp 22, delegation
+14, resume 16, launch_phases 1, face 8, harvest 12, record_contract 20, sandbox_read_only 3,
+curate 9, evolve 42.

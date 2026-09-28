@@ -23,12 +23,13 @@
 //! task is the only free text, and it lands on the session's record verbatim
 //! and in each seat's `run_start` with the seat's role in front of it.
 
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -55,14 +56,28 @@ const PANEL_CAP: &str = "hydra/panel-cap";
 const PANELS_UNREADABLE: &str = "hydra/panels-unreadable";
 const BAD_REQUEST: &str = "hydra/seat-request";
 const SESSION_ENDED: &str = "hydra/session-ended";
+const REQUEST_CAP: &str = "hydra/request-cap";
+const BUSY: &str = "hydra/seat-channel-busy";
 
-/// How long the launcher waits for a connection's one line. The face writes
-/// it at once; a connection that sends nothing is holding a thread.
-const READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// The most requests one session makes in an hour, whatever the launcher
+/// decides about them. Build ticket 142: every request is a line on the
+/// session's record, so without this a loop of refused requests grows the
+/// record without bound, and each line reads the whole file for its `seq`.
+pub const REQUESTS_PER_HOUR: usize = 60;
 
-/// The most a request line may hold. A task is prose, and a megabyte of it is
-/// not a panel anybody meant to ask for.
-const MAX_REQUEST: u64 = 1 << 20;
+/// The most a request line may hold. A task is prose, and 64 KB of it is
+/// already more than any panel anybody meant to ask for.
+pub const MAX_REQUEST: usize = 64 << 10;
+
+/// How long [`Served::stop`] waits for a seat still inside `run::run` to hand
+/// off to its detached watcher. The human has left the session by then and is
+/// waiting on this, so it is bounded; a seat still launching after it dies with
+/// the process and is named on stderr.
+pub const HANDOFF_BUDGET: Duration = Duration::from_secs(60);
+
+/// How long the accept loop rests after `accept` fails, so a failure that
+/// repeats (out of descriptors, say) does not spin a core.
+const ACCEPT_BACKOFF: Duration = Duration::from_millis(50);
 
 const HOUR: Duration = Duration::from_secs(3600);
 
@@ -126,9 +141,75 @@ pub struct Launcher {
     /// In memory because the cap is per session and this lives exactly as
     /// long as the session does.
     launched: Mutex<HashMap<String, Vec<Instant>>>,
-    /// Whether the session's record still takes lines. [`Launcher::close`]
-    /// shuts it before the harvest writes `run_end`.
-    open: Mutex<bool>,
+    /// Every request in the last hour, for [`REQUESTS_PER_HOUR`].
+    requests: Mutex<Meter>,
+    /// Whether the record takes lines, and which seats are still launching.
+    flight: Arc<Flight>,
+}
+
+/// The requests a session made in the last hour, and whether the record
+/// already says the cap is spent.
+#[derive(Default)]
+struct Meter {
+    at: Vec<Instant>,
+    said: bool,
+}
+
+/// What [`Launcher::meter`] found.
+enum Metered {
+    Within,
+    Spent { first: bool },
+}
+
+/// The record's gate and the seats between their `seat_request` line and
+/// their handoff, under one lock so a seat is either counted before the
+/// record closes or never launched.
+#[derive(Default)]
+struct Flight {
+    state: Mutex<FlightState>,
+    landed: Condvar,
+}
+
+#[derive(Default)]
+struct FlightState {
+    /// Set by [`Launcher::close`] before the harvest writes `run_end`.
+    closed: bool,
+    /// Run ids minted for seats whose launch has not yet handed off.
+    launching: BTreeSet<String>,
+}
+
+impl Flight {
+    fn lock(&self) -> std::sync::MutexGuard<'_, FlightState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// `run_id` handed off, or its launch returned. Either may come first,
+    /// and the second finds nothing to do.
+    fn land(&self, run_id: &str) {
+        if self.lock().launching.remove(run_id) {
+            self.landed.notify_all();
+        }
+    }
+
+    /// Waits up to `budget` for every seat to land, and names those that did
+    /// not.
+    fn settle(&self, budget: Duration) -> Vec<String> {
+        let deadline = Instant::now() + budget;
+        let mut state = self.lock();
+        while !state.launching.is_empty() {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            state = self
+                .landed
+                .wait_timeout(state, left)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
+        }
+        state.launching.iter().cloned().collect()
+    }
 }
 
 /// What the launcher decided about one request.
@@ -180,7 +261,8 @@ impl Launcher {
             panels,
             launch,
             launched: Mutex::new(HashMap::new()),
-            open: Mutex::new(true),
+            requests: Mutex::new(Meter::default()),
+            flight: Arc::new(Flight::default()),
         }
     }
 
@@ -192,6 +274,9 @@ impl Launcher {
     /// which is what map 82 set out to fix.
     pub fn answer(&self, ask: &Ask) -> Reply {
         let request_id = Uuid::now_v7().to_string();
+        if let Metered::Spent { first } = self.meter() {
+            return self.spent(ask, &request_id, first);
+        }
         let (shape_name, seats, decision) = self.weigh(ask);
         let runs: Vec<String> = match &decision {
             Decision::Launch(shape) => shape
@@ -216,7 +301,7 @@ impl Launcher {
             reason,
             runs: &runs,
         };
-        if let Err(err) = self.record(&line) {
+        if let Err(err) = self.record(&line, &runs) {
             return Reply {
                 text: format!(
                     "{SESSION_ENDED}: request {request_id} could not be written to the \
@@ -247,25 +332,59 @@ impl Launcher {
     /// Stops the record taking lines. Called before the harvest, which writes
     /// `run_end`, so nothing lands after it.
     pub fn close(&self) {
-        *self
-            .open
+        self.flight.lock().closed = true;
+    }
+
+    /// Counts one request against [`REQUESTS_PER_HOUR`]. A spent cap counts
+    /// nothing, so it frees up an hour after the requests that spent it.
+    fn meter(&self) -> Metered {
+        let mut meter = self
+            .requests
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = false;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let now = Instant::now();
+        meter.at.retain(|at| now.duration_since(*at) < HOUR);
+        if meter.at.len() >= REQUESTS_PER_HOUR {
+            let first = !meter.said;
+            meter.said = true;
+            return Metered::Spent { first };
+        }
+        meter.at.push(now);
+        meter.said = false;
+        Metered::Within
+    }
+
+    /// The refusal once the cap is spent. The first refused request is a line
+    /// on the record, so the corpus sees the session hit the cap; the rest
+    /// write nothing, which is what the cap is for.
+    fn spent(&self, ask: &Ask, request_id: &str, first: bool) -> Reply {
+        if first {
+            let line = SeatRequest {
+                kind: "seat_request",
+                request_id,
+                shape: ask.shape.as_deref(),
+                seats: asked(ask),
+                task: &ask.task,
+                decision: "refused",
+                reason: Some(REQUEST_CAP),
+                runs: &[],
+            };
+            // The refusal stands whether or not the line lands.
+            let _ = self.record(&line, &[]);
+        }
+        Reply {
+            text: format!(
+                "{REQUEST_CAP}: this session has made {REQUESTS_PER_HOUR} requests of its \
+                 launcher in the last hour, refused ones included, which is the most one \
+                 session may. Nothing was launched or written."
+            ),
+            is_error: true,
+        }
     }
 
     /// The decision, with what the record should say was asked.
     fn weigh(&self, ask: &Ask) -> (Option<String>, Vec<RecordedSeat>, Decision) {
-        let asked: Vec<RecordedSeat> = ask
-            .seats
-            .iter()
-            .flatten()
-            .map(|seat| RecordedSeat {
-                provider: seat.provider.clone(),
-                model: seat.model.clone(),
-                policy: seat.policy.clone(),
-                role: None,
-            })
-            .collect();
+        let asked = asked(ask);
         let refuse = |code, text| Decision::Refuse { code, text };
 
         if ask.task.trim().is_empty() {
@@ -433,12 +552,25 @@ impl Launcher {
                 resumed_from: None,
                 resume_session_id: None,
                 working_dir: Some(self.session.working_dir.clone()),
+                quiet: true,
+                handed_off: Some({
+                    let flight = self.flight.clone();
+                    let run_id = run_id.clone();
+                    Box::new(move || flight.land(&run_id))
+                }),
             })
             .collect();
         let calls: Vec<Result<Call>> = std::thread::scope(|scope| {
             let handles: Vec<_> = requests
                 .into_iter()
-                .map(|request| scope.spawn(|| (self.launch)(request)))
+                .zip(runs)
+                .map(|(request, run_id)| {
+                    scope.spawn(move || {
+                        let call = (self.launch)(request);
+                        self.flight.land(run_id);
+                        call
+                    })
+                })
                 .collect();
             handles
                 .into_iter()
@@ -486,13 +618,11 @@ impl Launcher {
         }
     }
 
-    /// Appends one line to the session's record, under the record's lock.
-    fn record(&self, line: &SeatRequest<'_>) -> Result<()> {
-        let open = self
-            .open
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !*open {
+    /// Appends one line to the session's record, under the record's lock,
+    /// and counts `runs` as launching once it has.
+    fn record(&self, line: &SeatRequest<'_>, runs: &[String]) -> Result<()> {
+        let mut flight = self.flight.lock();
+        if flight.closed {
             bail!("the session has ended and its record takes no more lines");
         }
         let run_file = &self.session.run_file;
@@ -510,8 +640,23 @@ impl Launcher {
             seq,
         )?;
         writer.hydra_line(line)?;
+        flight.launching.extend(runs.iter().cloned());
         Ok(())
     }
+}
+
+/// The seats a request listed, as the record carries them.
+fn asked(ask: &Ask) -> Vec<RecordedSeat> {
+    ask.seats
+        .iter()
+        .flatten()
+        .map(|seat| RecordedSeat {
+            provider: seat.provider.clone(),
+            model: seat.model.clone(),
+            policy: seat.policy.clone(),
+            role: None,
+        })
+        .collect()
 }
 
 fn recorded(shape: &Shape) -> Vec<RecordedSeat> {
@@ -582,6 +727,29 @@ fn seat_task(role: &str, task: &str) -> String {
     format!("Your seat on this panel: {role}.\n\n{task}")
 }
 
+/// How much of the launcher one session's connections may hold.
+#[derive(Clone, Copy, Debug)]
+pub struct Limits {
+    /// Connections answered at once. The next is refused and closed, so a
+    /// flood costs a refusal each rather than a thread each.
+    pub connections: usize,
+    /// How long a connection has to send its whole request line, from accept.
+    pub deadline: Duration,
+    /// How long a reply may take to write before the launcher gives up on a
+    /// reader that stopped reading.
+    pub write_timeout: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            connections: 4,
+            deadline: Duration::from_secs(10),
+            write_timeout: Duration::from_secs(10),
+        }
+    }
+}
+
 /// The launcher listening on its socket, until [`Served::stop`] or a drop.
 pub struct Served {
     launcher: Arc<Launcher>,
@@ -590,13 +758,19 @@ pub struct Served {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
-/// Binds `socket` and answers it on a thread of its own.
+/// Binds `socket` and answers it on a thread of its own, under the default
+/// [`Limits`].
 ///
 /// **On its own thread because the launcher blocks** waiting on `claude`. Each
-/// connection gets a thread too, so a connection that holds its line back
-/// cannot stall the next one, and a panel that takes ten minutes does not
-/// hold the accept loop.
+/// connection gets a thread too, up to [`Limits::connections`], so a
+/// connection that holds its line back cannot stall the next one, and a panel
+/// that takes ten minutes does not hold the accept loop.
 pub fn serve(launcher: Arc<Launcher>, socket: &Path) -> Result<Served> {
+    serve_with(launcher, socket, Limits::default())
+}
+
+/// [`serve`] under `limits`, which the tests shorten.
+pub fn serve_with(launcher: Arc<Launcher>, socket: &Path, limits: Limits) -> Result<Served> {
     use std::os::unix::fs::PermissionsExt;
     let listener = UnixListener::bind(socket)
         .with_context(|| format!("binding the seat channel at {}", socket.display()))?;
@@ -608,7 +782,7 @@ pub fn serve(launcher: Arc<Launcher>, socket: &Path) -> Result<Served> {
         let stopping = stopping.clone();
         std::thread::Builder::new()
             .name("hydra-seats".into())
-            .spawn(move || accept(listener, launcher, stopping))
+            .spawn(move || accept(listener, launcher, stopping, limits))
             .context("starting the seat channel's thread")?
     };
     Ok(Served {
@@ -620,38 +794,84 @@ pub fn serve(launcher: Arc<Launcher>, socket: &Path) -> Result<Served> {
 }
 
 impl Served {
-    /// Closes the session's record to new lines, stops accepting and removes
-    /// the socket. A seat already launching keeps going: it is detached, and
-    /// its own record says how it ended.
-    pub fn stop(self) {
-        drop(self);
+    /// Closes the session's record to new lines, stops accepting, removes the
+    /// socket, and waits up to [`HANDOFF_BUDGET`] for every seat still inside
+    /// `run::run` to hand off to its detached watcher. Returns the run ids of
+    /// the seats that had not, which die with this process.
+    pub fn stop(self) -> Vec<String> {
+        self.stop_within(HANDOFF_BUDGET)
     }
-}
 
-impl Drop for Served {
-    fn drop(&mut self) {
+    /// [`Served::stop`] with its own budget.
+    pub fn stop_within(mut self, budget: Duration) -> Vec<String> {
+        self.shut();
+        self.launcher.flight.settle(budget)
+    }
+
+    /// Everything [`Served::stop`] does but the wait.
+    fn shut(&mut self) {
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
         self.launcher.close();
         self.stopping.store(true, Ordering::SeqCst);
         // Wakes the accept loop so it sees the flag. If this connect fails
         // the loop is left blocked, and the process exiting takes it.
-        let woke = UnixStream::connect(&self.socket).is_ok();
-        if let Some(thread) = self.thread.take()
-            && woke
-        {
+        if UnixStream::connect(&self.socket).is_ok() {
             let _ = thread.join();
         }
         let _ = std::fs::remove_file(&self.socket);
     }
 }
 
-fn accept(listener: UnixListener, launcher: Arc<Launcher>, stopping: Arc<AtomicBool>) {
+impl Drop for Served {
+    fn drop(&mut self) {
+        self.shut();
+    }
+}
+
+/// Gives a connection's slot back when its thread ends, or when the thread
+/// never started.
+struct Slot(Arc<AtomicUsize>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+fn accept(
+    listener: UnixListener,
+    launcher: Arc<Launcher>,
+    stopping: Arc<AtomicBool>,
+    limits: Limits,
+) {
+    let in_flight = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         if stopping.load(Ordering::SeqCst) {
             return;
         }
         let Ok(stream) = stream else {
+            std::thread::sleep(ACCEPT_BACKOFF);
             continue;
         };
+        let _ = stream.set_write_timeout(Some(limits.write_timeout));
+        if in_flight.fetch_add(1, Ordering::SeqCst) >= limits.connections {
+            in_flight.fetch_sub(1, Ordering::SeqCst);
+            let busy = Reply {
+                text: format!(
+                    "{BUSY}: the launcher is already answering {} requests from this \
+                     session. Nothing was launched or written; ask again when one returns.",
+                    limits.connections
+                ),
+                is_error: true,
+            };
+            // A short timeout here, because this runs on the accept thread.
+            let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
+            let _ = send(&stream, &busy);
+            continue;
+        }
+        let slot = Slot(in_flight.clone());
         let launcher = launcher.clone();
         // Nothing reports a failed conversation: the launcher shares the
         // human's terminal with the session, and a line on stderr lands in
@@ -660,25 +880,77 @@ fn accept(listener: UnixListener, launcher: Arc<Launcher>, stopping: Arc<AtomicB
         let _ = std::thread::Builder::new()
             .name("hydra-seat-request".into())
             .spawn(move || {
-                let _ = converse(stream, &launcher);
+                let _slot = slot;
+                let _ = converse(stream, &launcher, limits.deadline);
             });
     }
 }
 
 /// One line in, one line out.
-fn converse(stream: UnixStream, launcher: &Launcher) -> Result<()> {
-    stream.set_read_timeout(Some(READ_TIMEOUT))?;
-    let mut line = String::new();
-    BufReader::new((&stream).take(MAX_REQUEST)).read_line(&mut line)?;
-    let reply = match serde_json::from_str::<Ask>(&line) {
-        Ok(ask) => launcher.answer(&ask),
+fn converse(stream: UnixStream, launcher: &Launcher, deadline: Duration) -> Result<()> {
+    let reply = match read_request(&stream, deadline) {
+        Ok(line) => match serde_json::from_str::<Ask>(&line) {
+            Ok(ask) => launcher.answer(&ask),
+            Err(err) => Reply {
+                text: format!("{BAD_REQUEST}: the request did not parse: {err}"),
+                is_error: true,
+            },
+        },
         Err(err) => Reply {
-            text: format!("{BAD_REQUEST}: the request did not parse: {err}"),
+            text: format!("{BAD_REQUEST}: {err:#}"),
             is_error: true,
         },
     };
-    let mut stream = stream;
-    writeln!(stream, "{}", serde_json::to_string(&reply)?)?;
+    send(&stream, &reply)
+}
+
+/// Reads one request line, all of it within `deadline` of the call. A per-read
+/// timeout alone lets a client that sends a byte at a time hold its thread
+/// for as long as it likes.
+fn read_request(stream: &UnixStream, deadline: Duration) -> Result<String> {
+    let until = Instant::now() + deadline;
+    let mut line = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let Some(left) = until
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+        else {
+            bail!("no whole request line within {deadline:?}");
+        };
+        stream.set_read_timeout(Some(left))?;
+        let read = match (&*stream).read(&mut chunk) {
+            Ok(read) => read,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                bail!("no whole request line within {deadline:?}");
+            }
+            Err(err) => return Err(err.into()),
+        };
+        if read == 0 {
+            break;
+        }
+        line.extend_from_slice(&chunk[..read]);
+        if let Some(end) = line.iter().position(|&byte| byte == b'\n') {
+            line.truncate(end);
+            break;
+        }
+        if line.len() > MAX_REQUEST {
+            bail!("the request is longer than {MAX_REQUEST} bytes");
+        }
+    }
+    if line.len() > MAX_REQUEST {
+        bail!("the request is longer than {MAX_REQUEST} bytes");
+    }
+    String::from_utf8(line).context("the request is not UTF-8")
+}
+
+fn send(mut stream: &UnixStream, reply: &Reply) -> Result<()> {
+    writeln!(stream, "{}", serde_json::to_string(reply)?)?;
     stream.flush()?;
     Ok(())
 }

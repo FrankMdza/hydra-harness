@@ -175,6 +175,7 @@ fn finish_policy_launch(
                 config: Some(&mcp_file),
             },
             &mut injected,
+            false,
         )?;
     }
 
@@ -411,8 +412,14 @@ fn run_gated(request: Request) -> Result<RunResult> {
         Some(&prep.worktree),
     )?;
     // Before the harvest, which writes `run_end`: no request line may land
-    // after it.
-    served.stop();
+    // after it. `claude` has exited, so the terminal is the human's again and
+    // a seat this process is about to take with it is said out loud.
+    for seat in served.stop() {
+        eprintln!(
+            "hydra: seat {seat} of run {run_id} had not reached its own watcher when the \
+             session ended, and stopped with it"
+        );
+    }
 
     if let Err(err) = harvest(&layout, &run_id, status.code()) {
         eprintln!("hydra: run {run_id} exited but did not harvest: {err:#}");

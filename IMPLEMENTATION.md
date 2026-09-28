@@ -729,8 +729,26 @@ mints for the seats. A launch passes those ids to `run::run` with the session as
 so each seat's `run_start` carries `parent_run_id`. The seats start in parallel, each seat's
 task is its role and then the task, and each child's text is marked by the launcher with one
 token drawn after every seat stopped. The launcher closes the record to new lines, stops
-accepting and removes the socket before the harvest writes `run_end`; a seat still launching
-then is detached and its own record says how it ended. **Every profile, not only an
+accepting and removes the socket before the harvest writes `run_end`. **Build ticket 142 made
+the launcher hold against the session that owns it**, whose shell reaches `seats.sock` as well
+as its face does. A session gets 60 requests an hour whatever the decision; the first one past
+that is a `seat_request` line refused as `hydra/request-cap` and the rest write nothing, so the
+record holds at most 61 request lines an hour. A request line is at most 64 KB, down from 1 MB,
+and has 10 seconds from accept to arrive whole, where before each read got its own 10 seconds
+and a client sending a byte at a time held its thread forever. At most four connections are
+answered at once; the fifth gets `hydra/seat-channel-busy` and is closed on the accept thread.
+Replies carry a write timeout, and a failed `accept` sleeps 50 ms rather than spinning.
+`seats::serve_with` takes those limits so the tests can shorten them. `run::Request` has two new
+fields. `quiet` stops every line `run::run` prints on stderr, and the launcher sets it, because
+its stderr is the terminal `claude` draws on; the one line it does not reach is `run::result`'s
+"no diff stat" warning, which half a dozen callers share. `handed_off` is called once the
+detached watcher exists. The launcher counts a seat as launching from its `seat_request` line,
+under the same lock that closes the record, until that call or until `run::run` returns, and
+`Served::stop` waits up to 60 seconds for the count to reach zero. A seat still launching after
+that stops with the process, and `interactive.rs` names it on stderr once `claude` has exited.
+It is not on the session's record, because the contract gives `seat_request` three decisions
+and none of them is "died in launch". `tests/seats.rs` drives each of these on stubs: a stub
+launch that blocks before its handoff, and one that never hands off. **Every profile, not only an
 interactive one, denies `network-outbound` to a unix socket under the spawns directory and
 allows the run's own `seats.sock`**, after `(allow default)` and in that order, because SBPL
 takes the last match. Before this ticket any run could connect to any socket in a sibling's
@@ -745,17 +763,17 @@ refuses `mcp__hydra__delegate` to a `standard` session and the channel is unreac
 the face. An `mcp_call` entry may now carry `servers`, a list; `gate.py` admits a tool only when
 its name is `mcp__<server>__<tool>` for a server on it, and refuses everything else as
 `hydra/mcp-server`, which on `cursor-agent` and `agy` is every MCP call, because their tool
-names carry no server. `Policy::validate` refuses the list on another capability, an empty
+names carry no server. Until build ticket 142 that check was a prefix match, so a server named
+`hydra_` passed as `mcp__hydra___x`; now the tool part after a listed server may neither start
+with `_` nor hold `__`, which leaves each name one way to split. `Policy::validate` refuses the list on another capability, an empty
 list, a name holding `__`, and a list beside an unscoped `mcp_call`; `Allow` now refuses
 unknown keys, because before this ticket a `servers` key was dropped and read as every server.
 `tests/gate.rs` drives `tests/fixtures/policies/standard.json`, and the human writes the real
 one. The scope defends the MCP path only. The session's shell reaches `seats.sock` too, and the
-launcher is what guards it. **Three things are open.** The record contract says a run file
-holds exactly two Hydra lines, and `docs/run-record-contract.md` was not this ticket's to
-amend; the validator accepts `seat_request` and the contract does not name it yet. No normalized
-event carries a request, so `hydra show` does not print one. And `run::run` in the launcher
-prints its `hydra: run ...` lines on the launcher's stderr, which is the terminal the session
-is drawing on.
+launcher is what guards it. **One thing is open.** No normalized event carries a request, so
+`hydra show` does not print one. The contract names `seat_request` as the one exception to its
+two Hydra lines since the session amended it with build 140, and `run::run` printing on the
+terminal the session draws on closed with build ticket 142.
 
 **Until build ticket 50, Hydra found its policy directory through `CARGO_MANIFEST_DIR`
 alone, so the binary only worked from its source tree.** `HYDRA_HOME` overrides it now, and

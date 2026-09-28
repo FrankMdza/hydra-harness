@@ -102,6 +102,8 @@ fn request(policy: &str, parent: Option<&str>) -> Request {
         resumed_from: None,
         resume_session_id: None,
         working_dir: None,
+        quiet: false,
+        handed_off: None,
     }
 }
 
@@ -155,6 +157,7 @@ fn refuse(
         seed_tree: None,
         layout,
         parent_run_id: lineage.parent_run_id(),
+        quiet: false,
     })
     .unwrap()
 }

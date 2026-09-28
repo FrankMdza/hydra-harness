@@ -168,6 +168,8 @@ pub fn request(run_id: &str, brief: String, model: Option<String>, timeout: Dura
         resumed_from: None,
         resume_session_id: None,
         working_dir: None,
+        quiet: false,
+        handed_off: None,
     }
 }
 

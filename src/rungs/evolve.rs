@@ -142,6 +142,8 @@ pub fn evolve(pass: Pass) -> Result<Done> {
         resumed_from: None,
         resume_session_id: None,
         working_dir: None,
+        quiet: false,
+        handed_off: None,
     });
 
     let proposer = match call {
@@ -1460,6 +1462,8 @@ fn run_judge_panel(
             resumed_from: None,
             resume_session_id: None,
             working_dir: None,
+            quiet: false,
+            handed_off: None,
         })?;
 
         let result = match call {

@@ -779,11 +779,21 @@ def mcp_server_violation(tool, servers):
     `mcp__<server>__<tool>`. `cursor-agent` spells `MCP:<tool>` and `agy`
     names one tool for every server, so neither says which server a call
     reaches, and a list refuses both.
+
+    The server part has to equal a listed server, not start with one. A name
+    splits into server and tool one way only when the tool part neither
+    starts with `_` nor holds `__`; otherwise `mcp__hydra___x` is server
+    `hydra_` as easily as `hydra`, and `mcp__hydra__evil__x` is server
+    `hydra__evil`. Build ticket 142. Hydra's own tools are single words.
     """
     prefix = HYDRA_CONFIG.get("mcp_prefix")
     if prefix == "mcp__":
         for server in servers:
-            if tool.startswith("mcp__" + server + "__"):
+            head = "mcp__" + server + "__"
+            if not tool.startswith(head):
+                continue
+            name = tool[len(head):]
+            if name and not name.startswith("_") and "__" not in name:
                 return None
         return "a server the list does not name"
     return "no server in its name for the list to match"

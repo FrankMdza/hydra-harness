@@ -859,6 +859,26 @@ fn an_mcp_call_scoped_to_hydra_admits_the_face_and_no_other_server() {
 }
 
 #[test]
+fn a_server_whose_name_only_starts_with_a_listed_one_is_refused() {
+    // Build ticket 142. `mcp__hydra___x` is tool `x` on a server named
+    // `hydra_`, and `mcp__hydra__evil__x` is tool `x` on `hydra__evil`. Both
+    // start with `mcp__hydra__`, which is all the check matched before.
+    for provider in [Provider::Claude, Provider::Codex] {
+        let gate = Gate::scoped_mcp(provider);
+        for tool in ["mcp__hydra___x", "mcp__hydra__evil__x", "mcp__hydra__"] {
+            let decision = gate.ask(tool, json!({}));
+            assert!(
+                decision.denied_for("hydra/mcp-server"),
+                "{provider} {tool}: {}",
+                decision.reason
+            );
+        }
+        let decision = gate.ask("mcp__hydra__delegate", json!({}));
+        assert!(decision.allowed, "{provider}: {}", decision.reason);
+    }
+}
+
+#[test]
 fn a_server_scoped_mcp_call_still_refuses_a_protected_path_argument() {
     let gate = Gate::scoped_mcp(Provider::Claude);
     let runs = gate.runs.join("x.jsonl");

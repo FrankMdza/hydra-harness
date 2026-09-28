@@ -77,4 +77,7 @@ seats are the shape's seats in any order, compared on provider, model and policy
 is the shape's. `delegate` passes no model, so it matches only a one-seat shape whose seat
 names none. A match launches with no prompt, up to `cap_per_hour` times in any hour of one
 session. Anything else comes back `hydra/approval-required` and waits for `hydra approve`,
-which is build ticket 141 and does not exist yet.
+which is build ticket 141 and does not exist yet. Above every shape's cap sits one the file
+does not set: 60 requests an hour per session, refused ones included, after which the
+launcher answers `hydra/request-cap` and writes nothing more to the session's record (build
+ticket 142).

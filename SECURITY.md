@@ -231,7 +231,16 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   well as the face does. The launcher is the guard: it launches only a shape the human approved in
   `config/panels.json`, never a seat wider than the session's policy, at most the shape's cap per
   hour, writes every request to the session's record before it launches anything, and marks each
-  child's text itself. Everything else waits for a human.
+  child's text itself. Everything else waits for a human. Since build ticket 142 the launcher also
+  holds against the session itself. It answers at most 60 requests an hour per session, whatever
+  it decides about them, and writes one `hydra/request-cap` line when that runs out and nothing
+  after it, so a loop of refused requests cannot grow the record. A request line is at most 64 KB
+  and has 10 seconds to arrive whole. At most four connections are answered at once and the fifth
+  is refused and closed, and a reply that is not read within 10 seconds is dropped. When the
+  session ends the launcher waits up to 60 seconds for a seat still inside `run::run` to reach its
+  detached watcher before the process exits. A seat launch prints nothing on the human's terminal.
+  The `mcp_call` server scope matches the server part of a tool name exactly: `mcp__hydra___x`
+  and `mcp__hydra__evil__x` name servers `hydra_` and `hydra__evil`, and both are refused.
 - **On `codex` the gate rides the command line, and a hook that dies without answering fails
   open, since 2026-09-21.** Codex reads no project hook file inside a git worktree, and every
   Hydra run is one, so the gate is handed over as a `-c` override naming a Python file in the

@@ -105,6 +105,8 @@ fn resume_request(resumed_from: &str, session_id: &str) -> Request {
         resumed_from: Some(resumed_from.to_string()),
         resume_session_id: Some(session_id.to_string()),
         working_dir: Some(PathBuf::from("/tmp")),
+        quiet: false,
+        handed_off: None,
     }
 }
 

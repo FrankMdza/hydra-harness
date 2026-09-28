@@ -17,10 +17,13 @@
 //! cannot nest, and say so on stderr.
 
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use hydra::outcome::{RunResult, Usage};
 use hydra::paths::Layout;
@@ -28,7 +31,7 @@ use hydra::policy::PolicySet;
 use hydra::provider::Provider;
 use hydra::record::{RunStart, SCHEMA_VERSION, Writer};
 use hydra::run::{Call, Request};
-use hydra::seats::{self, Ask, AskedSeat, Launcher, Session};
+use hydra::seats::{self, Ask, AskedSeat, Launcher, Limits, Session};
 use serde_json::{Value, json};
 
 mod corpus;
@@ -131,6 +134,7 @@ struct Launched {
     parent: Option<String>,
     run_id: Option<String>,
     task: String,
+    quiet: bool,
 }
 
 fn stub(launched: Arc<Mutex<Vec<Launched>>>) -> Box<seats::LaunchSeat> {
@@ -147,6 +151,7 @@ fn stub(launched: Arc<Mutex<Vec<Launched>>>) -> Box<seats::LaunchSeat> {
             parent: request.parent.clone(),
             run_id: request.run_id.clone(),
             task: request.task.clone(),
+            quiet: request.quiet,
         });
         Ok(Call::Ended(Box::new(RunResult {
             run_id: run_id.clone(),
@@ -173,6 +178,15 @@ struct Fixture {
 
 impl Fixture {
     fn new(session_policy: &str) -> Self {
+        Self::launching(session_policy, stub)
+    }
+
+    /// A fixture whose launcher starts seats with `launch`, handed the list
+    /// [`Fixture::launched`] reads.
+    fn launching(
+        session_policy: &str,
+        launch: impl FnOnce(Arc<Mutex<Vec<Launched>>>) -> Box<seats::LaunchSeat>,
+    ) -> Self {
         let root = root();
         let layout = Layout::at(&root);
         let run_file = write_session(&layout, SESSION, session_policy);
@@ -190,7 +204,7 @@ impl Fixture {
             },
             policies_dir(),
             panels,
-            stub(launched.clone()),
+            launch(launched.clone()),
         ));
         Self {
             root,
@@ -203,6 +217,18 @@ impl Fixture {
 
     fn launched(&self) -> Vec<Launched> {
         self.launched.lock().unwrap().clone()
+    }
+
+    /// What the harvest does once `claude` exits, at a home with no
+    /// transcript, which writes `run_end` all the same.
+    fn harvest(&self) {
+        let home = self.root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        hydra::interactive::harvest_in(&self.layout, SESSION, Some(0), &home).unwrap();
+        assert!(hydra::live::has_run_end(&self.run_file).unwrap());
+        hydra::record::validate::check_file(&self.run_file)
+            .unwrap()
+            .assert_ok();
     }
 
     /// Every `seat_request` line on the session's record, in order.
@@ -670,4 +696,316 @@ fn an_interactive_sessions_face_reaches_its_launcher_from_inside_the_seatbelt() 
     assert_eq!(fixture.launched().len(), 2);
     drop(face);
     served.stop();
+}
+
+// ---------------------------------------------------------------------------
+// Build ticket 142: the launcher under a hostile session
+// ---------------------------------------------------------------------------
+
+/// One raw line to `socket` and the reply, as the session's own shell could
+/// send it without the face.
+fn send_raw(socket: &Path, line: &str) -> Value {
+    let mut stream = UnixStream::connect(socket).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    // A line past the limit is answered and closed before it is all sent, and
+    // the rest of the write then fails with a broken pipe.
+    let _ = stream
+        .write_all(line.as_bytes())
+        .and_then(|()| stream.write_all(b"\n"));
+    let mut reply = String::new();
+    BufReader::new(stream).read_line(&mut reply).unwrap();
+    serde_json::from_str(&reply).unwrap()
+}
+
+/// Reads the one line the launcher answers on `stream`, or `None` when
+/// nothing came within `wait`.
+fn reply_within(stream: &UnixStream, wait: Duration) -> Option<Value> {
+    stream.set_read_timeout(Some(wait)).unwrap();
+    let mut reply = String::new();
+    match BufReader::new(stream).read_line(&mut reply) {
+        Ok(read) if read > 0 => Some(serde_json::from_str(&reply).unwrap()),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_session_past_its_request_cap_is_refused_and_the_record_says_so_once() {
+    // Every request is a line on the record, refused ones included, so a
+    // loop asking for a shape nobody approved grew the record without bound.
+    let fixture = Fixture::new("standard");
+    let asks = seats::REQUESTS_PER_HOUR + 10;
+    for index in 0..asks {
+        let reply = fixture.launcher.answer(&by_shape("council"));
+        assert!(reply.is_error, "{}", reply.text);
+        let capped = reply.text.contains("hydra/request-cap");
+        assert_eq!(
+            capped,
+            index >= seats::REQUESTS_PER_HOUR,
+            "request {index}: {}",
+            reply.text
+        );
+    }
+    let requests = fixture.requests();
+    assert_eq!(
+        requests.len(),
+        seats::REQUESTS_PER_HOUR + 1,
+        "one line per request under the cap and one saying it was hit"
+    );
+    let last = requests.last().unwrap();
+    assert_eq!(last["decision"], "refused");
+    assert_eq!(last["reason"], "hydra/request-cap");
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|line| line["reason"] == "hydra/request-cap")
+            .count(),
+        1
+    );
+    // The cap counts every request, so an approved shape is refused too.
+    let reply = fixture.launcher.answer(&by_shape("review"));
+    assert!(reply.text.contains("hydra/request-cap"), "{}", reply.text);
+    assert!(fixture.launched().is_empty());
+    hydra::record::validate::check_file(&fixture.run_file)
+        .unwrap()
+        .assert_ok();
+}
+
+#[test]
+fn a_request_line_over_64_kb_is_refused_before_the_record() {
+    let fixture = Fixture::new("standard");
+    let socket = seats::socket_path(&fixture.layout, SESSION);
+    let served = seats::serve(fixture.launcher.clone(), &socket).unwrap();
+
+    let ask = json!({"shape": "review", "task": "x".repeat(100 << 10)});
+    let reply = send_raw(&socket, &ask.to_string());
+    assert_eq!(reply["is_error"], true, "{reply}");
+    let text = reply["text"].as_str().unwrap();
+    assert!(text.contains("hydra/seat-request"), "{text}");
+    assert!(text.contains("65536"), "{text}");
+    assert!(fixture.launched().is_empty(), "the long line launched");
+    assert!(fixture.requests().is_empty(), "the long line was recorded");
+
+    // A line just under the limit still reaches the launcher.
+    let ask = json!({"shape": "review", "task": "x".repeat(60 << 10)});
+    let reply = send_raw(&socket, &ask.to_string());
+    assert_eq!(reply["is_error"], false, "{reply}");
+    drop(served);
+}
+
+#[test]
+fn a_flood_and_a_slow_client_do_not_keep_a_request_from_its_answer() {
+    let fixture = Fixture::new("standard");
+    let socket = seats::socket_path(&fixture.layout, SESSION);
+    let limits = Limits {
+        connections: 4,
+        deadline: Duration::from_millis(500),
+        write_timeout: Duration::from_secs(1),
+    };
+    let served = seats::serve_with(fixture.launcher.clone(), &socket, limits).unwrap();
+
+    // A slow client sends a byte every 100 ms. A timeout per read never
+    // fires on it; a deadline for the line does.
+    let slow = UnixStream::connect(&socket).unwrap();
+    let dribble = {
+        let mut slow = slow.try_clone().unwrap();
+        std::thread::spawn(move || {
+            let until = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < until && slow.write_all(b" ").is_ok() {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        })
+    };
+    // Three more that send nothing fill the four slots.
+    let silent: Vec<UnixStream> = (0..3)
+        .map(|_| UnixStream::connect(&socket).unwrap())
+        .collect();
+
+    // The flood: every connection past four is refused at once.
+    for index in 0..10 {
+        let flood = UnixStream::connect(&socket).unwrap();
+        let reply = reply_within(&flood, Duration::from_secs(2))
+            .unwrap_or_else(|| panic!("flood connection {index} held rather than refused"));
+        let text = reply["text"].as_str().unwrap();
+        assert!(text.contains("hydra/seat-channel-busy"), "{text}");
+    }
+    assert!(fixture.requests().is_empty(), "a refused connection wrote");
+
+    let started = Instant::now();
+    let reply = reply_within(&slow, Duration::from_secs(3))
+        .expect("the slow client was answered within its deadline");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(
+        reply["text"]
+            .as_str()
+            .unwrap()
+            .contains("no whole request line"),
+        "{reply}"
+    );
+    dribble.join().unwrap();
+    drop(silent);
+
+    // With the slots given back, a well-formed request is answered.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let answered = loop {
+        let reply = seats::ask(&fixture.layout, SESSION, &by_shape("review"))
+            .unwrap()
+            .expect("the launcher is listening");
+        if !reply.text.contains("hydra/seat-channel-busy") {
+            break reply;
+        }
+        assert!(Instant::now() < deadline, "still busy: {}", reply.text);
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(!answered.is_error, "{}", answered.text);
+    assert_eq!(fixture.launched().len(), 2);
+
+    // A flood still running when the session ends does not keep the
+    // harvest from writing `run_end`.
+    let flooding = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let flood = {
+        let flooding = flooding.clone();
+        let socket = socket.clone();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            while flooding.load(Ordering::SeqCst) {
+                if let Ok(stream) = UnixStream::connect(&socket) {
+                    held.push(stream);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        })
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let stopping = Instant::now();
+    assert!(served.stop().is_empty());
+    assert!(
+        stopping.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        stopping.elapsed()
+    );
+    fixture.harvest();
+    flooding.store(false, Ordering::SeqCst);
+    flood.join().unwrap();
+}
+
+/// A launch that blocks inside `run::run` until the test lets it go, and
+/// hands off only when `hands_off` says so.
+struct Held {
+    entered: mpsc::Receiver<String>,
+    release: mpsc::Sender<()>,
+    finish: mpsc::Sender<()>,
+}
+
+fn held_launch(hands_off: bool) -> (Held, Box<seats::LaunchSeat>) {
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let (finish, finish_rx) = mpsc::channel::<()>();
+    let state = Mutex::new((entered_tx, release_rx, finish_rx));
+    let launch = Box::new(move |mut request: Request| {
+        let state = state.lock().unwrap();
+        let run_id = request.run_id.clone().unwrap_or_default();
+        state.0.send(run_id.clone()).unwrap();
+        // Still in `run::run`: the worktree, the skills, the fork.
+        let _ = state.1.recv();
+        if hands_off && let Some(handed_off) = request.handed_off.take() {
+            handed_off();
+        }
+        // Past the handoff, the view waits on the run's end.
+        let _ = state.2.recv();
+        Err(anyhow::anyhow!("seat {run_id} stubbed"))
+    });
+    (
+        Held {
+            entered,
+            release,
+            finish,
+        },
+        launch,
+    )
+}
+
+#[test]
+fn the_launcher_waits_for_a_seat_still_launching_before_the_harvest() {
+    let (held, launch) = held_launch(true);
+    let fixture = Fixture::launching("permissive", |_| launch);
+    let socket = seats::socket_path(&fixture.layout, SESSION);
+    let served = seats::serve(fixture.launcher.clone(), &socket).unwrap();
+
+    let asker = {
+        let layout = Layout::at(&fixture.root);
+        std::thread::spawn(move || seats::ask(&layout, SESSION, &one_seat("claude", "standard")))
+    };
+    let seat = held
+        .entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the seat's launch started");
+
+    let (stopped_tx, stopped) = mpsc::channel();
+    let stopper = std::thread::spawn(move || {
+        stopped_tx
+            .send(served.stop_within(Duration::from_secs(10)))
+            .unwrap();
+    });
+    assert!(
+        stopped.recv_timeout(Duration::from_millis(300)).is_err(),
+        "stop returned while seat {seat} was still inside run::run"
+    );
+
+    held.release.send(()).unwrap();
+    let missed = stopped
+        .recv_timeout(Duration::from_secs(5))
+        .expect("stop returned once the seat handed off");
+    assert!(missed.is_empty(), "{missed:?}");
+    stopper.join().unwrap();
+    // Stop waits for the handoff, not for the seat's end.
+    fixture.harvest();
+
+    held.finish.send(()).unwrap();
+    let _ = asker.join().unwrap();
+}
+
+#[test]
+fn a_seat_that_never_hands_off_is_named_when_the_wait_runs_out() {
+    let (held, launch) = held_launch(false);
+    let fixture = Fixture::launching("permissive", |_| launch);
+    let socket = seats::socket_path(&fixture.layout, SESSION);
+    let served = seats::serve(fixture.launcher.clone(), &socket).unwrap();
+
+    let asker = {
+        let layout = Layout::at(&fixture.root);
+        std::thread::spawn(move || seats::ask(&layout, SESSION, &one_seat("claude", "standard")))
+    };
+    let seat = held
+        .entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the seat's launch started");
+
+    let started = Instant::now();
+    let missed = served.stop_within(Duration::from_millis(300));
+    assert!(started.elapsed() >= Duration::from_millis(300));
+    assert_eq!(missed, vec![seat.clone()]);
+    assert_eq!(fixture.requests()[0]["runs"][0], seat.as_str());
+    fixture.harvest();
+
+    held.release.send(()).unwrap();
+    held.finish.send(()).unwrap();
+    let _ = asker.join().unwrap();
+}
+
+#[test]
+fn a_seat_launch_is_told_to_keep_off_the_humans_terminal() {
+    // `run::run` prints its `hydra: run ...` lines on stderr, and a seat's
+    // stderr is the launcher's, which is the terminal `claude` draws on.
+    let fixture = Fixture::new("permissive");
+    let reply = fixture.launcher.answer(&one_seat("claude", "standard"));
+    assert!(!reply.is_error, "{}", reply.text);
+    let launched = fixture.launched();
+    assert_eq!(launched.len(), 1);
+    assert!(launched[0].quiet, "{:?}", launched[0]);
 }
