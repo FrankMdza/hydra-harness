@@ -1,0 +1,14 @@
+{
+  "shapes": [
+    {
+      "name": "review",
+      "askers": ["standard"],
+      "cap_per_hour": 2,
+      "seats": [
+        { "provider": "claude", "model": "opus", "policy": "judge", "role": "reviewer" },
+        { "provider": "codex", "policy": "standard", "role": "adversary" },
+        { "provider": "cursor-agent", "model": "composer-2.5", "policy": "judge", "role": "security" }
+      ]
+    }
+  ]
+}

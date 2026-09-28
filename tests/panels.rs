@@ -185,3 +185,21 @@ fn two_shapes_with_one_name_are_refused() {
     let err = refusal(&document);
     assert!(err.contains("name") && err.contains("review"), "{err}");
 }
+
+#[test]
+fn the_shipped_panel_shapes_load_against_the_shipped_policies() {
+    // The human's own `config/panels.json`, when it exists, must load: a file
+    // the loader refuses approves nothing and fails at the first request.
+    let path = hydra::panels::path();
+    if !path.exists() {
+        eprintln!("skipped: no {}", path.display());
+        return;
+    }
+    let set = hydra::policy::PolicySet::discover().unwrap();
+    let panels = hydra::panels::load(&path, &set).unwrap();
+    assert!(
+        !panels.shapes.is_empty(),
+        "{} holds no shape",
+        path.display()
+    );
+}

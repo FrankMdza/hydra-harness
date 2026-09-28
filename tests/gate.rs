@@ -823,17 +823,25 @@ fn an_unbounded_shell_is_not_read_through_the_list() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn the_shipped_standard_refuses_every_mcp_call_the_face_included() {
-    // What build ticket 140 found: `standard` grants no `mcp_call` at all, so
-    // a gated session cannot reach `mcp__hydra__delegate` until the human
-    // amends `policies/standard.json`.
+fn the_shipped_standard_admits_hydras_face_and_no_other_server() {
+    // Build ticket 140 found `standard` granted no `mcp_call`; the human added
+    // `servers: ["hydra"]` on 2026-09-28. This reads the shipped file.
     let gate = Gate::new("standard");
-    let decision = gate.ask("mcp__hydra__delegate", json!({}));
-    assert!(
-        decision.denied_for("hydra/capability"),
-        "{}",
-        decision.reason
-    );
+    for tool in ["mcp__hydra__delegate", "mcp__hydra__panel"] {
+        let decision = gate.ask(tool, json!({"provider": "claude", "task": "go"}));
+        assert!(decision.allowed, "{tool}: {}", decision.reason);
+    }
+    for tool in [
+        "mcp__claude-in-chrome__navigate",
+        "mcp__hydra-evil__delegate",
+        "mcp__hydra___x",
+    ] {
+        let decision = gate.ask(tool, json!({}));
+        assert!(
+            !decision.allowed,
+            "{tool} was allowed under the shipped standard"
+        );
+    }
 }
 
 #[test]
@@ -1306,11 +1314,13 @@ fn cursor_names_an_mcp_tool_with_a_prefix_of_its_own() {
     // `MCP:<tool>` rather than `mcp__<server>__<tool>`, read off the bundle's
     // `preToolUse` call for MCP tools. `mcp_call` is granted by `permissive`
     // alone (7.2).
+    // Since 2026-09-28 the shipped `standard` grants `mcp_call` scoped to the
+    // `hydra` server; a name that carries no server is refused by that scope.
     let standard = Gate::cursor("standard");
     assert!(
         standard
             .cursor_tool("MCP:ping", json!({}))
-            .denied_for("hydra/capability")
+            .denied_for("hydra/mcp-server")
     );
     assert!(
         Gate::cursor("permissive")
@@ -2129,11 +2139,13 @@ fn agy_names_its_mcp_tool_and_carries_no_prefix() {
     // provider's compiled config has no `mcp_prefix` at all. An empty string
     // there would have matched every tool name and called the whole provider an
     // MCP call.
+    // The shipped `standard` scopes `mcp_call` to `hydra` since 2026-09-28, and
+    // this name carries no server, so the scope refuses it.
     let standard = Gate::agy("standard");
     assert!(
         standard
             .agy_tool("call_mcp_tool", json!({}))
-            .denied_for("hydra/capability")
+            .denied_for("hydra/mcp-server")
     );
     assert!(
         Gate::agy("permissive")
