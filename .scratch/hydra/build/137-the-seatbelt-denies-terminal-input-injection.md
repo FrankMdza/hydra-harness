@@ -51,5 +51,5 @@ without the rule (`tiocsti rc=0` under the spawn's profile), green with
 run measured it from inside its own non-interactive run: `claude` starts each tool shell in a
 session of its own, no controlling terminal, stdin on `/dev/null`, so a tool shell could not
 reach the human's terminal this way; `claude` itself, and anything it starts without a new
-session, could. Not measured inside a live interactive session. fmt, clippy, lib 211, gate 99,
+session, could. Measured the same night inside a live interactive session (`01a0e78d`, claude sonnet, `standard`, launched in a Herdr pane with the release binary carrying the rule): the tool shell runs in a session of its own, fds 0 to 2 are not terminals and `/dev/tty` answers ENXIO, so there was nothing to inject into. The rule is defence in depth for `claude` itself and what it starts without a new session. fmt, clippy, lib 211, gate 99,
 spawn 34, sandbox_tty 2, all on master.

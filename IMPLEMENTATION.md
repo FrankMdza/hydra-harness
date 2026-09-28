@@ -3130,7 +3130,7 @@ the rule mattered: `claude` starts each tool shell in a session of its own with 
 terminal and stdin on `/dev/null`, measured by the build run 01a0e768 from inside its own recorded, non-interactive run on 2026-09-28 with
 `proc_pidinfo` and `getsid`, and XNU refuses `TIOCSTI` on a terminal that is not the caller's
 controlling one to anyone but root. So a tool shell could not reach the human's terminal this way
-before the rule either; `claude` itself, and anything it starts without a new session, could.
+before the rule either; `claude` itself, and anything it starts without a new session, could. The same held inside a live interactive session on 2026-09-28, run 01a0e78d: fds 0 to 2 not terminals, `/dev/tty` ENXIO.
 
 **`HYDRA_ROOT` is refused inside a seatbelt, since 2026-09-22.** A `standard` run has shell,
 shell reaches the binary, and `env -u HYDRA_RUN_ID HYDRA_ROOT=/tmp/x hydra run --policy
