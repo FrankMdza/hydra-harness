@@ -2251,7 +2251,11 @@ offered twenty-nine names, four more than the twenty-five 2.1.261 offered the da
 they denied under every policy, `permissive` included, which is what the check is for.
 They are `provider_native` now, so it is quiet again and the next rename breaks the first
 record written after it. Claude Code 2.1.281 renamed `Task` to `Agent` for subagent
-spawn; the table keeps both.
+spawn; the table keeps both. On 2.1.283 it offers `Glob` and `Grep`, which had no row, so
+every call was `hydra/unknown-tool` under every policy (run 01a0e789, a judge, 2026-09-28).
+They are `file_read` now, scoped on `path`, and a call with no `path` is checked against the
+cwd the hook reports, which is what they search; before, a scoped read with no path was
+`hydra/no-path` and the tools would have been useless under `standard`.
 
 **A `claude` result with no `is_error` is classified from `tool_use_result`, since build
 ticket 37.** On 2.1.263 a successful `Read`, `Edit` or `Write` result carries no `is_error`

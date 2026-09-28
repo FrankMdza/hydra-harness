@@ -1067,6 +1067,7 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     let mut tools = serde_json::Map::new();
     let mut path_fields = serde_json::Map::new();
     let mut patch_path_tools = serde_json::Map::new();
+    let mut cwd_default_tools = Vec::new();
     for t in table.tools {
         // Unhooked rows exist for the replay, not for the hook. The hook never
         // fires for them, so the compiled config does not name them.
@@ -1076,6 +1077,9 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         tools.insert(t.name.to_string(), t.capability.as_str().into());
         if let Some(field) = t.path_field {
             path_fields.insert(t.name.to_string(), field.into());
+        }
+        if t.cwd_when_absent {
+            cwd_default_tools.push(serde_json::Value::from(t.name));
         }
         if t.patch_paths {
             patch_path_tools.insert(t.name.to_string(), table.command_field.into());
@@ -1166,6 +1170,7 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
             .collect::<Vec<_>>(),
         "tools": tools,
         "path_fields": path_fields,
+        "cwd_default_tools": cwd_default_tools,
         "patch_path_tools": patch_path_tools,
         "command_field": table.command_field,
         "mcp_prefix": table.mcp_prefix,
@@ -1503,8 +1508,10 @@ mod tests {
         let set = set();
         let scoped = scoped_mcp_fixture();
         assert!(set.get("permissive").unwrap().contains(&scoped));
-        assert!(!set.get("standard").unwrap().contains(&scoped));
-        assert!(scoped.contains(set.get("standard").unwrap()));
+        // `read-only` grants no `mcp_call`. (`standard` scopes it to `hydra` since
+        // the human's edit of 2026-09-28, which is this fixture.)
+        assert!(!set.get("read-only").unwrap().contains(&scoped));
+        assert!(scoped.contains(set.get("read-only").unwrap()));
         assert!(!scoped.contains(set.get("permissive").unwrap()));
 
         let mut wider = scoped.clone();

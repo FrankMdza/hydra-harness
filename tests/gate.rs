@@ -3178,3 +3178,40 @@ fn an_agy_gate_refuses_cursors_envelope() {
         decision.reason
     );
 }
+
+#[test]
+fn claudes_glob_and_grep_are_file_reads_scoped_like_read() {
+    // `claude` 2.1.283 offers `Glob` and `Grep`, and the table had no row for
+    // either: run 01a0e789 (opus under `judge`) got `hydra/unknown-tool` four
+    // times on each, measured 2026-09-28.
+    let standard = Gate::new("standard");
+    let wt = standard.worktree.to_str().unwrap().to_string();
+    let inside = standard.ask("Grep", json!({ "pattern": "x", "path": wt }));
+    assert!(inside.allowed, "{}", inside.reason);
+    let bare = standard.ask("Glob", json!({ "pattern": "**/*.rs" }));
+    assert!(bare.allowed, "{}", bare.reason);
+    let outside = standard.ask("Grep", json!({ "pattern": "x", "path": "/etc" }));
+    assert!(
+        outside.denied_for("hydra/out-of-scope"),
+        "{}",
+        outside.reason
+    );
+    // With no `path`, the cwd the hook reports is what they search, so a cwd
+    // outside the worktree is refused like a named path would be.
+    let outside_cwd = standard.claude_payload("Glob", json!({ "pattern": "*" }), Path::new("/etc"));
+    let decision = standard.ask_with_dialect(Some("claude"), outside_cwd);
+    assert!(
+        decision.denied_for("hydra/out-of-scope"),
+        "{}",
+        decision.reason
+    );
+    let judge = Gate::new("judge");
+    for tool in ["Glob", "Grep"] {
+        let decision = judge.ask(tool, json!({ "pattern": "x" }));
+        assert!(
+            decision.denied_for("hydra/capability"),
+            "{tool}: {}",
+            decision.reason
+        );
+    }
+}

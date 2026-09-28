@@ -212,6 +212,10 @@ def target_path(tool, tool_input, cwd):
         return None
     raw = tool_input.get(field)
     if not isinstance(raw, str) or not raw:
+        # `Glob` and `Grep` search the caller's cwd when given no path, so that
+        # cwd is the path they act on and the scope check applies to it.
+        if tool in HYDRA_CONFIG.get("cwd_default_tools", []) and cwd:
+            return resolve(".", cwd)
         return None
     return resolve(raw, cwd)
 

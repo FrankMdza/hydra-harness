@@ -33,6 +33,10 @@ pub struct Tool {
     /// `command_field` and from `changes[].path` on replay, not from one path
     /// argument.
     pub patch_paths: bool,
+    /// When true and the path field is absent, the call acts on the caller's
+    /// cwd, which the gate then checks like any named path: `Glob` and `Grep`
+    /// search the current directory when given no `path`.
+    pub cwd_when_absent: bool,
     /// The hook never fires for this tool. The compiler skips the row; the replay
     /// judges the row's real [`capability`] instead.
     pub unhooked: bool,
@@ -44,6 +48,7 @@ const fn tool(name: &'static str, capability: Capability) -> Tool {
         capability,
         path_field: None,
         patch_paths: false,
+        cwd_when_absent: false,
         unhooked: false,
     }
 }
@@ -54,6 +59,19 @@ const fn pathed(name: &'static str, capability: Capability, field: &'static str)
         capability,
         path_field: Some(field),
         patch_paths: false,
+        cwd_when_absent: false,
+        unhooked: false,
+    }
+}
+
+/// A read whose path field is optional and defaults to the caller's cwd.
+const fn searched(name: &'static str, capability: Capability, field: &'static str) -> Tool {
+    Tool {
+        name,
+        capability,
+        path_field: Some(field),
+        patch_paths: false,
+        cwd_when_absent: true,
         unhooked: false,
     }
 }
@@ -65,6 +83,7 @@ const fn patch_write(name: &'static str) -> Tool {
         capability: Capability::FileWrite,
         path_field: None,
         patch_paths: true,
+        cwd_when_absent: false,
         unhooked: false,
     }
 }
@@ -78,6 +97,7 @@ const fn unhooked(name: &'static str, capability: Capability) -> Tool {
         capability,
         path_field: None,
         patch_paths: false,
+        cwd_when_absent: false,
         unhooked: true,
     }
 }
@@ -102,6 +122,11 @@ pub const CLAUDE: &[Tool] = &[
     pathed("Write", Capability::FileWrite, "file_path"),
     pathed("Edit", Capability::FileWrite, "file_path"),
     pathed("NotebookEdit", Capability::FileWrite, "notebook_path"),
+    // 2.1.283 offers both; run 01a0e789 (opus under `judge`) was refused
+    // `hydra/unknown-tool` on each, measured 2026-09-28. `path` is optional:
+    // without it they search the caller's cwd, and the gate checks that.
+    searched("Glob", Capability::FileRead, "path"),
+    searched("Grep", Capability::FileRead, "path"),
     tool("WebFetch", Capability::NetworkRead),
     tool("WebSearch", Capability::NetworkRead),
     // 7.6: denied under every policy but `permissive`, because an in-process
@@ -526,12 +551,13 @@ mod tests {
                 "{name} is offered by the provider and has no row, so 7.1 denies it"
             );
         }
-        // One row beyond 2.1.263's frame: `Agent`, the name 2.1.281 gave
-        // `Task`. Both stay so records on either side of the rename read back.
+        // Three rows beyond 2.1.263's frame: `Agent`, the name 2.1.281 gave
+        // `Task` (both stay so records on either side of the rename read back),
+        // and `Glob` and `Grep`, offered on 2.1.283 (run 01a0e789, 2026-09-28).
         // Anything else beyond the frame is a name the provider never offered.
         assert_eq!(
             CLAUDE.len(),
-            measured.len() + 1,
+            measured.len() + 3,
             "the table names a tool the provider does not offer"
         );
         assert!(
