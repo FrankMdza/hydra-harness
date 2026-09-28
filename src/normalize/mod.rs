@@ -1014,6 +1014,7 @@ pub(crate) const GATE_CODES: &[&str] = &[
     "out-of-scope",
     "protected-path",
     "floor",
+    "shell-list",
     "no-path",
     "unknown-tool",
     "gate-tampered",

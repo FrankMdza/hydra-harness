@@ -666,6 +666,158 @@ fn read_only_reads_the_worktree_and_refuses_a_write() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// A shell bounded to a command list, build ticket 139
+// ---------------------------------------------------------------------------
+//
+// Map 82 answer 3. The policy is `tests/fixtures/policies/read-only.json`,
+// because `policies/` is the human's to write. The seatbelt half is
+// `tests/sandbox_read_only.rs`.
+
+#[test]
+fn a_bounded_shell_runs_the_read_only_commands_its_list_names() {
+    let gate = Gate::bounded_shell();
+    for command in [
+        "grep -rn x src",
+        "rg x",
+        "find . -name '*.rs'",
+        "cat f",
+        "head f",
+        "tail f",
+        "wc -l f",
+        "ls",
+        "git log",
+        "git show HEAD",
+        "git diff",
+        // A pipe between two listed commands is two listed commands.
+        "grep x f | head",
+        "grep -n 'fn main' src/main.rs | head -5 && wc -l src/main.rs",
+        // Quoted, these are the pattern's and never the shell's.
+        "grep -n 'x$' f",
+        "grep -n '>' f",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.allowed,
+            "the list names {command:?} and it was refused: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_bounded_shell_refuses_what_its_list_does_not_name_and_says_which_part() {
+    let gate = Gate::bounded_shell();
+    for (command, part) in [
+        // `sed` is off the list: its own script language writes (`w`, `W`) and reads (`r`)
+        // files that never appear as an argument the gate could resolve.
+        ("sed -n 1,20p f", "`sed`"),
+        ("sed -n 'w /tmp/x' f", "`sed`"),
+        ("find . -delete", "`find -delete`"),
+        (r"find . -exec rm {} \;", "`find -exec`"),
+        ("git checkout f", "`git checkout`"),
+        ("git -c core.pager=sh log", "`git -c`"),
+        ("git diff --output=g", "`git diff --output`"),
+        ("rm f", "`rm`"),
+        ("cat f > g", "`>`"),
+        ("cat f | sh", "`sh`"),
+        ("echo $(rm f)", "`$(`"),
+        ("`rm f`", "backquote"),
+        ("xargs rm", "`xargs`"),
+        ("bash -c 'cat f'", "`bash`"),
+        ("python3 -c 'print(1)'", "`python3`"),
+        ("cat 'f", "could not split"),
+        ("cat f\nrm f", "newline"),
+        ("cat f & rm f", "`&`"),
+        ("sed $'\\x2di' f", "`$'`"),
+        ("cat f{,.bak}", "brace"),
+        ("rg x *", "glob"),
+        ("", "empty"),
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/shell-list"),
+            "{command:?} came back {}: {}",
+            decision.allowed,
+            decision.reason
+        );
+        assert!(
+            decision.reason.contains(part),
+            "the refusal of {command:?} does not name {part}: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_bounded_shell_reads_where_file_read_reads_and_nowhere_else() {
+    let gate = Gate::bounded_shell();
+    let outside = gate.root.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "x").unwrap();
+    std::os::unix::fs::symlink(outside.join("secret"), gate.worktree.join("link")).unwrap();
+    let sibling = gate.layout().worktree(OTHER);
+    std::fs::create_dir_all(&sibling).unwrap();
+
+    for command in [
+        format!("cat {}", outside.join("secret").display()),
+        "cat link".to_string(),
+        "cat ~/.ssh/id_rsa".to_string(),
+        format!("grep -r x {}", sibling.display()),
+        "grep -f/etc/hosts x f".to_string(),
+        "ls ..".to_string(),
+    ] {
+        let decision = gate.shell(&command);
+        // The sibling is a protected path before it is anything else, so
+        // either refusal is the right one; what matters is that it came.
+        assert!(
+            decision.denied_for("hydra/shell-list") || decision.denied_for("hydra/protected-path"),
+            "{command:?} read outside the worktree: {}",
+            decision.reason
+        );
+    }
+
+    gate.link_skill("reader");
+    let decision = gate.shell("ls .claude/skills");
+    assert!(decision.allowed, "{}", decision.reason);
+}
+
+#[test]
+fn the_bounded_list_is_read_from_the_compiled_policy() {
+    // Take `cat` off the list in the compiled config and nothing else: if the
+    // gate held its own names, `cat f` would still pass.
+    let gate = Gate::bounded_shell();
+    assert!(gate.shell("cat f").allowed);
+    let mut config = compiled_config(&gate.script);
+    let shell = config["allow"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|entry| entry["capability"] == "shell")
+        .expect("the fixture grants shell");
+    let commands = shell["commands"].as_array_mut().expect("a command list");
+    let before = commands.len();
+    commands.retain(|c| c["argv"] != json!(["cat"]));
+    assert_eq!(commands.len(), before - 1);
+    rewrite_compiled_config(&gate.script, &config);
+    let decision = gate.shell("cat f");
+    assert!(
+        decision.denied_for("hydra/shell-list") && decision.reason.contains("`cat`"),
+        "{}",
+        decision.reason
+    );
+    assert!(gate.shell("head f").allowed);
+}
+
+#[test]
+fn an_unbounded_shell_is_not_read_through_the_list() {
+    // `standard` carries no list, so a redirect inside its worktree is its
+    // own business, as it was before build ticket 139.
+    let gate = Gate::new("standard");
+    let decision = gate.shell("cat f > g && sed -i s/a/b/ g");
+    assert!(decision.allowed, "{}", decision.reason);
+}
+
 #[test]
 fn standard_writes_inside_the_worktree_and_refuses_outside_it() {
     let gate = Gate::new("standard");

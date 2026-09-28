@@ -166,10 +166,47 @@ pub mod keys {
     pub const PARENT_GIT_DIR: &str = "parent_git_dir";
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
 pub struct Allow {
     pub capability: Capability,
     pub scope: Option<Scope>,
+    /// The commands a bounded `shell` may run, map ticket 82 answer 3 and build
+    /// ticket 139. `None` is the shell every policy granted before it: any
+    /// command, under the pattern floor of 7.4 and the path denials of 7.5 and
+    /// nothing else. A list means something only on `shell`, and
+    /// [`Policy::validate`] refuses it anywhere else.
+    #[serde(default)]
+    pub commands: Option<Vec<ShellCommand>>,
+}
+
+/// One entry of a bounded shell's list.
+///
+/// `argv` is a prefix the command must start with, word for word, so
+/// `["git", "log"]` admits `git log -p` and refuses `git -c x log`, whose
+/// options before the subcommand can name a pager or a diff driver. `refuse`
+/// holds the flags that turn a reading command into a writing or executing one,
+/// `-i` on `sed`, `-delete` and `-exec` on `find`. A two-character entry such as
+/// `-i` also matches inside a cluster, `-ni`, and `--x` matches `--x=value`.
+///
+/// **The list is the first filter and never the guarantee.** A command on it
+/// can still write: `sed -n 'w f'` names no flag. Under a bounded shell the
+/// seatbelt refuses the write, and `src/sandbox.rs` composes that profile.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShellCommand {
+    pub argv: Vec<String>,
+    #[serde(default)]
+    pub refuse: Vec<String>,
+}
+
+/// What a policy grants of `shell`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShellGrant {
+    None,
+    /// Any command, under the floor and the path denials.
+    Unbounded,
+    /// Only the commands the policy lists.
+    Bounded,
 }
 
 /// One of the five. Deny by default, and there is no `denied` list: with deny by
@@ -185,6 +222,53 @@ pub struct Policy {
 
 impl Policy {
     fn validate(&self, file: &Path) -> Result<()> {
+        let mut bounded = false;
+        let mut unbounded = false;
+        for entry in &self.allow {
+            match (&entry.commands, entry.capability) {
+                (Some(_), capability) if capability != Capability::Shell => bail!(
+                    "{}: {} takes no command list, only shell does",
+                    file.display(),
+                    capability.as_str()
+                ),
+                (Some(commands), _) => {
+                    bounded = true;
+                    if commands.is_empty() {
+                        bail!(
+                            "{}: shell names an empty command list; a policy with no \
+                             shell leaves the entry out",
+                            file.display()
+                        );
+                    }
+                    for command in commands {
+                        // A bare name is looked up on the child's PATH, which
+                        // Hydra set. A path would let the list name a binary
+                        // inside the worktree, which the run's repo decides.
+                        let bare = command
+                            .argv
+                            .first()
+                            .is_some_and(|binary| !binary.contains('/'));
+                        if !bare || command.argv.iter().any(|word| word.is_empty()) {
+                            bail!(
+                                "{}: shell command {:?} must start with a bare name and \
+                                 hold no empty word",
+                                file.display(),
+                                command.argv
+                            );
+                        }
+                    }
+                }
+                (None, Capability::Shell) => unbounded = true,
+                (None, _) => {}
+            }
+        }
+        if bounded && unbounded {
+            bail!(
+                "{}: shell is granted both with and without a command list, and the \
+                 unbounded entry would win",
+                file.display()
+            );
+        }
         for entry in &self.allow {
             match (entry.capability.is_scoped(), entry.scope) {
                 (true, None) => bail!(
@@ -206,7 +290,30 @@ impl Policy {
 
     /// The set this policy grants, as capability-scope pairs.
     fn grants(&self) -> std::collections::BTreeSet<Allow> {
-        self.allow.iter().copied().collect()
+        self.allow.iter().cloned().collect()
+    }
+
+    /// What this policy grants of `shell`: nothing, any command, or a list.
+    /// [`Policy::validate`] refuses a policy that mixes the last two.
+    pub fn shell(&self) -> ShellGrant {
+        match self
+            .allow
+            .iter()
+            .find(|entry| entry.capability == Capability::Shell)
+        {
+            None => ShellGrant::None,
+            Some(entry) if entry.commands.is_none() => ShellGrant::Unbounded,
+            Some(_) => ShellGrant::Bounded,
+        }
+    }
+
+    /// Every command a bounded shell lists, across its `shell` entries.
+    fn shell_commands(&self) -> std::collections::BTreeSet<&ShellCommand> {
+        self.allow
+            .iter()
+            .filter(|entry| entry.capability == Capability::Shell)
+            .flat_map(|entry| entry.commands.iter().flatten())
+            .collect()
     }
 
     /// Whether this policy grants the capability at all, with no path to check.
@@ -239,14 +346,30 @@ impl Policy {
     /// worktree, `standard` is the reverse, and neither contains the other. An
     /// incomparable pair is refused rather than resolved, which is delegation's
     /// business (ticket 11) and not this module's.
+    ///
+    /// A bounded shell sits under an unbounded one, and under another bounded
+    /// shell whose list holds every entry of its own. An unbounded shell sits
+    /// under no list.
     pub fn contains(&self, other: &Policy) -> bool {
         let mine = self.grants();
         other.grants().iter().all(|entry| {
+            if entry.capability == Capability::Shell {
+                return match (self.shell(), &entry.commands) {
+                    (ShellGrant::None, _) => false,
+                    (ShellGrant::Unbounded, _) => true,
+                    (ShellGrant::Bounded, None) => false,
+                    (ShellGrant::Bounded, Some(theirs)) => {
+                        let listed = self.shell_commands();
+                        theirs.iter().all(|command| listed.contains(command))
+                    }
+                };
+            }
             mine.contains(entry)
                 || (entry.capability.is_scoped()
                     && mine.contains(&Allow {
                         capability: entry.capability,
                         scope: Some(Scope::Anywhere),
+                        commands: None,
                     }))
         })
     }
@@ -866,6 +989,15 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
             if let Some(scope) = entry.scope {
                 obj.insert("scope".into(), scope.as_str().into());
             }
+            // The list travels as data, so `gate.py` holds no command name of
+            // its own and a human's edit to the policy moves the gate.
+            if let Some(commands) = &entry.commands {
+                let list: Vec<serde_json::Value> = commands
+                    .iter()
+                    .map(|c| serde_json::json!({ "argv": c.argv, "refuse": c.refuse }))
+                    .collect();
+                obj.insert("commands".into(), list.into());
+            }
             serde_json::Value::Object(obj)
         })
         .collect();
@@ -1183,6 +1315,69 @@ mod tests {
                 .any(|a| a.capability == Capability::SubagentSpawn);
             assert_eq!(has, name == "permissive", "{name} and subagent_spawn");
         }
+    }
+
+    fn bounded_fixture() -> Policy {
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/policies/read-only.json"),
+        )
+        .unwrap();
+        let policy: Policy = serde_json::from_str(&text).unwrap();
+        policy.validate(Path::new("fixture")).unwrap();
+        policy
+    }
+
+    #[test]
+    fn a_bounded_shell_sits_under_standard_and_over_todays_read_only() {
+        // Build ticket 139. `standard`'s shell has no list, so it holds any
+        // list; the list holds no unbounded shell.
+        let set = set();
+        let bounded = bounded_fixture();
+        assert_eq!(bounded.shell(), ShellGrant::Bounded);
+        assert_eq!(set.get("standard").unwrap().shell(), ShellGrant::Unbounded);
+        assert!(set.get("standard").unwrap().contains(&bounded));
+        assert!(set.get("permissive").unwrap().contains(&bounded));
+        assert!(!bounded.contains(set.get("standard").unwrap()));
+        assert!(bounded.contains(set.get("read-only").unwrap()));
+
+        let mut shorter = bounded.clone();
+        for entry in &mut shorter.allow {
+            if let Some(commands) = &mut entry.commands {
+                commands.pop();
+            }
+        }
+        assert!(bounded.contains(&shorter));
+        assert!(
+            !shorter.contains(&bounded),
+            "a longer list is a wider shell"
+        );
+    }
+
+    #[test]
+    fn a_command_list_is_refused_where_it_cannot_mean_what_it_says() {
+        for (json, why) in [
+            (
+                r#"[{"capability":"file_read","scope":"worktree","commands":[{"argv":["cat"]}]}]"#,
+                "only shell",
+            ),
+            (r#"[{"capability":"shell","commands":[]}]"#, "empty"),
+            (
+                r#"[{"capability":"shell","commands":[{"argv":["./cat"]}]}]"#,
+                "bare name",
+            ),
+            (
+                r#"[{"capability":"shell","commands":[{"argv":["cat"]}]},{"capability":"shell"}]"#,
+                "unbounded entry would win",
+            ),
+        ] {
+            let text = format!(r#"{{"name":"read-only","allow":{json}}}"#);
+            let policy: Policy = serde_json::from_str(&text).unwrap();
+            let err = policy.validate(Path::new("p")).unwrap_err().to_string();
+            assert!(err.contains(why), "{json}: {err}");
+        }
+        // A misspelt key would drop the refusals it held without a word.
+        let typo = r#"{"name":"read-only","allow":[{"capability":"shell","commands":[{"argv":["sed"],"refuses":["-i"]}]}]}"#;
+        assert!(serde_json::from_str::<Policy>(typo).is_err());
     }
 
     #[test]

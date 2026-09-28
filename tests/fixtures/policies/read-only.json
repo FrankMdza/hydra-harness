@@ -1,0 +1,112 @@
+{
+  "name": "read-only",
+  "allows": "reads inside the worktree and its skill snapshot, invokes linked skills, a shell bounded to the read-only commands listed, no writes",
+  "allow": [
+    {
+      "capability": "file_read",
+      "scope": "worktree"
+    },
+    {
+      "capability": "file_read",
+      "scope": "skill_snapshot"
+    },
+    {
+      "capability": "skill_invoke"
+    },
+    {
+      "capability": "shell",
+      "commands": [
+        {
+          "argv": [
+            "grep"
+          ]
+        },
+        {
+          "argv": [
+            "rg"
+          ],
+          "refuse": [
+            "--pre",
+            "--search-zip",
+            "-z"
+          ]
+        },
+        {
+          "argv": [
+            "find"
+          ],
+          "refuse": [
+            "-delete",
+            "-exec",
+            "-execdir",
+            "-ok",
+            "-okdir",
+            "-fprint",
+            "-fprint0",
+            "-fprintf",
+            "-fls"
+          ]
+        },
+        {
+          "argv": [
+            "cat"
+          ]
+        },
+        {
+          "argv": [
+            "head"
+          ]
+        },
+        {
+          "argv": [
+            "tail"
+          ]
+        },
+        {
+          "argv": [
+            "wc"
+          ]
+        },
+        {
+          "argv": [
+            "ls"
+          ]
+        },
+        {
+          "argv": [
+            "git",
+            "log"
+          ],
+          "refuse": [
+            "--output",
+            "--ext-diff",
+            "--textconv"
+          ]
+        },
+        {
+          "argv": [
+            "git",
+            "show"
+          ],
+          "refuse": [
+            "--output",
+            "--ext-diff",
+            "--textconv"
+          ]
+        },
+        {
+          "argv": [
+            "git",
+            "diff"
+          ],
+          "refuse": [
+            "--output",
+            "--ext-diff",
+            "--textconv",
+            "--no-index"
+          ]
+        }
+      ]
+    }
+  ]
+}

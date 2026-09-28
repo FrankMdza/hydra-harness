@@ -103,6 +103,40 @@ impl Gate {
         root: PathBuf,
     ) -> Self {
         let _ = std::fs::remove_dir_all(&root);
+        Self::build_with(
+            provider,
+            policy,
+            floor_lifted,
+            has_checkout,
+            root,
+            PolicySet::discover().unwrap(),
+        )
+    }
+
+    /// A `read-only` gate compiled from [`bounded_shell_set`], the fixture
+    /// policy that grants a shell bounded to a command list. Build ticket 139.
+    pub fn bounded_shell() -> Self {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "hydra-gate-{}-bounded-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let set = bounded_shell_set(&root.join("policies"));
+        Self::build_with(Provider::Claude, "read-only", false, true, root, set)
+    }
+
+    /// The gate for `policy` out of `set`, rooted at `root`. The caller has
+    /// already cleared `root`, and `set` may live inside it.
+    pub fn build_with(
+        provider: Provider,
+        policy: &str,
+        floor_lifted: bool,
+        has_checkout: bool,
+        root: PathBuf,
+        set: PolicySet,
+    ) -> Self {
         let layout = Layout::at(&root);
         let worktree = if has_checkout {
             layout.worktree(RUN)
@@ -129,7 +163,6 @@ impl Gate {
             std::fs::create_dir_all(checkout).unwrap();
         }
 
-        let set = PolicySet::discover().unwrap();
         write_gate(
             &set,
             &Spawn {
@@ -544,6 +577,25 @@ impl Drop for Gate {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+/// The shipped policy set copied into `dir`, with `read-only.json` replaced by
+/// `tests/fixtures/policies/read-only.json`, which grants a shell bounded to a
+/// command list. `policies/` is protected config #1 and the human's to write,
+/// so the tests drive the shape from here. Build ticket 139.
+pub fn bounded_shell_set(dir: &Path) -> PolicySet {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    std::fs::create_dir_all(dir).unwrap();
+    for entry in std::fs::read_dir(manifest.join("policies")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), dir.join(entry.file_name())).unwrap();
+    }
+    std::fs::copy(
+        manifest.join("tests/fixtures/policies/read-only.json"),
+        dir.join("read-only.json"),
+    )
+    .unwrap();
+    PolicySet::load(dir).unwrap()
 }
 
 pub fn canonical_subpath(path: &Path) -> String {

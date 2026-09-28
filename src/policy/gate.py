@@ -601,6 +601,160 @@ def floor_violation(command):
 
 
 # --------------------------------------------------------------------------
+# The bounded shell, build ticket 139
+# --------------------------------------------------------------------------
+
+
+def shell_list():
+    """The command list the policy bounds `shell` to, or None when it is unbounded."""
+    entries = [e for e in HYDRA_CONFIG["allow"] if e["capability"] == "shell"]
+    if not entries or any("commands" not in e for e in entries):
+        return None
+    return [c for e in entries for c in e["commands"]]
+
+
+def shell_hazard(command):
+    """The first thing in `command` the shell would act on and the list cannot read.
+
+    A character walk with the quote state kept, because shlex drops the quotes
+    and `grep 'x$' f` and `grep x$HOME f` are the same tokens afterwards. Single
+    quotes make everything literal; double quotes still expand `$` and the
+    backquote; a backslash outside single quotes takes the next character.
+    """
+    quote = None
+    i = 0
+    n = len(command)
+    while i < n:
+        c = command[i]
+        following = command[i + 1] if i + 1 < n else ""
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif c == "`":
+            return "a backquote substitution"
+        elif c == "$" and following and not following.isspace() and following != '"':
+            return "the expansion `${}`, whose value the gate cannot read".format(following)
+        elif quote == '"':
+            if c == '"':
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c in "\n\r":
+            return "a newline, which the shell reads as a separator"
+        elif c in "<>":
+            return "the redirect `{}`".format(c)
+        elif c in "()":
+            return "the subshell `{}`".format(c)
+        elif c == "&":
+            if following != "&":
+                return "the operator `&`"
+            i += 1
+        elif c in "*?[":
+            return "the unquoted glob `{}`, which the shell may expand into a flag".format(c)
+        elif c == "{":
+            close = command.find("}", i)
+            if close != -1 and ("," in command[i:close] or ".." in command[i:close]):
+                return "a brace expansion, which the shell may expand into a flag"
+        i += 1
+    if quote is not None:
+        return "an unbalanced quote, so a command the gate could not split"
+    return None
+
+
+def refused_flag(argv, entry):
+    """The first flag in `argv` the list entry refuses, or None.
+
+    A long option matches its own abbreviations too, because GNU getopt and
+    git both accept a unique prefix: `git diff --outp=f` is `--output=f`.
+    """
+    for token in argv[len(entry["argv"]) :]:
+        if not token.startswith("-"):
+            continue
+        name = token.split("=", 1)[0]
+        for flag in entry.get("refuse", []):
+            if token == flag or token.startswith(flag + "="):
+                return flag
+            if flag.startswith("--") and name.startswith("--") and len(name) > 2 and flag.startswith(name):
+                return flag
+            short = len(flag) == 2 and flag[0] == "-"
+            if short and not token.startswith("--") and flag[1] in token[1:]:
+                return flag
+    return None
+
+
+def read_roots():
+    """Where `file_read` reaches under this policy, resolved; None for anywhere."""
+    names = scopes_for("file_read")
+    if "anywhere" in names:
+        return None
+    return [HYDRA_CONFIG["scopes"][s] for s in names if s in HYDRA_CONFIG["scopes"]]
+
+
+def shell_path_candidates(token):
+    """What one argument might name as a path: itself, a value after `=`, and
+    the value glued to a short flag, `-f/etc/hosts`."""
+    yield token
+    if "=" in token:
+        yield token.split("=", 1)[1]
+    if token.startswith("-") and not token.startswith("--") and len(token) > 2:
+        yield token[2:]
+
+
+def bounded_shell_violation(command, commands, cwd):
+    """What the list refuses in `command`, or None.
+
+    The list is the first filter, and the seatbelt `src/sandbox.rs` composes
+    for a bounded shell is the guarantee: a command on the list can still write
+    (`sed -n 'w f'` names no flag), and the kernel is what refuses it. So this
+    refuses rather than interprets. It splits on a pipe, `;`, `&&` and `||`
+    with the floor's own `split_segments`, and refuses anything else the
+    shell would act on before the words reach the binary:
+    redirects, substitutions, expansions, globs and background jobs. Each
+    segment must then start with the words of one list entry and carry none of
+    its refused flags, and every argument must resolve inside the policy's
+    `file_read` scopes, which is where `realpath` catches a symlink out.
+    """
+    if not command.strip():
+        return "an empty command"
+    hazard = shell_hazard(command)
+    if hazard:
+        return hazard
+    try:
+        segments = split_segments(command)
+    except ValueError:
+        return "a command the gate could not split"
+    roots = read_roots()
+    if roots is not None and not any(inside(resolve(cwd, cwd), r) for r in roots):
+        return "the working directory {}, outside what the policy reads".format(cwd)
+    # `shell_hazard` has already refused every unquoted operator but these
+    # four, so what `split_segments` splits on here is a real separator. A
+    # quoted `'|'` is split as well, which refuses a pattern rather than
+    # admitting a command, the direction this errs in.
+    for argv in segments:
+        matches =[c for c in commands if argv[: len(c["argv"])] == c["argv"]]
+        if not matches:
+            longer = any(len(c["argv"]) > 1 and c["argv"][0] == argv[0] for c in commands)
+            name = " ".join(argv[:2] if longer else argv[:1])
+            return "`{}`, which is not on its list".format(name)
+        for entry in matches:
+            flag = refused_flag(argv, entry)
+            if flag:
+                return "`{} {}`, which its list refuses".format(" ".join(entry["argv"]), flag)
+        if roots is None:
+            continue
+        for token in argv[1:]:
+            for candidate in shell_path_candidates(token):
+                path = resolve(os.path.expanduser(candidate), cwd)
+                if not any(inside(path, r) for r in roots):
+                    return "the argument {}, which resolves to {}, outside what the policy reads".format(
+                        token, path
+                    )
+    return None
+
+
+# --------------------------------------------------------------------------
 # Policy
 # --------------------------------------------------------------------------
 
@@ -918,6 +1072,19 @@ def evaluate(payload):
                             scoped_path,
                         )
                     )
+
+    # A shell the policy bounds to a list, map ticket 82 answer 3. After the
+    # capability check, so a policy with no shell still says `capability`, and
+    # before the floor, which it does not replace: the floor still reads git.
+    commands = shell_list() if capability == "shell" else None
+    if commands is not None:
+        command = tool_input.get(HYDRA_CONFIG["command_field"], "")
+        hit = bounded_shell_violation(command, commands, cwd)
+        if hit:
+            return False, (
+                "hydra/shell-list: policy {} runs only the commands its list names, "
+                "and this command has {}.".format(HYDRA_CONFIG["policy"], hit)
+            )
 
     if capability == "shell" and not HYDRA_CONFIG["floor_lifted"]:
         command = tool_input.get(HYDRA_CONFIG["command_field"], "")

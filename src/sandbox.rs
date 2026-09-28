@@ -105,11 +105,39 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
         r#"(deny file-read* (subpath "{}"))"#,
         escape(&canonical(&spawn.layout.pruned()))
     ));
-    if let Some(own_spawn) = spawn.gate_script.parent() {
+    let bounded = bounded_shell(set, spawn);
+    if bounded {
+        for path in bounded_read_denies(spawn) {
+            lines.push(format!(
+                r#"(deny file-read-data (subpath "{}"))"#,
+                escape(&path)
+            ));
+        }
+    }
+    // A later `(allow file-read* ..)` does not lift an earlier, narrower
+    // `(deny file-read-data ..)`: the kernel matches the operation, and only an
+    // allow naming `file-read-data` itself reopens it. Measured 2026-09-28 with
+    // `sandbox-exec` on hand-written profiles, and pinned by
+    // `tests/sandbox_read_only.rs`.
+    let reopen = |lines: &mut Vec<String>, path: &str| {
         lines.push(format!(
             r#"(allow file-read* (subpath "{}"))"#,
-            escape(&canonical(own_spawn))
+            escape(path)
         ));
+        if bounded {
+            lines.push(format!(
+                r#"(allow file-read-data (subpath "{}"))"#,
+                escape(path)
+            ));
+        }
+    };
+    if let Some(own_spawn) = spawn.gate_script.parent() {
+        reopen(&mut lines, &canonical(own_spawn));
+    }
+    if bounded {
+        for path in bounded_read_allows(spawn) {
+            reopen(&mut lines, &path);
+        }
     }
     // Git resolves `GIT_OBJECT_DIRECTORY` one component at a time, and the
     // `lstat` of the spawn parent itself was refused: "Invalid path
@@ -122,7 +150,14 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
             escape(&canonical(&spawn.layout.spawns()))
         ));
     }
-    for path in policy::own_write_paths(spawn) {
+    // A bounded shell's seat writes nothing, so nothing it owns is carved out
+    // of the write denials: not the worktree, not its index, not its objects.
+    let own_writes = if bounded {
+        Vec::new()
+    } else {
+        policy::own_write_paths(spawn)
+    };
+    for path in own_writes {
         let own = canonical(&path);
         lines.push(format!(
             r#"(allow file-write* (subpath "{}"))"#,
@@ -163,7 +198,58 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
             escape(&skills)
         ));
     }
+    // Last, so no earlier allow hands the worktree back. The parent denial on
+    // `worktrees/` already covers it; this names it, and covers a worktree
+    // that sits anywhere else.
+    if bounded {
+        lines.push(format!(
+            r#"(deny file-write* (subpath "{}"))"#,
+            escape(&canonical(spawn.worktree))
+        ));
+    }
     format!("{}\n", lines.join("\n"))
+}
+
+/// Whether the spawn's policy bounds its shell to a list, build ticket 139.
+///
+/// Map 82 answer 3 makes the list the first filter and this profile the
+/// guarantee. A policy the set does not name composes the ordinary profile,
+/// and the launch fails on that name before it runs anything.
+fn bounded_shell(set: &PolicySet, spawn: &Spawn<'_>) -> bool {
+    set.get(spawn.policy)
+        .is_ok_and(|policy| policy.shell() == policy::ShellGrant::Bounded)
+}
+
+/// What a bounded shell's seat may not read: Hydra's whole tree, the layout
+/// and the checkout the binary was built from, which on a real machine are
+/// both `~/hydra`. The sibling worktrees, the store, the snapshots and the
+/// config all sit inside.
+///
+/// `file-read-data` and not `file-read*`: the worktree sits under these, and
+/// `realpath` and `getcwd` `lstat` every ancestor on the way down. The data
+/// denial refuses a file's contents and a directory's listing and leaves an
+/// ancestor's metadata alone.
+fn bounded_read_denies(spawn: &Spawn<'_>) -> Vec<String> {
+    let mut out = Vec::new();
+    push_unique(&mut out, canonical(spawn.layout.root()));
+    push_unique(&mut out, canonical(&crate::paths::hydra_home()));
+    out
+}
+
+/// What the seat reads again after [`bounded_read_denies`]: its worktree, its
+/// skill snapshot, the parent repo's git directory `git log` reads through the
+/// worktree's `.git` file, and the vendor's own data root.
+fn bounded_read_allows(spawn: &Spawn<'_>) -> Vec<String> {
+    let mut out = Vec::new();
+    push_unique(&mut out, canonical(spawn.worktree));
+    push_unique(&mut out, canonical(spawn.skill_snapshot));
+    if let Some(git_dir) = spawn.parent_git_dir {
+        push_unique(&mut out, canonical(git_dir));
+    }
+    for path in policy::own_read_paths(spawn) {
+        push_unique(&mut out, canonical(&path));
+    }
+    out
 }
 
 /// Wraps a launch argv for the seatbelt when `profile` is set.

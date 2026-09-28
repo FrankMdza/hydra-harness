@@ -663,6 +663,47 @@ kernel probe in the second skips inside a seatbelt, as every nested probe does. 
 already refused it through the `config` row; `config/panels.json` is on that list by name
 now too. `hydra doctor` lists it as present or missing without exiting 1 on a missing file.
 
+**A shell bounded to a command list, since build ticket 139, built and not granted.** Map
+ticket 82 answer 3, amending 63: a seat that reads files gets a shell limited to read-only
+commands under a seatbelt that refuses its writes. An `allow` entry for `shell` may carry
+`commands`, a list of `{ "argv": [...], "refuse": [...] }`; `Policy::validate` refuses a
+list on any other capability, an empty list, an `argv` that starts with a path, a policy
+that grants `shell` both with and without a list, and a misspelt key. `Policy::contains`
+puts a bounded shell under an unbounded one and under any list that holds its entries, so
+`standard` and `permissive` still contain `read-only`. The compiler copies the list into
+the gate's config, and `gate.py`'s `bounded_shell_violation` reads it from there, so the
+script names no command of its own; `tests/gate.rs::the_bounded_list_is_read_from_the_compiled_policy`
+takes `cat` off a compiled config and watches `cat f` get refused. The pass walks the raw
+command with its quote state, because shlex drops quotes and `grep 'x$' f` and
+`grep x$HOME f` are the same tokens afterwards. It refuses redirects, subshells, a lone
+`&`, `$` expansions (`$'...'` included, which spells `-i` as `\x2di`), backquotes,
+unquoted globs and brace expansions, newlines and unbalanced quotes, then splits on `|`,
+`;`, `&&` and `||` with the floor's own `split_segments`. Each segment must start with
+one entry's words, word for word, so `git -c core.pager=sh log` is refused as `git -c`,
+and carry none of that entry's refused flags, matched whole, as `--flag=value`, inside a
+short cluster (`-ni`) and as a GNU abbreviation (`--outp`). Every argument then resolves
+inside the policy's `file_read` scopes, by `realpath`, so `cat link` to a file outside
+is refused. The refusal code is `hydra/shell-list`, and its reason names the part.
+**The profile is the guarantee.** `src/sandbox.rs` composes a different profile for a
+policy whose shell is bounded: no own write path is carved back out, the worktree is
+denied to writes last so nothing after hands it back, and `file-read-data` is denied
+under the layout root and `hydra_home()`, with the worktree, the skill snapshot, the
+spawn directory, the parent's `.git` and the vendor's own data root allowed again.
+`file-read-data` rather than `file-read*`, because the worktree sits under the denied
+root and `realpath` and `getcwd` `lstat` every ancestor. A policy with an unbounded shell
+composes the same profile as before, which `tests/sandbox_read_only.rs` checks on
+`standard`. **Three things are not true yet.** `policies/read-only.json` is unchanged,
+because it is protected config #1; the tests drive `tests/fixtures/policies/read-only.json`,
+and the human writes the real one. The profile does not bind the rest of `HOME`: a seatbelt
+wraps the provider, which reads its install and writes its own session state, so "every
+read and every write outside the worktree" as map 82 worded it would stop the provider,
+and which paths each of the four needs is not measured. And no launch under a bounded
+shell has run. The live kernel probe in `tests/sandbox_read_only.rs` skips inside a
+seatbelt, and the ticket was built inside one, so it has not run yet; the profile text
+test beside it has. `codex` stays refused under
+`read-only` by name at pre-flight (`src/provider/codex.rs`); the bounded shell does not
+lift that. `cargo test` writes `target/`, so no test runs under this policy.
+
 **Until build ticket 50, Hydra found its policy directory through `CARGO_MANIFEST_DIR`
 alone, so the binary only worked from its source tree.** `HYDRA_HOME` overrides it now, and
 the paragraph near the top of this file says how. The reasoning that ticket kept:

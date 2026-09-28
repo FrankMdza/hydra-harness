@@ -766,7 +766,7 @@ call. `ToolSearch` fetches schemas and executes nothing; the gate judges the cal
 |---|---|
 | `judge` | nothing |
 | `curate` | reads the corpus, the skill store, its skill snapshot and its own checkout of the store, invokes linked skills, writes only inside its own checkout of the store |
-| `read-only` | reads inside the worktree and its skill snapshot, invokes linked skills, no shell, no writes |
+| `read-only` | reads inside the worktree and its skill snapshot, invokes linked skills, no shell, no writes. Map 82 adds a shell bounded to a list of read-only commands, under a seatbelt that denies the worktree to writes; build ticket 139 built it and the policy file does not grant it until the human writes it. No tests run under this policy, because `cargo test` writes `target/` |
 | `standard` | reads, writes, shell and network reads inside the worktree, reads its skill snapshot, invokes linked skills |
 | `permissive` | everything, and the only policy that may spawn in-process subagents |
 

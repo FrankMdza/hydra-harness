@@ -26,6 +26,22 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   `gate.py`'s `protected_path_named_by`, so only the raw prefix pass reads it for a protected
   path; the pattern floor then refuses it as unparseable, and `--allow-floor-escape` lifts that
   refusal with the rest of the floor.
+- **A shell bounded to a command list is a filter, and the seatbelt is the guarantee, since build
+  ticket 139.** A policy may grant `shell` with a `commands` list, which map ticket 82 gives the
+  seat that reads files it was not handed. The gate then refuses a command whose segments do not
+  each start with a listed entry's words, or that carry a flag the entry refuses
+  (`find -delete`, `find -exec`, `git diff --output`, a GNU-style abbreviation included). It
+  refuses a redirect, a subshell, a background `&`, a `$` expansion or a backquote, an unquoted
+  glob or brace expansion, a newline, an unbalanced quote, and any argument that resolves outside
+  the policy's `file_read` scopes, a symlink out included. It splits on a pipe, `;`, `&&` and
+  `||` and on nothing else. The list does not make a listed command safe, which is why `sed` is off the list the
+  session proposed: its own script writes (`w`, `W`) and reads (`r`) files no argument names. For
+  a write a listed command could still make, what stops it on macOS is the profile: under a bounded shell the
+  worktree is denied to writes, and file contents and listings under Hydra's whole tree are
+  denied to reads except the run's own worktree, skill snapshot, spawn directory and the parent
+  repo's `.git`. That profile does not cover the rest of `HOME`. A listed command that writes
+  outside `~/hydra` without naming a path the gate resolves reaches the disk, and `tests/gate.rs`
+  refuses only the spellings it can read. Linux has no seatbelt, so there the list is all there is.
 - **The gate folds case ASCII only, and Hydra refuses a root it would fold wrong.** The macOS
   filesystem folds `É` too, so `hydra run` refuses when its data root or its checkout resolves
   to a path outside ASCII. The launching repository's `.git` is folded the same way and is not
