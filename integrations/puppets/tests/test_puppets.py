@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import textwrap
 import unittest
 import uuid
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -775,10 +777,13 @@ class ReviewJudgeTests(PuppetsTestCase):
         puppets.os.execvp = lambda *_args, **_kwargs: (_ for _ in ()).throw(
             SystemExit(0)
         )
+        original_cwd = os.getcwd()
         try:
             with self.assertRaises(SystemExit):
                 puppets.main(["review", "g1", "t1"])
         finally:
+            # cmd_review chdirs into the repo before exec; tearDown deletes that directory.
+            os.chdir(original_cwd)
             puppets.run_judge_panel = original_panel
             puppets.fork_hunk_comment_pusher = original_fork
             puppets.os.execvp = original_exec
@@ -972,6 +977,72 @@ class PlanApprovalTests(PuppetsTestCase):
         state = puppets.fold("g1")
         self.assertIsNotNone(puppets.approval_available(state, "plan"))
         self.assertIsNone(puppets.approval_available(state, "table"))
+
+
+class WorkerTaskTextTests(unittest.TestCase):
+    def test_done_field_appears_in_the_composed_text(self):
+        task = puppets.TaskState(
+            id="t1",
+            text="do the work",
+            task_class="batch_scripting",
+            grade="low",
+            done="pytest integrations/puppets/tests -q exits 0",
+        )
+        text = puppets.worker_task_text(task)
+        self.assertIn(
+            "Done means: pytest integrations/puppets/tests -q exits 0", text
+        )
+        self.assertIn("Not confirmed", text)
+
+    def test_missing_done_field_falls_back(self):
+        task = puppets.TaskState(
+            id="t1", text="do the work", task_class="batch_scripting", grade="low"
+        )
+        text = puppets.worker_task_text(task)
+        self.assertIn(
+            "Done means: not stated by the plan; say in your report what you took it to be.",
+            text,
+        )
+
+
+class WorkerDoneMeansTests(PuppetsTestCase):
+    def test_a_goal_log_written_before_this_change_still_folds(self):
+        events = [
+            {"event": "goal", "text": "test", "repo": "/repo", "base_sha": "abc"},
+            {
+                "event": "task",
+                "id": "t1",
+                "text": "do work",
+                "class": "batch_scripting",
+                "grade": "low",
+                "deps": [],
+                "paths": [],
+            },
+        ]
+        self.write_events("g1", events)
+        state = puppets.fold("g1", events)
+        self.assertIsNone(state.tasks["t1"].done)
+        self.assertEqual(state.tasks["t1"].text, "do work")
+
+    def test_launch_sends_the_composed_text_not_the_bare_task_text(self):
+        events = self.base_task_events() + [
+            {"event": "approval", "kind": "table", "ref": None, "revision": 2, "yes": True},
+        ]
+        self.write_events("g1", events)
+        captured: dict[str, list[str]] = {}
+
+        def fake_spawn_run(argv: list[str]) -> str:
+            captured["argv"] = argv
+            return str(uuid.uuid4())
+
+        with mock.patch.object(puppets, "spawn_run", fake_spawn_run):
+            args = argparse.Namespace(goal="g1", task="t1")
+            self.assertEqual(puppets.cmd_launch(args), 0)
+        argv = captured["argv"]
+        composed = argv[argv.index("--task") + 1]
+        self.assertNotEqual(composed, "do work")
+        self.assertIn("do work", composed)
+        self.assertIn("Done means:", composed)
 
 
 class PuppetsLiveTest(unittest.TestCase):

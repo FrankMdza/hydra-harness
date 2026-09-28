@@ -319,6 +319,7 @@ class TaskState:
     text: str
     task_class: str
     grade: str
+    done: str | None = None
     deps: list[str] = field(default_factory=list)
     paths: list[str] = field(default_factory=list)
     assignment: dict[str, Any] | None = None
@@ -404,6 +405,7 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
                 text=event["text"],
                 task_class=event["class"],
                 grade=event["grade"],
+                done=event.get("done"),
                 deps=list(event.get("deps", [])),
                 paths=list(event.get("paths", [])),
             )
@@ -598,6 +600,19 @@ def next_attempt(goal_id: str, task_id: str) -> int:
         if event.get("event") == "launch_intent" and event.get("task") == task_id
     ]
     return max(attempts, default=0) + 1
+
+
+def worker_task_text(task: TaskState) -> str:
+    """What a worker run is actually launched with: the task text, the plan's own definition
+    of done (or an admission that the plan did not state one), and a standing ask to report
+    what the run could not confirm before what it changed."""
+    done = task.done or "not stated by the plan; say in your report what you took it to be."
+    return (
+        f"{task.text}\n\n"
+        f"Done means: {done}\n\n"
+        "When you report back, start with a section headed \"Not confirmed\": every claim "
+        "you could not check yourself, and where you looked. Then say what changed."
+    )
 
 
 def build_run_argv(
@@ -1583,6 +1598,7 @@ def cmd_tasks(args: argparse.Namespace) -> int:
                 "text": task["text"],
                 "class": task["class"],
                 "grade": task["grade"],
+                "done": task.get("done"),
                 "deps": task.get("deps", []),
                 "paths": task.get("paths", []),
             },
@@ -1706,7 +1722,7 @@ def cmd_launch(args: argparse.Namespace) -> int:
     model = assignment.get("model") or None
     policy = assignment["policy"]
     attempt = next_attempt(args.goal, args.task)
-    argv = build_run_argv(provider, model, policy, task.text)
+    argv = build_run_argv(provider, model, policy, worker_task_text(task))
     sha = argv_sha256(argv)
     append_event(
         args.goal,
