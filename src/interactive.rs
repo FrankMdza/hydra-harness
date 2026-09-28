@@ -321,6 +321,25 @@ fn run_gated(request: Request) -> Result<RunResult> {
         request.model.as_deref(),
     );
 
+    // Build ticket 140, map 82 answer 1. Bound before the exec, so the socket
+    // is there when `claude` starts the face, and in the spawn directory, which
+    // the run cannot write: it can neither unlink this socket nor bind its own.
+    // Served on a thread because this one blocks in `record_then_wait`.
+    let launcher = std::sync::Arc::new(crate::seats::Launcher::new(
+        crate::seats::Session {
+            run_id: run_id.clone(),
+            policy: policy.to_string(),
+            model: request.model.clone(),
+            run_file: run_file.clone(),
+            working_dir: invoked_in.clone(),
+        },
+        policies.dir().to_path_buf(),
+        crate::panels::path(),
+        Box::new(crate::run::run),
+    ));
+    let served = crate::seats::serve(launcher, &crate::seats::socket_path(&layout, &run_id))
+        .map_err(|err| abandon_policy_launch(&layout, &run_id, &repo, &prep.worktree, err))?;
+
     let mut child = std::process::Command::new(&binary)
         .args(&argv)
         .current_dir(&prep.cwd)
@@ -391,6 +410,9 @@ fn run_gated(request: Request) -> Result<RunResult> {
         start_time,
         Some(&prep.worktree),
     )?;
+    // Before the harvest, which writes `run_end`: no request line may land
+    // after it.
+    served.stop();
 
     if let Err(err) = harvest(&layout, &run_id, status.code()) {
         eprintln!("hydra: run {run_id} exited but did not harvest: {err:#}");

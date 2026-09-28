@@ -219,6 +219,19 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   denied. Map ticket 64 holds the decision. Since build ticket 76 a `delegate` call from inside a
   macOS run is refused in Hydra's words with `hydra/seatbelt-delegation` before any corpus read,
   and the parent's record carries the tool result the provider streamed back.
+- **A gated interactive session asks its own launcher for seats over a unix socket, since build
+  ticket 140.** Map ticket 82 admitted one channel: `seats.sock` in the run's spawn directory,
+  bound by `hydra run --interactive` outside the seatbelt before the provider starts. Before this
+  ticket any run could connect to any socket in a sibling's spawn directory, because the read
+  denial on the spawns directory does not stop `connect`. Every run's profile now denies connecting
+  to a socket under the spawns directory and allows only its own `seats.sock`; measured on
+  2026-09-28 with hand-written profiles, a sibling's socket answers EPERM under every spelling
+  tried. The run cannot unlink the socket or bind its own, because the spawn directory is denied
+  to its writes. The kernel scopes the socket by path, so the session's own shell reaches it as
+  well as the face does. The launcher is the guard: it launches only a shape the human approved in
+  `config/panels.json`, never a seat wider than the session's policy, at most the shape's cap per
+  hour, writes every request to the session's record before it launches anything, and marks each
+  child's text itself. Everything else waits for a human.
 - **On `codex` the gate rides the command line, and a hook that dies without answering fails
   open, since 2026-09-21.** Codex reads no project hook file inside a git worktree, and every
   Hydra run is one, so the gate is handed over as a `-c` override naming a Python file in the

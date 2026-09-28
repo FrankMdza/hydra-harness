@@ -818,6 +818,87 @@ fn an_unbounded_shell_is_not_read_through_the_list() {
     assert!(decision.allowed, "{}", decision.reason);
 }
 
+// ---------------------------------------------------------------------------
+// `mcp_call` scoped to named servers, build ticket 140
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_shipped_standard_refuses_every_mcp_call_the_face_included() {
+    // What build ticket 140 found: `standard` grants no `mcp_call` at all, so
+    // a gated session cannot reach `mcp__hydra__delegate` until the human
+    // amends `policies/standard.json`.
+    let gate = Gate::new("standard");
+    let decision = gate.ask("mcp__hydra__delegate", json!({}));
+    assert!(
+        decision.denied_for("hydra/capability"),
+        "{}",
+        decision.reason
+    );
+}
+
+#[test]
+fn an_mcp_call_scoped_to_hydra_admits_the_face_and_no_other_server() {
+    let gate = Gate::scoped_mcp(Provider::Claude);
+    for tool in ["mcp__hydra__delegate", "mcp__hydra__panel"] {
+        let decision = gate.ask(tool, json!({"provider": "claude", "task": "go"}));
+        assert!(decision.allowed, "{tool}: {}", decision.reason);
+    }
+    for tool in [
+        "mcp__claude-in-chrome__navigate",
+        "mcp__hydra-evil__delegate",
+        "mcp__hydrax__delegate",
+    ] {
+        let decision = gate.ask(tool, json!({}));
+        assert!(
+            decision.denied_for("hydra/mcp-server"),
+            "{tool}: {}",
+            decision.reason
+        );
+        assert!(decision.reason.contains("hydra"), "{}", decision.reason);
+    }
+}
+
+#[test]
+fn a_server_scoped_mcp_call_still_refuses_a_protected_path_argument() {
+    let gate = Gate::scoped_mcp(Provider::Claude);
+    let runs = gate.runs.join("x.jsonl");
+    let decision = gate.ask(
+        "mcp__hydra__delegate",
+        json!({"provider": "claude", "task": format!("cat {}", runs.display())}),
+    );
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "{}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_provider_whose_mcp_names_carry_no_server_gets_none_under_a_scoped_grant() {
+    // `cursor-agent` spells an MCP tool `MCP:<tool>`, with no server in the
+    // name, so a grant scoped to a server has nothing to match and refuses.
+    let gate = Gate::scoped_mcp(Provider::CursorAgent);
+    let decision = gate.cursor_tool("MCP:delegate", json!({}));
+    assert!(
+        decision.denied_for("hydra/mcp-server"),
+        "{}",
+        decision.reason
+    );
+}
+
+#[test]
+fn codex_names_the_server_the_way_claude_does() {
+    let gate = Gate::scoped_mcp(Provider::Codex);
+    let decision = gate.ask("mcp__hydra__delegate", json!({}));
+    assert!(decision.allowed, "{}", decision.reason);
+    let decision = gate.ask("mcp__claude-in-chrome__navigate", json!({}));
+    assert!(
+        decision.denied_for("hydra/mcp-server"),
+        "{}",
+        decision.reason
+    );
+}
+
 #[test]
 fn standard_writes_inside_the_worktree_and_refuses_outside_it() {
     let gate = Gate::new("standard");

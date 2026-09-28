@@ -1139,7 +1139,18 @@ The diff stat is the one returned field with no record equivalent, computed from
 **The MCP face is narrow: `delegate(provider, task, files?, policy?)`.** A call from inside a macOS
 seatbelt is refused with `hydra/seatbelt-delegation` before any launch, because the delegated child
 is Hydra itself and the inherited profile denies the corpus; launch from the orchestrator outside
-the run instead. No `--shared-tree`, no timeout override, no depth, no `model`. Those four are how a
+the run instead. **A gated interactive session is the exception** (map ticket 82, build ticket 140).
+Its launcher waits outside the seatbelt and listens on `seats.sock` in the run's spawn directory,
+bound before the provider starts. The face asks it first: a `delegate` call becomes a request for
+one seat, and the face lists a second tool, `panel(shape, task, files?)`, which asks for an
+approved shape by name. The launcher checks the request against `config/panels.json` and the
+session's policy, writes it to the session's record as a `seat_request` line, and launches each
+seat as a child of the session with its own id minted first. It marks each child's text itself,
+with one token drawn after every seat stopped. A request for a shape the session may not ask for,
+a seat whose policy the session's does not contain, a shape past its cap per hour, and a shape
+nobody approved are refused by name; a request that matches no shape comes back
+`hydra/approval-required` with its id and launches nothing until a human approves it. A run with
+no launcher, which is every recorded run, keeps the refusal above. No `--shared-tree`, no timeout override, no depth, no `model`. Those four are how a
 delegation escapes its worktree,
 outlives its budget, spawns a tree, or drops to an older model generation to dodge a limit it
 noticed. They are human decisions rather than per-call choices a model makes unattended. `model` is
@@ -1203,6 +1214,16 @@ fails loudly rather than starting a fresh conversation dressed up as a continuat
 No attach, no input, no answering a permission prompt from outside. Children run detached and
 unwatched, D5 forbids a second channel, and two of three providers cannot be asked anything mid-run
 anyway, so this is the only coherent shape rather than a compromise.
+
+**One channel is admitted past D5, for one use** (map ticket 82). In a gated interactive launch the
+session's face may ask its own launcher for seats over `seats.sock`, and the launcher answers with
+the seats' marked results. Nothing else crosses it: no input to the session, no prompt, no view. The
+kernel scopes it by path, not by process. Every run's profile denies connecting to a socket under
+the spawns directory and then allows its own `seats.sock`, so no run reaches another run's launcher.
+The session's own shell reaches this one as well as the face does. That is accepted, because the
+launcher is the guard either way, and the gate's `mcp_call` scope defends the MCP path and not the
+channel. The launcher closes the session's record to new requests before the harvest writes
+`run_end`.
 
 **Nothing is cleaned up automatically.** `hydra prune` and `hydra reap` are commands you type. Prune
 moves run files rather than deleting them unless a flag says otherwise, because D12 keeps lossless

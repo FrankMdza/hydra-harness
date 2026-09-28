@@ -127,6 +127,21 @@ impl Gate {
         Self::build_with(Provider::Claude, "read-only", false, true, root, set)
     }
 
+    /// A `standard` gate for `provider` compiled from [`scoped_mcp_set`], the
+    /// fixture policy whose `mcp_call` names Hydra's own server and no other.
+    /// Build ticket 140.
+    pub fn scoped_mcp(provider: Provider) -> Self {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "hydra-gate-{}-mcp-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let set = fixture_set(&root.join("policies"), "standard.json");
+        Self::build_with(provider, "standard", false, true, root, set)
+    }
+
     /// The gate for `policy` out of `set`, rooted at `root`. The caller has
     /// already cleared `root`, and `set` may live inside it.
     pub fn build_with(
@@ -584,6 +599,18 @@ impl Drop for Gate {
 /// command list. `policies/` is protected config #1 and the human's to write,
 /// so the tests drive the shape from here. Build ticket 139.
 pub fn bounded_shell_set(dir: &Path) -> PolicySet {
+    fixture_set(dir, "read-only.json")
+}
+
+/// The shipped policy set copied into `dir`, with `standard.json` replaced by
+/// `tests/fixtures/policies/standard.json`, whose `mcp_call` is scoped to the
+/// `hydra` server. Build ticket 140; the shipped file is the human's to amend.
+pub fn scoped_mcp_set(dir: &Path) -> PolicySet {
+    fixture_set(dir, "standard.json")
+}
+
+/// The shipped set in `dir` with one file swapped for its fixture.
+fn fixture_set(dir: &Path, file: &str) -> PolicySet {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     std::fs::create_dir_all(dir).unwrap();
     for entry in std::fs::read_dir(manifest.join("policies")).unwrap() {
@@ -591,8 +618,8 @@ pub fn bounded_shell_set(dir: &Path) -> PolicySet {
         std::fs::copy(entry.path(), dir.join(entry.file_name())).unwrap();
     }
     std::fs::copy(
-        manifest.join("tests/fixtures/policies/read-only.json"),
-        dir.join("read-only.json"),
+        manifest.join("tests/fixtures/policies").join(file),
+        dir.join(file),
     )
     .unwrap();
     PolicySet::load(dir).unwrap()

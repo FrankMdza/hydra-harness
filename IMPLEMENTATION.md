@@ -652,9 +652,9 @@ allowed to ask. An unknown provider, an unknown policy, an unknown field, an emp
 asker list, a cap of 0, a repeated shape name, or a seat whose policy some asker's policy
 does not contain refuses the whole file with the field named. The order is
 `Policy::contains`, 7.3's containment, so "never more than the session" needed no decision.
-A missing file loads as no shapes. **Nothing reads the loader yet**: build ticket 140 is
-what launches from a shape, and the file does not exist on this machine because the human
-writes it. `denied_write_paths` names it beside the other five. The checkout was already
+A missing file loads as no shapes. Since build ticket 140 the seat launcher reads it at
+every request, below. The file does not exist on this machine because the human writes it,
+so until they do every request for seats waits for approval. `denied_write_paths` names it beside the other five. The checkout was already
 denied whole since build ticket 74, so a write to it was refused before this ticket; what
 the ticket changed is that the gate's reason and the seatbelt profile name the file itself.
 `tests/gate.rs::the_panel_shapes_are_denied_by_name_under_all_five_policies` and
@@ -703,6 +703,59 @@ seatbelt, and the ticket was built inside one, so it has not run yet; the profil
 test beside it has. `codex` stays refused under
 `read-only` by name at pre-flight (`src/provider/codex.rs`); the bounded shell does not
 lift that. `cargo test` writes `target/`, so no test runs under this policy.
+
+**A gated interactive session asks its own launcher for seats, since build ticket 140.** Map
+ticket 82 answers 1, 2 and 5, amending 64. `run_gated` binds `seats.sock` in the run's spawn
+directory before it execs `claude`, `0o600`, and `src/seats.rs` answers it on a thread of its
+own, because the launcher blocks in `record_then_wait`, with a thread per connection and a
+ten-second read timeout. The face derives the path from the `--parent` it already gets and
+asks the launcher before anything else. Only when there is no socket, or nobody listens on it,
+does it fall back to what it did before: `hydra/seatbelt-delegation` inside a seatbelt,
+`run::run` outside. That order matters on Linux too, where no seatbelt wraps a gated session:
+its `delegate` calls now go through the launcher's check as well. The face lists a second tool,
+`panel(shape, task, files?)`, only when the socket is there, so every other run still sees one
+tool. The launcher reads the policy set and `config/panels.json` at every request. A named
+shape is refused as `hydra/unknown-shape` when nobody approved it and as
+`hydra/shape-not-askable` when the session's policy is not among its askers. A seat whose
+policy the session's does not contain is refused as `hydra/seat-above-session`, and a shape
+past its cap as `hydra/panel-cap`. The cap is counted in memory, per session, because the
+launcher lives exactly as long as the session. A request for seats matches a shape when the
+seats are the shape's in any order, compared on provider, model and policy. A request that
+matches none is `hydra/approval-required` with a request id and launches nothing; 141 builds
+the approval. Every request, refused ones included, is a `seat_request` line on the session's
+record, written under the record's lock before anything launches: the request id, the shape,
+the seats, the task verbatim, the decision, the refusal code, and the run ids the launcher
+mints for the seats. A launch passes those ids to `run::run` with the session as `--parent`,
+so each seat's `run_start` carries `parent_run_id`. The seats start in parallel, each seat's
+task is its role and then the task, and each child's text is marked by the launcher with one
+token drawn after every seat stopped. The launcher closes the record to new lines, stops
+accepting and removes the socket before the harvest writes `run_end`; a seat still launching
+then is detached and its own record says how it ended. **Every profile, not only an
+interactive one, denies `network-outbound` to a unix socket under the spawns directory and
+allows the run's own `seats.sock`**, after `(allow default)` and in that order, because SBPL
+takes the last match. Before this ticket any run could connect to any socket in a sibling's
+spawn directory. `tests/seats.rs` drives the launcher with a stub in place of `run::run`, the
+built face over a pipe, the record, and the profile text for all four providers under all five
+policies. Its three live probes skip inside a seatbelt, and the ticket was built inside one, so
+they have not run: another run's socket refused by the kernel, a recorded run's face still
+refusing under its own profile, and an interactive session's face reaching its launcher from
+under its own profile. **Item 5 is built and not granted.** The capability table had no way to
+scope `mcp_call`, and `policies/standard.json` grants no `mcp_call` at all, so today the gate
+refuses `mcp__hydra__delegate` to a `standard` session and the channel is unreachable through
+the face. An `mcp_call` entry may now carry `servers`, a list; `gate.py` admits a tool only when
+its name is `mcp__<server>__<tool>` for a server on it, and refuses everything else as
+`hydra/mcp-server`, which on `cursor-agent` and `agy` is every MCP call, because their tool
+names carry no server. `Policy::validate` refuses the list on another capability, an empty
+list, a name holding `__`, and a list beside an unscoped `mcp_call`; `Allow` now refuses
+unknown keys, because before this ticket a `servers` key was dropped and read as every server.
+`tests/gate.rs` drives `tests/fixtures/policies/standard.json`, and the human writes the real
+one. The scope defends the MCP path only. The session's shell reaches `seats.sock` too, and the
+launcher is what guards it. **Three things are open.** The record contract says a run file
+holds exactly two Hydra lines, and `docs/run-record-contract.md` was not this ticket's to
+amend; the validator accepts `seat_request` and the contract does not name it yet. No normalized
+event carries a request, so `hydra show` does not print one. And `run::run` in the launcher
+prints its `hydra: run ...` lines on the launcher's stderr, which is the terminal the session
+is drawing on.
 
 **Until build ticket 50, Hydra found its policy directory through `CARGO_MANIFEST_DIR`
 alone, so the binary only worked from its source tree.** `HYDRA_HOME` overrides it now, and
@@ -3144,6 +3197,8 @@ checks `sandbox::inside_seatbelt()` before it calls `run::run` and answers `hydr
 in Hydra's words rather than an EPERM from a corpus read. `tests/face.rs::delegation_from_inside_a_seatbelt_is_refused_in_hydras_words`
 drives the built binary under `/usr/bin/sandbox-exec` with a minimal `(allow default)` profile and
 reads the refusal back as a tool result; the same request outside a profile still reaches `run::run`.
+Since build ticket 140 a gated interactive session is the exception: its face asks the launcher
+waiting outside the seatbelt, and only a run with no launcher gets the refusal.
 
 **What the seatbelt is and is not, measured 2026-09-22.** `tests/spawn.rs` now drives a real
 profile through `sandbox-exec` on a corpus read spelled in full, a corpus write assembled from two

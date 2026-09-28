@@ -166,7 +166,13 @@ pub mod keys {
     pub const PARENT_GIT_DIR: &str = "parent_git_dir";
 }
 
+/// An entry of a policy's allow list.
+///
+/// **Unknown keys are refused.** Before build ticket 140 they were dropped, so
+/// a `servers` list on `mcp_call` loaded as an `mcp_call` on every server,
+/// which is the widest reading of an entry written to narrow one.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Allow {
     pub capability: Capability,
     pub scope: Option<Scope>,
@@ -177,6 +183,14 @@ pub struct Allow {
     /// [`Policy::validate`] refuses it anywhere else.
     #[serde(default)]
     pub commands: Option<Vec<ShellCommand>>,
+    /// The MCP servers an `mcp_call` may reach, build ticket 140. `None` is
+    /// every server the run was handed. A list admits a tool only when its name
+    /// is `mcp__<server>__<tool>` for a server on it, so a provider whose MCP
+    /// names carry no server, `cursor-agent` and `agy`, gets none. A list means
+    /// something only on `mcp_call`, and [`Policy::validate`] refuses it
+    /// anywhere else.
+    #[serde(default)]
+    pub servers: Option<Vec<String>>,
 }
 
 /// One entry of a bounded shell's list.
@@ -222,6 +236,7 @@ pub struct Policy {
 
 impl Policy {
     fn validate(&self, file: &Path) -> Result<()> {
+        self.validate_servers(file)?;
         let mut bounded = false;
         let mut unbounded = false;
         for entry in &self.allow {
@@ -286,6 +301,79 @@ impl Policy {
             }
         }
         Ok(())
+    }
+
+    /// The server list of build ticket 140: on `mcp_call` only, never empty,
+    /// every name one a tool name can carry, and never beside an unscoped
+    /// `mcp_call`, which would win.
+    fn validate_servers(&self, file: &Path) -> Result<()> {
+        let mut scoped = false;
+        let mut unscoped = false;
+        for entry in &self.allow {
+            match (&entry.servers, entry.capability) {
+                (Some(_), capability) if capability != Capability::McpCall => bail!(
+                    "{}: {} takes no server list, only mcp_call does",
+                    file.display(),
+                    capability.as_str()
+                ),
+                (Some(servers), _) => {
+                    scoped = true;
+                    if servers.is_empty() {
+                        bail!(
+                            "{}: mcp_call names an empty server list; a policy with no \
+                             mcp_call leaves the entry out",
+                            file.display()
+                        );
+                    }
+                    // `__` separates the server from the tool in the name the
+                    // gate reads, so a server holding it could match a tool of
+                    // another server.
+                    if let Some(bad) = servers
+                        .iter()
+                        .find(|name| name.is_empty() || name.contains("__"))
+                    {
+                        bail!(
+                            "{}: mcp_call server {bad:?} is empty or holds `__`, which \
+                             separates a server from its tool",
+                            file.display()
+                        );
+                    }
+                }
+                (None, Capability::McpCall) => unscoped = true,
+                (None, _) => {}
+            }
+        }
+        if scoped && unscoped {
+            bail!(
+                "{}: mcp_call is granted both with and without a server list, and the \
+                 unscoped entry would win",
+                file.display()
+            );
+        }
+        Ok(())
+    }
+
+    /// What this policy grants of `mcp_call`: `None` for none, `Some(None)`
+    /// for every server, `Some(Some(list))` for the servers listed.
+    fn mcp_servers(&self) -> Option<Option<std::collections::BTreeSet<&str>>> {
+        let entries: Vec<&Allow> = self
+            .allow
+            .iter()
+            .filter(|entry| entry.capability == Capability::McpCall)
+            .collect();
+        if entries.is_empty() {
+            return None;
+        }
+        if entries.iter().any(|entry| entry.servers.is_none()) {
+            return Some(None);
+        }
+        Some(Some(
+            entries
+                .iter()
+                .flat_map(|entry| entry.servers.iter().flatten())
+                .map(String::as_str)
+                .collect(),
+        ))
     }
 
     /// The set this policy grants, as capability-scope pairs.
@@ -353,6 +441,16 @@ impl Policy {
     pub fn contains(&self, other: &Policy) -> bool {
         let mine = self.grants();
         other.grants().iter().all(|entry| {
+            if entry.capability == Capability::McpCall {
+                return match (self.mcp_servers(), &entry.servers) {
+                    (None, _) => false,
+                    (Some(None), _) => true,
+                    (Some(Some(_)), None) => false,
+                    (Some(Some(mine)), Some(theirs)) => {
+                        theirs.iter().all(|server| mine.contains(server.as_str()))
+                    }
+                };
+            }
             if entry.capability == Capability::Shell {
                 return match (self.shell(), &entry.commands) {
                     (ShellGrant::None, _) => false,
@@ -370,6 +468,7 @@ impl Policy {
                         capability: entry.capability,
                         scope: Some(Scope::Anywhere),
                         commands: None,
+                        servers: None,
                     }))
         })
     }
@@ -998,6 +1097,9 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
                     .collect();
                 obj.insert("commands".into(), list.into());
             }
+            if let Some(servers) = &entry.servers {
+                obj.insert("servers".into(), servers.clone().into());
+            }
             serde_json::Value::Object(obj)
         })
         .collect();
@@ -1377,6 +1479,67 @@ mod tests {
         }
         // A misspelt key would drop the refusals it held without a word.
         let typo = r#"{"name":"read-only","allow":[{"capability":"shell","commands":[{"argv":["sed"],"refuses":["-i"]}]}]}"#;
+        assert!(serde_json::from_str::<Policy>(typo).is_err());
+    }
+
+    fn scoped_mcp_fixture() -> Policy {
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/policies/standard.json"),
+        )
+        .unwrap();
+        let policy: Policy = serde_json::from_str(&text).unwrap();
+        policy.validate(Path::new("fixture")).unwrap();
+        policy
+    }
+
+    #[test]
+    fn a_server_list_sits_under_every_server_and_over_a_shorter_list() {
+        // Build ticket 140. `permissive` grants `mcp_call` on every server, so
+        // it holds any list; the list holds no unscoped `mcp_call`, and a
+        // policy with no `mcp_call` holds neither.
+        let set = set();
+        let scoped = scoped_mcp_fixture();
+        assert!(set.get("permissive").unwrap().contains(&scoped));
+        assert!(!set.get("standard").unwrap().contains(&scoped));
+        assert!(scoped.contains(set.get("standard").unwrap()));
+        assert!(!scoped.contains(set.get("permissive").unwrap()));
+
+        let mut wider = scoped.clone();
+        for entry in &mut wider.allow {
+            if let Some(servers) = &mut entry.servers {
+                servers.push("claude-in-chrome".to_string());
+            }
+        }
+        assert!(wider.contains(&scoped));
+        assert!(
+            !scoped.contains(&wider),
+            "a longer list reaches more servers"
+        );
+    }
+
+    #[test]
+    fn a_server_list_is_refused_where_it_cannot_mean_what_it_says() {
+        for (json, why) in [
+            (
+                r#"[{"capability":"shell","servers":["hydra"]}]"#,
+                "only mcp_call",
+            ),
+            (r#"[{"capability":"mcp_call","servers":[]}]"#, "empty"),
+            (
+                r#"[{"capability":"mcp_call","servers":["hydra__x"]}]"#,
+                "separates a server",
+            ),
+            (
+                r#"[{"capability":"mcp_call","servers":["hydra"]},{"capability":"mcp_call"}]"#,
+                "unscoped entry would win",
+            ),
+        ] {
+            let text = format!(r#"{{"name":"standard","allow":{json}}}"#);
+            let policy: Policy = serde_json::from_str(&text).unwrap();
+            let err = policy.validate(Path::new("p")).unwrap_err().to_string();
+            assert!(err.contains(why), "{json}: {err}");
+        }
+        let typo = r#"{"name":"standard","allow":[{"capability":"mcp_call","server":["hydra"]}]}"#;
         assert!(serde_json::from_str::<Policy>(typo).is_err());
     }
 

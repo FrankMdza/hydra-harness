@@ -37,8 +37,9 @@ server is a human's decision: a server definition is a command Hydra spawns insi
 run the document admits it to.
 
 `panels.json` lists the panels a gated session may ask its own launcher for without a
-prompt, map ticket 82. Nothing launches from it yet; build ticket 140 does that. This is
-the fixed three-seat review panel as one shape:
+prompt, map ticket 82. Since build ticket 140 the launcher of a gated interactive session
+reads it at every request, so a shape written while a session runs is one the session can
+ask for. This is the fixed three-seat review panel as one shape:
 
 ```json
 {
@@ -69,3 +70,11 @@ grants, or the shape is refused. In the example, `standard` contains `judge` and
 so it loads. Adding `read-only` to `askers` refuses it, because `read-only` cannot run
 the `standard` seat, and so does `curate`, which neither contains `standard` nor is
 contained by it. `permissive` contains all five and may ask for any shape.
+
+A session asks for a shape by name with the face's `panel` tool, or asks for seats with
+`delegate`, which is a request for one seat. A request for seats matches a shape when its
+seats are the shape's seats in any order, compared on provider, model and policy; the role
+is the shape's. `delegate` passes no model, so it matches only a one-seat shape whose seat
+names none. A match launches with no prompt, up to `cap_per_hour` times in any hour of one
+session. Anything else comes back `hydra/approval-required` and waits for `hydra approve`,
+which is build ticket 141 and does not exist yet.

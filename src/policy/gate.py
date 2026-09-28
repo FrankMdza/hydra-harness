@@ -759,6 +759,36 @@ def bounded_shell_violation(command, commands, cwd):
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# `mcp_call` scoped to named servers, build ticket 140
+# --------------------------------------------------------------------------
+
+
+def mcp_server_list():
+    """The servers the policy scopes `mcp_call` to, or None when it names none."""
+    entries = [e for e in HYDRA_CONFIG["allow"] if e["capability"] == "mcp_call"]
+    if not entries or any("servers" not in e for e in entries):
+        return None
+    return [s for e in entries for s in e["servers"]]
+
+
+def mcp_server_violation(tool, servers):
+    """Why `tool` reaches no server on the list, or None when it reaches one.
+
+    Only a prefix of `mcp__` carries the server in the tool's name, as
+    `mcp__<server>__<tool>`. `cursor-agent` spells `MCP:<tool>` and `agy`
+    names one tool for every server, so neither says which server a call
+    reaches, and a list refuses both.
+    """
+    prefix = HYDRA_CONFIG.get("mcp_prefix")
+    if prefix == "mcp__":
+        for server in servers:
+            if tool.startswith("mcp__" + server + "__"):
+                return None
+        return "a server the list does not name"
+    return "no server in its name for the list to match"
+
+
 def capability_of(tool):
     # A prefix on two providers and the provider's own spelling on each:
     # `mcp__<server>__<tool>` on claude, `MCP:<tool>` on cursor. `agy` names one
@@ -1072,6 +1102,21 @@ def evaluate(payload):
                             scoped_path,
                         )
                     )
+
+    # An `mcp_call` the policy scopes to a list of servers, build ticket 140.
+    # After the capability check, so a policy with no `mcp_call` still says
+    # `capability`, and after the protected-path pass above, which it does
+    # not replace.
+    servers = mcp_server_list() if capability == "mcp_call" else None
+    if servers is not None:
+        hit = mcp_server_violation(tool, servers)
+        if hit:
+            return False, (
+                "hydra/mcp-server: policy {} calls MCP tools only on {}, and {} "
+                "has {}.".format(
+                    HYDRA_CONFIG["policy"], ", ".join(servers), tool, hit
+                )
+            )
 
     # A shell the policy bounds to a list, map ticket 82 answer 3. After the
     # capability check, so a policy with no shell still says `capability`, and

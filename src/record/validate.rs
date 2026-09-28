@@ -157,6 +157,19 @@ const LATER_RUN_END_FIELDS: &[(&str, Shape)] = &[
     ("admission_hydra_root", Shape::Text),
 ];
 
+/// A `seat_request` line's fields, build ticket 140: one request a gated
+/// interactive session's face made of its launcher, written by the launcher
+/// between `run_start` and the harvest's `run_end`.
+const SEAT_REQUEST_FIELDS: &[&str] = &[
+    "request_id",
+    "shape",
+    "seats",
+    "task",
+    "decision",
+    "reason",
+    "runs",
+];
+
 pub fn check_file(path: &Path) -> Result<Report> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -282,8 +295,23 @@ pub fn check(text: &str, expected_run_id: Option<&str>) -> Report {
                     }
                     check_later_run_end_fields(body, &at, &mut say);
                 }
+                "seat_request" => {
+                    if index == 0 {
+                        say(format!("{at}: a seat_request before run_start"));
+                    }
+                    for field in SEAT_REQUEST_FIELDS {
+                        if !body.contains_key(*field) {
+                            say(format!("{at}: seat_request is missing {field}"));
+                        }
+                    }
+                    let decision = body.get("decision").and_then(Value::as_str);
+                    if !matches!(decision, Some("launched" | "refused" | "approval_required")) {
+                        say(format!("{at}: seat_request has decision {decision:?}"));
+                    }
+                }
                 other => say(format!(
-                    "{at}: a Hydra line of type {other:?}; the contract allows exactly two"
+                    "{at}: a Hydra line of type {other:?}; the contract allows run_start, \
+                     run_end and a session's seat_request"
                 )),
             }
         } else if has_hydra {

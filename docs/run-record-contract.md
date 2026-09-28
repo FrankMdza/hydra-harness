@@ -112,6 +112,13 @@ the opening and the closing of a run, and they exist because a launcher knows th
 frame contains. Everything else is derived, including the permission decisions and the corrections,
 which surprises people and is the subject of section 11.
 
+**One exception since map ticket 82, `seat_request`.** A gated interactive session may ask its own
+launcher for seats (harness spec 9 and 10). The launcher, which is Hydra and not the provider,
+writes one `seat_request` line per request, between `run_start` and `run_end`, before it launches
+anything: `request_id`, `shape`, `seats`, `task`, `decision` (`launched`, `refused` or
+`approval_required`), `reason` and `runs`. No provider frame carries that request's fate, which is
+the same reason the other two exist. It appears only on an interactive run's file; `src/record/validate.rs` accepts it.
+
 ```jsonc
 // provider line
 {"run_id":"...","parent_run_id":null,"seq":14,"ts":"2026-09-04T12:38:02.114Z",

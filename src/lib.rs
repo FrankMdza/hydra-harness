@@ -46,6 +46,7 @@ pub mod resume;
 pub mod run;
 pub mod rungs;
 pub mod sandbox;
+pub mod seats;
 pub mod show;
 pub mod skills;
 pub mod spawn_config;

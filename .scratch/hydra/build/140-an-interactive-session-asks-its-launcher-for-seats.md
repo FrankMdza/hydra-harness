@@ -1,7 +1,7 @@
 # 140 - A gated interactive session asks its own launcher for seats
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 138, 139
 
 ## What
@@ -76,3 +76,27 @@ that no run reaches another run's socket, which it does. Item 5 of Do stays, sco
 for the MCP path only; do not claim it guards the channel.
 
 ## Outcome
+
+Run `01a0e7ae` (claude opus, `standard`), applied as written plus the contract amendment it was not
+allowed to make. `src/seats.rs`: one JSON line each way over `seats.sock`, a `Launcher` that checks
+askers, containment and the cap per hour, writes a `seat_request` line under the record's lock
+before launching, launches seats as children of the session, and marks their text itself; the
+face asks it first and gains a `panel(shape, task, files?)` tool; `run_gated` binds before exec and
+stops before the harvest. Every profile denies unix-socket connects under the spawns directory and
+allows the run's own `seats.sock`. `Allow` refuses unknown keys now (it silently dropped them, so
+a misspelt narrowing would have loaded as the widest grant) and gains `servers` for `mcp_call`.
+
+Found by the run: the shipped `standard` grants no `mcp_call`, so the face cannot reach the channel
+from a session until the human adds `{ "capability": "mcp_call", "servers": ["hydra"] }`
+(`tests/fixtures/policies/standard.json` shows the file); the shell can reach it either way.
+Launcher output lands on the session's screen (142, item 4). On Linux, with no seatbelt, a gated
+session's `delegate` now goes through the launcher's check.
+
+The session ran the three live-kernel tests on master (they skip inside a run): a sibling's socket
+is refused, a non-interactive face still refuses, an interactive face reaches its launcher. The
+record contract gains `seat_request` as the one exception to "exactly two Hydra lines". An
+adversarial review found no bypass of shapes, containment, socket scope or marking, and five
+robustness gaps a hostile session can reach; they are build 142, and the release binary waits for
+it. Master: fmt, clippy, lib 217, seats 12, gate 110, spawn 35, face 8, harvest 12, delegation 14,
+record_contract 20, sandbox_read_only 3, sandbox_tty 2, panels 8, normalize 87, doctor 3,
+detached 9, pty_tee 4, show 3.

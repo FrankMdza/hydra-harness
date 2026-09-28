@@ -1015,6 +1015,7 @@ pub(crate) const GATE_CODES: &[&str] = &[
     "protected-path",
     "floor",
     "shell-list",
+    "mcp-server",
     "no-path",
     "unknown-tool",
     "gate-tampered",

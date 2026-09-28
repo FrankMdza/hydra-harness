@@ -105,6 +105,22 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
         r#"(deny file-read* (subpath "{}"))"#,
         escape(&canonical(&spawn.layout.pruned()))
     ));
+    // Build ticket 140. The read denial above does not stop `connect`, and a
+    // run could reach any socket in a sibling's spawn directory, measured
+    // 2026-09-28. So every run's profile denies connecting to a socket under
+    // the spawns directory and then allows its own `seats.sock`, which a gated
+    // interactive launcher listens on. Not every unix socket:
+    // `/var/run/mDNSResponder` is DNS.
+    lines.push(format!(
+        r#"(deny network-outbound (remote unix-socket (subpath "{}")))"#,
+        escape(&canonical(&spawn.layout.spawns()))
+    ));
+    if let Some(own_spawn) = spawn.gate_script.parent() {
+        lines.push(format!(
+            r#"(allow network-outbound (remote unix-socket (path-literal "{}")))"#,
+            escape(&canonical(&own_spawn.join(crate::seats::SOCKET)))
+        ));
+    }
     let bounded = bounded_shell(set, spawn);
     if bounded {
         for path in bounded_read_denies(spawn) {
