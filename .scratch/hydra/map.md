@@ -317,6 +317,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [79 - An unhooked row keeps its capability](issues/79-an-unhooked-row-keeps-its-capability.md): resolved 2026-09-24. Unhooked becomes a flag beside the real capability; the gate still skips the row, the replay files a finding when the policy denies the capability. Cursor and codex rows both. Build ticket 124.
 - [80 - Where the walk over this machine's records belongs](issues/80-where-the-live-corpus-walk-belongs.md): resolved 2026-09-24. The live walks move to `hydra doctor --walk`, the fixture walks stay in `cargo test`, pre-push runs both. Build tickets 125 and 126.
 
+- [82 - A judge that needs subagents inside the seatbelt](issues/82-a-judge-that-needs-subagents-inside-the-seatbelt.md): resolved 2026-09-28 with the human in six questions. A gated interactive session asks its own launcher, outside the seatbelt, for seats; a shape in protected config #6 launches alone, anything else waits for a human-typed `hydra approve`; seats that read get a bounded read-only shell under a write-denying seatbelt. Amends 63 and 64. Build tickets 138 to 141.
 
 ## Not yet specified
 
