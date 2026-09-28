@@ -77,6 +77,10 @@ pub fn write_profile(set: &PolicySet, spawn: &Spawn<'_>, path: &Path) -> Result<
 /// then allow writes to what this spawn owns.
 pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
     let mut lines = vec!["(version 1)".to_string(), "(allow default)".to_string()];
+    // Build ticket 137. In a gated interactive launch the provider under this
+    // profile holds the human's terminal, and TIOCSTI would let it type into
+    // that terminal's input queue. No process in a run has a reason to.
+    lines.push("(deny file-ioctl (ioctl-command TIOCSTI))".to_string());
     for path in write_denies(set, spawn) {
         lines.push(format!(
             r#"(deny file-write* (subpath "{}"))"#,

@@ -3115,6 +3115,23 @@ routed it through the same profile a recorded launch gets, with `gate_sha` and `
 `run_start`; the human measured it the same day on run 01a0c9ca-1591, which drew its interface under
 `sandbox-exec`, answered and exited 0 with both shas on line 0.
 
+**The seatbelt refuses `TIOCSTI`, since build ticket 137.** Until then the profile held file rules
+only, and the validation run of map ticket 82, 01a0e75a, made a fresh pty the controlling terminal
+of a process inside it and pushed `y` and a newline into that pty's input queue. In a gated
+interactive launch the `claude` under the seatbelt holds the human's terminal. `compose` now adds
+`(deny file-ioctl (ioctl-command TIOCSTI))` and no other ioctl rule: SBPL filters ioctls by
+request, and the symbol compiles (a misspelt one fails with "unbound variable"). The rule has no
+path filter, because the terminal's path differs per launch and no process in the run has a reason
+to type into any terminal. `tests/sandbox_tty.rs::the_seatbelt_refuses_terminal_input_injection`
+runs its own binary as the probe under `sandbox-exec` on a pty the test opens, first under a bare
+`(allow default)` profile, where the injection must succeed, then under the spawn's profile, where
+it must fail and leave the queue empty. It skips inside a seatbelt like every live probe. How far
+the rule mattered: `claude` starts each tool shell in a session of its own with no controlling
+terminal and stdin on `/dev/null`, measured by the build run 01a0e768 from inside its own recorded, non-interactive run on 2026-09-28 with
+`proc_pidinfo` and `getsid`, and XNU refuses `TIOCSTI` on a terminal that is not the caller's
+controlling one to anyone but root. So a tool shell could not reach the human's terminal this way
+before the rule either; `claude` itself, and anything it starts without a new session, could.
+
 **`HYDRA_ROOT` is refused inside a seatbelt, since 2026-09-22.** A `standard` run has shell,
 shell reaches the binary, and `env -u HYDRA_RUN_ID HYDRA_ROOT=/tmp/x hydra run --policy
 permissive` walked past both the marker check and the foreign-checkout refusal and wrote a

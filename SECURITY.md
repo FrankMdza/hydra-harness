@@ -38,7 +38,9 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   process and every descendant, writes under Hydra's directories and reads of the corpus, of
   pruned records (since build ticket 93) and of any other run's spawn directory fail with "operation not permitted" whatever the spelling, a
   variable, an interpreter or a symlink included, measured on all four providers and pinned in
-  `tests/spawn.rs`. The profile is `(allow default)` plus those denials, so it is defence behind
+  `tests/spawn.rs`. Since build ticket 137 the profile also refuses the `TIOCSTI` ioctl, so a
+  process in it cannot push keystrokes into its controlling terminal, which in a gated interactive
+  run is yours; `tests/sandbox_tty.rs` probes that on a pty the test owns. The profile is `(allow default)` plus those denials, so it is defence behind
   the gate and not a boundary: it does not restrict process launching or mach services, and a
   process that a system agent starts on the run's behalf, launchd for one, does not inherit it.
   One `launchctl submit` probe on 2026-09-22 did not reproduce that class; nothing says a second

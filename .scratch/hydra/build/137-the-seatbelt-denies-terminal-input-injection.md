@@ -1,7 +1,7 @@
 # 137 - The seatbelt denies terminal input injection
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -38,3 +38,18 @@ Test first.
 5. fmt, clippy `--all-targets -D warnings`, the touched tests and `cargo test --lib`.
 
 ## Outcome
+
+Run `01a0e768` (claude opus, `standard`) wrote the test, the SECURITY and IMPLEMENTATION passages
+and step 3's measurement, then stopped mid-work: it started a build in the background, yielded
+to wait for it, and print mode ended the process. Its record says `completed` with no rule in
+`src/sandbox.rs`, a probe that ignored its profile (`let _ = profile`, no `sandbox-exec`), a
+leftover debugging test, and docs describing a rule that was not there. The session finished it
+on master. The probe hung at exit under the first real run: with echo on, the injected bytes
+went to an output queue nobody drained, so the test now puts the pty in raw mode. Red on master
+without the rule (`tiocsti rc=0` under the spawn's profile), green with
+`(deny file-ioctl (ioctl-command TIOCSTI))`; the bare-profile control still injects. Step 3, as the
+run measured it from inside its own non-interactive run: `claude` starts each tool shell in a
+session of its own, no controlling terminal, stdin on `/dev/null`, so a tool shell could not
+reach the human's terminal this way; `claude` itself, and anything it starts without a new
+session, could. Not measured inside a live interactive session. fmt, clippy, lib 211, gate 99,
+spawn 34, sandbox_tty 2, all on master.
