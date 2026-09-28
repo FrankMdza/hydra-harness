@@ -27,6 +27,13 @@ class LaunchdTemplateTests(unittest.TestCase):
         self.assertTrue(self.job["StandardOutPath"].startswith(home + "/"))
         self.assertTrue(self.job["StandardErrorPath"].startswith(home + "/"))
 
+    def test_names_the_hydra_binary_launchd_cannot_find_on_its_own(self):
+        # launchd's PATH has no ~/.local/bin, and the first installed run on 2026-09-28 died with
+        # FileNotFoundError: 'hydra'. grader.py reads HYDRA_BIN before it searches the PATH.
+        env = self.job["EnvironmentVariables"]
+        self.assertTrue(env["HYDRA_BIN"].endswith("/hydra/target/release/hydra"), env)
+        self.assertIn("/.local/bin", env["PATH"])
+
     def test_the_readme_says_how_to_install_and_remove_it(self):
         readme = (GRADER / "README.md").read_text()
         self.assertIn("launchctl bootstrap", readme)

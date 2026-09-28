@@ -21,8 +21,10 @@
     <string>/Users/USER/hydra</string>
     <key>HYDRA_GRADER_HOME</key>
     <string>/Users/USER/hydra/grader</string>
+    <key>HYDRA_BIN</key>
+    <string>/Users/USER/hydra/target/release/hydra</string>
     <key>PATH</key>
-    <string>/Users/USER/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>/Users/USER/.local/bin:/Users/USER/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>
   <key>StartInterval</key>
   <integer>900</integer>
