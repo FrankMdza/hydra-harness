@@ -204,6 +204,6 @@ source, which is the one population the harness does not gate: no compiled polic
 no injected skills, no preamble. Ticket 28 found three populations rather than two, and this is the
 third.
 
-The five protected configs in `docs/harness-spec.md` section 15.1 are protected against Hydra's own
+The six protected configs in `docs/harness-spec.md` section 15.1 are protected against Hydra's own
 runs. This file is what stands in their place for you. Treat them as read-only, and if a change
 genuinely needs one of them, say so and let a human make it.

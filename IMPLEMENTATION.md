@@ -643,6 +643,26 @@ than being added later and forgotten. `tests/gate.rs` asks the compiled gate abo
 six paths under `permissive` and `curate`, so the two that are still empty are covered
 by the same test as the four that are not.
 
+**Protected config #6, the approved panel shapes, since build ticket 138.** Map ticket 82
+answered that a gated session may ask its launcher for seats without a prompt only when the
+request matches a shape the human approved, and `config/panels.json` holds the shapes.
+`src/panels.rs` loads it against the policy set: typed seats (a provider from the four, an
+optional model, a policy from the five, a role), a cap per hour, and the session policies
+allowed to ask. An unknown provider, an unknown policy, an unknown field, an empty seat or
+asker list, a cap of 0, a repeated shape name, or a seat whose policy some asker's policy
+does not contain refuses the whole file with the field named. The order is
+`Policy::contains`, 7.3's containment, so "never more than the session" needed no decision.
+A missing file loads as no shapes. **Nothing reads the loader yet**: build ticket 140 is
+what launches from a shape, and the file does not exist on this machine because the human
+writes it. `denied_write_paths` names it beside the other five. The checkout was already
+denied whole since build ticket 74, so a write to it was refused before this ticket; what
+the ticket changed is that the gate's reason and the seatbelt profile name the file itself.
+`tests/gate.rs::the_panel_shapes_are_denied_by_name_under_all_five_policies` and
+`tests/spawn.rs::the_seatbelt_denies_a_write_to_the_panel_shapes` check that, and the live
+kernel probe in the second skips inside a seatbelt, as every nested probe does. Admission
+already refused it through the `config` row; `config/panels.json` is on that list by name
+now too. `hydra doctor` lists it as present or missing without exiting 1 on a missing file.
+
 **Until build ticket 50, Hydra found its policy directory through `CARGO_MANIFEST_DIR`
 alone, so the binary only worked from its source tree.** `HYDRA_HOME` overrides it now, and
 the paragraph near the top of this file says how. The reasoning that ticket kept:

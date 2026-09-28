@@ -1850,6 +1850,50 @@ fn the_goal_log_is_denied_and_the_seatbelt_profile_names_puppets() {
 }
 
 #[test]
+fn the_seatbelt_denies_a_write_to_the_panel_shapes() {
+    // 15.1 #6, build ticket 138. The profile names the file under its own deny
+    // rule, like the other protected configs, and the kernel refuses the write.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    if !hydra::sandbox::wraps_launches() {
+        return;
+    }
+    let profile = spawn.sandbox_profile.unwrap();
+    let panels = hydra::panels::path();
+    let target = canonical_subpath(panels.parent().unwrap()) + "/panels.json";
+    let text = std::fs::read_to_string(&profile).unwrap().to_lowercase();
+    assert!(
+        text.contains(&format!(
+            r#"(deny file-write* (subpath "{}"))"#,
+            target.to_lowercase()
+        )),
+        "profile does not name the panel shapes:\n{text}"
+    );
+
+    if !seatbelt_exec_or_skip("the_seatbelt_denies_a_write_to_the_panel_shapes") {
+        return;
+    }
+    let existed = panels.exists();
+    let out = under_seatbelt(&profile, &format!("echo x >> '{target}'"));
+    assert!(refused(&out), "panel shapes write: {out}");
+    assert_eq!(panels.exists(), existed, "the write created the file");
+}
+
+#[test]
 fn the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own() {
     if !seatbelt_exec_or_skip(
         "the_seatbelt_denies_a_siblings_spawn_directory_and_allows_the_runs_own",

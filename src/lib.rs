@@ -31,6 +31,7 @@ pub mod logs;
 pub mod mcp;
 pub mod normalize;
 pub mod outcome;
+pub mod panels;
 pub mod paths;
 pub mod policy;
 pub mod preamble;

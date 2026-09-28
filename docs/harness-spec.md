@@ -140,6 +140,9 @@ another, the launch proceeds. `hydra doctor` says what a launch would find: the 
 policy path, the four binaries and their versions against the ones the code was measured on,
 the policy set sha, and each protected config as present or missing, exit 1 when one is missing.
 Neither the versions nor the configs were checked at spawn before it; `doctor` is a new check.
+The approved panel shapes, 15.1 #6, are listed beside the other five since build ticket 138, and a
+missing `config/panels.json` does not exit 1: no file means no approved shapes, and a launch does
+not need one.
 
 The last three are not per run and are here anyway. A reader asking where a pruned record went, or
 where a curator's proposal is before a human sees it, had nowhere in this spec to look. Ticket 40
@@ -891,7 +894,7 @@ included, before the policy is consulted at all.** That is where `permissive` st
 permissive. The list has two kinds of entry since ticket 40, a third since build ticket 44, and all
 of it is compiled into the script per spawn.
 
-**Denied outright:** the five protected configs of section 15.1; the checkout at
+**Denied outright:** the six protected configs of section 15.1; the checkout at
 [`hydra_home()`](../src/paths.rs), `src/` and `target/` included; the generated gate script;
 everything under `~/hydra/runs/` and `~/hydra/pruned/`; the skill store at `~/hydra/skills/` and its
 snapshots at `~/hydra/skills-snapshots/`; the parent repo's `.git`, which `hydra run` knows because
@@ -1387,13 +1390,13 @@ path argument on all three is unmeasured. Written as an audit, the spec is imple
 The closed tickets grew two lists at different times and neither running count was ever
 recomputed. They are reconciled here once.
 
-### 15.1 The five protected configs
+### 15.1 The six protected configs
 
 Human-authored, read by a run, and writable by nothing a run does. Rung one cannot reach any of them
 because its write surface is the skill store alone. A rung-two patch touching one is refused before
 review rather than blocked by it.
 
-**All five are also denied at run time under every policy**, per section 7.5. The two mechanisms
+**All six are also denied at run time under every policy**, per section 7.5. The two mechanisms
 answer different questions and neither substitutes for the other: admission refusal stops a proposed
 patch, and the gate stops a running child. A config protected only at admission is protected against
 rung two and against nothing else, which is what the seam check found and section 15.2's table now
@@ -1406,11 +1409,20 @@ records.
 | 3 | The export allowlist | data leaves the machine |
 | 4 | The instruction preamble | a run is told a different rule than the one Hydra enforces |
 | 5 | The canonical MCP document | an MCP server definition is a command Hydra spawns, so a loop that edits this runs arbitrary code inside every future run |
+| 6 | The approved panel shapes, `config/panels.json` | a run widens which seats it may summon without a human |
 
-**The pattern floor is protected by inheritance, not by its own entry.** It is a sixth file and it
-lives in the delegation policy directory precisely so the count stays at five.
+**The pattern floor is protected by inheritance, not by its own entry.** It is one more file, and it
+lives in the delegation policy directory so the count does not grow with it.
 
-### 15.2 The protected paths: thirteen
+**The sixth arrived with map ticket 82 on 2026-09-26, and build ticket 138 wrote its loader.** A gated
+session may ask its own launcher for seats without a prompt only when the request matches a shape the
+human approved, and the shapes are this file. Each names its seats (a provider, an optional model, a
+policy and a role), a cap per hour, and the session policies allowed to ask. A shape whose seat
+policy is not contained, in 7.3's order, by every policy it lets ask is refused at load, so no shape
+can hand a seat more than the session that asked for it. A missing file is no shapes. The format is
+in `config/README.md`, and the human writes the file.
+
+### 15.2 The protected paths: fourteen
 
 Every ticket that states a number says nine. **The items those tickets actually name come to
 eleven.** The running count was carried from seven through the preamble and the MCP document without
@@ -1439,9 +1451,11 @@ exact-case membership test misses it.
 | 11 | the canonical MCP document | config | yes | **yes, under every policy** |
 | 12 | the run records directory, `~/hydra/runs/` | data | not applicable | **yes, under every policy** |
 | 13 | the checkout, [`hydra_home()`](../src/paths.rs) | source | not applicable | **yes, under every policy** |
+| 14 | the approved panel shapes, `config/panels.json` | config | yes | **yes, under every policy** |
 
 **What admission refuses, as built.** The five config rows, 3, 5, 8, 10 and 11, since build ticket
-36. The code rows 1, 2, 6 and 7, since build ticket 40 on 2026-09-12; between the two tickets a
+36, and row 14 since build ticket 138, which found it already refused by the `config` entry that
+admission carries whole. The code rows 1, 2, 6 and 7, since build ticket 40 on 2026-09-12; between the two tickets a
 patch to any of them reached the panel, and rungs spec 4.4's sentence about the opening scenario
 was false for every pass run in that window. Map ticket 59 found it. Row 4 since build ticket 66 on
 2026-09-21: until then the writer lived inside `src/run.rs`, which is the whole launch sequence and
@@ -1468,6 +1482,11 @@ template live, and `config/mcp.md` names a server at `<checkout>/target/release/
 refusal covers individual source files; a run under `standard` is not a rung-two patch and could
 rewrite the command the protected document points at. The run-time denial is `hydra_home()` whole,
 with the run's own worktree and a `curate` pass's checkout carved back out.
+
+**Entry 14 arrived from map ticket 82, answer 2, and build ticket 138 built it.** The file sits
+inside the checkout, so row 13 already refused a write to it before it had a row. It is named
+anyway, like the other configs, so its denial does not rest on the checkout staying denied whole,
+and a gate's refusal names the file rather than the checkout.
 
 **"Protected" was carrying two mechanisms under one word**, which is why the table has two columns.
 Admission refusal is a rung-two check on a proposed patch. Run-time denial is the gate refusing a
@@ -1510,7 +1529,7 @@ it is the only one of the three deliveries with nothing enforcing it:
 
 > **Nothing here is enforced.** Hydra's gate applies to runs Hydra launches, not to you. You are an
 > agent working on Hydra's own source, which is the one population the harness does not gate: no
-> compiled policy, no hook config, no injected skills, no preamble. The five protected configs in
+> compiled policy, no hook config, no injected skills, no preamble. The six protected configs in
 > `docs/harness-spec.md` are protected against Hydra's own runs, and this file is what stands in
 > their place for you. Treat them as read-only, and if a change genuinely needs one of them, say so
 > and let a human make it.

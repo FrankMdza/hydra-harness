@@ -227,6 +227,31 @@ fn the_path_denials_hold_under_permissive_and_curate() {
 }
 
 #[test]
+fn the_panel_shapes_are_denied_by_name_under_all_five_policies() {
+    // 15.1 #6, build ticket 138: a run that edits the approved shapes widens
+    // which seats a session may summon without a human. The checkout is denied
+    // whole since build ticket 74, so the write was refused before the file had
+    // a row of its own. The reason names the root it fell under, and that has to
+    // be the file itself, like the other five, so the denial does not rest on
+    // the checkout staying denied.
+    let panels = hydra::panels::path();
+    for policy in ["judge", "curate", "read-only", "standard", "permissive"] {
+        let gate = Gate::new(policy);
+        let decision = gate.write_to(&panels);
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "{policy} wrote to the panel shapes: {}",
+            decision.reason
+        );
+        assert!(
+            decision.reason.contains("panels.json, denied"),
+            "{policy} refused the write under another root: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
 fn the_mcp_document_is_denied_under_all_five_policies() {
     // 15.1 #5 and 7.5. The test above covers the two policies where the denial is
     // the only thing standing there; this one is literal about "every policy",

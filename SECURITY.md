@@ -49,7 +49,7 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   write. A gated interactive launch, `hydra run --interactive --policy`, runs under the same
   profile since build ticket 73. A plain `--interactive` run, with no `--policy`, compiles no
   gate and gets no seatbelt or worktree. Linux launches unwrapped.
-- **The deny list is Hydra's runtime directories, the checkout the binary was built from, and five
+- **The deny list is Hydra's runtime directories, the checkout the binary was built from, and six
   config files.** Build ticket 74 added `hydra_home()` whole, with the run's own worktree and a
   `curate` pass's checkout carved back out. Under `standard` a shell command still reads and writes
   the rest of the machine: `~/.ssh`, your own `~/.claude` hooks and settings, and any directory on

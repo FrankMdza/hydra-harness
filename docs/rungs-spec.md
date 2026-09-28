@@ -93,7 +93,7 @@ ran `shutil.rmtree`. That is the failure this whole document is named after.
 | Call `hydra prune` or `hydra reap` | cleanup is a command a human types, so nothing the loop does can destroy the evidence it learns from | `evidence_is_read_only`, section 5.3 |
 | Call `hydra export` | export is the one path by which anything leaves this machine (harness spec section 14) | `evidence_is_read_only`, section 5.3 |
 | Write anywhere under `~/hydra/runs/` | a loop that learns from evidence must not be able to edit the evidence | the gate, every policy (harness spec 7.5) |
-| Write any of the five protected configs | harness spec section 15.1 | the gate, every policy, and admission refusal |
+| Write any of the six protected configs | harness spec section 15.1 | the gate, every policy, and admission refusal |
 | Widen its own policy | the delegation policy is the first protected config, and monotonic narrowing (harness spec section 7.3) bounds it at run time as well | the spawn check, plus the two above |
 
 **The five rows do not share a mechanism, and the third column is there because assuming they did

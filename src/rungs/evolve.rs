@@ -612,6 +612,7 @@ const PROTECTED_CONFIG_PATHS: &[&str] = &[
     "config",
     "config/preamble.md",
     "config/mcp.md",
+    "config/panels.json",
     "config/export-allowlist.json",
     "config/env-allowlist.json",
 ];

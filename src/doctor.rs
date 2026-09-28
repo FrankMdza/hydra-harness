@@ -99,7 +99,7 @@ enum Config {
     InCode(&'static str, &'static str),
 }
 
-fn protected_configs(home: &Path) -> [Config; 6] {
+fn protected_configs(home: &Path) -> [Config; 7] {
     let config = home.join("config");
     [
         Config::Launch("delegation policy set", home.join("policies")),
@@ -111,6 +111,9 @@ fn protected_configs(home: &Path) -> [Config; 6] {
         ),
         Config::Launch("instruction preamble", config.join("preamble.md")),
         Config::Launch("canonical MCP document", config.join("mcp.md")),
+        // A missing file is no approved shapes, and every request for seats is
+        // then refused, so a launch does not need it.
+        Config::Later("approved panel shapes", config.join("panels.json")),
     ]
 }
 

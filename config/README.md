@@ -1,6 +1,6 @@
 # config
 
-Protected configs 2 through 5 of harness spec 15.1 live here. The gate denies writes to
+Protected configs 2 through 6 of harness spec 15.1 live here. The gate denies writes to
 every path below under every policy, `permissive` included, and 7.5 says why each one
 earns it.
 
@@ -11,6 +11,7 @@ earns it.
 | `export-signoff.json` | beside #3, the export sign-off manifest, since build ticket 65 | no. A JSON array of `{pass_id, judge_run_id, finding_item}`, one per judge finding a human confirmed; a judge-derived preference pair leaves only when its pass is listed. `export-signoff.json.example` is the shape. Denied to runs the way the allowlist is |
 | `preamble.md` | #4, the instruction preamble | yes |
 | `mcp.md` | #5, the canonical MCP document | yes, and it declares one server, the delegate face of harness spec 9, admitted under `standard` and `permissive` since build ticket 26 |
+| `panels.json` | #6, the approved panel shapes, since build ticket 138 | no. The human writes it. Missing means no shape is approved, and every request for seats is refused |
 
 Config #1 is the policy directory, which is `policies/` and not this one.
 
@@ -34,3 +35,37 @@ the delegate face, and its `command` is an absolute path into this checkout's `t
 a clone anywhere but `~/hydra` has to edit that line before the face can start. Adding a
 server is a human's decision: a server definition is a command Hydra spawns inside every
 run the document admits it to.
+
+`panels.json` lists the panels a gated session may ask its own launcher for without a
+prompt, map ticket 82. Nothing launches from it yet; build ticket 140 does that. This is
+the fixed three-seat review panel as one shape:
+
+```json
+{
+  "shapes": [
+    {
+      "name": "review",
+      "askers": ["standard"],
+      "cap_per_hour": 2,
+      "seats": [
+        { "provider": "claude", "model": "opus", "policy": "judge", "role": "reviewer" },
+        { "provider": "codex", "policy": "standard", "role": "adversary" },
+        { "provider": "cursor-agent", "model": "composer-2.5", "policy": "judge", "role": "security" }
+      ]
+    }
+  ]
+}
+```
+
+Every field is required except `model`, which falls back to the provider's default, and a
+field the loader does not know refuses the whole file with its name. `name` is unique
+across shapes. `provider` is one of `claude`, `cursor-agent`, `agy` and `codex`. `policy`
+and every entry of `askers` are one of the five in `policies/`. `role` is free text.
+`cap_per_hour` is at least 1, and `seats` and `askers` hold at least one entry each.
+
+A seat never gets more than the session that asked for it. The loader checks this with
+7.3's containment: every policy in `askers` must grant everything each seat's policy
+grants, or the shape is refused. In the example, `standard` contains `judge` and itself,
+so it loads. Adding `read-only` to `askers` refuses it, because `read-only` cannot run
+the `standard` seat, and so does `curate`, which neither contains `standard` nor is
+contained by it. `permissive` contains all five and may ask for any shape.

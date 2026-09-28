@@ -66,3 +66,37 @@ fn walk_passes_on_a_clean_scratch_corpus() {
     assert!(out.status.success(), "{stdout}");
     assert!(stdout.contains("checked 1 record(s)"), "{stdout}");
 }
+
+#[test]
+fn doctor_lists_the_panel_shapes_beside_the_other_protected_configs() {
+    // 15.1 #6, build ticket 138. The home is a scratch one, so the line reads
+    // a file this test wrote and never the checkout's own `config/`.
+    let sandbox = Sandbox::new("doctor-panels");
+    let layout = sandbox.layout();
+    let home = layout.root().join("home");
+    let panels = home.join("config/panels.json");
+    std::fs::create_dir_all(panels.parent().unwrap()).unwrap();
+
+    let doctor = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+            .arg("doctor")
+            .env("HYDRA_ROOT", layout.root())
+            .env("HYDRA_HOME", &home)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    let stdout = doctor();
+    let line = format!("approved panel shapes {} missing", panels.display());
+    assert!(stdout.contains(&line), "{stdout}");
+    assert!(
+        stdout.contains("canonical MCP document"),
+        "the other five are no longer listed: {stdout}"
+    );
+
+    std::fs::write(&panels, "{\"shapes\": []}").unwrap();
+    let stdout = doctor();
+    let line = format!("approved panel shapes {} present", panels.display());
+    assert!(stdout.contains(&line), "{stdout}");
+}

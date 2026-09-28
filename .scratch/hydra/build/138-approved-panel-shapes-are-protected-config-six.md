@@ -1,7 +1,7 @@
 # 138 - Approved panel shapes are protected config six
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -39,3 +39,16 @@ compute from the grants (a policy's grants are a subset of another's), say so an
 a decision.
 
 ## Outcome
+
+Run `01a0e795` (claude opus, `standard`), applied as written plus three stale counts. `src/panels.rs`
+loads `config/panels.json` into typed shapes and refuses the whole file, field named, on an unknown
+provider, policy or asker, an empty list, a cap of 0, a repeated name, or a seat whose policy an
+asker's does not contain; the order is 7.3's `Policy::contains`, so the stop condition did not
+apply. The run added a required `name` per shape, for 140 to match on. Tests failed first: 7 of 8
+in `tests/panels.rs` on a stub, and the gate, spawn and doctor rows. The ticket's premise was
+narrower than it thought: build 74 already denies the whole checkout, so the write was refused
+before; the new gate reason and profile rule name the file itself. The kernel half of the spawn
+row skipped inside the run's seatbelt and passed on master. The session fixed the "five" counts
+the run could not reach: harness spec 7.5 (line 897) and the quoted note near 1532, rungs spec's
+table, and `CLAUDE.md`. Master: fmt, clippy, lib 211, panels 8, doctor 3, gate 100, spawn 35,
+evolve 42, sandbox_tty 2.

@@ -587,6 +587,9 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
         // 15.1 #5: an MCP server definition is a command Hydra spawns, so a loop
         // that edits this runs code of its choosing inside every future run.
         config.join("mcp.md"),
+        // 15.1 #6, build ticket 138: a run that edits the approved panel shapes
+        // widens which seats a session may summon without a human.
+        config.join("panels.json"),
         // Map ticket 65, build ticket 74: the checkout the binary was built from.
         // Own worktrees and a curate pass's checkout are carved back out below.
         crate::paths::hydra_home(),
