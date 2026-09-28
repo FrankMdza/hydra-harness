@@ -244,6 +244,58 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
             proc.terminate()
             proc.wait(timeout=5)
 
+    def plant_model(self, label="outcome", version="baseline-outcome-v1"):
+        # A model that has seen only a bias: every run scores sigmoid(0) = 0.5.
+        records.write_json(self.home / "models" / f"{label}.json", {
+            "label": label, "positive": "x", "vocab": [], "scale": {}, "weights": [],
+            "bias": 0.0, "test_from": "2026-09-23T00:00:00+00:00", "version": version,
+        })
+
+    def scores(self):
+        return records.read_jsonl(self.home / "scores.jsonl")
+
+    def test_collect_scores_each_new_run_with_every_model_once(self):
+        self.plant_model("outcome", "baseline-outcome-v1")
+        self.plant_model("verdict", "baseline-verdict-v1")
+        self.record("a")
+        self.record("b")
+        self.collect()
+        got = self.scores()
+        self.assertEqual(sorted((s["run_id"], s["label"]) for s in got), [
+            ("a", "outcome"), ("a", "verdict"), ("b", "outcome"), ("b", "verdict"),
+        ])
+        for score in got:
+            self.assertEqual(set(score), {"run_id", "label", "p", "model_version", "scored_at"})
+            self.assertAlmostEqual(score["p"], 0.5)
+        self.assertEqual({s["model_version"] for s in got},
+                         {"baseline-outcome-v1", "baseline-verdict-v1"})
+
+        self.collect()
+        self.assertEqual(len(self.scores()), 4)
+        # A changed record is collected again, but the same model version scores it once.
+        self.record("b", task="changed")
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(len(self.scores()), 4)
+        # A new model version scores the next run it collects.
+        self.plant_model("outcome", "baseline-outcome-v2")
+        self.record("c")
+        self.collect()
+        self.assertEqual([s["run_id"] for s in self.scores()[4:]], ["c", "c"])
+
+    def test_a_ticket_verdict_survives_a_rewritten_line(self):
+        self.record("b", task="first")
+        self.collect()
+        records.write_json(self.home / "ticket-verdicts.json", {"b": "fixed"})
+        self.record("b", task="changed")
+        self.collect()
+        rows = records.read_jsonl(self.home / "dataset.jsonl")
+        self.assertEqual(rows[0]["human_verdict"], "fixed")
+
+    def test_collect_without_a_model_writes_no_scores(self):
+        self.record("a")
+        self.assertEqual(self.collect(), 1)
+        self.assertFalse((self.home / "scores.jsonl").exists())
+
     def test_cli_once_prints_count(self):
         self.record("a")
         with mock.patch.dict(os.environ, self.env(), clear=False):

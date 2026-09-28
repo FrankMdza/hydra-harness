@@ -5,14 +5,19 @@ Nothing here makes a network call, and `score` reads one record file and nothing
 features are the ones a router has before a launch: provider, model, policy and the task's size.
 Tokens and duration are left out on purpose, because a run that dies early has none, so they
 would hand the model its own answer.
+
+Two labels, two models (build 143, D1): `outcome` says a run will not complete, `verdict` says
+its diff will need a correction. Each is trained, stored and scored apart.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import importlib.util
 import json
 import math
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,8 +30,12 @@ sys.modules[_records_spec.name] = records
 _records_spec.loader.exec_module(records)
 
 PREAMBLE = "Hydra launched this run"
-# Below this many rows of the rarer class in any split, a fitted number says more about the
-# split than about Hydra, so `train` refuses rather than print it.
+LABELS = ("outcome", "verdict")
+# The human's verdicts from the label queue, run id to `applied` or `fixed`. Collect reads it
+# too, so a dataset line rewritten after an import keeps its verdict.
+TICKET_VERDICTS = "ticket-verdicts.json"
+# Below this many rows of the rarer class in either slice, a fitted number says more about the
+# slice than about Hydra, so `train` refuses rather than print it.
 MIN_MINORITY = 10
 L2 = 1.0
 STEPS = 3000
@@ -105,17 +114,6 @@ def fit(xs: list[list[float]], ys: list[int]) -> tuple[list[float], float]:
     return weights, bias
 
 
-def fit_temperature(logits: list[float], ys: list[int]) -> float:
-    """The T that minimises log loss of sigmoid(z / T), by a log-spaced grid then a finer one."""
-    def loss(t: float) -> float:
-        return log_loss([sigmoid(z / t) for z in logits], ys)
-
-    grid = [math.exp(k / 20) for k in range(-40, 41)]
-    best = min(grid, key=loss)
-    fine = [best * math.exp(k / 200) for k in range(-10, 11)]
-    return min(fine, key=loss)
-
-
 def log_loss(ps: list[float], ys: list[int]) -> float:
     eps = 1e-12
     return -sum(
@@ -150,26 +148,28 @@ def reliability(ps: list[float], ys: list[int], bins: int = 5) -> list[dict]:
     return table
 
 
-def split(rows: list[dict], cal_from: datetime, test_from: datetime) -> tuple[list, list, list]:
-    """By launch time, so nothing launched later can train what launched earlier."""
-    fit_rows = [r for r in rows if launched_at(r["run_id"]) < cal_from]
-    cal_rows = [r for r in rows if cal_from <= launched_at(r["run_id"]) < test_from]
+def split(rows: list[dict], test_from: datetime) -> tuple[list, list]:
+    """By launch time, so nothing launched later can train what launched earlier. Two slices,
+    fit and test: a calibration slice spent scarce rows and its temperature moved test Brier the
+    wrong way (build 143, D2)."""
+    fit_rows = [r for r in rows if launched_at(r["run_id"]) < test_from]
     test_rows = [r for r in rows if launched_at(r["run_id"]) >= test_from]
-    return fit_rows, cal_rows, test_rows
+    return fit_rows, test_rows
 
 
-def train(rows: list[dict], label: str, cal_from: datetime, test_from: datetime) -> dict:
+def train(rows: list[dict], label: str, test_from: datetime) -> dict:
     labelled = [r for r in rows if target(r, label) is not None]
-    parts = split(labelled, cal_from, test_from)
-    for name, part in zip(("fit", "calibration", "test"), parts):
+    parts = split(labelled, test_from)
+    for name, part in zip(("fit", "test"), parts):
         ys = [target(r, label) for r in part]
         minority = min(sum(ys), len(ys) - sum(ys))
         if minority < MIN_MINORITY:
             raise SystemExit(
-                f"baseline: the {name} split has {len(ys)} rows and {minority} of its rarer class; "
-                f"{MIN_MINORITY} is the floor. Label more runs before training on '{label}'."
+                f"baseline: {len(labelled)} labelled rows for '{label}'; the {name} slice has "
+                f"{len(ys)} of them and {minority} of its rarer class, and {MIN_MINORITY} is the "
+                f"floor. Label more runs before training on '{label}'."
             )
-    fit_rows, cal_rows, test_rows = parts
+    fit_rows, test_rows = parts
     vocab = vocabulary(fit_rows)
     scale = {}
     for name in ("log_task_chars",):
@@ -180,8 +180,6 @@ def train(rows: list[dict], label: str, cal_from: datetime, test_from: datetime)
     xs = [vector(r, vocab, scale) for r in fit_rows]
     ys = [target(r, label) for r in fit_rows]
     weights, bias = fit(xs, ys)
-    cal_logits = [logit(weights, bias, vector(r, vocab, scale)) for r in cal_rows]
-    temperature = fit_temperature(cal_logits, [target(r, label) for r in cal_rows])
     body = {
         "label": label,
         "positive": "not completed" if label == "outcome" else "fixed",
@@ -189,49 +187,175 @@ def train(rows: list[dict], label: str, cal_from: datetime, test_from: datetime)
         "scale": scale,
         "weights": weights,
         "bias": bias,
-        "temperature": temperature,
-        "cal_from": cal_from.isoformat(),
         "test_from": test_from.isoformat(),
-        "rows": {"fit": len(fit_rows), "calibration": len(cal_rows), "test": len(test_rows)},
+        "rows": {"fit": len(fit_rows), "test": len(test_rows)},
     }
     digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
     return dict(body, version=f"baseline-{label}-{digest}")
 
 
-def predict(model: dict, row: dict, calibrated: bool = True) -> float:
+def predict(model: dict, row: dict) -> float:
     scale = {k: tuple(v) for k, v in model["scale"].items()}
-    z = logit(model["weights"], model["bias"], vector(row, model["vocab"], scale))
-    return sigmoid(z / model["temperature"] if calibrated else z)
+    return sigmoid(logit(model["weights"], model["bias"], vector(row, model["vocab"], scale)))
+
+
+# How many rows of weight the parent rate gets when a pair's or a provider's own rate is
+# estimated. Without it a pair that never failed in the fit slice is priced at exactly 0, pays
+# about 27.6 log loss on its first failure in test, and any model beats the bar without merit.
+SHRINK = 5.0
+
+
+def provider_model_rates(fit_rows: list[dict], label: str):
+    """The fit slice's positive rate for a row's (provider, model), shrunk toward its provider's,
+    which is shrunk toward the whole slice's. This is the bar of build 143, D5: most positives are
+    rate limits, so a model that learned only which provider runs out of quota should not beat
+    it."""
+    pairs: dict[tuple, list[int]] = {}
+    providers: dict[str, list[int]] = {}
+    for row in fit_rows:
+        y = target(row, label)
+        pairs.setdefault((row.get("provider"), row.get("model")), []).append(y)
+        providers.setdefault(row.get("provider"), []).append(y)
+    overall_ys = [target(r, label) for r in fit_rows]
+    overall = sum(overall_ys) / len(overall_ys)
+
+    def shrunk(ys: list[int], prior: float) -> float:
+        return (sum(ys) + SHRINK * prior) / (len(ys) + SHRINK)
+
+    def rate(row: dict) -> float:
+        provider = shrunk(providers.get(row.get("provider"), []), overall)
+        return shrunk(pairs.get((row.get("provider"), row.get("model")), []), provider)
+
+    return rate
 
 
 def report(model: dict, rows: list[dict]) -> dict:
     label = model["label"]
     labelled = [r for r in rows if target(r, label) is not None]
-    fit_rows, _, test_rows = split(
-        labelled,
-        datetime.fromisoformat(model["cal_from"]),
-        datetime.fromisoformat(model["test_from"]),
-    )
+    fit_rows, test_rows = split(labelled, datetime.fromisoformat(model["test_from"]))
     ys = [target(r, label) for r in test_rows]
     base = sum(target(r, label) for r in fit_rows) / len(fit_rows)
-    raw = [predict(model, r, calibrated=False) for r in test_rows]
-    cal = [predict(model, r) for r in test_rows]
-    constant = [base] * len(ys)
+    scored = [predict(model, r) for r in test_rows]
+    rate = provider_model_rates(fit_rows, label)
 
     def measures(ps):
         return {"log_loss": log_loss(ps, ys), "brier": brier(ps, ys), "rank_auc": rank_auc(ps, ys)}
 
+    ours = measures(scored)
+    bar = measures([rate(r) for r in test_rows])
     return {
         "version": model["version"],
+        "label": label,
         "test_rows": len(ys),
         "test_positive": sum(ys),
         "fit_base_rate": base,
-        "temperature": model["temperature"],
-        "constant_base_rate": measures(constant),
-        "uncalibrated": measures(raw),
-        "calibrated": measures(cal),
-        "reliability_calibrated": reliability(cal, ys),
+        "constant_base_rate": measures([base] * len(ys)),
+        "provider_model_base_rate": bar,
+        "model": ours,
+        "beats_provider_model_base": {m: ours[m] < bar[m] for m in ("log_loss", "brier")},
+        "reliability": reliability(scored, ys),
     }
+
+
+def model_path(label: str, home: Path | None = None) -> Path:
+    """One model file per label under the grader home, which is where collect looks."""
+    if label not in LABELS:
+        raise ValueError(f"unknown label {label}")
+    return (home or records.grader_home()) / "models" / f"{label}.json"
+
+
+QUEUE_FIELDS = ["ticket", "run_id", "provider", "model", "outcome", "verdict"]
+VERDICTS = ("applied", "fixed", "unknown")
+# A run id as a ticket spells it: the first eight hex digits of the UUIDv7, sometimes more.
+RUN_ID = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){0,3}(?:-[0-9a-f]{12})?\b")
+
+
+def jev_probe():
+    """The Jev probe's ticket reader, loaded on first use so collect never imports it."""
+    spec = importlib.util.spec_from_file_location(
+        "grader_jev_probe", HERE.parent / "puppets" / "jev_probe.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def outcome_section(body: str) -> str | None:
+    """The text under `## Outcome` up to the next `## ` heading, cut where jev_probe cuts it."""
+    marker = "## Outcome"
+    start = body.find(marker)
+    if start < 0:
+        return None
+    rest = body[start + len(marker):]
+    end = rest.find("\n## ")
+    return (rest if end < 0 else rest[:end]).strip()
+
+
+def label_queue(tickets: Path, dataset: list[dict]) -> tuple[list[dict], list[str]]:
+    """One row per dataset run named in the `## Outcome` of a resolved build ticket, with the
+    verdict left empty for the human. A name that matches no dataset run, or several, becomes a
+    skip line instead of a row, so a commit sha or an unknown run never gets labelled."""
+    probe = jev_probe()
+    queue, skips = [], []
+    for path in sorted(tickets.glob("*.md")):
+        number = probe.ticket_number(path)
+        if number is None:
+            continue
+        body = path.read_text(encoding="utf-8")
+        if probe.ticket_status(body) != "resolved":
+            continue
+        outcome = outcome_section(body)
+        if not outcome:
+            continue
+        seen = set()
+        for name in RUN_ID.findall(outcome):
+            matches = [r for r in dataset if r["run_id"].startswith(name)]
+            if len(matches) != 1:
+                skips.append(f"{number}: {name} names {len(matches)} dataset runs")
+                continue
+            row = matches[0]
+            if row["run_id"] in seen:
+                continue
+            seen.add(row["run_id"])
+            queue.append({
+                "ticket": number,
+                "run_id": row["run_id"],
+                "provider": row.get("provider"),
+                "model": row.get("model"),
+                "outcome": outcome[:400],
+                "verdict": "",
+            })
+    return queue, skips
+
+
+def label_import(csv_path: Path, dataset_path: Path, home: Path) -> tuple[int, int]:
+    """Fold a filled-in queue into `ticket-verdicts.json` under the grader home and into the
+    dataset's `human_verdict`. `unknown` and an empty cell leave the run unlabelled; any other
+    word refuses the whole file. Returns how many runs were labelled and how many left unknown."""
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        filled = list(csv.DictReader(handle))
+    verdicts: dict[str, str] = {}
+    unknown = 0
+    for row in filled:
+        verdict = (row.get("verdict") or "").strip().lower()
+        if verdict and verdict not in VERDICTS:
+            raise SystemExit(
+                f"baseline: run {row.get('run_id')} has verdict '{verdict}'; "
+                f"use one of {', '.join(VERDICTS)} or leave it empty"
+            )
+        if verdict in ("", "unknown"):
+            unknown += 1
+            continue
+        verdicts[row["run_id"]] = verdict
+    kept_path = home / TICKET_VERDICTS
+    kept = records.read_json(kept_path, {})
+    kept.update(verdicts)
+    records.write_json(kept_path, kept)
+    rows = records.read_jsonl(dataset_path)
+    for row in rows:
+        if row["run_id"] in kept:
+            row["human_verdict"] = kept[row["run_id"]]
+    records.write_jsonl(dataset_path, rows)
+    return len(verdicts), unknown
 
 
 def row_from_record(path: Path) -> dict:
@@ -267,20 +391,47 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     tr = sub.add_parser("train", help="fit on a dataset and print the test report")
     tr.add_argument("dataset", type=Path)
-    tr.add_argument("model", type=Path, help="where the fitted model JSON goes")
-    tr.add_argument("--label", choices=("outcome", "verdict"), default="outcome")
-    tr.add_argument("--cal-from", type=day, default=day("2026-09-21"))
+    tr.add_argument("model", type=Path, nargs="?",
+                    help="where the fitted model JSON goes (default: "
+                         "$HYDRA_GRADER_HOME/models/LABEL.json)")
+    tr.add_argument("--label", choices=LABELS, default="outcome")
     tr.add_argument("--test-from", type=day, default=day("2026-09-23"))
     sc = sub.add_parser("score", help="score one run from its record")
     sc.add_argument("model", type=Path)
     sc.add_argument("run", help="a record path, or a full run id under $HYDRA_ROOT/runs/")
+    lq = sub.add_parser("label-queue", help="write the CSV of runs for a human to label")
+    lq.add_argument("out", type=Path)
+    lq.add_argument("--tickets", type=Path, default=HERE.parents[1] / ".scratch/hydra/build")
+    lq.add_argument("--dataset", type=Path, help="default: $HYDRA_GRADER_HOME/dataset.jsonl")
+    li = sub.add_parser("label-import", help="fold a filled-in label queue into the dataset")
+    li.add_argument("csv", type=Path)
+    li.add_argument("--home", type=Path, help="default: $HYDRA_GRADER_HOME")
+    li.add_argument("--dataset", type=Path, help="default: HOME/dataset.jsonl")
     args = parser.parse_args(argv)
 
     if args.command == "train":
         rows = records.read_jsonl(args.dataset)
-        model = train(rows, args.label, args.cal_from, args.test_from)
-        records.write_json(args.model, model)
+        model = train(rows, args.label, args.test_from)
+        records.write_json(args.model or model_path(args.label), model)
         print(json.dumps(report(model, rows), indent=2))
+        return 0
+    if args.command == "label-queue":
+        dataset = records.read_jsonl(args.dataset or records.grader_home() / "dataset.jsonl")
+        queue, skips = label_queue(args.tickets, dataset)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        with args.out.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=QUEUE_FIELDS)
+            writer.writeheader()
+            writer.writerows(queue)
+        print(f"rows: {len(queue)}")
+        for line in skips:
+            print(f"skip: {line}")
+        return 0
+    if args.command == "label-import":
+        home = args.home or records.grader_home()
+        labelled, unknown = label_import(args.csv, args.dataset or home / "dataset.jsonl", home)
+        print(f"labelled: {labelled}")
+        print(f"unknown: {unknown}")
         return 0
     model = records.read_json(args.model)
     row = row_from_record(record_path(args.run))

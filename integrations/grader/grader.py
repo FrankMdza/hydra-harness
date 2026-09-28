@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import sys
 import time
@@ -27,6 +28,47 @@ _redact_spec = importlib.util.spec_from_file_location("grader_redact", HERE / "r
 redact = importlib.util.module_from_spec(_redact_spec)
 sys.modules[_redact_spec.name] = redact
 _redact_spec.loader.exec_module(redact)
+
+
+_baseline = None
+
+
+def baseline():
+    """The classifier, loaded on the first pass that has something to score."""
+    global _baseline
+    if _baseline is None:
+        spec = importlib.util.spec_from_file_location("grader_baseline", HERE / "baseline.py")
+        _baseline = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_baseline)
+    return _baseline
+
+
+def score_rows(home: Path, rows: list[dict], scored_at: str) -> int:
+    """Score each row with every model under `home/models/` and append one line per run and
+    model version to `home/scores.jsonl`. Nothing reads these yet (build 143, D6), so the model
+    does not choose which runs get reviewed. Returns how many lines were appended."""
+    paths = sorted((home / "models").glob("*.json"))
+    if not paths or not rows:
+        return 0
+    scores_path = home / "scores.jsonl"
+    done = {(s["run_id"], s["model_version"]) for s in records.read_jsonl(scores_path)}
+    fresh = []
+    for path in paths:
+        model = records.read_json(path)
+        for row in rows:
+            if (row["run_id"], model["version"]) in done:
+                continue
+            fresh.append({
+                "run_id": row["run_id"],
+                "label": model["label"],
+                "p": baseline().predict(model, row),
+                "model_version": model["version"],
+                "scored_at": scored_at,
+            })
+    if fresh:
+        with scores_path.open("a", encoding="utf-8") as handle:
+            handle.write("".join(json.dumps(s, allow_nan=False) + "\n" for s in fresh))
+    return len(fresh)
 
 
 def utc_now() -> str:
@@ -117,21 +159,24 @@ def collect(
                 future.result()
     records.write_json(cache_path, cache)
 
+    # Verdicts the human gave through `baseline.py label-import`, kept so a rewritten line
+    # does not lose one.
+    ticket_verdicts = records.read_json(home / "ticket-verdicts.json", {})
     collected_at = utc_now()
     for item in scanned:
         cursor[item["run_id"]] = item["fingerprint"]
         if rebuild or item["run_id"] in stale_ids:
             answer = cache[item["run_id"]]["answer"]
             raw = records.record_row(item["first"], item["lines"], answer, aliases)
-            dataset[item["run_id"]] = dataset_row(
-                raw,
-                puppets_labels.get(item["run_id"]),
-                collected_at,
-            )
+            row = dataset_row(raw, puppets_labels.get(item["run_id"]), collected_at)
+            if item["run_id"] in ticket_verdicts:
+                row["human_verdict"] = ticket_verdicts[item["run_id"]]
+            dataset[item["run_id"]] = row
 
     rows = [dataset[run_id] for run_id in sorted(dataset)]
     records.write_jsonl(dataset_path, rows)
     records.write_json(cursor_path, cursor)
+    score_rows(home, [dataset[run_id] for run_id in sorted(stale_ids)], collected_at)
     return len(stale)
 
 

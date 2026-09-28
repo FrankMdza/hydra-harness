@@ -1,7 +1,7 @@
 # 143 - The local classifier scores every run the grader collects
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -73,3 +73,27 @@ grader's own tests (`python3 -m unittest discover integrations/grader/tests` or 
 say which). This ticket touches no Rust; do not run cargo.
 
 ## Outcome
+
+Run `01a0e86f` (claude opus, `standard`): all six items, each test failing first where it could
+(`score` printing the label and collect with no model writing nothing passed before, having
+nothing to change). Two slices, the per-provider-and-model bar with `beats_provider_model_base`,
+`models/<label>.json`, `score_rows()` after collect into `scores.jsonl` once per run and version,
+`label-queue` and `label-import` (a CSV cannot go through `labels.py`, which folds puppets goal
+logs; imported verdicts live in `ticket-verdicts.json` and survive a rewrite), and a launchd
+template. The run chose that an imported verdict wins over a puppets one for the same run; that
+is its reading of D3, not the human's, and is flagged to him.
+
+The session changed one thing: the bar was unsmoothed, so a pair that never failed in fit was
+priced at 0 and paid about 27.6 log loss on its first failure, which any model beats without
+merit. Rates are now shrunk, pair toward provider toward overall, with five rows of weight
+(`SHRINK`); test first. Grader tests 60 of 60 under `/usr/bin/python3`; Homebrew's 3.14.7 cannot
+import `plistlib` (a broken `pyexpat`), which is why the plist names `/usr/bin/python3`.
+
+On the real corpus, 2026-09-28: collect took the dataset from 426 to 504 rows. With test from
+09-25 the floor refused (6 failures in 78). With test from 09-23, 211 test rows and 24 positives:
+log loss 0.265 against 0.347 for the shrunk provider-and-model bar and 0.361 for the constant,
+Brier 0.072 against 0.097 and 0.102, rank AUC 0.786 against 0.721. It beats the bar on both, so it
+learned more than which provider runs out of quota; 24 positives make every one of these loose.
+`grader/models/outcome.json` is in place, so every collect now scores new runs. `label-queue`
+wrote 170 rows to `grader/verdict-queue.csv` (gitignored) for the human; five Outcomes were
+skipped for naming no run or two. The launchd job is not installed.
