@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 81 of 81 on 2026-09-26; build tickets 89 to 96 carry the second hiring panel's findings, 97 to 106 the third's, 123 to 127 the answers to map 78 to 80 129 to 132 the rest of map 76 and 133 to 134 map 81, and the build stands at 133 of 134.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
+**The map stands at 82 of 82 on 2026-09-28; build tickets 89 to 96 carry the second hiring panel's findings, 97 to 106 the third's, 123 to 127 the answers to map 78 to 80 129 to 132 the rest of map 76 133 to 134 map 81, 135 to 137 the Rust review and the seatbelt's terminal rule, and 138 to 142 map 82; the build stands at 141 of 142, 130 open.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
@@ -100,7 +100,7 @@ document and there should not be one.
 - `integrations/herdr/`, the Herdr plugin: a launcher that puts the run id on the pane, a poller
   that labels the pane from the record, a graph of one run in the terminal, and a smoke test
   against a live Herdr. Nothing under `src/` imports it, and its README says how to link it.
-- `tests/`, twenty-seven files on 2026-09-24. `record_contract.rs` checks a written record against the contract and walks
+- `tests/`, twenty-seven files on 2026-09-24, more since (`panels.rs`, `seats.rs`, `sandbox_tty.rs`, `sandbox_read_only.rs` among them). `record_contract.rs` checks a written record against the contract and walks
   the fixture corpus; since build ticket 126 the walk over every record on this machine is
   `hydra doctor --walk`, its assertions live in `src/walk.rs`, and `doctor.rs` drives it on a scratch
   corpus; `fixture_corpus.rs` writes and guards `tests/fixtures/records/`,
@@ -149,7 +149,7 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 81 of 81 resolved on 2026-09-26
+python3 .scratch/hydra/frontier.py          # the design map, 82 of 82 resolved on 2026-09-28
 python3 .scratch/hydra/frontier.py build    # the build
 ```
 
