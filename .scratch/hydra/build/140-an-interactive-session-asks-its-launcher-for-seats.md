@@ -44,4 +44,35 @@ Tests first, each shown failing before the code, all on stubs, no paid provider:
 
 Harness spec 9 (the face) and 10 (interactive mode) and D5's note, with `IMPLEMENTATION.md`.
 
+## Measured before launch, 2026-09-28 (session research, hand-written profiles, `sandbox-exec`)
+
+- **SBPL scopes connect to one socket.** After `(allow default)`:
+  `(deny network-outbound (remote unix-socket (subpath "<spawns>")))` then
+  `(allow network-outbound (remote unix-socket (path-literal "<own spawn>/seats.sock")))`. The own
+  socket connects; a sibling's gets EPERM, also by the `/private`-less spelling, a relative path,
+  `..`, a symlink, and a hardlink made outside. Do not deny all unix sockets: that kills
+  `/var/run/mDNSResponder`, which is DNS.
+- **Today any run can connect to any socket in a sibling's spawn directory.** The existing
+  file-read deny on the spawns directory does not stop connect. The deny rule above closes it;
+  emit it for every run, not only interactive ones.
+- **Bind inside a write-denied directory is refused** to the sandboxed process, and so is
+  unlinking the launcher's socket.
+- **The face is inside the seatbelt** (`gated_exec_argv`, `src/interactive.rs:229`, and the face
+  is a child of `claude`). It can derive the socket path from the `--parent <run_id>` it already
+  gets (`src/mcp.rs` near 310); the run cannot rewrite `mcp.json`.
+- **`sun_path` is 104 bytes.** The real path is about 72; a test root under `$TMPDIR` overflows.
+  Tests bind under a short root in `/private/tmp`, or bind by a relative path after `chdir`.
+- **The launcher blocks in `record_then_wait`** (`src/interactive.rs:548`); serve the socket on
+  its own thread, and seat runs must not inherit the TTY.
+
+## Decided by the session, 2026-09-28 (delegated by the human)
+
+The kernel scopes the channel to a path, not a process, so the session's own shell reaches
+`seats.sock` too, and the gate's `mcp_call` scope is not what guards it. Accepted: anything the
+shell can send, the face can send, and the launcher is the guard either way. It checks
+`config/panels.json`, holds everything else for `hydra approve`, marks every child's text itself
+(not the face), and writes each request to the session's record. What the kernel must guarantee is
+that no run reaches another run's socket, which it does. Item 5 of Do stays, scoped as defence
+for the MCP path only; do not claim it guards the channel.
+
 ## Outcome
