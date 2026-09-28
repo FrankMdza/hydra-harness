@@ -61,6 +61,13 @@ rows and records only (never the real dataset, which a run cannot read):
    `baseline.py label-import <csv>` only if that path cannot take the CSV as it is. Test with two
    fixture tickets.
 
+6. **A schedule the human can install.** Nothing collects on its own today: there is no launchd
+   job for the grader. Add `integrations/grader/launchd/co.hephaestuslab.hydra-grader.plist`, a
+   template that runs `grader.py once` every 15 minutes (`StartInterval` 900) with
+   `HYDRA_GRADER_HOME` and `HYDRA_ROOT` set, logs to a file under the grader home, and a README
+   section with the two commands to install and remove it. Do not install it: the human does.
+   Test: the plist parses (`plistlib`) and names `grader.py once`.
+
 `integrations/grader/README.md`: the two models, the bar, where scores go, the queue. Run the
 grader's own tests (`python3 -m unittest discover integrations/grader/tests` or `pytest` on PATH;
 say which). This ticket touches no Rust; do not run cargo.
