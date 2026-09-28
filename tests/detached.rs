@@ -122,6 +122,7 @@ fn child_env() -> ChildEnv {
 fn environment_of(pid: u32) -> Vec<String> {
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
     let mut size: libc::size_t = 0;
+    // SAFETY: three-element `mib` and live `size` out-param; null `oldp` sizes only.
     let rc = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),
@@ -134,6 +135,7 @@ fn environment_of(pid: u32) -> Vec<String> {
     };
     assert_eq!(rc, 0, "sysctl would not size pid {pid}'s arguments");
     let mut buf = vec![0u8; size];
+    // SAFETY: `buf` holds `size` bytes from the sizing call; `mib` is unchanged.
     let rc = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),
@@ -264,7 +266,9 @@ fn the_child_runs_in_a_session_of_its_own() {
     let run_file = layout.run_file(RUN_ID);
     watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
 
+    // SAFETY: pid 0 means this process.
     let ours = unsafe { libc::getsid(0) };
+    // SAFETY: `watcher` is a live child for the call.
     let theirs = unsafe { libc::getsid(watcher.id() as libc::pid_t) };
     assert!(theirs > 0, "getsid failed for the detached half");
     assert_ne!(
@@ -469,6 +473,7 @@ fn a_grandchild_holding_the_slave_closes_the_record_within_the_deadline() {
             .unwrap()
             .parse::<libc::pid_t>()
             .unwrap();
+        // SAFETY: `pid` came from this test's `pgrep` output and is killed for cleanup.
         unsafe {
             libc::kill(pid, libc::SIGKILL);
         }
@@ -581,6 +586,7 @@ fn a_writer_that_dies_before_closing_is_told_apart_from_a_slow_one() {
     watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
 
     let child = live::read_view(&run_file).unwrap().pid.unwrap();
+    // SAFETY: `watcher` and `child` are live pids this test just read from the run file.
     unsafe {
         libc::kill(watcher.id() as libc::pid_t, libc::SIGKILL);
         // Its own child would otherwise sit there for thirty seconds.

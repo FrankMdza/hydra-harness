@@ -189,7 +189,9 @@ impl ChildEnv {
 
 /// The home directory from the passwd entry, ignoring `HOME`.
 pub fn real_home() -> Result<PathBuf> {
-    // getpwuid is not reentrant. Hydra calls it from one thread during pre-flight.
+    // SAFETY: `getpwuid` is not reentrant; Hydra calls it from one thread during
+    // pre-flight. The returned pointer is to a static passwd entry and `pw_dir` is
+    // a NUL-terminated C string for that entry.
     let dir = unsafe {
         let pw = libc::getpwuid(libc::getuid());
         if pw.is_null() {

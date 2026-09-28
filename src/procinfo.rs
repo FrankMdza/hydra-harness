@@ -26,6 +26,8 @@ pub fn start_time(pid: u32) -> Result<Option<DateTime<Utc>>> {
 
     // First call sizes the buffer. A live pid gives one kinfo_proc, 3888 bytes on
     // this machine; a dead one gives zero.
+    // SAFETY: `mib` is a four-element stack array; `len` is a live `size_t` out-param
+    // and `oldp` is null so this call only sizes the buffer.
     let rc = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),
@@ -48,6 +50,8 @@ pub fn start_time(pid: u32) -> Result<Option<DateTime<Utc>>> {
     }
 
     let mut buf = vec![0u8; len];
+    // SAFETY: `buf` holds `len` bytes from the sizing call and `len` is the in-out
+    // length; `mib` is unchanged and still valid.
     let rc = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),

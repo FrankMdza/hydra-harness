@@ -213,6 +213,8 @@ impl Spawned {
                 events: libc::POLLIN,
                 revents: 0,
             };
+            // SAFETY: `pty_fd` is the master fd of `_master`, open for the life of
+            // `Spawned`; `pfd` is one live `pollfd` for the call.
             let polled = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
             if polled < 0 {
                 let err = std::io::Error::last_os_error();
@@ -223,6 +225,8 @@ impl Spawned {
             }
 
             if pfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
+                // SAFETY: `pty_fd` is the same open master as poll; `chunk` is
+                // 65536 bytes and its pointer is valid for `chunk.len()`.
                 let read = unsafe {
                     libc::read(
                         self.pty_fd,
@@ -340,11 +344,15 @@ impl Spawned {
             events: libc::POLLIN | libc::POLLHUP,
             revents: 0,
         };
+        // SAFETY: `pty_fd` is the open master while `_master` lives; one `pollfd`
+        // for the call.
         let polled = unsafe { libc::poll(&mut pfd, 1, 0) };
         if polled <= 0 {
             return Ok(false);
         }
         let mut byte = [0u8; 1];
+        // SAFETY: `pty_fd` is the open master; `byte` is one byte and its pointer
+        // is valid for `byte.len()`.
         let read = unsafe {
             libc::read(
                 self.pty_fd,
@@ -397,10 +405,12 @@ impl Spawned {
 }
 
 fn set_nonblocking(fd: libc::c_int) -> Result<()> {
+    // SAFETY: `fd` is an open pty master the caller owns for this call.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 {
         return Err(std::io::Error::last_os_error()).context("reading the pty flags");
     }
+    // SAFETY: same open `fd`; `flags` came from `F_GETFL` on it.
     let rc = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
     if rc < 0 {
         return Err(std::io::Error::last_os_error()).context("making the pty non-blocking");

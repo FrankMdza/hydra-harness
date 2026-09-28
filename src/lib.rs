@@ -1,6 +1,7 @@
 //! Hydra: a router over the agent CLIs.
 //!
-//! It launches two providers, `claude` and `cursor-agent`, on a pty it owns, under
+//! It launches four providers, `claude`, `cursor-agent`, `agy` and `codex`, on a
+//! pty it owns, under
 //! a gate it compiled from the run's policy, and writes a run record per
 //! `docs/run-record-contract.md`.
 //! [`normalize`] reads one back into the ten event types of contract 7 and

@@ -633,6 +633,7 @@ mod nofollow {
         let fd = open(Some(at), name, libc::O_RDONLY | libc::O_NONBLOCK)?;
         // SAFETY: `stat` is plain data, and `fd` is live for the call.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `fd` is live for the call and `stat` is writable `fstat` output.
         if unsafe { libc::fstat(fd.as_raw_fd(), &mut stat) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
@@ -661,6 +662,8 @@ mod nofollow {
             if entry.is_null() {
                 break;
             }
+            // SAFETY: `entry` came from `readdir` on this iteration and `d_name` is
+            // a NUL-terminated name within it.
             let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
             let name = name.to_bytes();
             if name != b"." && name != b".." {
