@@ -222,6 +222,16 @@ pub enum Command {
         walk: bool,
     },
 
+    /// Approve a seat request that matches no approved shape, map ticket 82.
+    ///
+    /// Typed by a human in a terminal outside any session. Refused inside a
+    /// seatbelt, so no model approves, the session that asked included.
+    Approve {
+        /// The request id the session was told. Without it, every request
+        /// still waiting, with what each asks for.
+        request_id: Option<String>,
+    },
+
     /// The one path by which anything leaves this machine, harness spec 14.
     Export {
         /// Where the header and one JSON line per eligible run are written.

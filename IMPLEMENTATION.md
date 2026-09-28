@@ -721,8 +721,8 @@ policy the session's does not contain is refused as `hydra/seat-above-session`, 
 past its cap as `hydra/panel-cap`. The cap is counted in memory, per session, because the
 launcher lives exactly as long as the session. A request for seats matches a shape when the
 seats are the shape's in any order, compared on provider, model and policy. A request that
-matches none is `hydra/approval-required` with a request id and launches nothing; 141 builds
-the approval. Every request, refused ones included, is a `seat_request` line on the session's
+matches none waits for `hydra approve`, which build ticket 141 built and the paragraph after
+this one describes. Every request, refused ones included, is a `seat_request` line on the session's
 record, written under the record's lock before anything launches: the request id, the shape,
 the seats, the task verbatim, the decision, the refusal code, and the run ids the launcher
 mints for the seats. A launch passes those ids to `run::run` with the session as `--parent`,
@@ -747,7 +747,8 @@ under the same lock that closes the record, until that call or until `run::run` 
 `Served::stop` waits up to 60 seconds for the count to reach zero. A seat still launching after
 that stops with the process, and `interactive.rs` names it on stderr once `claude` has exited.
 It is not on the session's record, because the contract gives `seat_request` three decisions
-and none of them is "died in launch". `tests/seats.rs` drives each of these on stubs: a stub
+and none of them is "died in launch". An approved request is not a fourth decision: the
+approval is a line of its own, `seat_approval`, since build ticket 141. `tests/seats.rs` drives each of these on stubs: a stub
 launch that blocks before its handoff, and one that never hands off. **Every profile, not only an
 interactive one, denies `network-outbound` to a unix socket under the spawns directory and
 allows the run's own `seats.sock`**, after `(allow default)` and in that order, because SBPL
@@ -774,6 +775,40 @@ launcher is what guards it. **One thing is open.** No normalized event carries a
 `hydra show` does not print one. The contract names `seat_request` as the one exception to its
 two Hydra lines since the session amended it with build 140, and `run::run` printing on the
 terminal the session draws on closed with build ticket 142.
+
+**Build ticket 141 built `hydra approve`, the human's answer to a request no shape names** (map
+ticket 82 answer 4). `src/approve.rs` is the store and the command. The launcher writes the
+request to `~/hydra/approvals/<id>.pending.json` after its `seat_request` line lands, then holds
+the face's call open, polling every 100 ms, for up to ten minutes (`seats::APPROVAL_WAIT`, the
+same bound a blocking `delegate` has). `hydra approve <id>` renames the file to
+`<id>.approved.json`. The launcher sees it, writes a `seat_approval` line to the session's record
+with the request id and nothing else, mints the seats' run ids, launches them as children of the
+session, and answers the waiting call with the marked results. A seat approved outside any shape
+has no role, so it is told the task verbatim, and the reply's `shape` is `null`. A wait that runs
+out, or a session that closes first, renames the file to `<id>.withdrawn.json` and answers
+`hydra/approval-required`. Each change of state is one `rename`, so the human's approval and the
+launcher's withdrawal cannot both happen; whichever rename finds the file gone lost, and the
+launcher reads a lost withdrawal as an approval. `hydra approve` refuses inside a seatbelt as
+`hydra/approve-inside-seatbelt`, before it reads or writes anything. It refuses a second approval
+as `hydra/already-approved`, an id that is not waiting or not an id as `hydra/no-pending-request`,
+and a withdrawn one as `hydra/request-withdrawn`. It also withdraws a request whose session's
+`seats.sock` is gone, which is a launcher killed outside its own shutdown, rather than approving
+it into nothing. With no id it lists every waiting request: its id, when it was asked, the
+session and its policy, each seat's provider, model and policy, the task, and the command to
+type. `layout.approvals()` is on `denied_write_paths`, so the gate refuses a write there as
+`hydra/protected-path` under every policy, and every profile denies it reads as well as writes,
+because a waiting request carries its session's task. The files are left in the store in their
+final state; nothing sweeps them. The record validator accepts `seat_approval` with a string
+`request_id` and no other field, after `run_start`. **The record contract does not name
+`seat_approval` yet.** This ticket was not allowed to edit `docs/run-record-contract.md`, so the
+line is a second exception the validator admits and the contract's paragraph on `seat_request`
+does not mention. `tests/seats.rs` drives the whole path on stubs: the built binary refusing
+inside a seatbelt with the store unchanged, an approval reaching a face whose `delegate` call was
+waiting and coming back marked, the listing, a wait that runs out, and a session that ends while
+a request waits. `tests/spawn.rs` checks the gate's refusal and the profile's two denials; its
+live-kernel probe skips inside a seatbelt and has not run. The Herdr bridge reads the store
+beside the run file and puts a `pending_approval` token and a title suffix on the session's pane,
+display only (`integrations/herdr/tests/test_mapping.py`).
 
 **Until build ticket 50, Hydra found its policy directory through `CARGO_MANIFEST_DIR`
 alone, so the binary only worked from its source tree.** `HYDRA_HOME` overrides it now, and

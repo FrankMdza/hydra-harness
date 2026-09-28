@@ -22,7 +22,10 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
   measured in their own TUI (`claude` today). Defaults are `sonnet` and `standard`.
 - `bin/hydra-bridge`, a poller. Every two seconds it lists the panes carrying a `run_id` token,
   reads `hydra status` for each, and reports on change. The state table at the top of the file
-  is the whole policy. Resolved 2026-09-07, map ticket 49.
+  is the whole policy. Resolved 2026-09-07, map ticket 49. A live session with a seat request
+  waiting for `hydra approve` gets a `pending_approval` token with the request ids and a title
+  ending in `waiting for hydra approve` (build ticket 141). The bridge reads
+  `~/hydra/approvals/` beside the run file's `runs/` directory and never approves anything.
 - `bin/hydra-mascot`, the HydraPet dragon. With no mode flag it prints one pet frame; `--watch`
   lists Herdr panes once a second and drives the three heads from their tokens. It never calls
   `hydra status` and never reads `~/hydra/runs/`. Interactive panes (`launch_mode=interactive`)

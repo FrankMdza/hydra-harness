@@ -309,9 +309,25 @@ pub fn check(text: &str, expected_run_id: Option<&str>) -> Report {
                         say(format!("{at}: seat_request has decision {decision:?}"));
                     }
                 }
+                // Build ticket 141: a human approved a request that matched no
+                // shape. The request id and nothing else; the time is `ts`.
+                "seat_approval" => {
+                    if index == 0 {
+                        say(format!("{at}: a seat_approval before run_start"));
+                    }
+                    if !body.get("request_id").is_some_and(Value::is_string) {
+                        say(format!("{at}: seat_approval is missing request_id"));
+                    }
+                    if let Some(extra) = body
+                        .keys()
+                        .find(|key| !matches!(key.as_str(), "type" | "request_id"))
+                    {
+                        say(format!("{at}: seat_approval carries {extra}"));
+                    }
+                }
                 other => say(format!(
                     "{at}: a Hydra line of type {other:?}; the contract allows run_start, \
-                     run_end and a session's seat_request"
+                     run_end and a session's seat_request and seat_approval"
                 )),
             }
         } else if has_hydra {

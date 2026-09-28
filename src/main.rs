@@ -217,6 +217,13 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Approve { request_id } => {
+            let layout = Layout::discover()?;
+            print!(
+                "{}",
+                hydra::approve::command(&layout, request_id.as_deref())?
+            );
+        }
         Command::Export { out, dry_run } => {
             let layout = Layout::discover()?;
             let allowlist = hydra::export::allowlist_path();

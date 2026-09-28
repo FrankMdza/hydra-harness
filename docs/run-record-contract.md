@@ -118,6 +118,9 @@ writes one `seat_request` line per request, between `run_start` and `run_end`, b
 anything: `request_id`, `shape`, `seats`, `task`, `decision` (`launched`, `refused` or
 `approval_required`), `reason` and `runs`. No provider frame carries that request's fate, which is
 the same reason the other two exist. It appears only on an interactive run's file; `src/record/validate.rs` accepts it.
+A request that matched no shape and that the human approved with `hydra approve` (map 82, build
+141) adds one more, `seat_approval`, carrying only `request_id`; its time is the envelope's `ts`.
+The human is always the approver, so the line names nobody.
 
 ```jsonc
 // provider line

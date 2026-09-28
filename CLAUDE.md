@@ -84,6 +84,7 @@ document and there should not be one.
   harness spec 15.2's row 4; `sandbox.rs` composes that profile and wraps the launch in it;
   `doctor.rs` is `hydra doctor`; `export_preference.rs` reads preference pairs, corrections and
   judge verdicts, behind the human's sign-off manifest;
+  `panels.rs` loads the approved panel shapes of protected config #6; `seats.rs` is the launcher a gated interactive session asks for seats over its own socket, and `approve.rs` the store and the human-typed `hydra approve` for a request no shape covers (map 82);
   `preamble.rs` composes what the run is told; `interactive.rs` is the second launch mode and
   the harvest that completes it; `show.rs` prints a record normalized; `face.rs` is the MCP delegate face of harness
   spec 9, a stdio server a run's own provider spawns from the MCP document, and the one place

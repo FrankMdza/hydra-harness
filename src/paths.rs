@@ -243,6 +243,17 @@ impl Layout {
         self.root.join("spawn")
     }
 
+    /// `~/hydra/approvals/`, where a seat request no shape names waits for
+    /// `hydra approve`, map ticket 82 answer 4 and build ticket 141.
+    ///
+    /// **Denied to every gated run, reads and writes.** A run that writes here
+    /// approves its own request, and one that reads here reads other sessions'
+    /// tasks. The launcher, outside the seatbelt, writes a request in; the
+    /// human's `hydra approve` renames it; nothing else touches it.
+    pub fn approvals(&self) -> PathBuf {
+        self.root.join("approvals")
+    }
+
     /// `~/hydra/puppets/`, where Master of Puppets keeps one append-only JSONL
     /// per goal, map ticket 76 decision B.
     ///

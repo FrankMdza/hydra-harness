@@ -241,6 +241,18 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   detached watcher before the process exits. A seat launch prints nothing on the human's terminal.
   The `mcp_call` server scope matches the server part of a tool name exactly: `mcp__hydra___x`
   and `mcp__hydra__evil__x` name servers `hydra_` and `hydra__evil`, and both are refused.
+- **A seat request no shape names waits for `hydra approve`, typed by the human, since build
+  ticket 141.** The launcher writes it to `~/hydra/approvals/` and holds the face's call open for
+  up to ten minutes; the human's `hydra approve <id>` renames the file, and the launcher
+  launches. The command refuses inside a seatbelt, which is only courtesy: a model that skips it
+  still meets the gate's `hydra/protected-path` and the kernel, because the store is on the
+  denied write paths of every policy and every profile denies it reads too, since a waiting
+  request carries its session's task. Those denials are in the profile text on every spawn; the
+  live-kernel probe of a write, a rename and a read in the store
+  (`the_seatbelt_denies_a_write_to_the_approval_store`) skips inside a seatbelt and has not run
+  on the machine that built it. A waiting request holds one of the session's four connections.
+  A launcher killed outside its own shutdown leaves its requests pending; `hydra approve` finds
+  the session's socket gone and withdraws such a request rather than approving it into nothing.
 - **On `codex` the gate rides the command line, and a hook that dies without answering fails
   open, since 2026-09-21.** Codex reads no project hook file inside a git worktree, and every
   Hydra run is one, so the gate is handed over as a `-c` override naming a Python file in the

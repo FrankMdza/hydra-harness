@@ -1148,8 +1148,13 @@ session's policy, writes it to the session's record as a `seat_request` line, an
 seat as a child of the session with its own id minted first. It marks each child's text itself,
 with one token drawn after every seat stopped. A request for a shape the session may not ask for,
 a seat whose policy the session's does not contain, a shape past its cap per hour, and a shape
-nobody approved are refused by name; a request that matches no shape comes back
-`hydra/approval-required` with its id and launches nothing until a human approves it. A run with
+nobody approved are refused by name. A request that matches no shape waits for a human (build
+ticket 141): the launcher writes it to the approval store, `~/hydra/approvals/`, and holds the
+call open for up to ten minutes. The human types `hydra approve <id>` in a terminal outside the
+session; the launcher writes a `seat_approval` line on the session's record, launches the seats as
+asked, and answers the waiting call with their marked results. Nobody approving in time, or the
+session ending first, withdraws the request and the call comes back `hydra/approval-required`
+with its id. A run with
 no launcher, which is every recorded run, keeps the refusal above. No `--shared-tree`, no timeout override, no depth, no `model`. Those four are how a
 delegation escapes its worktree,
 outlives its budget, spawns a tree, or drops to an older model generation to dodge a limit it
@@ -1224,6 +1229,18 @@ The session's own shell reaches this one as well as the face does. That is accep
 launcher is the guard either way, and the gate's `mcp_call` scope defends the MCP path and not the
 channel. The launcher closes the session's record to new requests before the harvest writes
 `run_end`.
+
+**One request type is answered from outside, and only by a human** (map ticket 82, build ticket
+141). A seat request that matches no approved shape waits for `hydra approve <id>`, typed in a
+terminal outside the session. It answers that one request and nothing else: no tool call, no
+provider prompt, no input to the session. No model approves one, the orchestrating session
+included. The command refuses inside a seatbelt with `hydra/approve-inside-seatbelt`, and the
+store it writes, `~/hydra/approvals/`, is denied to every run's reads and writes by the gate and
+by the kernel, so a session cannot approve its own request whatever it runs. With no id the
+command lists what each waiting request asks for: the session, its policy, the seats and the
+task. Each change of state in the store is one `rename`, so an approval and a withdrawal cannot
+both win. The session's record carries the approval as a `seat_approval` line holding the
+request id; the human is always who approved, and the envelope's `ts` is when the launcher saw it.
 
 **Nothing is cleaned up automatically.** `hydra prune` and `hydra reap` are commands you type. Prune
 moves run files rather than deleting them unless a flag says otherwise, because D12 keeps lossless

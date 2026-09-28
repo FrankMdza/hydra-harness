@@ -18,6 +18,7 @@
 //! [`rungs`] is the other half of the design and reads what the router wrote.
 //! Rung one is `hydra curate`; rung two is `hydra evolve`.
 
+pub mod approve;
 pub mod cli;
 pub mod containment;
 pub mod doctor;

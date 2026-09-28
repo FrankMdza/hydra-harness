@@ -181,11 +181,26 @@ impl Fixture {
         Self::launching(session_policy, stub)
     }
 
+    /// A fixture whose launcher holds a request for a human for `wait`. The
+    /// others hold one for half a second, so a test that asks for no human
+    /// does not wait ten minutes for one.
+    fn waiting(session_policy: &str, wait: Duration) -> Self {
+        Self::build(session_policy, stub, wait)
+    }
+
     /// A fixture whose launcher starts seats with `launch`, handed the list
     /// [`Fixture::launched`] reads.
     fn launching(
         session_policy: &str,
         launch: impl FnOnce(Arc<Mutex<Vec<Launched>>>) -> Box<seats::LaunchSeat>,
+    ) -> Self {
+        Self::build(session_policy, launch, Duration::from_millis(500))
+    }
+
+    fn build(
+        session_policy: &str,
+        launch: impl FnOnce(Arc<Mutex<Vec<Launched>>>) -> Box<seats::LaunchSeat>,
+        approval_wait: Duration,
     ) -> Self {
         let root = root();
         let layout = Layout::at(&root);
@@ -194,18 +209,22 @@ impl Fixture {
         std::fs::create_dir_all(layout.spawn(SESSION)).unwrap();
         let panels = write_panels(&root);
         let launched = Arc::new(Mutex::new(Vec::new()));
-        let launcher = Arc::new(Launcher::new(
-            Session {
-                run_id: SESSION.to_string(),
-                policy: session_policy.to_string(),
-                model: None,
-                run_file: run_file.clone(),
-                working_dir: root.clone(),
-            },
-            policies_dir(),
-            panels,
-            launch(launched.clone()),
-        ));
+        let launcher = Arc::new(
+            Launcher::new(
+                Session {
+                    run_id: SESSION.to_string(),
+                    policy: session_policy.to_string(),
+                    model: None,
+                    run_file: run_file.clone(),
+                    working_dir: root.clone(),
+                },
+                policies_dir(),
+                panels,
+                layout.approvals(),
+                launch(launched.clone()),
+            )
+            .with_approval_wait(approval_wait),
+        );
         Self {
             root,
             layout,
@@ -240,6 +259,52 @@ impl Fixture {
             .filter(|line| line["hydra"]["type"] == "seat_request")
             .map(|line| line["hydra"].clone())
             .collect()
+    }
+
+    /// Every `seat_approval` line on the session's record, in order.
+    fn approvals(&self) -> Vec<Value> {
+        std::fs::read_to_string(&self.run_file)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|line| line["hydra"]["type"] == "seat_approval")
+            .map(|line| line["hydra"].clone())
+            .collect()
+    }
+
+    /// The store's files, by name, so a test can say nothing changed.
+    fn store(&self) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(self.layout.approvals()) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = entries
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Asks for `ask` on a thread of its own, which blocks while the request
+    /// waits for a human, and returns once the store holds it.
+    fn ask_and_wait(&self, ask: Ask) -> (String, std::thread::JoinHandle<seats::Reply>) {
+        let launcher = self.launcher.clone();
+        let asked = std::thread::spawn(move || launcher.answer(&ask));
+        let id = self.pending_id();
+        (id, asked)
+    }
+
+    /// The one request the store holds for a human, once it is there.
+    fn pending_id(&self) -> String {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let pending = hydra::approve::pending(&self.layout).unwrap();
+            if let Some(first) = pending.first() {
+                assert_eq!(pending.len(), 1, "{pending:?}");
+                return first.request_id.clone();
+            }
+            assert!(Instant::now() < deadline, "no request reached the store");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }
 
@@ -1008,4 +1073,230 @@ fn a_seat_launch_is_told_to_keep_off_the_humans_terminal() {
     let launched = fixture.launched();
     assert_eq!(launched.len(), 1);
     assert!(launched[0].quiet, "{:?}", launched[0]);
+}
+
+// ---------------------------------------------------------------------------
+// Build ticket 141: `hydra approve`, typed by a human outside the seatbelt
+// ---------------------------------------------------------------------------
+
+/// `hydra approve` as the built binary, inside a seatbelt. Inside a run's
+/// seatbelt already, the binary inherits it; outside one, it is wrapped in a
+/// profile that allows everything, so a refusal is the command's and not a
+/// write the kernel denied. `None` where neither is possible.
+fn approve_inside_seatbelt(root: &Path, args: &[&str]) -> Option<std::process::Output> {
+    let mut command = if hydra::sandbox::inside_seatbelt() {
+        Command::new(env!("CARGO_BIN_EXE_hydra"))
+    } else if hydra::sandbox::exec_available() {
+        let profile = root.join("allow.sb");
+        std::fs::write(&profile, "(version 1)\n(allow default)\n").unwrap();
+        let mut wrapped = Command::new("/usr/bin/sandbox-exec");
+        wrapped
+            .arg("-f")
+            .arg(profile)
+            .arg(env!("CARGO_BIN_EXE_hydra"));
+        wrapped
+    } else {
+        eprintln!("skipped: no seatbelt to run `hydra approve` inside");
+        return None;
+    };
+    Some(
+        command
+            .arg("approve")
+            .args(args)
+            .env("HYDRA_ROOT", root)
+            .output()
+            .unwrap(),
+    )
+}
+
+#[test]
+fn hydra_approve_inside_a_seatbelt_refuses_by_name_and_writes_nothing() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    let (id, asked) = fixture.ask_and_wait(one_seat("claude", "read-only"));
+    let before = fixture.store();
+
+    for args in [vec![id.as_str()], vec![]] {
+        let Some(out) = approve_inside_seatbelt(&fixture.root, &args) else {
+            fixture.launcher.close();
+            asked.join().unwrap();
+            return;
+        };
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !out.status.success(),
+            "approve {args:?} went ahead: {stderr}"
+        );
+        assert!(
+            stderr.contains("hydra/approve-inside-seatbelt"),
+            "approve {args:?}: {stderr}"
+        );
+        assert_eq!(
+            fixture.store(),
+            before,
+            "approve {args:?} wrote to the store"
+        );
+    }
+    assert!(fixture.launched().is_empty());
+    assert!(fixture.approvals().is_empty());
+
+    fixture.launcher.close();
+    let reply = asked.join().unwrap();
+    assert!(reply.is_error, "{}", reply.text);
+    assert!(fixture.launched().is_empty(), "a refused approval launched");
+}
+
+#[test]
+fn an_approval_typed_outside_launches_the_waiting_request_and_the_face_gets_the_marked_results() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    let served = seats::serve(
+        fixture.launcher.clone(),
+        &seats::socket_path(&fixture.layout, SESSION),
+    )
+    .unwrap();
+
+    // `delegate` for a seat no shape names, which waits for a human.
+    let root = fixture.root.clone();
+    let face = std::thread::spawn(move || {
+        let mut face = Face::start(&root, SESSION, None);
+        face.call(
+            "delegate",
+            json!({"provider": "claude", "task": "read the diff", "policy": "read-only"}),
+        )
+    });
+    let id = fixture.pending_id();
+    assert!(
+        fixture.launched().is_empty(),
+        "launched before the approval"
+    );
+
+    let approved = hydra::approve::approve(&fixture.layout, &id).unwrap();
+    assert_eq!(approved.request_id, id);
+    let (text, is_error) = face.join().unwrap();
+    assert!(!is_error, "{text}");
+
+    let launched = fixture.launched();
+    assert_eq!(launched.len(), 1, "{launched:?}");
+    assert_eq!(launched[0].provider, Provider::Claude);
+    assert_eq!(launched[0].policy, "read-only");
+    assert_eq!(launched[0].parent.as_deref(), Some(SESSION));
+    // A seat no shape named has no role to be told, so it gets the task.
+    assert_eq!(launched[0].task, "read the diff");
+
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["request_id"], id.as_str());
+    let said = body["seats"][0]["result"]["result_text"].as_str().unwrap();
+    assert!(said.starts_with("<<<hydra-result "), "{said}");
+    assert!(said.contains("<<<end hydra-result "), "{said}");
+
+    // Item 5: the human is always who approved, so the line says when and
+    // which request, and nothing else.
+    let approvals = fixture.approvals();
+    assert_eq!(approvals.len(), 1, "{approvals:?}");
+    let keys: Vec<&str> = approvals[0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, ["request_id", "type"], "{approvals:?}");
+    assert_eq!(approvals[0]["request_id"], id.as_str());
+    let line: Value = std::fs::read_to_string(&fixture.run_file)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|line| line["hydra"]["type"] == "seat_approval")
+        .unwrap();
+    assert!(line["ts"].is_string(), "{line}");
+
+    // Twice is refused, and so is an id nobody asked for.
+    let again = hydra::approve::approve(&fixture.layout, &id).unwrap_err();
+    assert!(
+        format!("{again:#}").contains("hydra/already-approved"),
+        "{again:#}"
+    );
+    let unknown = hydra::approve::approve(&fixture.layout, "01a0e7ae-0000-7000-8000-00000000dead")
+        .unwrap_err();
+    assert!(
+        format!("{unknown:#}").contains("hydra/no-pending-request"),
+        "{unknown:#}"
+    );
+    let walked = hydra::approve::approve(&fixture.layout, "../../runs/x").unwrap_err();
+    assert!(
+        format!("{walked:#}").contains("hydra/no-pending-request"),
+        "{walked:#}"
+    );
+    assert_eq!(fixture.launched().len(), 1, "a refused approval launched");
+
+    served.stop();
+    fixture.harvest();
+}
+
+#[test]
+fn approve_with_no_id_lists_what_each_pending_request_asks_for() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    let mut ask = one_seat("codex", "judge");
+    ask.seats.as_mut().unwrap()[0].model = Some("gpt-9".into());
+    let (id, asked) = fixture.ask_and_wait(ask);
+
+    let pending = hydra::approve::pending(&fixture.layout).unwrap();
+    let listed = hydra::approve::listing(&pending);
+    let command = format!("hydra approve {id}");
+    for needle in [
+        id.as_str(),
+        SESSION,
+        "standard",
+        "codex",
+        "gpt-9",
+        "judge",
+        "read the diff and say what breaks",
+        command.as_str(),
+    ] {
+        assert!(listed.contains(needle), "{needle:?} not listed:\n{listed}");
+    }
+    assert!(
+        hydra::approve::listing(&[]).contains("nothing"),
+        "an empty store says so"
+    );
+
+    fixture.launcher.close();
+    asked.join().unwrap();
+}
+
+#[test]
+fn a_request_nobody_approves_is_withdrawn_and_can_no_longer_be_approved() {
+    let fixture = Fixture::waiting("standard", Duration::from_millis(300));
+    let reply = fixture.launcher.answer(&one_seat("claude", "read-only"));
+    assert!(reply.is_error, "{}", reply.text);
+    assert!(
+        reply.text.contains("hydra/approval-required"),
+        "{}",
+        reply.text
+    );
+    let id = fixture.requests()[0]["request_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(hydra::approve::pending(&fixture.layout).unwrap().is_empty());
+    let late = hydra::approve::approve(&fixture.layout, &id).unwrap_err();
+    assert!(
+        format!("{late:#}").contains("hydra/request-withdrawn"),
+        "{late:#}"
+    );
+    assert!(fixture.launched().is_empty());
+    assert!(fixture.approvals().is_empty());
+}
+
+#[test]
+fn a_session_that_ends_while_a_request_waits_withdraws_it() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    let (id, asked) = fixture.ask_and_wait(one_seat("claude", "read-only"));
+    fixture.launcher.close();
+    let reply = asked.join().unwrap();
+    assert!(reply.is_error, "{}", reply.text);
+    let late = hydra::approve::approve(&fixture.layout, &id).unwrap_err();
+    assert!(
+        format!("{late:#}").contains("hydra/request-withdrawn"),
+        "{late:#}"
+    );
+    assert!(fixture.launched().is_empty());
 }

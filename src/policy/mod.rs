@@ -829,6 +829,9 @@ pub fn denied_write_paths(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<PathBuf> {
         // Map ticket 76, build ticket 110: Master of Puppets' goal log. A run
         // that rewrites its own assignment or approval walks around the mode.
         layout.puppets(),
+        // Map ticket 82, build ticket 141: a run that writes here approves its
+        // own seat request, which only a human may.
+        layout.approvals(),
         // The store and its snapshots are the other half of D5's seam. Rung one
         // proposes rather than lands, and a run that writes its own snapshot
         // edits its own instructions mid-session.

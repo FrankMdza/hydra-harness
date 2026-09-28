@@ -105,6 +105,12 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
         r#"(deny file-read* (subpath "{}"))"#,
         escape(&canonical(&spawn.layout.pruned()))
     ));
+    // Build ticket 141. A waiting seat request carries its session's task, so
+    // the approval store is the corpus by another door too.
+    lines.push(format!(
+        r#"(deny file-read* (subpath "{}"))"#,
+        escape(&canonical(&spawn.layout.approvals()))
+    ));
     // Build ticket 140. The read denial above does not stop `connect`, and a
     // run could reach any socket in a sibling's spawn directory, measured
     // 2026-09-28. So every run's profile denies connecting to a socket under

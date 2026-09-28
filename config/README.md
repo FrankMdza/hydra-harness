@@ -76,8 +76,10 @@ A session asks for a shape by name with the face's `panel` tool, or asks for sea
 seats are the shape's seats in any order, compared on provider, model and policy; the role
 is the shape's. `delegate` passes no model, so it matches only a one-seat shape whose seat
 names none. A match launches with no prompt, up to `cap_per_hour` times in any hour of one
-session. Anything else comes back `hydra/approval-required` and waits for `hydra approve`,
-which is build ticket 141 and does not exist yet. Above every shape's cap sits one the file
+session. Anything else waits for a human: the face's call stays open for up to ten minutes
+while the human reads `hydra approve` and types `hydra approve <id>` in a terminal outside the
+session (build ticket 141). Unapproved in that time, it comes back `hydra/approval-required`
+and launches nothing. Above every shape's cap sits one the file
 does not set: 60 requests an hour per session, refused ones included, after which the
 launcher answers `hydra/request-cap` and writes nothing more to the session's record (build
 ticket 142).

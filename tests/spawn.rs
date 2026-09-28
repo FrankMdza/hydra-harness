@@ -1989,3 +1989,74 @@ fn hydra_root_is_refused_from_inside_a_seatbelt() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!stderr.contains("inside the seatbelt"), "{stderr}");
 }
+
+#[test]
+fn the_seatbelt_denies_a_write_to_the_approval_store() {
+    // Build ticket 141. `hydra approve` refuses inside a seatbelt, and that is
+    // the command being polite. What keeps a run from approving its own
+    // request is that the gate and the kernel both deny it the store.
+    let (layout, root) = layout();
+    let set = PolicySet::discover().unwrap();
+    let worktree = root.join("worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    std::fs::create_dir_all(layout.approvals()).unwrap();
+    let pending = layout.approvals().join("r2.pending.json");
+    std::fs::write(&pending, "{}").unwrap();
+    let spawn = write_spawn_config(
+        &layout,
+        "r1",
+        &set,
+        Provider::Claude,
+        "standard",
+        Some(&worktree),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    let payload = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": layout.approvals().join("r2.approved.json").to_string_lossy(),
+            "content": "{}",
+        },
+        "cwd": worktree,
+    });
+    let answer = ask_through_the_hook(&spawn.hook_config, &payload.to_string());
+    assert!(
+        answer.contains("\"deny\"") && answer.contains("hydra/protected-path"),
+        "gate allowed a write to the approval store: {answer}"
+    );
+
+    if !hydra::sandbox::wraps_launches() {
+        return;
+    }
+    let profile = spawn.sandbox_profile.unwrap();
+    let store = canonical_subpath(&layout.approvals());
+    let text = std::fs::read_to_string(&profile).unwrap().to_lowercase();
+    for rule in ["file-write*", "file-read*"] {
+        assert!(
+            text.contains(&format!(
+                r#"(deny {rule} (subpath "{}"))"#,
+                store.to_lowercase()
+            )),
+            "profile does not deny {rule} on the approval store:\n{text}"
+        );
+    }
+
+    if !seatbelt_exec_or_skip("the_seatbelt_denies_a_write_to_the_approval_store") {
+        return;
+    }
+    let out = under_seatbelt(
+        &profile,
+        &format!("mv '{store}/r2.pending.json' '{store}/r2.approved.json'"),
+    );
+    assert!(refused(&out), "a rename in the approval store: {out}");
+    let out = under_seatbelt(&profile, &format!("echo x > '{store}/r3.approved.json'"));
+    assert!(refused(&out), "a write to the approval store: {out}");
+    assert!(pending.exists(), "the pending request moved");
+    let out = under_seatbelt(&profile, &format!("cat '{store}/r2.pending.json'"));
+    assert!(refused(&out), "a read of the approval store: {out}");
+}

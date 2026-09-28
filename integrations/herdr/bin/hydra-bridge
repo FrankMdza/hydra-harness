@@ -187,6 +187,36 @@ def read_run_start(run_file):
     return body
 
 
+def approvals_dir(run_file):
+    """`~/hydra/approvals/`, beside the `runs/` directory `run_file` is in."""
+    return os.path.join(os.path.dirname(os.path.dirname(run_file)), "approvals")
+
+
+def pending_approvals(directory, run_id):
+    """The ids of the seat requests `run_id` made that wait for `hydra approve`.
+
+    Build ticket 141. A request no approved shape names waits in the store as
+    `<id>.pending.json` until the human types `hydra approve <id>` outside the
+    session. Read for display only: the bridge never approves.
+    """
+    try:
+        names = sorted(os.listdir(directory))
+    except OSError:
+        return []
+    ids = []
+    for name in names:
+        if not name.endswith(".pending.json"):
+            continue
+        try:
+            with _open(os.path.join(directory, name), encoding="utf-8") as handle:
+                request = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if isinstance(request, dict) and request.get("session") == run_id:
+            ids.append(str(request.get("request_id") or name[: -len(".pending.json")]))
+    return ids
+
+
 def tool_result_output(block):
     content = block.get("content")
     if isinstance(content, str):
@@ -300,7 +330,9 @@ def short_run_id(run_id):
     return run_id[:8]
 
 
-def build_tokens(status_json, events_data=None, now=None, interactive_denials=None):
+def build_tokens(
+    status_json, events_data=None, now=None, interactive_denials=None, pending=None
+):
     tokens = {
         "run_id": status_json.get("run_id") or "",
         "provider": status_json.get("provider") or "",
@@ -324,6 +356,9 @@ def build_tokens(status_json, events_data=None, now=None, interactive_denials=No
 
     if interactive_denials is not None:
         tokens["denials"] = str(interactive_denials)
+
+    if pending:
+        tokens["pending_approval"] = ",".join(pending)
 
     if events_data is not None:
         name, seq = latest_tool_call(events_data)
@@ -356,7 +391,12 @@ def build_title(status_json, tokens):
         detail = tokens.get("state") or status_json.get("state") or ""
 
     separator = " · "
-    return f"{provider} {run_id}{separator}{detail}"
+    title = f"{provider} {run_id}{separator}{detail}"
+    pending = tokens.get("pending_approval")
+    if pending:
+        count = len(pending.split(","))
+        title += f"{separator}{count} waiting for hydra approve"
+    return title
 
 
 def report_key(herdr_state, label, tokens, title):
@@ -479,6 +519,9 @@ def main():
 
             interactive_denials = None
             events_data = None
+            pending = None
+            if status_json.get("state") == "live" and run_file:
+                pending = pending_approvals(approvals_dir(run_file), run_id)
             if status_json.get("state") == "live":
                 if is_interactive_claude(status_json, run_start) and run_start:
                     session = run_start.get("provider_session_id")
@@ -495,6 +538,7 @@ def main():
                 status_json,
                 events_data=events_data,
                 interactive_denials=interactive_denials,
+                pending=pending,
             )
             title = build_title(status_json, tokens)
             key = report_key(herdr_state, label, tokens, title)

@@ -150,3 +150,39 @@ class ToolRateWithoutTimestamps(unittest.TestCase):
             {"type": "tool_call", "ts": "2026-09-24T11:59:00Z"},
         ]}
         self.assertEqual(hydra_bridge.count_tool_rate(events, now=now, run_id="r", history={}), 1)
+
+
+class PendingApprovals(unittest.TestCase):
+    """Build ticket 141: a request waiting for `hydra approve` shows on the
+    session's pane, and on no other pane."""
+
+    def test_a_pending_request_is_a_token_and_a_title_on_its_own_session(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            runs = os.path.join(root, "runs")
+            os.makedirs(runs)
+            run_file = os.path.join(runs, "s1.jsonl")
+            store = hydra_bridge.approvals_dir(run_file)
+            self.assertEqual(store, os.path.join(root, "approvals"))
+            os.makedirs(store)
+            for request_id, session, state in [
+                ("r1", "s1", "pending"),
+                ("r2", "s2", "pending"),
+                ("r3", "s1", "withdrawn"),
+            ]:
+                with open(os.path.join(store, f"{request_id}.{state}.json"), "w") as handle:
+                    json.dump({"request_id": request_id, "session": session}, handle)
+
+            pending = hydra_bridge.pending_approvals(store, "s1")
+            self.assertEqual(pending, ["r1"])
+            status = {"run_id": "s1", "provider": "claude", "state": "live"}
+            tokens = hydra_bridge.build_tokens(status, pending=pending)
+            self.assertEqual(tokens["pending_approval"], "r1")
+            self.assertIn("1 waiting for hydra approve", hydra_bridge.build_title(status, tokens))
+
+            quiet = hydra_bridge.build_tokens(status, pending=[])
+            self.assertNotIn("pending_approval", quiet)
+            self.assertNotIn("approve", hydra_bridge.build_title(status, quiet))
+            self.assertEqual(hydra_bridge.pending_approvals(os.path.join(root, "none"), "s1"), [])

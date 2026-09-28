@@ -47,7 +47,7 @@ use crate::run::{Call, Request};
 /// The socket's name in the run's spawn directory.
 pub const SOCKET: &str = "seats.sock";
 
-/// A request that matches no shape. Build ticket 141 is the approval.
+/// A request that matches no shape, which waits for `hydra approve`.
 pub const APPROVAL_REQUIRED: &str = "hydra/approval-required";
 const UNKNOWN_SHAPE: &str = "hydra/unknown-shape";
 const NOT_ASKABLE: &str = "hydra/shape-not-askable";
@@ -80,6 +80,14 @@ pub const HANDOFF_BUDGET: Duration = Duration::from_secs(60);
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(50);
 
 const HOUR: Duration = Duration::from_secs(3600);
+
+/// How long a request that matches no shape holds the face's call open for a
+/// human, build ticket 141. The bound a blocking `delegate` already has, so a
+/// session waits on a human no longer than it waits on a seat.
+pub const APPROVAL_WAIT: Duration = crate::face::TIMEOUT;
+
+/// How often a waiting request looks for its approval.
+const APPROVAL_POLL: Duration = Duration::from_millis(100);
 
 /// `seats.sock` in `run_id`'s spawn directory.
 pub fn socket_path(layout: &Layout, run_id: &str) -> PathBuf {
@@ -136,6 +144,10 @@ pub struct Launcher {
     session: Session,
     policies: PathBuf,
     panels: PathBuf,
+    /// `~/hydra/approvals/`, where a request no shape names waits.
+    approvals: PathBuf,
+    /// How long such a request waits, [`APPROVAL_WAIT`] but in the tests.
+    approval_wait: Duration,
     launch: Box<LaunchSeat>,
     /// When each shape was launched, per shape name, for the cap per hour.
     /// In memory because the cap is per session and this lives exactly as
@@ -212,6 +224,25 @@ impl Flight {
     }
 }
 
+/// One seat as [`Launcher::launch`] starts it. `role` is the shape's, and a
+/// seat a human approved outside any shape has none.
+struct Launch<'a> {
+    provider: Provider,
+    model: Option<String>,
+    policy: &'a str,
+    role: Option<&'a str>,
+}
+
+/// The session record's line for one approval, build ticket 141. The human is
+/// always who approved, so the line carries which request and, on the
+/// envelope, when.
+#[derive(Serialize)]
+struct SeatApproval<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    request_id: &'a str,
+}
+
 /// What the launcher decided about one request.
 enum Decision {
     Launch(Shape),
@@ -248,17 +279,21 @@ struct SeatRequest<'a> {
 impl Launcher {
     /// `policies` is the policy directory and `panels` is `config/panels.json`.
     /// Both are read at every request, so a shape the human approves while the
-    /// session runs is one the session can ask for.
+    /// session runs is one the session can ask for. `approvals` is
+    /// [`crate::paths::Layout::approvals`].
     pub fn new(
         session: Session,
         policies: PathBuf,
         panels: PathBuf,
+        approvals: PathBuf,
         launch: Box<LaunchSeat>,
     ) -> Self {
         Self {
             session,
             policies,
             panels,
+            approvals,
+            approval_wait: APPROVAL_WAIT,
             launch,
             launched: Mutex::new(HashMap::new()),
             requests: Mutex::new(Meter::default()),
@@ -315,18 +350,140 @@ impl Launcher {
                 text,
                 is_error: true,
             },
-            Decision::Pending => Reply {
+            Decision::Pending => self.wait_for_human(&request_id, ask),
+            Decision::Launch(shape) => {
+                let seats: Vec<Launch<'_>> = shape
+                    .seats
+                    .iter()
+                    .map(|seat| Launch {
+                        provider: seat.provider,
+                        model: seat.model.clone(),
+                        policy: &seat.policy,
+                        role: Some(&seat.role),
+                    })
+                    .collect();
+                self.launch(&request_id, Some(&shape.name), &seats, &ask.task, &runs)
+            }
+        }
+    }
+
+    /// Holds a request that matches no shape until the human types
+    /// `hydra approve`, the wait runs out, or the session ends, and launches
+    /// it on the first. Build ticket 141.
+    ///
+    /// **The face's call stays open the whole time**, so an approved request
+    /// answers the call that asked for it with the marked results, and the
+    /// model never has to ask twice. The wait holds one of the session's
+    /// [`Limits::connections`] while it lasts.
+    fn wait_for_human(&self, request_id: &str, ask: &Ask) -> Reply {
+        let seats = ask.seats.clone().unwrap_or_default();
+        let request = crate::approve::Pending {
+            request_id: request_id.to_string(),
+            session: self.session.run_id.clone(),
+            session_policy: self.session.policy.clone(),
+            task: ask.task.clone(),
+            seats: seats.clone(),
+            asked_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        };
+        if let Err(err) = crate::approve::hold(&self.approvals, &request) {
+            return Reply {
                 text: format!(
                     "{APPROVAL_REQUIRED}: request {request_id} matches no shape in \
-                     config/panels.json, so it waits for a human. No model approves it, \
-                     this session included. The request is on this session's record; \
-                     `hydra approve {request_id}`, typed outside the session, is build \
-                     ticket 141 and does not exist yet, so for now nothing launches it."
+                     config/panels.json and waits for a human, but it could not be put \
+                     where `hydra approve` reads, so nothing will launch it: {err:#}"
                 ),
                 is_error: true,
-            },
-            Decision::Launch(shape) => self.launch(&request_id, &shape, &ask.task, &runs),
+            };
         }
+        let deadline = Instant::now() + self.approval_wait;
+        let ended = loop {
+            if crate::approve::approved(&self.approvals, request_id) {
+                break None;
+            }
+            let closed = self.flight.lock().closed;
+            if closed || Instant::now() >= deadline {
+                break Some(closed);
+            }
+            std::thread::sleep(APPROVAL_POLL);
+        };
+        if let Some(closed) = ended {
+            match crate::approve::withdraw(&self.approvals, request_id) {
+                Ok(crate::approve::Settled::Approved) => {}
+                Ok(crate::approve::Settled::Withdrawn) => {
+                    let why = if closed {
+                        "the session ended before anybody approved it".to_string()
+                    } else {
+                        format!("nobody approved it within {:?}", self.approval_wait)
+                    };
+                    return Reply {
+                        text: format!(
+                            "{APPROVAL_REQUIRED}: request {request_id} matches no shape in \
+                             config/panels.json, so it waited for a human, and {why}. It \
+                             is withdrawn and nothing was launched. No model approves a \
+                             request, this session included: the human types `hydra \
+                             approve <id>` in a terminal outside the session while the \
+                             call that asked is still waiting."
+                        ),
+                        is_error: true,
+                    };
+                }
+                Err(err) => {
+                    return Reply {
+                        text: format!(
+                            "{APPROVAL_REQUIRED}: request {request_id} stopped waiting and \
+                             could not be withdrawn, so nothing was launched: {err:#}"
+                        ),
+                        is_error: true,
+                    };
+                }
+            }
+        }
+
+        // Approved. `weigh` checked every seat's provider and its policy
+        // against the session's before the request was held.
+        let mut launches = Vec::with_capacity(seats.len());
+        for seat in &seats {
+            let Ok(provider) = seat.provider.parse::<Provider>() else {
+                return Reply {
+                    text: format!(
+                        "{BAD_REQUEST}: request {request_id} names provider {:?}",
+                        seat.provider
+                    ),
+                    is_error: true,
+                };
+            };
+            launches.push(Launch {
+                provider,
+                model: seat.model.clone(),
+                policy: &seat.policy,
+                role: None,
+            });
+        }
+        let runs: Vec<String> = launches
+            .iter()
+            .map(|_| Uuid::now_v7().to_string())
+            .collect();
+        let line = SeatApproval {
+            kind: "seat_approval",
+            request_id,
+        };
+        if let Err(err) = self.record(&line, &runs) {
+            return Reply {
+                text: format!(
+                    "{SESSION_ENDED}: request {request_id} was approved and the approval \
+                     could not be written to the session's record, so nothing was \
+                     launched: {err:#}"
+                ),
+                is_error: true,
+            };
+        }
+        self.launch(request_id, None, &launches, &ask.task, &runs)
+    }
+
+    /// The launcher with its own [`APPROVAL_WAIT`], which the tests shorten.
+    pub fn with_approval_wait(mut self, wait: Duration) -> Self {
+        self.approval_wait = wait;
+        self
     }
 
     /// Stops the record taking lines. Called before the harvest, which writes
@@ -532,18 +689,28 @@ impl Launcher {
         Decision::Launch(shape.clone())
     }
 
-    /// Launches every seat of `shape` at once, as children of the session,
-    /// and marks each child's text once all of them have stopped.
-    fn launch(&self, request_id: &str, shape: &Shape, task: &str, runs: &[String]) -> Reply {
-        let requests: Vec<Request> = shape
-            .seats
+    /// Launches every seat at once, as children of the session, and marks each
+    /// child's text once all of them have stopped. `shape` is the shape's name,
+    /// and `None` for a request a human approved outside any shape.
+    fn launch(
+        &self,
+        request_id: &str,
+        shape: Option<&str>,
+        seats: &[Launch<'_>],
+        task: &str,
+        runs: &[String],
+    ) -> Reply {
+        let requests: Vec<Request> = seats
             .iter()
             .zip(runs)
             .map(|(seat, run_id)| Request {
                 provider: seat.provider,
-                task: seat_task(&seat.role, task),
+                task: match seat.role {
+                    Some(role) => seat_task(role, task),
+                    None => task.to_string(),
+                },
                 model: seat.model.clone(),
-                policy: seat.policy.clone(),
+                policy: seat.policy.to_string(),
                 floor_lifted: false,
                 timeout: crate::face::TIMEOUT,
                 parent: Some(self.session.run_id.clone()),
@@ -585,8 +752,7 @@ impl Launcher {
         // Harness spec 8: drawn after every child stopped, so no child could
         // have written it.
         let token = crate::face::token();
-        let seats: Vec<Value> = shape
-            .seats
+        let seats: Vec<Value> = seats
             .iter()
             .zip(calls)
             .map(|(seat, call)| {
@@ -609,7 +775,7 @@ impl Launcher {
             .collect();
         let body = json!({
             "request_id": request_id,
-            "shape": shape.name,
+            "shape": shape,
             "seats": seats,
         });
         Reply {
@@ -620,7 +786,7 @@ impl Launcher {
 
     /// Appends one line to the session's record, under the record's lock,
     /// and counts `runs` as launching once it has.
-    fn record(&self, line: &SeatRequest<'_>, runs: &[String]) -> Result<()> {
+    fn record(&self, line: &impl Serialize, runs: &[String]) -> Result<()> {
         let mut flight = self.flight.lock();
         if flight.closed {
             bail!("the session has ended and its record takes no more lines");
