@@ -90,10 +90,51 @@ class TestHy(unittest.TestCase):
         self.assertEqual(args, "--provider claude --model sonnet --policy standard")
 
     def test_hy_prompt_picks_claude_and_sonnet(self):
-        proc = run_hy(self.env, stdin="1\n\n")
+        proc = run_hy(self.env, stdin="1\n\n\n")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         args = bottom_pane_tui_args(self.log)
         self.assertEqual(args, "--provider claude --model sonnet --policy standard")
+
+    def test_hy_prompt_picks_claude_opus_read_only(self):
+        proc = run_hy(self.env, stdin="1\nopus\nread-only\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        args = bottom_pane_tui_args(self.log)
+        self.assertEqual(
+            args, "--provider claude --model opus --policy read-only"
+        )
+
+    def test_hy_prompt_empty_policy_defaults_standard(self):
+        proc = run_hy(self.env, stdin="1\nopus\n\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        args = bottom_pane_tui_args(self.log)
+        self.assertEqual(args, "--provider claude --model opus --policy standard")
+
+    def test_hy_three_args_provider_model_policy(self):
+        proc = run_hy(self.env, "claude", "opus", "judge")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        args = bottom_pane_tui_args(self.log)
+        self.assertEqual(args, "--provider claude --model opus --policy judge")
+
+    def test_hy_opus_read_only_still_claude(self):
+        proc = run_hy(self.env, "opus", "read-only")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        args = bottom_pane_tui_args(self.log)
+        self.assertEqual(args, "--provider claude --model opus --policy read-only")
+
+    def test_hy_refuses_unmeasured_three_arg_provider(self):
+        proc = run_hy(self.env, "codex", "gpt-6-astra", "standard")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("codex", proc.stderr)
+        self.assertIn("130", proc.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_hy_refuses_unknown_policy(self):
+        proc = run_hy(self.env, "sonnet", "not-a-policy")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("not-a-policy", proc.stderr)
+        self.assertIn("curate", proc.stderr)
+        self.assertIn("standard", proc.stderr)
+        self.assertFalse(self.log.exists())
 
     def test_hy_refuses_cursor_agent(self):
         proc = run_hy(self.env, "cursor-agent")

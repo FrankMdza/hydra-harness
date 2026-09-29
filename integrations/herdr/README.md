@@ -16,10 +16,13 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
   keeps the terminal for the vendor's own interface, tees stderr to catch the run id, and puts the
   same tokens on the pane plus `launch_mode=interactive`. The record stays thin until the harvest
   at exit, so the bridge shows the pane alive with no tool names until then.
-- `hy.zsh`, a shell function to source from `~/.zshrc`: with no arguments `hy` asks for a provider
-  and a model; `hy [model] [policy]` still launches `claude` directly for muscle memory. Only
+- `hy.zsh`, a shell function to source from `~/.zshrc`: with no arguments `hy` asks for a provider,
+  a model, and a policy; `hy <provider> <model> <policy>` launches that provider when it is on the
+  measured list; `hy [model] [policy]` still launches `claude` directly for muscle memory. Only
   providers in `interactive-gate-providers.txt` are offered, those whose interactive gate has been
-  measured in their own TUI (`claude` today). Defaults are `sonnet` and `standard`.
+  measured in their own TUI (`claude` today). Policy choices are the `*.json` files in the repo's
+  `policies/` directory except `floor.json` (the pattern floor, not a policy). Defaults are
+  `sonnet` and `standard`.
 - `bin/hydra-bridge`, a poller. Every two seconds it lists the panes carrying a `run_id` token,
   reads `hydra status` for each, and reports on change. The state table at the top of the file
   is the whole policy. Resolved 2026-09-07, map ticket 49. A live session with a seat request

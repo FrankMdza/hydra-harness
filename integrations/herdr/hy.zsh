@@ -1,4 +1,4 @@
-# hy [model] [policy]: a gated interactive session in Herdr, with the mascot above it.
+# hy [provider model policy] | [model] [policy]: a gated interactive session in Herdr, with the mascot above it.
 # Source this file from ~/.zshrc. Build ticket 107; provider and model prompts since 129.
 #
 # Two panes to the right of the current one: the top one runs `hydra-mascot --watch`, the pet
@@ -93,6 +93,58 @@ PY
     printf '%s' "$choice"
 }
 
+_hy_list_policies() {
+    python3 - "$1" <<'PY'
+import os, sys
+d = sys.argv[1]
+for name in sorted(
+    os.path.splitext(f)[0]
+    for f in os.listdir(d)
+    if f.endswith(".json") and f != "floor.json"
+):
+    print(name)
+PY
+}
+
+_hy_valid_policy_names() {
+    _hy_list_policies "$1" | tr '\n' ' ' | sed 's/ $//'
+}
+
+_hy_policy_valid() {
+    local policies_dir="$1" policy="$2"
+    # A name, never a path: `../config/panels` would otherwise pass the file test.
+    [ -n "$policy" ] && [ "$policy" != "floor" ] && [[ "$policy" != */* ]] && [ -f "$policies_dir/$policy.json" ]
+}
+
+_hy_refuse_unknown_policy() {
+    local policy="$1" valid
+    valid=$(_hy_valid_policy_names "$2")
+    echo "hy: unknown policy $policy; valid names: $valid" >&2
+}
+
+_hy_pick_policy() {
+    local policies_dir="$1"
+    local n=0 p
+    echo "hy: pick a policy:" >&2
+    while IFS= read -r p; do
+        n=$((n + 1))
+        printf '  %d) %s\n' "$n" "$p" >&2
+    done < <(_hy_list_policies "$policies_dir")
+    local choice=""
+    printf 'policy [standard]: ' >&2
+    read -r choice
+    if [ -z "$choice" ]; then
+        choice="standard"
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$n" ]; then
+        choice=$(_hy_list_policies "$policies_dir" | sed -n "${choice}p")
+    fi
+    if ! _hy_policy_valid "$policies_dir" "$choice"; then
+        _hy_refuse_unknown_policy "$choice" "$policies_dir"
+        return 1
+    fi
+    printf '%s' "$choice"
+}
+
 hy() {
     if [ -z "$HERDR_ENV" ]; then
         echo "hy: not inside Herdr" >&2
@@ -100,6 +152,7 @@ hy() {
     fi
     local here="${HYDRA_HERDR:-$HOME/hydra/integrations/herdr}"
     local providers_file="$here/interactive-gate-providers.txt"
+    local policies_dir="$here/../../policies"
     local vendors_file="$here/../puppets/vendors.json"
     local bin="${HYDRA_BIN:-$HOME/hydra/target/release/hydra}"
     local provider model policy
@@ -108,7 +161,19 @@ hy() {
     if [ $# -eq 0 ]; then
         provider=$(_hy_pick_provider "$providers_file") || return 1
         model=$(_hy_pick_model "$vendors_file" "$provider") || return 1
-        policy="standard"
+        policy=$(_hy_pick_policy "$policies_dir") || return 1
+    elif [ $# -ge 3 ] && _hy_is_hydra_provider "$1"; then
+        if ! _hy_provider_measured "$1" "$providers_file"; then
+            _hy_refuse_unmeasured "$1"
+            return 1
+        fi
+        provider="$1"
+        model="$2"
+        policy="$3"
+        if ! _hy_policy_valid "$policies_dir" "$policy"; then
+            _hy_refuse_unknown_policy "$policy" "$policies_dir"
+            return 1
+        fi
     else
         if _hy_is_hydra_provider "$1" && ! _hy_provider_measured "$1" "$providers_file"; then
             _hy_refuse_unmeasured "$1"
@@ -117,6 +182,10 @@ hy() {
         provider="claude"
         model="${1:-sonnet}"
         policy="${2:-standard}"
+        if ! _hy_policy_valid "$policies_dir" "$policy"; then
+            _hy_refuse_unknown_policy "$policy" "$policies_dir"
+            return 1
+        fi
     fi
 
     if ! _hy_provider_measured "$provider" "$providers_file"; then
