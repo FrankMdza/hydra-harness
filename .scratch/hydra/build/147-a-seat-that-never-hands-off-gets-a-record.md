@@ -1,7 +1,7 @@
 # 147 - A seat that never hands off gets a record
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -45,3 +45,47 @@ If it does:
 - `hydra doctor --walk` accepts the record the test wrote, or the report says why the walk could
   not be run inside the worktree.
 - The report says what stays untested on stubs and needs a live launch.
+
+## Outcome
+
+Resolved 2026-09-29. Built by `claude` opus on run 01a0ebc8-c4bf under `standard`, about 4.02M
+tokens. The session applied the diff as written.
+
+**The check came first and passed.** Contract 5.1 allows `worktree: null` and 5.2 a null `pid`
+for a run that never had a process. The validator checks that the `run_start` fields are present
+and not that they are filled. And the `containment` and `policy_narrowing` refusals in
+`src/run.rs` already write a line 0 with no worktree, no provider version and a null pid. So the
+answer of map ticket 84 amends nothing.
+
+What was built. `run::record_unlaunched` builds line 0 from the request alone and writes it
+through the existing `never_started`. The launcher keeps each seat's request until the seat lands,
+and `Served::stop_within` writes a record for each seat that did not. `Launcher::new` takes a
+`Layout` where it took the approvals path. The line on stderr stays.
+
+`Writer::create` decides between the launcher and the seat. A seat that wrote its own file first
+keeps it, and the launcher appends nothing, because the contract allows one writer per file and
+the seat's watcher may still be alive.
+
+**The ticket and map ticket 84 were wrong about one word.** `never_started` is a name in the code
+and not an outcome. The record derives `failed` under contract 8, and the test asserts `failed`.
+Map ticket 84 now says so.
+
+Tests, three added to `tests/seats.rs`. The first failed before the change with "seat has no
+record". The other two check that nothing extra is written, so they could not fail before a change
+that wrote anything; the run showed each can fail by breaking the code on purpose. On master:
+fmt and clippy clean, seats 26, lib 217, delegation 14, launch_phases 1, record_contract 20. The
+release binary was rebuilt.
+
+Left open, and written into `IMPLEMENTATION.md`:
+
+- A seat that hands off between the end of the wait and the launcher's write loses the file to
+  the launcher. Its watcher then refuses to start, so the record stays true: nothing ran.
+- A seat whose worktree already existed is recorded with `worktree: null`, and `hydra reap`'s
+  orphan pass is what finds the checkout.
+- The tests read the real `config/preamble.md` through `preamble::load()`.
+
+For the grader: a seat that died this way is a `failed` row under its provider and model, and it
+is not a failure of the agent. It joins `rate_limited` and `gated` as something a label must
+leave out. No ticket yet.
+
+Nothing here ran against a real provider. The first live panel is the measure.

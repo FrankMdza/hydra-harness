@@ -72,7 +72,7 @@ pub const MAX_REQUEST: usize = 64 << 10;
 /// How long [`Served::stop`] waits for a seat still inside `run::run` to hand
 /// off to its detached watcher. The human has left the session by then and is
 /// waiting on this, so it is bounded; a seat still launching after it dies with
-/// the process and is named on stderr.
+/// the process, is named on stderr, and gets a `never_started` record.
 pub const HANDOFF_BUDGET: Duration = Duration::from_secs(60);
 
 /// How long the accept loop rests after `accept` fails, so a failure that
@@ -144,8 +144,9 @@ pub struct Launcher {
     session: Session,
     policies: PathBuf,
     panels: PathBuf,
-    /// `~/hydra/approvals/`, where a request no shape names waits.
-    approvals: PathBuf,
+    /// `~/hydra`, for `approvals/`, where a request no shape names waits, and
+    /// for the record of a seat that never handed off.
+    layout: Layout,
     /// How long such a request waits, [`APPROVAL_WAIT`] but in the tests.
     approval_wait: Duration,
     launch: Box<LaunchSeat>,
@@ -188,6 +189,9 @@ struct FlightState {
     closed: bool,
     /// Run ids minted for seats whose launch has not yet handed off.
     launching: BTreeSet<String>,
+    /// The request each of those was launched with, `handed_off` left out, so
+    /// a seat that never lands can still be recorded (build ticket 147).
+    requests: HashMap<String, Request>,
 }
 
 impl Flight {
@@ -200,14 +204,16 @@ impl Flight {
     /// `run_id` handed off, or its launch returned. Either may come first,
     /// and the second finds nothing to do.
     fn land(&self, run_id: &str) {
-        if self.lock().launching.remove(run_id) {
+        let mut state = self.lock();
+        state.requests.remove(run_id);
+        if state.launching.remove(run_id) {
             self.landed.notify_all();
         }
     }
 
     /// Waits up to `budget` for every seat to land, and names those that did
-    /// not.
-    fn settle(&self, budget: Duration) -> Vec<String> {
+    /// not, with the request each was launched with.
+    fn settle(&self, budget: Duration) -> Vec<(String, Option<Request>)> {
         let deadline = Instant::now() + budget;
         let mut state = self.lock();
         while !state.launching.is_empty() {
@@ -220,7 +226,14 @@ impl Flight {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .0;
         }
-        state.launching.iter().cloned().collect()
+        let missed: Vec<String> = state.launching.iter().cloned().collect();
+        missed
+            .into_iter()
+            .map(|run_id| {
+                let request = state.requests.remove(&run_id);
+                (run_id, request)
+            })
+            .collect()
     }
 }
 
@@ -279,20 +292,20 @@ struct SeatRequest<'a> {
 impl Launcher {
     /// `policies` is the policy directory and `panels` is `config/panels.json`.
     /// Both are read at every request, so a shape the human approves while the
-    /// session runs is one the session can ask for. `approvals` is
-    /// [`crate::paths::Layout::approvals`].
+    /// session runs is one the session can ask for. `layout` is the root the
+    /// session's own record is under.
     pub fn new(
         session: Session,
         policies: PathBuf,
         panels: PathBuf,
-        approvals: PathBuf,
+        layout: Layout,
         launch: Box<LaunchSeat>,
     ) -> Self {
         Self {
             session,
             policies,
             panels,
-            approvals,
+            layout,
             approval_wait: APPROVAL_WAIT,
             launch,
             launched: Mutex::new(HashMap::new()),
@@ -385,7 +398,7 @@ impl Launcher {
             seats: seats.clone(),
             asked_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         };
-        if let Err(err) = crate::approve::hold(&self.approvals, &request) {
+        if let Err(err) = crate::approve::hold(&self.layout.approvals(), &request) {
             return Reply {
                 text: format!(
                     "{APPROVAL_REQUIRED}: request {request_id} matches no shape in \
@@ -397,7 +410,7 @@ impl Launcher {
         }
         let deadline = Instant::now() + self.approval_wait;
         let ended = loop {
-            if crate::approve::approved(&self.approvals, request_id) {
+            if crate::approve::approved(&self.layout.approvals(), request_id) {
                 break None;
             }
             let closed = self.flight.lock().closed;
@@ -407,7 +420,7 @@ impl Launcher {
             std::thread::sleep(APPROVAL_POLL);
         };
         if let Some(closed) = ended {
-            match crate::approve::withdraw(&self.approvals, request_id) {
+            match crate::approve::withdraw(&self.layout.approvals(), request_id) {
                 Ok(crate::approve::Settled::Approved) => {}
                 Ok(crate::approve::Settled::Withdrawn) => {
                     let why = if closed {
@@ -700,31 +713,43 @@ impl Launcher {
         task: &str,
         runs: &[String],
     ) -> Reply {
+        let request = |seat: &Launch<'_>, run_id: &String| Request {
+            provider: seat.provider,
+            task: match seat.role {
+                Some(role) => seat_task(role, task),
+                None => task.to_string(),
+            },
+            model: seat.model.clone(),
+            policy: seat.policy.to_string(),
+            floor_lifted: false,
+            timeout: crate::face::TIMEOUT,
+            parent: Some(self.session.run_id.clone()),
+            run_id: Some(run_id.clone()),
+            command: "run".to_string(),
+            resumed_from: None,
+            resume_session_id: None,
+            working_dir: Some(self.session.working_dir.clone()),
+            quiet: true,
+            handed_off: None,
+        };
+        {
+            let mut flight = self.flight.lock();
+            for (seat, run_id) in seats.iter().zip(runs) {
+                flight
+                    .requests
+                    .insert(run_id.clone(), request(seat, run_id));
+            }
+        }
         let requests: Vec<Request> = seats
             .iter()
             .zip(runs)
             .map(|(seat, run_id)| Request {
-                provider: seat.provider,
-                task: match seat.role {
-                    Some(role) => seat_task(role, task),
-                    None => task.to_string(),
-                },
-                model: seat.model.clone(),
-                policy: seat.policy.to_string(),
-                floor_lifted: false,
-                timeout: crate::face::TIMEOUT,
-                parent: Some(self.session.run_id.clone()),
-                run_id: Some(run_id.clone()),
-                command: "run".to_string(),
-                resumed_from: None,
-                resume_session_id: None,
-                working_dir: Some(self.session.working_dir.clone()),
-                quiet: true,
                 handed_off: Some({
                     let flight = self.flight.clone();
                     let run_id = run_id.clone();
                     Box::new(move || flight.land(&run_id))
                 }),
+                ..request(seat, run_id)
             })
             .collect();
         let calls: Vec<Result<Call>> = std::thread::scope(|scope| {
@@ -782,6 +807,34 @@ impl Launcher {
             text: serde_json::to_string_pretty(&body).unwrap_or_else(|_| body.to_string()),
             is_error: false,
         }
+    }
+
+    /// The record of a seat the session is about to take with it: map ticket
+    /// 84's answer, the outcome a launch that fails after its worktree exists
+    /// already has, rather than a line type on the session's record.
+    fn record_unlaunched(&self, run_id: &str, request: Option<&Request>) -> Result<bool> {
+        let request = request.with_context(|| {
+            format!("seat {run_id} was on the record but its launch had not been built")
+        })?;
+        let policies = PolicySet::load(&self.policies)?;
+        // Line 0 carries the task as the child would have been told it. A
+        // preamble that will not load is one `run::run` refuses on before it
+        // writes anything, so the task as passed is all there was.
+        let task = match crate::preamble::load() {
+            Ok(preamble) => crate::preamble::compose(&preamble, &request.task),
+            Err(_) => request.task.clone(),
+        };
+        crate::run::record_unlaunched(
+            &self.layout,
+            request,
+            policies.sha(),
+            &task,
+            &format!(
+                "the session ended before this seat handed off to its own watcher, \
+                 and the launch stopped with the process of session {}",
+                self.session.run_id
+            ),
+        )
     }
 
     /// Appends one line to the session's record, under the record's lock,
@@ -964,6 +1017,9 @@ impl Served {
     /// socket, and waits up to [`HANDOFF_BUDGET`] for every seat still inside
     /// `run::run` to hand off to its detached watcher. Returns the run ids of
     /// the seats that had not, which die with this process.
+    ///
+    /// Each of those gets a `never_started` record under its own run id,
+    /// unless it already wrote its own file (build ticket 147).
     pub fn stop(self) -> Vec<String> {
         self.stop_within(HANDOFF_BUDGET)
     }
@@ -971,7 +1027,13 @@ impl Served {
     /// [`Served::stop`] with its own budget.
     pub fn stop_within(mut self, budget: Duration) -> Vec<String> {
         self.shut();
-        self.launcher.flight.settle(budget)
+        let missed = self.launcher.flight.settle(budget);
+        for (run_id, request) in &missed {
+            if let Err(err) = self.launcher.record_unlaunched(run_id, request.as_ref()) {
+                eprintln!("hydra: seat {run_id} could not be recorded either: {err:#}");
+            }
+        }
+        missed.into_iter().map(|(run_id, _)| run_id).collect()
     }
 
     /// Everything [`Served::stop`] does but the wait.

@@ -1835,6 +1835,71 @@ fn never_started(
     Ok(())
 }
 
+/// Writes the record of a run whose launcher stopped before it handed off, and
+/// says whether it did.
+///
+/// Build ticket 147, map ticket 84: a seat still inside [`run`] when its
+/// session ends dies with the session's process, and its run id is already on
+/// the session's `seat_request` line. The record is [`never_started`]'s shape,
+/// composed from the request alone, like the two refusals above the probe:
+/// nothing says how far the launch got, so no provider fields, no worktree and
+/// a null pid. `task` is the task composed with the preamble, which is what
+/// line 0 would have carried.
+///
+/// **`Writer::create` is the arbiter.** A launch that got as far as writing its
+/// own file, or a watcher that did, keeps it: the file exists, this returns
+/// `false` and appends nothing, because contract 2 allows one writer per file
+/// and the other writer may still be alive.
+pub fn record_unlaunched(
+    layout: &Layout,
+    request: &Request,
+    policy_sha: &str,
+    task: &str,
+    reason: &str,
+) -> Result<bool> {
+    let run_id = request
+        .run_id
+        .as_deref()
+        .context("a run that never launched still needs the id it was minted")?;
+    let lineage = Lineage::of(layout, request.parent.as_deref())?;
+    let cwd = request.working_dir.clone().unwrap_or_default();
+    let line_zero = serde_json::to_value(run_start(
+        request,
+        RunStartRequest {
+            task,
+            policy_sha,
+            provider_version: None,
+            cwd: &cwd,
+            worktree: None,
+            env_allowlist: None,
+            skills: None,
+            mcp: None,
+            lineage: &lineage,
+            scopes: None,
+            gate_sha: None,
+            sandbox: None,
+        },
+    ))?;
+    match never_started(
+        &layout.run_file(run_id),
+        run_id,
+        request.provider,
+        &line_zero,
+        &anyhow::anyhow!("{reason}"),
+        lineage.parent_run_id(),
+    ) {
+        Ok(()) => Ok(true),
+        Err(err)
+            if err
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == std::io::ErrorKind::AlreadyExists) =>
+        {
+            Ok(false)
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// The handle a timed-out call gets, built from line 0 rather than from the run.
 ///
 /// Nothing here normalizes. The run has not ended, so there is nothing to derive,

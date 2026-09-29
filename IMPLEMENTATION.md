@@ -748,8 +748,26 @@ under the same lock that closes the record, until that call or until `run::run` 
 that stops with the process, and `interactive.rs` names it on stderr once `claude` has exited.
 It is not on the session's record, because the contract gives `seat_request` three decisions
 and none of them is "died in launch". An approved request is not a fourth decision: the
-approval is a line of its own, `seat_approval`, since build ticket 141. `tests/seats.rs` drives each of these on stubs: a stub
-launch that blocks before its handoff, and one that never hands off. **Every profile, not only an
+approval is a line of its own, `seat_approval`, since build ticket 141. **Since build ticket 147
+that seat gets a record of its own** (map ticket 84): `Served::stop` writes it under the run id
+the `seat_request` line already named, through `run::record_unlaunched`, in the shape
+`never_started` already has, `run_start` then `run_end` with `error` saying the session ended
+before the handoff. It derives `failed`. The launcher keeps each seat's `run::Request`, minus
+`handed_off`, until the seat lands, and builds line 0 from it the way the two refusals above the
+probe do: `parent_run_id`, depth and `parent_policy` from the session's record, the task composed
+with the preamble, `policy_sha` from the session's policy directory, and no provider version, no
+worktree, a null pid. That is what the contract admits for a run whose worktree may or may not
+exist, since `containment` and `policy_narrowing` already write it. `Writer::create`'s
+`create_new` decides between the launcher and the seat: a seat that wrote its own file first,
+line 0 from its watcher or a refusal from `run::run`, keeps it, and the launcher appends nothing,
+because the other writer may still be alive. The stderr line stays. Two gaps are left. A seat
+that lands between the end of the wait and the launcher's write can lose its record to the
+launcher's, and its watcher then refuses to start rather than write a second line 0; and a seat
+whose worktree already exists is recorded with a null `worktree`, so `hydra reap`'s orphan pass is
+what finds the checkout. `tests/seats.rs` drives each of these on stubs: a stub
+launch that blocks before its handoff, one that never hands off and gets the record, one that
+hands off and whose watcher writes line 0 after the session stopped, and one that wrote line 0
+before it. **Every profile, not only an
 interactive one, denies `network-outbound` to a unix socket under the spawns directory and
 allows the run's own `seats.sock`**, after `(allow default)` and in that order, because SBPL
 takes the last match. Before this ticket any run could connect to any socket in a sibling's

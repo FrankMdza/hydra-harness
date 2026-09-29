@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use hydra::outcome::{RunResult, Usage};
@@ -220,7 +220,7 @@ impl Fixture {
                 },
                 policies_dir(),
                 panels,
-                layout.approvals(),
+                Layout::at(&root),
                 launch(launched.clone()),
             )
             .with_approval_wait(approval_wait),
@@ -967,7 +967,30 @@ struct Held {
     finish: mpsc::Sender<()>,
 }
 
+/// What the stub does with the seat's own record, which in a real launch is
+/// the detached watcher's to write.
+#[derive(Clone, Copy, PartialEq)]
+enum LineZero {
+    /// Nothing, so the seat's run id has no record.
+    Never,
+    /// Line 0 before the handoff, the moment the launch is entered.
+    OnEntry,
+    /// Line 0 once the test sends `finish`, after the handoff, the way a
+    /// watcher writes it after `run::run` has returned control.
+    AfterHandoff,
+}
+
 fn held_launch(hands_off: bool) -> (Held, Box<seats::LaunchSeat>) {
+    held_launch_writing(hands_off, Arc::default(), LineZero::Never)
+}
+
+/// [`held_launch`], writing the seat's line 0 under `root` when `line_zero`
+/// says. `root` is filled once the fixture has made one.
+fn held_launch_writing(
+    hands_off: bool,
+    root: Arc<OnceLock<PathBuf>>,
+    line_zero: LineZero,
+) -> (Held, Box<seats::LaunchSeat>) {
     let (entered_tx, entered) = mpsc::channel();
     let (release, release_rx) = mpsc::channel::<()>();
     let (finish, finish_rx) = mpsc::channel::<()>();
@@ -975,6 +998,13 @@ fn held_launch(hands_off: bool) -> (Held, Box<seats::LaunchSeat>) {
     let launch = Box::new(move |mut request: Request| {
         let state = state.lock().unwrap();
         let run_id = request.run_id.clone().unwrap_or_default();
+        let write = || {
+            let layout = Layout::at(root.get().expect("a root to write under"));
+            write_seat_start(&layout, &run_id)
+        };
+        if line_zero == LineZero::OnEntry {
+            write().unwrap();
+        }
         state.0.send(run_id.clone()).unwrap();
         // Still in `run::run`: the worktree, the skills, the fork.
         let _ = state.1.recv();
@@ -983,6 +1013,11 @@ fn held_launch(hands_off: bool) -> (Held, Box<seats::LaunchSeat>) {
         }
         // Past the handoff, the view waits on the run's end.
         let _ = state.2.recv();
+        if line_zero == LineZero::AfterHandoff {
+            // `Writer::create` refuses a file that exists, as the watcher's
+            // does, so a second writer shows up here as an error.
+            write()?;
+        }
         Err(anyhow::anyhow!("seat {run_id} stubbed"))
     });
     (
@@ -993,6 +1028,64 @@ fn held_launch(hands_off: bool) -> (Held, Box<seats::LaunchSeat>) {
         },
         launch,
     )
+}
+
+/// A seat's line 0 as its own watcher writes it, `provider_version` "stub"
+/// so a test can tell it from one the launcher wrote.
+fn write_seat_start(layout: &Layout, run_id: &str) -> anyhow::Result<()> {
+    let mut writer = Writer::create(
+        layout.run_file(run_id),
+        run_id,
+        Some(SESSION),
+        Some("claude"),
+        None,
+    )?;
+    writer.hydra_line(&RunStart {
+        kind: "run_start",
+        schema_version: SCHEMA_VERSION,
+        hydra_version: "0.2.0".into(),
+        command: "run".into(),
+        launch_mode: Some("recorded".into()),
+        provider_version: Some("stub".into()),
+        provider_session_id: None,
+        task: Some("read the diff".into()),
+        policy: Some("standard".into()),
+        policy_sha: None,
+        floor_lifted: Some(false),
+        gate_sha: None,
+        sandbox: None,
+        scopes: None,
+        cwd: "/tmp".into(),
+        worktree: None,
+        depth: 1,
+        parent_policy: Some("permissive".into()),
+        pid: Some(1),
+        process_start_time: Some("stub".into()),
+        skills: None,
+        mcp: None,
+        auth: None,
+        env_allowlist: Some(vec!["PATH".into()]),
+        subscription: Some("anthropic".into()),
+        resumed_from: None,
+        may_edit: None,
+    })?;
+    Ok(())
+}
+
+/// Every line of a seat's record, parsed.
+fn seat_lines(layout: &Layout, run_id: &str) -> Vec<Value> {
+    std::fs::read_to_string(layout.run_file(run_id))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect()
+}
+
+fn run_starts(lines: &[Value]) -> usize {
+    lines
+        .iter()
+        .filter(|line| line["hydra"]["type"] == "run_start")
+        .count()
 }
 
 #[test]
@@ -1058,6 +1151,145 @@ fn a_seat_that_never_hands_off_is_named_when_the_wait_runs_out() {
     assert_eq!(fixture.requests()[0]["runs"][0], seat.as_str());
     fixture.harvest();
 
+    held.release.send(()).unwrap();
+    held.finish.send(()).unwrap();
+    let _ = asker.join().unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Build ticket 147: a seat that never hands off gets a record
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_seat_that_never_hands_off_gets_a_never_started_record_under_its_run_id() {
+    let (held, launch) = held_launch(false);
+    let fixture = Fixture::launching("permissive", |_| launch);
+    let socket = seats::socket_path(&fixture.layout, SESSION);
+    let served = seats::serve(fixture.launcher.clone(), &socket).unwrap();
+
+    let asker = {
+        let layout = Layout::at(&fixture.root);
+        std::thread::spawn(move || seats::ask(&layout, SESSION, &one_seat("claude", "standard")))
+    };
+    let seat = held
+        .entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the seat's launch started");
+
+    let missed = served.stop_within(Duration::from_millis(300));
+    assert_eq!(missed, vec![seat.clone()]);
+
+    let run_file = fixture.layout.run_file(&seat);
+    assert!(run_file.is_file(), "seat {seat} has no record");
+    hydra::record::validate::check(&std::fs::read_to_string(&run_file).unwrap(), Some(&seat))
+        .assert_ok();
+    let lines = seat_lines(&fixture.layout, &seat);
+    assert_eq!(lines.len(), 2, "run_start then run_end: {lines:?}");
+    let (start, end) = (&lines[0], &lines[1]);
+    assert_eq!(start["parent_run_id"], SESSION);
+    assert_eq!(start["provider"], "claude");
+    assert_eq!(start["hydra"]["type"], "run_start");
+    assert_eq!(start["hydra"]["policy"], "standard");
+    assert_eq!(start["hydra"]["parent_policy"], "permissive");
+    assert_eq!(start["hydra"]["depth"], 1);
+    assert!(start["hydra"]["pid"].is_null(), "{start}");
+    assert!(start["hydra"]["worktree"].is_null(), "{start}");
+    assert!(
+        start["hydra"]["task"]
+            .as_str()
+            .unwrap()
+            .contains("read the diff and say what breaks"),
+        "{start}"
+    );
+    assert_eq!(end["hydra"]["type"], "run_end");
+    assert!(end["hydra"]["refusal"].is_null(), "{end}");
+    let error = end["hydra"]["error"].as_str().unwrap();
+    assert!(
+        error.contains("session ended before") && error.contains(SESSION),
+        "{error}"
+    );
+
+    // The outcome a launch that fails after its worktree exists derives.
+    let policies = PolicySet::load(policies_dir()).unwrap();
+    let run = hydra::normalize::read_file(&run_file, &policies).unwrap();
+    let derived = hydra::outcome::derive(&run).expect("an outcome");
+    assert_eq!(derived.outcome, hydra::outcome::Outcome::Failed);
+
+    // What `hydra doctor --walk` asserts of every record, run on this one.
+    let read = |path: &Path| {
+        let text = std::fs::read_to_string(path)?;
+        hydra::normalize::read_with(&text, &policies, &fixture.layout)
+    };
+    let walked = hydra::walk::walk_paths(std::slice::from_ref(&run_file), &read);
+    assert!(walked.findings.is_empty(), "{:?}", walked.findings);
+
+    fixture.harvest();
+    held.release.send(()).unwrap();
+    held.finish.send(()).unwrap();
+    let _ = asker.join().unwrap();
+}
+
+#[test]
+fn a_seat_that_hands_off_inside_the_budget_keeps_the_one_record_its_watcher_writes() {
+    let root = Arc::new(OnceLock::new());
+    let (held, launch) = held_launch_writing(true, root.clone(), LineZero::AfterHandoff);
+    let fixture = Fixture::launching("permissive", |_| launch);
+    root.set(fixture.root.clone()).unwrap();
+    let socket = seats::socket_path(&fixture.layout, SESSION);
+    let served = seats::serve(fixture.launcher.clone(), &socket).unwrap();
+
+    let asker = {
+        let layout = Layout::at(&fixture.root);
+        std::thread::spawn(move || seats::ask(&layout, SESSION, &one_seat("claude", "standard")))
+    };
+    let seat = held
+        .entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the seat's launch started");
+    held.release.send(()).unwrap();
+    assert!(served.stop_within(Duration::from_secs(10)).is_empty());
+    fixture.harvest();
+
+    // The watcher writes line 0 after the handoff and after the session has
+    // stopped. It finds no file in its way, which is what says the launcher
+    // wrote nothing for this seat.
+    held.finish.send(()).unwrap();
+    let reply = asker.join().unwrap().unwrap().expect("a reply");
+    assert!(reply.text.contains("stubbed"), "{}", reply.text);
+    let lines = seat_lines(&fixture.layout, &seat);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["hydra"]["provider_version"], "stub");
+}
+
+#[test]
+fn a_seat_that_wrote_its_line_zero_before_the_session_ended_gets_no_second_one() {
+    let root = Arc::new(OnceLock::new());
+    let (held, launch) = held_launch_writing(false, root.clone(), LineZero::OnEntry);
+    let fixture = Fixture::launching("permissive", |_| launch);
+    root.set(fixture.root.clone()).unwrap();
+    let socket = seats::socket_path(&fixture.layout, SESSION);
+    let served = seats::serve(fixture.launcher.clone(), &socket).unwrap();
+
+    let asker = {
+        let layout = Layout::at(&fixture.root);
+        std::thread::spawn(move || seats::ask(&layout, SESSION, &one_seat("claude", "standard")))
+    };
+    let seat = held
+        .entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the seat's launch started");
+
+    // Still named, since it has not handed off, but its file is its own.
+    assert_eq!(
+        served.stop_within(Duration::from_millis(300)),
+        vec![seat.clone()]
+    );
+    let lines = seat_lines(&fixture.layout, &seat);
+    assert_eq!(run_starts(&lines), 1, "{lines:?}");
+    assert_eq!(lines.len(), 1, "nothing appended to it either: {lines:?}");
+    assert_eq!(lines[0]["hydra"]["provider_version"], "stub");
+
+    fixture.harvest();
     held.release.send(()).unwrap();
     held.finish.send(()).unwrap();
     let _ = asker.join().unwrap();

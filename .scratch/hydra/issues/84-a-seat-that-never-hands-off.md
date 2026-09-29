@@ -32,7 +32,9 @@ D10 says what is not in a record did not happen. Where does a seat that died thi
 Resolved 2026-09-29, by the session, under the human's delegation of that day. The human did not
 answer this one himself and can reverse it.
 
-**The seat gets its own record, with the outcome a failed launch already has, `never_started`.**
+**The seat gets its own record, in the shape a failed launch already writes, `never_started`.**
+Build 147 found that `never_started` names that shape in the code and is not an outcome: the
+record derives `failed`.
 The session's record is not given a third line type.
 
 The same panel as map ticket 83 voted, three vendors and three roles, degraded and declared. All

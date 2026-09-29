@@ -336,7 +336,7 @@ fn run_gated(request: Request) -> Result<RunResult> {
         },
         policies.dir().to_path_buf(),
         crate::panels::path(),
-        layout.approvals(),
+        crate::paths::Layout::at(layout.root()),
         Box::new(crate::run::run),
     ));
     let served = crate::seats::serve(launcher, &crate::seats::socket_path(&layout, &run_id))
