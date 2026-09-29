@@ -107,6 +107,38 @@ is printed as a `skip:` line. Fill `verdict` with `applied`, `fixed` or `unknown
 `$HYDRA_GRADER_HOME/ticket-verdicts.json` and to the dataset's `human_verdict`. Collect reads that
 file too, so a rewritten line keeps its verdict, and it wins over a Puppets `human_verdict`.
 
+## The local judge
+
+```
+python3 integrations/grader/judge.py label [--limit N] [--only-unlabelled]
+python3 integrations/grader/judge.py agree
+```
+
+`label` walks `dataset.jsonl` and asks a local Ollama model whether each run needed a human
+correction. It sends the redacted task (cut at 3,000 characters) and the run's result text (cut at
+4,000) and diff stat, read from `hydra show` at the time and never cached. The URL and model come
+from `HYDRA_LOCAL_LLM_URL` and `HYDRA_LOCAL_MODEL`, the same defaults `integrations/local-llm/`
+uses, and that URL is the only network call. `--only-unlabelled` skips runs that already carry a
+human verdict. If Ollama is down or the model is not pulled, the pass stops with exit 1 and keeps
+the lines it wrote.
+
+It appends one line per run to `judge-labels.jsonl` in the grader home: `run_id`,
+`needs_correction`, `failure_class`, `reason`, `judge_model`, `prompt_sha256`, `judged_at`. A run
+the same model and prompt already labelled is skipped. An answer that is not the expected JSON
+gets `needs_correction: null` and the raw text under `unparsed`, cut at 500 characters. Runs
+with outcome `rate_limited` or `gated` are labelled `quota` or `gate` by rule, with
+`judge_model: "rule"`, and never sent to the model.
+
+The prompt asks the model for its reason first and then for `result_ok`, and the file stores the
+opposite as `needs_correction`. A label from the model carries `failure_class: null`: only the
+rule names a class.
+
+`agree` counts the runs that have both a human verdict and a parsed judge label, and prints how
+many agree (`fixed` against `needs_correction: true`, `applied` against `false`), the fraction, the
+two by two table and the number of unparsed answers. Under 50 runs it says the number is loose.
+
+Nothing reads the labels yet.
+
 ## Schedule
 
 Nothing collects on its own. `launchd/co.hephaestuslab.hydra-grader.plist` is a template that
@@ -132,6 +164,7 @@ launchctl bootout gui/$(id -u)/co.hephaestuslab.hydra-grader && rm ~/Library/Lau
 | `baseline.py` | The two classifiers, their report, and the verdict queue |
 | `records.py` | Walk `runs/`, cache `hydra show`, and project usage |
 | `labels.py` | Fold Puppets goal logs into per-run labels |
+| `judge.py` | The local judge: `label` and `agree` |
 | `redact.py` | Secret redaction ported from `src/export.rs` |
 
 ## Benchmark
