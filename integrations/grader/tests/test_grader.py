@@ -296,6 +296,47 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
         self.assertEqual(self.collect(), 1)
         self.assertFalse((self.home / "scores.jsonl").exists())
 
+    def plant_dataset(self, *ids):
+        self.home.mkdir(parents=True, exist_ok=True)
+        (self.home / "dataset.jsonl").write_text(
+            "".join(json.dumps({"run_id": i, "provider": "claude", "model": "sonnet",
+                                "policy": "standard", "task": "t"}) + "\n" for i in ids)
+        )
+
+    def backfill(self):
+        with mock.patch.dict(os.environ, self.env(), clear=False):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                code = grader.main(["backfill"])
+        return code, out.getvalue().strip()
+
+    def test_backfill_scores_every_row_and_touches_nothing_else(self):
+        self.plant_model("outcome", "baseline-outcome-v1")
+        self.plant_dataset("a", "b", "c")
+        dataset = (self.home / "dataset.jsonl").read_bytes()
+        code, printed = self.backfill()
+        self.assertEqual((code, printed), (0, "3"))
+        self.assertEqual(sorted(s["run_id"] for s in self.scores()), ["a", "b", "c"])
+        self.assertEqual((self.home / "dataset.jsonl").read_bytes(), dataset)
+        self.assertFalse((self.home / "cursor.json").exists())
+        self.assertFalse((self.root / "calls").exists())
+
+    def test_a_second_backfill_appends_nothing(self):
+        self.plant_model()
+        self.plant_dataset("a", "b")
+        self.assertEqual(self.backfill(), (0, "2"))
+        self.assertEqual(self.backfill(), (0, "0"))
+        self.assertEqual(len(self.scores()), 2)
+
+    def test_backfill_without_a_model_or_a_dataset_prints_zero(self):
+        self.assertEqual(self.backfill(), (0, "0"))
+        self.plant_dataset("a")
+        self.assertEqual(self.backfill(), (0, "0"))
+        self.assertFalse((self.home / "scores.jsonl").exists())
+        (self.home / "dataset.jsonl").unlink()
+        self.plant_model()
+        self.assertEqual(self.backfill(), (0, "0"))
+        self.assertFalse((self.home / "scores.jsonl").exists())
+
     def test_cli_once_prints_count(self):
         self.record("a")
         with mock.patch.dict(os.environ, self.env(), clear=False):

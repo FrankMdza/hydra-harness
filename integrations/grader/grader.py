@@ -194,8 +194,15 @@ def main(argv: list[str] | None = None) -> int:
     rebuild = sub.add_parser("rebuild", help="drop the cursor and rewrite the dataset")
     rebuild.add_argument("--jobs", type=int, default=4, help="parallel hydra show workers")
 
+    sub.add_parser("backfill", help="score every row already in the dataset")
+
     args = parser.parse_args(argv)
     jobs = getattr(args, "jobs", 4)
+
+    if args.command == "backfill":
+        home = records.grader_home()
+        print(score_rows(home, records.read_jsonl(home / "dataset.jsonl"), utc_now()))
+        return 0
 
     if args.command == "once":
         print(collect(jobs=jobs))

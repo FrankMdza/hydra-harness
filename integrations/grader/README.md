@@ -41,6 +41,7 @@ label fields null.
 python3 integrations/grader/grader.py once [--jobs N]
 python3 integrations/grader/grader.py watch --interval N [--jobs N]
 python3 integrations/grader/grader.py rebuild [--jobs N]
+python3 integrations/grader/grader.py backfill
 ```
 
 | Command | Behavior |
@@ -48,6 +49,7 @@ python3 integrations/grader/grader.py rebuild [--jobs N]
 | `once` | Collect every run whose fingerprint is new or changed since the cursor. Prints the count and exits 0, including when the count is 0. |
 | `watch` | Loop `once`, then sleep for `--interval` seconds. No daemon and no asyncio. |
 | `rebuild` | Drop the cursor and rewrite the whole dataset. |
+| `backfill` | Score every row in `dataset.jsonl` with every model. Collects nothing, runs no `hydra show`, leaves the cursor and dataset alone. Prints the lines appended and exits 0, including when that is 0. |
 
 `--jobs` defaults to 4. Each new or changed record costs one `hydra show --events`
 subprocess; `once` and `rebuild` run those calls on a thread pool and apply
@@ -83,6 +85,11 @@ Every collect that writes new or changed rows scores each of those runs with eve
 `$HYDRA_GRADER_HOME/scores.jsonl`: `run_id`, `label`, `p`, `model_version`, `scored_at`. A run
 already scored by that model version is skipped. With no model there, nothing is written.
 Nothing reads the file yet, so the model does not pick which runs get reviewed.
+
+A collect scores only its own rows, so a model trained later never sees the older ones. Run
+`grader.py backfill` after `baseline.py train` writes a model. It scores every row in
+`dataset.jsonl` that the model's version has not scored, so running it twice appends nothing the
+second time. With no model or no dataset it prints 0.
 
 ## The verdict queue
 
