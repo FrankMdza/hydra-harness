@@ -22,3 +22,6 @@ target/
 # Secrets the author keeps beside the checkout. Ignored, so the worktree seed never copies them into a run.
 .env
 .env.*
+
+# The project's own Python, made with `uv venv --python 3.12 .venv`. Ignored so the worktree seed never copies it.
+/.venv/
