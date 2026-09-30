@@ -3330,7 +3330,9 @@ subscriptions. Each provider with a live run gets one entry, beside the dragon o
 on a row of its own above the panels: output tokens per minute over the last five minutes, and
 the live runs' share of the provider's rate-limit window. A live record is read by
 `normalize::usage_so_far`, which runs the adapter's own walk and leaves out the gate replay, so
-it costs no Python and is redone only when the file grew. What a live run exposes depends on the
+it costs no Python and is redone only when the file grew. A file that shrank, or whose line 0
+changed, is taken for another record since build 176: its counts, samples and start are dropped
+and read again. What a live run exposes depends on the
 provider. `agy` sums its counts per finished step, so a live run has a running total. `claude`
 and `cursor-agent` count on the `result` frame and `codex` on `turn.completed`, each at the end,
 and their entry reads `no count until a run ends` rather than 0. `claude` assistant frames carry
@@ -3340,7 +3342,8 @@ window counts its start as zero. With one sample and an older start the rate is 
 `integrations/puppets/sheet.py`'s formula, `(raw_input + output_tokens) / window_budget_tokens`,
 ported to `src/cockpit/window.rs` with the model read through `aliases.json` as `models.py` does.
 It reads `$HYDRA_HOME/integrations/puppets/vendors.json` every tick with a live run, and shows `-`
-for a null budget, for `claude` (sheet.py measures it by utilization), and for a provider any of
+for a null budget, for `claude` (sheet.py measures it by utilization, and checks the provider
+after `canonical`, so an alias onto `claude` gets `-` too), and for a provider any of
 whose counted runs has no budget. It sums live runs only: an ended run inside the same window is
 not added, so the number is a floor. `tests/cockpit.rs` drives all of it on synthetic records at
 a fixed clock with a scratch `vendors.json`; no real provider has been watched through it.

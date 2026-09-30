@@ -17,7 +17,9 @@ use hydra::approve::Pending;
 use hydra::cockpit::app::{App, Effect, Focus, Opened};
 use hydra::cockpit::goal::{self, TaskRow};
 use hydra::cockpit::snapshot::{Card, Lane, Reader, Snapshot, Spend, lane_of, spend_text};
+use hydra::cockpit::window::Budgets;
 use hydra::live::State;
+use hydra::normalize::Counts;
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
 use hydra::seats::AskedSeat;
@@ -1699,6 +1701,113 @@ fn tokens_per_minute_look_back_five_minutes_across_reads() {
     assert_eq!(spend_of(&later, "agy").tokens_per_minute, Some(0.0));
 }
 
+/// The rate a run shows at `at`, read by `reader`.
+fn agy_rate(reader: &mut Reader, at: chrono::DateTime<chrono::Utc>) -> (u64, Option<f64>) {
+    let snapshot = reader.read_at(None, at);
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+    let agy = spend_of(&snapshot, "agy");
+    (agy.output_tokens, agy.tokens_per_minute)
+}
+
+#[test]
+fn a_record_that_shrinks_drops_its_old_samples() {
+    let layout = scratch("spend-shrink");
+    let vendors = write_vendors(&layout, None);
+    let run = "01a0f007-0000-7000-8000-000000000007";
+    let started = noon() - chrono::Duration::minutes(20);
+    let model = Some("gemini-3.1-pro-high");
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        model,
+        started,
+        &[agy_step(1, 10, 1000, 0)],
+    );
+    let mut reader = spend_reader(&layout, vendors);
+    assert_eq!(agy_rate(&mut reader, noon()).0, 1000);
+
+    // Same line 0, fewer bytes after it: the 1,000 is gone, and so is its sample.
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        model,
+        started,
+        &[agy_step(1, 10, 10, 0)],
+    );
+    let one = noon() + chrono::Duration::minutes(1);
+    assert_eq!(agy_rate(&mut reader, one), (10, None));
+    append_frames(&layout, run, "agy", 2, &[agy_step(2, 10, 100, 0)]);
+    let two = noon() + chrono::Duration::minutes(2);
+    assert_eq!(agy_rate(&mut reader, two), (110, Some(100.0)));
+}
+
+#[test]
+fn a_record_with_a_new_line_zero_rereads_its_start() {
+    let layout = scratch("spend-restart");
+    let vendors = write_vendors(&layout, None);
+    let run = "01a0f008-0000-7000-8000-000000000008";
+    let model = Some("gemini-3.1-pro-high");
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        model,
+        noon() - chrono::Duration::minutes(20),
+        &[agy_step(1, 10, 1000, 0)],
+    );
+    let mut reader = spend_reader(&layout, vendors);
+    assert_eq!(agy_rate(&mut reader, noon()).0, 1000);
+
+    // A longer record that started at noon: 200 tokens over two minutes, not
+    // measured against the old record's 1,000.
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        model,
+        noon(),
+        &[agy_step(1, 10, 100, 0), agy_step(2, 10, 100, 0)],
+    );
+    let two = noon() + chrono::Duration::minutes(2);
+    assert_eq!(agy_rate(&mut reader, two), (200, Some(100.0)));
+}
+
+#[test]
+fn an_equal_length_replacement_is_read_again() {
+    let layout = scratch("spend-same-len");
+    let vendors = write_vendors(&layout, None);
+    let run = "01a0f009-0000-7000-8000-000000000009";
+    let model = Some("gemini-3.1-pro-high");
+    let path = layout.run_file(run);
+    let started = noon() - chrono::Duration::minutes(20);
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        model,
+        started,
+        &[agy_step(1, 10, 100, 0)],
+    );
+    let len = std::fs::metadata(&path).unwrap().len();
+    let mut reader = spend_reader(&layout, vendors);
+    assert_eq!(agy_rate(&mut reader, noon()).0, 100);
+
+    let started = started - chrono::Duration::minutes(1);
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        model,
+        started,
+        &[agy_step(1, 10, 900, 0)],
+    );
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), len);
+    let one = noon() + chrono::Duration::minutes(1);
+    assert_eq!(agy_rate(&mut reader, one).0, 900);
+}
+
 #[test]
 fn a_null_budget_and_claude_show_a_dash_for_the_window() {
     let layout = scratch("spend-dash");
@@ -1711,25 +1820,60 @@ fn a_null_budget_and_claude_show_a_dash_for_the_window() {
         noon() - chrono::Duration::minutes(1),
         &[agy_step(1, 10, 60, 0)],
     );
-    let snapshot = spend_reader(&layout, vendors).read_at(None, noon());
+    let snapshot = spend_reader(&layout, vendors.clone()).read_at(None, noon());
     let agy = spend_of(&snapshot, "agy");
     assert_eq!(agy.window_share, None);
     assert_eq!(spend_text(agy), "agy 60 tok/min, window -");
 
-    // `claude` has a budget in the scratch file and still gets none: sheet.py
-    // measures its window by utilization, not token spend.
+    // `claude` has a positive budget in the scratch file and still gets no
+    // share: sheet.py measures its window by utilization, not token spend. A
+    // live `claude` run carries no counts, so this asks the budgets directly.
+    let counts = Counts {
+        input_tokens: 5,
+        output_tokens: 10,
+        ..Counts::default()
+    };
+    let budgets = Budgets::load(&vendors).unwrap();
     let claude = Spend {
         provider: "claude".to_string(),
         live: 2,
         counted: 1,
         output_tokens: 10,
         tokens_per_minute: Some(10.0),
-        window_share: None,
+        window_share: budgets.share("claude", Some("opus"), &counts),
     };
     assert_eq!(
         spend_text(&claude),
         "claude 10 tok/min, window - (1 of 2 runs counted)"
     );
+}
+
+#[test]
+fn an_alias_onto_claude_gets_no_share() {
+    let layout = scratch("spend-alias");
+    let vendors = write_vendors(&layout, Some(4600.0));
+    // sheet.py excludes `claude` after `canonical`, so a spelling that maps
+    // onto it is excluded too, whatever provider recorded it.
+    let aliases = json!([{
+        "provider": "agy",
+        "recorded_model": "Claude Opus",
+        "canonical": {"provider": "claude", "model": "opus"},
+    }]);
+    std::fs::write(vendors.join("aliases.json"), aliases.to_string()).unwrap();
+    write_live_frames(
+        &layout,
+        "01a0f00a-0000-7000-8000-00000000000a",
+        "agy",
+        Some("Claude Opus"),
+        noon() - chrono::Duration::minutes(1),
+        &[agy_step(1, 10, 60, 0)],
+    );
+    let snapshot = spend_reader(&layout, vendors).read_at(None, noon());
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+    let agy = spend_of(&snapshot, "agy");
+    assert_eq!((agy.counted, agy.output_tokens), (1, 60));
+    assert_eq!(agy.window_share, None);
+    assert_eq!(spend_text(agy), "agy 60 tok/min, window -");
 }
 
 #[test]

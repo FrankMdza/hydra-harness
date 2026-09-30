@@ -148,13 +148,17 @@ pub struct Spend {
     pub tokens_per_minute: Option<f64>,
     /// The counted runs' share of the provider's rate-limit window, by
     /// [`super::window`]. `None` when any of them has no budget, and always
-    /// on `claude`.
+    /// when one's provider is `claude` once aliased.
     pub window_share: Option<f64>,
 }
 
 /// What a live record has counted so far, kept by run id.
+///
+/// Kept only while the file grows under the same line 0: a record that
+/// shrinks or opens differently is another record, and starts over.
 struct Live {
     len: u64,
+    line_zero: Option<String>,
     counts: Option<Counts>,
     started: Option<DateTime<Utc>>,
     /// Output tokens at each read in the last five minutes, oldest first.
@@ -318,7 +322,8 @@ impl Reader {
                     continue;
                 }
             };
-            let (model, policy_sha, started) = opening_of(path);
+            let line_zero = line_zero(path);
+            let (model, policy_sha, started) = opening_of(line_zero.as_deref());
             let mut card = Card {
                 run_id: view.run_id.clone(),
                 provider: view.provider.clone(),
@@ -342,7 +347,7 @@ impl Reader {
                 State::Abandoned => {
                     card.note = Some("abandoned: no closing line and no process".to_string());
                 }
-                State::Live => self.count_live(&view.run_id, path, started),
+                State::Live => self.count_live(&view.run_id, path, line_zero, started),
             }
             cards.push(card);
         }
@@ -360,14 +365,31 @@ impl Reader {
     }
 
     /// Reads a live record's usage so far, again only when it grew.
-    fn count_live(&mut self, run_id: &str, path: &Path, started: Option<DateTime<Utc>>) {
+    fn count_live(
+        &mut self,
+        run_id: &str,
+        path: &Path,
+        line_zero: Option<String>,
+        started: Option<DateTime<Utc>>,
+    ) {
         let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-        let live = self.live.entry(run_id.to_string()).or_insert(Live {
-            len: 0,
-            counts: None,
-            started,
-            samples: VecDeque::new(),
-        });
+        let kept = self
+            .live
+            .get(run_id)
+            .is_some_and(|live| live.len <= len && live.line_zero == line_zero);
+        if !kept {
+            self.live.insert(
+                run_id.to_string(),
+                Live {
+                    len: 0,
+                    line_zero,
+                    counts: None,
+                    started,
+                    samples: VecDeque::new(),
+                },
+            );
+        }
+        let live = self.live.get_mut(run_id).expect("inserted above");
         if live.len == len && len > 0 {
             return;
         }
@@ -491,15 +513,19 @@ impl Reader {
     }
 }
 
+/// A record's first line, or `None` when there is none to read.
+fn line_zero(path: &Path) -> Option<String> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(path).ok()?;
+    let mut first = String::new();
+    std::io::BufReader::new(file).read_line(&mut first).ok()?;
+    Some(first)
+}
+
 /// The model on line 0's envelope, the `policy_sha` in its body and the
 /// envelope's `ts`. [`crate::live::read_view`] reads none of them.
-fn opening_of(path: &Path) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
-    use std::io::BufRead;
-    let envelope = std::fs::File::open(path).ok().and_then(|file| {
-        let mut first = String::new();
-        std::io::BufReader::new(file).read_line(&mut first).ok()?;
-        serde_json::from_str::<serde_json::Value>(&first).ok()
-    });
+fn opening_of(line_zero: Option<&str>) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
+    let envelope = line_zero.and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok());
     let Some(envelope) = envelope else {
         return (None, None, None);
     };

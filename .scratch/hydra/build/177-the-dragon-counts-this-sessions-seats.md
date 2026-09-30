@@ -1,7 +1,7 @@
 # 177 - The dragon counts this session's seats
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 176
 
 ## What

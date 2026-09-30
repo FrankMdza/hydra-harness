@@ -3,8 +3,8 @@
 //! **The formula is `integrations/puppets/sheet.py`'s**, ported rather than
 //! called: `build` sets a run's `window_share` to `(raw_input *
 //! cache_read_weight + output_tokens) / window_budget_tokens` for every
-//! provider but `claude`, and to nothing when the budget is null or not
-//! positive. The budget is the `vendors.json` row whose provider and model
+//! canonical provider but `claude`, and to nothing when the budget is null or
+//! not positive. The budget is the `vendors.json` row whose provider and model
 //! match the run's once both go through `models.py`'s `canonical`, which reads
 //! `aliases.json`. Nothing here writes either file.
 
@@ -95,11 +95,12 @@ impl Budgets {
 
     /// One run's share, or `None` where `sheet.py` writes none.
     pub fn share(&self, provider: &str, model: Option<&str>, counts: &Counts) -> Option<f64> {
-        // sheet.py: claude window budgets come from utilization, not token spend.
-        if provider == "claude" {
+        let key = self.canonical(provider, model);
+        // sheet.py: claude window budgets come from utilization, not token
+        // spend. It asks after `canonical`, so an alias onto claude counts.
+        if key.0 == "claude" {
             return None;
         }
-        let key = self.canonical(provider, model);
         let budget = self
             .vendors
             .iter()

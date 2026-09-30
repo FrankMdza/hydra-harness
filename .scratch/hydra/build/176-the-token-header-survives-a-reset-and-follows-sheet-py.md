@@ -1,7 +1,7 @@
 # 176 - The token header survives a reset and follows sheet.py
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 172
 
 ## What
@@ -36,3 +36,14 @@ Tests first, each shown failing before the change.
 ## Done when
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f30a-e273 under `standard`. The session
+applied it as written. A live run's cache now keeps its line 0 and drops counts and samples when
+the file shrinks or line 0 differs, rereading the start. `Budgets::share` canonicalizes first and
+then excludes a canonical `claude`, as `sheet.py`'s `build` does. The claude test now computes a
+share with real counts and a positive budget, and fails with the exclusion removed. Five tests,
+each failing first; fmt and clippy clean, `--test cockpit` 39, `--lib` 221 on master. Left: a
+replacement with the same length and the same line 0 would still keep stale counts.
+
