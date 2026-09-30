@@ -775,6 +775,52 @@ fn approving_in_the_cockpit_writes_what_hydra_approve_writes() {
 }
 
 #[test]
+fn d_then_y_in_the_cockpit_denies_the_selected_request() {
+    let layout = scratch("deny-cockpit");
+    plant_request(&layout);
+
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    let mut snapshot = fixed_snapshot();
+    snapshot.requests = hydra::approve::pending(&layout).unwrap();
+    app.set_snapshot(snapshot);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+
+    app.handle(&click(80, 11));
+    app.handle(&key(KeyCode::Char('d')));
+    let shown = app.confirming.clone().expect("no confirmation");
+    assert_eq!(shown.request_id, REQUEST);
+    app.draw(AREA, &mut buf);
+    let screen = screen_text(&buf);
+    assert!(screen.contains("deny this request?"), "{screen}");
+    assert!(screen.contains("y denies"), "{screen}");
+
+    let pending = layout.approvals().join(format!("{REQUEST}.pending.json"));
+    let denied = layout.approvals().join(format!("{REQUEST}.denied.json"));
+    assert!(pending.exists(), "denied before `y`");
+    assert_eq!(app.handle(&key(KeyCode::Char('y'))), Effect::Refresh);
+    assert!(app.confirming.is_none());
+    assert_eq!(
+        app.message.clone().unwrap(),
+        format!("denied {REQUEST}: session {SESSION} is told no")
+    );
+    assert!(!pending.exists());
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&denied).unwrap()).unwrap();
+    assert_eq!(file["request_id"], REQUEST);
+    assert!(file["denied_at"].is_string(), "{file}");
+    assert!(file["denied_by"].is_string(), "{file}");
+
+    // `n` on a denial's confirmation writes nothing.
+    plant_request(&layout);
+    app.handle(&key(KeyCode::Char('d')));
+    assert!(app.confirming.is_some());
+    app.handle(&key(KeyCode::Char('n')));
+    assert!(app.confirming.is_none());
+    assert!(pending.exists());
+}
+
+#[test]
 fn inside_a_seatbelt_the_cockpit_refuses_by_name_and_writes_nothing() {
     let layout = scratch("approve-seatbelt");
     plant_request(&layout);

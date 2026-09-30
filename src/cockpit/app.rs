@@ -98,6 +98,8 @@ pub struct App {
     pub opened: Option<Opened>,
     /// The request the confirmation shows, while it is up.
     pub confirming: Option<Pending>,
+    /// Whether that confirmation denies rather than approves, build ticket 170.
+    pub denying: bool,
     pub message: Option<String>,
     pub hits: Hits,
     /// The dragon in the header, or `None` for `--no-mascot` and for a frame directory that
@@ -126,6 +128,7 @@ impl App {
             detail_scroll: 0,
             opened: None,
             confirming: None,
+            denying: false,
             message: None,
             hits: Hits::default(),
             mascot: None,
@@ -225,10 +228,11 @@ impl App {
     fn key(&mut self, key: &KeyEvent) -> Effect {
         if self.confirming.is_some() {
             return match key.code {
-                KeyCode::Char('y') => self.approve(),
+                KeyCode::Char('y') => self.answer(),
                 KeyCode::Char('n') | KeyCode::Esc => {
                     self.confirming = None;
-                    self.message = Some("nothing approved".to_string());
+                    let verb = if self.denying { "denied" } else { "approved" };
+                    self.message = Some(format!("nothing {verb}"));
                     Effect::None
                 }
                 _ => Effect::None,
@@ -254,7 +258,8 @@ impl App {
                 }
                 Effect::None
             }
-            KeyCode::Char('a') => self.ask_to_approve(),
+            KeyCode::Char('a') => self.ask_to_answer(false),
+            KeyCode::Char('d') => self.ask_to_answer(true),
             _ => Effect::None,
         }
     }
@@ -407,7 +412,9 @@ impl App {
             .cloned()
     }
 
-    fn ask_to_approve(&mut self) -> Effect {
+    /// `a` or `d`: opens the confirmation that approves, or denies, the
+    /// request in hand.
+    fn ask_to_answer(&mut self, deny: bool) -> Effect {
         let Some(request) = self.request_in_hand() else {
             self.message = Some("select a request in the waiting approval lane first".to_string());
             return Effect::None;
@@ -417,12 +424,14 @@ impl App {
             return Effect::None;
         }
         self.confirming = Some(request);
+        self.denying = deny;
         Effect::None
     }
 
-    /// `y` on the confirmation: [`crate::approve::approve`], the function
-    /// `hydra approve <id>` calls once it has refused a seatbelt.
-    fn approve(&mut self) -> Effect {
+    /// `y` on the confirmation: [`crate::approve::approve`] or
+    /// [`crate::approve::deny`], the functions `hydra approve <id>` and
+    /// `hydra deny <id>` call once they have refused a seatbelt.
+    fn answer(&mut self) -> Effect {
         let Some(request) = self.confirming.take() else {
             return Effect::None;
         };
@@ -430,15 +439,23 @@ impl App {
             self.message = Some(inside_seatbelt());
             return Effect::None;
         }
-        self.message = Some(
-            match crate::approve::approve(&self.layout, &request.request_id) {
-                Ok(approved) => format!(
+        let id = &request.request_id;
+        let said = if self.denying {
+            crate::approve::deny(&self.layout, id, &crate::approve::login()).map(|denied| {
+                format!(
+                    "denied {}: session {} is told no",
+                    denied.request.request_id, denied.request.session
+                )
+            })
+        } else {
+            crate::approve::approve(&self.layout, id).map(|approved| {
+                format!(
                     "approved {}: session {} launches it now",
                     approved.request_id, approved.session
-                ),
-                Err(err) => format!("{err:#}"),
-            },
-        );
+                )
+            })
+        };
+        self.message = Some(said.unwrap_or_else(|err| format!("{err:#}")));
         Effect::Refresh
     }
 
@@ -474,7 +491,7 @@ impl App {
         self.draw_detail(right, buf);
         self.draw_status(status, buf);
         if let Some(request) = self.confirming.clone() {
-            draw_confirmation(&request, main, buf);
+            draw_confirmation(&request, self.denying, main, buf);
         }
     }
 
@@ -783,7 +800,7 @@ impl App {
             .map(|lane| format!("{} {}", lane.title(), self.lane_len(*lane)))
             .collect::<Vec<_>>()
             .join(", ");
-        let keys = "arrows/Tab move, Enter opens, Esc closes, a approves, q quits";
+        let keys = "arrows/Tab move, Enter opens, Esc closes, a approves, d denies, q quits";
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",
             self.interval.as_secs_f32()
@@ -806,7 +823,7 @@ fn inside_seatbelt() -> String {
     )
 }
 
-fn draw_confirmation(request: &Pending, area: Rect, buf: &mut Buffer) {
+fn draw_confirmation(request: &Pending, deny: bool, area: Rect, buf: &mut Buffer) {
     let width = area.width.saturating_sub(8).min(90);
     let height = area.height.saturating_sub(4).min(20);
     let rect = Rect {
@@ -820,15 +837,20 @@ fn draw_confirmation(request: &Pending, area: Rect, buf: &mut Buffer) {
         .lines()
         .map(|line| Line::raw(line.to_string()))
         .collect();
+    let (keys, title) = if deny {
+        ("y denies, n closes", " deny this request? ")
+    } else {
+        ("y approves, n closes", " approve this request? ")
+    };
     lines.push(Line::styled(
-        "y approves, n closes",
+        keys,
         Style::default().add_modifier(Modifier::BOLD),
     ));
     Paragraph::new(lines)
         .block(
             Block::bordered()
                 .border_style(Style::default().fg(Color::Red))
-                .title(" approve this request? "),
+                .title(title),
         )
         .wrap(Wrap { trim: false })
         .render(rect, buf);

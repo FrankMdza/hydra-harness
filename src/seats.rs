@@ -410,8 +410,10 @@ impl Launcher {
         }
         let deadline = Instant::now() + self.approval_wait;
         let ended = loop {
-            if crate::approve::approved(&self.layout.approvals(), request_id) {
-                break None;
+            match crate::approve::answered(&self.layout.approvals(), request_id) {
+                Some(crate::approve::Settled::Denied) => return denied(request_id),
+                Some(_) => break None,
+                None => {}
             }
             let closed = self.flight.lock().closed;
             if closed || Instant::now() >= deadline {
@@ -422,6 +424,7 @@ impl Launcher {
         if let Some(closed) = ended {
             match crate::approve::withdraw(&self.layout.approvals(), request_id) {
                 Ok(crate::approve::Settled::Approved) => {}
+                Ok(crate::approve::Settled::Denied) => return denied(request_id),
                 Ok(crate::approve::Settled::Withdrawn) => {
                     let why = if closed {
                         "the session ended before anybody approved it".to_string()
@@ -1187,6 +1190,20 @@ fn send(mut stream: &UnixStream, reply: &Reply) -> Result<()> {
 /// interactive session.
 pub fn launcher_present(layout: &Layout, parent: &str) -> bool {
     is_run_id(parent) && std::fs::symlink_metadata(socket_path(layout, parent)).is_ok()
+}
+
+/// The face's answer to a request the human denied, build ticket 170. Fixed
+/// text, so nothing the human typed reaches the model, and nothing on the
+/// session's record: the contract has no line for a denial, and the store
+/// keeps who and when.
+fn denied(request_id: &str) -> Reply {
+    Reply {
+        text: format!(
+            "{}: request {request_id} was denied by the human, and nothing was launched.",
+            crate::approve::DENIED
+        ),
+        is_error: true,
+    }
 }
 
 /// Asks `parent`'s launcher, from the face.

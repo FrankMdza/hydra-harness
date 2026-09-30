@@ -1311,11 +1311,11 @@ fn a_seat_launch_is_told_to_keep_off_the_humans_terminal() {
 // Build ticket 141: `hydra approve`, typed by a human outside the seatbelt
 // ---------------------------------------------------------------------------
 
-/// `hydra approve` as the built binary, inside a seatbelt. Inside a run's
+/// `hydra <subcommand>` as the built binary, inside a seatbelt. Inside a run's
 /// seatbelt already, the binary inherits it; outside one, it is wrapped in a
 /// profile that allows everything, so a refusal is the command's and not a
 /// write the kernel denied. `None` where neither is possible.
-fn approve_inside_seatbelt(root: &Path, args: &[&str]) -> Option<std::process::Output> {
+fn inside_seatbelt(root: &Path, subcommand: &str, args: &[&str]) -> Option<std::process::Output> {
     let mut command = if hydra::sandbox::inside_seatbelt() {
         Command::new(env!("CARGO_BIN_EXE_hydra"))
     } else if hydra::sandbox::exec_available() {
@@ -1328,12 +1328,12 @@ fn approve_inside_seatbelt(root: &Path, args: &[&str]) -> Option<std::process::O
             .arg(env!("CARGO_BIN_EXE_hydra"));
         wrapped
     } else {
-        eprintln!("skipped: no seatbelt to run `hydra approve` inside");
+        eprintln!("skipped: no seatbelt to run `hydra {subcommand}` inside");
         return None;
     };
     Some(
         command
-            .arg("approve")
+            .arg(subcommand)
             .args(args)
             .env("HYDRA_ROOT", root)
             .output()
@@ -1348,7 +1348,7 @@ fn hydra_approve_inside_a_seatbelt_refuses_by_name_and_writes_nothing() {
     let before = fixture.store();
 
     for args in [vec![id.as_str()], vec![]] {
-        let Some(out) = approve_inside_seatbelt(&fixture.root, &args) else {
+        let Some(out) = inside_seatbelt(&fixture.root, "approve", &args) else {
             fixture.launcher.close();
             asked.join().unwrap();
             return;
@@ -1531,4 +1531,163 @@ fn a_session_that_ends_while_a_request_waits_withdraws_it() {
         "{late:#}"
     );
     assert!(fixture.launched().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Build ticket 170: `hydra deny`, the human's no, distinct from the timeout
+// ---------------------------------------------------------------------------
+
+/// The store's file for `id` in `state`, parsed.
+fn stored(fixture: &Fixture, id: &str, state: &str) -> Value {
+    let path = fixture
+        .layout
+        .approvals()
+        .join(format!("{id}.{state}.json"));
+    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+}
+
+#[test]
+fn a_denial_renames_the_request_records_who_and_when_and_answers_at_once() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    let (id, asked) = fixture.ask_and_wait(one_seat("claude", "read-only"));
+    let lines_before = std::fs::read_to_string(&fixture.run_file).unwrap();
+
+    let denied_at = Instant::now();
+    let denied = hydra::approve::deny(&fixture.layout, &id, "frank").unwrap();
+    assert_eq!(denied.request.request_id, id);
+    let reply = asked.join().unwrap();
+    // One poll is 100 ms. The wait is 30 s, so an answer inside two seconds
+    // is the rename's and not the timeout's.
+    assert!(
+        denied_at.elapsed() < Duration::from_secs(2),
+        "the launcher answered after {:?}",
+        denied_at.elapsed()
+    );
+    assert!(reply.is_error, "{}", reply.text);
+    assert!(
+        reply.text.starts_with("hydra/request-denied: "),
+        "{}",
+        reply.text
+    );
+    assert!(
+        !reply.text.contains("hydra/approval-required"),
+        "a denial reads as the timeout: {}",
+        reply.text
+    );
+    assert!(!reply.text.contains("frank"), "{}", reply.text);
+    assert!(fixture.launched().is_empty(), "a denied request launched");
+
+    assert_eq!(fixture.store(), [format!("{id}.denied.json")]);
+    let file = stored(&fixture, &id, "denied");
+    assert_eq!(file["request_id"], id.as_str());
+    assert_eq!(file["denied_by"], "frank");
+    let when = file["denied_at"].as_str().unwrap();
+    chrono::DateTime::parse_from_rfc3339(when).unwrap();
+    // Nothing on the session's record: the contract has no line for it.
+    assert_eq!(
+        std::fs::read_to_string(&fixture.run_file).unwrap(),
+        lines_before
+    );
+    fixture.harvest();
+}
+
+#[test]
+fn a_denied_request_cannot_be_approved_or_denied_again() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    let (id, asked) = fixture.ask_and_wait(one_seat("claude", "read-only"));
+    hydra::approve::deny(&fixture.layout, &id, "frank").unwrap();
+    asked.join().unwrap();
+
+    let late = hydra::approve::approve(&fixture.layout, &id).unwrap_err();
+    assert!(
+        format!("{late:#}").contains("hydra/request-denied"),
+        "{late:#}"
+    );
+    let again = hydra::approve::deny(&fixture.layout, &id, "frank").unwrap_err();
+    assert!(
+        format!("{again:#}").contains("hydra/request-denied"),
+        "{again:#}"
+    );
+    assert_eq!(fixture.store(), [format!("{id}.denied.json")]);
+    assert!(fixture.launched().is_empty());
+    assert!(fixture.approvals().is_empty());
+}
+
+#[test]
+fn an_approved_or_withdrawn_request_cannot_be_denied() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    // `approve` launches only for a session whose launcher still listens.
+    let served = seats::serve(
+        fixture.launcher.clone(),
+        &seats::socket_path(&fixture.layout, SESSION),
+    )
+    .unwrap();
+    let (id, asked) = fixture.ask_and_wait(one_seat("claude", "read-only"));
+    hydra::approve::approve(&fixture.layout, &id).unwrap();
+    let reply = asked.join().unwrap();
+    assert!(!reply.is_error, "{}", reply.text);
+    let late = hydra::approve::deny(&fixture.layout, &id, "frank").unwrap_err();
+    assert!(
+        format!("{late:#}").contains("hydra/already-approved"),
+        "{late:#}"
+    );
+    assert_eq!(fixture.store(), [format!("{id}.approved.json")]);
+    assert_eq!(fixture.launched().len(), 1);
+    served.stop();
+
+    let unknown = hydra::approve::deny(
+        &fixture.layout,
+        "01a0e7ae-0000-7000-8000-00000000dead",
+        "frank",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{unknown:#}").contains("hydra/no-pending-request"),
+        "{unknown:#}"
+    );
+    let walked = hydra::approve::deny(&fixture.layout, "../../runs/x", "frank").unwrap_err();
+    assert!(
+        format!("{walked:#}").contains("hydra/no-pending-request"),
+        "{walked:#}"
+    );
+
+    let timed_out = Fixture::waiting("standard", Duration::from_millis(300));
+    timed_out.launcher.answer(&one_seat("claude", "read-only"));
+    let id = timed_out.requests()[0]["request_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let late = hydra::approve::deny(&timed_out.layout, &id, "frank").unwrap_err();
+    assert!(
+        format!("{late:#}").contains("hydra/request-withdrawn"),
+        "{late:#}"
+    );
+}
+
+#[test]
+fn hydra_deny_inside_a_seatbelt_refuses_by_name_and_writes_nothing() {
+    let fixture = Fixture::waiting("standard", Duration::from_secs(30));
+    let (id, asked) = fixture.ask_and_wait(one_seat("claude", "read-only"));
+    let before = fixture.store();
+
+    let Some(out) = inside_seatbelt(&fixture.root, "deny", &[id.as_str()]) else {
+        fixture.launcher.close();
+        asked.join().unwrap();
+        return;
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "deny went ahead: {stderr}");
+    assert!(
+        stderr.contains("hydra/deny-inside-seatbelt"),
+        "deny: {stderr}"
+    );
+    assert_eq!(fixture.store(), before, "deny wrote to the store");
+
+    fixture.launcher.close();
+    let reply = asked.join().unwrap();
+    assert!(
+        !reply.text.contains("hydra/request-denied"),
+        "{}",
+        reply.text
+    );
 }

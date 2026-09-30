@@ -133,6 +133,8 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `evolve` | rung two: a proposer, the admission gate, a panel of four, a branch |
 | `usage recount` | tokens across the corpus, recounted from the records |
 | `export` | one JSON line of events per eligible run, and `preference.jsonl` beside it; the only path anything leaves this machine by |
+| `approve` | approve a seat request no shape covers; with no id, list what waits |
+| `deny` | deny one; the session hears `hydra/request-denied` and nothing launches |
 | `doctor` | the root, the binaries against the measured versions, the policy sha, which protected configs are missing |
 | `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; with `--session`, the chat in the left panel |
 
@@ -140,8 +142,9 @@ killing the child; `hydra logs <id> --follow` tails it.
 the task table of a Master of Puppets goal, the middle one sorts every run into `live`,
 `waiting approval`, `ended ok` and `ended not ok`, and the right one shows the run you open: its
 outcome, tokens, final text and last twenty record lines. It rereads the disk every two seconds
-and launches nothing. The one thing it writes is the approval of a waiting seat request, `a` then
-`y`, which is what `hydra approve <id>` writes. Keys and mouse both work; `q` quits.
+and launches nothing. The one thing it writes is the answer to a waiting seat request, `a` then
+`y` to approve or `d` then `y` to deny, which is what `hydra approve <id>` or `hydra deny <id>`
+writes. Keys and mouse both work; `q` quits.
 
 ```
 hydra cockpit                    # the goal log that changed last

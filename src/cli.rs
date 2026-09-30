@@ -232,6 +232,17 @@ pub enum Command {
         request_id: Option<String>,
     },
 
+    /// Deny a seat request that waits for approval, build ticket 170.
+    ///
+    /// Typed by a human in a terminal outside any session, and refused inside
+    /// a seatbelt as `hydra approve` is. The session hears one fixed code,
+    /// `hydra/request-denied`, and the store keeps who denied and when.
+    Deny {
+        /// The request id the session was told. `hydra approve` with no id
+        /// lists the ones still waiting.
+        request_id: String,
+    },
+
     /// A full-screen view of one goal's tasks, the runs by state, and one run's
     /// detail, build ticket 150. Reads files and draws; its one write is the
     /// approval of a waiting seat request, the same as `hydra approve <id>`.

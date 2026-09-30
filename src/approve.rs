@@ -6,12 +6,19 @@
 //! `hydra approve <id>` in a terminal outside the session, which renames the
 //! file to `<id>.approved.json`; the launcher sees the rename, writes a
 //! `seat_approval` line on the session's record, launches, and answers the face
-//! with the marked results. A request nobody approves in time, or whose session
-//! ends first, is renamed to `<id>.withdrawn.json` by the launcher.
+//! with the marked results. `hydra deny <id>` renames it to `<id>.denied.json`
+//! instead, and the launcher answers the face with [`DENIED`] and launches
+//! nothing (build ticket 170). A request nobody answers in time, or whose
+//! session ends first, is renamed to `<id>.withdrawn.json` by the launcher.
 //!
-//! **Every change of state is one `rename`, so the two writers cannot both
-//! win.** The human renames `pending` to `approved`, the launcher renames
+//! **Every change of state is one `rename`, so no two writers can both win.**
+//! The human renames `pending` to `approved` or `denied`, the launcher renames
 //! `pending` to `withdrawn`, and whichever rename finds the file gone lost.
+//!
+//! **A denial carries no text the human typed.** The face's answer is one
+//! fixed code, because anything the human writes reaches the model as a tool
+//! result and the model can read it as orders. Who denied and when stay in the
+//! store, which no run can read.
 //!
 //! **The kernel is the guard, not this command's refusal.** The store is under
 //! `~/hydra` and every run's profile denies it reads and writes
@@ -22,7 +29,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::paths::Layout;
@@ -30,15 +37,21 @@ use crate::seats::AskedSeat;
 
 /// The command was typed inside a seatbelt, which is where every model runs.
 pub const INSIDE_SEATBELT: &str = "hydra/approve-inside-seatbelt";
+/// `hydra deny` was typed inside a seatbelt.
+pub const DENY_INSIDE_SEATBELT: &str = "hydra/deny-inside-seatbelt";
 /// No request by that id is waiting.
 pub const NO_PENDING_REQUEST: &str = "hydra/no-pending-request";
 /// The request was approved already.
 pub const ALREADY_APPROVED: &str = "hydra/already-approved";
 /// The request stopped waiting before anybody approved it.
 pub const WITHDRAWN: &str = "hydra/request-withdrawn";
+/// The human denied the request. The face's whole answer, and the refusal of
+/// any later approval or denial.
+pub const DENIED: &str = "hydra/request-denied";
 
 const PENDING: &str = "pending";
 const APPROVED: &str = "approved";
+const DENIED_STATE: &str = "denied";
 const WITHDRAWN_STATE: &str = "withdrawn";
 
 /// One request waiting for a human: what the listing shows before the human
@@ -54,6 +67,16 @@ pub struct Pending {
     pub task: String,
     pub seats: Vec<AskedSeat>,
     pub asked_at: String,
+}
+
+/// A denied request as the store keeps it: the request, when, and the login
+/// name of who denied it. Never any text the human typed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Denied {
+    #[serde(flatten)]
+    pub request: Pending,
+    pub denied_at: String,
+    pub denied_by: String,
 }
 
 /// What `hydra approve` does, typed by a human: approve `request_id`, or list
@@ -106,17 +129,7 @@ pub fn approve(layout: &Layout, request_id: &str) -> Result<Pending> {
     match std::fs::rename(&from, &to) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            if to.exists() {
-                bail!("{ALREADY_APPROVED}: request {request_id} was approved already");
-            }
-            if entry(&dir, request_id, WITHDRAWN_STATE).exists() {
-                bail!(
-                    "{WITHDRAWN}: request {request_id} stopped waiting before it was \
-                     approved, because its session ended or nobody approved it in time. \
-                     The session has to ask again."
-                );
-            }
-            bail!("{NO_PENDING_REQUEST}: no request {request_id} is waiting for approval");
+            return Err(not_pending(&dir, request_id));
         }
         Err(err) => {
             return Err(err).with_context(|| format!("approving {}", from.display()));
@@ -126,6 +139,99 @@ pub fn approve(layout: &Layout, request_id: &str) -> Result<Pending> {
         Some(request) => Ok(request),
         None => read(&to),
     }
+}
+
+/// What `hydra deny <id>` does, typed by a human. Refused inside a seatbelt,
+/// and `by` is the login name from the environment.
+pub fn deny_command(layout: &Layout, request_id: &str) -> Result<String> {
+    if crate::sandbox::inside_seatbelt() {
+        bail!(
+            "{DENY_INSIDE_SEATBELT}: hydra deny runs in a terminal outside every session. \
+             This process is inside a seatbelt, which is where a model runs, and no \
+             model answers a seat request (map ticket 82). Nothing was written."
+        );
+    }
+    let denied = deny(layout, request_id, &login())?;
+    Ok(format!(
+        "denied {}: session {} is told no\n",
+        denied.request.request_id, denied.request.session
+    ))
+}
+
+/// Denies one waiting request as `by`. The caller has already refused a
+/// seatbelt; [`deny_command`] is the entry point that does.
+///
+/// The rename is the denial, and the launcher answers the face on seeing it.
+/// Who and when are written into the renamed file after, so a failure there
+/// leaves the request denied and says so.
+pub fn deny(layout: &Layout, request_id: &str, by: &str) -> Result<Denied> {
+    let dir = layout.approvals();
+    if !is_request_id(request_id) {
+        bail!("{NO_PENDING_REQUEST}: {request_id:?} is not a request id");
+    }
+    let from = entry(&dir, request_id, PENDING);
+    let to = entry(&dir, request_id, DENIED_STATE);
+    let request = read(&from).ok();
+    match std::fs::rename(&from, &to) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(not_pending(&dir, request_id));
+        }
+        Err(err) => {
+            return Err(err).with_context(|| format!("denying {}", from.display()));
+        }
+    }
+    let request = match request {
+        Some(request) => request,
+        None => read(&to)?,
+    };
+    let denied = Denied {
+        request,
+        denied_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        denied_by: by.to_string(),
+    };
+    let partial = dir.join(format!(".{request_id}.{DENIED_STATE}.partial"));
+    put(&partial, &to, &denied).with_context(|| {
+        format!(
+            "request {request_id} is denied, but who and when could not be written to {}",
+            to.display()
+        )
+    })?;
+    Ok(denied)
+}
+
+/// Why `request_id` could not be renamed out of `pending`.
+fn not_pending(dir: &Path, request_id: &str) -> anyhow::Error {
+    if entry(dir, request_id, APPROVED).exists() {
+        anyhow!("{ALREADY_APPROVED}: request {request_id} was approved already")
+    } else if entry(dir, request_id, DENIED_STATE).exists() {
+        anyhow!("{DENIED}: request {request_id} was denied already")
+    } else if entry(dir, request_id, WITHDRAWN_STATE).exists() {
+        anyhow!(
+            "{WITHDRAWN}: request {request_id} stopped waiting before anybody answered \
+             it, because its session ended or nobody answered it in time. The session \
+             has to ask again."
+        )
+    } else {
+        anyhow!("{NO_PENDING_REQUEST}: no request {request_id} is waiting for an answer")
+    }
+}
+
+/// The login name of whoever typed the command, from `USER` or `LOGNAME`.
+/// Anything outside a login name's alphabet is recorded as `unknown`, so the
+/// store never keeps free text under this field.
+pub(crate) fn login() -> String {
+    ["USER", "LOGNAME"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|name| {
+            !name.is_empty()
+                && name.len() <= 64
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        })
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Every request waiting for a human, oldest first.
@@ -193,47 +299,58 @@ pub fn listing(pending: &[Pending]) -> String {
 /// How a wait for a human ended.
 pub(crate) enum Settled {
     Approved,
+    Denied,
     Withdrawn,
 }
 
 /// Writes `request` into the store as waiting. The launcher's half.
 pub(crate) fn hold(dir: &Path, request: &Pending) -> Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)
         .with_context(|| format!("creating {}", dir.display()))?;
-    // Written whole under a name no listing reads, then renamed in, so a
-    // human never lists half a request.
     let partial = dir.join(format!(".{}.partial", request.request_id));
+    put(&partial, &entry(dir, &request.request_id, PENDING), request)
+}
+
+/// Writes `value` whole under `partial`, a name no listing reads, then renames
+/// it to `path`, so a human never lists half a file.
+fn put(partial: &Path, path: &Path, value: &impl Serialize) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&partial)
+        .open(partial)
         .with_context(|| format!("creating {}", partial.display()))?;
-    file.write_all(serde_json::to_string_pretty(request)?.as_bytes())?;
+    file.write_all(serde_json::to_string_pretty(value)?.as_bytes())?;
     file.sync_all()?;
-    let path = entry(dir, &request.request_id, PENDING);
-    std::fs::rename(&partial, &path).with_context(|| format!("writing {}", path.display()))?;
+    std::fs::rename(partial, path).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
-/// Whether the human has approved `request_id`.
-pub(crate) fn approved(dir: &Path, request_id: &str) -> bool {
-    entry(dir, request_id, APPROVED).exists()
+/// How the human answered `request_id`, if they have.
+pub(crate) fn answered(dir: &Path, request_id: &str) -> Option<Settled> {
+    if entry(dir, request_id, APPROVED).exists() {
+        Some(Settled::Approved)
+    } else if entry(dir, request_id, DENIED_STATE).exists() {
+        Some(Settled::Denied)
+    } else {
+        None
+    }
 }
 
-/// Stops `request_id` waiting, unless the human approved it first.
+/// Stops `request_id` waiting, unless the human answered it first.
 pub(crate) fn withdraw(dir: &Path, request_id: &str) -> Result<Settled> {
     let from = entry(dir, request_id, PENDING);
     match std::fs::rename(&from, entry(dir, request_id, WITHDRAWN_STATE)) {
         Ok(()) => Ok(Settled::Withdrawn),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound && approved(dir, request_id) => {
-            Ok(Settled::Approved)
-        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => answered(dir, request_id)
+            .ok_or(err)
+            .with_context(|| format!("withdrawing {}", from.display())),
         Err(err) => Err(err).with_context(|| format!("withdrawing {}", from.display())),
     }
 }

@@ -828,6 +828,28 @@ live-kernel probe skips inside a seatbelt and has not run. The Herdr bridge read
 beside the run file and puts a `pending_approval` token and a title suffix on the session's pane,
 display only (`integrations/herdr/tests/test_mapping.py`).
 
+**Build ticket 170 built `hydra deny`, the human's no.** Before it the only no was the timeout,
+and the session heard the same `hydra/approval-required` for both. `hydra deny <id>` renames
+`<id>.pending.json` to `<id>.denied.json` in one `rename`, so of approve, deny and the
+launcher's withdrawal only one can win. After the rename it rewrites the file, whole under a
+dot name and renamed over, with the request plus `denied_at` and `denied_by`. `denied_by` is the
+login name from `USER` or `LOGNAME`, and anything outside `[A-Za-z0-9._-]`, or longer than 64,
+is stored as `unknown`. The command takes no reason and writes no free text. The launcher's
+poll now looks for both files, so it answers `hydra/request-denied` within one 100 ms poll of the
+rename, with fixed text that names the request id and nothing the human typed, and launches
+nothing. A withdrawal that loses to a denial reads it the same way. **No line reaches the
+session's record.** The contract has no line for a denial and a new one is a contract change, so
+the store file is the only place who and when live; a `seat_denial` line is left for a map
+ticket. `hydra deny` refuses inside a seatbelt as `hydra/deny-inside-seatbelt`. It refuses an
+approved request as `hydra/already-approved`, a withdrawn one as `hydra/request-withdrawn`, an
+unknown id as `hydra/no-pending-request`, and a second denial as `hydra/request-denied`, which is
+also what `hydra approve` now answers for a denied request. Unlike `approve`, `deny` does not
+look for the session's `seats.sock` first: denying a request nobody waits on launches nothing
+either way, and the store still says who. `tests/seats.rs` drives a denial answering the face
+inside two seconds of a 30 second wait with the record unchanged, both orders of approve and
+deny, a timed-out request, and the built binary refusing inside a seatbelt with the store
+unchanged.
+
 **Until build ticket 50, Hydra found its policy directory through `CARGO_MANIFEST_DIR`
 alone, so the binary only worked from its source tree.** `HYDRA_HOME` overrides it now, and
 the paragraph near the top of this file says how. The reasoning that ticket kept:
@@ -3209,7 +3231,10 @@ calls. `tests/cockpit.rs` approves one of two identical scratch stores from the 
 other through that function, and compares every file. Inside a seatbelt the cockpit refuses
 before the confirmation opens, as `hydra/approve-inside-seatbelt`, on screen. The check is
 `sandbox::inside_seatbelt`, the one `approve::command` makes; the suite names it rather than
-asks, because the suite may itself run inside one.
+asks, because the suite may itself run inside one. Since build ticket 170, `d` opens the same
+confirmation titled `deny this request?`, and `y` there calls `approve::deny` with the login name
+`hydra deny` records. `tests/cockpit.rs` denies a planted request with `d` then `y`, and checks
+that `n` writes nothing.
 
 **Input.** Arrows and `Tab` move between panels and rows, `Enter` opens, `Esc` closes, `q` quits.
 A click selects the table row under it or opens the card under it, and the wheel scrolls the

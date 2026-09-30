@@ -224,6 +224,10 @@ fn main() -> Result<()> {
                 hydra::approve::command(&layout, request_id.as_deref())?
             );
         }
+        Command::Deny { request_id } => {
+            let layout = Layout::discover()?;
+            print!("{}", hydra::approve::deny_command(&layout, &request_id)?);
+        }
         Command::Cockpit {
             goal,
             interval,

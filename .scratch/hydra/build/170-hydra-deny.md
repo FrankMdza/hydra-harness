@@ -1,7 +1,7 @@
 # 170 - hydra deny
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -49,3 +49,24 @@ key denies after confirmation.
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, and the test files you
   touched pass.
+
+## Outcome
+
+Resolved 2026-09-30. First run 01a0f2d1-1e75 (`claude` opus) stopped at the contract check: no
+record line carries a denial. The session cut the record line from the ticket (a withdrawal writes
+none either, and the judge's condition put who and when in the store) and relaunched. Second run
+01a0f2d2-26a1 (`claude` opus) built it; the session applied it and added "d denies" to the
+cockpit's key hint, which the run had left because the ticket said nothing else changes.
+
+`hydra deny <id>`: one `rename` from pending to denied, so approve, deny and the launcher's
+withdraw still cannot both win; then who (`USER` or `LOGNAME`, filtered to a login name's
+alphabet, else `unknown`) and when are written into the denied file. The launcher answers the face
+at once with the fixed `hydra/request-denied`, `is_error`, nothing on the record. Refused inside a
+seatbelt with `hydra/deny-inside-seatbelt`. The cockpit's `d` then `y` denies. Five tests; fmt and
+clippy clean, `--test seats` 30, `--test cockpit` 25, `--lib` 220 on master.
+
+Not seen yet: the answer reaching a live model through the face, and `hydra deny` typed in a real
+terminal. `hydra deny` does not check the session's socket as approve does: a denial with nobody
+waiting launches nothing and the store keeps who. Reversal from the judge stands: 3 or more
+resubmissions in 10 live denials moves to a denial with a reason.
+
