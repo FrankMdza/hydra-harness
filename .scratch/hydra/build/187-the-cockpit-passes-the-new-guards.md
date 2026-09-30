@@ -1,7 +1,7 @@
 # 187 - The cockpit passes the new guards, and keeps every note
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 185
 
 ## What

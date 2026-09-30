@@ -1,7 +1,7 @@
 # 185 - Puppets approvals bind to what was shown, and a review opens nothing
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 182
 
 ## What
@@ -38,3 +38,16 @@ the suite already uses for judge launches and Hunk (find them; launch nothing re
 ## Done when
 
 - Each test failed before the change; the puppets suite passes.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `cursor-agent` grok-4.7-high on run 01a0f36e-2656 under `standard`.
+The session applied it as written. `review --no-open` records the panel, verdict and findings,
+prints `hunk show <branch>` and exits 0 without exec or a Herdr pane. `approve` takes
+`--expect-run` (diff) and `--expect-plan` (plan), exit 2 on a mismatch; a duplicate of the same
+kind, ref and run at the current revision exits 3. `append_event` became `_locked_update`, which
+folds the lines read under the log's lock and lets `approve` decide on that fold, so every
+`--expect-*` check runs again under the lock. `pending` puts the new flags before
+`--expect-revision`. Thirteen tests, each failing first; the puppets suite passes, 174 tests. The
+race is tested with a patched `flock` in one process, not two processes.
+

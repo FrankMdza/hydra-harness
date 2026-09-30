@@ -30,12 +30,15 @@ python3 integrations/puppets/puppets.py assign <goal-id>
 python3 integrations/puppets/puppets.py set <goal-id> <task> --provider P --model M --policy POL
 python3 integrations/puppets/puppets.py approve <goal-id> --table
 python3 integrations/puppets/puppets.py approve <goal-id> --table --expect-revision <n>
+python3 integrations/puppets/puppets.py approve <goal-id> --plan --expect-plan <path> --expect-revision <n>
+python3 integrations/puppets/puppets.py approve <goal-id> --diff <task> --expect-run <run-id> --expect-revision <n>
 python3 integrations/puppets/puppets.py approve <goal-id> --degraded codex=cursor-agent:composer-2.5
 python3 integrations/puppets/puppets.py approve <goal-id> --launch <task>
 python3 integrations/puppets/puppets.py pending <goal-id> --json
 python3 integrations/puppets/puppets.py launch <goal-id> <task>
 python3 integrations/puppets/puppets.py wait <goal-id>
 python3 integrations/puppets/puppets.py review <goal-id> <task>
+python3 integrations/puppets/puppets.py review <goal-id> <task> --no-open
 python3 integrations/puppets/puppets.py queue <goal-id>
 python3 integrations/puppets/puppets.py reconcile <goal-id> <task> <attempt> --run-id <id> | --abandon
 python3 integrations/puppets/puppets.py verdict <goal-id> <task> applied|fixed|rejected
@@ -79,13 +82,22 @@ for an unconsumed `yes` line at the current revision before each gated step:
 
 `--expect-revision N` on `approve` refuses when the goal is no longer at revision `N`. It prints
 one line to stderr naming both revisions, writes nothing, and exits 2. Without the flag, `approve`
-records the current revision as before.
+records the current revision as before. `--expect-run <run-id>` with `--diff` refuses the same
+way, exit 2 and nothing written, when that task's current run is different. `--expect-plan <path>`
+with `--plan` refuses the same way when the chosen plan's path is different. Each `--expect-*`
+check runs again while the goal log's lock is held, on a fold of the lines read under that lock,
+and a mismatch still writes nothing. A second approval of the same kind, ref and run already in
+the log at the current revision prints `already approved <kind> at revision <n>`, writes nothing,
+and exits 3. For a degraded approval the ref is the missing provider. A diff's run is the run id
+on the approval; other kinds have no run.
 
 `pending <goal-id> --json` prints a JSON array of the approvals the helper is waiting on. It only
 reads the log. Each object has `kind` (`plan`, `table`, `launch`, `diff`, `degraded`), `ref`,
 `revision`, and `argv`. `ref` is the task id for `launch` and `diff`, the missing provider for
 `degraded`, and null for `plan` and `table`. `argv` is the exact command that records that
-approval, including `--expect-revision` set to that revision. The list is taken from the same
+approval. It ends with `--expect-revision` set to that revision. A `diff` argv also carries
+`--expect-run` set to the task's current run, and a `plan` argv carries `--expect-plan` set to
+the chosen plan's path. The list is taken from the same
 fold the refusals read: `plan` when `tasks` would refuse for a missing plan approval (the chosen
 plan has a path), `table` when `launch` would refuse for the table, `launch` when `launch` would
 refuse for that task and the task is still `assigned`, `diff` when the task has a run, no human
@@ -125,8 +137,11 @@ as comments when one exists, then opens the diff in Hunk with
 `hunk show <branch>` from the goal's repository. Git diff for the panel uses the same branch from
 the run record, never a run-writable checkout. If the run record has no branch, review refuses:
 an unreaped worktree is the only place an uncommitted diff might live, and the helper will not
-run git or Hunk there. Inside Herdr it opens in a pane to the right. The mode has no diff viewer
-of its own.
+run git or Hunk there. Inside Herdr it opens in a pane to the right. With `--no-open` the panel,
+the verdict and the findings are unchanged, including the push of findings into a live Hunk
+session, and the helper then prints the `hunk show <branch>` command and exits 0. It does not
+exec Hunk and it does not open a pane. Without the flag it still opens Hunk. The mode has no
+diff viewer of its own.
 
 `queue <goal-id>` lists tasks whose current run has ended and that still have no human verdict
 for that run. They are ordered by the `verdict` model's `p` in `$HYDRA_GRADER_HOME/scores.jsonl`,

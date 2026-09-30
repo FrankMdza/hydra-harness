@@ -328,7 +328,15 @@ class ApproveRevisionTests(unittest.TestCase):
         self.assertEqual([(item["kind"], item["ref"], item["revision"]) for item in items], [("plan", None, 0)])
         self.assertEqual(
             items[0]["argv"][2:],
-            ["approve", "g1", "--plan", "--expect-revision", "0"],
+            [
+                "approve",
+                "g1",
+                "--plan",
+                "--expect-plan",
+                str(plan_path),
+                "--expect-revision",
+                "0",
+            ],
         )
 
         self.write_events(
@@ -396,7 +404,16 @@ class ApproveRevisionTests(unittest.TestCase):
         self.assertEqual(items[0]["revision"], 2)
         self.assertEqual(
             items[0]["argv"][2:],
-            ["approve", "g1", "--diff", "t1", "--expect-revision", "2"],
+            [
+                "approve",
+                "g1",
+                "--diff",
+                "t1",
+                "--expect-run",
+                "run-1",
+                "--expect-revision",
+                "2",
+            ],
         )
 
         events.append(
@@ -608,6 +625,257 @@ class ApproveRevisionTests(unittest.TestCase):
         items = self.pending()
         self.assertEqual([(item["kind"], item["revision"]) for item in items], [("table", 3)])
         self.assertEqual(items[0]["argv"][-1], "3")
+
+    def run_events(self, run_id: str = "run-1", attempt: int = 1) -> list[dict]:
+        return self.assigned_cursor() + [
+            {"event": "approval", "kind": "table", "ref": None, "revision": 2, "yes": True},
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": attempt,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "abc",
+            },
+            {"event": "run", "task": "t1", "attempt": attempt, "run_id": run_id},
+        ]
+
+    def chosen_plan(self, path: Path) -> list[dict]:
+        return [
+            self.goal_event(),
+            {
+                "event": "panel_verdict",
+                "judge_run_ids": [],
+                "chosen": "codex",
+                "path": str(path),
+            },
+        ]
+
+    def test_pending_diff_argv_binds_the_run_and_refuses_a_replacement(self):
+        self.write_events("g1", self.run_events("r1"))
+        items = self.pending()
+        self.assertEqual(
+            items[0]["argv"][2:],
+            ["approve", "g1", "--diff", "t1", "--expect-run", "r1", "--expect-revision", "2"],
+        )
+        replaced = self.run_events("r1") + [
+            {"event": "run", "task": "t1", "attempt": 2, "run_id": "r2"},
+        ]
+        self.write_events("g1", replaced)
+        before = self.log_text()
+        proc = subprocess.run(items[0]["argv"], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(proc.stderr, "expected run r1, current run r2\n")
+        self.assertEqual(self.log_text(), before)
+
+    def test_pending_plan_argv_binds_the_path_and_refuses_a_replacement(self):
+        plan_dir = self.puppets_home / "g1" / "plans"
+        plan_dir.mkdir(parents=True)
+        first = plan_dir / "first.md"
+        second = plan_dir / "second.md"
+        first.write_text("first\n", encoding="utf-8")
+        second.write_text("second\n", encoding="utf-8")
+        self.write_events("g1", self.chosen_plan(first))
+        items = self.pending()
+        self.assertEqual(
+            items[0]["argv"][2:],
+            [
+                "approve",
+                "g1",
+                "--plan",
+                "--expect-plan",
+                str(first),
+                "--expect-revision",
+                "0",
+            ],
+        )
+        self.write_events("g1", self.chosen_plan(second))
+        before = self.log_text()
+        proc = subprocess.run(items[0]["argv"], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(
+            proc.stderr, f"expected plan {first}, current plan {second}\n"
+        )
+        self.assertEqual(self.log_text(), before)
+
+    def test_expect_run_mismatch_writes_nothing_and_exits_2(self):
+        self.write_events("g1", self.run_events("r2"))
+        before = self.log_text()
+        code, _out, err = self.invoke(
+            ["approve", "g1", "--diff", "t1", "--expect-run", "r1", "--expect-revision", "2"]
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(err, "expected run r1, current run r2\n")
+        self.assertEqual(self.log_text(), before)
+
+    def test_expect_plan_mismatch_writes_nothing_and_exits_2(self):
+        plan_dir = self.puppets_home / "g1" / "plans"
+        plan_dir.mkdir(parents=True)
+        current = plan_dir / "current.md"
+        current.write_text("plan\n", encoding="utf-8")
+        self.write_events("g1", self.chosen_plan(current))
+        before = self.log_text()
+        code, _out, err = self.invoke(
+            [
+                "approve",
+                "g1",
+                "--plan",
+                "--expect-plan",
+                str(plan_dir / "other.md"),
+                "--expect-revision",
+                "0",
+            ]
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(err, f"expected plan {plan_dir / 'other.md'}, current plan {current}\n")
+        self.assertEqual(self.log_text(), before)
+
+    def test_a_matching_expect_run_records_that_run(self):
+        self.write_events("g1", self.run_events("r1"))
+        code, _out, err = self.invoke(
+            ["approve", "g1", "--diff", "t1", "--expect-run", "r1", "--expect-revision", "2"]
+        )
+        self.assertEqual(code, 0, err)
+        body = self.approval_bodies("g1")[-1]
+        self.assertEqual(body["kind"], "diff")
+        self.assertEqual(body["ref"], "t1")
+        self.assertEqual(body["run_id"], "r1")
+        self.assertEqual(body["revision"], 2)
+
+    def test_a_second_table_approval_at_the_same_revision_exits_3(self):
+        events = self.assigned_cursor() + [
+            {"event": "approval", "kind": "table", "ref": None, "revision": 2, "yes": True},
+        ]
+        self.write_events("g1", events)
+        before = self.log_text()
+        code, _out, err = self.invoke(
+            ["approve", "g1", "--table", "--expect-revision", "2"]
+        )
+        self.assertEqual(code, 3)
+        self.assertEqual(err, "already approved table at revision 2\n")
+        self.assertEqual(self.log_text(), before)
+
+    def test_a_second_diff_approval_for_the_same_run_exits_3(self):
+        events = self.run_events("r1") + [
+            {
+                "event": "approval",
+                "kind": "diff",
+                "ref": "t1",
+                "run_id": "r1",
+                "revision": 2,
+                "yes": True,
+            },
+        ]
+        self.write_events("g1", events)
+        before = self.log_text()
+        code, _out, err = self.invoke(
+            ["approve", "g1", "--diff", "t1", "--expect-run", "r1", "--expect-revision", "2"]
+        )
+        self.assertEqual(code, 3)
+        self.assertEqual(err, "already approved diff at revision 2\n")
+        self.assertEqual(self.log_text(), before)
+
+    def test_a_diff_for_a_replaced_run_is_not_a_duplicate(self):
+        events = self.run_events("r1") + [
+            {
+                "event": "approval",
+                "kind": "diff",
+                "ref": "t1",
+                "run_id": "r1",
+                "revision": 2,
+                "yes": True,
+            },
+            {"event": "run", "task": "t1", "attempt": 2, "run_id": "r2"},
+        ]
+        self.write_events("g1", events)
+        code, _out, err = self.invoke(
+            ["approve", "g1", "--diff", "t1", "--expect-run", "r2", "--expect-revision", "2"]
+        )
+        self.assertEqual(code, 0, err)
+        diff_rows = [body for body in self.approval_bodies("g1") if body["kind"] == "diff"]
+        self.assertEqual([body["run_id"] for body in diff_rows], ["r1", "r2"])
+
+    def _writer_under_the_lock(self, body: dict, call):
+        """Append `body` while the log lock is held, before the holder reads the file."""
+        real_flock = puppets.fcntl.flock
+        done = {"done": False}
+
+        def flock(fd, operation):
+            real_flock(fd, operation)
+            if operation != puppets.fcntl.LOCK_EX or done["done"]:
+                return
+            done["done"] = True
+            path = self.puppets_home / "g1.jsonl"
+            with path.open("a", encoding="utf-8") as handle:
+                record = {"seq": 900, "ts": "2026-09-30T12:00:01.000Z", **body}
+                handle.write(json.dumps(record) + "\n")
+                handle.flush()
+
+        puppets.fcntl.flock = flock
+        try:
+            return call()
+        finally:
+            puppets.fcntl.flock = real_flock
+
+    def test_expect_revision_is_checked_again_under_the_lock(self):
+        self.write_events("g1", self.assigned_cursor())
+        code, _out, err = self._writer_under_the_lock(
+            self.assignment_event(provider="claude"),
+            lambda: self.invoke(["approve", "g1", "--table", "--expect-revision", "2"]),
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(err, "expected revision 2, current revision 3\n")
+        events = puppets.read_log("g1")
+        self.assertTrue(any(row.get("provider") == "claude" for row in events))
+        self.assertFalse(any(row.get("event") == "approval" for row in events))
+
+    def test_expect_run_is_checked_again_under_the_lock(self):
+        self.write_events("g1", self.run_events("r1"))
+        code, _out, err = self._writer_under_the_lock(
+            {"event": "run", "task": "t1", "attempt": 2, "run_id": "r2"},
+            lambda: self.invoke(
+                ["approve", "g1", "--diff", "t1", "--expect-run", "r1", "--expect-revision", "2"]
+            ),
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(err, "expected run r1, current run r2\n")
+        events = puppets.read_log("g1")
+        self.assertTrue(any(row.get("run_id") == "r2" for row in events))
+        self.assertFalse(any(row.get("kind") == "diff" for row in events))
+
+    def test_expect_plan_is_checked_again_under_the_lock(self):
+        plan_dir = self.puppets_home / "g1" / "plans"
+        plan_dir.mkdir(parents=True)
+        first = plan_dir / "first.md"
+        second = plan_dir / "second.md"
+        first.write_text("first\n", encoding="utf-8")
+        second.write_text("second\n", encoding="utf-8")
+        self.write_events("g1", self.chosen_plan(first))
+        code, _out, err = self._writer_under_the_lock(
+            {
+                "event": "panel_verdict",
+                "judge_run_ids": [],
+                "chosen": "codex",
+                "path": str(second),
+            },
+            lambda: self.invoke(
+                [
+                    "approve",
+                    "g1",
+                    "--plan",
+                    "--expect-plan",
+                    str(first),
+                    "--expect-revision",
+                    "0",
+                ]
+            ),
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(err, f"expected plan {first}, current plan {second}\n")
+        events = puppets.read_log("g1")
+        self.assertTrue(any(row.get("path") == str(second) for row in events))
+        self.assertFalse(any(row.get("event") == "approval" for row in events))
 
 
 if __name__ == "__main__":

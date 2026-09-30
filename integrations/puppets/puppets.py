@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Literal, NamedTuple
+from typing import Any, Callable, Iterator, Literal, NamedTuple
 
 TASK_CLASSES = frozenset(
     {
@@ -311,25 +311,45 @@ def read_log(goal_id: str) -> list[dict[str, Any]]:
     return events
 
 
-def append_event(goal_id: str, body: dict[str, Any]) -> dict[str, Any]:
+def _locked_update(
+    goal_id: str, decide: Callable[[list[dict[str, Any]]], dict[str, Any] | None]
+) -> dict[str, Any] | None:
+    """Hold the goal log's lock, read it, and append what `decide` returns.
+
+    `decide` sees the lines read under that lock. None writes nothing and the
+    lock is still released. Callers that must not approve a stale revision
+    re-fold those lines and refuse before returning a body.
+    """
     path = goal_log_path(goal_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        handle.seek(0)
-        events: list[dict[str, Any]] = []
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-        record = {"seq": len(events) + 1, "ts": utc_now(), **body}
-        handle.write(json.dumps(record, separators=(",", ":")) + "\n")
-        handle.flush()
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        try:
+            handle.seek(0)
+            events: list[dict[str, Any]] = []
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+            body = decide(events)
+            if body is None:
+                return None
+            record = {"seq": len(events) + 1, "ts": utc_now(), **body}
+            handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+            handle.flush()
+            return record
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def append_event(goal_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    record = _locked_update(goal_id, lambda _events: body)
+    if record is None:
+        raise RuntimeError(f"append_event wrote nothing for goal {goal_id}")
     return record
 
 
@@ -682,7 +702,16 @@ def pending_approvals(state: GoalState) -> list[dict[str, Any]]:
         and state.chosen_plan.get("path")
         and approval_available(state, "plan") is None
     ):
-        items.append(_pending_item(state, "plan", None, "--plan"))
+        items.append(
+            _pending_item(
+                state,
+                "plan",
+                None,
+                "--plan",
+                "--expect-plan",
+                state.chosen_plan["path"],
+            )
+        )
 
     seen_table = False
     for task in state.tasks.values():
@@ -699,10 +728,21 @@ def pending_approvals(state: GoalState) -> list[dict[str, Any]]:
                 _pending_item(state, "launch", task.id, "--launch", task.id)
             )
     for task in state.tasks.values():
-        if not task.run_id or task.human_result is not None:
+        run_id = task.run_id
+        if not run_id or task.human_result is not None:
             continue
-        if approval_available(state, "diff", task.id, task.run_id) is None:
-            items.append(_pending_item(state, "diff", task.id, "--diff", task.id))
+        if approval_available(state, "diff", task.id, run_id) is None:
+            items.append(
+                _pending_item(
+                    state,
+                    "diff",
+                    task.id,
+                    "--diff",
+                    task.id,
+                    "--expect-run",
+                    run_id,
+                )
+            )
     if panel_gate_reachable(state):
         provider = degraded_provider_waiting(state)
         if provider is not None:
@@ -1883,24 +1923,68 @@ def cmd_set(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_approve(args: argparse.Namespace) -> int:
-    state = fold(args.goal)
+def _refuse(code: int, message: str | None) -> int:
+    if message:
+        print(message, file=sys.stderr)
+    return code
+
+
+def _approval_matches(
+    approval: dict[str, Any], kind: str, ref: Any, run_id: str | None, revision: int
+) -> bool:
+    if not approval.get("yes") or approval.get("kind") != kind:
+        return False
+    if approval.get("revision") != revision:
+        return False
+    if kind == "degraded":
+        existing_ref = approval.get("missing")
+    else:
+        existing_ref = approval.get("ref")
+    if existing_ref != ref:
+        return False
+    return approval.get("run_id") == run_id
+
+
+def _duplicate_refusal(
+    state: GoalState, kind: str, ref: Any, run_id: str | None
+) -> tuple[int, str, None] | None:
+    for approval in state.approvals:
+        if _approval_matches(approval, kind, ref, run_id, state.revision):
+            return 3, f"already approved {kind} at revision {state.revision}", None
+    return None
+
+
+def prepare_approval(
+    args: argparse.Namespace, state: GoalState
+) -> tuple[int, str | None, dict[str, Any] | None]:
+    """The approval this command would record from `state`, or a refusal.
+
+    Exit 2 is an `--expect-*` mismatch. Exit 3 is the same kind, ref and run
+    already in the log at this revision. Exit 1 is any other refusal. A degraded
+    approval's ref is the missing provider. A diff's run is that task's current
+    run id; other kinds have none.
+    """
     expected = args.expect_revision
     if expected is not None and expected != state.revision:
-        print(
+        return (
+            2,
             f"expected revision {expected}, current revision {state.revision}",
-            file=sys.stderr,
+            None,
         )
-        return 2
+    if args.expect_run is not None and not args.diff:
+        return 1, "use --expect-run with --diff", None
+    if args.expect_plan is not None and not args.plan:
+        return 1, "use --expect-plan with --plan", None
     if args.degraded:
         if args.plan or args.table or args.launch or args.diff:
-            print("use --degraded without --plan, --table, --launch or --diff", file=sys.stderr)
-            return 1
+            return 1, "use --degraded without --plan, --table, --launch or --diff", None
         try:
             missing, substitute, model = parse_degraded_substitution(args.degraded)
         except ValueError as err:
-            print(str(err), file=sys.stderr)
-            return 1
+            return 1, str(err), None
+        duplicate = _duplicate_refusal(state, "degraded", missing, None)
+        if duplicate is not None:
+            return duplicate
         body: dict[str, Any] = {
             "event": "approval",
             "kind": "degraded",
@@ -1911,36 +1995,73 @@ def cmd_approve(args: argparse.Namespace) -> int:
         }
         if model:
             body["model"] = model
-        append_event(args.goal, body)
-        return 0
+        return 0, None, body
     if args.plan:
         kind, ref = "plan", None
+        if args.expect_plan is not None:
+            current = (state.chosen_plan or {}).get("path")
+            if current != args.expect_plan:
+                shown = current if current else "none"
+                return 2, f"expected plan {args.expect_plan}, current plan {shown}", None
     elif args.table:
         kind, ref = "table", None
     elif args.launch:
         kind, ref = "launch", args.launch
     elif args.diff:
         kind, ref = "diff", args.diff
+        if args.expect_run is not None:
+            task = state.tasks.get(ref)
+            current = task.run_id if task is not None else None
+            if current != args.expect_run:
+                shown = current if current else "none"
+                return 2, f"expected run {args.expect_run}, current run {shown}", None
     else:
-        print("specify --plan, --table, --launch, --diff or --degraded", file=sys.stderr)
-        return 1
+        return 1, "specify --plan, --table, --launch, --diff or --degraded", None
     if ref is not None and ref not in state.tasks:
-        print(f"unknown task {ref}", file=sys.stderr)
-        return 1
-    body: dict[str, Any] = {
+        return 1, f"unknown task {ref}", None
+    run_id: str | None = None
+    if kind == "diff":
+        task = state.tasks[ref]
+        if not task.run_id:
+            return 1, f"task {ref} has no run to approve a diff for", None
+        run_id = task.run_id
+    duplicate = _duplicate_refusal(state, kind, ref, run_id)
+    if duplicate is not None:
+        return duplicate
+    body = {
         "event": "approval",
         "kind": kind,
         "ref": ref,
         "revision": state.revision,
         "yes": True,
     }
-    if kind == "diff":
-        task = state.tasks[ref]
-        if not task.run_id:
-            print(f"task {ref} has no run to approve a diff for", file=sys.stderr)
-            return 1
-        body["run_id"] = task.run_id
-    append_event(args.goal, body)
+    if run_id is not None:
+        body["run_id"] = run_id
+    return 0, None, body
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    code, message, body = prepare_approval(args, fold(args.goal))
+    if body is None:
+        return _refuse(code, message)
+    held: dict[str, Any] = {"code": 0, "message": None}
+
+    def decide(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+        # The early fold can be stale. Check every --expect-* again on the
+        # lines just read under the log lock, and record that fold's revision
+        # and run rather than the ones the first read saw.
+        locked_code, locked_message, locked_body = prepare_approval(
+            args, fold(args.goal, events)
+        )
+        if locked_body is None:
+            held["code"] = locked_code
+            held["message"] = locked_message
+            return None
+        return locked_body
+
+    written = _locked_update(args.goal, decide)
+    if written is None:
+        return _refuse(int(held["code"]), held["message"])
     return 0
 
 
@@ -2019,7 +2140,8 @@ def hunk_argv(run: dict[str, Any]) -> tuple[list[str], Path]:
 
 def cmd_review(args: argparse.Namespace) -> int:
     """Launches the review panel, records its verdict, pushes findings into Hunk as comments,
-    then opens the human's diff review in Hunk. Inside Herdr it goes to a new pane."""
+    then opens the human's diff review in Hunk. `--no-open` prints that command and returns
+    without opening Hunk. Inside Herdr, without the flag, it goes to a new pane."""
     state = fold(args.goal)
     task = state.tasks.get(args.task)
     if task is None or not task.run_id:
@@ -2071,6 +2193,10 @@ def cmd_review(args: argparse.Namespace) -> int:
         },
     )
     comments = findings_to_hunk_comments(outcomes, cwd, base_sha, branch)
+    if args.no_open:
+        fork_hunk_comment_pusher(cwd, comments)
+        print(" ".join(argv))
+        return 0
     pane_id = os.environ.get("HERDR_PANE_ID")
     if os.environ.get("HERDR_ENV") and pane_id:
         split = subprocess.run(
@@ -2305,6 +2431,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="refuse unless the goal is still at this revision",
     )
+    approve_p.add_argument(
+        "--expect-run",
+        default=None,
+        help="with --diff, refuse unless the task's current run is this id",
+    )
+    approve_p.add_argument(
+        "--expect-plan",
+        default=None,
+        help="with --plan, refuse unless the chosen plan's path is this path",
+    )
     approve_p.set_defaults(func=cmd_approve)
 
     pending_p = sub.add_parser("pending", help="approvals the goal is waiting on, as JSON")
@@ -2334,6 +2470,11 @@ def build_parser() -> argparse.ArgumentParser:
     review_p = sub.add_parser("review", help="open a task's diff in Hunk")
     review_p.add_argument("goal", help="goal id")
     review_p.add_argument("task", help="task id")
+    review_p.add_argument(
+        "--no-open",
+        action="store_true",
+        help="record the review and print the hunk command without opening it",
+    )
     review_p.set_defaults(func=cmd_review)
 
     queue_p = sub.add_parser("queue", help="tasks waiting on a review, highest verdict p first")

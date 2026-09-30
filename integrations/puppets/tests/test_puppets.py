@@ -827,6 +827,195 @@ class ReviewJudgeTests(PuppetsTestCase):
         finally:
             puppets.hydra_show_run = original_show
 
+    def _stub_review(self, texts: list[str]):
+        exec_calls: list[tuple] = []
+        pushed: list[list] = []
+        runs: list[tuple] = []
+
+        def fake_show(run_id: str) -> dict:
+            return {
+                "run_id": run_id,
+                "branch": f"hydra/{run_id}",
+                "repo": str(self.tmp),
+                "result_text": "",
+            }
+
+        def fake_panel(_seat_prompts):
+            return (
+                ["jr1", "jr2", "jr3"],
+                ["judge", "standard", "judge"],
+                texts,
+            )
+
+        def fake_exec(*args):
+            exec_calls.append(args)
+            raise SystemExit(0)
+
+        def fake_run(*args, **_kwargs):
+            runs.append(args)
+            proc = subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            return proc
+
+        originals = {
+            "panel": puppets.run_judge_panel,
+            "exec": puppets.os.execvp,
+            "fork": puppets.fork_hunk_comment_pusher,
+            "show": puppets.hydra_show_run,
+            "diff": puppets.git_diff_branch,
+            "run": puppets.subprocess.run,
+        }
+        puppets.run_judge_panel = fake_panel
+        puppets.hydra_show_run = fake_show
+        puppets.git_diff_branch = lambda *_args, **_kwargs: "diff text"
+        puppets.fork_hunk_comment_pusher = lambda cwd, comments: pushed.append(comments)
+        puppets.os.execvp = fake_exec
+        puppets.subprocess.run = fake_run
+        return originals, exec_calls, pushed, runs
+
+    def _restore_review(self, originals: dict) -> None:
+        puppets.run_judge_panel = originals["panel"]
+        puppets.os.execvp = originals["exec"]
+        puppets.fork_hunk_comment_pusher = originals["fork"]
+        puppets.hydra_show_run = originals["show"]
+        puppets.git_diff_branch = originals["diff"]
+        puppets.subprocess.run = originals["run"]
+
+    def test_review_no_open_records_the_panel_and_prints_hunk_without_exec(self):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        events = self.base_task_events() + [
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": 1,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "x",
+            },
+            {"event": "run", "task": "t1", "attempt": 1, "run_id": "r1"},
+        ]
+        self.write_events("g1", events)
+        finding = json.dumps(
+            {
+                "verdict": "block",
+                "findings": [
+                    {
+                        "item": "scope_match",
+                        "severity": "critical",
+                        "note": "the flag is missing",
+                    }
+                ],
+            }
+        )
+        originals, exec_calls, pushed, runs = self._stub_review(
+            [finding, '{"verdict":"pass","findings":[]}', '{"verdict":"pass","findings":[]}']
+        )
+        stdout, stderr = io.StringIO(), io.StringIO()
+        cwd = os.getcwd()
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                try:
+                    code = puppets.main(["review", "g1", "t1", "--no-open"])
+                except SystemExit as exc:
+                    code = exc.code if isinstance(exc.code, int) else 1
+        finally:
+            os.chdir(cwd)
+            self._restore_review(originals)
+
+        self.assertEqual(code, 0, stderr.getvalue())
+        self.assertEqual(exec_calls, [])
+        self.assertFalse(any(call and call[0] and call[0][0] == "herdr" for call in runs))
+        self.assertEqual(os.getcwd(), cwd)
+        self.assertEqual(stdout.getvalue().splitlines()[-1], "hunk show hydra/r1")
+        review = next(row for row in puppets.read_log("g1") if row["event"] == "review")
+        self.assertEqual(review["verdict"], "block")
+        self.assertEqual(review["judge_run_ids"], ["jr1", "jr2", "jr3"])
+        self.assertTrue(any("the flag is missing" in reason for reason in review["reasons"]))
+        self.assertTrue(pushed)
+        self.assertTrue(any("the flag is missing" in comment["summary"] for comment in pushed[0]))
+
+    def test_review_no_open_does_not_open_a_herdr_pane(self):
+        import io
+        from contextlib import redirect_stdout
+
+        events = self.base_task_events() + [
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": 1,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "x",
+            },
+            {"event": "run", "task": "t1", "attempt": 1, "run_id": "r1"},
+        ]
+        self.write_events("g1", events)
+        prior_env = os.environ.get("HERDR_ENV")
+        prior_pane = os.environ.get("HERDR_PANE_ID")
+        os.environ["HERDR_ENV"] = "1"
+        os.environ["HERDR_PANE_ID"] = "pane-1"
+        originals, exec_calls, _pushed, runs = self._stub_review(
+            [
+                '{"verdict":"pass","findings":[]}',
+                '{"verdict":"pass","findings":[]}',
+                '{"verdict":"pass","findings":[]}',
+            ]
+        )
+        stdout = io.StringIO()
+        cwd = os.getcwd()
+        try:
+            with redirect_stdout(stdout):
+                try:
+                    code = puppets.main(["review", "g1", "t1", "--no-open"])
+                except SystemExit as exc:
+                    code = exc.code if isinstance(exc.code, int) else 1
+        finally:
+            os.chdir(cwd)
+            self._restore_review(originals)
+            if prior_env is None:
+                os.environ.pop("HERDR_ENV", None)
+            else:
+                os.environ["HERDR_ENV"] = prior_env
+            if prior_pane is None:
+                os.environ.pop("HERDR_PANE_ID", None)
+            else:
+                os.environ["HERDR_PANE_ID"] = prior_pane
+
+        self.assertEqual(code, 0)
+        self.assertEqual(exec_calls, [])
+        self.assertFalse(any(call and call[0] and call[0][0] == "herdr" for call in runs))
+        self.assertEqual(stdout.getvalue().splitlines()[-1], "hunk show hydra/r1")
+        review = next(row for row in puppets.read_log("g1") if row["event"] == "review")
+        self.assertEqual(review["verdict"], "pass")
+
+    def test_review_no_open_still_refuses_without_a_branch(self):
+        events = self.base_task_events() + [
+            {
+                "event": "launch_intent",
+                "task": "t1",
+                "attempt": 1,
+                "provider": "cursor-agent",
+                "model": "composer-2.5",
+                "policy": "standard",
+                "argv_sha256": "x",
+            },
+            {"event": "run", "task": "t1", "attempt": 1, "run_id": "r1"},
+        ]
+        self.write_events("g1", events)
+        original_show = puppets.hydra_show_run
+        original_exec = puppets.os.execvp
+        puppets.hydra_show_run = lambda run_id: {"run_id": run_id, "result_text": ""}
+        puppets.os.execvp = lambda *_args, **_kwargs: (_ for _ in ()).throw(SystemExit(0))
+        try:
+            self.assertEqual(puppets.main(["review", "g1", "t1", "--no-open"]), 1)
+        finally:
+            puppets.hydra_show_run = original_show
+            puppets.os.execvp = original_exec
+        self.assertFalse(any(row["event"] == "review" for row in puppets.read_log("g1")))
+
 
 class HunkArgvTests(unittest.TestCase):
     def test_never_uses_worktree_even_when_it_exists(self):
