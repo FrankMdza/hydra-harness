@@ -1,0 +1,9 @@
+# Codex, round three
+
+**1. Gatekeeper.** A broad emerald hydra planted on ivory claws, with three open jaws, six horns and folded indigo wing membranes. Mint edges separate the green scales from black outlines; amber belly plates anchor the centre. The side heads watch outward while the taller middle head confronts the visitor. Its tail hooks up behind the right foot. A 46 × 35 pixel drawing, rendered as 46 columns by 18 terminal rows.
+
+**2. Undertow.** A turquoise serpent with three heads at different heights and a single heavy coil instead of wings. The long necks converge into a sweeping loop with an open centre, giving the creature motion and a different silhouette from the guardian. Seafoam highlights, deep blue shadows, orange belly scales, coral eyes and cream fangs sit inside black outlines. A 46 × 34 pixel drawing, rendered as 46 columns by 17 terminal rows.
+
+**3. The speaking crest.** Three violet dragon heads rise from a pointed knot of necks above custom lowercase `hydra` letters. Lavender highlights and mint throat plates make the crest luminous, while gold teeth and lettering tie the name to the creature. Red mouths and small hot eyes keep it from becoming a friendly badge. A 45 × 32 pixel drawing, rendered as 45 columns by 16 terminal rows. The letters are pixels in the grid, not a font or terminal text overlay.
+
+Run `python3 docs/logo/round3/render.py docs/logo/round3/codex/design-1.txt`, substituting 2 or 3 for the other designs. Add `--plain` for an ANSI-free silhouette at the same terminal proportions. Each text file contains a rectangular, hand-drawn grid followed by a character-to-RGB legend; `.` is transparent. Colour rendering uses two vertical pixels per cell, truecolour foreground/background, and the terminal's default background for transparent halves. Black outlines are best viewed on a nonblack terminal background.

@@ -1,7 +1,7 @@
 # 156 - A hydra in colour, two hands, three designs each
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -36,3 +36,18 @@ restrictions on size, palette or style beyond the reference. The human picks.
 
 - Three grids and the README under your provider's directory, the renderer prints each one, and
   your report shows the three in `--plain` form and says what each looks like in colour.
+
+## Outcome
+
+Resolved 2026-09-30. Two hands at once: `codex` gpt-6-astra on run 01a0f08c-f3f8 (about 0.72M
+tokens) and `claude` Opus 5.5 on run 01a0f08d-1379 (about 1.24M). Each drew three grids by hand
+and its own renderer; the session kept both renderers, `render.py` (claude) and
+`render_codex.py` (codex), since the grid formats differ in where the legend sits.
+
+Codex: a broad emerald gatekeeper with wings (46 by 35 pixels), a turquoise serpent coiled with
+three heads at different heights, and a violet crest over pixel letters `hydra`. Claude: the
+rearing hydra standing like the reference (52 by 40), a crimson mirror-symmetric crest with
+three open jaws, and a smaller hydra beside block letters `hydra`. Neither hand saw its work in
+colour; the descriptions come from their legends.
+
+The human picks. Nothing else changed.
