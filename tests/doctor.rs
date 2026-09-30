@@ -102,6 +102,40 @@ fn walk_passes_a_stopped_run_whose_provider_wrote_a_success_terminator() {
 }
 
 #[test]
+fn walk_passes_a_stopped_codex_run_that_ended_on_turn_failed() {
+    // Build ticket 175, from a codex review of 173: a `codex` run stopped as it
+    // wrote a non-quota `turn.failed`. It derives `stopped`, and the walk's
+    // `turn.failed` rule must not ask it for `failed`.
+    let sandbox = Sandbox::new("doctor-walk-stopped-codex");
+    let layout = sandbox.layout();
+    let run_id = "00000000-0000-7000-8000-000000000098";
+    std::fs::create_dir_all(layout.worktree(run_id)).unwrap();
+    let text = Record::shaped(Shape {
+        run_id,
+        provider: Some("codex"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&layout.worktree(run_id)),
+        ..Shape::default()
+    })
+    .raw(json!({"type": "turn.failed", "error": {"message": "the model stopped"}}))
+    .closed_with(json!({
+        "exit_code": 143,
+        "error": format!("{}; the child died on signal SIGTERM", hydra::watch::STOP_NOTE),
+    }));
+    std::fs::write(layout.run_file(run_id), text).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    assert!(stdout.contains("checked 1 record(s)"), "{stdout}");
+}
+
+#[test]
 fn doctor_lists_the_panel_shapes_beside_the_other_protected_configs() {
     // 15.1 #6, build ticket 138. The home is a scratch one, so the line reads
     // a file this test wrote and never the checkout's own `config/`.

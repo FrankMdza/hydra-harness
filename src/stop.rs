@@ -137,7 +137,10 @@ pub fn stop(
 fn all_marked(layout: &Layout, views: Vec<RunView>) -> Result<Vec<RunView>> {
     let mut order: Vec<RunView> = views.into_iter().filter(RunView::is_live).collect();
     let mut pass = 0..order.len();
-    loop {
+    // Bounded so a launcher that keeps starting new root runs cannot hold the
+    // stop in its marking phase forever (build 175): after the last pass, what
+    // was found is stopped and anything newer is left for another `hydra stop`.
+    for _ in 0..MAX_PASSES {
         for view in &order[pass.clone()] {
             mark(layout, &view.run_id)?;
         }
@@ -152,7 +155,11 @@ fn all_marked(layout: &Layout, views: Vec<RunView>) -> Result<Vec<RunView>> {
         }
         pass = known..order.len();
     }
+    Ok(order)
 }
+
+/// How many mark-and-rescan passes `--all` makes before it signals what it has.
+const MAX_PASSES: usize = 10;
 
 /// One line per run stopped, with the outcome its record derives.
 pub fn report(stopped: &[Stopped]) -> String {

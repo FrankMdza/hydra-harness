@@ -571,6 +571,15 @@ pub fn check_gated_write_denials(
         };
         let outcome = derived.outcome;
 
+        // A human stop, with or without a terminator, and whatever terminator it
+        // was. A provider that catches SIGTERM can write `success` or, for
+        // `codex`, `turn.failed` on its way out, and the record still derives
+        // `stopped` off `run_end.error` (builds 173 and 175). Every rule below
+        // describes how a run ended on its own, which this one did not.
+        if outcome == Outcome::Stopped {
+            continue;
+        }
+
         // A launch Hydra refused has no stream at all, so the per-call rule below
         // is about a different question. Contract 8.2 calls that outcome a fact
         // Hydra wrote rather than a reading, and this loop only checks readings.
@@ -634,14 +643,6 @@ pub fn check_gated_write_denials(
         // exit 1, no frame. Contract 8 reads that off `noise`, and the per-call
         // rule has nothing to read. Three of these landed on 2026-09-07.
         if run.result.is_none() && !outcome.rung_one_learns() {
-            continue;
-        }
-
-        // A human stop, with or without a terminator. A provider that catches
-        // SIGTERM can write `success` on its way out, and the record still
-        // derives `stopped` off `run_end.error`, build ticket 173. The per-call
-        // rule below describes how a run ended on its own, which this one did not.
-        if outcome == Outcome::Stopped {
             continue;
         }
 
