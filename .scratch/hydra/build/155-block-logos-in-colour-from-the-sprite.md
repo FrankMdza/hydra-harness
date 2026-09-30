@@ -1,7 +1,7 @@
 # 155 - Block logos in colour, from the mascot's own pixels
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -43,3 +43,25 @@ build 153; `splash-blocks` is the bar to beat.
   under `.venv/bin/python` if the worktree has it, else `python3`.
 - Your report shows the six new ones rendered in their plain form, says which two came from the
   sprite by script, and starts with what you could not confirm.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` sonnet on run 01a0f07c-1bbd under `standard`, about 0.66M
+tokens. The session applied it as written, plus the script the run added, `docs/logo/from_sprite.py`.
+
+Six new candidates, all block art with a colour form in the sprite's palette and a plain form:
+`splash-tiny-sprite`, `splash-tiny-hand`, `splash-bar-sprite`, `splash-bar-hand`,
+`splash-top-sprite`, `splash-top-small`. Four come from the 24 by 24 sprite by downscaling with
+the script; the two `-hand` ones are typed from the palette and are the weakest match to the
+creature. `render.py` prints colour on a terminal or with `--color`, plain otherwise; the test
+checks twelve candidates, no escapes in the plain form, and only the palette in the colour form.
+
+Found by the run: the micro sprite holds two whole heads and a two-pixel sliver of the third at
+its right edge, so "the sprite's three heads" is not literally there; the `top` candidates keep
+the sliver, and the one-row ones repeat a head. `splash-tiny-sprite` is 25 columns with the word,
+one over the limit.
+
+This run is also the first with `config/mcp.md` saying `command = "hydra"`: its line 0 carries
+`mcp.resolved: ["hydra"]`, so build 154's resolution works on a real launch.
+
+The human picks. No README or cockpit change yet.
