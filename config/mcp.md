@@ -67,7 +67,7 @@ each transport, in comments, for a human to copy.
 [[server]]
 name = "hydra"
 transport = "stdio"
-command = "/Users/USER/hydra/target/release/hydra"
+command = "hydra"
 args = ["delegate-face"]
 admit = ["standard", "permissive"]
 
