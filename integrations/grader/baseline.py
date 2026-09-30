@@ -57,7 +57,8 @@ def launched_at(run_id: str) -> datetime:
 def target(row: dict, label: str) -> int | None:
     """1 for the outcome the router wants to avoid, None when the row carries no label."""
     if label == "outcome":
-        if row.get("outcome") is None:
+        # A human stop says nothing about whether the run would have completed (map 89).
+        if row.get("outcome") in (None, "stopped"):
             return None
         return int(row["outcome"] != "completed")
     if label == "task":

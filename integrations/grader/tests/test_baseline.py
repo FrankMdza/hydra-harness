@@ -69,6 +69,11 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(baseline.target({"human_verdict": "applied"}, "verdict"), 0)
         self.assertIsNone(baseline.target({"human_verdict": None}, "verdict"))
 
+    def test_a_stopped_run_carries_no_outcome_or_task_label(self):
+        row = {"outcome": "stopped"}
+        self.assertIsNone(baseline.target(row, "outcome"))
+        self.assertIsNone(baseline.target(row, "task"))
+
     def test_task_label_leaves_out_quota_and_gate(self):
         for outcome in ("failed", "crashed", "timed_out"):
             self.assertEqual(baseline.target({"outcome": outcome}, "task"), 1, outcome)
