@@ -75,15 +75,22 @@ results in run-id order.
 ## The classifier
 
 `baseline.py` is a logistic regression over what a router knows before a launch: provider,
-model, policy and the task's length. There are two models, trained and scored apart:
+model, policy and the task's length. There are three models, trained and scored apart:
 
 | Label | Positive means | File |
 |---|---|---|
 | `outcome` | the run will not complete | `$HYDRA_GRADER_HOME/models/outcome.json` |
 | `verdict` | the diff will need a correction | `$HYDRA_GRADER_HOME/models/verdict.json` |
+| `task` | the run will fail for a reason in the task | `$HYDRA_GRADER_HOME/models/task.json` |
+
+`outcome` counts every run that did not complete, so a model can beat the bar by learning which
+provider is out of quota or which policy refuses. `task` removes that. It is 1 for `failed`,
+`crashed` and `timed_out`, 0 for `completed`, and the row is left out for `rate_limited`, `gated`,
+`skill_collision`, `auth_failed` and any other outcome. The list is `baseline.TASK_FAILURES`. The
+usual `MIN_MINORITY` floor applies, and `train` refuses when a slice has too few task failures.
 
 ```
-python3 integrations/grader/baseline.py train DATASET [MODEL] [--label outcome|verdict] [--test-from YYYY-MM-DD]
+python3 integrations/grader/baseline.py train DATASET [MODEL] [--label outcome|verdict|task] [--test-from YYYY-MM-DD]
 python3 integrations/grader/baseline.py score MODEL RUN
 ```
 
@@ -97,7 +104,7 @@ rate limits, so a model that only learned which provider is out of quota will no
 
 ## The monitor
 
-`monitor.py` predicts the same two labels from a prefix of the run's record, plus the
+`monitor.py` predicts the same three labels from a prefix of the run's record, plus the
 pre-launch features `baseline.py` already computes. It calls `baseline.py`'s readers
 for those fields, for the launch-time split and for the fit. It does not copy them.
 The prefix is the first `max(1, floor(fraction * lines))` lines of the record. The
@@ -117,7 +124,7 @@ names are read from each provider's own frame: `claude` `tool_use`, `cursor-agen
 
 ```
 python3 integrations/grader/monitor.py features RECORD --at 0.1|0.25|0.5
-python3 integrations/grader/monitor.py train DATASET [MODEL] --at FRACTION [--label outcome|verdict] [--test-from YYYY-MM-DD] [--records DIR]
+python3 integrations/grader/monitor.py train DATASET [MODEL] --at FRACTION [--label outcome|verdict|task] [--test-from YYYY-MM-DD] [--records DIR]
 python3 integrations/grader/monitor.py score MODEL RECORD
 ```
 
@@ -244,7 +251,7 @@ launchctl bootout gui/$(id -u)/co.hephaestuslab.hydra-grader && rm ~/Library/Lau
 | File | Purpose |
 |---|---|
 | `grader.py` | CLI, cursor, dataset writer, and scores on every collect |
-| `baseline.py` | The two classifiers, their report, and the verdict queue |
+| `baseline.py` | The three classifiers, their report, and the verdict queue |
 | `monitor.py` | Prefix features, the same regression on a fraction of a record, and score |
 | `records.py` | Walk `runs/`, cache `hydra show`, and project usage |
 | `labels.py` | Fold Puppets goal logs into per-run labels |

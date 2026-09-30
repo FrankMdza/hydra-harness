@@ -495,7 +495,7 @@ def train(rows: list[dict], label: str, test_from: datetime, fraction: float) ->
     weights, bias = baseline.fit(xs, ys)
     body = {
         "label": label,
-        "positive": "not completed" if label == "outcome" else "fixed",
+        "positive": baseline.POSITIVE[label],
         "at": fraction,
         "vocab": vocab,
         "scale": scale,

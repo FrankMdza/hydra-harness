@@ -437,6 +437,22 @@ class TrainTests(unittest.TestCase):
                 ])
             self.assertIn("rarer class", str(caught.exception))
 
+    def test_task_label_trains_and_drops_gated_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data, records, rows = corpus(root)
+            for row in rows[:6]:
+                row["outcome"] = "gated"
+            data.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            out = root / "m.json"
+            monitor.main([
+                "train", str(data), str(out), "--at", "0.5", "--label", "task",
+                "--test-from", TEST.date().isoformat(), "--records", str(records),
+            ])
+            model = json.loads(out.read_text())
+            self.assertEqual(model["label"], "task")
+            self.assertEqual(model["positive"], "failed for the task")
+
 
 if __name__ == "__main__":
     unittest.main()

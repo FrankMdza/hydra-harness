@@ -69,6 +69,27 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(baseline.target({"human_verdict": "applied"}, "verdict"), 0)
         self.assertIsNone(baseline.target({"human_verdict": None}, "verdict"))
 
+    def test_task_label_leaves_out_quota_and_gate(self):
+        for outcome in ("failed", "crashed", "timed_out"):
+            self.assertEqual(baseline.target({"outcome": outcome}, "task"), 1, outcome)
+        self.assertEqual(baseline.target({"outcome": "completed"}, "task"), 0)
+        for outcome in ("rate_limited", "gated", "skill_collision", "auth_failed", "other", None):
+            self.assertIsNone(baseline.target({"outcome": outcome}, "task"), outcome)
+        self.assertIn("task", baseline.LABELS)
+        self.assertEqual(baseline.TASK_FAILURES, ("failed", "crashed", "timed_out"))
+
+    def test_task_model_trains_on_task_rows_only_and_refuses_a_thin_slice(self):
+        data = rows()
+        for r in data:
+            if r["outcome"] == "rate_limited":
+                r["outcome"] = "failed" if r["run_id"][-1] in "01234567" else "gated"
+        model = baseline.train(data, "task", TEST)
+        self.assertEqual(model["label"], "task")
+        thin = rows()  # every non-completed row is rate_limited, so no task positives
+        with self.assertRaises(SystemExit) as caught:
+            baseline.train(thin, "task", TEST)
+        self.assertIn("rarer class", str(caught.exception))
+
 
 class TrainTests(unittest.TestCase):
     def test_split_is_by_launch_time(self):

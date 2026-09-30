@@ -6,8 +6,9 @@ features are the ones a router has before a launch: provider, model, policy and 
 Tokens and duration are left out on purpose, because a run that dies early has none, so they
 would hand the model its own answer.
 
-Two labels, two models (build 143, D1): `outcome` says a run will not complete, `verdict` says
-its diff will need a correction. Each is trained, stored and scored apart.
+Three labels, three models (build 143, D1): `outcome` says a run will not complete, `verdict` says
+its diff will need a correction, `task` says it will fail for a reason in the task, with quota
+and gate refusals left out (build 165, `TASK_FAILURES`). Each is trained, stored and scored apart.
 """
 from __future__ import annotations
 
@@ -30,7 +31,12 @@ sys.modules[_records_spec.name] = records
 _records_spec.loader.exec_module(records)
 
 PREAMBLE = "Hydra launched this run"
-LABELS = ("outcome", "verdict")
+LABELS = ("outcome", "verdict", "task")
+# Outcomes the `task` label counts as the task's own failure. `completed` is 0. Every other
+# outcome (`rate_limited`, `gated`, `skill_collision`, `auth_failed`, anything new) says nothing
+# about the task and leaves the row out.
+TASK_FAILURES = ("failed", "crashed", "timed_out")
+POSITIVE = {"outcome": "not completed", "verdict": "fixed", "task": "failed for the task"}
 # The human's verdicts from the label queue, run id to `applied` or `fixed`. Collect reads it
 # too, so a dataset line rewritten after an import keeps its verdict.
 TICKET_VERDICTS = "ticket-verdicts.json"
@@ -54,6 +60,11 @@ def target(row: dict, label: str) -> int | None:
         if row.get("outcome") is None:
             return None
         return int(row["outcome"] != "completed")
+    if label == "task":
+        outcome = row.get("outcome")
+        if outcome == "completed":
+            return 0
+        return 1 if outcome in TASK_FAILURES else None
     if label == "verdict":
         return {"fixed": 1, "applied": 0}.get(row.get("human_verdict"))
     raise ValueError(f"unknown label {label}")
@@ -182,7 +193,7 @@ def train(rows: list[dict], label: str, test_from: datetime) -> dict:
     weights, bias = fit(xs, ys)
     body = {
         "label": label,
-        "positive": "not completed" if label == "outcome" else "fixed",
+        "positive": POSITIVE[label],
         "vocab": vocab,
         "scale": scale,
         "weights": weights,

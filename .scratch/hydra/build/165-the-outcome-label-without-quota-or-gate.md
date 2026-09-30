@@ -1,7 +1,7 @@
 # 165 - An outcome label without quota or gate
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -30,3 +30,18 @@ change. Stdlib only.
 
 - Each new test failed before the change; the grader suite passes.
 - The report gives the train command for the real home and says it could not run it there.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` sonnet on run 01a0f2c1-0e88 under `standard`. The session
+applied it as written. `baseline.py` gains the label `task` and the constant `TASK_FAILURES`
+(`failed`, `crashed`, `timed_out`); `completed` is 0 and every other outcome is left out.
+`POSITIVE` replaces the inline "not completed or fixed" in both `baseline.py` and `monitor.py`,
+so `monitor.py train --label task` works too. Three tests; the grader suite passes, 107 tests.
+
+On the real dataset `train --label task` refuses, as the ticket allowed: 507 rows carry the
+label, and the test slice from 2026-09-23 has 248 of them with 3 positives, under the floor of 10.
+The whole dataset holds 13 `failed` and 1 `crashed` against 493 `completed`. That is the number
+behind phase 1's exit condition: the runs rarely fail for a reason in the task, so this label
+waits for more failures, or for Frank's verdicts, before a model can exist.
+
