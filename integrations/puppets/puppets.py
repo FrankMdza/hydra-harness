@@ -311,14 +311,25 @@ def read_log(goal_id: str) -> list[dict[str, Any]]:
     return events
 
 
+class UnterminatedLog(Exception):
+    """The goal log's last line has no newline, so a writer appends nothing."""
+
+    def __init__(self, goal_id: str) -> None:
+        self.goal_id = goal_id
+        super().__init__(f"goal log {goal_id} ends without a newline; wrote nothing")
+
+
 def _locked_update(
     goal_id: str, decide: Callable[[list[dict[str, Any]]], dict[str, Any] | None]
 ) -> dict[str, Any] | None:
     """Hold the goal log's lock, read it, and append what `decide` returns.
 
-    `decide` sees the lines read under that lock. None writes nothing and the
-    lock is still released. Callers that must not approve a stale revision
-    re-fold those lines and refuse before returning a body.
+    `decide` sees newline-terminated lines read under that lock. An
+    unterminated tail is left in place and is not one of those lines; when
+    one is present this raises `UnterminatedLog` and writes nothing. None
+    from `decide` writes nothing and the lock is still released. Callers
+    that must not approve a stale revision re-fold those lines and refuse
+    before returning a body.
     """
     path = goal_log_path(goal_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -327,15 +338,21 @@ def _locked_update(
         try:
             handle.seek(0)
             events: list[dict[str, Any]] = []
+            unterminated = False
             for line in handle:
-                line = line.strip()
-                if not line:
+                if not line.endswith("\n"):
+                    unterminated = True
+                    break
+                stripped = line.strip()
+                if not stripped:
                     continue
                 try:
-                    events.append(json.loads(line))
+                    events.append(json.loads(stripped))
                 except json.JSONDecodeError:
                     continue
             body = decide(events)
+            if unterminated:
+                raise UnterminatedLog(goal_id)
             if body is None:
                 return None
             record = {"seq": len(events) + 1, "ts": utc_now(), **body}
@@ -2498,7 +2515,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except UnterminatedLog as err:
+        print(err, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

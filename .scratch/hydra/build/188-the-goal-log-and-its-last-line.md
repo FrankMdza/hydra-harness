@@ -1,7 +1,7 @@
 # 188 - The goal log and its last line
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 185
 
 ## What
@@ -33,3 +33,15 @@ Tests first in `integrations/puppets/tests/`, each shown failing before the chan
 ## Done when
 
 - Each test failed before the change; the puppets suite passes.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `cursor-agent` grok-4.7-high on run 01a0f3bb-3b3d under `standard`.
+The session applied it as written. Both readers count only newline-terminated lines. Under the
+lock, an unterminated tail raises `UnterminatedLog` and every writer (`approve`, `append_event`
+and so `set` and the rest) writes nothing and exits 1. The run chose refusing over writing a
+leading newline because a newline would make the fragment an interior line, which `read_log`
+raises on, and would make a complete unterminated object start counting. The cost: a writer that
+dies mid-line leaves the goal log refusing writes until a human trims the tail. Three tests, each
+failing first; the puppets suite passes, 177 tests.
+
