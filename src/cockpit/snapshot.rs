@@ -38,6 +38,10 @@ const TAIL_LINE_CHARS: usize = 400;
 const TAIL_WINDOW: u64 = 256 * 1024;
 /// How far back the header's tokens per minute look.
 pub const RATE_WINDOW_MINUTES: i64 = 5;
+/// How often the reader asks `puppets.py pending`, and how long it waits.
+/// Build ticket 182.
+pub const PENDING_EVERY: chrono::TimeDelta = chrono::TimeDelta::seconds(10);
+pub const PENDING_BUDGET: Duration = Duration::from_secs(2);
 
 /// The four lanes of the kanban, left to right in the order drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,6 +128,12 @@ pub struct Snapshot {
     pub cards: Vec<Card>,
     /// What `hydra approve` with no id lists.
     pub requests: Vec<Pending>,
+    /// What `puppets.py pending <goal> --json` last listed for the goal the
+    /// table shows. Build ticket 182.
+    pub steps: Vec<Step>,
+    /// When the reader last asked `pending` for them, which may be before
+    /// this tick.
+    pub steps_read_at: Option<DateTime<Utc>>,
     /// The last record lines of the run the detail has open.
     pub tail: Option<(String, Vec<String>)>,
     /// The last [`DETAIL_CALLS`] tool calls of the run the detail has open,
@@ -135,6 +145,76 @@ pub struct Snapshot {
     /// What each provider's live runs have spent, one entry per provider with
     /// a live run, by name.
     pub spend: Vec<Spend>,
+}
+
+/// One approval a goal waits on, as `puppets.py pending --json` lists it.
+/// Build ticket 182.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Step {
+    pub goal: String,
+    /// `plan`, `table`, `launch`, `diff` or `degraded`.
+    pub kind: String,
+    /// The task id, or the missing provider for `degraded`.
+    pub reference: Option<String>,
+    pub revision: u64,
+    /// The exact command that approves it, `--expect-revision` included. The
+    /// cockpit runs it as given and never builds one.
+    pub argv: Vec<String>,
+}
+
+impl Step {
+    /// What the lane shows and the detail is keyed by.
+    pub fn label(&self) -> String {
+        match &self.reference {
+            Some(reference) => format!("{} {} {reference}", self.goal, self.kind),
+            None => format!("{} {}", self.goal, self.kind),
+        }
+    }
+}
+
+/// Reads `pending --json`'s output. An item whose argv does not end in
+/// `--expect-revision` and its own revision is refused rather than shown, so
+/// no step runs unbound to the revision the human saw.
+pub fn parse_steps(goal: &str, bytes: &[u8]) -> Result<Vec<Step>> {
+    let items: Vec<serde_json::Value> =
+        serde_json::from_slice(bytes).context("reading what pending printed")?;
+    items
+        .iter()
+        .map(|item| {
+            let kind = item["kind"].as_str().context("a step without a kind")?;
+            let revision = item["revision"]
+                .as_u64()
+                .with_context(|| format!("the {kind} step has no revision"))?;
+            let argv = item["argv"]
+                .as_array()
+                .and_then(|argv| {
+                    argv.iter()
+                        .map(|arg| arg.as_str().map(str::to_string))
+                        .collect::<Option<Vec<_>>>()
+                })
+                .with_context(|| format!("the {kind} step has no argv"))?;
+            let bound = argv.len() > 2
+                && argv[argv.len() - 2] == "--expect-revision"
+                && argv[argv.len() - 1] == revision.to_string();
+            if !bound {
+                anyhow::bail!("the {kind} step's argv is not bound to revision {revision}");
+            }
+            Ok(Step {
+                goal: goal.to_string(),
+                kind: kind.to_string(),
+                reference: item["ref"].as_str().map(str::to_string),
+                revision,
+                argv,
+            })
+        })
+        .collect()
+}
+
+/// What the last `pending` said, and when it was asked.
+struct PendingRead {
+    goal: String,
+    at: DateTime<Utc>,
+    said: std::result::Result<Vec<Step>, String>,
 }
 
 /// One tool call, as the detail lists it. Build ticket 178.
@@ -214,6 +294,10 @@ pub struct Reader {
     calls: Option<OpenCalls>,
     /// Where `vendors.json` and `aliases.json` are, or `None` for no budgets.
     vendors: Option<PathBuf>,
+    /// `puppets.py`, asked what the shown goal waits on, or `None` to ask
+    /// nothing. Build ticket 182.
+    puppets: Option<PathBuf>,
+    pending: Option<PendingRead>,
 }
 
 impl Reader {
@@ -232,6 +316,8 @@ impl Reader {
             live: HashMap::new(),
             calls: None,
             vendors: None,
+            puppets: None,
+            pending: None,
         }
     }
 
@@ -247,6 +333,12 @@ impl Reader {
         self
     }
 
+    /// The helper whose `pending` fills the waiting lane with steps.
+    pub fn with_puppets(mut self, script: PathBuf) -> Self {
+        self.puppets = Some(script);
+        self
+    }
+
     /// The same, with the clock the rates are measured on named.
     pub fn read_at(&mut self, open: Option<&str>, now: DateTime<Utc>) -> Snapshot {
         let mut snapshot = Snapshot {
@@ -255,6 +347,7 @@ impl Reader {
             ..Snapshot::default()
         };
         self.read_goal(&mut snapshot);
+        self.read_steps(&mut snapshot, now);
         snapshot.cards = self.read_cards(&mut snapshot.errors);
         snapshot.spend = self.spend(&snapshot.cards, now, &mut snapshot.errors);
         match crate::approve::pending(&self.layout) {
@@ -320,6 +413,67 @@ impl Reader {
         match goal::read(&path) {
             Ok(goal) => snapshot.goal = Some(goal),
             Err(err) => snapshot.goal_note = Some(format!("{err:#}")),
+        }
+    }
+
+    /// The steps the shown goal waits on, from `pending <goal> --json`, asked
+    /// at most once per [`PENDING_EVERY`] and again when the goal changes.
+    /// It reads the log and writes nothing, so a helper that does not answer
+    /// in [`PENDING_BUDGET`] is killed.
+    fn read_steps(&mut self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
+        let (Some(script), Some(goal)) = (&self.puppets, &snapshot.goal) else {
+            return;
+        };
+        let fresh = self
+            .pending
+            .as_ref()
+            .is_some_and(|read| read.goal == goal.id && now - read.at < PENDING_EVERY);
+        if !fresh {
+            let said = self
+                .ask_pending(script, &goal.id)
+                .map_err(|err| format!("{err:#}"));
+            self.pending = Some(PendingRead {
+                goal: goal.id.clone(),
+                at: now,
+                said,
+            });
+        }
+        let Some(read) = &self.pending else {
+            return;
+        };
+        snapshot.steps_read_at = Some(read.at);
+        match &read.said {
+            Ok(steps) => snapshot.steps = steps.clone(),
+            Err(err) => snapshot.errors.push(err.clone()),
+        }
+    }
+
+    fn ask_pending(&self, script: &Path, goal: &str) -> Result<Vec<Step>> {
+        super::check_goal_id(goal)?;
+        let mut command = std::process::Command::new(script);
+        command
+            .args(["pending", goal, "--json"])
+            .env("HYDRA_ROOT", self.layout.root())
+            .env("HYDRA_PUPPETS_HOME", &self.puppets_home);
+        match super::bounded(command, PENDING_BUDGET)
+            .with_context(|| format!("puppets.py pending {goal}"))?
+        {
+            (super::Bounded::Exited(status, _), out) if status.success() => parse_steps(goal, &out),
+            (super::Bounded::Exited(status, line), _) => {
+                anyhow::bail!("puppets.py pending {goal} exited with {status}: {line}")
+            }
+            (super::Bounded::Late(mut child), _) => {
+                // The helper leads its own group, so this reaches whatever it started.
+                if let Ok(pgid) = libc::pid_t::try_from(child.id()) {
+                    // SAFETY: `killpg` takes two integers and touches no memory.
+                    unsafe { libc::killpg(pgid, libc::SIGKILL) };
+                }
+                let _ = child.wait();
+                anyhow::bail!(
+                    "puppets.py pending {goal} did not answer in {}s",
+                    PENDING_BUDGET.as_secs()
+                )
+            }
         }
     }
 

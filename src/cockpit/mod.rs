@@ -14,6 +14,12 @@
 //! `hydra approve <id>` calls. Like that command it refuses inside a seatbelt
 //! and says so on screen.
 //!
+//! **It never writes a goal log.** Since build ticket 182 the waiting lane also
+//! lists what `puppets.py pending <goal> --json` says the shown goal waits on,
+//! and `a` then `y` runs the argv that listed, `--expect-revision` included, as
+//! a child. `puppets.py` stays the only writer of its log. Inside a seatbelt
+//! `a` refuses these too.
+//!
 //! **With `--session` the chat is inside**, map ticket 86's cut two and build
 //! ticket 151: [`chat`] launches `hydra run --interactive` on a pty the cockpit
 //! owns and paints it in the left panel, and [`host`] decides which side has
@@ -124,7 +130,8 @@ pub fn run(
         puppets_home(layout),
         goal,
     )
-    .with_vendors(crate::paths::hydra_home().join("integrations/puppets"));
+    .with_vendors(crate::paths::hydra_home().join("integrations/puppets"))
+    .with_puppets(crate::paths::hydra_home().join("integrations/puppets/puppets.py"));
     let (asks, asked) = mpsc::channel::<Option<String>>();
     let (snapshots, snapshot) = mpsc::channel();
     std::thread::Builder::new()
@@ -213,6 +220,85 @@ pub fn run(
         }
     }
     Ok(())
+}
+
+/// How a child [`bounded`] waited on ended.
+pub(crate) enum Bounded {
+    /// It exited inside the budget: its status and the last non-empty line
+    /// it printed, stderr's before stdout's when it failed.
+    Exited(std::process::ExitStatus, String),
+    /// It was still running when the budget ran out.
+    Late(std::process::Child),
+}
+
+/// Starts `command` with stdin closed, both streams piped and a process group
+/// of its own, and waits at most `budget` for it. Each stream is drained on a
+/// thread so a child that prints a lot cannot stall on a full pipe.
+pub(crate) fn bounded(
+    mut command: std::process::Command,
+    budget: Duration,
+) -> Result<(Bounded, Vec<u8>)> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .context("starting the helper")?;
+    let drain = |stream: Option<Box<dyn Read + Send>>| {
+        let (tx, rx) = mpsc::channel();
+        if let Some(mut stream) = stream {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let _ = stream.read_to_end(&mut bytes);
+                let _ = tx.send(bytes);
+            });
+        }
+        rx
+    };
+    let out = drain(
+        child
+            .stdout
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    );
+    let err = drain(
+        child
+            .stderr
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    );
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().context("waiting for the helper")? {
+            break status;
+        }
+        if start.elapsed() >= budget {
+            return Ok((Bounded::Late(child), Vec::new()));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    // A grandchild holding a pipe open does not hold the cockpit past the budget.
+    let left = budget.saturating_sub(start.elapsed()) + Duration::from_millis(200);
+    let out = out.recv_timeout(left).unwrap_or_default();
+    let err = err.recv_timeout(left).unwrap_or_default();
+    let last = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(|line| line.trim().to_string())
+    };
+    let line = if status.success() {
+        last(&out).or_else(|| last(&err))
+    } else {
+        last(&err).or_else(|| last(&out))
+    };
+    Ok((Bounded::Exited(status, line.unwrap_or_default()), out))
 }
 
 /// `$EDITOR`, or `vi` when it is unset or empty.

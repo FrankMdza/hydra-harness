@@ -23,7 +23,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::goal::{Goal, TaskRow};
 use super::mascot::Mascot;
-use super::snapshot::{CallLine, Card, Lane, Snapshot, spend_text};
+use super::snapshot::{CallLine, Card, Lane, Snapshot, Step, spend_text};
 use crate::approve::Pending;
 use crate::paths::Layout;
 
@@ -61,7 +61,18 @@ impl Focus {
 pub enum Opened {
     Run(String),
     Request(String),
+    /// A Master of Puppets step, by [`Step::label`]. Build ticket 182.
+    Step(String),
 }
+
+/// What `a` has in hand in the waiting lane.
+enum InHand {
+    Request(Pending),
+    Step(Step),
+}
+
+/// How long `y` on a step waits for `puppets.py approve`. Build ticket 182.
+pub const APPROVE_BUDGET: Duration = Duration::from_secs(5);
 
 /// What the loop around [`App::handle`] has to do next.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,6 +151,14 @@ pub struct App {
     pub confirming: Option<Pending>,
     /// Whether that confirmation denies rather than approves, build ticket 170.
     pub denying: bool,
+    /// The Master of Puppets step the confirmation shows, while it is up,
+    /// build ticket 182.
+    pub confirming_step: Option<Step>,
+    /// Steps approved here, by label and revision, with when. An approval
+    /// does not move the goal's revision, so the reader's list, up to ten
+    /// seconds old, would offer the same step again; it stays out until a
+    /// `pending` read newer than the approval.
+    approved_steps: Vec<(String, u64, chrono::DateTime<chrono::Utc>)>,
     pub message: Option<String>,
     pub hits: Hits,
     /// The dragon in the header, or `None` for `--no-mascot` and for a frame directory that
@@ -201,6 +220,8 @@ impl App {
             opened: None,
             confirming: None,
             denying: false,
+            confirming_step: None,
+            approved_steps: Vec::new(),
             message: None,
             hits: Hits::default(),
             mascot: None,
@@ -307,12 +328,27 @@ impl App {
             .cloned()
             .collect();
         self.stop_outcomes = kept;
+        self.hide_approved_steps();
         self.table_selected = self.table_selected.min(self.table_len().saturating_sub(1));
         for lane in Lane::ALL {
             let i = lane.index();
             self.lane_selected[i] =
                 self.lane_selected[i].min(self.lane_len(lane).saturating_sub(1));
         }
+    }
+
+    /// Drops the steps approved here since the reader last asked `pending`,
+    /// and forgets the approvals a newer read has answered for.
+    fn hide_approved_steps(&mut self) {
+        let read_at = self.snapshot.steps_read_at;
+        self.approved_steps
+            .retain(|(_, _, at)| read_at.is_none_or(|read| read <= *at));
+        let approved = &self.approved_steps;
+        self.snapshot.steps.retain(|step| {
+            !approved
+                .iter()
+                .any(|(label, revision, _)| *label == step.label() && *revision == step.revision)
+        });
     }
 
     /// The run whose tail the reader should read.
@@ -339,7 +375,7 @@ impl App {
 
     pub fn lane_len(&self, lane: Lane) -> usize {
         match lane {
-            Lane::Waiting => self.snapshot.requests.len(),
+            Lane::Waiting => self.snapshot.requests.len() + self.snapshot.steps.len(),
             _ => self.cards_in(lane).count(),
         }
     }
@@ -354,11 +390,14 @@ impl App {
     /// What `Enter` would open in `lane` at `index`.
     fn item(&self, lane: Lane, index: usize) -> Option<Opened> {
         match lane {
-            Lane::Waiting => self
-                .snapshot
-                .requests
-                .get(index)
-                .map(|request| Opened::Request(request.request_id.clone())),
+            Lane::Waiting => match self.snapshot.requests.get(index) {
+                Some(request) => Some(Opened::Request(request.request_id.clone())),
+                None => self
+                    .snapshot
+                    .steps
+                    .get(index - self.snapshot.requests.len())
+                    .map(|step| Opened::Step(step.label())),
+            },
             _ => self
                 .cards_in(lane)
                 .nth(index)
@@ -385,6 +424,17 @@ impl App {
     }
 
     fn key(&mut self, key: &KeyEvent) -> Effect {
+        if self.confirming_step.is_some() {
+            return match key.code {
+                KeyCode::Char('y') => self.approve_step(),
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    self.confirming_step = None;
+                    self.message = Some("nothing approved".to_string());
+                    Effect::None
+                }
+                _ => Effect::None,
+            };
+        }
         if self.confirming_stop.is_some() {
             return match key.code {
                 KeyCode::Char('y') => self.stop_seat(),
@@ -573,6 +623,7 @@ impl App {
 
     fn click(&mut self, at: Position) -> Effect {
         if self.confirming.is_some()
+            || self.confirming_step.is_some()
             || self.confirming_review.is_some()
             || self.confirming_stop.is_some()
         {
@@ -654,40 +705,110 @@ impl App {
 
     // --- the one write -----------------------------------------------------
 
-    /// The request `a` would ask about: the one open in the detail, or the
-    /// one selected in the waiting lane.
-    fn request_in_hand(&self) -> Option<Pending> {
-        let id = match (&self.opened, self.focus) {
-            (Some(Opened::Request(id)), _) => id.clone(),
-            (_, Focus::Lane(Lane::Waiting)) => self
-                .snapshot
-                .requests
-                .get(self.lane_selected[Lane::Waiting.index()])?
-                .request_id
-                .clone(),
+    /// What `a` would ask about: the request or step open in the detail, or
+    /// the one selected in the waiting lane.
+    fn in_hand(&self) -> Option<InHand> {
+        let opened = match (&self.opened, self.focus) {
+            (Some(opened @ (Opened::Request(_) | Opened::Step(_))), _) => opened.clone(),
+            (_, Focus::Lane(Lane::Waiting)) => {
+                self.item(Lane::Waiting, self.lane_selected[Lane::Waiting.index()])?
+            }
             _ => return None,
         };
-        self.snapshot
-            .requests
-            .iter()
-            .find(|request| request.request_id == id)
-            .cloned()
+        match opened {
+            Opened::Request(id) => self
+                .snapshot
+                .requests
+                .iter()
+                .find(|request| request.request_id == id)
+                .cloned()
+                .map(InHand::Request),
+            Opened::Step(label) => self
+                .snapshot
+                .steps
+                .iter()
+                .find(|step| step.label() == label)
+                .cloned()
+                .map(InHand::Step),
+            Opened::Run(_) => None,
+        }
     }
 
     /// `a` or `d`: opens the confirmation that approves, or denies, the
-    /// request in hand.
+    /// request or step in hand. A step has no deny: leaving it is saying no.
     fn ask_to_answer(&mut self, deny: bool) -> Effect {
-        let Some(request) = self.request_in_hand() else {
+        let Some(in_hand) = self.in_hand() else {
             self.message = Some("select a request in the waiting approval lane first".to_string());
             return Effect::None;
         };
         if self.seatbelted {
-            self.message = Some(inside_seatbelt());
+            self.message = Some(match in_hand {
+                InHand::Request(_) => inside_seatbelt(),
+                InHand::Step(_) => step_inside_seatbelt(),
+            });
             return Effect::None;
         }
-        self.confirming = Some(request);
-        self.denying = deny;
+        match in_hand {
+            InHand::Request(request) => {
+                self.confirming = Some(request);
+                self.denying = deny;
+            }
+            InHand::Step(step) if deny => {
+                self.message = Some(format!(
+                    "{} has no deny here; leave it and it stays waiting",
+                    step.label()
+                ));
+            }
+            InHand::Step(step) => self.confirming_step = Some(step),
+        }
         Effect::None
+    }
+
+    /// `y` on a step's confirmation: runs the argv `pending` listed, as a
+    /// child, and waits at most [`APPROVE_BUDGET`]. `puppets.py` writes the
+    /// goal log; the cockpit never does.
+    fn approve_step(&mut self) -> Effect {
+        let Some(step) = self.confirming_step.take() else {
+            return Effect::None;
+        };
+        if self.seatbelted {
+            self.message = Some(step_inside_seatbelt());
+            return Effect::None;
+        }
+        let label = step.label();
+        let Some((program, args)) = step.argv.split_first() else {
+            self.message = Some(format!("{label} has no command to run"));
+            return Effect::None;
+        };
+        let mut command = Command::new(program);
+        command.args(args).env("HYDRA_ROOT", self.layout.root());
+        if let Some((_, home)) = &self.reviewer {
+            command.env("HYDRA_PUPPETS_HOME", home);
+        }
+        self.message = Some(match super::bounded(command, APPROVE_BUDGET) {
+            Ok((super::Bounded::Exited(status, line), _)) => match status.code() {
+                Some(0) => {
+                    self.approved_steps
+                        .push((label.clone(), step.revision, chrono::Utc::now()));
+                    self.hide_approved_steps();
+                    format!("{label}: {line}")
+                }
+                Some(2) => format!("{label}: the goal moved on; nothing approved ({line})"),
+                _ => format!("{label} not approved, the helper exited with {status}: {line}"),
+            },
+            Ok((super::Bounded::Late(mut child), _)) => {
+                // An approve killed halfway could leave half a line in the
+                // log, so it is left to finish and reaped off this thread.
+                std::thread::spawn(move || child.wait());
+                format!(
+                    "{label}: the helper did not answer in {}s and is still running; \
+                     the next read shows what it did",
+                    APPROVE_BUDGET.as_secs()
+                )
+            }
+            Err(err) => format!("{label} was not approved: {err:#}"),
+        });
+        Effect::Refresh
     }
 
     /// `y` on the confirmation: [`crate::approve::approve`] or
@@ -1112,6 +1233,9 @@ impl App {
         if let Some(request) = self.confirming.clone() {
             draw_confirmation(&request, self.denying, main, buf);
         }
+        if let Some(step) = &self.confirming_step {
+            draw_step_confirmation(step, main, buf);
+        }
         if let Some((_, task)) = &self.confirming_review {
             draw_review_confirmation(task, main, buf);
         }
@@ -1463,6 +1587,7 @@ impl App {
                         request.seats.len()
                     )
                 })
+                .chain(self.snapshot.steps.iter().map(Step::label))
                 .collect(),
             _ => self
                 .cards_in(lane)
@@ -1539,6 +1664,19 @@ impl App {
                         lines
                     }
                     None => vec![Line::raw(format!("request {id} is no longer waiting"))],
+                }
+            }
+            Some(Opened::Step(id)) => {
+                match self.snapshot.steps.iter().find(|step| &step.label() == id) {
+                    Some(step) => vec![
+                        label("goal", step.goal.clone()),
+                        label("waits on", step.kind.clone()),
+                        label("ref", step.reference.clone().unwrap_or_else(|| "-".into())),
+                        label("revision", step.revision.to_string()),
+                        label("runs", shown_argv(&step.argv)),
+                        Line::raw("a asks to approve it here"),
+                    ],
+                    None => vec![Line::raw(format!("{id} is no longer waiting"))],
                 }
             }
             Some(Opened::Run(id)) => {
@@ -1692,6 +1830,62 @@ fn inside_seatbelt() -> String {
          approves a seat request (map ticket 82). Nothing was written.",
         crate::approve::INSIDE_SEATBELT
     )
+}
+
+/// The same for a Master of Puppets step, build ticket 182.
+fn step_inside_seatbelt() -> String {
+    format!(
+        "{}: the cockpit is inside a seatbelt, which is where a model runs, and no model \
+         approves a Master of Puppets step. Nothing was run.",
+        crate::approve::INSIDE_SEATBELT
+    )
+}
+
+/// An argv on one line, each argument with a space or a quote in it quoted.
+fn shown_argv(argv: &[String]) -> String {
+    argv.iter()
+        .map(|arg| {
+            if arg.is_empty() || arg.contains(|c: char| c.is_whitespace() || "'\"\\$".contains(c)) {
+                format!("'{}'", arg.replace('\'', "'\\''"))
+            } else {
+                arg.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The question `a` asks before it runs a step's approval.
+fn draw_step_confirmation(step: &Step, area: Rect, buf: &mut Buffer) {
+    let width = area.width.saturating_sub(8).min(110);
+    let height = area.height.saturating_sub(4).min(10);
+    let rect = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    };
+    Clear.render(rect, buf);
+    let lines = vec![
+        Line::raw(format!(
+            "{} at revision {}. y runs, as a child:",
+            step.label(),
+            step.revision
+        )),
+        Line::raw(shown_argv(&step.argv)),
+        Line::styled(
+            "y approves, n closes",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+    ];
+    Paragraph::new(lines)
+        .block(
+            Block::bordered()
+                .border_style(Style::default().fg(Color::Red))
+                .title(" approve this step? "),
+        )
+        .wrap(Wrap { trim: false })
+        .render(rect, buf);
 }
 
 fn draw_confirmation(request: &Pending, deny: bool, area: Rect, buf: &mut Buffer) {

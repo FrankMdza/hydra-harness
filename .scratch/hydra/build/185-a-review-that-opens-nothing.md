@@ -1,8 +1,8 @@
 # 185 - A review that opens nothing
 
 Type: build
-Status: open
-Blocked by: 181, 183
+Status: claimed
+Blocked by: 182
 
 ## What
 
@@ -23,7 +23,11 @@ Tests first, each shown failing before the change.
 2. The cockpit (`src/cockpit/app.rs`, the review spawn from build 183) passes `--no-open`, and the
    run's detail shows the printed `hunk show ...` line from the log once the review ended, so the
    human can open it. Test in `tests/cockpit.rs` with the stub helper asserting the argv.
-3. `integrations/puppets/README.md` and `IMPLEMENTATION.md`.
+3. Found by build 182: an approval does not move the goal's revision, so `approve` with the
+   same kind, ref and revision twice records it twice. `approve` refuses a duplicate of an
+   approval already in the log at the current revision, exit 3, nothing written; `pending` never
+   listed it, so only a stale caller hits this. A test.
+4. `integrations/puppets/README.md` and `IMPLEMENTATION.md`.
 
 ## Done when
 

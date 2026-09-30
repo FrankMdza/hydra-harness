@@ -3318,6 +3318,24 @@ confirmation titled `deny this request?`, and `y` there calls `approve::deny` wi
 `hydra deny` records. `tests/cockpit.rs` denies a planted request with `d` then `y`, and checks
 that `n` writes nothing.
 
+**It never writes a goal log, build ticket 182.** The waiting lane also lists what a goal waits
+on in Master of Puppets, labeled by goal, kind and ref, below the seat requests. The reader runs
+`puppets.py pending <goal> --json` on the goal the table shows, at most once per 10 seconds and
+again when that goal changes, with a 2 second budget; a helper that has not answered by then is
+killed with its process group and the error shows on the status line. An item whose argv does not
+end in `--expect-revision` and its own revision is refused rather than shown. `a` on a step opens
+a confirmation with the exact argv, and `y` runs it as a child with the cockpit's `HYDRA_ROOT` and
+puppets home, waits at most 5 seconds, and shows the helper's last line. Exit 2 reads `the goal
+moved on; nothing approved`. A helper still running at 5 seconds is left to finish rather than
+killed halfway through a log line, and the next read shows what it did. `d` on a step denies
+nothing: leaving it is the no. Inside a seatbelt `a` refuses before the confirmation, as for
+seats. `puppets.py` is the only writer of its log. `tests/cockpit.rs` drives all of it on a stub
+helper that prints a fixed `pending` and records its argv, and the listing of the puppets home is
+the same after `y` as before. An approval does not move the goal's revision, so the
+reader's list, up to 10 seconds old, would offer a step just approved again, and `--expect-revision`
+would not stop a second approval. The cockpit keeps each step it approved out of the lane until a
+`pending` read newer than the approval. No real `puppets.py` has been run from the cockpit.
+
 **The policy pane, build ticket 171.** `p` opens a read-only pane over the panels: the five
 policy files under `$HYDRA_HOME/policies/`, the set's sha as the loader computes it now, and each
 live run with the `policy_sha` off its line 0. A run whose sha is not the current one is marked

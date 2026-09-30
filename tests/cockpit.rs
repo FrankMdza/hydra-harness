@@ -2984,3 +2984,268 @@ fn with_a_chat_m_asks_only_about_that_sessions_seats() {
     host.handle(&key(KeyCode::F(2)));
     host.handle(&key(KeyCode::Enter));
 }
+
+// --- Master of Puppets steps, build ticket 182 -------------------------------
+
+/// A stub `puppets.py` under `layout`: `pending` records its argv and prints
+/// two steps of goal `g2` at revision 3 whose argv names the stub itself;
+/// `approve` records its argv and the puppets home it was handed, then runs
+/// `approve`, a line of shell.
+fn steps_stub(layout: &Layout, pending: &str, approve: &str) -> PathBuf {
+    let path = layout.root().join("puppets.py");
+    let me = path.display().to_string();
+    let script = format!(
+        "#!/bin/sh\n\
+         case \"$1\" in\n\
+         pending)\n\
+         echo \"$*\" >> \"$HYDRA_ROOT/pending-calls\"\n\
+         {pending}\n\
+         cat <<'EOF'\n\
+         [{{\"kind\": \"plan\", \"ref\": null, \"revision\": 3, \"argv\": [\"{me}\", \"approve\", \"g2\", \"--plan\", \"--expect-revision\", \"3\"]}},\n\
+          {{\"kind\": \"launch\", \"ref\": \"a\", \"revision\": 3, \"argv\": [\"{me}\", \"approve\", \"g2\", \"--launch\", \"a\", \"--expect-revision\", \"3\"]}}]\n\
+         EOF\n\
+         ;;\n\
+         approve)\n\
+         echo \"$*\" >> \"$HYDRA_ROOT/approve-calls\"\n\
+         echo \"$HYDRA_PUPPETS_HOME\" > \"$HYDRA_ROOT/approve-home\"\n\
+         {approve}\n\
+         ;;\n\
+         esac\n"
+    );
+    std::fs::write(&path, script).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// A scratch root with goal `g2` under its puppets home, the stub, and a
+/// reader that names both.
+fn steps_reader(name: &str, pending: &str, approve: &str) -> (Layout, PathBuf, Reader) {
+    let layout = scratch(name);
+    let home = layout.root().join("puppets");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("g2.jsonl"),
+        ENDED_LOG.replace("LONG-DONE", "short"),
+    )
+    .unwrap();
+    let stub = steps_stub(&layout, pending, approve);
+    let reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        home,
+        Some("g2".to_string()),
+    )
+    .with_puppets(stub.clone());
+    (layout, stub, reader)
+}
+
+fn calls(layout: &Layout, name: &str) -> Vec<String> {
+    std::fs::read_to_string(layout.root().join(name))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn pending_runs_on_the_shown_goal_at_most_every_ten_seconds() {
+    let (layout, _, mut reader) = steps_reader("steps-pending", "", "");
+    let t0 = noon();
+
+    let first = reader.read_at(None, t0);
+    assert_eq!(calls(&layout, "pending-calls"), ["pending g2 --json"]);
+    let labels: Vec<String> = first.steps.iter().map(|s| s.label()).collect();
+    assert_eq!(labels, ["g2 plan", "g2 launch a"]);
+    assert_eq!(first.steps[1].revision, 3);
+    assert_eq!(
+        first.steps[1].argv[1..],
+        ["approve", "g2", "--launch", "a", "--expect-revision", "3"]
+    );
+
+    // Five seconds on, the steps are the last read's and the helper is not asked.
+    let again = reader.read_at(None, t0 + chrono::Duration::seconds(5));
+    assert_eq!(again.steps.len(), 2);
+    assert_eq!(calls(&layout, "pending-calls").len(), 1);
+    let later = reader.read_at(None, t0 + chrono::Duration::seconds(11));
+    assert_eq!(later.steps.len(), 2);
+    assert_eq!(calls(&layout, "pending-calls").len(), 2);
+
+    // The waiting lane shows them beside a seat request, by kind and ref.
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(Snapshot {
+        requests: vec![request()],
+        ..later
+    });
+    assert_eq!(app.lane_len(Lane::Waiting), 3);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    assert!(row_of(&buf, 11).contains("session"), "{}", row_of(&buf, 11));
+    assert!(row_of(&buf, 12).contains("g2 plan"), "{}", row_of(&buf, 12));
+    assert!(
+        row_of(&buf, 13).contains("g2 launch a"),
+        "{}",
+        row_of(&buf, 13)
+    );
+}
+
+#[test]
+fn a_pending_that_hangs_is_given_up_after_two_seconds() {
+    let (layout, _, mut reader) = steps_reader("steps-hang", "sleep 10", "");
+    let start = std::time::Instant::now();
+    let snapshot = reader.read_at(None, noon());
+    assert!(
+        start.elapsed() < Duration::from_secs(4),
+        "{:?}",
+        start.elapsed()
+    );
+    assert!(snapshot.steps.is_empty());
+    assert!(
+        snapshot
+            .errors
+            .iter()
+            .any(|e| e.contains("did not answer in 2s")),
+        "{:?}",
+        snapshot.errors
+    );
+    assert_eq!(calls(&layout, "pending-calls").len(), 1);
+}
+
+/// The app over one read of `reader`, the stub its helper, the waiting lane
+/// focused on the launch step.
+fn steps_app(layout: &Layout, stub: &Path, reader: &mut Reader, seatbelted: bool) -> App {
+    let mut app = App::new(
+        Layout::at(layout.root()),
+        seatbelted,
+        Duration::from_secs(2),
+    );
+    app.set_reviewer(stub.to_path_buf(), layout.root().join("puppets"));
+    app.set_snapshot(reader.read_at(None, noon()));
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    // The waiting lane's first card is on row 11, the launch step on 12.
+    app.handle(&click(80, 12));
+    assert_eq!(app.opened, Some(Opened::Step("g2 launch a".to_string())));
+    app
+}
+
+#[test]
+fn a_on_a_step_shows_its_argv_and_y_runs_it() {
+    let (layout, stub, mut reader) = steps_reader(
+        "steps-approve",
+        "",
+        "echo approved launch of a at revision 3",
+    );
+    let home = layout.root().join("puppets");
+    let before = listing(&home);
+    let mut app = steps_app(&layout, &stub, &mut reader, false);
+
+    app.handle(&key(KeyCode::Char('a')));
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let screen = screen_text(&buf);
+    assert!(screen.contains("approve this step?"), "{screen}");
+    let shown = app.confirming_step.clone().expect("no confirmation");
+    let mut argv = vec![stub.display().to_string()];
+    argv.extend(["approve", "g2", "--launch", "a", "--expect-revision", "3"].map(String::from));
+    assert_eq!(shown.argv, argv);
+    // The argv may wrap in the box; its two ends are on screen.
+    assert!(screen.contains("puppets.py"), "{screen}");
+    assert!(
+        screen.contains("--launch a --expect-revision 3"),
+        "{screen}"
+    );
+    assert!(calls(&layout, "approve-calls").is_empty(), "ran before y");
+
+    // `n` runs nothing.
+    app.handle(&key(KeyCode::Char('n')));
+    assert!(calls(&layout, "approve-calls").is_empty());
+
+    app.handle(&key(KeyCode::Char('a')));
+    assert_eq!(app.handle(&key(KeyCode::Char('y'))), Effect::Refresh);
+    assert_eq!(
+        calls(&layout, "approve-calls"),
+        ["approve g2 --launch a --expect-revision 3"]
+    );
+    assert_eq!(calls(&layout, "approve-home"), [home.display().to_string()]);
+    let said = app.message.clone().unwrap();
+    assert!(
+        said.contains("approved launch of a at revision 3"),
+        "{said}"
+    );
+    // The cockpit wrote nothing under the goal home; the stub writes nothing there either.
+    assert_eq!(listing(&home), before);
+}
+
+#[test]
+fn exit_two_says_the_goal_moved_on() {
+    let (layout, stub, mut reader) = steps_reader(
+        "steps-moved",
+        "",
+        "echo 'expected revision 3, current revision 4' >&2; exit 2",
+    );
+    let mut app = steps_app(&layout, &stub, &mut reader, false);
+    app.handle(&key(KeyCode::Char('a')));
+    app.handle(&key(KeyCode::Char('y')));
+    let said = app.message.clone().unwrap();
+    assert!(
+        said.contains("the goal moved on; nothing approved"),
+        "{said}"
+    );
+    assert_eq!(calls(&layout, "approve-calls").len(), 1);
+}
+
+#[test]
+fn a_helper_that_hangs_on_approve_is_waited_on_five_seconds() {
+    let (layout, stub, mut reader) = steps_reader("steps-slow", "", "sleep 8");
+    let mut app = steps_app(&layout, &stub, &mut reader, false);
+    app.handle(&key(KeyCode::Char('a')));
+    let start = std::time::Instant::now();
+    app.handle(&key(KeyCode::Char('y')));
+    let waited = start.elapsed();
+    assert!(
+        waited >= Duration::from_secs(5) && waited < Duration::from_secs(7),
+        "{waited:?}"
+    );
+    let said = app.message.clone().unwrap();
+    assert!(said.contains("did not answer in 5s"), "{said}");
+}
+
+#[test]
+fn inside_a_seatbelt_a_on_a_step_runs_nothing() {
+    let (layout, stub, mut reader) = steps_reader("steps-seatbelt", "", "");
+    let mut app = steps_app(&layout, &stub, &mut reader, true);
+    app.handle(&key(KeyCode::Char('a')));
+    assert!(
+        app.confirming_step.is_none(),
+        "a confirmation opened in a seatbelt"
+    );
+    let said = app.message.clone().unwrap();
+    assert!(said.contains(hydra::approve::INSIDE_SEATBELT), "{said}");
+    app.handle(&key(KeyCode::Char('y')));
+    assert!(calls(&layout, "approve-calls").is_empty());
+}
+
+#[test]
+fn a_step_approved_here_stays_out_of_the_lane_until_pending_is_read_again() {
+    let (layout, stub, mut reader) = steps_reader("steps-hide", "", "echo approved");
+    let mut app = steps_app(&layout, &stub, &mut reader, false);
+    let cached = app.snapshot.clone();
+    app.handle(&key(KeyCode::Char('a')));
+    app.handle(&key(KeyCode::Char('y')));
+    let labels =
+        |app: &App| -> Vec<String> { app.snapshot.steps.iter().map(|s| s.label()).collect() };
+    assert_eq!(labels(&app), ["g2 plan"]);
+
+    // The reader's cached list still names it; the lane does not.
+    app.set_snapshot(cached.clone());
+    assert_eq!(labels(&app), ["g2 plan"]);
+    assert_eq!(app.lane_len(Lane::Waiting), 1);
+
+    // A read of `pending` after the approval is the helper's word again.
+    app.set_snapshot(Snapshot {
+        steps_read_at: Some(chrono::Utc::now() + chrono::Duration::seconds(60)),
+        ..cached
+    });
+    assert_eq!(labels(&app), ["g2 plan", "g2 launch a"]);
+}
