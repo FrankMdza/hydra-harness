@@ -1,7 +1,7 @@
 # 171 - The cockpit shows policies and opens the editor
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 170
 
 ## What
