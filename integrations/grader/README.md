@@ -35,6 +35,18 @@ When a run id appears in more than one goal log, the last sorted goal id wins.
 Runs with no matching goal log keep the task text from the record and leave the
 label fields null.
 
+A model can fill those fields too. Every `task-classes-*.jsonl` under
+`HYDRA_GRADER_HOME` holds one JSON object per run: `run_id`, `task_class`,
+`grade`, and optionally `area`, `kind`, `unsure` and `source`. A model wrote
+these files, not a human. Files are read in name order, so a later file wins on
+the same `run_id`. When Puppets names the run, Puppets wins and the file is
+ignored for that run. Otherwise the row takes `task_class` and `grade` from the
+file, gets `area` and `kind`, and `labels_source` is `"llm"`. `unsure: true`
+still fills the row and adds `label_unsure: true`. The cursor entry for such a
+run is the record fingerprint plus a digest of its line, so the next `once`
+rewrites the row when the file appears or changes. Nothing trains on `area` or
+`kind` yet, and `baseline.py` reads neither `task_class` nor `grade`.
+
 ## Commands
 
 ```

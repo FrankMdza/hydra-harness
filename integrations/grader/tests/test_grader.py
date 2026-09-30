@@ -345,6 +345,71 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
         self.assertEqual(code, 0)
         self.assertEqual(out.getvalue().strip(), "1")
 
+    def write_classes(self, name, lines):
+        self.home.mkdir(parents=True, exist_ok=True)
+        (self.home / name).write_text("".join(json.dumps(x) + "\n" for x in lines))
+
+    def rows_by_id(self):
+        return {r["run_id"]: r for r in records.read_jsonl(self.home / "dataset.jsonl")}
+
+    def test_a_model_written_class_fills_an_unlabelled_row_and_puppets_wins(self):
+        self.record("a")
+        self.record("b")
+        self.write_classes("task-classes-llm-2026-09-29.jsonl", [
+            {"run_id": "a", "task_class": "probe", "grade": "low", "area": "hydra", "kind": "probe"},
+            {"run_id": "b", "task_class": "docs", "grade": "medium", "area": "docs",
+             "kind": "edit", "unsure": True},
+        ])
+        self.collect()
+        rows = self.rows_by_id()
+        self.assertEqual(rows["a"]["task_class"], "rust_launch_path")
+        self.assertEqual(rows["a"]["labels_source"], "puppets")
+        self.assertIsNone(rows["a"]["area"])
+        self.assertIsNone(rows["a"]["kind"])
+        self.assertNotIn("label_unsure", rows["a"])
+        self.assertEqual(rows["b"]["task_class"], "docs")
+        self.assertEqual(rows["b"]["grade"], "medium")
+        self.assertEqual(rows["b"]["labels_source"], "llm")
+        self.assertEqual(rows["b"]["area"], "docs")
+        self.assertEqual(rows["b"]["kind"], "edit")
+        self.assertTrue(rows["b"]["label_unsure"])
+
+    def test_a_later_once_rewrites_the_rows_a_new_class_file_touches(self):
+        self.record("b")
+        self.record("d")
+        self.collect()
+        self.assertIsNone(self.rows_by_id()["b"]["labels_source"])
+        self.write_classes("task-classes-llm-2026-09-29.jsonl", [
+            {"run_id": "b", "task_class": "docs", "grade": "low"},
+        ])
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(self.rows_by_id()["b"]["labels_source"], "llm")
+        self.assertEqual(self.collect(), 0)
+        # Only the label changed, so `hydra show` is not asked again.
+        self.assertEqual(sorted((self.root / "calls").read_text().split()), ["b", "d"])
+        self.write_classes("task-classes-llm-2026-09-30.jsonl", [
+            {"run_id": "b", "task_class": "probe", "grade": "high"},
+        ])
+        self.assertEqual(self.collect(), 1)
+        self.assertEqual(self.rows_by_id()["b"]["task_class"], "probe")
+        self.assertEqual(self.rows_by_id()["d"]["labels_source"], None)
+
+    def test_rebuild_fills_rows_from_the_class_file(self):
+        self.record("b")
+        self.write_classes("task-classes-llm-2026-09-29.jsonl", [
+            {"run_id": "b", "task_class": "docs", "grade": "low", "kind": "edit"},
+        ])
+        self.collect(rebuild=True)
+        row = self.rows_by_id()["b"]
+        self.assertEqual((row["labels_source"], row["kind"]), ("llm", "edit"))
+
+    def test_every_row_carries_area_and_kind_even_when_unlabelled(self):
+        self.record("b")
+        self.collect()
+        row = self.rows_by_id()["b"]
+        self.assertIn("area", row)
+        self.assertIn("kind", row)
+
 
 if __name__ == "__main__":
     unittest.main()

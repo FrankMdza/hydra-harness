@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -79,26 +80,39 @@ def dataset_by_run_id(path: Path) -> dict[str, dict]:
     return {row["run_id"]: row for row in records.read_jsonl(path)}
 
 
-def dataset_row(raw: dict, label: dict | None, collected_at: str) -> dict:
+def label_digest(label: dict) -> str:
+    return hashlib.sha256(json.dumps(label, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def dataset_row(
+    raw: dict, label: dict | None, collected_at: str, llm_label: dict | None = None
+) -> dict:
     task_text = raw.get("task") or ""
     if label and label.get("text"):
         task_text = label["text"]
-    return {
+    # Puppets names the run: it wins. Otherwise a class a model wrote fills the row, marked "llm".
+    llm = None if label else llm_label
+    row = {
         "run_id": raw["run_id"],
         "provider": raw["provider"],
         "model": raw["canonical_model"],
         "recorded_model": raw["recorded_model"],
         "policy": raw["policy"],
         "task_text": redact.redact_string(task_text),
-        "task_class": label.get("class") if label else None,
-        "grade": label.get("grade") if label else None,
+        "task_class": label.get("class") if label else (llm or {}).get("task_class"),
+        "grade": label.get("grade") if label else (llm or {}).get("grade"),
+        "area": (llm or {}).get("area"),
+        "kind": (llm or {}).get("kind"),
         "outcome": raw["outcome"],
         "human_verdict": label.get("human_verdict") if label else None,
         "tokens": raw["tokens"],
         "duration_s": raw["duration_seconds"],
-        "labels_source": "puppets" if label else None,
+        "labels_source": "puppets" if label else ("llm" if llm else None),
         "collected_at": collected_at,
     }
+    if llm and llm.get("unsure"):
+        row["label_unsure"] = True
+    return row
 
 
 def collect(
@@ -118,6 +132,15 @@ def collect(
     cursor = {} if rebuild else records.read_json(cursor_path, {})
     dataset = {} if rebuild else dataset_by_run_id(dataset_path)
     puppets_labels = labels.collect()
+    llm_labels = labels.collect_llm(home)
+
+    def effective(item: dict) -> str:
+        """The record's fingerprint, plus a digest of the model-written label when one fills
+        the row, so a new or changed class file makes the run stale."""
+        run_id = item["run_id"]
+        if run_id in puppets_labels or run_id not in llm_labels:
+            return item["fingerprint"]
+        return item["fingerprint"] + ":llm-" + label_digest(llm_labels[run_id])
 
     scanned = []
     for path in sorted(runs.glob("*.jsonl")):
@@ -128,7 +151,7 @@ def collect(
     stale = [
         item
         for item in scanned
-        if rebuild or cursor.get(item["run_id"]) != item["fingerprint"]
+        if rebuild or cursor.get(item["run_id"]) != effective(item)
     ]
     stale_ids = {item["run_id"] for item in stale}
     if not stale:
@@ -140,6 +163,8 @@ def collect(
     workers = max(1, jobs)
 
     def work(item: dict) -> None:
+        if cache.get(item["run_id"], {}).get("fingerprint") == item["fingerprint"]:
+            return  # only the label changed
         records.refresh_show_answer(
             item["run_id"],
             runs,
@@ -164,11 +189,16 @@ def collect(
     ticket_verdicts = records.read_json(home / "ticket-verdicts.json", {})
     collected_at = utc_now()
     for item in scanned:
-        cursor[item["run_id"]] = item["fingerprint"]
+        cursor[item["run_id"]] = effective(item)
         if rebuild or item["run_id"] in stale_ids:
             answer = cache[item["run_id"]]["answer"]
             raw = records.record_row(item["first"], item["lines"], answer, aliases)
-            row = dataset_row(raw, puppets_labels.get(item["run_id"]), collected_at)
+            row = dataset_row(
+                raw,
+                puppets_labels.get(item["run_id"]),
+                collected_at,
+                llm_labels.get(item["run_id"]),
+            )
             if item["run_id"] in ticket_verdicts:
                 row["human_verdict"] = ticket_verdicts[item["run_id"]]
             dataset[item["run_id"]] = row

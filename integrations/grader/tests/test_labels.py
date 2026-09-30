@@ -137,6 +137,25 @@ class LabelsTests(unittest.TestCase):
         (nested / "note.jsonl").write_text('{"event":"goal"}\n')
         self.assertEqual(labels.collect(self.home), {})
 
+    def write_classes(self, name, lines):
+        (self.home / name).write_text("".join(json.dumps(x) + "\n" for x in lines))
+
+    def test_llm_classes_read_every_file_and_the_newest_wins(self):
+        self.write_classes("task-classes-llm-2026-09-29.jsonl", [
+            {"run_id": "r1", "task_class": "probe", "grade": "low", "area": "hydra", "kind": "probe"},
+            {"run_id": "r2", "task_class": "probe", "grade": "low", "unsure": True},
+        ])
+        self.write_classes("task-classes-llm-2026-10-01.jsonl", [
+            {"run_id": "r1", "task_class": "security_review", "grade": "high", "source": "codex"},
+        ])
+        (self.home / "other.jsonl").write_text('{"run_id": "r3", "task_class": "x", "grade": "y"}\n')
+        got = labels.collect_llm(self.home)
+        self.assertEqual(sorted(got), ["r1", "r2"])
+        self.assertEqual(got["r1"]["task_class"], "security_review")
+        self.assertEqual(got["r1"]["source"], "codex")
+        self.assertIsNone(got["r1"].get("area"))
+        self.assertTrue(got["r2"]["unsure"])
+
 
 if __name__ == "__main__":
     unittest.main()

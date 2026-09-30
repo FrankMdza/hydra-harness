@@ -25,6 +25,16 @@ def puppets_home() -> Path:
     return Path.home() / "hydra" / "puppets"
 
 
+def grader_home() -> Path:
+    named = os.environ.get("HYDRA_GRADER_HOME")
+    if named:
+        return Path(named)
+    root = os.environ.get("HYDRA_ROOT")
+    if root:
+        return Path(root) / "grader"
+    return Path.home() / "hydra" / "grader"
+
+
 def committed_events(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         return []
@@ -102,3 +112,21 @@ def collect(home: Path | None = None) -> dict[str, dict[str, Any]]:
         for run_id, row in labels_for_goal(goal_id, committed_events(path)).items():
             labels[run_id] = row
     return labels
+
+
+def collect_llm(home: Path | None = None) -> dict[str, dict[str, Any]]:
+    """Read every ``task-classes-*.jsonl`` under the grader home, oldest name first, so a later
+    file wins on the same run_id. A model wrote these, not a human."""
+    home = home or grader_home()
+    found: dict[str, dict[str, Any]] = {}
+    for path in sorted(home.glob("task-classes-*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict) and item.get("run_id"):
+                found[item["run_id"]] = item
+    return found
