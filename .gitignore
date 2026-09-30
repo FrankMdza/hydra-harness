@@ -30,3 +30,4 @@ target/
 /.scratch/hydra/labeling/*/tasks-*.jsonl
 __pycache__/
 *.pyc
+approvals/

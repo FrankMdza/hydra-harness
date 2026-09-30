@@ -41,8 +41,8 @@ carries a `core.hooksPath` with a `post-checkout` hook, a clean filter and an ex
 the planted system file carries a second filter. `worktree::create` and `commit_everything` then
 run against a parent with no identity of its own. With the two variables taken out of
 `command()`, the hook, the global filter and the system filter all fired. With the identity
-taken out, the commit went through anyway under `Francisco Mendoza
-<frank@laptop.local>`, git's guess from the hostname. So dropping global config
+taken out, the commit went through anyway under `<the user's name>
+<user@host.local>`, git's guess from the hostname. So dropping global config
 without passing the identity would not have failed loudly. Reap commits would quietly have
 changed author.
 
