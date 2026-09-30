@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""hydra-board: refresh `puppets.py board` in a Herdr pane (map 85, build 148)."""
+import argparse
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+CLEAR = "\033[2J\033[H"
+WAITING_LINE = "hydra-board: no goal log under HYDRA_PUPPETS_HOME; waiting..."
+
+
+def puppets_home() -> Path:
+    named = os.environ.get("HYDRA_PUPPETS_HOME")
+    if named:
+        return Path(named)
+    return Path.home() / "hydra" / "puppets"
+
+
+def puppets_script() -> Path:
+    here = Path(__file__).resolve().parent
+    return here.parent.parent / "puppets" / "puppets.py"
+
+
+def newest_goal_id(home: Path) -> str | None:
+    best_id: str | None = None
+    best_mtime = -1.0
+    if not home.is_dir():
+        return None
+    for path in home.glob("*.jsonl"):
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if mtime > best_mtime:
+            best_mtime = mtime
+            best_id = path.stem
+    return best_id
+
+
+def run_board(puppets_py: Path, goal_id: str) -> tuple[int, str, str]:
+    proc = subprocess.run(
+        [sys.executable, str(puppets_py), "board", goal_id],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def render_once(
+    home: Path,
+    puppets_py: Path,
+    goal_arg: str | None,
+    *,
+    clear: bool = True,
+) -> str:
+    """One board frame as text (for tests and the refresh loop)."""
+    chunks: list[str] = []
+    if clear:
+        chunks.append(CLEAR)
+    if goal_arg:
+        goal_id = goal_arg
+        show_pick = False
+    else:
+        goal_id = newest_goal_id(home)
+        show_pick = True
+    if goal_id is None:
+        chunks.append(WAITING_LINE + "\n")
+        return "".join(chunks)
+    if show_pick:
+        chunks.append(f"hydra-board: goal {goal_id}\n")
+    code, out, err = run_board(puppets_py, goal_id)
+    if code != 0:
+        if err:
+            chunks.append(err if err.endswith("\n") else err + "\n")
+        if out:
+            chunks.append(out if out.endswith("\n") else out + "\n")
+        if not err and not out:
+            chunks.append(f"puppets board {goal_id} failed (exit {code})\n")
+    else:
+        chunks.append(out if out.endswith("\n") else out + "\n")
+    return "".join(chunks)
+
+
+def refresh_loop(home: Path, puppets_py: Path, goal_arg: str | None, interval: float) -> None:
+    while True:
+        sys.stdout.write(render_once(home, puppets_py, goal_arg))
+        sys.stdout.flush()
+        time.sleep(interval)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Refresh the puppets board in a terminal pane")
+    parser.add_argument("--goal", help="Goal id; default is the most recently changed goal log")
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=5.0,
+        help="Seconds between refreshes (default 5)",
+    )
+    args = parser.parse_args()
+    if args.interval <= 0:
+        print("hydra-board: --interval must be positive", file=sys.stderr)
+        return 1
+    home = puppets_home()
+    puppets_py = puppets_script()
+    if not puppets_py.is_file():
+        print(f"hydra-board: puppets.py not found at {puppets_py}", file=sys.stderr)
+        return 1
+    try:
+        refresh_loop(home, puppets_py, args.goal, args.interval)
+    except KeyboardInterrupt:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -18,11 +18,18 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
   at exit, so the bridge shows the pane alive with no tool names until then.
 - `hy.zsh`, a shell function to source from `~/.zshrc`: with no arguments `hy` asks for a provider,
   a model, and a policy; `hy <provider> <model> <policy>` launches that provider when it is on the
-  measured list; `hy [model] [policy]` still launches `claude` directly for muscle memory. Only
-  providers in `interactive-gate-providers.txt` are offered, those whose interactive gate has been
-  measured in their own TUI (`claude` today). Policy choices are the `*.json` files in the repo's
-  `policies/` directory except `floor.json` (the pattern floor, not a policy). Defaults are
-  `sonnet` and `standard`.
+  measured list; `hy [model] [policy]` still launches `claude` directly for muscle memory. It
+  opens three panes to the right of the current one: `hydra-mascot --watch` on top, the gated
+  session below, and `hydra-board` to the right of the session pane. The board pane loops
+  `puppets.py board` every few seconds. Pass `--goal <id>` on the `hydra-board` command in the
+  pane if you want a specific goal; otherwise it follows whichever goal log under
+  `HYDRA_PUPPETS_HOME` changed most recently. Only providers in `interactive-gate-providers.txt`
+  are offered, those whose interactive gate has been measured in their own TUI (`claude` today).
+  Policy choices are the `*.json` files in the repo's `policies/` directory except `floor.json`
+  (the pattern floor, not a policy). Defaults are `sonnet` and `standard`.
+- `bin/hydra-board`, a refresher for the puppets task table in a pane. Stdlib only; it shells out
+  to `puppets.py board` rather than importing it, so the loop stays a thin wrapper and failures
+  stay in the subprocess stderr the pane already shows.
 - `bin/hydra-bridge`, a poller. Every two seconds it lists the panes carrying a `run_id` token,
   reads `hydra status` for each, and reports on change. The state table at the top of the file
   is the whole policy. Resolved 2026-09-07, map ticket 49. A live session with a seat request

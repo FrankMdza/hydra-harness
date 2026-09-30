@@ -143,6 +143,19 @@ class TestHy(unittest.TestCase):
         self.assertIn("130", proc.stderr)
         self.assertFalse(self.log.exists())
 
+    def test_hy_splits_three_panes_and_runs_hydra_board(self):
+        proc = run_hy(self.env, "sonnet", "standard")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        lines = self.log.read_text().strip().splitlines()
+        run_cmds = [line for line in lines if "pane run" in line]
+        self.assertEqual(len(run_cmds), 3, self.log.read_text())
+        board_runs = [line for line in run_cmds if "hydra-board" in line]
+        self.assertEqual(len(board_runs), 1)
+        self.assertRegex(
+            proc.stdout,
+            r"hy: mascot pane-\d+, board pane-\d+, claude pane-\d+",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

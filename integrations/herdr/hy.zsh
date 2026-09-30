@@ -1,8 +1,8 @@
 # hy [provider model policy] | [model] [policy]: a gated interactive session in Herdr, with the mascot above it.
 # Source this file from ~/.zshrc. Build ticket 107; provider and model prompts since 129.
 #
-# Two panes to the right of the current one: the top one runs `hydra-mascot --watch`, the pet
-# that reads every pane carrying a run id, and the bottom one runs the gated session.
+# Three panes to the right of the current one: mascot on top, gated session below it, and
+# `hydra-board` to the right of the session pane (build 148).
 # Hydra draws nothing inside the session itself (map decision D3, the vendor owns that terminal),
 # which is why the hydra lives in a pane of its own.
 _hy_measured_providers() {
@@ -156,7 +156,7 @@ hy() {
     local vendors_file="$here/../puppets/vendors.json"
     local bin="${HYDRA_BIN:-$HOME/hydra/target/release/hydra}"
     local provider model policy
-    local top bottom
+    local top bottom board
 
     if [ $# -eq 0 ]; then
         provider=$(_hy_pick_provider "$providers_file") || return 1
@@ -204,7 +204,10 @@ hy() {
         | python3 -c 'import sys, json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])') || return 1
     bottom=$(herdr pane split "$top" --direction down --ratio 0.3 --cwd "$dir" --env "HYDRA_BIN=$bin" \
         | python3 -c 'import sys, json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])') || return 1
+    board=$(herdr pane split "$bottom" --direction right --cwd "$dir" --env "HYDRA_BIN=$bin" \
+        | python3 -c 'import sys, json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])') || return 1
     herdr pane run "$top" "python3 $here/bin/hydra-mascot --watch" >/dev/null
     herdr pane run "$bottom" "bash $here/bin/hydra-tui-in-pane --provider $provider --model $model --policy $policy" >/dev/null
-    echo "hy: mascot $top, $provider $bottom"
+    herdr pane run "$board" "python3 $here/bin/hydra-board" >/dev/null
+    echo "hy: mascot $top, board $board, $provider $bottom"
 }
