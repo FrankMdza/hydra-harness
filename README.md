@@ -137,15 +137,36 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `approve` | approve a seat request no shape covers; with no id, list what waits |
 | `deny` | deny one; the session hears `hydra/request-denied` and nothing launches |
 | `doctor` | the root, the binaries against the measured versions, the policy sha, which protected configs are missing |
-| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; with `--session`, the chat in the left panel |
+| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; answers seat requests, approves Puppets steps, stops seats; with `--session`, the chat in the left panel |
 
 `hydra cockpit` is for the terminal beside an orchestrating session's chat. The left column is
-the task table of a Master of Puppets goal, the middle one sorts every run into `live`,
-`waiting approval`, `ended ok` and `ended not ok`, and the right one shows the run you open: its
-outcome, tokens, final text and last twenty record lines. It rereads the disk every two seconds
-and launches nothing. The one thing it writes is the answer to a waiting seat request, `a` then
-`y` to approve or `d` then `y` to deny, which is what `hydra approve <id>` or `hydra deny <id>`
-writes. Keys and mouse both work; `q` quits.
+the task table of a Master of Puppets goal (id, status, done, provider, model, run, grade and
+class, dropped from the right as the pane narrows; once a task's run ends, status shows the
+run's outcome). The middle one sorts every run into `live`, `waiting approval`, `ended ok` and
+`ended not ok`, with the seat requests and Puppets steps that wait on a human in the second. The
+right one shows what you open: a run's outcome, tokens and final text, then its last fifteen tool
+calls, with a secret-flagged call's input hidden and secret-looking values masked as `***`. The
+header's dragon counts the live seats of the watched session (every live run without one), and
+lists each live provider's tokens per minute and share of its window. It rereads the disk every
+two seconds and launches no provider.
+
+| Key | Does |
+|---|---|
+| arrows, `Tab`, `Shift-Tab` | move within a panel, or between panels |
+| `Enter`, `Esc` | open the selected run, request or step; close it |
+| `r` | swap the detail between tool calls and the raw last twenty record lines |
+| `a`, `y` | approve the selected seat request, or run the argv `puppets.py pending` listed for a step |
+| `d`, `y` | deny the selected seat request; a step has no deny |
+| `v`, `y` | start `puppets.py review` on the selected task: three judge runs, which count against quota |
+| `m`, `y` | stop the selected live seat, the same stop as `hydra stop`; with `--session`, leave an unsent note about it in the chat |
+| `p` | policy pane: the set's sha and the live runs' shas; `e` opens the selected file in `$EDITOR` |
+| `q` | quit |
+
+Each write waits for a `y`: a seat approval or denial, which is what `hydra approve <id>` or
+`hydra deny <id>` writes; a Master of Puppets approval, through the `puppets.py` helper; a stop.
+`puppets.py` is the only writer of a goal log, and the cockpit writes no policy file, since the
+editor is the human's. Approvals, denials and stops refuse inside a seatbelt. The mouse clicks,
+selects and scrolls.
 
 ```
 hydra cockpit                    # the goal log that changed last

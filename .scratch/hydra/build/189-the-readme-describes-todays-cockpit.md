@@ -1,7 +1,7 @@
 # 189 - The README describes today's cockpit and commands
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -27,3 +27,12 @@ The command table gained `stop` and `deny`. A stranger reads this first.
 ## Done when
 
 - The report lists each key with the code line that handles it, and each README line changed.
+
+## Outcome
+
+Resolved 2026-09-30. Written by `claude` sonnet on run 01a0f3bb-6c3b under `standard`, each key
+checked against its handling line in `src/cockpit/app.rs`. The session applied it and added the
+chat note to the `m` row. The cockpit passage now names the table's columns and priority, the
+lanes with the Puppets steps, the detail's tool calls and masking, the dragon's session count and
+the header's tokens and window share, a key table, and what the cockpit writes and never writes.
+
