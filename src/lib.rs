@@ -20,6 +20,7 @@
 
 pub mod approve;
 pub mod cli;
+pub mod cockpit;
 pub mod containment;
 pub mod doctor;
 pub mod env;

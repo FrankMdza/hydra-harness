@@ -3162,6 +3162,57 @@ session chose the plan and reviewed the diffs and said so each time.
 Not built: any automatic execution, which map ticket 76 makes wait for bounded retries and crash
 recovery.
 
+## `hydra cockpit`, since build ticket 150
+
+Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen
+Ratatui view a human runs in a terminal of their own, beside an orchestrating session's chat.
+`src/cockpit/` is all of it, and the only lines outside that directory are the subcommand in
+`cli.rs` and `main.rs` and `pub mod cockpit` in `lib.rs`.
+
+**What it reads.** The left column is one goal's task table, folded in Rust from the goal log
+under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `puppets.py`'s `fold` rules for the events
+that change a row: `task`, `assignment`, `run`, `run_end`, `human_verdict`. Without `--goal` it
+takes the log that changed last and says so on the status line. A complete line `fold` would
+raise on is counted and skipped; a last line with no newline waits for the next read, as
+`read_log` does. The middle column is four lanes. `live` is contract 5.2's liveness through
+`live::read_view`, `ended ok` is an outcome of `completed`, and `ended not ok` holds every other
+outcome, an abandoned run and a record that would not read back. `waiting approval` is what
+`hydra approve` with no id lists, from `approve::pending`. The right column is one run: provider,
+model, policy, state, outcome, total tokens, `result_text` and the last twenty record lines.
+
+**It does not call `hydra status`.** That command's scan harvests a dead interactive `claude`
+run, which appends to a record, so the cockpit reads each record's liveness itself and leaves an
+abandoned run abandoned. An ended record is normalized once and kept by run id and file length,
+because normalizing replays the gate, a Python process per recorded tool call.
+
+**Reading does not block input.** A thread reads every `--interval`, default 2 seconds, and hands
+the input loop a snapshot over a channel. Opening a run asks it for a read at once, with that
+run's tail.
+
+**Its one write.** In the waiting lane, `a` opens a confirmation that shows the request as
+`hydra approve` lists it, and `y` calls `approve::approve`, the function `hydra approve <id>`
+calls. `tests/cockpit.rs` approves one of two identical scratch stores from the cockpit and the
+other through that function, and compares every file. Inside a seatbelt the cockpit refuses
+before the confirmation opens, as `hydra/approve-inside-seatbelt`, on screen. The check is
+`sandbox::inside_seatbelt`, the one `approve::command` makes; the suite names it rather than
+asks, because the suite may itself run inside one.
+
+**Input.** Arrows and `Tab` move between panels and rows, `Enter` opens, `Esc` closes, `q` quits.
+A click selects the table row under it or opens the card under it, and the wheel scrolls the
+panel under the pointer. Every drawn row and card keeps its `Rect` from the last draw, and a click
+is `Rect::contains` over them. Mouse capture and the alternate screen are undone on drop and by a
+panic hook.
+
+**Tested without a terminal.** `App::draw` paints a `Buffer` and `App::handle` takes a crossterm
+event. The binary was driven once on a pty through `script`, 150 by 30, against a scratch
+`HYDRA_ROOT`: it drew the table and the lanes, quit on `q`, and turned mouse capture and the
+alternate screen back off. A real mouse over a real terminal emulator has not been tried, so the
+wheel and click paths are tested only against synthetic events.
+
+**Cut two, build ticket 151**, puts the chat inside: the cockpit launches
+`hydra run --interactive` on a pty it owns and paints it in the left panel with a terminal widget,
+passing keys and resizes through. Nothing of that is here.
+
 ## `hydra resume`, since build ticket 32
 
 Harness spec 5's session identity and spec 17's ninth row. `src/resume.rs`, written by

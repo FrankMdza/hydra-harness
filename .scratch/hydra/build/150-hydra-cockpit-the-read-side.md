@@ -1,7 +1,7 @@
 # 150 - `hydra cockpit`, the read side, with one write for approvals
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -62,3 +62,28 @@ would change behaviour, stop and say so.
 - The binary starts, draws, and quits with `q` on a real terminal if you can drive one; if not,
   say so. The report says what stays untested without a terminal.
 - Nothing on the seatbelt or the gate changes. `hydra doctor` output is unchanged.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f064-0a90 under `standard`, about 7.75M
+tokens. The session applied the diff as written: `src/cockpit/` (app, goal, snapshot, mod, 1,483
+lines), `tests/cockpit.rs`, the `cockpit` subcommand, `ratatui 0.30.2` and `crossterm 0.29`,
+sections in `IMPLEMENTATION.md` and `README.md`, and one line in `lib.rs` the ticket had not
+allowed for.
+
+Six tests, driven over a `Buffer` with synthetic events: the fold of a goal log (checked against
+`puppets.py`'s own `fold`), lanes by liveness and outcome, hit testing at fixed coordinates,
+approval byte for byte against `approve::approve` on two scratch stores, refusal inside a
+seatbelt, and a goal id that cannot name a path. The run broke the code four ways and each turned
+a test red. Test 2 caught a real bug on its first run: the model read through
+`live::opening_line` was always empty.
+
+On master: fmt and clippy clean, cockpit 6, lib 217. Release rebuilt.
+
+The session drove the release binary on a pty at 180 by 45 against the real corpus of 540
+records: the first frame came in 0.01 s with the lanes marked `reading`, and the lanes filled
+after 27 s, the one-time normalization of every ended record. `q` quit and restored the terminal.
+Not seen by a human yet: clicks, the wheel, resize, and the table on a narrow screen, which the
+run says cuts the run column below 170 columns.
+
+Cut two, the vendor's pty inside, is build ticket 151, not written yet. The mascot is 152.

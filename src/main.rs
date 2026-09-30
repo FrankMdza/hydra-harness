@@ -224,6 +224,9 @@ fn main() -> Result<()> {
                 hydra::approve::command(&layout, request_id.as_deref())?
             );
         }
+        Command::Cockpit { goal, interval } => {
+            hydra::cockpit::run(&Layout::discover()?, goal, interval)?;
+        }
         Command::Export { out, dry_run } => {
             let layout = Layout::discover()?;
             let allowlist = hydra::export::allowlist_path();

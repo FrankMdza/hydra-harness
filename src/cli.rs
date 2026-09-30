@@ -232,6 +232,19 @@ pub enum Command {
         request_id: Option<String>,
     },
 
+    /// A full-screen view of one goal's tasks, the runs by state, and one run's
+    /// detail, build ticket 150. Reads files and draws; its one write is the
+    /// approval of a waiting seat request, the same as `hydra approve <id>`.
+    Cockpit {
+        /// The goal log to show. Without it, the one that changed last.
+        #[arg(long)]
+        goal: Option<String>,
+
+        /// How often to read the disk again: `2`, `5s`, `1m`.
+        #[arg(long, default_value = "2", value_parser = parse_duration)]
+        interval: Duration,
+    },
+
     /// The one path by which anything leaves this machine, harness spec 14.
     Export {
         /// Where the header and one JSON line per eligible run are written.

@@ -290,5 +290,38 @@
     "plan": null,
     "windows": null,
     "window_budget_tokens": null
+  },
+  {
+    "provider": "codex",
+    "model": "gpt-6.1-sol",
+    "as_of": "2026-09-30",
+    "source_url": null,
+    "context_tokens": null,
+    "thinking_levels": null,
+    "plan": null,
+    "windows": "7d",
+    "window_budget_tokens": null
+  },
+  {
+    "provider": "codex",
+    "model": "gpt-6-sol",
+    "as_of": "2026-09-30",
+    "source_url": null,
+    "context_tokens": null,
+    "thinking_levels": null,
+    "plan": null,
+    "windows": "7d",
+    "window_budget_tokens": null
+  },
+  {
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "as_of": "2026-09-30",
+    "source_url": null,
+    "context_tokens": null,
+    "thinking_levels": null,
+    "plan": null,
+    "windows": "7d",
+    "window_budget_tokens": null
   }
 ]
