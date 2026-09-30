@@ -1,8 +1,8 @@
 # 184 - Stepping in on a seat
 
 Type: build
-Status: open
-Blocked by: 182
+Status: claimed
+Blocked by: 183
 
 ## What
 
