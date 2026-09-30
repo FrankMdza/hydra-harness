@@ -3372,9 +3372,14 @@ status line and runs without the dragon. Heads awake are the live runs, left to 
 idle, one is two asleep, two is one asleep, three or more is working, and past three a `+N` line
 sits beside the dragon. A run seen going from live to ended `gated` shows the refused pose for
 one read, any other end but `completed` shows the meme head, and a request that leaves the
-waiting lane shows fire. What was already ended when the cockpit opened shows nothing. Three
-things are approximations. Every live run counts as a seat, not only the runs of one session,
-because a card does not carry its session. A request that leaves the waiting lane is read as
+waiting lane shows fire. What was already ended when the cockpit opened shows nothing.
+Since build ticket 177 a card carries `parent_run_id` off line 0, and with `--session` the heads,
+the `+N` line and the `N live seat(s)` label count the session's own run and the live runs whose
+`parent_run_id` is it; a run outside the session neither wakes a head nor flashes. The chat learns
+the session's id from the `hydra: run <uuid>` line, so until the child prints it every live run
+counts, as without `--session`. When one of those seats ends not ok the flash is the same, and
+for that one read the header adds `<short id> <outcome>` under the seat count. Two things are
+approximations. A request that leaves the waiting lane is read as
 launched, though a withdrawn one leaves it too. `all_asleep` is generated and never drawn,
 since the ticket says idle when nothing is live. The poses are still frames, so the dragon does
 not sway. The binary ran on a pty at 160 by 40 and drew the title and truecolor half blocks;

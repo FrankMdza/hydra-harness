@@ -1,7 +1,7 @@
 # 177 - The dragon counts this session's seats
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 176
 
 ## What
@@ -27,3 +27,14 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
 ## Done when
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f30e-4656 under `standard`. The session
+applied it as written. `Card` carries `parent_run_id`; with `--session`, the dragon's heads, `+N`
+and the seat label count the session and its direct seats, and a seat that ends not ok is named
+`<short id> <outcome>` under the count for one refresh. Until the chat prints its run id the
+cockpit counts every live run, as without `--session`. The fire pose still ignores the session.
+Five tests, four failing first against stubs; fmt and clippy clean, `--test cockpit` 44, `--lib`
+221 on master.
+

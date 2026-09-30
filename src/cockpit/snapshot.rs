@@ -92,6 +92,9 @@ pub struct Card {
     /// The sha of the policy set the run launched under, off line 0. A live
     /// run keeps the gate compiled from that set whatever `policies/` says now.
     pub policy_sha: Option<String>,
+    /// The run that launched this one, off line 0. A session's seats name the
+    /// session here. Build ticket 177.
+    pub parent_run_id: Option<String>,
     pub state: State,
     pub outcome: Option<String>,
     pub total_tokens: Option<u64>,
@@ -330,6 +333,7 @@ impl Reader {
                 model,
                 policy: view.policy.clone(),
                 policy_sha,
+                parent_run_id: view.parent_run_id.clone(),
                 state: view.state,
                 outcome: None,
                 total_tokens: None,

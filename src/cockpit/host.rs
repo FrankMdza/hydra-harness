@@ -86,12 +86,17 @@ impl Host {
         (inner.height, inner.width)
     }
 
-    /// Reads what the child wrote. Returns whether the screen changed.
+    /// Reads what the child wrote, and once it names its run, points the
+    /// dragon at that session. Returns whether the screen changed.
     pub fn pump(&mut self) -> bool {
-        match &mut self.chat {
-            Some((_, chat)) => chat.pump(),
-            None => false,
+        let Some((_, chat)) = &mut self.chat else {
+            return false;
+        };
+        let changed = chat.pump();
+        if let Some(run_id) = chat.run_id() {
+            self.app.watch(run_id);
         }
+        changed
     }
 
     /// Whether the loop should stop: after `y`, once the child's record is read.

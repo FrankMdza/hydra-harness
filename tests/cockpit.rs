@@ -199,11 +199,16 @@ fn write_live_run(layout: &Layout, run_id: &str) {
 
 /// The same, launched under the policy set whose sha is `policy_sha`.
 fn write_live_run_on(layout: &Layout, run_id: &str, policy_sha: Option<&str>) {
+    write_live_seat(layout, run_id, None, policy_sha);
+}
+
+/// The same, launched by `parent`.
+fn write_live_seat(layout: &Layout, run_id: &str, parent: Option<&str>, policy_sha: Option<&str>) {
     let pid = std::process::id();
     let start = hydra::procinfo::start_time(pid).unwrap().unwrap();
     let line = json!({
         "run_id": run_id,
-        "parent_run_id": null,
+        "parent_run_id": parent,
         "seq": 0,
         "ts": "2026-09-29T10:00:00.000Z",
         "provider": "codex",
@@ -404,6 +409,7 @@ fn card(run_id: &str, provider: &str, state: State, outcome: Option<&str>) -> Ca
         model: None,
         policy: Some("standard".to_string()),
         policy_sha: None,
+        parent_run_id: None,
         state,
         outcome: outcome.map(str::to_string),
         total_tokens: Some(1234),
@@ -987,6 +993,143 @@ fn a_request_that_leaves_the_waiting_lane_breathes_fire_once() {
     assert_eq!(mascot.pose(), Pose::TwoAsleep);
 }
 
+// --- the session's seats, build ticket 177 ---------------------------------
+
+const WATCHED: &str = "01a0aaaa-0000-7000-8000-00000000000a";
+const SEAT: &str = "01a0bbbb-0000-7000-8000-00000000000b";
+
+/// A card launched by `parent`.
+fn seat(run_id: &str, parent: &str, state: State, outcome: Option<&str>) -> Card {
+    Card {
+        parent_run_id: Some(parent.to_string()),
+        ..card(run_id, "codex", state, outcome)
+    }
+}
+
+#[test]
+fn a_card_carries_the_run_that_launched_it() {
+    let layout = scratch("parent");
+    write_live_run(&layout, WATCHED);
+    write_live_seat(&layout, SEAT, Some(WATCHED), None);
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.root().join("puppets"),
+        None,
+    );
+    let snapshot = reader.read(None);
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+    let parent_of = |id: &str| {
+        snapshot
+            .cards
+            .iter()
+            .find(|c| c.run_id == id)
+            .unwrap_or_else(|| panic!("no card for {id}"))
+            .parent_run_id
+            .clone()
+    };
+    assert_eq!(parent_of(WATCHED), None);
+    assert_eq!(parent_of(SEAT).as_deref(), Some(WATCHED));
+}
+
+/// The session, `seats` live runs it launched, and three live runs of nobody's.
+fn session_cards(seats: usize) -> Vec<Card> {
+    let mut cards = vec![card(WATCHED, "claude", State::Live, None)];
+    cards.extend((0..seats).map(|i| seat(&format!("seat-{i}"), WATCHED, State::Live, None)));
+    cards.extend(live_cards(3));
+    cards
+}
+
+#[test]
+fn with_a_session_the_heads_count_its_seats_and_itself() {
+    let mut mascot = Mascot::new(committed_frames());
+    mascot.observe(&snapshot_of(session_cards(1), vec![]));
+    assert_eq!(mascot.live(), 5, "without a session every live run counts");
+
+    mascot.watch(WATCHED);
+    let cases = [
+        (0, 1, Pose::TwoAsleep, 0),
+        (1, 2, Pose::OneAsleep, 0),
+        (4, 5, Pose::Working, 2),
+    ];
+    for (seats, live, pose, extra) in cases {
+        mascot.observe(&snapshot_of(session_cards(seats), vec![]));
+        assert_eq!(mascot.live(), live, "{seats} seat(s)");
+        assert_eq!(mascot.pose(), pose, "{seats} seat(s)");
+        assert_eq!(mascot.extra(), extra, "{seats} seat(s)");
+    }
+
+    // The header's `+N` and seat count say the same.
+    let mut app = App::new(scratch("session-heads"), true, Duration::from_secs(2));
+    let mut watching = Mascot::new(committed_frames());
+    watching.watch(WATCHED);
+    app.set_mascot(Some(watching));
+    let mut snapshot = fixed_snapshot();
+    snapshot.cards = session_cards(4);
+    app.set_snapshot(snapshot);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let header = (0..12).map(|y| row_of(&buf, y)).collect::<String>();
+    assert!(header.contains("+2 more"), "{header}");
+    assert!(header.contains("5 live seat(s)"), "{header}");
+}
+
+#[test]
+fn a_session_seat_that_ends_not_ok_is_named_for_one_refresh() {
+    let mut app = App::new(scratch("session-flash"), true, Duration::from_secs(2));
+    let mut watching = Mascot::new(committed_frames());
+    watching.watch(WATCHED);
+    app.set_mascot(Some(watching));
+    let header = |app: &mut App, cards: Vec<Card>| {
+        let mut snapshot = fixed_snapshot();
+        snapshot.cards = cards;
+        app.set_snapshot(snapshot);
+        let mut buf = Buffer::empty(AREA);
+        app.draw(AREA, &mut buf);
+        (0..12).map(|y| row_of(&buf, y)).collect::<String>()
+    };
+
+    let mut cards = vec![
+        card(WATCHED, "claude", State::Live, None),
+        seat(SEAT, WATCHED, State::Live, None),
+        card("run-other", "codex", State::Live, None),
+    ];
+    header(&mut app, cards.clone());
+
+    // A run outside the session ends not ok: no flash, no name.
+    cards[2] = card("run-other", "codex", State::Ended, Some("failed"));
+    let text = header(&mut app, cards.clone());
+    assert!(text.contains("one_asleep"), "{text}");
+    assert!(!text.contains("failed"), "{text}");
+
+    // The session's seat ends gated: refused, and its short id with the outcome.
+    cards[1] = seat(SEAT, WATCHED, State::Ended, Some("gated"));
+    let text = header(&mut app, cards.clone());
+    assert!(text.contains("refused"), "{text}");
+    assert!(text.contains("01a0bbbb gated"), "{text}");
+
+    // One refresh only.
+    let text = header(&mut app, cards);
+    assert!(text.contains("two_asleep"), "{text}");
+    assert!(!text.contains("01a0bbbb"), "{text}");
+}
+
+#[test]
+fn without_a_session_an_ended_run_is_not_named() {
+    let mut app = App::new(scratch("no-session-flash"), true, Duration::from_secs(2));
+    app.set_mascot(Some(Mascot::new(committed_frames())));
+    let mut snapshot = fixed_snapshot();
+    snapshot.cards = vec![card(SEAT, "codex", State::Live, None)];
+    app.set_snapshot(snapshot.clone());
+    snapshot.cards = vec![card(SEAT, "codex", State::Ended, Some("timeout"))];
+    app.set_snapshot(snapshot);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let text = (0..12).map(|y| row_of(&buf, y)).collect::<String>();
+    assert!(text.contains("meme"), "{text}");
+    assert!(!text.contains("01a0bbbb"), "{text}");
+}
+
 fn dragon_cells(buf: &Buffer, area: Rect) -> usize {
     (area.y..area.y + area.height)
         .flat_map(|y| (area.x..area.x + area.width).map(move |x| (x, y)))
@@ -1227,6 +1370,23 @@ fn the_childs_exit_puts_its_run_id_and_outcome_on_the_line() {
     assert!(!host.done());
     let quit = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
     assert_eq!(host.handle(&quit), Effect::Quit);
+}
+
+#[test]
+fn the_dragon_watches_the_run_the_chat_names() {
+    let layout = scratch("chat-watch");
+    let mut host = stub(
+        &layout,
+        r#"printf 'hydra: run %s\n' "$RUN" >&2; exit 0"#,
+        WATCHED,
+        WIDE,
+    );
+    host.app.set_mascot(Some(Mascot::new(committed_frames())));
+    until(&mut host, WIDE, "the run id", |host, _| {
+        host.chat().unwrap().run_id().is_some()
+    });
+    host.app.set_snapshot(snapshot_of(session_cards(1), vec![]));
+    assert_eq!(host.app.mascot().unwrap().live(), 2);
 }
 
 #[test]

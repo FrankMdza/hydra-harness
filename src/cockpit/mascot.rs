@@ -18,7 +18,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use serde::Deserialize;
 
-use super::snapshot::{Lane, Snapshot};
+use super::snapshot::{Card, Lane, Snapshot};
 use crate::live::State;
 
 /// How many heads the dragon has, and so how many live seats wake one each.
@@ -234,6 +234,10 @@ pub struct Mascot {
     pose: Pose,
     extra: usize,
     live: usize,
+    /// The session the cockpit's chat runs, once it has named it. Build ticket 177.
+    session: Option<String>,
+    /// The session's seat whose end made this read's flash, and its outcome.
+    ended: Option<(String, String)>,
     /// Run states and waiting requests of the last read; `None` before the first.
     seen: Option<(HashMap<String, State>, HashSet<String>)>,
 }
@@ -245,6 +249,8 @@ impl Mascot {
             pose: Pose::Idle,
             extra: 0,
             live: 0,
+            session: None,
+            ended: None,
             seen: None,
         }
     }
@@ -256,6 +262,28 @@ impl Mascot {
     /// Live seats past the three heads.
     pub fn extra(&self) -> usize {
         self.extra
+    }
+
+    /// From the next read on, counts only the session `run_id` and the runs whose
+    /// `parent_run_id` is it. Without a call every live run is a seat, as build 152 drew it.
+    pub fn watch(&mut self, run_id: &str) {
+        if self.session.as_deref() != Some(run_id) {
+            self.session = Some(run_id.to_string());
+        }
+    }
+
+    /// With a session, the seat that ended not ok at the last read and its outcome.
+    pub fn ended(&self) -> Option<(&str, &str)> {
+        self.ended
+            .as_ref()
+            .map(|(run_id, outcome)| (run_id.as_str(), outcome.as_str()))
+    }
+
+    /// Whether `card` is one of the seats the heads count.
+    fn counts(&self, card: &Card) -> bool {
+        self.session.as_ref().is_none_or(|session| {
+            card.run_id == *session || card.parent_run_id.as_ref() == Some(session)
+        })
     }
 
     /// Live seats.
@@ -271,7 +299,8 @@ impl Mascot {
     /// Takes one read. A seat that went from live to ended `gated` gives the refused pose for
     /// this read, one that ended any other way but ok gives the meme head, and a request that
     /// left the waiting lane gives fire, in that order of precedence. Otherwise the heads awake
-    /// are the live seats.
+    /// are the live seats. With a session watched, a run outside it neither wakes a head nor
+    /// flashes.
     pub fn observe(&mut self, snapshot: &Snapshot) {
         if !snapshot.read {
             return;
@@ -279,19 +308,27 @@ impl Mascot {
         self.live = snapshot
             .cards
             .iter()
-            .filter(|card| card.state == State::Live)
+            .filter(|card| card.state == State::Live && self.counts(card))
             .count();
         self.extra = self.live.saturating_sub(HEADS);
         let mut flash = None;
+        let mut ended = None;
         if let Some((states, waiting)) = &self.seen {
             for card in &snapshot.cards {
-                if states.get(&card.run_id) != Some(&State::Live) || card.state == State::Live {
+                if states.get(&card.run_id) != Some(&State::Live)
+                    || card.state == State::Live
+                    || !self.counts(card)
+                {
                     continue;
                 }
-                match (card.lane(), card.outcome.as_deref()) {
-                    (_, Some("gated")) => flash = Some(Pose::Refused),
-                    (Lane::EndedNotOk, _) => flash = flash.or(Some(Pose::Meme)),
-                    _ => {}
+                let pose = match (card.lane(), card.outcome.as_deref()) {
+                    (_, Some("gated")) => Pose::Refused,
+                    (Lane::EndedNotOk, _) => Pose::Meme,
+                    _ => continue,
+                };
+                if flash.is_none() || pose == Pose::Refused {
+                    flash = Some(pose);
+                    ended = Some(card);
                 }
             }
             let now: HashSet<&str> = snapshot
@@ -303,6 +340,14 @@ impl Mascot {
                 flash = Some(Pose::Fire);
             }
         }
+        self.ended = ended.filter(|_| self.session.is_some()).map(|card| {
+            let outcome = match (&card.outcome, card.state) {
+                (Some(outcome), _) => outcome.clone(),
+                (None, State::Abandoned) => "abandoned".to_string(),
+                (None, _) => "no outcome".to_string(),
+            };
+            (card.run_id.clone(), outcome)
+        });
         self.pose = flash.unwrap_or_else(|| pose_for(self.live));
         self.seen = Some((
             snapshot

@@ -193,6 +193,17 @@ impl App {
         self.mascot = mascot;
     }
 
+    /// Points the dragon at the session `run_id`, once the chat has named it.
+    pub fn watch(&mut self, run_id: &str) {
+        if let Some(mascot) = &mut self.mascot {
+            mascot.watch(run_id);
+        }
+    }
+
+    pub fn mascot(&self) -> Option<&Mascot> {
+        self.mascot.as_ref()
+    }
+
     /// Takes a fresh read and keeps every selection inside it. With the
     /// policy pane up it reloads the set too, so a file changed outside the
     /// cockpit shows at the next refresh rather than at the next `e`.
@@ -802,6 +813,9 @@ impl App {
             format!("{} live seat(s), {}", mascot.live(), mascot.pose().name()),
             dim,
         ));
+        if let Some((run_id, outcome)) = mascot.ended() {
+            lines.push(Line::raw(format!("{} {outcome}", short(run_id))));
+        }
         lines.extend(spend.into_iter().map(Line::raw));
         Paragraph::new(lines).render(text, buf);
         rest

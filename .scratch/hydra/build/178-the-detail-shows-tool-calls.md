@@ -1,7 +1,7 @@
 # 178 - The detail shows tool calls
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 177
 
 ## What
