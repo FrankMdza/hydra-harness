@@ -343,7 +343,9 @@ def _locked_update(
     """
     path = goal_log_path(goal_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+", encoding="utf-8") as handle:
+    # newline="" keeps a lone `\r` as it is, so a tail ending in CR without LF reads as
+    # unterminated rather than being turned into a newline (codex review of 190).
+    with path.open("a+", encoding="utf-8", newline="") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             handle.seek(0)

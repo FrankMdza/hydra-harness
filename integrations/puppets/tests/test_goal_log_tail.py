@@ -116,6 +116,14 @@ class GoalLogTailTests(unittest.TestCase):
         events = puppets.read_log("g1")
         self.assertEqual([event["event"] for event in events], ["goal"])
 
+    def test_a_tail_ending_in_a_lone_carriage_return_is_unterminated(self):
+        # Codex review of 190: text mode turned a trailing CR into a newline.
+        self.plant(self.goal_line() + b'{"event":"assignment","task":"t1"}\r')
+        before = self.log_bytes()
+        with self.assertRaises(puppets.UnterminatedLog):
+            puppets.append_event("g1", {"event": "assignment", "task": "t2"})
+        self.assertEqual(self.log_bytes(), before)
+
     def test_append_event_and_set_refuse_an_unterminated_tail(self):
         self.plant(self.goal_line() + b'{"event":"assignment",')
         before = self.log_bytes()
