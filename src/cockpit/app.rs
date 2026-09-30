@@ -557,11 +557,8 @@ impl App {
             heading = format!("{heading} ({} line(s) skipped)", goal.skipped);
         }
         buf.set_line(inner.x, inner.y, &Line::styled(heading, dim), inner.width);
-        let header = with_done(
-            row_text(["id", "class", "grade", "provider", "model", "status", "run"]),
-            "done",
-            inner.width,
-        );
+        let columns = columns(inner.width);
+        let header = row_text(&columns, Column::name);
         buf.set_line(
             inner.x,
             inner.y + 1,
@@ -583,19 +580,16 @@ impl App {
         {
             let row = &goal.rows[index];
             let run = row.run_id.as_deref().map(short).unwrap_or("");
-            let text = with_done(
-                row_text([
-                    &row.id,
-                    &row.class,
-                    &row.grade,
-                    row.provider.as_deref().unwrap_or("-"),
-                    row.model.as_deref().unwrap_or("-"),
-                    self.status_of(row),
-                    run,
-                ]),
-                row.done.as_deref().unwrap_or("-"),
-                inner.width,
-            );
+            let text = row_text(&columns, |column| match column {
+                Column::Id => &row.id,
+                Column::Status => self.status_of(row),
+                Column::Provider => row.provider.as_deref().unwrap_or("-"),
+                Column::Model => row.model.as_deref().unwrap_or("-"),
+                Column::Run => run,
+                Column::Grade => &row.grade,
+                Column::Class => &row.class,
+                Column::Done => row.done.as_deref().unwrap_or("-"),
+            });
             let rect = Rect {
                 y: rows_area.y + slot as u16,
                 height: 1,
@@ -856,23 +850,80 @@ fn short(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
 }
 
-/// One table line with the columns `board` prints, narrower than its widths
-/// so the run id fits beside two other panels. The status column is as wide
-/// as the longest of contract 8's outcomes, `skill_collision`.
-fn row_text(cells: [&str; 7]) -> String {
-    let widths = [8, 20, 6, 12, 12, 15, 8];
-    cells
-        .iter()
-        .zip(widths)
-        .map(|(cell, width)| format!("{cell:<width$}"))
-        .collect::<Vec<_>>()
-        .join(" ")
+/// A column of the task table, in the order it is drawn.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Column {
+    Id,
+    Status,
+    Provider,
+    Model,
+    Run,
+    Grade,
+    Class,
+    Done,
 }
 
-/// `line` with `done` after it, cut to the columns `width` leaves. The detail
-/// of the task's run shows it whole.
-fn with_done(line: String, done: &str, width: u16) -> String {
-    let left = (width as usize).saturating_sub(line.chars().count() + 1);
-    let done: String = done.chars().take(left).collect();
-    format!("{line} {done}")
+impl Column {
+    fn name(self) -> &'static str {
+        match self {
+            Column::Id => "id",
+            Column::Status => "status",
+            Column::Provider => "provider",
+            Column::Model => "model",
+            Column::Run => "run",
+            Column::Grade => "grade",
+            Column::Class => "class",
+            Column::Done => "done",
+        }
+    }
+}
+
+/// The columns a table `width` wide shows, in drawing order, each with its
+/// width. They are taken in priority order, each at the first of its widths
+/// that fits, and the first that fits at none ends the table, so a column
+/// never shows while one above it is gone. `done` is 12 at least and gets
+/// what the others leave. The status column is as wide as the longest of
+/// contract 8's outcomes, `skill_collision`.
+fn columns(width: u16) -> Vec<(Column, usize)> {
+    const PRIORITY: [(Column, &[usize]); 8] = [
+        (Column::Id, &[8]),
+        (Column::Status, &[15]),
+        (Column::Done, &[12]),
+        (Column::Provider, &[12]),
+        (Column::Model, &[12]),
+        (Column::Run, &[8]),
+        (Column::Grade, &[6]),
+        (Column::Class, &[20, 12]),
+    ];
+    let width = width as usize;
+    // Each column shown so far and the space after it.
+    let used = |shown: &[(Column, usize)]| shown.iter().map(|(_, w)| w + 1).sum::<usize>();
+    let mut shown = Vec::new();
+    for (column, widths) in PRIORITY {
+        let taken = used(&shown);
+        let Some(&w) = widths.iter().find(|&&w| taken + w <= width) else {
+            break;
+        };
+        shown.push((column, w));
+    }
+    shown.sort_by_key(|&(column, _)| column);
+    if let Some(last) = shown.len().checked_sub(1)
+        && shown[last].0 == Column::Done
+    {
+        shown[last].1 = width - used(&shown[..last]);
+    }
+    shown
+}
+
+/// One table line: each of `columns` cut and padded to its width. The detail
+/// of the task's run shows a cut `done` whole.
+fn row_text<'a>(columns: &[(Column, usize)], cell: impl Fn(Column) -> &'a str) -> String {
+    columns
+        .iter()
+        .map(|&(column, width)| {
+            let text: String = cell(column).chars().take(width).collect();
+            format!("{text:<width$}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

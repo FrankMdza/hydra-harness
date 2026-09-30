@@ -1,7 +1,7 @@
 # 167 - The cockpit table keeps the columns that matter
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 166
 
 ## What
@@ -32,3 +32,16 @@ failing before the change.
 - Each new test failed before the change; fmt, clippy, `cargo test --lib` and `cargo test --test
   cockpit` pass.
 - The report shows the table at 52, 80 and 150 inner columns.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f2c6-c137 under `standard`. The session
+applied it as written. A `Column` enum and `columns(width)` replace the fixed widths: priority id,
+status, `done` (floor 12), provider, model, run, grade, class (20, then 12); the first column that
+fits at no width ends the list, and the rest keep display order. Cells no longer overflow their
+width. Four tests; fmt and clippy clean, `--test cockpit` 24 and `--lib` 220 on master.
+
+At 52 inner columns the table shows id, status, provider and `done`; at 80 it drops class; at 150
+all eight. Build 166's paragraph said 50 inside at 120 and the ticket said 52: same four columns
+at either. Nobody has seen it in a real terminal yet.
+

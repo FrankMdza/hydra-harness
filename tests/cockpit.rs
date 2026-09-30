@@ -602,6 +602,100 @@ fn the_table_shows_done_and_an_ended_rows_outcome() {
     assert!(screen_text(&buf).contains("the-very-end"));
 }
 
+/// The table panel drawn stacked, so its inner width is `inner`. Returns the
+/// header's words, and the header and the first three rows inside the border.
+fn table_at(inner: u16) -> (Vec<String>, Vec<String>) {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.stacked = true;
+    app.set_snapshot(ended_snapshot());
+    let area = Rect::new(0, 0, inner + 2, 40);
+    let mut buf = Buffer::empty(area);
+    app.draw(area, &mut buf);
+    let table = app.hits.table;
+    let inside = |y: u16| -> String {
+        (table.x + 1..table.x + table.width - 1)
+            .map(|x| buf[(x, y)].symbol().to_string())
+            .collect()
+    };
+    let header = inside(table.y + 2);
+    let words = header.split_whitespace().map(str::to_string).collect();
+    let lines = (0..4).map(|i| inside(table.y + 2 + i)).collect();
+    (words, lines)
+}
+
+/// Task `a`'s status and `done` sit under their headers at `inner` columns.
+fn aligned(inner: u16) {
+    let (_, lines) = table_at(inner);
+    let (header, first) = (&lines[0], &lines[1]);
+    let screen = lines.join("\n");
+    assert_eq!(first.find("gated"), header.find("status"), "{screen}");
+    assert_eq!(first.find("the table"), header.find("done"), "{screen}");
+    assert!(first.chars().count() <= inner as usize, "{screen}");
+}
+
+#[test]
+fn beside_the_chat_the_table_keeps_id_status_and_done() {
+    let (words, lines) = table_at(52);
+    assert_eq!(
+        words,
+        ["id", "status", "provider", "done"],
+        "{}",
+        lines.join("\n")
+    );
+    aligned(52);
+}
+
+#[test]
+fn at_eighty_columns_the_table_drops_class_first() {
+    let (words, lines) = table_at(80);
+    assert_eq!(
+        words,
+        ["id", "status", "provider", "model", "run", "grade", "done"],
+        "{}",
+        lines.join("\n")
+    );
+    aligned(80);
+}
+
+#[test]
+fn class_shrinks_to_twelve_before_it_goes() {
+    let (words, lines) = table_at(95);
+    let screen = lines.join("\n");
+    assert_eq!(
+        words,
+        [
+            "id", "status", "provider", "model", "run", "grade", "class", "done"
+        ],
+        "{screen}"
+    );
+    // Task `a`'s class is `docs`; the header's `class` column is 12 wide.
+    let header = &lines[0];
+    let class_at = header.find("class").unwrap();
+    assert_eq!(header.find("done"), Some(class_at + 13), "{screen}");
+    aligned(95);
+}
+
+#[test]
+fn at_full_width_the_table_shows_all_eight_columns() {
+    let (words, lines) = table_at(150);
+    let screen = lines.join("\n");
+    assert_eq!(
+        words,
+        [
+            "id", "status", "provider", "model", "run", "grade", "class", "done"
+        ],
+        "{screen}"
+    );
+    let header = &lines[0];
+    let class_at = header.find("class").unwrap();
+    assert_eq!(header.find("done"), Some(class_at + 21), "{screen}");
+    aligned(150);
+}
+
 // --- the one write -------------------------------------------------------
 
 #[test]

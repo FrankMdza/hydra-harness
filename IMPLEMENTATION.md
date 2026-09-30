@@ -3187,11 +3187,11 @@ last column is `done`, cut to what the panel has left; a run's detail names its 
 that task's `done` whole, wrapped. The status cell of an `ended` row whose run the lanes have a
 card for reads the card's outcome (`completed`, `failed`, `gated`, ...), and a row with no card,
 or a card with no outcome, still reads `ended`. A verdict is never `ended`, so the human's word
-still wins. The status column is now 15 wide, `skill_collision`'s length. Two gaps are left.
-Side by side at 120 columns the table is 50 columns inside and ends in the `model` column, so
-neither status nor `done` shows; stacked beside the chat both do, and at 160 side by side the
-status starts at column 63 of 68 and is cut. A row with no run still opens nothing, so the
-whole `done` of a pending task shows nowhere yet.
+still wins. The status column is now 15 wide, `skill_collision`'s length. Since build ticket 167
+the columns drop by priority, id, status, `done` (12 at least), provider, model, run, grade and
+class (20, then 12), so at 52 inner columns the table shows id, status, provider and `done`, at 80
+all but class, and at 150 all eight. A row with no run still opens nothing, so the whole `done`
+of a pending task shows nowhere yet.
 
 **It does not call `hydra status`.** That command's scan harvests a dead interactive `claude`
 run, which appends to a record, so the cockpit reads each record's liveness itself and leaves an
