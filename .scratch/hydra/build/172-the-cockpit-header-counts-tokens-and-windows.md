@@ -1,7 +1,7 @@
 # 172 - The cockpit header counts tokens and windows
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 171
 
 ## What

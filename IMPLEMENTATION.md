@@ -399,7 +399,10 @@ every policy denies writes under it, so no run can mark itself or a sibling. The
 SIGTERM to the child's process group when the child leads one, which a recorded run's child
 does on its pty, and to the child alone when it does not, which is an interactive session
 sharing the human's job. SIGKILL follows after `stop::GRACE`, 10 s, and each signal checks
-the pid against the recorded start time first.
+the pid against the recorded start time first. Since build ticket 173 the grace waits on the
+group, not the pid: when the child led its group at SIGTERM, a shell that exits at once no
+longer ends the wait while a descendant that ignores SIGTERM and SIGHUP is still in the group,
+and the SIGKILL goes to the group. Only the group the verified child led is signalled.
 
 **Map ticket 89 made it a tenth outcome, `stopped`.** Whoever closes the record, the watcher
 or the harvest, finds the marker and puts `watch::STOP_NOTE` first in `run_end.error`,
@@ -413,10 +416,23 @@ It checks again at launch, so a request that was waiting on `hydra approve` when
 began launches nothing either. `tests/stop.rs` drives each claim on a stub watcher, and
 `tests/seats.rs` the refusal.
 
+**A seat that starts after the scan stops itself**, build ticket 173. The launcher's last
+check comes before the seat's record exists, so a seat can pass it, pause, and appear after
+the stop has marked its session and scanned. The seat's own watcher closes that gap: after it
+writes line 0 it looks for its parent's marker, and if the marker is there it writes its own
+and gives its child the same SIGTERM, grace and SIGKILL. Either the stop's scan comes after
+line 0 and finds the seat, or the marker came first and the watcher sees it. The check is in
+the watcher rather than the launcher because the watcher owns the child and outlives the
+session's process, which the stop is about to end. `--all` marks every run it found, scans
+again, and repeats until a scan finds nothing new, so a seat that appeared after the first
+scan is stopped before its parent. The same check means a seat launched while its parent
+is being stopped with `hydra stop <parent>` also stops itself, although that form leaves
+seats that were already running alone. `hydra doctor --walk` exempts `stopped` from the
+completed/gated comparison with or without a terminator.
+
 Known gaps. A child that exits on its own between the marker and the signal is recorded as
-`stopped`. `--session` reaches the session's direct seats and not their own children. A seat
-whose record does not exist yet when the stop scans is missed; the scan is repeated once
-after the session's marker to narrow that. `integrations/grader/baseline.py` compares
+`stopped`. `--session` reaches the session's direct seats and not their own children.
+`integrations/grader/baseline.py` compares
 outcome strings, and map 89 notes it counts a stop as not completed; it was not changed here.
 
 ## Cleanup: `hydra reap` and `hydra prune`

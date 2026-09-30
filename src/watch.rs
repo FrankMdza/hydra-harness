@@ -220,6 +220,19 @@ pub fn watch(spec: &Path) -> Result<()> {
         .unwrap_or(serde_json::Value::Null);
     writer.hydra_line(&start)?;
 
+    // Build ticket 173: a seat whose launch passed the launcher's check before
+    // `hydra stop` marked its session, and whose record appeared after the
+    // stop's scan, is on no stop list. Line 0 is on disk now, so either the
+    // stop's scan comes after it and finds this run, or the parent's marker
+    // is already there and this run stops itself the way the stop would.
+    let stopping = match &launch.parent_run_id {
+        Some(parent) if parent_marker(spec, parent).exists() => {
+            crate::stop::write_marker(&spec.with_file_name(STOP_MARKER))?;
+            Some(stop_own_child(pid, process_start))
+        }
+        _ => None,
+    };
+
     let mut tee_error: Option<String> = None;
 
     // The session id is observed and not kept. Contract 17 leaves it off the
@@ -305,7 +318,43 @@ pub fn watch(spec: &Path) -> Result<()> {
     }
 
     writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;
+    // After the closing line, so the record does not wait on it, and before
+    // this process exits, so a descendant still in the group gets its SIGKILL.
+    if let Some(stopping) = stopping {
+        let _ = stopping.join();
+    }
     Ok(())
+}
+
+/// The marker `hydra stop` writes for `parent`, beside this run's own spawn
+/// directory.
+fn parent_marker(spec: &Path, parent: &str) -> PathBuf {
+    let spawns = spec
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new("."));
+    spawns.join(parent).join(STOP_MARKER)
+}
+
+/// What `hydra stop` does to a child, from the watcher that spawned it: the
+/// same SIGTERM, grace and SIGKILL, on a thread so the tee keeps reading.
+fn stop_own_child(
+    pid: u32,
+    start: Option<chrono::DateTime<chrono::Utc>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || match start {
+        Some(start) => {
+            let _ = crate::stop::terminate(pid, start, crate::stop::GRACE);
+        }
+        None => {
+            // No start time to check a pid against, but this process has not
+            // reaped the child yet, so the pid and the group it leads are its.
+            if let Ok(pid) = libc::pid_t::try_from(pid) {
+                // SAFETY: killpg takes plain integers and no pointer.
+                unsafe { libc::killpg(pid, libc::SIGTERM) };
+            }
+        }
+    })
 }
 
 /// How `run_end.error` starts when the child died on a signal. The outcome

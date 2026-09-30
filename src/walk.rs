@@ -637,6 +637,14 @@ pub fn check_gated_write_denials(
             continue;
         }
 
+        // A human stop, with or without a terminator. A provider that catches
+        // SIGTERM can write `success` on its way out, and the record still
+        // derives `stopped` off `run_end.error`, build ticket 173. The per-call
+        // rule below describes how a run ended on its own, which this one did not.
+        if outcome == Outcome::Stopped {
+            continue;
+        }
+
         // A run Hydra refused before the spawn has no calls for the per-call rule
         // to read, and contract 8.2 makes `refusal` the source anyway: `derive`
         // reads it ahead of anything on the stream. Ticket 07's skill collision

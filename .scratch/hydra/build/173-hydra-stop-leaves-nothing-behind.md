@@ -1,7 +1,7 @@
 # 173 - hydra stop leaves nothing behind
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 171
 
 ## What
@@ -44,3 +44,23 @@ synthetic record in the walk tests.
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, and `--test stop`,
   `--test seats`, `--test record_contract`, `--test doctor` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f2e8-0fe7 under `standard`. The session
+applied it as written. All three defects reproduced as failing tests first.
+
+1. `stop::terminate` remembers whether the verified child led its process group at SIGTERM; if
+   so the grace waits on the group (`killpg(pgid, 0)`, `EPERM` counts as a member) and SIGKILL
+   goes to the group even after the leader is gone.
+2. Fixed in the seat's watcher rather than the launcher: after line 0, a watcher whose run has a
+   `parent_run_id` checks `spawn/<parent>/stop`, marks itself and terminates its child on a thread
+   it joins after `run_end`. The launcher's `handed_off` fires before line 0 exists, so it had no
+   place to check. `--all` now marks, rescans and repeats until a scan finds nothing new. This
+   widens `hydra stop <parent>` slightly: a seat that starts during the parent's stop stops
+   itself, while seats already running are left alone; written in `IMPLEMENTATION.md`.
+3. `walk.rs` skips `stopped` before the refusal and completed/gated checks.
+
+On master: fmt and clippy clean, `--lib` 220, `stop` 6, `seats` 31, `doctor` 4, `record_contract`
+20, `detached` 9, `harvest` 12, `outcome` 44. Still only `/bin/sh` stubs; no real provider stopped.
+

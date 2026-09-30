@@ -228,3 +228,98 @@ fn a_prefix_that_names_two_runs_is_refused() {
     assert!(!layout.stop_marker(SESSION).exists());
     assert!(!layout.stop_marker(SEAT).exists());
 }
+
+/// Whether `pid` is still a process, zombie or not.
+fn alive(pid: libc::pid_t) -> bool {
+    // SAFETY: kill with signal 0 takes plain integers and sends nothing.
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+#[test]
+fn a_descendant_that_ignores_sigterm_is_killed_after_the_shell_exits() {
+    // Build ticket 173: the recorded pid is the shell, which exits on SIGTERM
+    // at once. Its background child ignores SIGTERM and SIGHUP and stays in
+    // the shell's process group, which the pty made the shell lead.
+    let layout = sandbox("descendant");
+    let pid_file = layout.root().join("descendant.pid");
+    let script = format!(
+        r#"printf '{{"type":"system","subtype":"init","model":"stub-1"}}\n'; (trap '' TERM HUP; exec sleep 120) & echo $! > '{}'; wait"#,
+        pid_file.display()
+    );
+    let mut watcher = start(&layout, SESSION, None, &script);
+    let descendant: libc::pid_t = {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse().ok())
+            {
+                break pid;
+            }
+            assert!(std::time::Instant::now() < deadline, "no descendant pid");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+
+    let stopped = stop::stop(
+        &layout,
+        &policies(),
+        Target::Run(SESSION),
+        Duration::from_secs(1),
+    )
+    .unwrap();
+    watcher.wait().unwrap();
+
+    // Reparented once the shell went, so whoever adopted it reaps it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while alive(descendant) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let survived = alive(descendant);
+    if survived {
+        // SAFETY: plain integers; the pid is the stub's own `sleep`.
+        unsafe { libc::kill(descendant, libc::SIGKILL) };
+    }
+    assert!(!survived, "descendant {descendant} outlived the stop");
+    assert_eq!(stopped.len(), 1);
+    assert!(stopped[0].killed, "the group got SIGKILL: {stopped:?}");
+    assert_eq!(stopped[0].outcome, Some(Outcome::Stopped));
+}
+
+#[test]
+fn a_seat_whose_record_appears_after_the_stops_scan_stops_itself() {
+    // Build ticket 173: the seat's launch passed the launcher's check before
+    // the stop marked the session, and its record appears only after the
+    // stop's scan, so no stop list names it. Driven in that order: the stop
+    // marks, scans and ends the session, then the seat's watcher writes line 0.
+    let layout = sandbox("late-seat");
+    let mut session = start(&layout, SESSION, None, LONG_STUB);
+    let stopped = stop::stop(
+        &layout,
+        &policies(),
+        Target::Session(SESSION),
+        Duration::from_secs(10),
+    )
+    .unwrap();
+    session.wait().unwrap();
+    let order: Vec<&str> = stopped.iter().map(|run| run.run_id.as_str()).collect();
+    assert_eq!(order, [SESSION], "the seat did not exist at the scan");
+
+    let mut seat = start(&layout, SEAT, Some(SESSION), LONG_STUB);
+    let waited =
+        watch::wait_for_end(&layout.run_file(SEAT), &mut seat, Duration::from_secs(20)).unwrap();
+    if waited != Waited::Ended {
+        let _ = seat.kill();
+    }
+    assert_eq!(
+        waited,
+        Waited::Ended,
+        "the seat outlived its stopped session"
+    );
+    seat.wait().unwrap();
+
+    let end = closing(&layout, SEAT);
+    let error = end["hydra"]["error"].as_str().unwrap_or_default();
+    assert!(error.starts_with(watch::STOP_NOTE), "{error}");
+    assert!(layout.stop_marker(SEAT).exists());
+}

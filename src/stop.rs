@@ -22,6 +22,7 @@
 //! sibling. The cost is one race: a child that exits on its own between the
 //! marker and the signal is recorded as stopped.
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -97,7 +98,7 @@ pub fn stop(
             let run_id = crate::resolver::resolve(layout, prefix)?;
             vec![live_one(&views, &run_id)?]
         }
-        Target::All => views.into_iter().filter(RunView::is_live).collect(),
+        Target::All => all_marked(layout, views)?,
         Target::Session(prefix) => {
             let run_id = crate::resolver::resolve(layout, prefix)?;
             let session = live_one(&views, &run_id)?;
@@ -122,6 +123,35 @@ pub fn stop(
         stopped.push(stop_one(layout, policies, view, grace)?);
     }
     Ok(stopped)
+}
+
+/// Every live run, each marked, scanned until a scan finds no run the last
+/// one missed.
+///
+/// Build ticket 173: a seat whose record appears after the first scan is on
+/// no list, and its parent would go before it. A seat's watcher checks its
+/// parent's marker after writing line 0, so once every run found is marked,
+/// a seat that started before the marker is on the next scan and one that
+/// started after it stops itself. The loop ends because each pass marks what
+/// it found, and a run launched under a marked parent does not stay.
+fn all_marked(layout: &Layout, views: Vec<RunView>) -> Result<Vec<RunView>> {
+    let mut order: Vec<RunView> = views.into_iter().filter(RunView::is_live).collect();
+    let mut pass = 0..order.len();
+    loop {
+        for view in &order[pass.clone()] {
+            mark(layout, &view.run_id)?;
+        }
+        let known = order.len();
+        for view in live::scan(layout)? {
+            if view.is_live() && !order.iter().any(|seen| seen.run_id == view.run_id) {
+                order.push(view);
+            }
+        }
+        if order.len() == known {
+            return Ok(order);
+        }
+        pass = known..order.len();
+    }
 }
 
 /// One line per run stopped, with the outcome its record derives.
@@ -181,11 +211,16 @@ fn depth(view: &RunView) -> u64 {
 
 /// Writes the marker the watcher and the harvest read when the record closes.
 fn mark(layout: &Layout, run_id: &str) -> Result<()> {
-    let marker = layout.stop_marker(run_id);
+    write_marker(&layout.stop_marker(run_id))
+}
+
+/// Writes a stop marker at `marker`: the time, and a directory made for it.
+/// The watcher calls this too, for a seat that stops itself.
+pub fn write_marker(marker: &Path) -> Result<()> {
     if let Some(dir) = marker.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
-    std::fs::write(&marker, format!("{}\n", Utc::now().to_rfc3339()))
+    std::fs::write(marker, format!("{}\n", Utc::now().to_rfc3339()))
         .with_context(|| format!("writing {}", marker.display()))
 }
 
@@ -195,13 +230,10 @@ fn stop_one(
     view: &RunView,
     grace: Duration,
 ) -> Result<Stopped> {
-    let mut killed = false;
-    if let (Some(pid), Some(start)) = (view.pid, view.process_start_time) {
-        signal(pid, start, libc::SIGTERM)?;
-        if !wait_for(grace, || Ok(!crate::procinfo::is_alive(pid, start)?))? {
-            killed = signal(pid, start, libc::SIGKILL)?;
-        }
-    }
+    let killed = match (view.pid, view.process_start_time) {
+        (Some(pid), Some(start)) => terminate(pid, start, grace)?,
+        _ => false,
+    };
     let closed = wait_for(CLOSE_BUDGET, || live::has_run_end(&view.run_file))?;
     let outcome = if closed {
         std::fs::read_to_string(&view.run_file)
@@ -219,24 +251,77 @@ fn stop_one(
     })
 }
 
+/// SIGTERM to the child, then SIGKILL after `grace` to whatever of it is left,
+/// and whether that second signal went anywhere.
+///
+/// **What is left is the group, not the pid.** Build ticket 173: a shell that
+/// exits on SIGTERM can leave a descendant that ignores it and the SIGHUP the
+/// pty sends, and a check on the recorded pid alone closes the record
+/// `stopped` with that descendant still running. So when the child led its
+/// own group at the moment of SIGTERM, the wait is for the group to empty and
+/// the SIGKILL goes to the group, whether or not the leader is still there.
+///
+/// The group is only ever signalled by the id the child led when its pid was
+/// checked against the recorded start time. A group id cannot be handed to a
+/// new process while any member of the old group lives, so a member that
+/// answers [`group_remains`] is one of the run's.
+pub fn terminate(pid: u32, start: DateTime<Utc>, grace: Duration) -> Result<bool> {
+    let Some(target) = signal(pid, start, libc::SIGTERM)? else {
+        return Ok(false);
+    };
+    let gone = || -> Result<bool> {
+        Ok(match target {
+            Reached::Group(pgid) => !group_remains(pgid)?,
+            Reached::Pid(pid) => !crate::procinfo::is_alive(pid, start)?,
+        })
+    };
+    if wait_for(grace, gone)? {
+        return Ok(false);
+    }
+    match target {
+        Reached::Group(pgid) => kill(pgid, libc::SIGKILL, true),
+        Reached::Pid(_) => Ok(signal(pid, start, libc::SIGKILL)?.is_some()),
+    }
+}
+
+/// What [`signal`] reached: the child's own process group, or the child alone.
+#[derive(Clone, Copy)]
+enum Reached {
+    Group(libc::pid_t),
+    Pid(u32),
+}
+
 /// Sends `signal` to the child's process group when it leads one, and to the
 /// child alone when it does not. A recorded run's child leads its own session
 /// on the pty; an interactive session's `claude` shares the human's job, and
 /// signalling that group would reach the shell's other processes.
 ///
-/// Returns whether anything was signalled. The pid is checked against the
-/// recorded start time first, so a pid the kernel reused is left alone.
-fn signal(pid: u32, start: DateTime<Utc>, signal: libc::c_int) -> Result<bool> {
+/// Returns what was signalled, or `None` when nothing was. The pid is checked
+/// against the recorded start time first, so a pid the kernel reused is left
+/// alone.
+fn signal(pid: u32, start: DateTime<Utc>, signal: libc::c_int) -> Result<Option<Reached>> {
     if !crate::procinfo::is_alive(pid, start)? {
-        return Ok(false);
+        return Ok(None);
     }
-    let pid = libc::pid_t::try_from(pid).context("a pid out of range")?;
-    // SAFETY: getpgid, killpg and kill take plain integers and no pointer.
+    let raw = libc::pid_t::try_from(pid).context("a pid out of range")?;
+    // SAFETY: getpgid takes a plain integer and no pointer.
+    let leads = unsafe { libc::getpgid(raw) } == raw;
+    let sent = kill(raw, signal, leads)?;
+    Ok(sent.then_some(if leads {
+        Reached::Group(raw)
+    } else {
+        Reached::Pid(pid)
+    }))
+}
+
+/// `killpg` or `kill`, with a process already gone read as nothing signalled.
+fn kill(id: libc::pid_t, signal: libc::c_int, group: bool) -> Result<bool> {
+    // SAFETY: killpg and kill take plain integers and no pointer.
     let rc = unsafe {
-        if libc::getpgid(pid) == pid {
-            libc::killpg(pid, signal)
+        if group {
+            libc::killpg(id, signal)
         } else {
-            libc::kill(pid, signal)
+            libc::kill(id, signal)
         }
     };
     if rc == -1 {
@@ -244,9 +329,24 @@ fn signal(pid: u32, start: DateTime<Utc>, signal: libc::c_int) -> Result<bool> {
         if err.raw_os_error() == Some(libc::ESRCH) {
             return Ok(false);
         }
-        return Err(err).with_context(|| format!("signalling pid {pid}"));
+        return Err(err).with_context(|| format!("signalling pid {id}"));
     }
     Ok(true)
+}
+
+/// Whether any process is left in group `pgid`. Signal 0 checks and sends
+/// nothing; `EPERM` means a member exists that this user may not signal.
+fn group_remains(pgid: libc::pid_t) -> Result<bool> {
+    // SAFETY: killpg takes plain integers and no pointer.
+    if unsafe { libc::killpg(pgid, 0) } == 0 {
+        return Ok(true);
+    }
+    let err = std::io::Error::last_os_error();
+    match err.raw_os_error() {
+        Some(libc::ESRCH) => Ok(false),
+        Some(libc::EPERM) => Ok(true),
+        _ => Err(err).with_context(|| format!("checking process group {pgid}")),
+    }
 }
 
 /// Polls `done` until it answers true or `budget` runs out.
