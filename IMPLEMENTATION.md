@@ -388,8 +388,9 @@ The panel of 2026-09-30 chose a command a human types over a watchdog, so D10 st
 not live, and signals it. `--all` stops every live run, deepest first. `--session <run>`
 stops every live run whose line 0 carries it as `parent_run_id`, then the session. It
 prints one line per run with the outcome the record derives once it closes. It refuses
-inside a seatbelt as `hydra/stop-inside-seatbelt`, as `hydra approve` does, and nothing in
-`src/` calls `stop::stop` but `main`.
+inside a seatbelt as `hydra/stop-inside-seatbelt`, as `hydra approve` does. Two places in
+`src/` call `stop::stop`: `main`, and since build ticket 184 the cockpit's `m`, which a human
+also types and which refuses inside a seatbelt the same way.
 
 **The watcher learns of a stop from a file, not a signal.** `hydra stop` writes
 `~/hydra/spawn/<run-id>/stop` before it signals anything. The watcher sits in a blocking tee
@@ -3387,6 +3388,27 @@ the confirmation and `n`, the argv, process group and log, a row that says `revi
 until the stub is let go and is clear within 4 seconds, then the verdict it appended, a failure
 that names its log, and a helper that is not there. Each test failed against an empty
 `set_reviewer` before the change. No real panel has been run from the cockpit.
+
+**Stepping in on a seat, build ticket 184.** `m` on a card in the live lane opens `stop <short
+id> and draft a note to the session? y`. With `--session` a seat is a run whose
+`parent_run_id` is the run the chat named; without it, any live run with a parent, and the
+question is `stop <short id>? y`. A run with no parent is refused, and so is `m` inside a
+seatbelt, as `hydra/stop-inside-seatbelt`. `y` calls `stop::stop` on that one run with the
+policy set the pane loads, which waits for the record to close, so the cockpit does not draw
+for up to `GRACE` plus `CLOSE_BUDGET` while the chat's reader thread keeps draining the
+session's pty. Without `--session` the status line then says `stopped <id>: <outcome>; tell
+the session yourself`. With it, the chat is handed `Seat <short id> (<provider> <model>) was
+stopped by the human. Its task was: <task>. Instead: ` through `Chat::paste` and gets the keys.
+The task is `run_start.task` read off line 0 with the preamble cut when it is the one that
+loads now, flattened to one line and cut to 200 characters. Every field goes through a filter
+that turns whitespace and control characters into single spaces, so no `\r` or `\n` and no
+`ESC[201~` from a task or a model name can send the note or close the bracketed paste early.
+`tests/stop.rs` drives it on a real watcher over a stub seat and a raw-mode stub chat that
+writes every byte it gets to a file: after the human's `abc`, the file holds
+`ESC[200~<note>ESC[201~` with bracketed paste on and the bare note with it off, nothing after
+either. Whether the real `claude` TUI appends a bracketed paste to its input without clearing
+it or submitting it was not checked: that needs a live TUI, and the tests show only what
+Hydra sends.
 
 **Tokens and windows in the header, build ticket 172.** No dollars: the human pays
 subscriptions. Each provider with a live run gets one entry, beside the dragon or, without it,

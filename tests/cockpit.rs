@@ -2878,3 +2878,109 @@ fn a_helper_that_cannot_start_says_so() {
     assert!(text.contains("the review of a did not start"), "{text}");
     assert!(!task_line(&app, &buf, 0).contains("review running"));
 }
+
+// --- stepping in on a seat, build ticket 184 -----------------------------------
+
+/// A cockpit whose live lane holds `cards`, focused.
+fn live_lane(layout: &Layout, cards: Vec<Card>) -> App {
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(Snapshot {
+        cards,
+        ..Snapshot::default()
+    });
+    app.focus = Focus::Lane(Lane::Live);
+    app
+}
+
+fn drawn_app(app: &mut App) -> String {
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    screen_text(&buf)
+}
+
+#[test]
+fn m_on_a_run_that_is_no_seat_asks_nothing() {
+    let layout = scratch("step-in-root");
+    let mut app = live_lane(&layout, vec![card(WATCHED, "claude", State::Live, None)]);
+    app.handle(&key(KeyCode::Char('m')));
+    let text = drawn_app(&mut app);
+    assert!(text.contains("01a0aaaa is not a seat"), "{text}");
+    assert!(!text.contains("stop 01a0aaaa"), "{text}");
+
+    // Off the live lane there is nothing to stop.
+    app.focus = Focus::Table;
+    app.handle(&key(KeyCode::Char('m')));
+    let text = drawn_app(&mut app);
+    assert!(
+        text.contains("select a seat in the live lane first"),
+        "{text}"
+    );
+}
+
+#[test]
+fn n_on_the_stop_question_stops_nothing() {
+    let layout = scratch("step-in-no");
+    let mut app = live_lane(&layout, vec![seat(SEAT, WATCHED, State::Live, None)]);
+    app.handle(&key(KeyCode::Char('m')));
+    let text = drawn_app(&mut app);
+    assert!(text.contains("stop 01a0bbbb? y"), "{text}");
+    app.handle(&key(KeyCode::Char('n')));
+    let text = drawn_app(&mut app);
+    assert!(!text.contains("stop 01a0bbbb? y"), "{text}");
+    assert!(text.contains("nothing stopped"), "{text}");
+    assert!(!layout.stop_marker(SEAT).exists());
+}
+
+#[test]
+fn inside_a_seatbelt_m_stops_nothing() {
+    let layout = scratch("step-in-seatbelt");
+    let mut app = App::new(Layout::at(layout.root()), true, Duration::from_secs(2));
+    app.set_snapshot(Snapshot {
+        cards: vec![seat(SEAT, WATCHED, State::Live, None)],
+        ..Snapshot::default()
+    });
+    app.focus = Focus::Lane(Lane::Live);
+    app.handle(&key(KeyCode::Char('m')));
+    let text = drawn_app(&mut app);
+    assert!(text.contains("hydra/stop-inside-seatbelt"), "{text}");
+    assert!(!text.contains("stop 01a0bbbb? y"), "{text}");
+}
+
+#[test]
+fn with_a_chat_m_asks_only_about_that_sessions_seats() {
+    let layout = scratch("step-in-other");
+    let mut host = stub(
+        &layout,
+        r#"printf 'hydra: run %s\n' "$RUN"; read line"#,
+        WATCHED,
+        WIDE,
+    );
+    until(&mut host, WIDE, "the run id", |host, _| {
+        host.chat().and_then(Chat::run_id).is_some()
+    });
+    host.handle(&key(KeyCode::F(2)));
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat(
+            SEAT,
+            "01a0cccc-0000-7000-8000-00000000000c",
+            State::Live,
+            None,
+        )],
+        ..Snapshot::default()
+    });
+    host.app.focus = Focus::Lane(Lane::Live);
+    host.handle(&key(KeyCode::Char('m')));
+    let mut buf = Buffer::empty(WIDE);
+    host.draw(WIDE, &mut buf);
+    let text = screen_text(&buf);
+    // Beside the chat the cockpit's status row is too narrow for the whole
+    // message, so it is read from the app.
+    let said = host.app.message.clone().unwrap_or_default();
+    assert!(
+        said.contains("01a0bbbb is not a seat of this session"),
+        "{said}"
+    );
+    assert!(!text.contains("draft a note"), "{text}");
+    host.handle(&key(KeyCode::F(2)));
+    host.handle(&key(KeyCode::Enter));
+}

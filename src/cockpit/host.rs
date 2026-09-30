@@ -58,6 +58,7 @@ impl Host {
     /// `title` is what the panel's border says.
     pub fn with_chat(mut app: App, title: String, chat: Chat) -> Self {
         app.stacked = true;
+        app.chat_inside = true;
         Self {
             chat: Some((title, chat)),
             side: Side::Chat,
@@ -140,6 +141,7 @@ impl Host {
                 }
                 match self.app.handle(event) {
                     Effect::Quit => self.quit(),
+                    Effect::Draft(note) => self.draft(&note),
                     effect => effect,
                 }
             }
@@ -170,6 +172,22 @@ impl Host {
             _ => {}
         }
         Effect::None
+    }
+
+    /// Pastes `note` into the chat's input and gives the chat the keys, build
+    /// ticket 184. [`Chat::paste`] adds no `\r`, so the note waits there
+    /// behind whatever the human had typed until they send it.
+    fn draft(&mut self, note: &str) -> Effect {
+        let Some((_, chat)) = &mut self.chat else {
+            return Effect::Refresh;
+        };
+        if chat.exited() {
+            self.message = Some("the chat has exited, so the note was not drafted".to_string());
+            return Effect::Refresh;
+        }
+        chat.paste(note);
+        self.side = Side::Chat;
+        Effect::Refresh
     }
 
     fn quit(&mut self) -> Effect {

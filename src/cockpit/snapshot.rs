@@ -781,7 +781,7 @@ fn token_end(chars: &[char], from: usize) -> usize {
 }
 
 /// A record's first line, or `None` when there is none to read.
-fn line_zero(path: &Path) -> Option<String> {
+pub(super) fn line_zero(path: &Path) -> Option<String> {
     use std::io::BufRead;
     let file = std::fs::File::open(path).ok()?;
     let mut first = String::new();

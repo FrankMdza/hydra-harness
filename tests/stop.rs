@@ -323,3 +323,235 @@ fn a_seat_whose_record_appears_after_the_stops_scan_stops_itself() {
     assert!(error.starts_with(watch::STOP_NOTE), "{error}");
     assert!(layout.stop_marker(SEAT).exists());
 }
+
+// --- stepping in on a seat from the cockpit, build ticket 184 -----------------
+
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use hydra::cockpit::app::{App, Focus};
+use hydra::cockpit::chat::{Chat, Launch as ChatLaunch};
+use hydra::cockpit::host::{Host, Side};
+use hydra::cockpit::snapshot::{Card, Lane, Snapshot};
+use hydra::live::State;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+
+const AREA: Rect = Rect::new(0, 0, 200, 40);
+
+/// What `y` pastes for [`SEAT`], whose line 0 says its task was `stub`.
+const DRAFT: &str = "Seat 01996d3c (claude stub-1) was stopped by the human. Its task was: stub. \
+                     Instead: ";
+
+fn key(code: KeyCode) -> Event {
+    Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+}
+
+/// A cockpit on `layout` with the live lane focused, which knows where the
+/// policies are so a stop can read the outcome back.
+fn cockpit_on_the_seat(layout: &Layout) -> App {
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_policies(Path::new(env!("CARGO_MANIFEST_DIR")).join("policies"));
+    app.focus = Focus::Lane(Lane::Live);
+    app
+}
+
+fn seat_card() -> Card {
+    Card {
+        run_id: SEAT.to_string(),
+        provider: Some("claude".to_string()),
+        model: Some("stub-1".to_string()),
+        policy: Some("standard".to_string()),
+        policy_sha: None,
+        parent_run_id: Some(SESSION.to_string()),
+        state: State::Live,
+        outcome: None,
+        total_tokens: None,
+        result_text: None,
+        note: None,
+    }
+}
+
+fn drawn(host: &mut Host) -> String {
+    let mut buf = Buffer::empty(AREA);
+    host.draw(AREA, &mut buf);
+    (0..AREA.height)
+        .map(|y| {
+            (0..AREA.width)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A chat whose child names [`SESSION`] as its run, puts the pty in raw
+/// mode, turns bracketed paste on when `bracketed`, and writes every byte it
+/// is sent to `out`, so the test reads what reached the pty and nothing the
+/// line discipline did to it.
+fn recording_chat(layout: &Layout, out: &Path, bracketed: bool) -> Host {
+    let paste_mode = if bracketed {
+        r"printf '\033[?2004h'; "
+    } else {
+        ""
+    };
+    let script = format!(
+        r#"stty raw -echo; {paste_mode}printf 'hydra: run %s\r\nready\r\n' "$RUN"; exec cat > "$OUT""#
+    );
+    let launch = ChatLaunch {
+        program: "/bin/sh".to_string(),
+        args: vec!["-c".to_string(), script],
+        cwd: layout.root().to_path_buf(),
+        env: vec![
+            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+            ("TERM".to_string(), "xterm-256color".to_string()),
+            ("RUN".to_string(), SESSION.to_string()),
+            ("OUT".to_string(), out.display().to_string()),
+        ],
+        layout: Layout::at(layout.root()),
+        policies: Ok(policies()),
+        harvest_home: None,
+    };
+    let (rows, cols) = Host::chat_size(AREA);
+    let chat = Chat::spawn(launch, rows, cols).unwrap();
+    let mut host = Host::with_chat(cockpit_on_the_seat(layout), "stub".to_string(), chat);
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !(host.chat().is_some_and(|chat| chat.run_id().is_some())
+        && drawn(&mut host).contains("ready"))
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stub never named its run"
+        );
+        host.pump();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    host
+}
+
+/// The bytes the stub has written to `out` once they end in `until`, or
+/// whatever it holds after five seconds.
+fn recorded(out: &Path, until: &[u8]) -> Vec<u8> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let bytes = std::fs::read(out).unwrap_or_default();
+        if bytes.ends_with(until) || std::time::Instant::now() >= deadline {
+            return bytes;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Types `abc` into the chat, stops [`SEAT`] from the cockpit with `m` and
+/// `y`, and returns what reached the pty.
+fn step_in(layout: &Layout, bracketed: bool) -> (Host, Vec<u8>) {
+    let out = layout.root().join("pty-bytes");
+    let mut host = recording_chat(layout, &out, bracketed);
+    let mut watcher = start(layout, SEAT, Some(SESSION), LONG_STUB);
+
+    for c in ['a', 'b', 'c'] {
+        host.handle(&key(KeyCode::Char(c)));
+    }
+    assert_eq!(recorded(&out, b"abc"), b"abc", "the typing reached the pty");
+    host.handle(&key(KeyCode::F(2)));
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat_card()],
+        ..Snapshot::default()
+    });
+
+    host.handle(&key(KeyCode::Char('m')));
+    let asked = drawn(&mut host);
+    host.handle(&key(KeyCode::Char('y')));
+    ended(layout, SEAT, &mut watcher);
+    assert!(
+        asked.contains("stop 01996d3c and draft a note to the session? y"),
+        "{asked}"
+    );
+
+    let end = closing(layout, SEAT);
+    let error = end["hydra"]["error"].as_str().unwrap_or_default();
+    assert!(error.starts_with(watch::STOP_NOTE), "{error}");
+    let tail: &[u8] = if bracketed {
+        b"\x1b[201~"
+    } else {
+        b"Instead: "
+    };
+    let bytes = recorded(&out, tail);
+    (host, bytes)
+}
+
+/// `y` stops the seat before it returns, so its record is closed by now. A
+/// watcher that is still going is killed rather than waited on for two minutes.
+fn ended(layout: &Layout, run_id: &str, watcher: &mut std::process::Child) {
+    let waited =
+        watch::wait_for_end(&layout.run_file(run_id), watcher, Duration::from_secs(1)).unwrap();
+    if waited != Waited::Ended {
+        let _ = watcher.kill();
+    }
+    watcher.wait().unwrap();
+    assert_eq!(waited, Waited::Ended, "the seat was not stopped");
+}
+
+fn hang_up(host: &mut Host) {
+    host.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Char('q'),
+        KeyModifiers::CONTROL,
+    )));
+    host.handle(&key(KeyCode::Char('y')));
+}
+
+#[test]
+fn m_stops_the_seat_and_pastes_a_note_the_human_has_to_send() {
+    let layout = sandbox("draft-bracketed");
+    let (mut host, bytes) = step_in(&layout, true);
+
+    let expected = [b"abc\x1b[200~".as_slice(), DRAFT.as_bytes(), b"\x1b[201~"].concat();
+    assert_eq!(
+        String::from_utf8_lossy(&bytes),
+        String::from_utf8_lossy(&expected)
+    );
+    // Nothing after the closing bracket: no `\r`, no `\n`, so the note sits
+    // in the input until the human sends it, after what they had typed.
+    assert!(bytes.ends_with(b"\x1b[201~"), "{bytes:?}");
+    assert_eq!(host.side, Side::Chat, "the keys went back to the chat");
+    hang_up(&mut host);
+}
+
+#[test]
+fn without_bracketed_paste_the_note_still_ends_without_a_newline() {
+    let layout = sandbox("draft-plain");
+    let (mut host, bytes) = step_in(&layout, false);
+
+    let expected = [b"abc".as_slice(), DRAFT.as_bytes()].concat();
+    assert_eq!(
+        String::from_utf8_lossy(&bytes),
+        String::from_utf8_lossy(&expected)
+    );
+    assert!(
+        !bytes.ends_with(b"\r") && !bytes.ends_with(b"\n"),
+        "{bytes:?}"
+    );
+    hang_up(&mut host);
+}
+
+#[test]
+fn m_without_a_session_stops_the_seat_and_says_to_tell_the_session() {
+    let layout = sandbox("draft-alone");
+    let mut watcher = start(&layout, SEAT, Some(SESSION), LONG_STUB);
+    let mut host = Host::alone(cockpit_on_the_seat(&layout));
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat_card()],
+        ..Snapshot::default()
+    });
+
+    host.handle(&key(KeyCode::Char('m')));
+    let asked = drawn(&mut host);
+    host.handle(&key(KeyCode::Char('y')));
+    ended(&layout, SEAT, &mut watcher);
+    assert!(asked.contains("stop 01996d3c? y"), "{asked}");
+
+    let end = closing(&layout, SEAT);
+    let error = end["hydra"]["error"].as_str().unwrap_or_default();
+    assert!(error.starts_with(watch::STOP_NOTE), "{error}");
+    let said = host.app.message.clone().unwrap_or_default();
+    assert!(said.contains(&format!("stopped {SEAT}: stopped")), "{said}");
+    assert!(said.contains("tell the session yourself"), "{said}");
+}

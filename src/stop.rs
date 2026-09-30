@@ -1,7 +1,7 @@
 //! `hydra stop`, build ticket 169: a human ends a run that is still going.
 //!
-//! **Typed by a human and reached from nowhere but `main`**, like `reap` and
-//! `prune`. The panel of 2026-09-30 chose a command over a watchdog, so D10
+//! **Typed by a human and reached from `main` and the cockpit's `m`**, build
+//! ticket 184, which a human also types. The panel of 2026-09-30 chose a command over a watchdog, so D10
 //! stands: nothing in Hydra decides on its own that a run has gone on too long.
 //! [`command`] also refuses inside a seatbelt, as `hydra approve` does, because
 //! a model that can type `hydra stop --all` can end every sibling it has.

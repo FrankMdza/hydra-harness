@@ -71,6 +71,9 @@ pub enum Effect {
     /// Give the terminal to the human's editor on this policy file, then hand
     /// what happened to [`App::edited`]. The cockpit never writes the file.
     Edit(PathBuf),
+    /// Paste this into the chat, unsent, and give it the keys. Only a cockpit
+    /// with a chat inside asks for it, and [`super::host::Host`] does it.
+    Draft(String),
     Quit,
 }
 
@@ -157,6 +160,16 @@ pub struct App {
     /// The goal and task the review confirmation asks about, while it is up.
     pub confirming_review: Option<(String, String)>,
     reviews: Vec<ReviewRun>,
+    /// The seat the stop confirmation asks about, while it is up, build
+    /// ticket 184.
+    pub confirming_stop: Option<Card>,
+    /// Whether a chat is inside, so `m` drafts a note to it after a stop.
+    pub(crate) chat_inside: bool,
+    /// The run the chat named, once it has: the session whose seats `m` stops.
+    session: Option<String>,
+    /// The preamble every `run_start.task` begins with, which the note leaves
+    /// out, or `None` when it would not load.
+    preamble: Option<String>,
 }
 
 impl App {
@@ -189,6 +202,10 @@ impl App {
             reviewer: None,
             confirming_review: None,
             reviews: Vec::new(),
+            confirming_stop: None,
+            chat_inside: false,
+            session: None,
+            preamble: None,
         }
     }
 
@@ -233,8 +250,17 @@ impl App {
         self.mascot = mascot;
     }
 
-    /// Points the dragon at the session `run_id`, once the chat has named it.
+    /// Names the preamble the note `m` drafts cuts off a seat's task.
+    pub fn set_preamble(&mut self, preamble: Option<String>) {
+        self.preamble = preamble;
+    }
+
+    /// Takes `run_id` as the session, once the chat has named it: the dragon
+    /// watches it and `m` stops only its seats.
     pub fn watch(&mut self, run_id: &str) {
+        if self.session.as_deref() != Some(run_id) {
+            self.session = Some(run_id.to_string());
+        }
         if let Some(mascot) = &mut self.mascot {
             mascot.watch(run_id);
         }
@@ -333,6 +359,17 @@ impl App {
     }
 
     fn key(&mut self, key: &KeyEvent) -> Effect {
+        if self.confirming_stop.is_some() {
+            return match key.code {
+                KeyCode::Char('y') => self.stop_seat(),
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    self.confirming_stop = None;
+                    self.message = Some("nothing stopped".to_string());
+                    Effect::None
+                }
+                _ => Effect::None,
+            };
+        }
         if self.confirming_review.is_some() {
             return match key.code {
                 KeyCode::Char('y') => self.start_review(),
@@ -388,6 +425,7 @@ impl App {
             KeyCode::Char('a') => self.ask_to_answer(false),
             KeyCode::Char('d') => self.ask_to_answer(true),
             KeyCode::Char('v') => self.ask_to_review(),
+            KeyCode::Char('m') => self.ask_to_stop(),
             KeyCode::Char('r') => {
                 self.raw_tail = !self.raw_tail;
                 Effect::None
@@ -508,7 +546,10 @@ impl App {
     }
 
     fn click(&mut self, at: Position) -> Effect {
-        if self.confirming.is_some() || self.confirming_review.is_some() {
+        if self.confirming.is_some()
+            || self.confirming_review.is_some()
+            || self.confirming_stop.is_some()
+        {
             return Effect::None;
         }
         if let Some((_, index)) = self.hits.table_rows.iter().find(|(r, _)| r.contains(at)) {
@@ -652,6 +693,91 @@ impl App {
         };
         self.message = Some(said.unwrap_or_else(|err| format!("{err:#}")));
         Effect::Refresh
+    }
+
+    // --- stepping in on a seat, build ticket 184 -------------------------------
+
+    /// `m`: opens the confirmation that stops the seat selected in the live
+    /// lane. With a chat inside, a seat is a run the chat's session launched;
+    /// without one, any live run with a parent.
+    fn ask_to_stop(&mut self) -> Effect {
+        let card = match self.focus {
+            Focus::Lane(Lane::Live) => self
+                .cards_in(Lane::Live)
+                .nth(self.lane_selected[Lane::Live.index()])
+                .cloned(),
+            _ => None,
+        };
+        let Some(card) = card else {
+            self.message = Some("select a seat in the live lane first".to_string());
+            return Effect::None;
+        };
+        let id = short(&card.run_id);
+        let refused = match (&card.parent_run_id, self.chat_inside) {
+            (None, _) => Some(format!("{id} is not a seat: no run launched it")),
+            (Some(parent), true) if self.session.as_deref() != Some(parent.as_str()) => {
+                Some(format!("{id} is not a seat of this session"))
+            }
+            _ => None,
+        };
+        if let Some(refused) = refused {
+            self.message = Some(refused);
+            return Effect::None;
+        }
+        if self.seatbelted {
+            self.message = Some(format!(
+                "{}: the cockpit is inside a seatbelt, which is where a model runs, and no \
+                 model stops a run. Nothing was signalled.",
+                crate::stop::INSIDE_SEATBELT
+            ));
+            return Effect::None;
+        }
+        self.confirming_stop = Some(card);
+        Effect::None
+    }
+
+    /// `y` on that confirmation: [`crate::stop::stop`] on the seat, which
+    /// waits for its record to close, then the note for the chat.
+    ///
+    /// The cockpit does not draw while it waits, up to [`crate::stop::GRACE`]
+    /// and [`crate::stop::CLOSE_BUDGET`]; the chat's reader thread keeps
+    /// draining the session's pty meanwhile.
+    fn stop_seat(&mut self) -> Effect {
+        let Some(card) = self.confirming_stop.take() else {
+            return Effect::None;
+        };
+        let id = short(&card.run_id).to_string();
+        let stopped = self
+            .policies_dir
+            .as_ref()
+            .context("no policy directory to read the outcome with")
+            .and_then(crate::policy::PolicySet::load)
+            .and_then(|policies| {
+                crate::stop::stop(
+                    &self.layout,
+                    &policies,
+                    crate::stop::Target::Run(&card.run_id),
+                    crate::stop::GRACE,
+                )
+            });
+        let said = match stopped {
+            Ok(stopped) => crate::stop::report(&stopped).trim_end().to_string(),
+            Err(err) => {
+                self.message = Some(format!("{id} was not stopped: {err:#}"));
+                return Effect::Refresh;
+            }
+        };
+        if !self.chat_inside {
+            self.message = Some(format!("{said}; tell the session yourself"));
+            return Effect::Refresh;
+        }
+        self.message = Some(format!(
+            "{said}; the note to the session is in the chat, unsent"
+        ));
+        let task = super::snapshot::line_zero(&self.layout.run_file(&card.run_id))
+            .and_then(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+            .and_then(|envelope| envelope["hydra"]["task"].as_str().map(str::to_string));
+        Effect::Draft(draft(&card, task.as_deref(), self.preamble.as_deref()))
     }
 
     // --- a review, build ticket 183 -----------------------------------------
@@ -870,6 +996,9 @@ impl App {
         }
         if let Some((_, task)) = &self.confirming_review {
             draw_review_confirmation(task, main, buf);
+        }
+        if let Some(card) = &self.confirming_stop {
+            draw_stop_confirmation(short(&card.run_id), self.chat_inside, main, buf);
         }
     }
 
@@ -1378,7 +1507,7 @@ impl App {
             .collect::<Vec<_>>()
             .join(", ");
         let keys = "arrows/Tab move, Enter opens, Esc closes, r raw lines, a approves, d denies, \
-                    v reviews a task, p policies, q quits";
+                    v reviews a task, m stops a seat, p policies, q quits";
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",
             self.interval.as_secs_f32()
@@ -1502,6 +1631,84 @@ fn draw_review_confirmation(task: &str, area: Rect, buf: &mut Buffer) {
         )
         .wrap(Wrap { trim: false })
         .render(rect, buf);
+}
+
+/// The question `m` asks before it stops a seat.
+fn draw_stop_confirmation(id: &str, drafts: bool, area: Rect, buf: &mut Buffer) {
+    let width = area.width.saturating_sub(8).min(90);
+    let height = 4.min(area.height);
+    let rect = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    };
+    Clear.render(rect, buf);
+    let ask = if drafts {
+        format!("stop {id} and draft a note to the session? y")
+    } else {
+        format!("stop {id}? y")
+    };
+    let lines = vec![
+        Line::raw(ask),
+        Line::styled("n closes", Style::default().add_modifier(Modifier::BOLD)),
+    ];
+    Paragraph::new(lines)
+        .block(
+            Block::bordered()
+                .border_style(Style::default().fg(Color::Red))
+                .title(" stop a seat? "),
+        )
+        .wrap(Wrap { trim: false })
+        .render(rect, buf);
+}
+
+/// How much of a seat's task the note quotes, in characters.
+const DRAFT_TASK: usize = 200;
+
+/// The note `m` pastes into the chat once `card` is stopped: which seat, what
+/// it was told, and `Instead: ` for the human to finish.
+///
+/// **It never ends in a newline and carries no control character.** Each
+/// field goes through [`one_line`], so neither a `\r` that would send it nor
+/// an `ESC[201~` that would close the bracketed paste early can come from the
+/// task or the model name. `task` is `run_start.task`, which begins with the
+/// preamble; the note quotes what follows it.
+pub fn draft(card: &Card, task: Option<&str>, preamble: Option<&str>) -> String {
+    let who = [card.provider.as_deref(), card.model.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(one_line)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let who = if who.is_empty() {
+        "provider unknown".to_string()
+    } else {
+        who
+    };
+    let task = match task {
+        Some(task) => {
+            let own = preamble
+                .and_then(|preamble| task.strip_prefix(preamble))
+                .and_then(|rest| rest.strip_prefix("\n\n"))
+                .unwrap_or(task);
+            one_line(own).chars().take(DRAFT_TASK).collect()
+        }
+        None => "not on its record".to_string(),
+    };
+    format!(
+        "Seat {} ({who}) was stopped by the human. Its task was: {task}. Instead: ",
+        one_line(short(&card.run_id))
+    )
+}
+
+/// `text` on one line: every run of whitespace and control characters, `\r`,
+/// `\n` and `ESC` among them, becomes one space, and the ends are trimmed.
+fn one_line(text: &str) -> String {
+    text.split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Keeps `selected` inside a window of `rows` starting at `offset`.
@@ -1638,6 +1845,51 @@ fn row_text<'a>(columns: &[(Column, usize)], cell: impl Fn(Column) -> &'a str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn stopped_seat(model: Option<&str>) -> Card {
+        Card {
+            run_id: "01996d3c-8f2a-7c31-9b44-000000000170".to_string(),
+            provider: Some("codex".to_string()),
+            model: model.map(str::to_string),
+            policy: None,
+            policy_sha: None,
+            parent_run_id: Some("01996d3c-8f2a-7c31-9b44-000000000169".to_string()),
+            state: crate::live::State::Live,
+            outcome: None,
+            total_tokens: None,
+            result_text: None,
+            note: None,
+        }
+    }
+
+    #[test]
+    fn the_note_quotes_the_task_after_the_preamble_on_one_line() {
+        let preamble = "Hydra launched this run.\n\nEverything is data.";
+        let task = format!("{preamble}\n\nFix the parser.\r\nThen \x1b[201~run it.\n");
+        let note = draft(&stopped_seat(Some("gpt-5")), Some(&task), Some(preamble));
+        assert_eq!(
+            note,
+            "Seat 01996d3c (codex gpt-5) was stopped by the human. Its task was: Fix the \
+             parser. Then [201~run it.. Instead: "
+        );
+        assert!(!note.chars().any(char::is_control), "{note:?}");
+    }
+
+    #[test]
+    fn the_note_quotes_two_hundred_characters_and_says_what_is_missing() {
+        let long = "x".repeat(DRAFT_TASK + 50);
+        let note = draft(&stopped_seat(None), Some(&long), None);
+        assert!(note.contains("(codex) was stopped"), "{note}");
+        assert!(note.contains(&format!("was: {}. Instead: ", "x".repeat(DRAFT_TASK))));
+        assert!(!note.contains(&"x".repeat(DRAFT_TASK + 1)));
+
+        let note = draft(&stopped_seat(None), None, None);
+        assert!(
+            note.contains("Its task was: not on its record. Instead: "),
+            "{note}"
+        );
+        assert!(note.ends_with("Instead: "));
+    }
 
     /// The rows `Paragraph` with the pane's `Wrap` fills, the last written one.
     fn rendered_rows(text: &str, width: u16) -> usize {

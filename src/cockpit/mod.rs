@@ -139,6 +139,7 @@ pub fn run(
     );
 
     app.set_policies(crate::paths::hydra_home().join("policies"));
+    app.set_preamble(crate::preamble::load().ok());
     app.set_reviewer(
         crate::paths::hydra_home().join("integrations/puppets/puppets.py"),
         puppets_home(layout),
@@ -208,7 +209,8 @@ pub fn run(
                 // simply stops refreshing; quitting still works.
                 let _ = asks.send(host.app.open_run_id());
             }
-            Effect::None => {}
+            // The host pastes a draft itself and never hands one on.
+            Effect::Draft(_) | Effect::None => {}
         }
     }
     Ok(())
