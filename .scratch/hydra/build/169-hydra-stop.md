@@ -1,8 +1,8 @@
 # 169 - hydra stop
 
 Type: build
-Status: open
-Blocked by: map 89
+Status: claimed
+Blocked by:
 
 ## What
 
@@ -21,7 +21,13 @@ record. A child that dies on a signal the watcher sees gets `run_end.error` star
 Read `src/watch.rs`, `src/live.rs`, `src/status.rs`, `src/resolver.rs`, `src/reap.rs` and the
 `run_end` section of `docs/run-record-contract.md` before any code.
 
-**Check first, before code.** The panel set one condition: the record must say a human stopped
+**Map 89 answered the check (2026-09-30): add a tenth outcome, `stopped`.** Contract 8 gets one
+row, harness spec 12's outcome list one entry, `Outcome::Stopped` in `src/outcome.rs` with
+`rung_one_learns` false, and the derivation reads a fixed stop-note prefix in `run_end.error`
+before `SIGNAL_NOTE`. This ticket may amend `docs/run-record-contract.md` section 8 and harness
+spec 12 for exactly that, nothing else. Every `match` the compiler flags gets the new arm.
+
+The text below was the check as first written; it is done. **Old check:** The panel set one condition: the record must say a human stopped
 the run, not only `crashed`. Find whether that fits the contract as it stands, for example as a
 `run_end.error` text the watcher writes when it was asked to stop, with the outcome derived as
 something other than `crashed`. If it needs a new field or a new outcome in the contract, that is

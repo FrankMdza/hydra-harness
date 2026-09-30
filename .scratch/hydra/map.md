@@ -324,6 +324,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [86 - A cockpit of Hydra's own, wrapped around the vendor's terminal](issues/86-a-cockpit-of-hydras-own.md): resolved 2026-09-30 at the human's request. Amends 85: `hydra cockpit` in Ratatui, cut one beside the chat with one write (approve), cut two hosts the vendor's pty as `pty.rs` already owns it. Build tickets 150 and 151.
 - [87 - The apprentice loop](issues/87-the-apprentice-loop.md): resolved 2026-09-30 under the human's delegation. The local model works a bank of tasks about records nightly, verifiable ones grade themselves, a panel grades the open ones, and preference pairs per harness grow for a later LoRA. Build ticket 160.
 - [88 - A harness of our own for the small models](issues/88-a-harness-of-our-own-for-the-minis.md): resolved 2026-09-30 by a panel of three under the human's delegation. pi is not routed; an own harness is a separate Rust child speaking `claude`'s dialect, deferred until a local model emits tool calls, which none does today (Ollama: gemma3 1B does not support tools).
+- [89 - A human stop, and the outcome it leaves](issues/89-a-human-stop-and-its-outcome.md): resolved 2026-09-30 by a panel of three under the human's delegation. A tenth outcome, `stopped`, from a stop-note prefix in `run_end.error`; rung one never learns from it.
 
 ## Not yet specified
 

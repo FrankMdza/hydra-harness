@@ -1,7 +1,7 @@
 # 89 - A human stop, and the outcome it leaves
 
 Type: task
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-09-30, by the session, from build ticket 169, at the human's request for a stop
 command. The panel of 2026-09-30 chose `hydra stop <run>`, `--all` and `--session`, typed by a
@@ -36,4 +36,22 @@ Options:
 
 ## Answer
 
-(pending: panel of three and a judge, under the human's delegation; the human can revert)
+Resolved 2026-09-30 by a panel of three under the human's delegation (he asked that day for the
+panel on hard questions). Unanimous: **A**. codex 0.91, cursor-agent grok-4.7-high 0.71, agy
+gemini-3.1-pro-high 0.85; all three named C second. Answers in the human's decision log,
+`decisiones/2026-09-30/answer-89-*.md`.
+
+A tenth outcome, `stopped`: a human ended the run with `hydra stop`. The watcher writes a fixed
+stop note at the start of `run_end.error`, the derivation reads that prefix before
+`SIGNAL_NOTE`, `outcome_source` stays `derived`, no new field, `refusal` untouched. Rung one never
+learns from it: the record cannot tell a stop for a bad run from a stop for quota or a changed
+mind, and 8.6 already keeps "a failure signal about nothing" out of the corpus. If the exclusion
+proves wrong, the records still say `stopped` and can be admitted later; a false `failed` could not.
+
+All three seats named one reversal: a reader that breaks on a tenth outcome. The session counted
+them the same day. In `src/`, 19 uses of `Outcome::` outside `outcome.rs` sit in exhaustive
+matches, so the compiler lists every one to update. In `integrations/`, every reader compares
+strings, and none raises on an unknown one; `baseline.py`'s `outcome` label would count a stop as
+not completed and its `task` label would leave it out, which build 169 should keep in mind.
+
+Carried by build 169. Amends contract 8 (one row), harness spec 12's list, and `outcome.rs`.
