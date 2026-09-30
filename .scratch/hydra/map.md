@@ -323,6 +323,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [85 - A cockpit for the orchestrating session](issues/85-a-cockpit-for-the-orchestrating-session.md): resolved 2026-09-29 by the session under the human's delegation. Step 1 is a pane that loops `puppets.py board` beside the chat; Herdr draws no table and takes no cell click; a policy editor that writes is a map ticket. Build ticket 148.
 - [86 - A cockpit of Hydra's own, wrapped around the vendor's terminal](issues/86-a-cockpit-of-hydras-own.md): resolved 2026-09-30 at the human's request. Amends 85: `hydra cockpit` in Ratatui, cut one beside the chat with one write (approve), cut two hosts the vendor's pty as `pty.rs` already owns it. Build tickets 150 and 151.
 - [87 - The apprentice loop](issues/87-the-apprentice-loop.md): resolved 2026-09-30 under the human's delegation. The local model works a bank of tasks about records nightly, verifiable ones grade themselves, a panel grades the open ones, and preference pairs per harness grow for a later LoRA. Build ticket 160.
+- [88 - A harness of our own for the small models](issues/88-a-harness-of-our-own-for-the-minis.md): resolved 2026-09-30 by a panel of three under the human's delegation. pi is not routed; an own harness is a separate Rust child speaking `claude`'s dialect, deferred until a local model emits tool calls, which none does today (Ollama: gemma3 1B does not support tools).
 
 ## Not yet specified
 

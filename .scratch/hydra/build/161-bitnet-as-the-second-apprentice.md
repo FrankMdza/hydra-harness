@@ -24,8 +24,9 @@ in how much memory, and how does it score on the apprentice bank against the 1B 
    Nothing here needs the network.
 2. **Serve it the way the apprentice expects.** `apprentice.py attempt` talks to an Ollama
    `generate` endpoint. Add to `integrations/apprentice/` a small stdlib HTTP shim,
-   `bitnet_serve.py`, that answers `/api/generate` by running the `bitnet.cpp` binary with the
-   prompt and returning `{"response": ...}`, so `HYDRA_LOCAL_LLM_URL` can point at it. Test it
+   `bitnet_serve.py`, that answers `/api/generate` with `{"response": ...}` and `/v1/chat/completions` in the
+   OpenAI shape, both by running the `bitnet.cpp` binary with the prompt, so `HYDRA_LOCAL_LLM_URL`
+   can point at it and a later harness can too (map ticket 88). Test it
    against a stub binary.
 3. **Score it on the bank.** With the real bank from build 160, run `attempt` once with Gemma
    and once with BitNet (separate `HYDRA_LOCAL_MODEL` names so the attempts stay apart) and

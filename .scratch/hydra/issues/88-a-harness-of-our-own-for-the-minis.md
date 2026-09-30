@@ -1,7 +1,7 @@
 # 88 - A harness of our own for the small models, with pi as the reference
 
 Type: research
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-09-30, by the session, at the human's request. Low priority by his own word.
 
@@ -51,3 +51,44 @@ Three questions:
 
 A panel of three seats answers the three questions from this ticket and the code; the session
 writes the `## Answer`.
+
+## Answer
+
+Resolved 2026-09-30, by the session, under the human's delegation. Three seats, three vendors,
+three roles: `claude` opus as architect (run 01a0f0ca-5fa1), `cursor-agent` grok-4.7-high as
+researcher (01a0f0ca-7ed1), `codex` gpt-6.1-sol as adversary (01a0f0d5-51ae). Their notes are
+`research/88-seat-*.md`.
+
+**1. pi is not routed.** All three seats. Its only veto of a tool call is a `tool_call` handler
+inside the process, beside any other extension that loads, and its README says it has no
+permission system and runs with the rights of whoever launched it. Its JSON and RPC events
+report a tool call after it started. It takes API keys, and `Provider::subscription` has no value
+for one. Routing it would move the gate inside the provider, which harness spec 7.1 exists to
+refuse.
+
+**2. A harness of Hydra's own is deferred, and its shape is decided.** When it is built, it is
+the architect's cut: a separate child executable in Rust, not a loop inside Hydra's core (the
+adversary's point: Hydra runs no model and holds no credential, and a child keeps that true);
+four tools with `claude`'s names so `gate.py` needs no change and the table is four rows; every
+call through `hook_command`, failing closed on anything but a parsed `allow`; frames on stdout
+shaped like `claude`'s so the normalizer is reused; `print` mode only, no MCP, no skills, no
+resume, no extensions, no session trees. About three sessions by the architect's estimate. One
+decision goes to the map first: where the endpoint URL and the model name live, since a run
+that can rewrite them picks its own model.
+
+**3. Why deferred: the minis have no hands to give.** The session ran the architect's
+zero-session check after the panel: ten bank tasks to `gemma3:1b-it-qat` through Ollama's
+`/v1/chat/completions` with a `tools` array. Ollama answered all ten with HTTP 400,
+"gemma3:1b-it-qat does not support tools". No local model on this machine emits a tool call
+today, so a harness would drive nothing. The condition to reopen: a local model that emits
+well-formed tool calls on 7 of the same 10 tasks. The cheapest candidate to try is a small
+model Ollama lists with tool support; the 4B Gemma of map ticket 77 is the other.
+
+What the apprentice does meanwhile, measured the same night: on the real bank the 1B model
+scored 13 of 20 verifiable tasks (outcome 4 of 4, policy 3 of 3, refused count 3 of 3,
+provider and model 1 of 3, interactive 0 of 3). It reads records; it cannot act on them yet.
+
+Also from the seats: build 161's shim must serve `/v1/chat/completions` and not `/api/generate`
+if it is ever to feed a harness; "harness run" already names an `evolve` pass in contract 5.5
+and the provider cannot take that name; the apprentice's refusal and summary templates read
+`claude` frames only, and its pairs do not yet enter `hydra export`.
