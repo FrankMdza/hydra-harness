@@ -3257,7 +3257,20 @@ raise on is counted and skipped; a last line with no newline waits for the next 
 `live::read_view`, `ended ok` is an outcome of `completed`, and `ended not ok` holds every other
 outcome, an abandoned run and a record that would not read back. `waiting approval` is what
 `hydra approve` with no id lists, from `approve::pending`. The right column is one run: provider,
-model, policy, state, outcome, total tokens, `result_text` and the last twenty record lines.
+model, policy, state, outcome, total tokens, `result_text` and its last fifteen tool calls, or
+with `r` the last twenty record lines.
+
+**Tool calls, build ticket 178.** Each row is the tool's name, what the call's result said, and
+one argument cut to the pane: the first of `command`, `cmd`, `file_path`, `path`,
+`notebook_path`, `pattern`, `query`, `searchTerm`, `url`, `description` and `prompt` the call
+carries, else its arguments whole. The calls come from `normalize::events_so_far`, each adapter's
+walk without the gate replay, so the detail needs no policy set and a record is read again only
+when its length or line 0 changed. The decision is the record's, not a derived one: a result
+carrying a gate code other than `allow` reads `refused <code>`, any other result `allowed`,
+`error` or `unclassified` by its status, and a call with no result yet `-`. Two things follow.
+A refusal by the user's own guards reads `error`, because telling it from a failed tool is what
+the replay's `external` decider does. And an interactive `claude` record shows no calls, as it
+shows no usage while live.
 
 **Done and the run's end, build ticket 166.** A row carries the `done` of its task event, and a
 later `task` event for the same id replaces it, `None` included, as `fold` does. The table's

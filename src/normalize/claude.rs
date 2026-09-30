@@ -157,13 +157,23 @@ pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
 /// `None` on an interactive record: its frames are harvested once the session
 /// ends, so while it runs there is nothing to count.
 pub fn usage_so_far(text: &str) -> Option<Usage> {
+    events_so_far(text)
+        .into_iter()
+        .find_map(|event| match event {
+            Event::Usage(usage) => Some(usage),
+            _ => None,
+        })
+}
+
+/// Every event the walk derives, in file order, without the gate replay, so
+/// no `permission_decision` among them. Build ticket 178.
+///
+/// Empty on an interactive record, for the reason [`usage_so_far`] is `None`.
+pub fn events_so_far(text: &str) -> Vec<Event> {
     if is_interactive(text) {
-        return None;
+        return Vec::new();
     }
-    walk(text).events.into_iter().find_map(|event| match event {
-        Event::Usage(usage) => Some(usage),
-        _ => None,
-    })
+    walk(text).events
 }
 
 fn walk(text: &str) -> Walk {

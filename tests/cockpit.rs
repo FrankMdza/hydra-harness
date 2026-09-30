@@ -16,7 +16,9 @@ use crossterm::event::{
 use hydra::approve::Pending;
 use hydra::cockpit::app::{App, Effect, Focus, Opened};
 use hydra::cockpit::goal::{self, TaskRow};
-use hydra::cockpit::snapshot::{Card, Lane, Reader, Snapshot, Spend, lane_of, spend_text};
+use hydra::cockpit::snapshot::{
+    CallLine, Card, DETAIL_CALLS, Lane, Reader, Snapshot, Spend, lane_of, spend_text,
+};
 use hydra::cockpit::window::Budgets;
 use hydra::live::State;
 use hydra::normalize::Counts;
@@ -2174,4 +2176,221 @@ fn ten_live_runs_at_120x24_scroll_to_the_last() {
         wheeled.contains("00000009"),
         "the wheel reaches the last:\n{wheeled}"
     );
+}
+
+// --- the detail shows tool calls, build ticket 178 -------------------------
+
+/// A `claude` frame calling `Bash` with `command`, as `tool_use` block `id`.
+fn claude_bash(id: &str, command: &str) -> serde_json::Value {
+    json!({
+        "type": "assistant",
+        "message": {
+            "id": "msg_01",
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": id, "name": "Bash", "input": {"command": command}}],
+        },
+    })
+}
+
+/// The `tool_result` that answers block `id`.
+fn claude_result(id: &str, output: &str, is_error: bool) -> serde_json::Value {
+    json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": id, "content": output, "is_error": is_error}],
+        },
+    })
+}
+
+fn call_line(name: &str, input: &str, decision: Option<&str>) -> CallLine {
+    CallLine {
+        name: name.to_string(),
+        input: input.to_string(),
+        decision: decision.map(str::to_string),
+    }
+}
+
+#[test]
+fn the_detail_reads_tool_calls_and_their_decisions_without_the_policies() {
+    let layout = scratch("calls-fixtures");
+    let copy = |label: &str, n: u32| {
+        let from = fixture(label, n);
+        std::fs::copy(&from, layout.runs().join(from.file_name().unwrap())).unwrap();
+    };
+    copy("claude@2.1.261", 2);
+    copy("codex@0.154.0", 11);
+    copy("cursor-agent@2026.09.02-c22c1a3", 12);
+    // No policy set at all, so nothing here can have come from the replay
+    // `finish` runs: the calls are the walk's and the decisions the record's.
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Err(anyhow::anyhow!("no policies in this test")),
+        layout.root().join("puppets"),
+        None,
+    );
+    let calls_of = |reader: &mut Reader, n: u32| {
+        let id = format!("00000000-0000-7000-8000-{n:012}");
+        let snapshot = reader.read(Some(&id));
+        let (calls_id, calls) = snapshot.calls.clone().expect("the open run's calls");
+        assert_eq!(calls_id, id);
+        calls
+    };
+
+    assert_eq!(
+        calls_of(&mut reader, 2),
+        vec![
+            call_line(
+                "Bash",
+                "echo x >> /fixture/hydra/runs/r.jsonl",
+                Some("refused protected-path"),
+            ),
+            call_line("Bash", "echo ok > probe.txt", Some("allowed")),
+        ]
+    );
+    let codex = calls_of(&mut reader, 11);
+    assert_eq!(
+        codex.iter().map(|c| c.input.as_str()).collect::<Vec<_>>(),
+        ["ls", "head README"]
+    );
+    assert!(
+        codex
+            .iter()
+            .all(|c| c.decision.as_deref() == Some("allowed"))
+    );
+    let cursor = calls_of(&mut reader, 12);
+    assert_eq!(cursor.len(), 1, "{cursor:?}");
+    assert_eq!(cursor[0].input, "rust async runtime comparison");
+    assert_eq!(cursor[0].decision.as_deref(), Some("allowed"));
+}
+
+#[test]
+fn the_detail_keeps_the_last_fifteen_calls_newest_last() {
+    let layout = scratch("calls-fifteen");
+    let run = "01a0f178-0000-7000-8000-000000000178";
+    let mut frames = Vec::new();
+    for i in 0..20 {
+        let id = format!("toolu_{i:02}");
+        frames.push(claude_bash(&id, &format!("echo {i}")));
+        frames.push(claude_result(&id, "", false));
+    }
+    // The last call has no result yet, so the record says nothing of it.
+    frames.push(claude_bash("toolu_20", "echo 20"));
+    write_live_frames(&layout, run, "claude", Some("opus"), noon(), &frames);
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.root().join("puppets"),
+        None,
+    );
+    let snapshot = reader.read(Some(run));
+    let (_, calls) = snapshot.calls.expect("the open run's calls");
+    assert_eq!(calls.len(), DETAIL_CALLS);
+    assert_eq!(DETAIL_CALLS, 15);
+    assert_eq!(calls[0].input, "echo 6");
+    assert_eq!(calls[13].input, "echo 19");
+    assert_eq!(calls[13].decision.as_deref(), Some("allowed"));
+    assert_eq!(calls[14], call_line("Bash", "echo 20", None));
+}
+
+#[test]
+fn a_live_runs_calls_are_read_again_only_when_it_grew() {
+    let layout = scratch("calls-grew");
+    let run = "01a0f179-0000-7000-8000-000000000179";
+    write_live_frames(
+        &layout,
+        run,
+        "claude",
+        Some("opus"),
+        noon(),
+        &[claude_bash("toolu_01", "echo aa")],
+    );
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.root().join("puppets"),
+        None,
+    );
+    let inputs = |reader: &mut Reader| {
+        let (_, calls) = reader.read(Some(run)).calls.expect("calls");
+        calls.into_iter().map(|c| c.input).collect::<Vec<_>>()
+    };
+    assert_eq!(inputs(&mut reader), ["echo aa"]);
+
+    // The same length and the same line 0: the file did not grow, so the
+    // calls are the ones already read. Nothing in a record rewrites a line
+    // in place; this only makes the skipped read visible.
+    let path = layout.run_file(run);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let len = text.len();
+    std::fs::write(&path, text.replace("echo aa", "echo bb")).unwrap();
+    assert_eq!(std::fs::metadata(&path).unwrap().len() as usize, len);
+    assert_eq!(inputs(&mut reader), ["echo aa"]);
+
+    // It grew, so it is read again, and the rewrite shows with the new call.
+    append_frames(
+        &layout,
+        run,
+        "claude",
+        2,
+        &[
+            claude_result("toolu_01", "", false),
+            claude_bash("toolu_02", "echo cc"),
+        ],
+    );
+    assert_eq!(inputs(&mut reader), ["echo bb", "echo cc"]);
+}
+
+#[test]
+fn r_toggles_the_detail_between_tool_calls_and_raw_lines() {
+    let run = "01a0e002-0000-7000-8000-000000000002";
+    let mut snapshot = fixed_snapshot();
+    let long = format!("cat {}", "x".repeat(300));
+    snapshot.calls = Some((
+        run.to_string(),
+        vec![
+            call_line("Bash", "echo x >> /r", Some("refused protected-path")),
+            call_line("Read", &long, Some("allowed")),
+        ],
+    ));
+    snapshot.tail = Some((
+        run.to_string(),
+        vec!["{\"raw\":\"frame-line\"}".to_string()],
+    ));
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    app.opened = Some(Opened::Run(run.to_string()));
+    let draw = |app: &mut App| {
+        let mut buf = Buffer::empty(AREA);
+        app.draw(AREA, &mut buf);
+        buf
+    };
+
+    let buf = draw(&mut app);
+    let text = screen_text(&buf);
+    assert!(text.contains("tool calls"), "{text}");
+    let refused = line_with(&buf, "echo x >> /r");
+    assert!(refused.contains("Bash"), "{refused}");
+    assert!(refused.contains("refused protected-path"), "{refused}");
+    // A long input is cut to the pane, one row per call, not wrapped.
+    let rows = (0..buf.area.height)
+        .filter(|y| row_of(&buf, *y).contains("xxxxx"))
+        .count();
+    assert_eq!(rows, 1, "{text}");
+    assert!(!text.contains("frame-line"), "{text}");
+
+    app.handle(&key(KeyCode::Char('r')));
+    let text = screen_text(&draw(&mut app));
+    assert!(text.contains("frame-line"), "{text}");
+    assert!(text.contains("last record lines"), "{text}");
+    assert!(!text.contains("echo x >> /r"), "{text}");
+
+    app.handle(&key(KeyCode::Char('r')));
+    let text = screen_text(&draw(&mut app));
+    assert!(text.contains("echo x >> /r"), "{text}");
+    assert!(!text.contains("frame-line"), "{text}");
 }

@@ -1,7 +1,7 @@
 # 179 - The policy pane counts wrapped rows
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 178
 
 ## What

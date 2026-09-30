@@ -17,7 +17,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 
 use super::goal::TaskRow;
 use super::mascot::Mascot;
-use super::snapshot::{Card, Lane, Snapshot, spend_text};
+use super::snapshot::{CallLine, Card, Lane, Snapshot, spend_text};
 use crate::approve::Pending;
 use crate::paths::Layout;
 
@@ -102,6 +102,9 @@ pub struct App {
     table_offset: usize,
     lane_offset: [usize; 4],
     detail_scroll: u16,
+    /// Whether the detail shows the raw record lines rather than the tool
+    /// calls. `r` flips it, build ticket 178.
+    raw_tail: bool,
     pub opened: Option<Opened>,
     /// The request the confirmation shows, while it is up.
     pub confirming: Option<Pending>,
@@ -142,6 +145,7 @@ impl App {
             table_offset: 0,
             lane_offset: [0; 4],
             detail_scroll: 0,
+            raw_tail: false,
             opened: None,
             confirming: None,
             denying: false,
@@ -336,6 +340,10 @@ impl App {
             }
             KeyCode::Char('a') => self.ask_to_answer(false),
             KeyCode::Char('d') => self.ask_to_answer(true),
+            KeyCode::Char('r') => {
+                self.raw_tail = !self.raw_tail;
+                Effect::None
+            }
             _ => Effect::None,
         }
     }
@@ -986,7 +994,7 @@ impl App {
     fn draw_detail(&mut self, area: Rect, buf: &mut Buffer) {
         self.hits.detail = area;
         let block = self.block(Focus::Detail, " detail ".to_string());
-        let lines = self.detail_lines();
+        let lines = self.detail_lines(area.width.saturating_sub(2) as usize);
         Paragraph::new(lines)
             .block(block)
             .wrap(Wrap { trim: false })
@@ -994,7 +1002,8 @@ impl App {
             .render(area, buf);
     }
 
-    fn detail_lines(&self) -> Vec<Line<'static>> {
+    /// `width` is the pane's inside, which a tool call's line is cut to.
+    fn detail_lines(&self, width: usize) -> Vec<Line<'static>> {
         let label = |name: &str, value: String| {
             Line::from(vec![
                 Span::styled(
@@ -1062,13 +1071,29 @@ impl App {
                     None => lines.push(Line::raw("-")),
                 }
                 lines.push(Line::raw(""));
+                if self.raw_tail {
+                    lines.push(Line::styled(
+                        "last record lines (r shows tool calls)",
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ));
+                    match &self.snapshot.tail {
+                        Some((tail_id, tail)) if tail_id == id => {
+                            lines.extend(tail.iter().map(|l| Line::raw(l.clone())));
+                        }
+                        _ => lines.push(Line::raw("reading")),
+                    }
+                    return lines;
+                }
                 lines.push(Line::styled(
-                    "last record lines",
+                    "tool calls (r shows the raw record lines)",
                     Style::default().add_modifier(Modifier::BOLD),
                 ));
-                match &self.snapshot.tail {
-                    Some((tail_id, tail)) if tail_id == id => {
-                        lines.extend(tail.iter().map(|l| Line::raw(l.clone())));
+                match &self.snapshot.calls {
+                    Some((calls_id, calls)) if calls_id == id => {
+                        if calls.is_empty() {
+                            lines.push(Line::raw("none yet"));
+                        }
+                        lines.extend(calls.iter().map(|call| call_line(call, width)));
                     }
                     _ => lines.push(Line::raw("reading")),
                 }
@@ -1088,8 +1113,8 @@ impl App {
             .map(|lane| format!("{} {}", lane.title(), self.lane_len(*lane)))
             .collect::<Vec<_>>()
             .join(", ");
-        let keys =
-            "arrows/Tab move, Enter opens, Esc closes, a approves, d denies, p policies, q quits";
+        let keys = "arrows/Tab move, Enter opens, Esc closes, r raw lines, a approves, d denies, \
+                    p policies, q quits";
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",
             self.interval.as_secs_f32()
@@ -1101,6 +1126,29 @@ impl App {
         }
         buf.set_line(area.x, area.y, &Line::raw(text), area.width);
     }
+}
+
+/// One tool call on one row: name, what the result said, then the input, which
+/// is what gets cut when the row is wider than the pane.
+fn call_line(call: &CallLine, width: usize) -> Line<'static> {
+    let decision = call.decision.as_deref().unwrap_or("-");
+    let style = if decision.starts_with("refused") {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default().add_modifier(Modifier::DIM)
+    };
+    let head = format!("{} {decision} ", call.name);
+    let room = width.saturating_sub(head.chars().count());
+    let mut input: String = call.input.chars().take(room).collect();
+    if input.chars().count() < call.input.chars().count() && room > 0 {
+        input.pop();
+        input.push('~');
+    }
+    Line::from(vec![
+        Span::raw(format!("{} ", call.name)),
+        Span::styled(format!("{decision} "), style),
+        Span::raw(input),
+    ])
 }
 
 /// What the cockpit says where `hydra approve` would refuse by name.

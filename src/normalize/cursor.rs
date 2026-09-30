@@ -189,10 +189,18 @@ pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
 /// The usage the record carries so far, off the same walk and without the
 /// gate replay [`normalize`] finishes with. Build ticket 172.
 pub fn usage_so_far(text: &str) -> Option<Usage> {
-    walk(text).events.into_iter().find_map(|event| match event {
-        Event::Usage(usage) => Some(usage),
-        _ => None,
-    })
+    events_so_far(text)
+        .into_iter()
+        .find_map(|event| match event {
+            Event::Usage(usage) => Some(usage),
+            _ => None,
+        })
+}
+
+/// Every event the walk derives, in file order, without the gate replay, so
+/// no `permission_decision` among them. Build ticket 178.
+pub fn events_so_far(text: &str) -> Vec<Event> {
+    walk(text).events
 }
 
 fn walk(text: &str) -> Walk {

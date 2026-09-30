@@ -1,7 +1,7 @@
 # 178 - The detail shows tool calls
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 177
 
 ## What
@@ -30,3 +30,19 @@ shown failing before the change.
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit` and
   `--test normalize` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f312-404c under `standard`. The session
+applied it as written. Each normalizer gains `events_so_far(text)`, the walk's events without
+`finish`; `usage_so_far` calls it, and `normalize` is unchanged. The detail shows the last 15
+tool calls, newest last: name, decision (`refused <code>` in red from a gate code in the result,
+else `allowed`, `error` or `unclassified`, none while the call is open) and a one-line input
+(`command`, `file_path`, `pattern` and the like, else the whole arguments), cut with `~`. `r`
+toggles the raw tail. A live run rereads only when its length or line 0 changes. Four tests, each
+failing first; fmt and clippy clean, `--test cockpit` 48, `--test normalize` 87, `--lib` 221.
+
+Without the gate replay the decision is the record's own word: a refusal by the user's own
+guards shows as `error`. No fixture has a refused `cursor-agent` or `agy` call, and the `agy`
+fixture has no calls, so those paths are untested.
+

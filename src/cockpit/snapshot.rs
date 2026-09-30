@@ -30,6 +30,8 @@ use crate::policy::PolicySet;
 
 /// How many record lines the detail shows.
 pub const TAIL_LINES: usize = 20;
+/// How many tool calls the detail shows, the last ones.
+pub const DETAIL_CALLS: usize = 15;
 /// Where a long record line is cut in the detail.
 const TAIL_LINE_CHARS: usize = 400;
 /// How far back from the end the tail looks for its lines.
@@ -124,12 +126,26 @@ pub struct Snapshot {
     pub requests: Vec<Pending>,
     /// The last record lines of the run the detail has open.
     pub tail: Option<(String, Vec<String>)>,
+    /// The last [`DETAIL_CALLS`] tool calls of the run the detail has open,
+    /// oldest first. Build ticket 178.
+    pub calls: Option<(String, Vec<CallLine>)>,
     pub errors: Vec<String>,
     /// False only on the empty snapshot drawn before the first read lands.
     pub read: bool,
     /// What each provider's live runs have spent, one entry per provider with
     /// a live run, by name.
     pub spend: Vec<Spend>,
+}
+
+/// One tool call, as the detail lists it. Build ticket 178.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallLine {
+    pub name: String,
+    /// The one argument that says what the call touched, on one line.
+    pub input: String,
+    /// What the call's result says of it: `allowed`, `refused <code>`,
+    /// `error` or `unclassified`. `None` while it has no result.
+    pub decision: Option<String>,
 }
 
 /// One provider's live runs, for the header. Build ticket 172.
@@ -178,6 +194,15 @@ struct Ended {
     note: Option<String>,
 }
 
+/// The open run's calls as last read, kept while the file keeps its length
+/// and its line 0. One slot: opening another run drops it.
+struct OpenCalls {
+    run_id: String,
+    len: u64,
+    line_zero: Option<String>,
+    calls: Vec<CallLine>,
+}
+
 /// The reader thread's state: where to look and what it has normalized.
 pub struct Reader {
     layout: Layout,
@@ -186,6 +211,7 @@ pub struct Reader {
     goal: Option<String>,
     ended: HashMap<String, Ended>,
     live: HashMap<String, Live>,
+    calls: Option<OpenCalls>,
     /// Where `vendors.json` and `aliases.json` are, or `None` for no budgets.
     vendors: Option<PathBuf>,
 }
@@ -204,6 +230,7 @@ impl Reader {
             goal,
             ended: HashMap::new(),
             live: HashMap::new(),
+            calls: None,
             vendors: None,
         }
     }
@@ -239,6 +266,7 @@ impl Reader {
                 Ok(lines) => snapshot.tail = Some((run_id.to_string(), lines)),
                 Err(err) => snapshot.errors.push(format!("{err:#}")),
             }
+            snapshot.calls = Some((run_id.to_string(), self.open_calls(run_id)));
         }
         snapshot
     }
@@ -404,6 +432,34 @@ impl Reader {
             .and_then(|usage| usage.counts);
     }
 
+    /// The open run's last calls, read again only when its file changed
+    /// length or line 0, as [`Self::count_live`] does for usage.
+    ///
+    /// **Off the walk, never the replay.** A decision is what the call's
+    /// result says, which is why this needs no policy set: see [`calls_of`].
+    fn open_calls(&mut self, run_id: &str) -> Vec<CallLine> {
+        let path = self.layout.run_file(run_id);
+        let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let line_zero = line_zero(&path);
+        if let Some(kept) = &self.calls
+            && kept.run_id == run_id
+            && kept.len == len
+            && kept.line_zero == line_zero
+        {
+            return kept.calls.clone();
+        }
+        let calls = std::fs::read_to_string(&path)
+            .map(|text| calls_of(&text))
+            .unwrap_or_default();
+        self.calls = Some(OpenCalls {
+            run_id: run_id.to_string(),
+            len,
+            line_zero,
+            calls: calls.clone(),
+        });
+        calls
+    }
+
     /// The header's entries, one per provider with a live card.
     fn spend(
         &mut self,
@@ -515,6 +571,92 @@ impl Reader {
             note: None,
         }
     }
+}
+
+/// A record's last [`DETAIL_CALLS`] tool calls, each with what its result says.
+///
+/// The decision is read off the result, not derived: a result carrying one of
+/// the gate's codes other than `allow`, found by
+/// [`crate::normalize::hydra_voice`], is `refused <code>`. Any other result is
+/// `allowed`, `error` or `unclassified` by its status, so a refusal by the
+/// user's own guards shows as `error`. A call with no result yet has none.
+pub fn calls_of(text: &str) -> Vec<CallLine> {
+    use crate::normalize::{Event, ResultStatus};
+    let events = crate::normalize::events_so_far(text);
+    let results: HashMap<&str, _> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::ToolResult(result) if !result.call_id.is_empty() => {
+                Some((result.call_id.as_str(), result))
+            }
+            _ => None,
+        })
+        .collect();
+    let calls: Vec<CallLine> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::ToolCall(call) => Some(call),
+            _ => None,
+        })
+        .map(|call| CallLine {
+            name: call.name.clone(),
+            input: input_of(&call.arguments),
+            decision: results.get(call.call_id.as_str()).map(|result| {
+                match crate::normalize::hydra_voice(&result.output) {
+                    Some(code) if code != "allow" => format!("refused {code}"),
+                    _ => match result.status {
+                        ResultStatus::Ok => "allowed",
+                        ResultStatus::Error => "error",
+                        ResultStatus::Unclassified => "unclassified",
+                    }
+                    .to_string(),
+                }
+            }),
+        })
+        .collect();
+    let from = calls.len().saturating_sub(DETAIL_CALLS);
+    calls[from..].to_vec()
+}
+
+/// The argument keys that say what a call touched, first match wins. The
+/// four providers spell them differently, and a call with none of them shows
+/// its arguments whole.
+const INPUT_KEYS: &[&str] = &[
+    "command",
+    "cmd",
+    "file_path",
+    "path",
+    "notebook_path",
+    "pattern",
+    "query",
+    "searchTerm",
+    "url",
+    "description",
+    "prompt",
+];
+
+/// A call's arguments as one line: the first of [`INPUT_KEYS`] it carries,
+/// or the whole object. The pane cuts it to its width.
+fn input_of(arguments: &serde_json::Value) -> String {
+    let named = INPUT_KEYS.iter().find_map(|key| match &arguments[*key] {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Array(parts) if !parts.is_empty() => Some(
+            parts
+                .iter()
+                .map(|part| {
+                    part.as_str()
+                        .map_or_else(|| part.to_string(), str::to_string)
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        _ => None,
+    });
+    let text = named.unwrap_or_else(|| match arguments {
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    });
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// A record's first line, or `None` when there is none to read.

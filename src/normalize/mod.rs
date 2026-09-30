@@ -544,6 +544,28 @@ pub fn usage_so_far(text: &str) -> Option<Usage> {
     }
 }
 
+/// Every event the adapter [`read_with`] would pick derives from a record that
+/// may not have ended, in file order. Build ticket 178.
+///
+/// **Nothing is replayed**, as in [`usage_so_far`], so there is no
+/// [`PermissionDecision`] among them and no finding. A caller that wants to
+/// know whether a call was refused reads its [`ToolResult`] for the gate's own
+/// code with [`hydra_voice`]. Empty for a provider with no adapter and for an
+/// interactive `claude` record.
+pub fn events_so_far(text: &str) -> Vec<Event> {
+    let provider = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find_map(|envelope| envelope["provider"].as_str().map(str::to_string));
+    match provider.as_deref() {
+        Some("cursor-agent") => cursor::events_so_far(text),
+        Some("agy") => agy::events_so_far(text),
+        Some("codex") => codex::events_so_far(text),
+        Some("claude") => claude::events_so_far(text),
+        _ => Vec::new(),
+    }
+}
+
 /// **What line 0 says about the gate the run was compiled with.** Contract 5.1's
 /// `scopes` and `floor_lifted`, read the way every other line 0 field is read: by
 /// name, out of a `Value`, with absence meaning something. A record written
