@@ -645,6 +645,36 @@ def pet_demo(seconds, fps, out, scale):
         out.flush()
 
 
+# The poses the cockpit draws, in the order of `index.json`: (name, heads, fires, pet, red, t).
+# Heads wake left to right, one per live seat, as `compute_watch_frame` does.
+COCKPIT_POSES = [
+    ("idle", ["awake"] * 3, [0.0] * 3, False, False, 0.3),
+    ("working", ["awake"] * 3, [0.0] * 3, False, False, 1.5),
+    ("one_asleep", ["awake", "awake", "sleeping"], [0.0] * 3, False, False, 0.3),
+    ("two_asleep", ["awake", "sleeping", "sleeping"], [0.0] * 3, False, False, 0.3),
+    ("all_asleep", ["sleeping"] * 3, [0.0] * 3, False, False, 0.3),
+    ("refused", ["awake"] * 3, [0.0] * 3, False, True, 0.3),
+    ("meme", ["awake"] * 3, [0.0] * 3, True, False, 0.3),
+    ("fire", ["firing"] * 3, [1.0] * 3, False, False, 0.3),
+]
+
+
+def write_frames(directory):
+    """Every cockpit pose of the pet skin at scale 1, 24 columns by 12 rows, as ANSI files plus
+    an `index.json` naming each file with its rows and columns. The Rust cockpit reads these
+    instead of porting the renderer, so a change to the dragon means running this again."""
+    os.makedirs(directory, exist_ok=True)
+    poses = {}
+    for name, heads, fires, pet, red, t in COCKPIT_POSES:
+        cells = pet_cells(t, heads, fires, pet, 1)
+        with open(os.path.join(directory, name + ".ans"), "w") as f:
+            draw(cells, f, red=red)
+        poses[name] = {"file": name + ".ans", "rows": len(cells), "cols": len(cells[0])}
+    with open(os.path.join(directory, "index.json"), "w") as f:
+        json.dump({"poses": poses}, f, indent=2)
+        f.write("\n")
+
+
 def write_png(cells, path, scale=8):
     """A preview of the sprite as it would look on screen, one pixel as scale x scale dots (a
     terminal cell is about twice as tall as wide and holds two pixels, so pixels are square),
@@ -696,8 +726,13 @@ def main():
                     help="watch Herdr panes carrying a run_id and drive the mascot from their tokens")
     ap.add_argument("--skin", choices=SKINS,
                     help="with --watch: hd or pet to start with; Tab switches, the last is remembered")
+    ap.add_argument("--frames", metavar="DIR",
+                    help="write every cockpit pose of the pet skin into DIR as ANSI files and an index.json, then exit")
     ap.add_argument("--fps", type=float, default=8)
     a = ap.parse_args()
+    if a.frames:
+        write_frames(a.frames)
+        return
     if a.watch:
         watch_loop(sys.stdout, a.scale, a.skin)
         return

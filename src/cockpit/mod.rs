@@ -14,10 +14,12 @@
 //! [`app`] holds the state, the event handling and the drawing, with no
 //! terminal, so the suite drives them over a `Buffer`. [`snapshot`] is what one
 //! read of the disk returns, done on a thread so a slow read never holds a key
-//! press. [`goal`] folds a goal log into the table.
+//! press. [`goal`] folds a goal log into the table. [`mascot`] is the dragon in the header, drawn
+//! from frames the Python mascot wrote.
 
 pub mod app;
 pub mod goal;
+pub mod mascot;
 pub mod snapshot;
 
 use std::io::Stdout;
@@ -64,7 +66,12 @@ pub fn check_goal_id(id: &str) -> Result<()> {
 }
 
 /// Runs the cockpit until `q`.
-pub fn run(layout: &Layout, goal: Option<String>, interval: Duration) -> Result<()> {
+pub fn run(
+    layout: &Layout,
+    goal: Option<String>,
+    interval: Duration,
+    with_mascot: bool,
+) -> Result<()> {
     if let Some(id) = &goal {
         check_goal_id(id)?;
     }
@@ -90,6 +97,13 @@ pub fn run(layout: &Layout, goal: Option<String>, interval: Duration) -> Result<
         crate::sandbox::inside_seatbelt(),
         interval,
     );
+
+    if with_mascot {
+        match mascot::Frames::load(&mascot::default_dir()) {
+            Ok(frames) => app.set_mascot(Some(mascot::Mascot::new(frames))),
+            Err(err) => app.message = Some(format!("no mascot: {err:#}")),
+        }
+    }
 
     let mut screen = Screen::enter()?;
     loop {

@@ -3209,6 +3209,26 @@ event. The binary was driven once on a pty through `script`, 150 by 30, against 
 alternate screen back off. A real mouse over a real terminal emulator has not been tried, so the
 wheel and click paths are tested only against synthetic events.
 
+**The mascot, build ticket 152.** The header carries HydraPet's dragon at the pet's size, 24
+columns by 12 rows, left of the title; `--no-mascot` hides it and the table gets the 12 rows back.
+The renderer is not ported. `hydra-mascot --frames <dir>` writes eight poses (idle, working,
+one, two and all heads asleep, refused, meme, fire) as ANSI files with an `index.json`, committed
+under `integrations/herdr/mascot/frames/`, and `src/cockpit/mascot.rs` reads them from
+`$HYDRA_HOME/integrations/herdr/mascot/frames/` with a parser of the half-block sequences the
+mascot emits (about forty lines; `ansi-to-tui` would have been a new dependency for the same
+job). A directory whose files disagree with its index is refused and the cockpit says so on the
+status line and runs without the dragon. Heads awake are the live runs, left to right: none is
+idle, one is two asleep, two is one asleep, three or more is working, and past three a `+N` line
+sits beside the dragon. A run seen going from live to ended `gated` shows the refused pose for
+one read, any other end but `completed` shows the meme head, and a request that leaves the
+waiting lane shows fire. What was already ended when the cockpit opened shows nothing. Three
+things are approximations. Every live run counts as a seat, not only the runs of one session,
+because a card does not carry its session. A request that leaves the waiting lane is read as
+launched, though a withdrawn one leaves it too. `all_asleep` is generated and never drawn,
+since the ticket says idle when nothing is live. The poses are still frames, so the dragon does
+not sway. The binary ran on a pty at 160 by 40 and drew the title and truecolor half blocks;
+nobody has looked at it in a terminal emulator.
+
 **Cut two, build ticket 151**, puts the chat inside: the cockpit launches
 `hydra run --interactive` on a pty it owns and paints it in the left panel with a terminal widget,
 passing keys and resizes through. Nothing of that is here.

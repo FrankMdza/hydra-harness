@@ -1,7 +1,7 @@
 # 152 - The mascot in the cockpit, one head awake per live seat
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 150
 
 ## What
@@ -42,3 +42,28 @@ the cockpit's header and make its heads follow the seats.
   frames, maps each seat state to a pose, and renders into a `Buffer` of the right size.
 - The committed frames render in a real terminal if you can drive one; if not, say so.
 - fmt, clippy, `cargo test --test cockpit` and the Herdr suite clean.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` sonnet on run 01a0f07a-bbc3 under `standard`, about 2.65M
+tokens. The session applied the diff as written.
+
+`hydra-mascot --frames <dir>` writes the eight poses of the pet skin at 24 columns by 12 rows as
+ANSI, with `index.json`; the frames are committed under `integrations/herdr/mascot/frames/`.
+`src/cockpit/mascot.rs` loads them, parses the mascot's own sequences (no new crate), and maps
+the seats to a pose: heads awake are the live runs up to three, then `+N`; a run ending `gated`
+shows refused once, one ending `timeout` shows the meme head once, a request leaving the waiting
+lane breathes fire once; idle when nothing is live. The header is 12 rows, drawn only at 54
+columns by 24 rows or more; `--no-mascot` gives the rows back to the table.
+
+Tests: two in Python for `--frames`, and seven more in `tests/cockpit.rs` (load, a lying index,
+the seat-to-pose map, the one-shot poses, history at open, the header at 160 by 40, and a small
+screen). Cockpit 13, lib 217, Herdr 37, fmt and clippy clean. Release rebuilt. The session drove
+the release binary on a pty at 180 by 45: 67 truecolor sequences and 103 half blocks in the first
+frames, `q` quit with status 0.
+
+Two things the run said and the ticket had not: a `Card` has no session field, so the heads
+count every live run and not the seats of one session; and `AllAsleep` is generated and never
+drawn, since idle covers nothing live. The dragon does not sway: the poses are still frames.
+
+Not seen by a human yet.

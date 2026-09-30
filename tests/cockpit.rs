@@ -629,3 +629,172 @@ fn a_goal_id_cannot_name_a_path() {
     }
     hydra::cockpit::check_goal_id("g-2026-09-29_1.a").unwrap();
 }
+
+// --- the mascot ------------------------------------------------------------
+
+use hydra::cockpit::mascot::{self, Frames, Mascot, Pose};
+
+fn committed_frames() -> Frames {
+    Frames::load(&mascot::default_dir()).expect("the committed frames load")
+}
+
+fn snapshot_of(cards: Vec<Card>, requests: Vec<Pending>) -> Snapshot {
+    Snapshot {
+        cards,
+        requests,
+        read: true,
+        ..Snapshot::default()
+    }
+}
+
+fn live_cards(n: usize) -> Vec<Card> {
+    (0..n)
+        .map(|i| card(&format!("run-live-{i}"), "claude", State::Live, None))
+        .collect()
+}
+
+#[test]
+fn the_committed_frames_load_at_the_pets_size() {
+    let frames = committed_frames();
+    for pose in Pose::ALL {
+        assert_eq!(frames.size(pose), (24, 12), "{}", pose.name());
+    }
+    // A frame with a dragon in it is not blank.
+    let mut buf = Buffer::empty(Rect::new(0, 0, 24, 12));
+    frames.draw(Pose::Idle, Rect::new(0, 0, 24, 12), &mut buf);
+    assert!(
+        (0..12).any(|y| (0..24).any(|x| buf[(x, y)].symbol() != " ")),
+        "idle drew nothing"
+    );
+}
+
+#[test]
+fn a_frame_directory_that_lies_about_its_size_is_refused() {
+    let dir = scratch("frames-lie").root().join("frames");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut poses = serde_json::Map::new();
+    for pose in Pose::ALL {
+        std::fs::write(dir.join(format!("{}.ans", pose.name())), "\x1b[0m \x1b[K\n").unwrap();
+        poses.insert(
+            pose.name().to_string(),
+            json!({"file": format!("{}.ans", pose.name()), "rows": 12, "cols": 24}),
+        );
+    }
+    std::fs::write(
+        dir.join("index.json"),
+        json!({ "poses": poses }).to_string(),
+    )
+    .unwrap();
+    let err = format!("{:#}", Frames::load(&dir).expect_err("refused"));
+    assert!(err.contains("rows"), "{err}");
+}
+
+#[test]
+fn heads_awake_follow_the_live_seats() {
+    let mut mascot = Mascot::new(committed_frames());
+    let cases = [
+        (0, Pose::Idle, 0),
+        (1, Pose::TwoAsleep, 0),
+        (2, Pose::OneAsleep, 0),
+        (3, Pose::Working, 0),
+        (5, Pose::Working, 2),
+    ];
+    for (live, pose, extra) in cases {
+        mascot.observe(&snapshot_of(live_cards(live), vec![]));
+        assert_eq!(mascot.pose(), pose, "{live} live");
+        assert_eq!(mascot.extra(), extra, "{live} live");
+    }
+}
+
+#[test]
+fn a_seat_that_ends_flashes_once_and_history_does_not() {
+    let mut mascot = Mascot::new(committed_frames());
+    // Runs that ended before the cockpit opened raise nothing.
+    let old = vec![
+        card("old-gated", "codex", State::Ended, Some("gated")),
+        card("old-bad", "codex", State::Ended, Some("failed")),
+    ];
+    mascot.observe(&snapshot_of(old.clone(), vec![]));
+    assert_eq!(mascot.pose(), Pose::Idle);
+
+    let mut cards = live_cards(2);
+    mascot.observe(&snapshot_of(cards.clone(), vec![]));
+    assert_eq!(mascot.pose(), Pose::OneAsleep);
+
+    // One seat ends gated: the refused pose for this refresh only.
+    cards[0] = card("run-live-0", "claude", State::Ended, Some("gated"));
+    mascot.observe(&snapshot_of(cards.clone(), vec![]));
+    assert_eq!(mascot.pose(), Pose::Refused);
+    mascot.observe(&snapshot_of(cards.clone(), vec![]));
+    assert_eq!(mascot.pose(), Pose::TwoAsleep);
+
+    // The other ends not ok and not gated: the meme head.
+    cards[1] = card("run-live-1", "claude", State::Ended, Some("timeout"));
+    mascot.observe(&snapshot_of(cards.clone(), vec![]));
+    assert_eq!(mascot.pose(), Pose::Meme);
+    mascot.observe(&snapshot_of(cards, vec![]));
+    assert_eq!(mascot.pose(), Pose::Idle);
+
+    // A seat that ends ok changes the head count and nothing else.
+    let mut ok = live_cards(1);
+    mascot.observe(&snapshot_of(ok.clone(), vec![]));
+    ok[0] = card("run-live-0", "claude", State::Ended, Some("completed"));
+    mascot.observe(&snapshot_of(ok, vec![]));
+    assert_eq!(mascot.pose(), Pose::Idle);
+}
+
+#[test]
+fn a_request_that_leaves_the_waiting_lane_breathes_fire_once() {
+    let mut mascot = Mascot::new(committed_frames());
+    mascot.observe(&snapshot_of(vec![], vec![request()]));
+    assert_eq!(mascot.pose(), Pose::Idle);
+    mascot.observe(&snapshot_of(live_cards(1), vec![]));
+    assert_eq!(mascot.pose(), Pose::Fire);
+    mascot.observe(&snapshot_of(live_cards(1), vec![]));
+    assert_eq!(mascot.pose(), Pose::TwoAsleep);
+}
+
+fn dragon_cells(buf: &Buffer, area: Rect) -> usize {
+    (area.y..area.y + area.height)
+        .flat_map(|y| (area.x..area.x + area.width).map(move |x| (x, y)))
+        .filter(|pos| buf[*pos].symbol() != " ")
+        .count()
+}
+
+#[test]
+fn the_header_draws_the_dragon_left_of_the_title_and_no_mascot_gives_the_row_back() {
+    let mut with = App::new(scratch("mascot"), true, Duration::from_secs(2));
+    with.set_mascot(Some(Mascot::new(committed_frames())));
+    let mut snapshot = fixed_snapshot();
+    snapshot.cards = live_cards(5);
+    with.set_snapshot(snapshot.clone());
+    let mut buf = Buffer::empty(AREA);
+    with.draw(AREA, &mut buf);
+
+    // 24 columns by 12 rows at the top left, and the title beside them.
+    assert!(dragon_cells(&buf, Rect::new(0, 0, 24, 12)) > 20);
+    assert!(row_of(&buf, 1).contains("+2"), "{}", row_of(&buf, 1));
+    let title = (0..12).map(|y| row_of(&buf, y)).collect::<String>();
+    assert!(title.contains("hydra cockpit"), "{title}");
+    let table_with = with.hits.table;
+    assert_eq!(table_with.y, 12);
+
+    let mut without = App::new(scratch("no-mascot"), true, Duration::from_secs(2));
+    without.set_snapshot(snapshot);
+    let mut plain = Buffer::empty(AREA);
+    without.draw(AREA, &mut plain);
+    assert_eq!(without.hits.table.y, 0);
+    assert_eq!(without.hits.table.height, table_with.height + 12);
+    assert!(!screen_text(&plain).contains("hydra cockpit"));
+}
+
+#[test]
+fn a_screen_too_small_for_the_dragon_hides_it() {
+    let small = Rect::new(0, 0, 100, 20);
+    let mut app = App::new(scratch("mascot-small"), true, Duration::from_secs(2));
+    app.set_mascot(Some(Mascot::new(committed_frames())));
+    app.set_snapshot(fixed_snapshot());
+    let mut buf = Buffer::empty(small);
+    app.draw(small, &mut buf);
+    assert_eq!(app.hits.table.y, 0);
+}

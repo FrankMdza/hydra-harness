@@ -807,9 +807,12 @@ Prose below it too.
         // Protected config #5 on this machine. A human adding a server is a
         // human's decision, and the one made on 2026-09-07 under map ticket 48
         // is the delegate face, admitted to `standard` and `permissive` and to
-        // nothing narrower, by the absolute path of the binary because a run's
-        // `PATH` does not carry it. Anything beyond that is a new decision, and
-        // this test is where it gets written down.
+        // nothing narrower. Until build ticket 154 it was named by the absolute
+        // path of the binary, because a run's `PATH` does not carry it; since
+        // then the bare name is enough, `with_parent` writes the running
+        // binary's path into the run's file, and the human changed the document
+        // on 2026-09-30. Anything beyond that is a new decision, and this test
+        // is where it gets written down.
         let doc = Document::load().unwrap();
         assert_eq!(
             doc.servers.len(),
@@ -818,10 +821,7 @@ Prose below it too.
         );
         let face = &doc.servers[0];
         assert_eq!(face.name, "hydra");
-        assert_eq!(
-            face.command.as_deref(),
-            Some("/Users/USER/hydra/target/release/hydra")
-        );
+        assert_eq!(face.command.as_deref(), Some("hydra"));
         let mut admit = face.admit.clone();
         admit.sort();
         assert_eq!(admit, ["permissive", "standard"]);

@@ -243,6 +243,10 @@ pub enum Command {
         /// How often to read the disk again: `2`, `5s`, `1m`.
         #[arg(long, default_value = "2", value_parser = parse_duration)]
         interval: Duration,
+
+        /// Leave the dragon out of the header and give its rows to the table.
+        #[arg(long)]
+        no_mascot: bool,
     },
 
     /// The one path by which anything leaves this machine, harness spec 14.

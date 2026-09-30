@@ -224,8 +224,12 @@ fn main() -> Result<()> {
                 hydra::approve::command(&layout, request_id.as_deref())?
             );
         }
-        Command::Cockpit { goal, interval } => {
-            hydra::cockpit::run(&Layout::discover()?, goal, interval)?;
+        Command::Cockpit {
+            goal,
+            interval,
+            no_mascot,
+        } => {
+            hydra::cockpit::run(&Layout::discover()?, goal, interval, !no_mascot)?;
         }
         Command::Export { out, dry_run } => {
             let layout = Layout::discover()?;

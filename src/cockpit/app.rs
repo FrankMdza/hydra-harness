@@ -14,6 +14,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 
+use super::mascot::Mascot;
 use super::snapshot::{Card, Lane, Snapshot};
 use crate::approve::Pending;
 use crate::paths::Layout;
@@ -75,6 +76,10 @@ pub struct Hits {
     pub detail: Rect,
 }
 
+/// Width the header keeps for the title beside the dragon, and the rows the panels keep below it.
+const TITLE_WIDTH: u16 = 30;
+const MIN_BODY: u16 = 12;
+
 pub struct App {
     layout: Layout,
     /// Whether this process is inside a seatbelt. The binary passes
@@ -94,6 +99,9 @@ pub struct App {
     pub confirming: Option<Pending>,
     pub message: Option<String>,
     pub hits: Hits,
+    /// The dragon in the header, or `None` for `--no-mascot` and for a frame directory that
+    /// would not load.
+    mascot: Option<Mascot>,
 }
 
 impl App {
@@ -113,11 +121,20 @@ impl App {
             confirming: None,
             message: None,
             hits: Hits::default(),
+            mascot: None,
         }
+    }
+
+    /// Puts the dragon in the header, or takes it out and gives the row back to the table.
+    pub fn set_mascot(&mut self, mascot: Option<Mascot>) {
+        self.mascot = mascot;
     }
 
     /// Takes a fresh read and keeps every selection inside it.
     pub fn set_snapshot(&mut self, snapshot: Snapshot) {
+        if let Some(mascot) = &mut self.mascot {
+            mascot.observe(&snapshot);
+        }
         self.snapshot = snapshot;
         self.table_selected = self.table_selected.min(self.table_len().saturating_sub(1));
         for lane in Lane::ALL {
@@ -421,6 +438,7 @@ impl App {
     /// Paints the whole screen into `buf` and keeps what was drawn where.
     pub fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         self.hits = Hits::default();
+        let area = self.draw_header(area, buf);
         let [main, status] =
             Split::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(area);
         let [left, middle, right] = Split::horizontal([
@@ -439,6 +457,44 @@ impl App {
         if let Some(request) = self.confirming.clone() {
             draw_confirmation(&request, main, buf);
         }
+    }
+
+    /// The dragon left of the title, at the top, when the screen has room for it and the table
+    /// still has its rows. Returns what is left below it.
+    fn draw_header(&self, area: Rect, buf: &mut Buffer) -> Rect {
+        let Some(mascot) = &self.mascot else {
+            return area;
+        };
+        let (cols, rows) = mascot.size();
+        if area.width < cols + TITLE_WIDTH || area.height < rows + MIN_BODY {
+            return area;
+        }
+        let [header, rest] =
+            Split::vertical([Constraint::Length(rows), Constraint::Min(0)]).areas(area);
+        mascot.draw(header, buf);
+        let text = Rect {
+            x: header.x + cols + 1,
+            width: header.width - cols - 1,
+            ..header
+        };
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let mut lines = vec![Line::styled(
+            "hydra cockpit",
+            Style::default().add_modifier(Modifier::BOLD),
+        )];
+        lines.push(Line::styled(
+            match mascot.extra() {
+                0 => String::new(),
+                more => format!("+{more} more live past the three heads"),
+            },
+            dim,
+        ));
+        lines.push(Line::styled(
+            format!("{} live seat(s), {}", mascot.live(), mascot.pose().name()),
+            dim,
+        ));
+        Paragraph::new(lines).render(text, buf);
+        rest
     }
 
     fn block(&self, focus: Focus, title: String) -> Block<'static> {

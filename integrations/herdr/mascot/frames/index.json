@@ -1,0 +1,44 @@
+{
+  "poses": {
+    "idle": {
+      "file": "idle.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "working": {
+      "file": "working.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "one_asleep": {
+      "file": "one_asleep.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "two_asleep": {
+      "file": "two_asleep.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "all_asleep": {
+      "file": "all_asleep.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "refused": {
+      "file": "refused.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "meme": {
+      "file": "meme.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "fire": {
+      "file": "fire.ans",
+      "rows": 12,
+      "cols": 24
+    }
+  }
+}

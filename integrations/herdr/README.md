@@ -40,6 +40,11 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
   lists Herdr panes once a second and drives the three heads from their tokens. It never calls
   `hydra status` and never reads `~/hydra/runs/`. Interactive panes (`launch_mode=interactive`)
   keep a head awake but never fire, because the record stays thin until harvest.
+- `mascot/frames/`, the eight poses of the pet skin at 24 columns by 12 rows as ANSI files, plus
+  `index.json`. `hydra cockpit` draws them in its header (build ticket 152). They are committed,
+  so a change to the dragon means regenerating them and committing the result:
+  `python3 integrations/herdr/bin/hydra-mascot --frames integrations/herdr/mascot/frames`
+  (needs numpy). `hydra cockpit --no-mascot` leaves the dragon out.
 - `tests/test_mapping.py`, the table checked without Herdr or Hydra.
 - `tests/test_mascot.py`, the watch mapping checked without Herdr or Hydra.
 

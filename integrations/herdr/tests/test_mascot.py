@@ -118,3 +118,39 @@ class SkinTests(unittest.TestCase):
         self.assertEqual((len(cells), len(cells[0])), (24, 48))
         filled = sum(1 for row in cells for (t, b) in row if t or b)
         self.assertGreater(filled, 100)
+
+
+class FramesTests(unittest.TestCase):
+    POSES = ["idle", "working", "one_asleep", "two_asleep", "all_asleep", "refused", "meme", "fire"]
+
+    def test_frames_writes_every_pose_with_an_index(self):
+        import json
+        import re
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as out:
+            done = subprocess.run([sys.executable, MASCOT, "--frames", out],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            index = json.load(open(os.path.join(out, "index.json")))
+            self.assertEqual(sorted(index["poses"]), sorted(self.POSES))
+            for pose, entry in index["poses"].items():
+                self.assertEqual((entry["rows"], entry["cols"]), (12, 24), pose)
+                text = open(os.path.join(out, entry["file"])).read()
+                rows = [line for line in text.split("\n") if line]
+                self.assertEqual(len(rows), entry["rows"], pose)
+                for line in rows:
+                    plain = line
+                    for esc in ("\x1b[0m", "\x1b[K"):
+                        plain = plain.replace(esc, "")
+                    plain = re.sub(r"\x1b\[[0-9;]*m", "", plain)
+                    self.assertEqual(len(plain), entry["cols"], pose)
+
+    def test_the_poses_differ(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as out:
+            hydra_mascot.write_frames(out)
+            texts = {p: open(os.path.join(out, p + ".ans")).read() for p in self.POSES}
+            self.assertEqual(len(set(texts.values())), len(self.POSES))
