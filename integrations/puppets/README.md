@@ -34,6 +34,7 @@ python3 integrations/puppets/puppets.py approve <goal-id> --launch <task>
 python3 integrations/puppets/puppets.py launch <goal-id> <task>
 python3 integrations/puppets/puppets.py wait <goal-id>
 python3 integrations/puppets/puppets.py review <goal-id> <task>
+python3 integrations/puppets/puppets.py queue <goal-id>
 python3 integrations/puppets/puppets.py reconcile <goal-id> <task> <attempt> --run-id <id> | --abandon
 python3 integrations/puppets/puppets.py verdict <goal-id> <task> applied|fixed|rejected
 ```
@@ -103,6 +104,15 @@ the run record, never a run-writable checkout. If the run record has no branch, 
 an unreaped worktree is the only place an uncommitted diff might live, and the helper will not
 run git or Hunk there. Inside Herdr it opens in a pane to the right. The mode has no diff viewer
 of its own.
+
+`queue <goal-id>` lists tasks whose current run has ended and that still have no human verdict
+for that run. They are ordered by the `verdict` model's `p` in `$HYDRA_GRADER_HOME/scores.jsonl`,
+highest first. The top line names the newest verdict `model_version` in the file (latest
+`scored_at`, then the later line) and how many of these tasks have no score from it. A run scored
+only by an older version, or not scored at all, sorts last and is marked `no score`. `board`
+prints that same `p` in a short column beside a task that is waiting for a review, so the cockpit
+and `hydra-board` show it without another command. The order is a suggestion and the human still
+reviews every task. Nothing here writes `scores.jsonl`, and `sheet.py rank` does not read it.
 
 Inside Herdr, `launch` runs the binary directly and then opens a pane below the current one
 tailing the run with the bridge's tokens on it. The launch never goes through `hydra-in-pane`,

@@ -101,7 +101,8 @@ Every collect that writes new or changed rows scores each of those runs with eve
 `$HYDRA_GRADER_HOME/models/` and appends one line per run and model version to
 `$HYDRA_GRADER_HOME/scores.jsonl`: `run_id`, `label`, `p`, `model_version`, `scored_at`. A run
 already scored by that model version is skipped. With no model there, nothing is written.
-Nothing reads the file yet, so the model does not pick which runs get reviewed.
+`puppets.py queue` and `board` read the verdict scores to order reviews. `sheet.py rank` does not
+read the file, so the model does not choose which agent is assigned.
 
 A collect scores only its own rows, so a model trained later never sees the older ones. Run
 `grader.py backfill` after `baseline.py train` writes a model. It scores every row in

@@ -50,16 +50,21 @@ class PuppetsTestCase(unittest.TestCase):
             encoding="utf-8",
         )
         self.stub.chmod(0o755)
+        self.grader_home = Path(self.tmp) / "grader"
+        self.grader_home.mkdir()
         self.env = os.environ.copy()
         self.env["HYDRA_PUPPETS_HOME"] = str(self.puppets_home)
         self.env["HYDRA_ROOT"] = str(self.hydra_root)
         self.env["HYDRA_BIN"] = str(self.stub)
+        self.env["HYDRA_GRADER_HOME"] = str(self.grader_home)
         self._prior_puppets_home = os.environ.get("HYDRA_PUPPETS_HOME")
         self._prior_hydra_root = os.environ.get("HYDRA_ROOT")
         self._prior_hydra_bin = os.environ.get("HYDRA_BIN")
+        self._prior_grader_home = os.environ.get("HYDRA_GRADER_HOME")
         os.environ["HYDRA_PUPPETS_HOME"] = str(self.puppets_home)
         os.environ["HYDRA_ROOT"] = str(self.hydra_root)
         os.environ["HYDRA_BIN"] = str(self.stub)
+        os.environ["HYDRA_GRADER_HOME"] = str(self.grader_home)
 
     def tearDown(self):
         if self._prior_puppets_home is None:
@@ -74,6 +79,10 @@ class PuppetsTestCase(unittest.TestCase):
             os.environ.pop("HYDRA_BIN", None)
         else:
             os.environ["HYDRA_BIN"] = self._prior_hydra_bin
+        if self._prior_grader_home is None:
+            os.environ.pop("HYDRA_GRADER_HOME", None)
+        else:
+            os.environ["HYDRA_GRADER_HOME"] = self._prior_grader_home
         shutil.rmtree(self.tmp)
 
     def goal(self, goal_id: str = "g1") -> str:

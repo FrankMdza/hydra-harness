@@ -1,7 +1,7 @@
 # 158 - The review queue reads the scores
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -40,3 +40,22 @@ stands, and the report says so.
 - On the real puppets home, `puppets.py queue <the goal of 2026-09-24>` runs and the report
   quotes its first lines, or says why it could not (a run cannot read the real grader home, so
   say that and quote the scratch run instead).
+
+## Outcome
+
+Resolved 2026-09-30. Built by `cursor-agent` grok-4.7-high on run 01a0f0b1-3b13 under `standard`,
+about 3.58M tokens, its first ticket on this repository. The session applied the diff as written.
+
+`puppets.py queue <goal>` lists the tasks whose current run ended without a human verdict,
+ordered by the `verdict` model's `p` from `$HYDRA_GRADER_HOME/scores.jsonl`, newest model version
+only, `no score` last. `board` shows the same `p` beside a task waiting for review. Seven tests
+in `test_queue.py`, and the fixture gained a scratch grader home. Puppets suite 144 of 144,
+grader 87 of 87. `sheet.py rank` untouched; the run also corrected the two sentences in the
+grader that said nothing reads the file, which is true now only of `rank`.
+
+On the real puppets home the queue for the goal of 2026-09-24 is empty: every task there has a
+human verdict already. The run read the real grader home from inside the worktree through the
+shell, which the gate under `standard` allows for paths outside `runs/`; the README of `CLAUDE.md`
+already says so.
+
+The first live use is the next Master of Puppets goal with more than one task ended.

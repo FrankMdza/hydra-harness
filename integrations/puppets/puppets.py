@@ -166,6 +166,13 @@ def hydra_root() -> Path:
     return Path.home() / "hydra"
 
 
+def grader_home() -> Path:
+    named = os.environ.get("HYDRA_GRADER_HOME")
+    if named:
+        return Path(named)
+    return hydra_root() / "grader"
+
+
 def hydra_bin() -> str:
     return os.environ.get("HYDRA_BIN", "hydra")
 
@@ -1303,13 +1310,110 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+class VerdictScores(NamedTuple):
+    """Verdict-model probabilities from `scores.jsonl`. `by_run` holds `p` only for the
+    newest verdict `model_version` in the file, so one model orders the whole queue."""
+
+    model_version: str | None
+    by_run: dict[str, float]
+
+
+def load_verdict_scores(path: Path) -> VerdictScores:
+    """Read verdict scores. The newest model version is the verdict line with the latest
+    `scored_at`; a later line breaks a tie. Older versions of the same run do not win,
+    and outcome scores are ignored. A missing file is an empty score set. Nothing is written."""
+    if not path.is_file():
+        return VerdictScores(None, {})
+    rows: list[tuple[str, int, str, str, float]] = []
+    best_key: tuple[str, int] | None = None
+    best_version: str | None = None
+    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict) or row.get("label") != "verdict":
+            continue
+        version = row.get("model_version")
+        run_id = row.get("run_id")
+        p = row.get("p")
+        if not isinstance(version, str) or not isinstance(run_id, str):
+            continue
+        if isinstance(p, bool) or not isinstance(p, (int, float)):
+            continue
+        scored_at = row.get("scored_at")
+        if not isinstance(scored_at, str):
+            scored_at = ""
+        key = (scored_at, index)
+        rows.append((scored_at, index, version, run_id, float(p)))
+        if best_key is None or key > best_key:
+            best_key = key
+            best_version = version
+    by_run: dict[str, float] = {}
+    if best_version is None:
+        return VerdictScores(None, {})
+    for _scored_at, _index, version, run_id, p in rows:
+        if version == best_version:
+            by_run[run_id] = p
+    return VerdictScores(best_version, by_run)
+
+
+def human_verdict_runs(events: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """Run ids that already have a human verdict, per task. A later attempt keeps its own run."""
+    found: dict[str, set[str]] = {}
+    for event in events:
+        if event.get("event") != "human_verdict":
+            continue
+        task_id = event.get("task")
+        run_id = event.get("run_id")
+        if isinstance(task_id, str) and isinstance(run_id, str):
+            found.setdefault(task_id, set()).add(run_id)
+    return found
+
+
+def awaits_review(task: TaskState, verdicts: dict[str, set[str]]) -> bool:
+    """The current run has ended, and no human verdict names that run."""
+    if task.status != "ended" or not task.run_id:
+        return False
+    return task.run_id not in verdicts.get(task.id, ())
+
+
+def format_p(p: float | None) -> str:
+    if p is None:
+        return "no score"
+    return f"{p:.2f}"
+
+
+def ordered_review_tasks(
+    state: GoalState, events: list[dict[str, Any]], scores: VerdictScores
+) -> list[TaskState]:
+    verdicts = human_verdict_runs(events)
+    waiting = [task for task in state.tasks.values() if awaits_review(task, verdicts)]
+
+    def key(task: TaskState) -> tuple:
+        p = scores.by_run.get(task.run_id or "")
+        if p is None:
+            return (1, 0.0, task.id)
+        return (0, -p, task.id)
+
+    waiting.sort(key=key)
+    return waiting
+
+
 def cmd_board(args: argparse.Namespace) -> int:
     """The goal at a glance: plans, tasks with their assignment and status, and what the
-    human still has to approve. `show` is the same state as JSON."""
-    state = fold(args.goal)
+    human still has to approve. A task waiting for a review shows the verdict model's `p`.
+    `show` is the same state as JSON."""
+    events = read_log(args.goal)
+    state = fold(args.goal, events)
     if state.goal is None:
         print(f"unknown goal {args.goal}", file=sys.stderr)
         return 1
+    scores = load_verdict_scores(grader_home() / "scores.jsonl")
+    verdicts = human_verdict_runs(events)
     print(f"goal {state.goal_id}  revision {state.revision}")
     print(f"  {state.goal['text']}")
     if state.plans:
@@ -1334,7 +1438,7 @@ def cmd_board(args: argparse.Namespace) -> int:
             )
     if state.tasks:
         print("tasks")
-        print(f"  {'id':<12} {'class':<21} {'grade':<6} {'agent':<28} {'status':<9} run")
+        print(f"  {'id':<12} {'class':<21} {'grade':<6} {'agent':<28} {'status':<9} {'p':<8} run")
         for task in state.tasks.values():
             agent = "(unassigned)"
             if task.assignment:
@@ -1346,7 +1450,13 @@ def cmd_board(args: argparse.Namespace) -> int:
                 if task.review_degraded:
                     label = f"{label} (degraded panel)"
                 verdict = f"  review {label}"
-            print(f"  {task.id:<12} {task.task_class:<21} {task.grade:<6} {agent:<28} {task.status:<9} {run}{verdict}")
+            p_cell = ""
+            if awaits_review(task, verdicts):
+                p_cell = format_p(scores.by_run.get(task.run_id or ""))
+            print(
+                f"  {task.id:<12} {task.task_class:<21} {task.grade:<6} {agent:<28} "
+                f"{task.status:<9} {p_cell:<8} {run}{verdict}"
+            )
     pending = []
     if state.plans and state.chosen_plan and approval_available(state, "plan") is None:
         pending.append("plan")
@@ -1926,6 +2036,34 @@ def cmd_wait(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_queue(args: argparse.Namespace) -> int:
+    """Tasks whose current run has ended and still has no human verdict, highest verdict `p` first.
+    The order is a suggestion. The file is only read."""
+    events = read_log(args.goal)
+    state = fold(args.goal, events)
+    if state.goal is None:
+        print(f"unknown goal {args.goal}", file=sys.stderr)
+        return 1
+    scores = load_verdict_scores(grader_home() / "scores.jsonl")
+    rows = ordered_review_tasks(state, events, scores)
+    missing = sum(1 for task in rows if scores.by_run.get(task.run_id or "") is None)
+    version = scores.model_version or "none"
+    noun = "task" if missing == 1 else "tasks"
+    print(f"verdict {version}  {missing} {noun} with no score")
+    print(f"{'task':<12} {'provider':<14} {'model':<16} {'run':<36} {'p':<8} attempt")
+    for task in rows:
+        assignment = task.assignment or {}
+        provider = str(assignment.get("provider") or "")
+        model = str(assignment.get("model") or "")
+        p_cell = format_p(scores.by_run.get(task.run_id or ""))
+        attempt = "" if task.attempt is None else str(task.attempt)
+        print(
+            f"{task.id:<12} {provider:<14} {model:<16} {task.run_id or '':<36} "
+            f"{p_cell:<8} {attempt}"
+        )
+    return 0
+
+
 def cmd_verdict(args: argparse.Namespace) -> int:
     state = fold(args.goal)
     task = state.tasks.get(args.task)
@@ -2046,6 +2184,10 @@ def build_parser() -> argparse.ArgumentParser:
     review_p.add_argument("goal", help="goal id")
     review_p.add_argument("task", help="task id")
     review_p.set_defaults(func=cmd_review)
+
+    queue_p = sub.add_parser("queue", help="tasks waiting on a review, highest verdict p first")
+    queue_p.add_argument("goal", help="goal id")
+    queue_p.set_defaults(func=cmd_queue)
 
     wait_p = sub.add_parser("wait", help="poll pending runs for completion")
     wait_p.add_argument("goal", help="goal id")
