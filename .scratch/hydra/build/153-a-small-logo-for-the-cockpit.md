@@ -1,7 +1,7 @@
 # 153 - A small logo for the cockpit and the README
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -35,3 +35,16 @@ This ticket is art with constraints. It decides nothing; the human picks.
   test passing under `.venv/bin/python` if the worktree has it, else `python3`.
 - Your report shows all six rendered, says which two you would pick and why in one sentence
   each, and starts with what you could not confirm.
+
+## Outcome
+
+Resolved 2026-09-30. A first run on `cursor-agent` gpt-5.6-sol-high died at start with "socket
+hang up" (run 01a0f064-dbd8). Built by `claude` sonnet on run 01a0f06e-531b under `standard`,
+about 0.34M tokens. The session applied it with one change: the two ASCII heads carried doubled
+backslashes and slashes (`\\` and `//`), which draw as two characters; the session made them
+single so the necks line up.
+
+Six candidates in `docs/logo/candidates.md`: `line-eyes`, `line-fangs`, `head-necks`,
+`head-crest`, `splash-blocks`, `splash-box`, with `render.py` to print any by name and a test of
+the column and character limits. Neither `claude --help` nor `agy --help` prints a mark, so the
+candidates come from the mascot alone. The human picks; no README or cockpit change yet.
