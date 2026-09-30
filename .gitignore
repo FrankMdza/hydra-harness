@@ -28,3 +28,5 @@ target/
 
 # Task shards for labelling runs: redacted task text, data and not source.
 /.scratch/hydra/labeling/*/tasks-*.jsonl
+__pycache__/
+*.pyc
