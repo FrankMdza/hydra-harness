@@ -2758,7 +2758,7 @@ fn v_asks_before_a_review_and_y_starts_the_helper_detached() {
     app.handle(&key(KeyCode::Char('y')));
     let said = wait_for_file(&called);
     let fields: Vec<&str> = said.trim_end().split('|').collect();
-    assert_eq!(fields[0], "review g2 a");
+    assert_eq!(fields[0], "review g2 a --no-open");
     // SAFETY: `getpgrp` takes no argument and cannot fail.
     let ours = unsafe { libc::getpgrp() };
     assert_ne!(fields[1], ours.to_string(), "the helper shares our group");
@@ -2859,6 +2859,45 @@ fn a_review_that_exits_non_zero_says_failed_and_names_its_log() {
     app.handle(&key(KeyCode::Char('v')));
     app.draw(AREA, &mut buf);
     assert!(screen_text(&buf).contains("y starts it"));
+}
+
+/// The detail pane's text with every space out, so a wrapped line reads whole.
+fn detail_text(app: &App, buf: &Buffer) -> String {
+    let pane = app.hits.detail;
+    (pane.y + 1..pane.bottom() - 1)
+        .flat_map(|y| (pane.x + 1..pane.right() - 1).map(move |x| (x, y)))
+        .map(|at| buf[at].symbol().to_string())
+        .collect::<String>()
+        .replace(' ', "")
+}
+
+#[test]
+fn a_review_that_ended_shows_the_hunk_command_it_printed() {
+    // `review --no-open` prints the judge lines, then the command it did not run.
+    let (_layout, _, mut app) = review_app(
+        "review-no-open",
+        "#!/bin/sh\n\
+         case \" $* \" in *' --no-open '*) ;; *) echo opened >&2; exit 5;; esac\n\
+         echo 'judge claude (judge) run j1'\n\
+         echo 'hunk show hydra/01a0-task-a'\n",
+    );
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    app.table_selected = 0;
+    app.handle(&key(KeyCode::Char('v')));
+    app.handle(&key(KeyCode::Char('y')));
+    assert!(draw_until(&mut app, Duration::from_secs(4), |app, buf| {
+        task_line(app, buf, 0).contains("review ended")
+    }));
+    app.handle(&key(KeyCode::Enter));
+    app.draw(AREA, &mut buf);
+    let detail = detail_text(&app, &buf);
+    assert!(
+        detail.contains("hunkshowhydra/01a0-task-a"),
+        "{}",
+        screen_text(&buf)
+    );
+    assert!(!detail.contains("judgeclaude"), "{}", screen_text(&buf));
 }
 
 #[test]
@@ -3193,6 +3232,83 @@ fn exit_two_says_the_goal_moved_on() {
         "{said}"
     );
     assert_eq!(calls(&layout, "approve-calls").len(), 1);
+}
+
+#[test]
+fn exit_three_says_already_approved_and_hides_the_step() {
+    let (layout, stub, mut reader) = steps_reader(
+        "steps-duplicate",
+        "",
+        "echo 'already approved launch at revision 3' >&2; exit 3",
+    );
+    let mut app = steps_app(&layout, &stub, &mut reader, false);
+    app.handle(&key(KeyCode::Char('a')));
+    app.handle(&key(KeyCode::Char('y')));
+    let said = app.message.clone().unwrap();
+    assert!(said.starts_with("g2 launch a: already approved"), "{said}");
+    assert!(!said.contains("not approved"), "{said}");
+    let labels: Vec<String> = app.snapshot.steps.iter().map(|s| s.label()).collect();
+    assert_eq!(labels, ["g2 plan"]);
+}
+
+/// `pending --json`'s output for one step of goal `g2` whose argv ends in `tail`.
+fn one_step(kind: &str, reference: Option<&str>, revision: u64, tail: &[&str]) -> Vec<u8> {
+    let mut argv = vec!["puppets.py", "approve", "g2"];
+    argv.extend_from_slice(tail);
+    serde_json::to_vec(&json!([
+        {"kind": kind, "ref": reference, "revision": revision, "argv": argv}
+    ]))
+    .unwrap()
+}
+
+#[test]
+fn parse_steps_takes_the_expect_run_and_expect_plan_that_pending_prints() {
+    use hydra::cockpit::snapshot::parse_steps;
+    let diff = [
+        "--diff",
+        "a",
+        "--expect-run",
+        "01a0f36e-2656",
+        "--expect-revision",
+        "4",
+    ];
+    let steps = parse_steps("g2", &one_step("diff", Some("a"), 4, &diff)).unwrap();
+    assert_eq!(steps[0].argv[3..], diff);
+    let plan = [
+        "--plan",
+        "--expect-plan",
+        "plans/b.md",
+        "--expect-revision",
+        "4",
+    ];
+    let steps = parse_steps("g2", &one_step("plan", None, 4, &plan)).unwrap();
+    assert_eq!(steps[0].argv[3..], plan);
+
+    // Still bound to the item's own revision, whatever precedes it.
+    let unbound = ["--diff", "a", "--expect-run", "01a0f36e-2656"];
+    let err = parse_steps("g2", &one_step("diff", Some("a"), 4, &unbound)).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("not bound to revision 4"),
+        "{err:#}"
+    );
+    let other = [
+        "--plan",
+        "--expect-plan",
+        "plans/b.md",
+        "--expect-revision",
+        "3",
+    ];
+    assert!(parse_steps("g2", &one_step("plan", None, 4, &other)).is_err());
+    // `--expect-run` last, the revision before it, is not the shape pending prints.
+    let swapped = [
+        "--diff",
+        "a",
+        "--expect-revision",
+        "4",
+        "--expect-run",
+        "01a0f36e-2656",
+    ];
+    assert!(parse_steps("g2", &one_step("diff", Some("a"), 4, &swapped)).is_err());
 }
 
 #[test]

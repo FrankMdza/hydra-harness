@@ -1,7 +1,7 @@
 # 187 - The cockpit passes the new guards, and keeps every note
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 185
 
 ## What
@@ -30,3 +30,15 @@ failing before the change.
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit`, `--test
   stop` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f394-834a under `standard`. The session
+applied it as written. The review spawn passes `--no-open`, and the run's detail shows the last
+`hunk show` line of the review's log once it exits 0. Exit 3 from `approve` reads "already
+approved, nothing written" and hides the step. Notes queue in a `Vec` and the host pastes each in
+order. Four tests failing first and one guard (`parse_steps` already accepted the new argv
+shape, since it checks only the `--expect-revision` ending); fmt and clippy clean, `--test cockpit`
+71, `--test stop` 13, `--lib` 224 on master. The two-stops test assumes one second is enough for
+both threads to answer.
+

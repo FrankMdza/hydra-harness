@@ -175,10 +175,10 @@ impl Host {
     }
 
     /// Takes the stops that reported since the last look and pastes the note
-    /// one left, build ticket 186. A failed stop leaves none.
+    /// each left, in order, build tickets 186 and 187. A failed stop leaves none.
     fn settle_stops(&mut self) {
         self.app.poll_stops();
-        if let Some(note) = self.app.take_draft() {
+        for note in self.app.take_drafts() {
             self.draft(&note);
         }
     }

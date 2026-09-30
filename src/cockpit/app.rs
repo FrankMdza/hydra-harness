@@ -116,6 +116,9 @@ struct ReviewRun {
     child: Option<Child>,
     /// How it exited, or `None` while it lives or when the wait failed.
     status: Option<ExitStatus>,
+    /// The `hunk show ...` line the helper printed to its log, build ticket
+    /// 187: `--no-open` prints the command rather than running it.
+    open: Option<String>,
 }
 
 /// A stop `y` started, build ticket 186: [`crate::stop::stop`] on a thread
@@ -192,8 +195,9 @@ pub struct App {
     /// Each seat a stop reported on and the outcome it returned, kept while
     /// the seat's card is still live.
     stop_outcomes: Vec<(String, String)>,
-    /// The note a stop that reported left for the chat, until the host takes it.
-    drafted: Option<String>,
+    /// The notes the stops that reported left for the chat, in the order
+    /// they reported, until the host takes them. Build ticket 187.
+    drafted: Vec<String>,
     /// Whether a chat is inside, so `m` drafts a note to it after a stop.
     pub(crate) chat_inside: bool,
     /// The run the chat named, once it has: the session whose seats `m` stops.
@@ -238,7 +242,7 @@ impl App {
             confirming_stop: None,
             stops: Vec::new(),
             stop_outcomes: Vec::new(),
-            drafted: None,
+            drafted: Vec::new(),
             chat_inside: false,
             session: None,
             preamble: None,
@@ -794,6 +798,14 @@ impl App {
                     format!("{label}: {line}")
                 }
                 Some(2) => format!("{label}: the goal moved on; nothing approved ({line})"),
+                // The log holds this approval already, so the step is as
+                // good as approved here and leaves the lane the same way.
+                Some(3) => {
+                    self.approved_steps
+                        .push((label.clone(), step.revision, chrono::Utc::now()));
+                    self.hide_approved_steps();
+                    format!("{label}: already approved, nothing written ({line})")
+                }
                 _ => format!("{label} not approved, the helper exited with {status}: {line}"),
             },
             Ok((super::Bounded::Late(mut child), _)) => {
@@ -964,7 +976,7 @@ impl App {
     }
 
     /// What one stop's answer leaves: the outcome on its card and the status
-    /// line, and with a chat inside, the note for [`App::take_draft`]. A
+    /// line, and with a chat inside, the note for [`App::take_drafts`]. A
     /// failed stop leaves its error and no note.
     fn stop_reported(&mut self, card: Card, answer: anyhow::Result<Vec<crate::stop::Stopped>>) {
         let id = short(&card.run_id).to_string();
@@ -993,7 +1005,8 @@ impl App {
         let task = super::snapshot::line_zero(&self.layout.run_file(&card.run_id))
             .and_then(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
             .and_then(|envelope| envelope["hydra"]["task"].as_str().map(str::to_string));
-        self.drafted = Some(draft(&card, task.as_deref(), self.preamble.as_deref()));
+        self.drafted
+            .push(draft(&card, task.as_deref(), self.preamble.as_deref()));
     }
 
     /// Whether a stop `y` started has not reported yet.
@@ -1001,9 +1014,9 @@ impl App {
         !self.stops.is_empty()
     }
 
-    /// The note a stop that reported left for the chat, once.
-    pub fn take_draft(&mut self) -> Option<String> {
-        self.drafted.take()
+    /// The notes the stops that reported left for the chat, oldest first, once.
+    pub fn take_drafts(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.drafted)
     }
 
     /// What a live card says in its lane: `stopping` while a stop of it
@@ -1071,13 +1084,14 @@ impl App {
         Effect::None
     }
 
-    /// `puppets.py review <goal> <task>` in a process group of its own, so a
-    /// `Ctrl-C` in the cockpit's terminal does not reach it, with stdin
-    /// closed and both streams in `$HYDRA_ROOT/cockpit/review-<task>.log`.
+    /// `puppets.py review <goal> <task> --no-open` in a process group of its
+    /// own, so a `Ctrl-C` in the cockpit's terminal does not reach it, with
+    /// stdin closed and both streams in `$HYDRA_ROOT/cockpit/review-<task>.log`.
     ///
-    /// Inside Herdr it starts the same way: `integrations/herdr/` has no
-    /// command that opens a pane, and the helper opens its own pane for Hunk
-    /// there once the panel has answered.
+    /// `--no-open`, build ticket 187: the helper has no terminal to open Hunk
+    /// in, so it prints the `hunk show ...` command and exits, and the run's
+    /// detail shows that line for the human to run. Inside Herdr it starts
+    /// the same way and opens no pane.
     fn spawn_review(&self, goal: &str, task: &str) -> anyhow::Result<ReviewRun> {
         let Some((script, home)) = &self.reviewer else {
             bail!("no review helper is set");
@@ -1096,6 +1110,7 @@ impl App {
             .arg("review")
             .arg(goal)
             .arg(task)
+            .arg("--no-open")
             .env("HYDRA_ROOT", self.layout.root())
             .env("HYDRA_PUPPETS_HOME", home)
             .stdin(Stdio::null())
@@ -1116,6 +1131,7 @@ impl App {
             before,
             child: Some(child),
             status: None,
+            open: None,
         })
     }
 
@@ -1135,6 +1151,9 @@ impl App {
                 Err(_) => run.status = None,
             }
             run.child = None;
+            if run.status.is_some_and(|status| status.success()) {
+                run.open = hunk_line(&run.log);
+            }
             said = Some(match run.status {
                 Some(status) if status.success() => format!(
                     "the review of {} ended; its verdict shows at the next read",
@@ -1146,6 +1165,15 @@ impl App {
         if said.is_some() {
             self.message = said;
         }
+    }
+
+    /// The `hunk show ...` command the review of `task` this cockpit started
+    /// printed, once it ended.
+    fn review_open(&self, goal: &str, task: &str) -> Option<&str> {
+        self.reviews
+            .iter()
+            .find(|r| r.goal == goal && r.task == task)
+            .and_then(|r| r.open.as_deref())
     }
 
     fn review_running(&self, goal: &str, task: &str) -> bool {
@@ -1697,6 +1725,9 @@ impl App {
                     if let Some((_, said)) = goal.and_then(|g| self.review_of(g, &task.id)) {
                         lines.push(label("review", said));
                     }
+                    if let Some(open) = goal.and_then(|g| self.review_open(&g.id, &task.id)) {
+                        lines.push(label("hunk", open.to_string()));
+                    }
                 }
                 lines.extend([
                     label("provider", or_dash(card.provider.as_deref())),
@@ -2015,6 +2046,16 @@ pub fn draft(card: &Card, task: Option<&str>, preamble: Option<&str>) -> String 
         "Seat {} ({who}) was stopped by the human. Its task was: {task}. Instead: ",
         one_line(short(&card.run_id))
     )
+}
+
+/// The last `hunk show ...` line in the review log at `log`, on one line,
+/// or `None` when it holds none or will not read.
+fn hunk_line(log: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(log).ok()?;
+    text.lines()
+        .rev()
+        .find(|line| line.starts_with("hunk show "))
+        .map(one_line)
 }
 
 /// `text` on one line: every run of whitespace and control characters, `\r`,

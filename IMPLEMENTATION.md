@@ -3335,6 +3335,14 @@ the same after `y` as before. An approval does not move the goal's revision, so 
 reader's list, up to 10 seconds old, would offer a step just approved again, and `--expect-revision`
 would not stop a second approval. The cockpit keeps each step it approved out of the lane until a
 `pending` read newer than the approval. No real `puppets.py` has been run from the cockpit.
+Since build ticket 187 the cockpit also handles what build 185 added to `puppets.py`. A diff
+step's argv carries `--expect-run <id>` and a plan's `--expect-plan <path>` before
+`--expect-revision N`. `parse_steps` needed no change for that, because it checks only that the
+argv ends in `--expect-revision` and the item's own revision; `tests/cockpit.rs` now checks both
+shapes are taken and that one missing the revision, or with the revision before `--expect-run`,
+is refused. Exit 3 from `approve`, the same approval already in the log at this revision, reads
+`<step>: already approved, nothing written` and keeps the step out of the lane as an approval
+made here would.
 
 **The policy pane, build ticket 171.** `p` opens a read-only pane over the panels: the five
 policy files under `$HYDRA_HOME/policies/`, the set's sha as the loader computes it now, and each
@@ -3397,15 +3405,17 @@ the status line. A verdict in the log shows over an `ended` status and never ove
 One review per task at a time: `v` again says `a review of <task> is already running`. A spawn
 error says `the review of <task> did not start` and why. The cockpit tracks only the children
 it started, so after a restart a review still running shows nothing until its verdict lands.
-Inside Herdr it starts the same way: nothing under `integrations/herdr/` opens a pane (`hy.zsh`
-calls `herdr pane split` inline), and `puppets.py review` already splits its own pane for Hunk
-there. Outside Herdr the helper ends by `execvp`ing `hunk show <branch>` with its output in the
-log and no terminal. That has not been tried; if Hunk exits non-zero after the verdict was
-recorded, the row still shows the verdict. `tests/cockpit.rs` drives all of it on stub helpers:
+Since build ticket 187 the cockpit passes `--no-open`, which build 185 added, so the helper
+records the verdict, prints `hunk show <branch>` and exits 0 rather than `execvp`ing Hunk with no
+terminal or splitting a Herdr pane. Once a review exits 0 the cockpit reads the last line of its
+log that starts `hunk show ` and puts it on a `hunk` line of the run's detail, for the human to
+run. Inside Herdr it starts the same way and opens no pane. `tests/cockpit.rs` drives all of it on stub helpers:
 the confirmation and `n`, the argv, process group and log, a row that says `review running`
 until the stub is let go and is clear within 4 seconds, then the verdict it appended, a failure
 that names its log, and a helper that is not there. Each test failed against an empty
-`set_reviewer` before the change. No real panel has been run from the cockpit.
+`set_reviewer` before the change. A stub that exits 5 without `--no-open`, and otherwise prints
+a judge line and a `hunk show` line, checks the flag and the detail's `hunk` line; it failed
+before build 187. No real panel has been run from the cockpit.
 
 **Stepping in on a seat, build ticket 184.** `m` on a card in the live lane opens `stop <short
 id> and draft a note to the session? y`. With `--session` a seat is a run whose
@@ -3434,7 +3444,12 @@ writes every byte it gets to a file: after the human's `abc`, the file holds
 `ESC[200~<note>ESC[201~` with bracketed paste on and the bare note with it off, nothing after
 either. A seat that traps SIGTERM and exits two seconds later shows the rest: `y` returns in
 well under a second, the card reads `stopping`, a second `m` is handled meanwhile, and nothing
-reaches the chat's pty until the stop reports. Whether the real `claude` TUI appends a bracketed paste to its input without clearing
+reaches the chat's pty until the stop reports. Since build ticket 187 two stops that report in
+the same poll each paste their note, in the order they were started; before it each answer
+replaced one pending note and only the last reached the chat. The notes go in one after the
+other, with nothing between them and nothing after the last, so the human edits the input before
+sending. `tests/stop.rs` stops two held seats, polls once after both records closed, and reads
+both notes on the pty in order; it failed before the change with only the second. Whether the real `claude` TUI appends a bracketed paste to its input without clearing
 it or submitting it was not checked: that needs a live TUI, and the tests show only what
 Hydra sends.
 

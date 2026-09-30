@@ -693,3 +693,65 @@ fn a_stop_that_fails_pastes_nothing() {
     assert_eq!(std::fs::read(&out).unwrap_or_default(), b"");
     hang_up(&mut host);
 }
+
+// --- every note reaches the chat, build ticket 187 ----------------------------
+
+const SECOND_SEAT: &str = "01996d3c-8f2a-7c31-9b44-000000000171";
+
+#[test]
+fn two_stops_that_report_in_one_poll_paste_both_notes_in_order() {
+    let layout = sandbox("two-notes");
+    let out = layout.root().join("pty-bytes");
+    let mut host = recording_chat(&layout, &out, false);
+    let mut first = start(&layout, SEAT, Some(SESSION), HOLDS_ON);
+    let mut second = start(&layout, SECOND_SEAT, Some(SESSION), HOLDS_ON);
+    host.handle(&key(KeyCode::F(2)));
+    // The second card names another model, so its note differs from the first's.
+    let other = Card {
+        run_id: SECOND_SEAT.to_string(),
+        model: Some("stub-2".to_string()),
+        ..seat_card()
+    };
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat_card(), other],
+        ..Snapshot::default()
+    });
+
+    host.handle(&key(KeyCode::Char('m')));
+    host.handle(&key(KeyCode::Char('y')));
+    host.handle(&key(KeyCode::Down));
+    host.handle(&key(KeyCode::Char('m')));
+    let said = host.app.message.clone().unwrap_or_default();
+    assert!(host.app.confirming_stop.is_some(), "{said}");
+    host.handle(&key(KeyCode::Char('y')));
+    assert!(host.app.stopping());
+
+    // Both seats hold on two seconds after the signal. Nothing draws or
+    // pumps meanwhile, so both answers wait for the same poll.
+    for (run_id, watcher) in [(SEAT, &mut first), (SECOND_SEAT, &mut second)] {
+        let waited =
+            watch::wait_for_end(&layout.run_file(run_id), watcher, Duration::from_secs(20))
+                .unwrap();
+        if waited != Waited::Ended {
+            let _ = watcher.kill();
+        }
+        watcher.wait().unwrap();
+        assert_eq!(waited, Waited::Ended, "{run_id} was not stopped");
+    }
+    // Each thread sends once it has read its record closed.
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(std::fs::read(&out).unwrap_or_default(), b"");
+    host.pump();
+    assert!(!host.app.stopping(), "a stop had not reported by the poll");
+
+    let second_draft = DRAFT.replace("stub-1", "stub-2");
+    let expected = format!("{DRAFT}{second_draft}");
+    let bytes = recorded(&out, expected.as_bytes());
+    assert_eq!(String::from_utf8_lossy(&bytes), expected);
+    assert!(
+        !bytes.ends_with(b"\r") && !bytes.ends_with(b"\n"),
+        "{bytes:?}"
+    );
+    assert_eq!(host.side, Side::Chat);
+    hang_up(&mut host);
+}
