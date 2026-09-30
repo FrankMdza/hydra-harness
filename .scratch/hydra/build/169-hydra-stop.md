@@ -1,7 +1,7 @@
 # 169 - hydra stop
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -66,4 +66,26 @@ not live is refused; a prefix that names two runs is refused.
 `run_end.error`, but no outcome of contract 8 means a human stop: today it would derive `crashed`
 (which rung one learns from) or `failed` (which contract 8.6 rejects for an interrupted pass).
 Map ticket 89 decides the outcome; this ticket waits for it and is otherwise unchanged.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f2d9-2497 under `standard`, after map 89.
+The session applied it as written. `hydra stop <run>`, `--all`, `--session <run>` (`src/stop.rs`):
+a `stop` marker in each run's spawn directory, all markers before any signal, then SIGTERM to the
+child's process group (to the child alone when it leads none), checked against the recorded start
+time, SIGKILL after 10 s, and a wait of up to 30 s for `run_end`. The watcher, or the harvest for
+an interactive session, finds the marker and puts `STOP_NOTE` first in `run_end.error`; `derive`
+reads it as `Outcome::Stopped`, which rung one never learns from. A marked session's launcher
+refuses new seats with `hydra/session-stopped`. Contract 8 and harness spec 12 gained the row.
+Refused inside a seatbelt. Five tests; on master fmt and clippy clean, `--lib` 220, `stop` 4,
+`seats` 31, `outcome` 44, `harvest` 12, `detached` 9, `export` 23, `record_contract` 20,
+`cockpit` 25, `normalize` 87.
+
+What map 89 assumed that turned out false: the compiler flagged no match; every consumer of
+`Outcome` goes through `rung_one_learns` or compares named variants. Gaps written in
+`IMPLEMENTATION.md`: a child that exits on its own between marker and signal reads `stopped`;
+`--session` stops direct seats, not their children; a seat whose record appears after the second
+scan is missed. Never run against a live provider or a live interactive session.
+
+The session added `stopped` to the Herdr bridge's outcome map in the same commit.
 

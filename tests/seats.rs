@@ -596,6 +596,26 @@ fn once_the_session_has_ended_a_request_writes_nothing_and_launches_nothing() {
 }
 
 #[test]
+fn once_hydra_stop_marked_the_session_a_request_launches_nothing() {
+    // Build ticket 169: `hydra stop --session` writes the marker before it
+    // signals anything, and from then on the launcher starts no seat.
+    let fixture = Fixture::new("standard");
+    let marker = fixture.layout.stop_marker(SESSION);
+    std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    std::fs::write(&marker, "").unwrap();
+
+    let reply = fixture.launcher.answer(&by_shape("review"));
+    assert!(reply.is_error, "{}", reply.text);
+    assert!(
+        reply.text.contains("hydra/session-stopped"),
+        "{}",
+        reply.text
+    );
+    assert!(fixture.launched().is_empty(), "a stopped session launched");
+    assert_eq!(fixture.requests()[0]["reason"], "hydra/session-stopped");
+}
+
+#[test]
 fn a_face_with_no_launcher_outside_a_seatbelt_does_not_ask_a_socket() {
     // No `seats.sock` in the parent's spawn directory is a run with no
     // launcher to ask, which is every recorded run.

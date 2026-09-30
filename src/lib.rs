@@ -53,6 +53,7 @@ pub mod show;
 pub mod skills;
 pub mod spawn_config;
 pub mod status;
+pub mod stop;
 pub mod usage;
 pub mod walk;
 pub mod watch;

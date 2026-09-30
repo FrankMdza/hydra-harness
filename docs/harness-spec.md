@@ -1324,6 +1324,7 @@ none.
 | `skill_collision` | a linked skill name the provider did not resolve as Hydra's | never |
 | `mcp_unavailable` | the launch check or the Cursor pre-flight refused | never |
 | `rate_limited` | the provider refused its own limit | never |
+| `stopped` | a human ended the run with `hydra stop` | never |
 
 **All three providers exit 0 and report success on a run where the gate refused everything**, and
 so does `codex`, measured on run 01a0c62b-d005 on 2026-09-21. So `gated` derives from the event stream, never from the exit status. So does every other outcome in

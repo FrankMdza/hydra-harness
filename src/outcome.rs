@@ -1,7 +1,7 @@
-//! The nine outcomes, and what `hydra run` returns.
+//! The ten outcomes, and what `hydra run` returns.
 //!
 //! Contract section 8 owns the enum, 8.2 owns `outcome_source`, and 17 owns the
-//! JSON. Harness spec 12 states the same nine from the launcher's side.
+//! JSON. Harness spec 12 states the same ten from the launcher's side.
 //!
 //! **This is the one module that puts a derived value in a serialized shape, and
 //! it says so out loud.** Contract 6 and 11 both forbid storing an outcome, and
@@ -24,7 +24,7 @@ use serde_json::Value;
 use crate::normalize::{Decider, Decision, Finding, Message, Role, Run, UsageSource};
 use crate::record::Refusal;
 
-/// Contract 8's nine. A run ends on exactly one.
+/// Contract 8's ten. A run ends on exactly one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Completed,
@@ -49,6 +49,9 @@ pub enum Outcome {
     /// ticket 08's, and it arrives through [`Refusal`].
     McpUnavailable,
     RateLimited,
+    /// A human ended the run with `hydra stop`, map ticket 89. Read off the
+    /// stop note the watcher, or the harvest, writes first in `run_end.error`.
+    Stopped,
 }
 
 impl Outcome {
@@ -63,6 +66,7 @@ impl Outcome {
             Outcome::SkillCollision => "skill_collision",
             Outcome::McpUnavailable => "mcp_unavailable",
             Outcome::RateLimited => "rate_limited",
+            Outcome::Stopped => "stopped",
         }
     }
 
@@ -71,6 +75,10 @@ impl Outcome {
     ///
     /// It says what rung one learns from and never what Hydra keeps. Every run is
     /// recorded in full whatever this returns.
+    ///
+    /// **`stopped` is out**, map ticket 89: the record cannot tell a stop for a
+    /// bad run from a stop for quota or a changed mind, so it is a failure
+    /// signal about nothing, the reading 8.6 gives an interrupted pass.
     pub fn rung_one_learns(self) -> bool {
         matches!(
             self,
@@ -172,6 +180,22 @@ pub fn derive(run: &Run) -> Option<Derived> {
     if harvested && let Some(outcome) = claude_harvest_limit_refusal(run) {
         return Some(Derived {
             outcome,
+            source: Source::Derived,
+        });
+    }
+
+    // A human stop, map ticket 89. Read before the terminator and before
+    // `SIGNAL_NOTE`, because the same run usually carries both: the stop is
+    // why the child died on SIGTERM, and a provider that caught the signal and
+    // wrote its own terminator on the way out still ended because a human
+    // asked. The refusals above come first because each says the run was over
+    // before anybody stopped it.
+    if end.body["error"]
+        .as_str()
+        .is_some_and(|text| text.starts_with(crate::watch::STOP_NOTE))
+    {
+        return Some(Derived {
+            outcome: Outcome::Stopped,
             source: Source::Derived,
         });
     }

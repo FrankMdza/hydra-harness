@@ -127,6 +127,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `logs` | tail a record |
 | `show` | the full record, normalized; `--events` for the stream |
 | `resume` | continue a finished run's vendor session under a fresh run id |
+| `stop` | end a live run, `--all` of them, or `--session` and its seats; the record says `stopped` |
 | `reap` | commit a worktree to its branch, remove it |
 | `prune` | move records out of `runs/`; deletes only behind a flag |
 | `curate` | rung one: propose skill edits from the corpus |
@@ -255,8 +256,8 @@ first so the design map gets a ticket and the record contract does not fork with
 
 ## Status, in numbers
 
-Twelve commands a human types, the eleven of harness spec 17 plus `doctor`, and two hidden
-ones. 27 test files on 2026-09-24, green in CI on macOS. CI never walks the live corpus under
+Sixteen commands a human types on 2026-09-30, the command table above, and two hidden ones.
+33 Rust test files, green in CI on macOS, plus the Python suites under `integrations/`. CI never walks the live corpus under
 `~/hydra/runs/`; that is `hydra doctor --walk` on the machine that launched the runs. The fixture
 walks in `cargo test` run the same assertions over `tests/fixtures/records/`, twelve synthetic
 records filed by the provider version whose shapes they reproduce, and the CI job summary prints
@@ -309,9 +310,9 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 81 decision and research tickets on
-2026-09-26, with the reasoning each document compressed. `.scratch/hydra/build/plan.md`
-indexes the build, 132 tickets on the same day, and every resolved one ends in an `## Outcome`
+`.scratch/hydra/map.md` is the design history: 89 decision and research tickets on
+2026-09-30, with the reasoning each document compressed. `.scratch/hydra/build/plan.md`
+indexes the build, 172 tickets on the same day, and every resolved one ends in an `## Outcome`
 that says what the session changed in the agent's diff before applying it.
 `python3 .scratch/hydra/frontier.py` and `python3 .scratch/hydra/frontier.py build` print
 today's counts. `CLAUDE.md` is what an agent reads first.

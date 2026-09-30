@@ -130,6 +130,19 @@ fn main() -> Result<()> {
                 );
             }
         }
+        Command::Stop {
+            run_id,
+            all,
+            session,
+        } => {
+            let target = match (&run_id, &session) {
+                (Some(run_id), _) => hydra::stop::Target::Run(run_id),
+                (None, Some(session)) => hydra::stop::Target::Session(session),
+                (None, None) if all => hydra::stop::Target::All,
+                (None, None) => anyhow::bail!("name a run, --session <run> or --all"),
+            };
+            print!("{}", hydra::stop::command(&Layout::discover()?, target)?);
+        }
         Command::Curate {
             model,
             timeout,

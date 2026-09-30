@@ -967,7 +967,7 @@ ordinary runs and are not forced into this event.
 
 ## 8. Run outcomes
 
-The enum belongs to this document. The harness spec lists the same nine and says so.
+The enum belongs to this document. The harness spec lists the same ten and says so.
 
 **An outcome is a derived value, never a stored one** (section 6). What follows is the vocabulary the
 normalizer produces, not a field to look for in a file.
@@ -983,6 +983,15 @@ normalizer produces, not a field to look for in a file.
 | `skill_collision` | a linked skill name the provider did not resolve as Hydra's | never |
 | `mcp_unavailable` | the launch check or the Cursor pre-flight refused | never |
 | `rate_limited` | the provider refused its own limit | never |
+| `stopped` | a human ended the run with `hydra stop` | never |
+
+**`stopped` is read off a fixed prefix of `run_end.error`**, map ticket 89. `hydra stop` marks the
+run before it signals the child, and whoever closes the record, the watcher or the harvest, puts the
+stop note first in `error`, ahead of the signal note the same death also earns. The derivation reads
+it before the signal note, so a stop is never `crashed`, and `outcome_source` stays `derived`. Rung
+one never learns from it: the record cannot tell a stop for a bad run from a stop for quota or a
+changed mind, which makes it a failure signal about nothing, the reading 8.6 gives an interrupted
+pass.
 
 **Recorded and learned-from are different questions.** The right-hand column says what rung one
 learns from and never what Hydra keeps. Every run in this table is recorded in full, verbatim,

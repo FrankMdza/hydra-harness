@@ -96,6 +96,9 @@ pub struct RunView {
     /// `~/hydra/skills-snapshots/<sha>/`: a snapshot is referenced while a live
     /// run's record names it, and nothing else counts.
     pub skills_sha: Option<String>,
+    /// The run that launched this one, off line 0's envelope (contract 4).
+    /// `hydra stop --session` reads it to find a session's seats.
+    pub parent_run_id: Option<String>,
 }
 
 impl RunView {
@@ -179,6 +182,10 @@ pub fn read_view(path: &Path) -> Result<RunView> {
         .as_ref()
         .and_then(|envelope| envelope["hydra"]["skills"]["store_sha"].as_str())
         .map(str::to_string);
+    let parent_run_id = start
+        .as_ref()
+        .and_then(|envelope| envelope["parent_run_id"].as_str())
+        .map(str::to_string);
 
     // Contract 5.2's test, both halves. A null pid is a run that never had a
     // process, which is a refused spawn rather than something to go looking for.
@@ -200,6 +207,7 @@ pub fn read_view(path: &Path) -> Result<RunView> {
         policy,
         launch_mode,
         skills_sha,
+        parent_run_id,
     })
 }
 
@@ -661,6 +669,7 @@ mod tests {
                 policy: None,
                 launch_mode: None,
                 skills_sha: None,
+                parent_run_id: None,
             })
             .collect();
 
@@ -688,6 +697,7 @@ mod tests {
             policy: None,
             launch_mode: None,
             skills_sha: None,
+            parent_run_id: None,
         }];
         assert!(guard(1, &views).is_ok());
     }

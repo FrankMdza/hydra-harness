@@ -238,6 +238,11 @@ pub fn watch(spec: &Path) -> Result<()> {
 
     let exit_code = spawned.wait()?;
 
+    // Whether a human stopped this run, read once the child is gone. `hydra
+    // stop` writes the marker before it signals, so a child it killed always
+    // finds it here.
+    let stopped = spec.with_file_name(STOP_MARKER).exists();
+
     // A signal death is the one ending the detached half witnesses and the
     // stream cannot show, and the pty reports it as exit code 1. `run_end.error`
     // is contract 6's field for text Hydra captured that is not on the stream,
@@ -247,6 +252,16 @@ pub fn watch(spec: &Path) -> Result<()> {
         tee_error = Some(match tee_error {
             Some(existing) => format!("{note}; {existing}"),
             None => note,
+        });
+    }
+
+    // A human stop goes in front of everything else, `SIGNAL_NOTE` included:
+    // the outcome derivation reads the prefix, and the signal is how the stop
+    // happened rather than a second ending.
+    if stopped {
+        tee_error = Some(match tee_error {
+            Some(existing) => format!("{STOP_NOTE}; {existing}"),
+            None => STOP_NOTE.to_string(),
         });
     }
 
@@ -296,6 +311,16 @@ pub fn watch(spec: &Path) -> Result<()> {
 /// How `run_end.error` starts when the child died on a signal. The outcome
 /// derivation matches on this prefix, and the signal's name follows it.
 pub const SIGNAL_NOTE: &str = "the child died on signal ";
+
+/// How `run_end.error` starts when a human stopped the run with `hydra stop`,
+/// map ticket 89. The outcome derivation reads this prefix before
+/// [`SIGNAL_NOTE`] and derives `stopped`.
+pub const STOP_NOTE: &str = "a human stopped the run with hydra stop";
+
+/// The file `hydra stop` writes in the run's spawn directory, beside the launch
+/// spec, before it signals the child. Its presence when the record closes is
+/// the whole of how the watcher and the harvest learn the run was stopped.
+pub const STOP_MARKER: &str = "stop";
 
 /// `run_end.error` when the child exited but a descendant still held the slave
 /// when the tee gave up. The outcome derivation reads this as Hydra stopping

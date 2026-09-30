@@ -43,6 +43,7 @@ MAPPING = {
     "mcp_unavailable": ("blocked", "mcp_unavailable"),
     "skill_collision": ("blocked", "skill_collision"),
     "crashed": ("unknown", "crashed"),
+    "stopped": ("idle", "stopped"),
 }
 
 

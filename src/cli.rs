@@ -3,8 +3,8 @@
 //! Harness spec 17 lists eleven commands. All eleven are here, and `doctor`,
 //! build ticket 67, is the twelfth a human types.
 //!
-//! **`reap` and `prune` are typed by a human and reachable from no run.** Nothing
-//! in the library calls either, which is the only mechanism there is: harness spec
+//! **`reap`, `prune` and `stop` are typed by a human and reachable from no run.**
+//! Nothing in the library calls any of them, which is the only mechanism there is: harness spec
 //! 7.5 says the gate cannot keep a run away from a binary reached through `shell`,
 //! so the property lives in Hydra's own source. `curate` is typed by a human too
 //! and is the one command that then launches a run of its own.
@@ -135,6 +135,26 @@ pub enum Command {
         /// a branch holding commits survives the reap.
         #[arg(long)]
         delete_branch: bool,
+    },
+
+    /// Stop a live run: SIGTERM to its process group, SIGKILL after 10 s.
+    ///
+    /// Build ticket 169. The run's watcher still writes `run_end`, and the
+    /// record derives `stopped`. Typed by a human outside any session, and
+    /// refused inside a seatbelt as `hydra approve` is.
+    Stop {
+        /// A run id or an unambiguous prefix of one.
+        #[arg(conflicts_with_all = ["all", "session"], required_unless_present_any = ["all", "session"])]
+        run_id: Option<String>,
+
+        /// Stop every live run.
+        #[arg(long, conflicts_with = "session")]
+        all: bool,
+
+        /// Stop this session and every live run it launched, the seats first.
+        /// Its launcher starts no seat once the stop began.
+        #[arg(long, value_name = "RUN")]
+        session: Option<String>,
     },
 
     /// Read the corpus and propose skill edits: rung one of the rungs.

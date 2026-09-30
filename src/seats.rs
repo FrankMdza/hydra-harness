@@ -56,6 +56,8 @@ const PANEL_CAP: &str = "hydra/panel-cap";
 const PANELS_UNREADABLE: &str = "hydra/panels-unreadable";
 const BAD_REQUEST: &str = "hydra/seat-request";
 const SESSION_ENDED: &str = "hydra/session-ended";
+/// `hydra stop` marked the session, build ticket 169. Nothing more launches.
+pub const SESSION_STOPPED: &str = "hydra/session-stopped";
 const REQUEST_CAP: &str = "hydra/request-cap";
 const BUSY: &str = "hydra/seat-channel-busy";
 
@@ -502,6 +504,12 @@ impl Launcher {
         self
     }
 
+    /// Whether `hydra stop` has marked this session, build ticket 169. The
+    /// marker is the same file the harvest reads when the session closes.
+    fn stopped(&self) -> bool {
+        self.layout.stop_marker(&self.session.run_id).exists()
+    }
+
     /// Stops the record taking lines. Called before the harvest, which writes
     /// `run_end`, so nothing lands after it.
     pub fn close(&self) {
@@ -560,6 +568,13 @@ impl Launcher {
         let asked = asked(ask);
         let refuse = |code, text| Decision::Refuse { code, text };
 
+        if self.stopped() {
+            return (
+                ask.shape.clone(),
+                asked,
+                refuse(SESSION_STOPPED, stopped_text()),
+            );
+        }
         if ask.task.trim().is_empty() {
             let text = format!(
                 "{BAD_REQUEST}: the task is empty, and a seat told nothing has nothing to do"
@@ -716,6 +731,14 @@ impl Launcher {
         task: &str,
         runs: &[String],
     ) -> Reply {
+        // Checked again here for a request that waited on a human: it was
+        // weighed before the stop, and an approval after it launches nothing.
+        if self.stopped() {
+            return Reply {
+                text: stopped_text(),
+                is_error: true,
+            };
+        }
         let request = |seat: &Launch<'_>, run_id: &String| Request {
             provider: seat.provider,
             task: match seat.role {
@@ -945,6 +968,13 @@ fn above_session(index: usize, seat: &str, session: &str) -> String {
 }
 
 /// What a seat is told: its role, then the task.
+fn stopped_text() -> String {
+    format!(
+        "{SESSION_STOPPED}: a human is stopping this session with `hydra stop`, so its launcher \
+         starts no more seats"
+    )
+}
+
 fn seat_task(role: &str, task: &str) -> String {
     format!("Your seat on this panel: {role}.\n\n{task}")
 }

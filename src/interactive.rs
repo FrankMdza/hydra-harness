@@ -744,7 +744,8 @@ pub fn harvest_in(
                 "the session wrote no transcript at {}, so there is nothing to harvest",
                 transcript_path.display()
             );
-            writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, Some(error)))?;
+            let error = stop_noted(layout, run_id, Some(error));
+            writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, error))?;
             return Ok(HarvestOutcome::Harvested { records: 0 });
         }
         Err(err) => {
@@ -785,7 +786,22 @@ pub fn harvest_in(
     let error = exit_code.is_none().then(|| {
         "harvested after the run already exited, so the exit code was not observed".to_string()
     });
+    let error = stop_noted(layout, run_id, error);
     writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, error))?;
 
     Ok(HarvestOutcome::Harvested { records })
+}
+
+/// `error` with the stop note in front when `hydra stop` marked this run,
+/// build ticket 169. The harvest is what closes an interactive session, so it
+/// is the one writer besides the watcher that has to say a human stopped it.
+fn stop_noted(layout: &Layout, run_id: &str, error: Option<String>) -> Option<String> {
+    if !layout.stop_marker(run_id).exists() {
+        return error;
+    }
+    let note = crate::watch::STOP_NOTE;
+    Some(match error {
+        Some(existing) => format!("{note}; {existing}"),
+        None => note.to_string(),
+    })
 }

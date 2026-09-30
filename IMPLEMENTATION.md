@@ -319,6 +319,7 @@ hydra run --provider <claude|cursor-agent|agy|codex> --task "..." [--model <id>]
           [--parent <run-id>] [--timeout <dur>] [--allow-floor-escape] [--interactive]
 hydra status [<run-id>]
 hydra logs <run-id> [--follow]
+hydra stop <run-id> | --all | --session <run-id>
 hydra reap [<run-id>] [--delete-branch]
 hydra prune [<run-id>...] [--delete] [--dry-run]
 hydra curate [--model <id>] [--timeout <dur>] [--dry-run]
@@ -379,6 +380,44 @@ creates the store.
 section below that is the one to read before trusting a record it wrote. All three of the
 design's routable providers are now routed; `hermes` is the fourth that ticket 22
 unrouted, and its name still comes back as an unknown provider.
+
+## `hydra stop`, since build ticket 169
+
+The panel of 2026-09-30 chose a command a human types over a watchdog, so D10 stands.
+`hydra stop <run>` resolves a full id or a prefix with `resolver.rs`, refuses a run that is
+not live, and signals it. `--all` stops every live run, deepest first. `--session <run>`
+stops every live run whose line 0 carries it as `parent_run_id`, then the session. It
+prints one line per run with the outcome the record derives once it closes. It refuses
+inside a seatbelt as `hydra/stop-inside-seatbelt`, as `hydra approve` does, and nothing in
+`src/` calls `stop::stop` but `main`.
+
+**The watcher learns of a stop from a file, not a signal.** `hydra stop` writes
+`~/hydra/spawn/<run-id>/stop` before it signals anything. The watcher sits in a blocking tee
+with no handler, and the record's pid is the child's, so signalling the watcher would need a
+pid no record carries. The spawn directory is the one path the watcher already knows, and
+every policy denies writes under it, so no run can mark itself or a sibling. The signal is
+SIGTERM to the child's process group when the child leads one, which a recorded run's child
+does on its pty, and to the child alone when it does not, which is an interactive session
+sharing the human's job. SIGKILL follows after `stop::GRACE`, 10 s, and each signal checks
+the pid against the recorded start time first.
+
+**Map ticket 89 made it a tenth outcome, `stopped`.** Whoever closes the record, the watcher
+or the harvest, finds the marker and puts `watch::STOP_NOTE` first in `run_end.error`,
+ahead of `SIGNAL_NOTE`. `derive` reads that prefix after the provider's own refusals and
+`gated`, and before the terminator, so a provider that caught SIGTERM and wrote a
+terminator on the way out still reads `stopped`. Rung one never learns from it.
+
+**The session's launcher refuses seats once the marker is there**, as
+`hydra/session-stopped`, and the request is on the session's record like any other refusal.
+It checks again at launch, so a request that was waiting on `hydra approve` when the stop
+began launches nothing either. `tests/stop.rs` drives each claim on a stub watcher, and
+`tests/seats.rs` the refusal.
+
+Known gaps. A child that exits on its own between the marker and the signal is recorded as
+`stopped`. `--session` reaches the session's direct seats and not their own children. A seat
+whose record does not exist yet when the stop scans is missed; the scan is repeated once
+after the session's marker to narrow that. `integrations/grader/baseline.py` compares
+outcome strings, and map 89 notes it counts a stop as not completed; it was not changed here.
 
 ## Cleanup: `hydra reap` and `hydra prune`
 
@@ -2313,7 +2352,7 @@ transcript, so nothing changes there.
 
 ## Deriving an outcome, and what `hydra run` returns
 
-Ticket 04. `src/outcome.rs` turns a normalized run into contract 8's nine outcomes and
+Ticket 04. `src/outcome.rs` turns a normalized run into contract 8's ten outcomes and
 8.2's `outcome_source`, and `hydra::run::result` projects that plus the diff stat into
 contract 17's JSON. The record writer types, `RunStart`, `RunEnd` and `Auth`, and
 `status::Report` derive `Serialize` too; nothing derives it for a normalized run, and that
@@ -2329,6 +2368,7 @@ runs from what Hydra decided toward what the run got to try:
 | 3 | `refused_everything` | `gated` | every call refused and at least one refusal was the gate |
 | 4 | no provider | `completed`, or `failed` when `run_end.error` is set | a harness run describes the pass, spec 4.10, not the patch |
 | 5 | `claude_harvest_limit_refusal` on a harvested run | `rate_limited` | the limit lives in the transcript, not on a terminator |
+| 5b | `run_end.error` starts with `STOP_NOTE` | `stopped` | a human ended it with `hydra stop`, map ticket 89, so a terminator written on the way out does not count |
 | 6 | the terminator | `completed`, `failed`, `crashed` by provider | a harvested body, no terminator, or a `result` frame, read three ways |
 | 7 | `outcome_source` | `unknown` on a `completed` with unclassified calls or an unwatched harvest | the outcome stands and the source says how much to trust it |
 
@@ -4332,7 +4372,7 @@ Out of scope for this slice, and each one has a document that already says what 
   that provider argues for.
 - `--shared-tree`, so nothing in this build runs two children in one checkout, and the
   MCP cost 6.5 gives that flag on Cursor has no producer.
-- Every one of contract 8's nine outcomes has a producer now. `mcp_unavailable` was the
+- Every one of contract 8's ten outcomes has a producer now; `stopped`, the tenth, is `hydra stop`'s. `mcp_unavailable` was the
   last without one and it arrives through `run_end.refusal`, written by 6.1 item 6 when
   a policy admits a server the launch cannot deliver. `skill_collision` is 6.1's fifth
   check, and `timed_out` is the handle rather than the record, which the section above

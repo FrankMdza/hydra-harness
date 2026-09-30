@@ -781,8 +781,7 @@ fn a_base64_token_whose_slashes_leave_no_24_character_run_is_not_warned() {
 
 #[test]
 fn a_hydra_worktree_path_raises_no_warning() {
-    let path =
-        "/Users/USER/hydra/worktrees/01a0cc32-3831-7d42-b307-0248751bb76c/IMPLEMENTATION.md";
+    let path = "/Users/USER/hydra/worktrees/01a0cc32-3831-7d42-b307-0248751bb76c/IMPLEMENTATION.md";
     assert!(warnings_on(path).is_empty());
 }
 

@@ -336,6 +336,15 @@ impl Layout {
         self.spawn(run_id).join("launch.json")
     }
 
+    /// The marker `hydra stop` writes before it signals a run, build ticket 169.
+    ///
+    /// In the spawn directory beside [`Layout::launch_spec`], because that is
+    /// the one path the watcher knows, and because every policy denies writes
+    /// under `spawn/`, so a run cannot mark itself or a sibling stopped.
+    pub fn stop_marker(&self, run_id: &str) -> PathBuf {
+        self.spawn(run_id).join(crate::watch::STOP_MARKER)
+    }
+
     /// Where the detached half's own stdout and stderr go.
     ///
     /// Diagnostics, never a source. Anything about the run that matters is on the
