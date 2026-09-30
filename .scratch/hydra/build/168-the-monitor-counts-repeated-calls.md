@@ -1,7 +1,7 @@
 # 168 - The monitor counts repeated calls
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 162
 
 ## What
@@ -30,3 +30,22 @@ failing before the change. Stdlib only.
 
 - Each new test failed before the change; the grader suite passes.
 - The report gives the train commands for the real home, since this run cannot read it.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` sonnet on run 01a0f2c9-9881 under `standard`. `Prefix`
+keys each call on its tool name and a sha256 prefix of its input (`claude` `tool_use.input`,
+`cursor-agent` `*ToolCall.args`, `codex` `command_execution.command`, `agy`
+`tool_info.parameters`, which the session confirmed on a real `agy` record), and counts
+`repeated_calls_so_far` and `longest_repeat_run`. Nine tests.
+
+The session measured on the real dataset, 576 rows, test from 2026-09-23. Repeats are common:
+27 of 233 `claude` runs, 28 of 199 `cursor-agent`, 34 of 71 `agy`, 10 of 73 `codex`; the longest
+streak is 9 identical `claude` calls. In the fitted vector they made the monitor worse: outcome
+AUC 0.838, 0.860, 0.880 at 0.1, 0.25, 0.5 against 0.856, 0.867, 0.881 without, and verdict lost
+to the provider and model bar at 0.1 and 0.25. So the session kept them in `features` output and
+took them out of `raw_features` and `SCALE_NAMES`; the models in `grader/models/monitor/` were
+retrained without them. The grader suite passes, 116 tests.
+
+The counts are what a loop view would show; as a failure predictor they add nothing yet.
+

@@ -121,6 +121,11 @@ or a tool result whose text carries Hydra's refusal voice (`hydra/`, other than
 `hydra/allow`). The echoed tool result after a hook is not a second refusal. Tool
 names are read from each provider's own frame: `claude` `tool_use`, `cursor-agent`
 `tool_call` on `started`, `agy` `step_type: tool`, `codex` `item.completed`.
+Two more features read repeated calls. A call's key is its tool name plus a hash of its
+input (`claude` `input`, `cursor-agent` `args`, `codex` `command`, `agy` `tool_info.parameters`);
+no input keys on the name alone. `repeated_calls_so_far` counts calls whose key was already
+seen in the prefix, and `longest_repeat_run` is the longest streak of consecutive calls with one key. `features` prints both; the fit leaves them out, because on 2026-09-30 they lowered the
+outcome AUC at every fraction (0.838, 0.860, 0.880 with them against 0.856, 0.867, 0.881 without, 576 rows).
 
 ```
 python3 integrations/grader/monitor.py features RECORD --at 0.1|0.25|0.5

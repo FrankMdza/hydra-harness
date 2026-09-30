@@ -106,6 +106,111 @@ def traced(ident: str, fail: bool) -> list[dict]:
     return lines
 
 
+def rec(seq: int, raw: dict, provider: str = "claude") -> dict:
+    return dict(envelope("00000000-0000-7000-8000-0000000000e1", seq, T0), provider=provider, raw=raw)
+
+
+def claude_use(n: int, name: str, **inp) -> dict:
+    block = {"type": "tool_use", "id": f"u{n}", "name": name}
+    if inp:
+        block["input"] = inp
+    return {"type": "assistant", "message": {"content": [block]}}
+
+
+def cursor_start(n: int, path: str | None) -> dict:
+    body = {"args": {"path": path}} if path is not None else {}
+    return {
+        "type": "tool_call", "subtype": "started", "call_id": f"k{n}",
+        "tool_call": {"readToolCall": body},
+    }
+
+
+def codex_run(n: int, command: str | None) -> dict:
+    item = {"type": "command_execution", "id": f"x{n}", "exit_code": 0, "aggregated_output": ""}
+    if command is not None:
+        item["command"] = command
+    return {"type": "item.completed", "item": item}
+
+
+def agy_step(n: int, params: dict | None) -> dict:
+    info = {"parameters": params} if params is not None else {}
+    return {"event": "step_update", "step_update": {
+        "step_type": "tool", "step_index": n, "state": "ACTIVE",
+        "tool_name": "run_command", "tool_info": info,
+    }}
+
+
+def repeats(raws: list[dict], provider: str = "claude") -> tuple[int, int]:
+    lines = [rec(i, raw, provider) for i, raw in enumerate(raws)]
+    out = monitor.summarize(lines, 0.5)
+    return out["repeated_calls_so_far"], out["longest_repeat_run"]
+
+
+class RepeatTests(unittest.TestCase):
+    def test_claude_counts_a_call_seen_again_and_the_longest_streak(self):
+        raws = [claude_use(1, "Read", path="a"), claude_use(2, "Read", path="b"),
+                claude_use(3, "Read", path="a"), claude_use(4, "Read", path="a")]
+        # Half of four lines would read two, so pad to twice the length.
+        raws += [{"type": "result"}] * 4
+        self.assertEqual(repeats(raws), (2, 2))
+
+    def test_the_same_tool_with_other_input_is_not_a_repeat(self):
+        raws = [claude_use(1, "Read", path="a"), claude_use(2, "Read", path="b")] + [{"type": "result"}] * 2
+        self.assertEqual(repeats(raws), (0, 1))
+
+    def test_key_order_of_the_input_does_not_matter(self):
+        raws = [claude_use(1, "Grep", pattern="x", path="a"),
+                claude_use(2, "Grep", path="a", pattern="x")] + [{"type": "result"}] * 2
+        self.assertEqual(repeats(raws), (1, 2))
+
+    def test_a_call_without_input_keys_on_the_name_alone(self):
+        raws = [claude_use(1, "Bash"), claude_use(2, "Bash"), claude_use(3, "Read")] + [{"type": "result"}] * 3
+        self.assertEqual(repeats(raws), (1, 2))
+
+    def test_a_streak_breaks_on_a_different_call(self):
+        raws = [claude_use(1, "Read", path="a"), claude_use(2, "Read", path="b"),
+                claude_use(3, "Read", path="a"), claude_use(4, "Read", path="a"),
+                claude_use(5, "Read", path="a")] + [{"type": "result"}] * 5
+        self.assertEqual(repeats(raws), (3, 3))
+
+    def test_cursor_reads_the_args_of_the_tool_call(self):
+        raws = [cursor_start(1, "a"), cursor_start(2, "a"), cursor_start(3, "b"), cursor_start(4, None)]
+        raws = raws + [{"type": "result"}] * 4
+        self.assertEqual(repeats(raws, "cursor-agent"), (1, 2))
+
+    def test_codex_reads_the_command(self):
+        raws = [codex_run(1, "ls"), codex_run(2, "ls"), codex_run(3, "pwd"), codex_run(4, "ls")]
+        raws = raws + [{"type": "result"}] * 4
+        self.assertEqual(repeats(raws, "codex"), (2, 2))
+
+    def test_agy_reads_the_tool_info_parameters(self):
+        raws = [agy_step(1, {"CommandLine": "ls"}), agy_step(2, {"CommandLine": "ls"}),
+                agy_step(3, {"CommandLine": "pwd"}), agy_step(4, None)]
+        raws = raws + [{"type": "result"}] * 4
+        self.assertEqual(repeats(raws, "agy"), (1, 2))
+
+    def test_features_print_the_two_counts_but_train_leaves_them_out(self):
+        # Measured on 2026-09-30: in the fitted vector they lowered the outcome AUC at every
+        # fraction, so `features` prints them and `raw_features` does not carry them.
+        self.assertNotIn("repeated_calls_so_far", monitor.SCALE_NAMES)
+        self.assertNotIn("repeated_calls_so_far", monitor.raw_features({"_prefix": {"repeated_calls_so_far": 3}}))
+        lines = [dict(rec(0, {"type": "system"}), raw=None, hydra={
+            "type": "run_start", "command": "run", "policy": "standard", "task": "x",
+        })]
+        lines += [rec(i + 1, raw) for i, raw in enumerate(
+            [claude_use(1, "Read", path="a"), claude_use(2, "Read", path="a")] + [{"type": "result"}] * 4
+        )]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "00000000-0000-7000-8000-0000000000e1.jsonl"
+            write_jsonl(path, lines)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                monitor.main(["features", str(path), "--at", "0.5"])
+        feats = json.loads(out.getvalue())["features"]
+        self.assertEqual(feats["repeated_calls_so_far"], 1)
+        self.assertEqual(feats["longest_repeat_run"], 2)
+
+
 class FeatureTests(unittest.TestCase):
     def test_a_prefix_does_not_see_the_rest_of_the_record(self):
         ident = run_id(START, 1)

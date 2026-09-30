@@ -136,6 +136,13 @@ def cursor_name(tool_call: dict) -> str | None:
     return None
 
 
+def cursor_args(tool_call: dict):
+    for key, value in tool_call.items():
+        if key.endswith("ToolCall") and isinstance(value, dict):
+            return value.get("args")
+    return None
+
+
 def cursor_denied(tool_call: dict) -> bool:
     for value in tool_call.values():
         if not isinstance(value, dict):
@@ -177,7 +184,15 @@ def hook_denial(raw: dict) -> str | None:
     return ""
 
 
-def claude_calls(raw: dict) -> list[tuple[str, str | None]]:
+def call_key(name: str, args) -> str:
+    """The tool name plus a hash of its input. No input keys on the name alone."""
+    if args is None:
+        return name
+    text = json.dumps(args, sort_keys=True, default=str)
+    return f"{name}:{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+
+
+def claude_calls(raw: dict) -> list[tuple[str, str | None, object]]:
     message = raw.get("message")
     if not isinstance(message, dict):
         return []
@@ -188,7 +203,11 @@ def claude_calls(raw: dict) -> list[tuple[str, str | None]]:
     for block in content:
         if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name"):
             call_id = block.get("id")
-            found.append((block["name"], call_id if isinstance(call_id, str) else None))
+            found.append((
+                block["name"],
+                call_id if isinstance(call_id, str) else None,
+                block.get("input"),
+            ))
     return found
 
 
@@ -225,10 +244,22 @@ class Prefix:
         self.pending: dict[str, str] = {}
         self.anon: list[str] = []
         self.opened: set[str] = set()
+        self.seen_keys: set[str] = set()
+        self.repeated = 0
+        self.last_key: str | None = None
+        self.run = 0
+        self.longest_run = 0
 
-    def call(self, name: str, call_id: str | None) -> None:
+    def call(self, name: str, call_id: str | None, args=None) -> None:
         self.tool_calls += 1
         self.tools.add(name)
+        key = call_key(name, args)
+        if key in self.seen_keys:
+            self.repeated += 1
+        self.seen_keys.add(key)
+        self.run = self.run + 1 if key == self.last_key else 1
+        self.last_key = key
+        self.longest_run = max(self.longest_run, self.run)
         if call_id:
             self.pending[call_id] = name
             self.opened.add(call_id)
@@ -287,8 +318,8 @@ class Prefix:
         if raw.get("event") == "step_update":
             self._agy(raw)
             return
-        for name, call_id in claude_calls(raw):
-            self.call(name, call_id)
+        for name, call_id, args in claude_calls(raw):
+            self.call(name, call_id, args)
         denied = hook_denial(raw)
         if denied is not None:
             self.finish(None, True, denied or None)
@@ -305,14 +336,14 @@ class Prefix:
         name = cursor_name(tool_call)
         if raw.get("subtype") == "started":
             if name and (call_id is None or call_id not in self.opened):
-                self.call(name, call_id)
+                self.call(name, call_id, cursor_args(tool_call))
             return
         if raw.get("subtype") != "completed":
             return
         if name and call_id is not None and call_id not in self.opened:
-            self.call(name, call_id)
+            self.call(name, call_id, cursor_args(tool_call))
         elif name and call_id is None and not self.anon and not self.pending:
-            self.call(name, None)
+            self.call(name, None, cursor_args(tool_call))
         self.finish(call_id, cursor_denied(tool_call), name)
 
     def _codex(self, raw: dict) -> None:
@@ -330,7 +361,8 @@ class Prefix:
         output = item.get("aggregated_output")
         if not isinstance(output, str):
             output = item.get("output") if isinstance(item.get("output"), str) else ""
-        self.call(name, call_id)
+        args = item.get("command") if kind == "command_execution" else None
+        self.call(name, call_id, args)
         self.finish(call_id, is_denial(output), name)
 
     def _agy(self, raw: dict) -> None:
@@ -344,7 +376,7 @@ class Prefix:
         index = step.get("step_index")
         call_id = f"agy:{index}"
         if call_id not in self.opened:
-            self.call(name, call_id)
+            self.call(name, call_id, info.get("parameters"))
         if step.get("state") == "ACTIVE":
             return
         error = info.get("error") if isinstance(info.get("error"), dict) else {}
@@ -369,6 +401,8 @@ def summarize(lines: list, fraction: float) -> dict:
         "refusals_so_far": walk.refusals,
         "first_refused_tool": walk.first_refused,
         "distinct_tools": len(walk.tools),
+        "repeated_calls_so_far": walk.repeated,
+        "longest_repeat_run": walk.longest_run,
         "output_tokens_so_far": walk.output_tokens,
         "seconds_elapsed": elapsed,
         "seat_requested": walk.seat,
@@ -430,6 +464,8 @@ def feature_view(path: Path, fraction: float) -> dict:
         "refusals_so_far": prefix["refusals_so_far"],
         "first_refused_tool": prefix["first_refused_tool"],
         "distinct_tools": prefix["distinct_tools"],
+        "repeated_calls_so_far": prefix["repeated_calls_so_far"],
+        "longest_repeat_run": prefix["longest_repeat_run"],
         "output_tokens_so_far": prefix["output_tokens_so_far"],
         "seconds_elapsed": prefix["seconds_elapsed"],
         "seat_requested": prefix["seat_requested"],
