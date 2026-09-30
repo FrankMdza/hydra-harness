@@ -339,6 +339,51 @@ fn a_server_named_hydra_carries_the_parent_flag_and_a_lookalike_does_not() {
 }
 
 #[test]
+fn a_bare_hydra_command_is_written_as_the_running_binary() {
+    let (layout, _root) = layout();
+    let document = Document::parse(FACE_DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::Claude, "standard", Checkout::Hydra);
+    let run_id = "01a07610-0000-7000-8000-0000000000f2";
+    let file = mcp::write_config(&layout, run_id, Provider::Claude, plan.injected(), None).unwrap();
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let own = std::env::current_exe().unwrap().canonicalize().unwrap();
+
+    assert_eq!(
+        config["mcpServers"]["face-bare"]["command"],
+        serde_json::json!(own.to_str().unwrap()),
+        "a bare `hydra` is spawned by the vendor's CLI, whose PATH may not hold it"
+    );
+    assert_eq!(
+        config["mcpServers"]["not-hydra"]["command"],
+        serde_json::json!("hydra-something"),
+        "a lookalike is left as written"
+    );
+    let declared = document
+        .servers
+        .iter()
+        .find(|s| s.name == "face-bare")
+        .unwrap();
+    assert_eq!(declared.command.as_deref(), Some("hydra"));
+}
+
+#[test]
+fn an_absolute_hydra_command_is_written_as_declared() {
+    let (layout, _root) = layout();
+    let document = Document::parse(FACE_DOCUMENT).unwrap();
+    let plan = mcp::plan(&document, Provider::Claude, "standard", Checkout::Hydra);
+    let run_id = "01a07610-0000-7000-8000-0000000000f3";
+    let file = mcp::write_config(&layout, run_id, Provider::Claude, plan.injected(), None).unwrap();
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+
+    assert_eq!(
+        config["mcpServers"]["face-absolute"]["command"],
+        serde_json::json!("/opt/homebrew/bin/hydra")
+    );
+}
+
+#[test]
 fn read_only_judge_and_curate_write_none_of_the_face() {
     // The human admitted the face to `standard` and `permissive` alone (map
     // ticket 48). This is the document saying so, not a special case in the

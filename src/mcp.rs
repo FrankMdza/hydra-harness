@@ -318,6 +318,16 @@ fn with_parent(server: &Server, run_id: &str) -> Server {
         return server.clone();
     }
     let mut server = server.clone();
+    // A bare `hydra` is spawned by the vendor's CLI, which sees the human's
+    // PATH and may not find it (measured 2026-09-07). Write the path of the
+    // Hydra that is running instead. An absolute path stays as declared, and
+    // so does a bare name when the running binary cannot be found.
+    if server.command.as_deref() == Some(FACE_BINARY)
+        && let Ok(own) = std::env::current_exe().and_then(|exe| exe.canonicalize())
+        && let Some(own) = own.to_str()
+    {
+        server.command = Some(own.to_string());
+    }
     server.args.push("--parent".to_string());
     server.args.push(run_id.to_string());
     server

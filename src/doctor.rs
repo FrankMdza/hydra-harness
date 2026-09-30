@@ -64,6 +64,8 @@ pub fn run(layout: &Layout) -> Result<Report> {
         }
     }
 
+    out.push_str(&path_hydra_line());
+
     if policies.is_dir() {
         let set = PolicySet::load(&policies)?;
         out.push_str(&format!("policy_sha {}\n", set.sha()));
@@ -87,6 +89,33 @@ pub fn run(layout: &Layout) -> Result<Report> {
     }
 
     Ok(Report { text: out, missing })
+}
+
+/// Where `hydra` on the human's `PATH` points. A report, never a refusal: a
+/// run writes its own path into the face's config and needs no `PATH` entry.
+fn path_hydra_line() -> String {
+    let own = std::env::current_exe()
+        .and_then(|exe| exe.canonicalize())
+        .ok();
+    let found = std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join("hydra"))
+            .find(|candidate| candidate.is_file())
+    });
+    match found {
+        None => "hydra on PATH none, see README Install\n".to_string(),
+        Some(candidate) => match candidate.canonicalize() {
+            Ok(resolved) if Some(&resolved) == own.as_ref() => {
+                format!("hydra on PATH {} this binary\n", candidate.display())
+            }
+            Ok(resolved) => format!(
+                "hydra on PATH {} another binary, {}\n",
+                candidate.display(),
+                resolved.display()
+            ),
+            Err(_) => format!("hydra on PATH {} unreadable\n", candidate.display()),
+        },
+    }
 }
 
 /// One protected config as the doctor reports it.

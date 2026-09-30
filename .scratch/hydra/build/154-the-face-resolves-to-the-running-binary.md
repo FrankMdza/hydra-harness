@@ -1,7 +1,7 @@
 # 154 - The face resolves to the running binary, and anyone can install Hydra
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -51,3 +51,27 @@ is recognized as the face today; what fails is spawning it.
 - `hydra doctor` prints the new line on this machine, and the report quotes it.
 - `README.md` and `AGENTS.md` changed as above, `config/mcp.md` untouched, with its new text in
   the report.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` sonnet on run 01a0f077-772d under `standard`, about 0.49M
+tokens. The session applied the diff as written.
+
+`with_parent` in `src/mcp.rs` writes the canonical `current_exe()` into the run's file when the
+document says `command = "hydra"`; an absolute path stays as declared, and so does the bare name
+when the running binary cannot be found. `hydra doctor` prints one line, before `policy_sha`,
+saying whether `hydra` on `PATH` is this binary, another one, or nothing. On this machine with
+the release build: `hydra on PATH /Users/USER/.local/bin/hydra this binary`. `README.md`'s
+install replaces the alias with a symlink into `~/.local/bin` and says why an alias cannot work.
+`AGENTS.md` is new, 63 lines.
+
+Tests: `a_bare_hydra_command_is_written_as_the_running_binary` failed before the change; the
+absolute-path test guards existing behaviour and passed before, which the ticket had not allowed
+for. `cargo test --test mcp` 18, lib 217, fmt and clippy clean. Release rebuilt.
+
+`config/mcp.md` is untouched: it still names the absolute path, which keeps working. The new
+text for its paragraph and its example line is in the run's report and in
+`~/.claude/handoffs/2026-09-29-festus-plan/PROPUESTA-mcp-md.md`, for the human to paste.
+
+Not measured: a spawned `claude` accepting the written path, which needs a run; the next
+`hydra run` after the human edits the document will show it in `mcp.resolved`.

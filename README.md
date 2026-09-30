@@ -74,8 +74,14 @@ still forbid.
 ```
 git clone https://github.com/FrankMdza/hydra-harness ~/hydra && cd ~/hydra
 cargo build --release   # needs Rust 1.88 or newer, edition 2024
-alias hydra=~/hydra/target/release/hydra
+mkdir -p ~/.local/bin && ln -sf ~/hydra/target/release/hydra ~/.local/bin/hydra
+hydra doctor            # its "hydra on PATH" line should say "this binary"
 ```
+
+Check that `~/.local/bin` is on your `PATH` (`echo $PATH`), and add it to your shell profile if
+not. A shell alias is not enough. The delegate face is spawned by the vendor's CLI, which sees
+`PATH` and knows nothing about your aliases. Hydra writes its own path into a run's face config,
+so a run works either way, but `hydra` typed at a prompt needs the symlink.
 
 **Hydra writes its runs, worktrees and skill store under `~/hydra/`, wherever the checkout
 lives.** The install path above makes the two the same directory on purpose. Clone it somewhere
