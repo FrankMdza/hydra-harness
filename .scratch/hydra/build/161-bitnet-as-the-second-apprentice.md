@@ -1,7 +1,7 @@
 # 161 - BitNet as the second apprentice, measured on this machine
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 160
 
 ## What
