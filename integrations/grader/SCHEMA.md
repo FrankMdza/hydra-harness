@@ -10,7 +10,8 @@ One JSON object per line in `dataset.jsonl` under `HYDRA_GRADER_HOME` (default
 | `model` | string or null | Canonical model after `integrations/puppets/aliases.json` |
 | `recorded_model` | string or null | Model spelling stored on the record |
 | `policy` | string or null | Policy from `run_start` |
-| `task_text` | string or null | Task text, redacted with the same secret classes as `hydra export` |
+| `task_text` | string or null | Task text, redacted with the same secret classes as `hydra export`, and with the instruction preamble stripped |
+| `preamble` | boolean | True if the original task text began with an instruction preamble |
 | `task_class` | string or null | Puppets task class when a goal log names the run, else the class a model wrote |
 | `grade` | string or null | Puppets grade when a goal log names the run, else the grade a model wrote |
 | `area` | string or null | Area a model wrote in `task-classes-*.jsonl`, null otherwise. Nothing trains on it yet |

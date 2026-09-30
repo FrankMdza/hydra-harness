@@ -1,7 +1,7 @@
 # 157 - The dataset's task text loses the preamble
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -41,3 +41,22 @@ Do not change `baseline.py` or the classes file. `redact.py` runs after the stri
 - The tests, each failed before the change; the grader suite passes under `.venv/bin/python`
   if the worktree has it, else `python3`.
 - The report shows one synthetic row before and after, and the command for the real home.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `agy` gemini-3.1-pro-high on run 01a0f0b1-1b02 under `standard`,
+about 0.99M tokens. The session applied the diff as written, minus two lines of trailing
+whitespace. A small exact ticket, which is where agy delivers.
+
+`records.current_preamble()` reads `config/preamble.md` once per collect; `strip_preamble` cuts
+the current preamble when the text starts with it, and the older one by its first line and the
+blank line after "say so and stop." The row gains `preamble: true|false`. Three tests; the two
+that strip failed before the change. Grader suite 87 of 87 on master.
+
+The run did not say whether `once` would rewrite the rows; it would not, since the cursor
+fingerprints the record. The session ran `rebuild`: 556 rows in 17 seconds, 542 with a preamble
+stripped, 14 without, and zero rows still starting with "Hydra launched". Verdicts and classes
+survived the rebuild: 521 `llm`, 9 `puppets`, 76 human verdicts.
+
+The verdict model and the classes of 2026-09-29 were made on text with the preamble. Neither is
+retrained here; the next `train` sees the clean text.

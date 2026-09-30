@@ -201,6 +201,29 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["task_text"], "changed")
 
+    def test_strip_preamble_from_task_text(self):
+        preamble = records.current_preamble() or ""
+        self.record("with-preamble", task=preamble + "the actual task")
+        self.collect()
+        row = self.rows_by_id()["with-preamble"]
+        self.assertEqual(row["task_text"], "the actual task")
+        self.assertTrue(row.get("preamble"))
+
+    def test_strip_old_preamble(self):
+        old_preamble = "Hydra launched this run and wrote its instructions at spawn.\nsome old text here\nsay so and stop.\n\n"
+        self.record("with-old-preamble", task=old_preamble + "older task")
+        self.collect()
+        row = self.rows_by_id()["with-old-preamble"]
+        self.assertEqual(row["task_text"], "older task")
+        self.assertTrue(row.get("preamble"))
+
+    def test_no_preamble(self):
+        self.record("no-preamble", task="just the task")
+        self.collect()
+        row = self.rows_by_id()["no-preamble"]
+        self.assertEqual(row["task_text"], "just the task")
+        self.assertFalse(row.get("preamble"))
+
     def test_rebuild_rewrites_every_line(self):
         self.record("a")
         self.record("b", task="first")

@@ -85,9 +85,11 @@ def label_digest(label: dict) -> str:
 
 
 def dataset_row(
-    raw: dict, label: dict | None, collected_at: str, llm_label: dict | None = None
+    raw: dict, label: dict | None, collected_at: str, llm_label: dict | None = None,
+    preamble_text: str | None = None,
 ) -> dict:
     task_text = raw.get("task") or ""
+    task_text, has_preamble = records.strip_preamble(task_text, preamble_text)
     if label and label.get("text"):
         task_text = label["text"]
     # Puppets names the run: it wins. Otherwise a class a model wrote fills the row, marked "llm".
@@ -99,6 +101,7 @@ def dataset_row(
         "recorded_model": raw["recorded_model"],
         "policy": raw["policy"],
         "task_text": redact.redact_string(task_text),
+        "preamble": has_preamble,
         "task_class": label.get("class") if label else (llm or {}).get("task_class"),
         "grade": label.get("grade") if label else (llm or {}).get("grade"),
         "area": (llm or {}).get("area"),
@@ -188,6 +191,7 @@ def collect(
     # does not lose one.
     ticket_verdicts = records.read_json(home / "ticket-verdicts.json", {})
     collected_at = utc_now()
+    preamble_text = records.current_preamble()
     for item in scanned:
         cursor[item["run_id"]] = effective(item)
         if rebuild or item["run_id"] in stale_ids:
@@ -198,6 +202,7 @@ def collect(
                 puppets_labels.get(item["run_id"]),
                 collected_at,
                 llm_labels.get(item["run_id"]),
+                preamble_text=preamble_text,
             )
             if item["run_id"] in ticket_verdicts:
                 row["human_verdict"] = ticket_verdicts[item["run_id"]]

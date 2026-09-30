@@ -16,7 +16,12 @@ standard library and makes no network calls.
 ## Dataset and cursor
 
 `$HYDRA_GRADER_HOME/dataset.jsonl` holds one JSON object per run. Field names
-and types are in [`SCHEMA.md`](SCHEMA.md).
+and types are in [`SCHEMA.md`](SCHEMA.md). The `task_text` field has the instruction
+preamble stripped: either the exact current preamble text from `config/preamble.md`,
+or an older version identified by starting with "Hydra launched this run and wrote its
+instructions at spawn." and cutting at the first blank line after "say so and stop.".
+A row whose text does not begin with a preamble is untouched. The `preamble` boolean
+field is `true` if the text began with one.
 
 `$HYDRA_GRADER_HOME/cursor.json` maps each `run_id` to a SHA-256 fingerprint
 of that record file. A changed fingerprint replaces that run's line on the next

@@ -39,6 +39,26 @@ def read_json(path: Path, default=None):
     return json.loads(path.read_text()) if path.exists() else default
 
 
+def current_preamble() -> str | None:
+    path = hydra_root() / "config" / "preamble.md"
+    if path.is_file():
+        return path.read_text(encoding="utf-8").rstrip("\n") + "\n\n"
+    return None
+
+
+def strip_preamble(task_text: str, current: str | None) -> tuple[str, bool]:
+    if current and task_text.startswith(current):
+        return task_text[len(current):], True
+
+    first_line = "Hydra launched this run and wrote its instructions at spawn."
+    marker = "say so and stop.\n\n"
+    if task_text.startswith(first_line) and marker in task_text:
+        idx = task_text.find(marker) + len(marker)
+        return task_text[idx:], True
+
+    return task_text, False
+
+
 def write_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
