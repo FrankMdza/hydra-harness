@@ -2465,3 +2465,188 @@ fn r_toggles_the_detail_between_tool_calls_and_raw_lines() {
     assert!(text.contains("echo x >> /r"), "{text}");
     assert!(!text.contains("frame-line"), "{text}");
 }
+
+/// A `claude` call named `name` with `input` as its whole arguments object.
+fn claude_call(id: &str, name: &str, input: serde_json::Value) -> serde_json::Value {
+    json!({
+        "type": "assistant",
+        "message": {
+            "id": "msg_01",
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": id, "name": name, "input": input}],
+        },
+    })
+}
+
+fn calls_in(layout: &Layout, run: &str) -> Vec<CallLine> {
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.root().join("puppets"),
+        None,
+    );
+    let (_, calls) = reader.read(Some(run)).calls.expect("the open run's calls");
+    calls
+}
+
+#[test]
+fn the_detail_masks_secrets_in_a_calls_input() {
+    let layout = scratch("calls-secrets");
+    let run = "01a0f180-0000-7000-8000-000000000180";
+    write_live_frames(
+        &layout,
+        run,
+        "claude",
+        Some("opus"),
+        noon(),
+        &[
+            claude_bash("toolu_01", "API_TOKEN=FAKE_SECRET curl example.test"),
+            claude_bash("toolu_02", "db_password='two words' psql -c select"),
+            claude_bash(
+                "toolu_03",
+                r#"curl -d '{"api_key": "FAKE_JSON"}' example.test"#,
+            ),
+            claude_call(
+                "toolu_04",
+                "Probe",
+                json!({"env": {"DB_PASSWORD": "FAKE_ENV", "HOME": "/tmp"}, "n": 1}),
+            ),
+        ],
+    );
+    // A prefix class the sweep would flag, on a line the writer did not flag,
+    // so only the prefix mask stands between it and the screen.
+    append_frames(
+        &layout,
+        run,
+        "claude",
+        5,
+        &[claude_bash(
+            "toolu_05",
+            "echo ghp_FAKEPAT0000 x=sk-ant-FAKE",
+        )],
+    );
+    // A line the sweep flagged shows no input at all.
+    {
+        use std::io::Write;
+        let line = json!({
+            "model": null,
+            "parent_run_id": null,
+            "provider": "claude",
+            "raw": claude_bash("toolu_06", "echo harmless-looking"),
+            "run_id": run,
+            "secret_flag": ["github_pat"],
+            "seq": 6,
+            "ts": "2026-09-30T11:59:00.000Z",
+        });
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(layout.run_file(run))
+            .unwrap();
+        writeln!(file, "{line}").unwrap();
+    }
+    let inputs: Vec<String> = calls_in(&layout, run)
+        .into_iter()
+        .map(|c| c.input)
+        .collect();
+    assert_eq!(
+        inputs,
+        [
+            "API_TOKEN=*** curl example.test",
+            "db_password=*** psql -c select",
+            r#"curl -d '{"api_key": "***"}' example.test"#,
+            r#"{"env":{"DB_PASSWORD":"***","HOME":"/tmp"},"n":1}"#,
+            "echo *** x=***",
+            "input hidden: secret_flag",
+        ]
+    );
+}
+
+#[test]
+fn a_result_answers_the_latest_open_call_of_its_id_before_it() {
+    let layout = scratch("calls-pairing");
+    let run = "01a0f180-0000-7000-8000-000000000181";
+    write_live_frames(
+        &layout,
+        run,
+        "claude",
+        Some("opus"),
+        noon(),
+        &[
+            // Two calls reuse one id, each answered in turn.
+            claude_bash("toolu_z", "echo 1"),
+            claude_result("toolu_z", "", false),
+            claude_bash("toolu_z", "echo 2"),
+            claude_result("toolu_z", "boom", true),
+            // A result before any call of its id answers nothing.
+            claude_result("toolu_y", "boom", true),
+            claude_bash("toolu_y", "echo 3"),
+            // An answered id reused by a call with no result yet.
+            claude_bash("toolu_x", "echo 4"),
+            claude_result("toolu_x", "", false),
+            claude_bash("toolu_x", "echo 5"),
+        ],
+    );
+    let decisions: Vec<(String, Option<String>)> = calls_in(&layout, run)
+        .into_iter()
+        .map(|c| (c.input, c.decision))
+        .collect();
+    let want =
+        |input: &str, decision: Option<&str>| (input.to_string(), decision.map(str::to_string));
+    assert_eq!(
+        decisions,
+        [
+            want("echo 1", Some("allowed")),
+            want("echo 2", Some("error")),
+            want("echo 3", None),
+            want("echo 4", Some("allowed")),
+            want("echo 5", None),
+        ]
+    );
+}
+
+#[test]
+fn a_wide_input_is_cut_to_the_panes_columns() {
+    let run = "01a0e002-0000-7000-8000-000000000002";
+    let mut snapshot = fixed_snapshot();
+    snapshot.calls = Some((
+        run.to_string(),
+        vec![call_line("Read", &"界".repeat(40), Some("allowed"))],
+    ));
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    app.opened = Some(Opened::Run(run.to_string()));
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let text = screen_text(&buf);
+    let rows: Vec<String> = (0..buf.area.height)
+        .map(|y| row_of(&buf, y))
+        .filter(|row| row.contains('界'))
+        .collect();
+    assert_eq!(rows.len(), 1, "{text}");
+    assert!(rows[0].contains('~'), "{text}");
+}
+
+#[test]
+fn the_raw_tail_masks_secrets_and_hides_a_flagged_line() {
+    // Build 180's report: the raw view behind `r` showed secrets the tool calls hid.
+    let dir = std::env::temp_dir().join(format!("cockpit-tail-mask-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("r.jsonl");
+    std::fs::write(
+        &path,
+        concat!(
+            "{\"secret_flag\":null,\"raw\":{\"command\":\"API_TOKEN=FAKE_SECRET curl x\"}}\n",
+            "{\"secret_flag\":[\"github_pat\"],\"raw\":{\"text\":\"ghp_abcdef\"}}\n",
+        ),
+    )
+    .unwrap();
+    let lines = hydra::cockpit::snapshot::tail(&path, 20).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(!lines[0].contains("FAKE_SECRET"), "{lines:?}");
+    assert!(lines[0].contains("***"), "{lines:?}");
+    assert_eq!(lines[1], "[line hidden: secret_flag]");
+}

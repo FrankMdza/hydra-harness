@@ -3272,6 +3272,18 @@ A refusal by the user's own guards reads `error`, because telling it from a fail
 the replay's `external` decider does. And an interactive `claude` record shows no calls, as it
 shows no usage while live.
 
+**What build ticket 180 changed in it.** A result answers the latest earlier call of its id that
+has no result yet, walking events in file order, because `codex` reuses ids; a result with no
+such call is dropped, so a `claude` result ahead of a later call of its id no longer lands on it.
+The input is masked before it is shown, in the one-argument summary and the whole-arguments
+fallback alike: a token starting with one of `record::secrets::prefixes`, the sweep's own list,
+and the value of a `NAME=value` or `"NAME": "value"` whose name holds `TOKEN`, `KEY`, `SECRET`,
+`PASSWORD` or `PASS` in any case, become `***`. That masks `MONKEY=1` too, on purpose. A call on a
+line whose envelope carries a `secret_flag` reads `input hidden: secret_flag`. The row is cut by
+display width through `unicode-width`, `~` inside it, never splitting a wide character. The raw
+view behind `r` masks nothing: it shows each of the last twenty lines verbatim up to 400
+characters, so a secret in a line's first 400 characters is on screen there.
+
 **Done and the run's end, build ticket 166.** A row carries the `done` of its task event, and a
 later `task` event for the same id replaces it, `None` included, as `fold` does. The table's
 last column is `done`, cut to what the panel has left; a run's detail names its task and shows

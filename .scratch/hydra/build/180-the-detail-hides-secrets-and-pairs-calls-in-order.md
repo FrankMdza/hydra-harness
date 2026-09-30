@@ -1,7 +1,7 @@
 # 180 - The detail hides secrets and pairs calls in order
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 179
 
 ## What
@@ -39,3 +39,19 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
 ## Done when
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f31b-9349 under `standard`. The session
+applied it and added one thing. `secrets::prefixes()` exposes the sweep's list; `masked` turns
+prefix tokens and the values of `NAME=value` and `"NAME": "value"` with TOKEN, KEY, SECRET,
+PASSWORD or PASS in the name into `***` (a `MONKEY` too, on purpose); a call on a line whose
+envelope carries `secret_flag` shows `input hidden: secret_flag`. Results answer the latest open
+call of their id in file order; an orphan result is dropped. Inputs cut by display width with
+`unicode-width` (already in the lock through ratatui). Three tests, each failing first.
+
+The run reported that the raw view behind `r` masked nothing. The session applied the same mask
+there and replaces a flagged line with `[line hidden: secret_flag]`; one test, failing without it.
+fmt and clippy clean, `--test cockpit` 53, `--lib` 222 on master. Untested: codex reusing call ids
+on a real record, and the flag hide on providers whose call is built from a later line.
+

@@ -552,6 +552,7 @@ dependencies = [
  "sha2",
  "toml",
  "tui-term",
+ "unicode-width",
  "uuid",
  "yaml-rust2",
 ]

@@ -11,7 +11,7 @@
 //! not grow, so its outcome, tokens and result text are kept by run id and
 //! file length, and a record whose length changed is read again.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
@@ -580,29 +580,37 @@ impl Reader {
 /// [`crate::normalize::hydra_voice`], is `refused <code>`. Any other result is
 /// `allowed`, `error` or `unclassified` by its status, so a refusal by the
 /// user's own guards shows as `error`. A call with no result yet has none.
+///
+/// Ids repeat (`codex` reuses them), so a result answers the latest earlier
+/// call of its id still open, in file order, and a result with none is
+/// dropped. A call on a line the secret sweep flagged shows no input.
 pub fn calls_of(text: &str) -> Vec<CallLine> {
     use crate::normalize::{Event, ResultStatus};
-    let events = crate::normalize::events_so_far(text);
-    let results: HashMap<&str, _> = events
-        .iter()
-        .filter_map(|event| match event {
-            Event::ToolResult(result) if !result.call_id.is_empty() => {
-                Some((result.call_id.as_str(), result))
+    let flagged = flagged_seqs(text);
+    let mut calls: Vec<CallLine> = Vec::new();
+    let mut open: HashMap<String, Vec<usize>> = HashMap::new();
+    for event in crate::normalize::events_so_far(text) {
+        match event {
+            Event::ToolCall(call) => {
+                if !call.call_id.is_empty() {
+                    open.entry(call.call_id).or_default().push(calls.len());
+                }
+                let input = if flagged.contains(&call.seq) {
+                    "input hidden: secret_flag".to_string()
+                } else {
+                    input_of(&call.arguments)
+                };
+                calls.push(CallLine {
+                    name: call.name,
+                    input,
+                    decision: None,
+                });
             }
-            _ => None,
-        })
-        .collect();
-    let calls: Vec<CallLine> = events
-        .iter()
-        .filter_map(|event| match event {
-            Event::ToolCall(call) => Some(call),
-            _ => None,
-        })
-        .map(|call| CallLine {
-            name: call.name.clone(),
-            input: input_of(&call.arguments),
-            decision: results.get(call.call_id.as_str()).map(|result| {
-                match crate::normalize::hydra_voice(&result.output) {
+            Event::ToolResult(result) => {
+                let Some(index) = open.get_mut(&result.call_id).and_then(Vec::pop) else {
+                    continue;
+                };
+                let decision = match crate::normalize::hydra_voice(&result.output) {
                     Some(code) if code != "allow" => format!("refused {code}"),
                     _ => match result.status {
                         ResultStatus::Ok => "allowed",
@@ -610,12 +618,23 @@ pub fn calls_of(text: &str) -> Vec<CallLine> {
                         ResultStatus::Unclassified => "unclassified",
                     }
                     .to_string(),
-                }
-            }),
-        })
-        .collect();
+                };
+                calls[index].decision = Some(decision);
+            }
+            _ => {}
+        }
+    }
     let from = calls.len().saturating_sub(DETAIL_CALLS);
-    calls[from..].to_vec()
+    calls.split_off(from)
+}
+
+/// The `seq` of every line whose envelope carries a `secret_flag`.
+fn flagged_seqs(text: &str) -> HashSet<u64> {
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|envelope| !envelope["secret_flag"].is_null())
+        .filter_map(|envelope| envelope["seq"].as_u64())
+        .collect()
 }
 
 /// The argument keys that say what a call touched, first match wins. The
@@ -656,7 +675,109 @@ fn input_of(arguments: &serde_json::Value) -> String {
         serde_json::Value::Null => String::new(),
         other => other.to_string(),
     });
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    masked(&text.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// Parts of a name that make its value a secret, matched case-insensitively.
+/// `PASS` covers `PASSWORD`; the ticket names both.
+const SECRET_NAMES: &[&str] = &["TOKEN", "KEY", "SECRET", "PASSWORD", "PASS"];
+
+/// `text` with every secret it shows turned into `***`: a token starting with
+/// one of [`crate::record::secrets::prefixes`], and the value of a
+/// `NAME=value` or `"NAME": "value"` whose name holds one of
+/// [`SECRET_NAMES`]. A name like `MONKEY` is masked too; hiding too much is
+/// the cheap mistake here.
+fn masked(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        match secret_at(&chars, i) {
+            Some((keep, end)) => {
+                out.extend(&chars[i..keep]);
+                out.push_str("***");
+                i = end;
+            }
+            None => {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// A secret starting at `i`: the end of what is kept as is, then the end of
+/// the value that becomes `***`.
+fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
+    let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let secret_name = |name: &[char]| {
+        let name: String = name.iter().collect::<String>().to_ascii_uppercase();
+        SECRET_NAMES.iter().any(|part| name.contains(part))
+    };
+    let starts_token = i == 0 || !chars[i - 1].is_alphanumeric();
+    if chars[i] == '"' {
+        // `"NAME": "value"`, spaces around the colon optional.
+        let name_end = (i + 1..chars.len()).find(|&j| !is_name(chars[j]))?;
+        if name_end > i + 1 && chars[name_end] == '"' && secret_name(&chars[i + 1..name_end]) {
+            let mut j = name_end + 1;
+            while chars.get(j).is_some_and(|c| c.is_whitespace()) {
+                j += 1;
+            }
+            if chars.get(j) == Some(&':') {
+                j += 1;
+                while chars.get(j).is_some_and(|c| c.is_whitespace()) {
+                    j += 1;
+                }
+                if chars.get(j) == Some(&'"') {
+                    let open = j + 1;
+                    let mut close = open;
+                    while close < chars.len() && chars[close] != '"' {
+                        close += if chars[close] == '\\' { 2 } else { 1 };
+                    }
+                    return Some((open, close.min(chars.len())));
+                }
+            }
+        }
+        return None;
+    }
+    if is_name(chars[i]) && (i == 0 || !is_name(chars[i - 1])) {
+        // `NAME=value`, the value quoted or up to the next separator.
+        let name_end = (i..chars.len())
+            .find(|&j| !is_name(chars[j]))
+            .unwrap_or(chars.len());
+        if chars.get(name_end) == Some(&'=') && secret_name(&chars[i..name_end]) {
+            let start = name_end + 1;
+            let end = match chars.get(start) {
+                Some(&quote @ ('"' | '\'')) => (start + 1..chars.len())
+                    .find(|&j| chars[j] == quote)
+                    .map_or(chars.len(), |j| j + 1),
+                _ => token_end(chars, start),
+            };
+            return Some((start, end));
+        }
+    }
+    if starts_token {
+        let rest: String = chars[i..].iter().take(16).collect();
+        if crate::record::secrets::prefixes().any(|prefix| rest.starts_with(prefix)) {
+            return Some((i, token_end(chars, i)));
+        }
+    }
+    None
+}
+
+/// Where a bare value that starts at `from` ends: at whitespace, a quote or
+/// the punctuation that closes a shell word or a JSON value.
+fn token_end(chars: &[char], from: usize) -> usize {
+    (from..chars.len())
+        .find(|&j| {
+            chars[j].is_whitespace()
+                || matches!(
+                    chars[j],
+                    '"' | '\'' | ',' | ';' | '&' | '|' | '}' | ']' | ')' | '\\'
+                )
+        })
+        .unwrap_or(chars.len())
 }
 
 /// A record's first line, or `None` when there is none to read.
@@ -729,6 +850,12 @@ pub fn tail(path: &Path, n: usize) -> Result<Vec<String>> {
     Ok(lines[from..]
         .iter()
         .map(|line| {
+            // The raw view hides what the tool calls hide (build 180 left it out):
+            // a line the write-path sweep flagged, and every masked value.
+            if line.contains("\"secret_flag\":[") {
+                return "[line hidden: secret_flag]".to_string();
+            }
+            let line = masked(line);
             let mut cut: String = line.chars().take(TAIL_LINE_CHARS).collect();
             if cut.len() < line.len() {
                 cut.push_str(" [cut]");

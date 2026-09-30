@@ -14,6 +14,7 @@ use ratatui::layout::{Constraint, Layout as Split, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::goal::TaskRow;
 use super::mascot::Mascot;
@@ -1159,17 +1160,37 @@ fn call_line(call: &CallLine, width: usize) -> Line<'static> {
         Style::default().add_modifier(Modifier::DIM)
     };
     let head = format!("{} {decision} ", call.name);
-    let room = width.saturating_sub(head.chars().count());
-    let mut input: String = call.input.chars().take(room).collect();
-    if input.chars().count() < call.input.chars().count() && room > 0 {
-        input.pop();
-        input.push('~');
-    }
+    let room = width.saturating_sub(head.width());
+    let input = cut_to_columns(&call.input, room);
     Line::from(vec![
         Span::raw(format!("{} ", call.name)),
         Span::styled(format!("{decision} "), style),
         Span::raw(input),
     ])
+}
+
+/// `text` in at most `room` terminal columns. Text that does not fit ends in
+/// `~`, counted inside `room`, and a wide character that would straddle the
+/// edge is left out rather than split.
+fn cut_to_columns(text: &str, room: usize) -> String {
+    if text.width() <= room {
+        return text.to_string();
+    }
+    let Some(room) = room.checked_sub(1) else {
+        return String::new();
+    };
+    let mut cut = String::new();
+    let mut used = 0;
+    for c in text.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w > room {
+            break;
+        }
+        used += w;
+        cut.push(c);
+    }
+    cut.push('~');
+    cut
 }
 
 /// What the cockpit says where `hydra approve` would refuse by name.

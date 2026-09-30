@@ -16,6 +16,12 @@ const CLASSES: &[(&str, &str)] = &[
     ("pem_private_key", "-----BEGIN"),
 ];
 
+/// Each class's prefix, the same list the sweep scans for. The cockpit masks
+/// by it (build ticket 180).
+pub fn prefixes() -> impl Iterator<Item = &'static str> {
+    CLASSES.iter().map(|(_, prefix)| *prefix)
+}
+
 /// The class names matching anywhere in the line, or `None` for a clean line.
 pub fn scan(line: &str) -> Option<Vec<&'static str>> {
     let hits: Vec<&'static str> = CLASSES
