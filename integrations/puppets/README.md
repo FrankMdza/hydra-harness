@@ -29,8 +29,10 @@ python3 integrations/puppets/puppets.py tasks <goal-id>
 python3 integrations/puppets/puppets.py assign <goal-id>
 python3 integrations/puppets/puppets.py set <goal-id> <task> --provider P --model M --policy POL
 python3 integrations/puppets/puppets.py approve <goal-id> --table
+python3 integrations/puppets/puppets.py approve <goal-id> --table --expect-revision <n>
 python3 integrations/puppets/puppets.py approve <goal-id> --degraded codex=cursor-agent:composer-2.5
 python3 integrations/puppets/puppets.py approve <goal-id> --launch <task>
+python3 integrations/puppets/puppets.py pending <goal-id> --json
 python3 integrations/puppets/puppets.py launch <goal-id> <task>
 python3 integrations/puppets/puppets.py wait <goal-id>
 python3 integrations/puppets/puppets.py review <goal-id> <task>
@@ -74,6 +76,27 @@ for an unconsumed `yes` line at the current revision before each gated step:
 | `diff` | `verdict applied` or `verdict fixed` | task id, the task's current `run_id`, and revision; spent by the verdict |
 
 `rejected` needs no diff approval. A later `assignment` voids approvals at an older revision.
+
+`--expect-revision N` on `approve` refuses when the goal is no longer at revision `N`. It prints
+one line to stderr naming both revisions, writes nothing, and exits 2. Without the flag, `approve`
+records the current revision as before.
+
+`pending <goal-id> --json` prints a JSON array of the approvals the helper is waiting on. It only
+reads the log. Each object has `kind` (`plan`, `table`, `launch`, `diff`, `degraded`), `ref`,
+`revision`, and `argv`. `ref` is the task id for `launch` and `diff`, the missing provider for
+`degraded`, and null for `plan` and `table`. `argv` is the exact command that records that
+approval, including `--expect-revision` set to that revision. The list is taken from the same
+fold the refusals read: `plan` when `tasks` would refuse for a missing plan approval (the chosen
+plan has a path), `table` when `launch` would refuse for the table, `launch` when `launch` would
+refuse for that task and the task is still `assigned`, `diff` when the task has a run, no human
+verdict yet, and `verdict applied` would refuse, and `degraded` when `resolve_panel_seats` asks
+for one and a panel command would reach it (two finished proposals, or any task that already has
+a run). `review` can still refuse first when the run record has no branch; pending cannot see
+that from the fold. A launch approval a run has already spent is not listed again, and neither
+is a diff after a human verdict. The `--degraded` value is
+`provider=<substitute-provider[:model]>`. Running that argv unchanged writes nothing; replace the
+placeholder with a provider before it will record. A later seat is not listed until the helper
+asks for it.
 
 A `launch_intent` with no following `run` event is ambiguous after a crash. `launch` refuses until
 the human settles it with `reconcile`, either naming the run id `hydra status` shows for that

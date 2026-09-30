@@ -1,7 +1,7 @@
 # 181 - puppets approve takes an expected revision
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -30,3 +30,17 @@ Tests first in `integrations/puppets/tests/`, each shown failing before the chan
 
 - Each test failed before the change; the puppets suite passes under `.venv/bin/python` if the
   worktree has it, else `python3`.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `cursor-agent` grok-4.7-high on run 01a0f31d-e264 under `standard`.
+The session applied it as written. `approve --expect-revision N` refuses before any other check
+when the goal moved on (stderr names both revisions, exit 2, nothing written). `pending <goal>
+--json` prints `kind`, `ref`, `revision` and the exact approving argv, built from one `fold` and
+the helper's own `launch_refusal`, `approval_available` and `resolve_panel_seats`, so it lists
+what `launch`, `tasks`, `verdict` and `choose --judge` would wait for and nothing they would
+refuse for another reason. A degraded item's argv carries the `<substitute-provider[:model]>`
+placeholder, which `parse_degraded_substitution` now rejects, so it writes nothing until the human
+names a substitute. Tests in `test_approve_revision.py`; the puppets suite passes, 160 tests.
+Four tests were added after the run's failing-first pass and never ran against the old helper.
+

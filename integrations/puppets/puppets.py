@@ -201,6 +201,16 @@ def provider_available(provider: str) -> bool:
     return bool(provider_row.get("available", True))
 
 
+# The text `approve` prints when a seat is down. It is not itself a substitute:
+# parse_degraded_substitution rejects a value that still starts with `<`, so running
+# the pending argv unchanged writes nothing.
+DEGRADED_SUBSTITUTE_PLACEHOLDER = "<substitute-provider[:model]>"
+
+
+def degraded_substitution_spec(provider: str) -> str:
+    return f"{provider}={DEGRADED_SUBSTITUTE_PLACEHOLDER}"
+
+
 def parse_degraded_substitution(spec: str) -> tuple[str, str, str | None]:
     """Parse missing=substitute or missing=substitute:model."""
     if "=" not in spec:
@@ -216,8 +226,11 @@ def parse_degraded_substitution(spec: str) -> tuple[str, str, str | None]:
     else:
         substitute = rhs.strip()
         model = None
-    if not substitute:
-        raise ValueError("substitute provider required")
+    if not substitute or substitute.startswith("<"):
+        raise ValueError(
+            "substitute provider required; replace "
+            f"{DEGRADED_SUBSTITUTE_PLACEHOLDER} with a provider"
+        )
     return missing, substitute, model
 
 
@@ -241,7 +254,7 @@ def resolve_panel_seats(state: GoalState) -> tuple[list[ResolvedSeat], list[dict
                 [],
                 [],
                 f"{seat.provider} is unavailable; approve with: approve {state.goal_id} "
-                f"--degraded {seat.provider}=<substitute-provider[:model]>",
+                f"--degraded {degraded_substitution_spec(seat.provider)}",
             )
         substitute = approval.get("substitute") or ""
         model = approval.get("model") or None
@@ -598,6 +611,111 @@ def launch_refusal(state: GoalState, task_id: str) -> str | None:
             f"({reason}); approve with: approve {state.goal_id} --launch {task_id}"
         )
     return None
+
+
+def approve_argv(goal_id: str, revision: int, *args: str) -> list[str]:
+    """The command that records one approval, bound to the revision it was drawn from."""
+    return [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "approve",
+        goal_id,
+        *args,
+        "--expect-revision",
+        str(revision),
+    ]
+
+
+def _pending_item(
+    state: GoalState, kind: str, ref: str | None, *args: str
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "ref": ref,
+        "revision": state.revision,
+        "argv": approve_argv(state.goal_id, state.revision, *args),
+    }
+
+
+def panel_gate_reachable(state: GoalState) -> bool:
+    """True when a command would consult the panel seats from this fold.
+
+    `choose --judge` reaches them once two proposals have paths. `review` reaches
+    them once a task has a run. Earlier refusals (not enough proposals, no run)
+    are not approval waits. `review` can still refuse first when the run record
+    has no branch; that check reads the record, which this fold does not.
+    """
+    ready = sum(1 for plan in state.plans if plan.get("path"))
+    if ready >= 2:
+        return True
+    return any(task.run_id for task in state.tasks.values())
+
+
+def degraded_provider_waiting(state: GoalState) -> str | None:
+    """The missing provider `resolve_panel_seats` would ask the human to approve.
+
+    The helper names one seat, the first it cannot fill, and stops. A later seat
+    is not waiting until that one is approved.
+    """
+    _resolved, _substitutions, refusal = resolve_panel_seats(state)
+    if not refusal or "approve with:" not in refusal:
+        return None
+    provider, separator, _rest = refusal.partition(" is unavailable")
+    if not separator or not provider or " " in provider:
+        return None
+    return provider
+
+
+def pending_approvals(state: GoalState) -> list[dict[str, Any]]:
+    """Approvals the helper is waiting on, from the same fold its refusals read.
+
+    A launch approval is listed only while the task is still `assigned`. Once a
+    run has spent it, `launch` would refuse a second time, and that is not an
+    open wait: listing it would keep every finished codex task in the lane.
+    A diff is listed once the task has a run and no human verdict yet, which is
+    when `verdict applied` refuses, including while the run is still marked
+    running. A verdict already recorded is not listed again.
+    """
+    items: list[dict[str, Any]] = []
+    if (
+        state.chosen_plan
+        and state.chosen_plan.get("path")
+        and approval_available(state, "plan") is None
+    ):
+        items.append(_pending_item(state, "plan", None, "--plan"))
+
+    seen_table = False
+    for task in state.tasks.values():
+        refusal = launch_refusal(state, task.id)
+        if not refusal:
+            continue
+        if refusal.startswith("missing table approval") and not seen_table:
+            items.append(_pending_item(state, "table", None, "--table"))
+            seen_table = True
+        elif (
+            refusal.startswith("missing launch approval") and task.status == "assigned"
+        ):
+            items.append(
+                _pending_item(state, "launch", task.id, "--launch", task.id)
+            )
+    for task in state.tasks.values():
+        if not task.run_id or task.human_result is not None:
+            continue
+        if approval_available(state, "diff", task.id, task.run_id) is None:
+            items.append(_pending_item(state, "diff", task.id, "--diff", task.id))
+    if panel_gate_reachable(state):
+        provider = degraded_provider_waiting(state)
+        if provider is not None:
+            items.append(
+                _pending_item(
+                    state,
+                    "degraded",
+                    provider,
+                    "--degraded",
+                    degraded_substitution_spec(provider),
+                )
+            )
+    return items
 
 
 def next_attempt(goal_id: str, task_id: str) -> int:
@@ -1767,6 +1885,13 @@ def cmd_set(args: argparse.Namespace) -> int:
 
 def cmd_approve(args: argparse.Namespace) -> int:
     state = fold(args.goal)
+    expected = args.expect_revision
+    if expected is not None and expected != state.revision:
+        print(
+            f"expected revision {expected}, current revision {state.revision}",
+            file=sys.stderr,
+        )
+        return 2
     if args.degraded:
         if args.plan or args.table or args.launch or args.diff:
             print("use --degraded without --plan, --table, --launch or --diff", file=sys.stderr)
@@ -1816,6 +1941,16 @@ def cmd_approve(args: argparse.Namespace) -> int:
             return 1
         body["run_id"] = task.run_id
     append_event(args.goal, body)
+    return 0
+
+
+def cmd_pending(args: argparse.Namespace) -> int:
+    """Print the approvals this goal is waiting on. Reads the log and does not write."""
+    state = fold(args.goal)
+    if state.goal is None:
+        print(f"unknown goal {args.goal}", file=sys.stderr)
+        return 1
+    print(json.dumps(pending_approvals(state), indent=2))
     return 0
 
 
@@ -2164,7 +2299,23 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MISSING=SUBSTITUTE",
         help="approve a degraded panel when a seat's provider is unavailable",
     )
+    approve_p.add_argument(
+        "--expect-revision",
+        type=int,
+        default=None,
+        help="refuse unless the goal is still at this revision",
+    )
     approve_p.set_defaults(func=cmd_approve)
+
+    pending_p = sub.add_parser("pending", help="approvals the goal is waiting on, as JSON")
+    pending_p.add_argument("goal", help="goal id")
+    pending_p.add_argument(
+        "--json",
+        action="store_true",
+        required=True,
+        help="print a JSON array of the approvals still waiting",
+    )
+    pending_p.set_defaults(func=cmd_pending)
 
     launch_p = sub.add_parser("launch", help="launch a task run")
     launch_p.add_argument("goal", help="goal id")

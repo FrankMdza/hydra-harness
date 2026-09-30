@@ -1,7 +1,7 @@
 # 182 - The cockpit approves Master of Puppets steps
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 181, 184
 
 ## What
