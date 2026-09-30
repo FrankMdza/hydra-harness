@@ -202,7 +202,13 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
         self.assertEqual(rows[0]["task_text"], "changed")
 
     def test_strip_preamble_from_task_text(self):
-        preamble = records.current_preamble() or ""
+        # The preamble comes from this test's own root, as `collect` reads it: the
+        # machine's `~/hydra/config/preamble.md` is not on a CI runner.
+        (self.root / "config").mkdir(exist_ok=True)
+        (self.root / "config" / "preamble.md").write_text("A planted preamble.\n")
+        with mock.patch.dict(os.environ, self.env(), clear=False):
+            preamble = records.current_preamble() or ""
+        self.assertEqual(preamble, "A planted preamble.\n\n")
         self.record("with-preamble", task=preamble + "the actual task")
         self.collect()
         row = self.rows_by_id()["with-preamble"]
