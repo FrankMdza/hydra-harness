@@ -102,6 +102,12 @@ pub struct App {
     /// The dragon in the header, or `None` for `--no-mascot` and for a frame directory that
     /// would not load.
     mascot: Option<Mascot>,
+    /// Whether the cockpit's panels have the keyboard. False while the chat
+    /// of build ticket 151 has it, and then no panel border is lit.
+    pub has_keys: bool,
+    /// The table above the lanes and the detail, for the narrower column the
+    /// cockpit gets beside the chat.
+    pub stacked: bool,
 }
 
 impl App {
@@ -122,6 +128,8 @@ impl App {
             message: None,
             hits: Hits::default(),
             mascot: None,
+            has_keys: true,
+            stacked: false,
         }
     }
 
@@ -441,12 +449,22 @@ impl App {
         let area = self.draw_header(area, buf);
         let [main, status] =
             Split::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(area);
-        let [left, middle, right] = Split::horizontal([
-            Constraint::Percentage(44),
-            Constraint::Percentage(26),
-            Constraint::Percentage(30),
-        ])
-        .areas(main);
+        let [left, middle, right] = if self.stacked {
+            let [top, bottom] =
+                Split::vertical([Constraint::Percentage(40), Constraint::Percentage(60)])
+                    .areas(main);
+            let [middle, right] =
+                Split::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)])
+                    .areas(bottom);
+            [top, middle, right]
+        } else {
+            Split::horizontal([
+                Constraint::Percentage(44),
+                Constraint::Percentage(26),
+                Constraint::Percentage(30),
+            ])
+            .areas(main)
+        };
         self.draw_table(left, buf);
         let lanes: [Rect; 4] = Split::vertical([Constraint::Ratio(1, 4); 4]).areas(middle);
         for lane in Lane::ALL {
@@ -498,7 +516,7 @@ impl App {
     }
 
     fn block(&self, focus: Focus, title: String) -> Block<'static> {
-        let style = if self.focus == focus {
+        let style = if self.has_keys && self.focus == focus {
             Style::default().fg(Color::Yellow)
         } else {
             Style::default()

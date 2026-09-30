@@ -3,13 +3,20 @@
 //! A full-screen view a human runs in a terminal of their own, beside the chat of
 //! an orchestrating session: the task table of one goal from its Master of
 //! Puppets log, a kanban of runs by state, and the detail of one run. It reads
-//! files and draws. It launches no provider, edits no policy and no config, and
-//! needs nothing running to exist (D10).
+//! files and draws. Without `--session` it launches no provider; it edits no
+//! policy and no config, and needs nothing running to exist (D10).
 //!
 //! **Its one write is the approval of a waiting seat request**, typed by the
 //! human in the cockpit, through [`crate::approve::approve`], the function
 //! `hydra approve <id>` calls. Like that command it refuses inside a seatbelt
 //! and says so on screen.
+//!
+//! **With `--session` the chat is inside**, map ticket 86's cut two and build
+//! ticket 151: [`chat`] launches `hydra run --interactive` on a pty the cockpit
+//! owns and paints it in the left panel, and [`host`] decides which side has
+//! the keys. The child is the launch `hy` makes, so its record, gate, seatbelt
+//! and `seats.sock` are that command's. The one record the cockpit may append
+//! to is that run's, harvested when a hangup killed `hydra run` first.
 //!
 //! [`app`] holds the state, the event handling and the drawing, with no
 //! terminal, so the suite drives them over a `Buffer`. [`snapshot`] is what one
@@ -18,7 +25,9 @@
 //! from frames the Python mascot wrote.
 
 pub mod app;
+pub mod chat;
 pub mod goal;
+pub mod host;
 pub mod mascot;
 pub mod snapshot;
 
@@ -28,20 +37,36 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
 
 use crate::paths::Layout;
 use app::{App, Effect};
+use chat::{Chat, Launch};
+use host::Host;
 use snapshot::Reader;
 
 /// How long the input loop waits for an event before it looks for a new
 /// snapshot. Short enough that a refresh shows without a key press.
 const POLL: Duration = Duration::from_millis(100);
+
+/// The same wait with a chat in the left panel, short enough that what the
+/// child prints shows as it arrives rather than a tenth of a second later.
+const CHAT_POLL: Duration = Duration::from_millis(15);
+
+/// The chat `--session` asks for: `hydra run --interactive` with these flags.
+pub struct Session {
+    pub provider: String,
+    pub model: Option<String>,
+    pub policy: Option<String>,
+}
 
 /// Where the goal logs live: `HYDRA_PUPPETS_HOME` when set, as `puppets.py`
 /// reads it, and `puppets/` under the root otherwise.
@@ -65,12 +90,13 @@ pub fn check_goal_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Runs the cockpit until `q`.
+/// Runs the cockpit until `q`, or with a session until `Ctrl-q`.
 pub fn run(
     layout: &Layout,
     goal: Option<String>,
     interval: Duration,
     with_mascot: bool,
+    session: Option<Session>,
 ) -> Result<()> {
     if let Some(id) = &goal {
         check_goal_id(id)?;
@@ -106,27 +132,53 @@ pub fn run(
     }
 
     let mut screen = Screen::enter()?;
+    let (mut host, poll) = match session {
+        None => (Host::alone(app), POLL),
+        Some(session) => {
+            let area = screen
+                .terminal
+                .size()
+                .context("reading the terminal size")?;
+            let (rows, cols) = Host::chat_size(Rect::new(0, 0, area.width, area.height));
+            let launch = Launch::hydra_run(
+                layout,
+                &session.provider,
+                session.model.as_deref(),
+                session.policy.as_deref(),
+            )?;
+            let chat = Chat::spawn(launch, rows, cols)?;
+            let title = match &session.policy {
+                Some(policy) => format!("{} under {policy}", session.provider),
+                None => session.provider.clone(),
+            };
+            (Host::with_chat(app, title, chat), CHAT_POLL)
+        }
+    };
     loop {
         while let Ok(fresh) = snapshot.try_recv() {
-            app.set_snapshot(fresh);
+            host.app.set_snapshot(fresh);
+        }
+        host.pump();
+        if host.done() {
+            break;
         }
         screen
             .terminal
             .draw(|frame| {
                 let area = frame.area();
-                app.draw(area, frame.buffer_mut());
+                host.draw(area, frame.buffer_mut());
             })
             .context("drawing")?;
-        if !crossterm::event::poll(POLL).context("waiting for input")? {
+        if !crossterm::event::poll(poll).context("waiting for input")? {
             continue;
         }
         let event = crossterm::event::read().context("reading input")?;
-        match app.handle(&event) {
+        match host.handle(&event) {
             Effect::Quit => break,
             Effect::Refresh => {
                 // The reader is gone only if it panicked, and then the screen
                 // simply stops refreshing; quitting still works.
-                let _ = asks.send(app.open_run_id());
+                let _ = asks.send(host.app.open_run_id());
             }
             Effect::None => {}
         }
@@ -149,7 +201,12 @@ impl Screen {
         }));
         enable_raw_mode().context("entering raw mode")?;
         let mut stdout = std::io::stdout();
-        if let Err(err) = crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture) {
+        if let Err(err) = crossterm::execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        ) {
             restore();
             return Err(err).context("opening the screen");
         }
@@ -173,7 +230,12 @@ impl Drop for Screen {
 /// Gives the terminal back. Safe to call twice, which a panic inside the loop
 /// does: once from the hook and once from the drop.
 fn restore() {
-    let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        DisableBracketedPaste,
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    );
     let _ = disable_raw_mode();
     let _ = crossterm::execute!(std::io::stdout(), crossterm::cursor::Show);
 }

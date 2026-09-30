@@ -1,7 +1,7 @@
 # 151 - The chat inside the cockpit: the vendor's pty in the left panel
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 150
 
 ## What
@@ -47,3 +47,25 @@ Herdr does, and as `pty.rs` already does for every launch.
   --lib`, fmt and clippy clean.
 - The report names the crate, what is untested on stubs, and what a human should try first on a
   real `hy`-style session inside the cockpit.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f0b0-fc29 under `standard`, about 6.34M
+tokens. The session applied the diff as written: `src/cockpit/chat.rs` (the pty child and its
+`vt100` screen through `tui-term 0.3.4`), `src/cockpit/host.rs` (which side has the keys, `F2`,
+`Ctrl-q` and the hangup), `--session`, one `pub(crate)` on `status.rs` to reuse the harvest of an
+abandoned interactive run, six tests on a stub child. Cockpit 19, lib 220, fmt and clippy clean.
+
+Then the session drove the release binary on a pty at 200 by 45 with `--session claude --model
+sonnet --policy standard`, a real launch: the child wrote its record (run 01a0f0c3-b058), the
+prompt "Reply with the single word pong" typed into the chat panel came back with `pong`,
+`/exit` ended the child and the panel showed `run 01a0f0c3-b058: completed; hydra exited 0`, and
+`Ctrl-q` quit the cockpit with status 0. So `claude`'s interface draws under `vt100` and its
+keys reach it, at least for typing, Enter and `/exit`.
+
+Not tried by a human: `Esc` during an answer, a resize mid-frame, the mouse in the chat, paste,
+`F2` back and forth, and the hangup of a live gated session with seats.
+
+Map ticket 86 is built in both cuts. What the human asked for on 2026-09-29 exists:
+`hydra cockpit --session claude` is the chat, the table, the kanban, the detail, the approval and
+the mascot in one binary.

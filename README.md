@@ -134,7 +134,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `usage recount` | tokens across the corpus, recounted from the records |
 | `export` | one JSON line of events per eligible run, and `preference.jsonl` beside it; the only path anything leaves this machine by |
 | `doctor` | the root, the binaries against the measured versions, the policy sha, which protected configs are missing |
-| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself |
+| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; with `--session`, the chat in the left panel |
 
 `hydra cockpit` is for the terminal beside an orchestrating session's chat. The left column is
 the task table of a Master of Puppets goal, the middle one sorts every run into `live`,
@@ -146,7 +146,17 @@ and launches nothing. The one thing it writes is the approval of a waiting seat 
 ```
 hydra cockpit                    # the goal log that changed last
 hydra cockpit --goal <goal-id> --interval 5
+hydra cockpit --session claude --policy standard
 ```
+
+With `--session <provider>` the chat moves inside: the cockpit runs `hydra run --interactive`
+for that provider, with `--model` and `--policy` passed on, and draws it in the left panel while
+the table, lanes and detail stack on the right. It is the same launch `hy` makes, so the run is
+recorded and gated the same way; `claude` is still the only provider `--interactive` takes. `F2`
+moves the keys between the chat and the cockpit, and with the chat focused every key goes to it,
+`q` included. `Ctrl-q` quits once the chat has exited; while it is alive the cockpit asks, and `y`
+hangs it up. When the chat exits, its last screen stays and the panel's border names the run and
+its outcome.
 
 Two more exist and clap hides them: `watch`, the detached half, and `delegate-face`, an MCP
 server that gives Claude Code a typed `delegate` tool over `hydra run`.

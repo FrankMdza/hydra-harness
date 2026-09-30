@@ -3166,8 +3166,9 @@ recovery.
 
 Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen
 Ratatui view a human runs in a terminal of their own, beside an orchestrating session's chat.
-`src/cockpit/` is all of it, and the only lines outside that directory are the subcommand in
-`cli.rs` and `main.rs` and `pub mod cockpit` in `lib.rs`.
+`src/cockpit/` is all of it. Outside that directory are the subcommand in `cli.rs` and `main.rs`,
+`pub mod cockpit` in `lib.rs`, and since build ticket 151 one `pub(crate)` on
+`status::is_abandoned_interactive_claude`.
 
 **What it reads.** The left column is one goal's task table, folded in Rust from the goal log
 under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `puppets.py`'s `fold` rules for the events
@@ -3182,7 +3183,8 @@ model, policy, state, outcome, total tokens, `result_text` and the last twenty r
 
 **It does not call `hydra status`.** That command's scan harvests a dead interactive `claude`
 run, which appends to a record, so the cockpit reads each record's liveness itself and leaves an
-abandoned run abandoned. An ended record is normalized once and kept by run id and file length,
+abandoned run abandoned. The one exception is the run the cockpit launched itself with
+`--session`, below. An ended record is normalized once and kept by run id and file length,
 because normalizing replays the gate, a Python process per recorded tool call.
 
 **Reading does not block input.** A thread reads every `--interval`, default 2 seconds, and hands
@@ -3229,9 +3231,77 @@ since the ticket says idle when nothing is live. The poses are still frames, so 
 not sway. The binary ran on a pty at 160 by 40 and drew the title and truecolor half blocks;
 nobody has looked at it in a terminal emulator.
 
-**Cut two, build ticket 151**, puts the chat inside: the cockpit launches
-`hydra run --interactive` on a pty it owns and paints it in the left panel with a terminal widget,
-passing keys and resizes through. Nothing of that is here.
+**Cut two, build ticket 151: the chat inside.** `hydra cockpit --session <provider> [--model M]
+[--policy P]` spawns `hydra run --interactive --provider ...` from its own binary on a pty it owns,
+through `portable-pty` as `pty.rs` does, sized to the inside of the left panel. The child is the
+command `hy` runs, handed the cockpit's environment with `TERM=xterm-256color`, so the record,
+the gate, the seatbelt and `seats.sock` are that command's and nothing in `src/cockpit/` touches
+them. `--session codex` or any other provider reaches the child and the child refuses it, since
+`hydra run --interactive` is `claude` only; the refusal shows in the panel. Without `--session`
+the cockpit is cut one. `src/cockpit/chat.rs` owns the child and its screen, and
+`src/cockpit/host.rs` decides which side has the keys.
+
+*The crate.* `tui-term` 0.3.4, a Ratatui widget over `vt100` 0.16.2, built on `ratatui-core` 0.1
+and `ratatui-widgets` 0.3, which ratatui 0.30.2 already pulls in. It is one new dependency;
+`vt100` comes through its re-export. It draws a `vt100` screen with its colours, attributes and
+cursor, and does nothing else. What it leaves to Hydra: turning a crossterm key or mouse event
+back into the bytes an xterm sends (`chat::key_bytes`, and `chat::mouse_bytes` only when the child
+turned mouse reporting on, in the mode and encoding it asked for); bracketed paste (the cockpit
+enables it on its own terminal and wraps a paste only when the child asked); and answering the
+queries a child can block on. The cockpit answers two, the cursor position report and the
+primary device attributes (`chat::Replies`). `vt100` itself keeps no scrollback here (set to
+zero), and has no images (sixel, kitty), no OSC 8 links, no window title, no kitty keyboard
+protocol and no colour queries, and it answers no other query.
+
+*Paint and resize.* A reader thread sends the pty's bytes over a channel; the loop feeds them to
+the parser and draws every 15 ms while a chat exists. Each draw computes the panel from the
+terminal's size and, if it changed, resizes the pty (the kernel sends `SIGWINCH`) and the parser.
+The cockpit's three panels stack in the right 40 percent: the table on top, the lanes and the
+detail below it.
+
+*Focus.* The chat starts with the keys. `F2` toggles, and the status line says which side has
+them; only the side with the keys has a lit border. With the chat focused every key goes to the
+child as its bytes, `q`, `a`, arrows and `Enter` included, and every mouse event inside the panel
+goes to it at panel coordinates. Two choices the ticket left open, taken as the smallest ones: a
+left click on the cockpit's side hands it the keys and is handled there, and a click on the chat
+while the cockpit has the keys hands them back. With the cockpit focused, build 150's keys apply,
+and `q` goes through the same rule as `Ctrl-q` rather than leaving a live child behind.
+
+*Quit.* `Ctrl-q` quits at once after the child has exited. While it is alive the status line asks
+once; any key but `y` keeps it, and `y` sends `SIGHUP` to the child's process group, which is
+what closing a terminal window does to `hydra run` and the `claude` inside it, and quits once the
+record is read. A second `Ctrl-q` while that is pending leaves without waiting. **A hangup kills
+`hydra run` before its own harvest**, since it installs no handler, so the ticket's "waits for
+its harvest" had no harvest to wait for. The cockpit does what `hydra status <id>` would do on the
+same dead run: when the run it launched reads as an abandoned interactive `claude` run, it calls
+`interactive::harvest_in` with the real home, once, and then reads the outcome. This is the one
+record the cockpit ever appends to, and only one it launched.
+
+*Exit.* The child names its run on stderr (`hydra: run <id>`), and the chat keeps the first uuid
+after those words. When the child exits and its pty closes, or two seconds after it exits if a
+grandchild holds the pty (`pty::PTY_EOF_DEADLINE`), the panel keeps its last screen and its bottom
+border says `run <id>: <outcome>; hydra exited <code>`, the outcome normalized and derived the
+way `hydra show` reads it. A child that exits before naming a run says so instead. The cockpit
+stays open.
+
+*Tested on a stub.* `tests/cockpit.rs` spawns `/bin/sh -c` scripts through the same `Chat` and
+drives the `Host` with synthetic crossterm events over a `Buffer`: the panel shows what the child
+printed, in its red; `q`, `a` and `Enter` with the chat focused reach the child as `qa`; `x`,
+`Down` and `Enter` with the cockpit focused do not; a redraw at a larger size reaches `stty size`
+in the child; the child's exit puts its run id and a fixture record's outcome on the line; and
+`Ctrl-q` asks, `n` keeps, `y` hangs up a stub that traps `HUP`. Each failed before the change,
+by not compiling, and each also fails with its one behaviour removed. `chat::tests` checks the
+key and mouse encodings and the two answered queries. The binary ran once on a Python pty at
+160 by 40 against a scratch `HYDRA_ROOT`, with `--session codex`: it drew the panel, showed the
+child's refusal and the exit line, and quit on `Ctrl-q`.
+
+*Untested without a human.* The whole path with `claude` inside: whether its Ink interface draws
+correctly under `vt100`, whether it sends a query the cockpit does not answer and waits on it,
+whether its keys (`Esc` to interrupt, `Shift-Tab`, `Ctrl-r`) arrive as it expects without the
+kitty keyboard protocol, whether its mouse and paste work, and how it behaves on a resize in the
+middle of a frame. The hangup and the cockpit's harvest have run only on a stub; a gated session
+hung up from the cockpit, with its worktree and `seats.sock`, has not. No real terminal emulator
+has shown the split.
 
 ## `hydra resume`, since build ticket 32
 

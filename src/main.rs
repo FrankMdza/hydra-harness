@@ -228,8 +228,16 @@ fn main() -> Result<()> {
             goal,
             interval,
             no_mascot,
+            session,
+            model,
+            policy,
         } => {
-            hydra::cockpit::run(&Layout::discover()?, goal, interval, !no_mascot)?;
+            let session = session.map(|provider| hydra::cockpit::Session {
+                provider,
+                model,
+                policy,
+            });
+            hydra::cockpit::run(&Layout::discover()?, goal, interval, !no_mascot, session)?;
         }
         Command::Export { out, dry_run } => {
             let layout = Layout::discover()?;

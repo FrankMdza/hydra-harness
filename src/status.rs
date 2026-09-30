@@ -91,7 +91,7 @@ pub fn all_in(layout: &Layout, home: &Path) -> Result<String> {
 
 /// Whether a view is a dead interactive `claude` run this build knows how to
 /// harvest: an abandoned pid, a `claude` envelope, `launch_mode: interactive`.
-fn is_abandoned_interactive_claude(view: &RunView) -> bool {
+pub(crate) fn is_abandoned_interactive_claude(view: &RunView) -> bool {
     view.state == State::Abandoned
         && view.provider.as_deref() == Some("claude")
         && view.launch_mode.as_deref() == Some("interactive")

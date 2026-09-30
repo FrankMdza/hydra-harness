@@ -247,6 +247,21 @@ pub enum Command {
         /// Leave the dragon out of the header and give its rows to the table.
         #[arg(long)]
         no_mascot: bool,
+
+        /// Launch `hydra run --interactive --provider <SESSION>` on a pty the
+        /// cockpit owns and draw it in the left panel, build ticket 151. `F2`
+        /// moves the keys between the chat and the cockpit; `Ctrl-q` quits.
+        #[arg(long)]
+        session: Option<String>,
+
+        /// The model for `--session`, passed to `hydra run` as it is.
+        #[arg(long, requires = "session")]
+        model: Option<String>,
+
+        /// The policy for `--session`. Without it the chat is ungated, as
+        /// `hydra run --interactive` is.
+        #[arg(long, requires = "session")]
+        policy: Option<String>,
     },
 
     /// The one path by which anything leaves this machine, harness spec 14.

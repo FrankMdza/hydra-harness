@@ -1,6 +1,7 @@
-//! `hydra cockpit`, build ticket 150.
+//! `hydra cockpit`, build tickets 150 and 151.
 //!
-//! No terminal anywhere. The fold reads a goal log written here, the lanes read
+//! No terminal anywhere. The chat of build 151 runs on a real pty, but its
+//! child is a `/bin/sh` stub and its screen is drawn into a `Buffer`. The fold reads a goal log written here, the lanes read
 //! records copied from the fixture corpus into a scratch root, and the hit test
 //! and the approval drive [`App`] over a `Buffer` with synthetic crossterm
 //! events. Nothing here touches the real `~/hydra`.
@@ -797,4 +798,226 @@ fn a_screen_too_small_for_the_dragon_hides_it() {
     let mut buf = Buffer::empty(small);
     app.draw(small, &mut buf);
     assert_eq!(app.hits.table.y, 0);
+}
+
+// --- the chat inside, build ticket 151 ---------------------------------------
+
+use hydra::cockpit::chat::{Chat, Launch};
+use hydra::cockpit::host::{Host, Side};
+
+/// A stub child on `/bin/sh`, as `pty_tee.rs` drives one: `script` runs with
+/// `RUN` naming a run id, and nothing it does reaches a provider.
+fn stub(layout: &Layout, script: &str, run_id: &str, area: Rect) -> Host {
+    let launch = Launch {
+        program: "/bin/sh".to_string(),
+        args: vec!["-c".to_string(), script.to_string()],
+        cwd: layout.root().to_path_buf(),
+        env: vec![
+            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+            ("TERM".to_string(), "xterm-256color".to_string()),
+            ("RUN".to_string(), run_id.to_string()),
+        ],
+        layout: Layout::at(layout.root()),
+        policies: Ok(policies()),
+        harvest_home: None,
+    };
+    let (rows, cols) = Host::chat_size(area);
+    let chat = Chat::spawn(launch, rows, cols).unwrap();
+    let app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    Host::with_chat(app, "stub".to_string(), chat)
+}
+
+/// Pumps and draws until `done` says so, for five seconds at most.
+fn until(host: &mut Host, area: Rect, what: &str, done: impl Fn(&Host, &str) -> bool) -> Buffer {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        host.pump();
+        let mut buf = Buffer::empty(area);
+        host.draw(area, &mut buf);
+        let text = chat_text(&buf, area);
+        if done(host, &text) {
+            return buf;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "waited five seconds for {what}; the panel shows:\n{text}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// The text inside the chat panel's border, one line per row.
+fn chat_text(buf: &Buffer, area: Rect) -> String {
+    let (chat, _, _) = Host::areas(area);
+    (chat.y + 1..chat.y + chat.height - 1)
+        .map(|y| {
+            (chat.x + 1..chat.x + chat.width - 1)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+const WIDE: Rect = Rect::new(0, 0, 120, 30);
+
+/// A child that says `ready`, reads one line, prints it back in brackets and
+/// waits for another.
+const ECHO: &str = r#"printf 'ready\n'; read line; printf 'got <%s>\n' "$line"; read again"#;
+
+#[test]
+fn the_chat_panel_shows_what_the_child_printed_with_its_colours() {
+    let layout = scratch("chat-shows");
+    let mut host = stub(
+        &layout,
+        r#"printf 'plain then \033[31mred words\033[0m\n'; read line"#,
+        "",
+        WIDE,
+    );
+    let buf = until(&mut host, WIDE, "the stub's line", |_, text| {
+        text.contains("plain then red words")
+    });
+    let (chat, _, _) = Host::areas(WIDE);
+    let (x, y) = (chat.x + 1 + "plain then ".len() as u16, chat.y + 1);
+    assert_eq!(buf[(x, y)].symbol(), "r");
+    assert_eq!(buf[(x, y)].fg, ratatui::style::Color::Indexed(1));
+    assert_eq!(buf[(chat.x + 1, y)].fg, ratatui::style::Color::Reset);
+    assert_eq!(host.side, Side::Chat);
+    host.handle(&key(KeyCode::Enter));
+}
+
+#[test]
+fn a_key_with_the_chat_focused_reaches_the_child_unchanged() {
+    let layout = scratch("chat-key");
+    let mut host = stub(&layout, ECHO, "", WIDE);
+    until(&mut host, WIDE, "ready", |_, text| text.contains("ready"));
+    // `q` and `a` are build 150's quit and approve; with the chat focused
+    // they are two letters the child reads.
+    for code in [KeyCode::Char('q'), KeyCode::Char('a'), KeyCode::Enter] {
+        assert_eq!(host.handle(&key(code)), Effect::None);
+    }
+    until(&mut host, WIDE, "got <qa>", |_, text| {
+        text.contains("got <qa>")
+    });
+    assert!(!host.asking);
+    host.handle(&key(KeyCode::Enter));
+}
+
+#[test]
+fn a_key_with_the_cockpit_focused_does_not_reach_the_child() {
+    let layout = scratch("chat-no-key");
+    let mut host = stub(&layout, ECHO, "", WIDE);
+    until(&mut host, WIDE, "ready", |_, text| text.contains("ready"));
+    host.handle(&key(KeyCode::F(2)));
+    assert_eq!(host.side, Side::Cockpit);
+    let buf = until(&mut host, WIDE, "the status line", |_, _| true);
+    let (_, _, status) = Host::areas(WIDE);
+    assert!(row_of(&buf, status.y).contains("the cockpit has the keys"));
+    for code in [KeyCode::Char('x'), KeyCode::Down, KeyCode::Enter] {
+        host.handle(&key(code));
+    }
+    host.handle(&key(KeyCode::F(2)));
+    assert_eq!(host.side, Side::Chat);
+    for code in [KeyCode::Char('y'), KeyCode::Enter] {
+        host.handle(&key(code));
+    }
+    let buf = until(&mut host, WIDE, "a line back", |_, text| {
+        text.contains("got <")
+    });
+    let text = chat_text(&buf, WIDE);
+    assert!(text.contains("got <y>"), "{text}");
+    assert!(row_of(&buf, status.y).contains("the chat has the keys"));
+    host.handle(&key(KeyCode::Enter));
+}
+
+#[test]
+fn a_resize_reaches_the_child() {
+    let layout = scratch("chat-resize");
+    let mut host = stub(
+        &layout,
+        r#"printf 'first %s\n' "$(stty size)"; read line; printf 'second %s\n' "$(stty size)"; read again"#,
+        "",
+        WIDE,
+    );
+    let (rows, cols) = Host::chat_size(WIDE);
+    let first = format!("first {rows} {cols}");
+    until(&mut host, WIDE, &first, |_, text| text.contains(&first));
+
+    let taller = Rect::new(0, 0, 150, 44);
+    let (rows, cols) = Host::chat_size(taller);
+    assert_ne!((rows, cols), Host::chat_size(WIDE));
+    let mut buf = Buffer::empty(taller);
+    host.draw(taller, &mut buf);
+    host.handle(&key(KeyCode::Enter));
+    let second = format!("second {rows} {cols}");
+    until(&mut host, taller, &second, |_, text| text.contains(&second));
+    assert_eq!(host.chat().unwrap().size(), (rows, cols));
+    host.handle(&key(KeyCode::Enter));
+}
+
+#[test]
+fn the_childs_exit_puts_its_run_id_and_outcome_on_the_line() {
+    let layout = scratch("chat-exit");
+    let from = fixture("claude@2.1.261", 1);
+    let run_id = from.file_stem().unwrap().to_str().unwrap().to_string();
+    std::fs::copy(&from, layout.run_file(&run_id)).unwrap();
+    let text = std::fs::read_to_string(&from).unwrap();
+    let run = hydra::normalize::read_with(&text, &policies(), &layout).unwrap();
+    let outcome = hydra::outcome::derive(&run)
+        .unwrap()
+        .outcome
+        .as_str()
+        .to_string();
+
+    let mut host = stub(
+        &layout,
+        r#"printf 'hydra: run %s\n' "$RUN" >&2; printf 'the last screen\n'; exit 0"#,
+        &run_id,
+        WIDE,
+    );
+    let buf = until(&mut host, WIDE, "the child's exit", |host, _| {
+        host.chat().unwrap().finished()
+    });
+    let chat = host.chat().unwrap();
+    assert_eq!(chat.run_id(), Some(run_id.as_str()));
+    let line = format!("run {run_id}: {outcome}; hydra exited 0");
+    assert_eq!(chat.ended_line(), Some(line.as_str()));
+
+    // The last screen stays, and the line is on the panel's bottom border.
+    let (area, _, _) = Host::areas(WIDE);
+    assert!(chat_text(&buf, WIDE).contains("the last screen"));
+    assert!(
+        row_of(&buf, area.y + area.height - 1).contains(&format!("run {run_id}: {outcome}")),
+        "{}",
+        screen_text(&buf)
+    );
+    // The cockpit stays open, and Ctrl-q now quits without asking.
+    assert!(!host.done());
+    let quit = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
+    assert_eq!(host.handle(&quit), Effect::Quit);
+}
+
+#[test]
+fn ctrl_q_asks_while_the_child_lives_and_y_hangs_it_up() {
+    let layout = scratch("chat-hangup");
+    let mut host = stub(
+        &layout,
+        r#"trap 'exit 7' HUP; printf 'ready\n'; while :; do sleep 1; done"#,
+        "",
+        WIDE,
+    );
+    until(&mut host, WIDE, "ready", |_, text| text.contains("ready"));
+    let quit = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
+    assert_eq!(host.handle(&quit), Effect::None);
+    assert!(host.asking);
+    // Any key but `y` keeps it running.
+    assert_eq!(host.handle(&key(KeyCode::Char('n'))), Effect::None);
+    assert!(!host.asking && !host.hanging_up);
+
+    assert_eq!(host.handle(&quit), Effect::None);
+    assert_eq!(host.handle(&key(KeyCode::Char('y'))), Effect::None);
+    assert!(host.hanging_up);
+    until(&mut host, WIDE, "the hangup", |host, _| host.done());
+    let line = host.chat().unwrap().ended_line().unwrap();
+    assert!(line.starts_with("the chat "), "{line}");
 }
