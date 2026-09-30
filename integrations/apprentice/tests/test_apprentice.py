@@ -283,6 +283,30 @@ class AttemptTests(Base):
         self.run_main("attempt")
         self.assertEqual(len(self.attempts()), len(self.tasks))
 
+    def test_a_second_model_runs_the_whole_bank_and_the_same_model_skips(self):
+        code, _, err = self.run_main("attempt")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.attempts()), len(self.tasks))
+        asked = len(self.stub.requests)
+        self.run_main("attempt")
+        self.assertEqual(len(self.stub.requests), asked, "the same model is not asked again")
+        self.assertEqual(len(self.attempts()), len(self.tasks))
+        with mock.patch.dict(os.environ, {"HYDRA_LOCAL_MODEL": "bitnet-2b"}):
+            code, _, err = self.run_main("attempt")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.stub.requests) - asked, len(self.tasks))
+        self.assertTrue(all(body["model"] == "bitnet-2b" for body in self.stub.requests[asked:]))
+        lines = self.attempts()
+        by_model = {}
+        for line in lines:
+            by_model.setdefault(line["model"], set()).add(line["task_id"])
+        self.assertEqual(set(by_model), {"stub-model", "bitnet-2b"})
+        self.assertEqual(by_model["stub-model"], set(self.tasks))
+        self.assertEqual(by_model["bitnet-2b"], set(self.tasks))
+        with mock.patch.dict(os.environ, {"HYDRA_LOCAL_MODEL": "bitnet-2b"}):
+            self.run_main("attempt")
+        self.assertEqual(len(self.attempts()), 2 * len(self.tasks))
+
     def test_a_changed_prompt_asks_every_task_again(self):
         self.run_main("attempt")
         with mock.patch.object(apprentice, "INSTRUCTIONS", apprentice.INSTRUCTIONS + "\nBe brief."):
@@ -350,8 +374,8 @@ class ScoreTests(Base):
         (self.apprentice_home / "attempts.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
 
     @staticmethod
-    def row(task, sha, correct):
-        r = {"task_id": task, "prompt_sha": sha, "answer": "x", "reason": "", "model": "m", "seconds": 1.0}
+    def row(task, sha, correct, model="m"):
+        r = {"task_id": task, "prompt_sha": sha, "answer": "x", "reason": "", "model": model, "seconds": 1.0}
         if correct is not None:
             r["correct"] = correct
         return r
@@ -390,6 +414,44 @@ class ScoreTests(Base):
         code, out, _ = self.run_main("score")
         self.assertEqual(code, 0)
         self.assertIn("no attempts", out)
+
+    def test_score_prints_one_block_per_model_and_model_narrows_to_one(self):
+        self.put([
+            self.row("outcome:a", "g0", False, "gemma"),
+            self.row("outcome:b", "g0", False, "gemma"),
+            self.row("policy:a", "g0", False, "gemma"),
+            self.row("outcome:a", "b0", True, "bitnet"),
+            self.row("outcome:b", "b0", False, "bitnet"),
+            self.row("policy:a", "b0", False, "bitnet"),
+            self.row("outcome:a", "old", True, "ancient"),
+            self.row("outcome:a", "new", True, "gemma"),
+            self.row("outcome:b", "new", True, "gemma"),
+            self.row("policy:a", "new", True, "gemma"),
+            self.row("summarize:a", "new", None, "gemma"),
+            self.row("outcome:a", "new", False, "bitnet"),
+            self.row("outcome:b", "new", False, "bitnet"),
+            self.row("policy:a", "new", True, "bitnet"),
+        ])
+        both = "\n".join([
+            "model bitnet",
+            "prompt sha new, previous b0",
+            "overall             1/3  0.33   previous 1/3  0.33   delta +0.00",
+            "outcome             0/2  0.00   previous 1/2  0.50   delta -0.50",
+            "policy              1/1  1.00   previous 0/1  0.00   delta +1.00",
+            "model gemma",
+            "prompt sha new, previous g0",
+            "overall             3/3  1.00   previous 0/3  0.00   delta +1.00",
+            "outcome             2/2  1.00   previous 0/2  0.00   delta +1.00",
+            "policy              1/1  1.00   previous 0/1  0.00   delta +1.00",
+            "",
+        ])
+        code, out, err = self.run_main("score")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, both)
+        _, gemma, _ = self.run_main("score", "--model", "gemma")
+        self.assertEqual(gemma, "\n".join(both.splitlines()[5:]) + "\n")
+        _, bitnet, _ = self.run_main("score", "--model", "bitnet")
+        self.assertEqual(bitnet, "\n".join(both.splitlines()[:5]) + "\n")
 
 
 class PairsTests(Base):

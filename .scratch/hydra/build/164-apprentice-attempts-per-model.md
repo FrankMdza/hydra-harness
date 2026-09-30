@@ -1,7 +1,7 @@
 # 164 - Apprentice attempts are kept per model
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -32,3 +32,13 @@ already has, each shown failing before the change. Stdlib only.
   if the worktree has it, else `python3` (if `plistlib` fails to import on Python 3.14, say so
   and run the other files).
 - The report says what `score` printed on the test fixture for two models.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `cursor-agent` grok-4.7-high on run 01a0f2c0-acd2 under
+`standard`. The session applied it as written. `attempt` keys done work on `(task_id,
+prompt_sha, model)`; `score` prints one block per model at the newest prompt sha, each against
+its own previous sha, and `--model NAME` narrows it. Two tests; the apprentice suite passes, 38
+tests. All 40 real attempts carry `model`, and `score` on the real home prints the one block,
+`gemma3:1b-it-qat` 13 of 20. The README's second-home workaround is gone.
+

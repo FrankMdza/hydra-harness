@@ -401,12 +401,12 @@ def attempt(limit: int | None, minutes: float | None) -> int:
     path = base / "attempts.jsonl"
     sha = prompt_sha()
     model = ollama_model()
-    done = {(a["task_id"], a["prompt_sha"]) for a in records.read_jsonl(path)}
+    done = {(a["task_id"], a["prompt_sha"], a["model"]) for a in records.read_jsonl(path)}
     began = clock()
     written = 0
     path.parent.mkdir(parents=True, exist_ok=True)
     for task in bank:
-        if (task["id"], sha) in done:
+        if (task["id"], sha, model) in done:
             continue
         if limit is not None and written >= limit:
             break
@@ -461,18 +461,13 @@ def _tally(rows: list[dict], sha: str, templates: dict) -> dict[str, list[int]]:
     return tally
 
 
-def score() -> int:
-    base = home()
-    rows = records.read_jsonl(base / "attempts.jsonl")
-    if not rows:
-        print("score: no attempts yet.")
-        return 0
-    templates = {t["id"]: t["template"] for t in records.read_jsonl(base / "bank.jsonl")}
-    current = rows[-1]["prompt_sha"]
-    previous = next((r["prompt_sha"] for r in reversed(rows) if r["prompt_sha"] != current), None)
-    now = _tally(rows, current, templates)
-    before = _tally(rows, previous, templates) if previous else {}
-    header = f"prompt sha {current[:8]}"
+def _print_model(rows: list[dict], sha: str, templates: dict, model: str) -> None:
+    mine = [row for row in rows if row.get("model") == model]
+    previous = next((row["prompt_sha"] for row in reversed(mine) if row["prompt_sha"] != sha), None)
+    now = _tally(mine, sha, templates)
+    before = _tally(mine, previous, templates) if previous else {}
+    print(f"model {model}")
+    header = f"prompt sha {sha[:8]}"
     if previous:
         header += f", previous {previous[:8]}"
     print(header)
@@ -483,6 +478,24 @@ def score() -> int:
             pg, pt = before[name]
             out += f"   previous {pg}/{pt}  {pg / pt:.2f}   delta {got / total - pg / pt:+.2f}"
         print(out)
+
+
+def score(only: str | None = None) -> int:
+    base = home()
+    rows = records.read_jsonl(base / "attempts.jsonl")
+    if not rows:
+        print("score: no attempts yet.")
+        return 0
+    templates = {t["id"]: t["template"] for t in records.read_jsonl(base / "bank.jsonl")}
+    current = rows[-1]["prompt_sha"]
+    models = sorted({row["model"] for row in rows if row["prompt_sha"] == current})
+    if only is not None:
+        models = [only] if only in models else []
+    if not models:
+        print("score: no attempts yet.")
+        return 0
+    for model in models:
+        _print_model(rows, current, templates, model)
     return 0
 
 
@@ -540,10 +553,11 @@ def main(argv: list[str] | None = None) -> int:
     bank_sub = bank_cmd.add_subparsers(dest="action", required=True)
     build = bank_sub.add_parser("build", help="write bank.jsonl from the run records")
     build.add_argument("--n", type=int, default=20)
-    att = sub.add_parser("attempt", help="ask the local model each task not yet attempted")
+    att = sub.add_parser("attempt", help="ask the local model each task it has not attempted at this prompt")
     att.add_argument("--limit", type=int)
     att.add_argument("--minutes", type=float)
-    sub.add_parser("score", help="the verifiable score per template")
+    sc = sub.add_parser("score", help="the verifiable score per model and template")
+    sc.add_argument("--model", help="print only this model's block")
     pr = sub.add_parser("pairs", help="turn a graded file into pairs.jsonl")
     pr.add_argument("graded", type=Path)
     args = parser.parse_args(argv)
@@ -552,7 +566,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "attempt":
         return attempt(args.limit, args.minutes)
     if args.command == "score":
-        return score()
+        return score(args.model)
     return pairs(args.graded)
 
 

@@ -12,9 +12,9 @@ GPU. The number to watch until then is the verifiable score.
 
 1. `bank build` turns the records in `$HYDRA_ROOT/runs/` into tasks.
 2. Verifiable tasks carry the answer the script computed from the record. Open tasks carry none.
-3. `attempt` asks the local model each task it has not answered under the current prompt.
+3. `attempt` asks the local model each task this model has not answered under the current prompt.
 4. Verifiable answers are marked right or wrong on the spot.
-5. `score` prints the verifiable score per template, and against the previous prompt.
+5. `score` prints one block per model: the verifiable score per template, and against that model's previous prompt.
 6. Change the prompt (`INSTRUCTIONS` in `apprentice.py`), run `attempt` again, read the delta.
 7. The session collects the week's open answers and a panel grades them.
 8. The session writes the grades as a `graded.jsonl` file.
@@ -35,7 +35,7 @@ GPU. The number to watch until then is the verifiable score.
 ```
 python3 integrations/apprentice/apprentice.py bank build [--n 20]
 python3 integrations/apprentice/apprentice.py attempt [--limit N] [--minutes M]
-python3 integrations/apprentice/apprentice.py score
+python3 integrations/apprentice/apprentice.py score [--model NAME]
 python3 integrations/apprentice/apprentice.py pairs <graded.jsonl>
 ```
 
@@ -48,13 +48,16 @@ redacted with `integrations/grader/redact.py` and each record excerpt is cut to 
 `attempt` appends to `attempts.jsonl`: task id, template, prompt sha, answer, reason, model,
 seconds and, for verifiable tasks, `correct`. The prompt asks for the reason first and the
 answer second, as JSON, at temperature 0 with `num_predict` 300. The prompt sha is the sha-256 of
-`INSTRUCTIONS`, so editing the prompt makes every task due again. `--minutes` stops the pass
+`INSTRUCTIONS`, so editing the prompt makes every task due again. Attempts are kept per model:
+a task is skipped only when this `HYDRA_LOCAL_MODEL` already has a line for that task and prompt
+sha, so a second model runs the whole bank in the same home. `--minutes` stops the pass
 between two tasks once the budget is spent. If Ollama is down or lacks the model, the pass prints
 one line, exits 1 and keeps the attempts already written. A reply that is not the JSON shape is
 stored with an empty answer and an `unparsed` field, and a verifiable one counts as wrong.
 
-`score` prints the latest attempt per task for the newest prompt sha, per template and overall,
-and the same for the sha before it with the delta. Open tasks are not scored.
+`score` prints one block per model that has attempts under the newest prompt sha: the latest
+attempt per task, per template and overall, and the same numbers for that model's previous prompt
+sha with the delta. `--model NAME` prints one block. Open tasks are not scored.
 
 `pairs` reads one line per graded task: `task_id`, `local_answer`, `better_answer`, `verdict`
 and `graded_by`. The verdict is about the local answer. `better` keeps the local answer as
@@ -113,9 +116,9 @@ HYDRA_LOCAL_LLM_URL=http://127.0.0.1:11435/api/generate HYDRA_LOCAL_MODEL=bitnet
   python3 integrations/apprentice/apprentice.py attempt
 ```
 
-`attempt` skips a task when it already has an attempt under the same prompt sha, whatever the
-model. To score two models on one bank, give each its own `HYDRA_GRADER_HOME` with a copy of
-`bank.jsonl`, or the second model's pass writes nothing.
+Attempts are kept per model. `attempt` skips a task only when this model already has a line for
+that task and prompt sha, so BitNet and Gemma share one bank and one `attempts.jsonl`. `score`
+prints one block per model, and `score --model bitnet-2b` prints BitNet's block alone.
 
 **The binary under `~/models/BitNet/build/bin` does not work yet.** It is mainline llama.cpp
 b9918, not the bitnet.cpp kernels. It reports the file as `Q1_0`, crashes on the Metal backend
