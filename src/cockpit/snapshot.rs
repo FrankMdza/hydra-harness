@@ -11,17 +11,20 @@
 //! not grow, so its outcome, tokens and result text are kept by run id and
 //! file length, and a record whose length changed is read again.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 
 use super::goal::{self, Goal};
+use super::window;
 use crate::approve::Pending;
 use crate::live::State;
+use crate::normalize::Counts;
 use crate::paths::Layout;
 use crate::policy::PolicySet;
 
@@ -31,6 +34,8 @@ pub const TAIL_LINES: usize = 20;
 const TAIL_LINE_CHARS: usize = 400;
 /// How far back from the end the tail looks for its lines.
 const TAIL_WINDOW: u64 = 256 * 1024;
+/// How far back the header's tokens per minute look.
+pub const RATE_WINDOW_MINUTES: i64 = 5;
 
 /// The four lanes of the kanban, left to right in the order drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +124,41 @@ pub struct Snapshot {
     pub errors: Vec<String>,
     /// False only on the empty snapshot drawn before the first read lands.
     pub read: bool,
+    /// What each provider's live runs have spent, one entry per provider with
+    /// a live run, by name.
+    pub spend: Vec<Spend>,
+}
+
+/// One provider's live runs, for the header. Build ticket 172.
+///
+/// **Tokens, never dollars.** The human pays subscriptions, so the panel of
+/// 2026-09-30 asked for the rate and the share of the rate-limit window.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spend {
+    pub provider: String,
+    /// Live runs of this provider.
+    pub live: usize,
+    /// How many of them carry counts yet.
+    pub counted: usize,
+    /// Output tokens so far, summed over the counted runs.
+    pub output_tokens: u64,
+    /// Output tokens per minute over the last five minutes, summed over the
+    /// counted runs. `None` until some run has two points in that time to
+    /// measure between, its start counting as one at zero.
+    pub tokens_per_minute: Option<f64>,
+    /// The counted runs' share of the provider's rate-limit window, by
+    /// [`super::window`]. `None` when any of them has no budget, and always
+    /// on `claude`.
+    pub window_share: Option<f64>,
+}
+
+/// What a live record has counted so far, kept by run id.
+struct Live {
+    len: u64,
+    counts: Option<Counts>,
+    started: Option<DateTime<Utc>>,
+    /// Output tokens at each read in the last five minutes, oldest first.
+    samples: VecDeque<(DateTime<Utc>, u64)>,
 }
 
 /// What an ended record said once normalized, kept by run id.
@@ -138,6 +178,9 @@ pub struct Reader {
     puppets_home: PathBuf,
     goal: Option<String>,
     ended: HashMap<String, Ended>,
+    live: HashMap<String, Live>,
+    /// Where `vendors.json` and `aliases.json` are, or `None` for no budgets.
+    vendors: Option<PathBuf>,
 }
 
 impl Reader {
@@ -153,11 +196,25 @@ impl Reader {
             puppets_home,
             goal,
             ended: HashMap::new(),
+            live: HashMap::new(),
+            vendors: None,
         }
     }
 
     /// Reads once, with the tail of `open` when the detail has a run open.
     pub fn read(&mut self, open: Option<&str>) -> Snapshot {
+        self.read_at(open, Utc::now())
+    }
+
+    /// Where `vendors.json` and `aliases.json` are. Without it every window
+    /// share is `-`.
+    pub fn with_vendors(mut self, dir: PathBuf) -> Self {
+        self.vendors = Some(dir);
+        self
+    }
+
+    /// The same, with the clock the rates are measured on named.
+    pub fn read_at(&mut self, open: Option<&str>, now: DateTime<Utc>) -> Snapshot {
         let mut snapshot = Snapshot {
             goal_named: self.goal.is_some(),
             read: true,
@@ -165,6 +222,7 @@ impl Reader {
         };
         self.read_goal(&mut snapshot);
         snapshot.cards = self.read_cards(&mut snapshot.errors);
+        snapshot.spend = self.spend(&snapshot.cards, now, &mut snapshot.errors);
         match crate::approve::pending(&self.layout) {
             Ok(requests) => snapshot.requests = requests,
             Err(err) => snapshot.errors.push(format!("{err:#}")),
@@ -260,7 +318,7 @@ impl Reader {
                     continue;
                 }
             };
-            let (model, policy_sha) = opening_of(path);
+            let (model, policy_sha, started) = opening_of(path);
             let mut card = Card {
                 run_id: view.run_id.clone(),
                 provider: view.provider.clone(),
@@ -284,7 +342,7 @@ impl Reader {
                 State::Abandoned => {
                     card.note = Some("abandoned: no closing line and no process".to_string());
                 }
-                State::Live => {}
+                State::Live => self.count_live(&view.run_id, path, started),
             }
             cards.push(card);
         }
@@ -292,7 +350,100 @@ impl Reader {
             cards.iter().map(|card| card.run_id.as_str()).collect();
         self.ended
             .retain(|run_id, _| present.contains(run_id.as_str()));
+        let live: std::collections::HashSet<&str> = cards
+            .iter()
+            .filter(|card| card.state == State::Live)
+            .map(|card| card.run_id.as_str())
+            .collect();
+        self.live.retain(|run_id, _| live.contains(run_id.as_str()));
         cards
+    }
+
+    /// Reads a live record's usage so far, again only when it grew.
+    fn count_live(&mut self, run_id: &str, path: &Path, started: Option<DateTime<Utc>>) {
+        let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let live = self.live.entry(run_id.to_string()).or_insert(Live {
+            len: 0,
+            counts: None,
+            started,
+            samples: VecDeque::new(),
+        });
+        if live.len == len && len > 0 {
+            return;
+        }
+        live.len = len;
+        live.counts = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| crate::normalize::usage_so_far(&text))
+            .and_then(|usage| usage.counts);
+    }
+
+    /// The header's entries, one per provider with a live card.
+    fn spend(
+        &mut self,
+        cards: &[Card],
+        now: DateTime<Utc>,
+        errors: &mut Vec<String>,
+    ) -> Vec<Spend> {
+        let live: Vec<&Card> = cards.iter().filter(|c| c.state == State::Live).collect();
+        if live.is_empty() {
+            return Vec::new();
+        }
+        let budgets = self.vendors.as_deref().and_then(|dir| {
+            window::Budgets::load(dir)
+                .map_err(|err| errors.push(format!("no window budgets: {err:#}")))
+                .ok()
+        });
+        let from = now - chrono::Duration::minutes(RATE_WINDOW_MINUTES);
+        let mut by_provider: BTreeMap<String, Spend> = BTreeMap::new();
+        // Whether every counted run of the provider had a share.
+        let mut shared: HashMap<String, bool> = HashMap::new();
+        for card in live {
+            let provider = card.provider.clone().unwrap_or_else(|| "-".to_string());
+            let spend = by_provider.entry(provider.clone()).or_insert(Spend {
+                provider: provider.clone(),
+                live: 0,
+                counted: 0,
+                output_tokens: 0,
+                tokens_per_minute: None,
+                window_share: None,
+            });
+            spend.live += 1;
+            let Some(run) = self.live.get_mut(&card.run_id) else {
+                continue;
+            };
+            let Some(counts) = run.counts else {
+                continue;
+            };
+            spend.counted += 1;
+            spend.output_tokens += counts.output_tokens;
+
+            run.samples.push_back((now, counts.output_tokens));
+            while run.samples.front().is_some_and(|(at, _)| *at < from) {
+                run.samples.pop_front();
+            }
+            // A run that started inside the window had zero at its start.
+            let base = match run.started {
+                Some(started) if started >= from && started < now => Some((started, 0)),
+                _ => run.samples.front().copied(),
+            };
+            if let Some((at, tokens)) = base.filter(|(at, _)| *at < now) {
+                let minutes = (now - at).num_milliseconds() as f64 / 60_000.0;
+                let rate = counts.output_tokens.saturating_sub(tokens) as f64 / minutes;
+                spend.tokens_per_minute = Some(spend.tokens_per_minute.unwrap_or(0.0) + rate);
+            }
+
+            let share = budgets
+                .as_ref()
+                .and_then(|b| b.share(&provider, card.model.as_deref(), &counts));
+            let all = shared.entry(provider).or_insert(true);
+            *all &= share.is_some();
+            spend.window_share = match (*all, share) {
+                (true, Some(share)) => Some(spend.window_share.unwrap_or(0.0) + share),
+                _ => None,
+            };
+        }
+        by_provider.into_values().collect()
     }
 
     fn ended(&mut self, run_id: &str, path: &Path) -> Ended {
@@ -340,9 +491,9 @@ impl Reader {
     }
 }
 
-/// The model on line 0's envelope and the `policy_sha` in its body.
-/// [`crate::live::read_view`] reads neither.
-fn opening_of(path: &Path) -> (Option<String>, Option<String>) {
+/// The model on line 0's envelope, the `policy_sha` in its body and the
+/// envelope's `ts`. [`crate::live::read_view`] reads none of them.
+fn opening_of(path: &Path) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
     use std::io::BufRead;
     let envelope = std::fs::File::open(path).ok().and_then(|file| {
         let mut first = String::new();
@@ -350,13 +501,41 @@ fn opening_of(path: &Path) -> (Option<String>, Option<String>) {
         serde_json::from_str::<serde_json::Value>(&first).ok()
     });
     let Some(envelope) = envelope else {
-        return (None, None);
+        return (None, None, None);
     };
     let field = |value: &serde_json::Value| value.as_str().map(str::to_string);
     (
         field(&envelope["model"]),
         field(&envelope["hydra"]["policy_sha"]),
+        envelope["ts"]
+            .as_str()
+            .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+            .map(|ts| ts.with_timezone(&Utc)),
     )
+}
+
+/// One provider's entry in the header.
+///
+/// A provider whose live runs carry no counts yet says so rather than showing
+/// zero: only `agy` counts as it goes, see [`crate::normalize::usage_so_far`].
+pub fn spend_text(spend: &Spend) -> String {
+    if spend.counted == 0 {
+        return format!("{} no count until a run ends", spend.provider);
+    }
+    let rate = spend
+        .tokens_per_minute
+        .map_or_else(|| "-".to_string(), |rate| format!("{rate:.0}"));
+    let share = spend
+        .window_share
+        .map_or_else(|| "-".to_string(), |share| format!("{:.1}%", share * 100.0));
+    let mut text = format!("{} {rate} tok/min, window {share}", spend.provider);
+    if spend.counted < spend.live {
+        text.push_str(&format!(
+            " ({} of {} runs counted)",
+            spend.counted, spend.live
+        ));
+    }
+    text
 }
 
 /// The last `n` lines of a record, each cut to a length a pane can hold.

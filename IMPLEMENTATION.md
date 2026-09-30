@@ -3313,6 +3313,26 @@ its pty while the editor runs, so the child is not blocked on a full pty, but it
 painted only after the editor exits, and a child waiting on a cursor position reply waits that
 long too. Neither has been tried against a real editor in a real terminal.
 
+**Tokens and windows in the header, build ticket 172.** No dollars: the human pays
+subscriptions. Each provider with a live run gets one entry, beside the dragon or, without it,
+on a row of its own above the panels: output tokens per minute over the last five minutes, and
+the live runs' share of the provider's rate-limit window. A live record is read by
+`normalize::usage_so_far`, which runs the adapter's own walk and leaves out the gate replay, so
+it costs no Python and is redone only when the file grew. What a live run exposes depends on the
+provider. `agy` sums its counts per finished step, so a live run has a running total. `claude`
+and `cursor-agent` count on the `result` frame and `codex` on `turn.completed`, each at the end,
+and their entry reads `no count until a run ends` rather than 0. `claude` assistant frames carry
+`message.usage`, and no reader counts it. The rate is kept across reads: each read samples each
+counted run's output, samples older than five minutes drop, and a run that started inside the
+window counts its start as zero. With one sample and an older start the rate is `-`. The share is
+`integrations/puppets/sheet.py`'s formula, `(raw_input + output_tokens) / window_budget_tokens`,
+ported to `src/cockpit/window.rs` with the model read through `aliases.json` as `models.py` does.
+It reads `$HYDRA_HOME/integrations/puppets/vendors.json` every tick with a live run, and shows `-`
+for a null budget, for `claude` (sheet.py measures it by utilization), and for a provider any of
+whose counted runs has no budget. It sums live runs only: an ended run inside the same window is
+not added, so the number is a floor. `tests/cockpit.rs` drives all of it on synthetic records at
+a fixed clock with a scratch `vendors.json`; no real provider has been watched through it.
+
 **Input.** Arrows and `Tab` move between panels and rows, `Enter` opens, `Esc` closes, `p`
 opens the policy pane, `q` quits. A click selects the table row under it or opens the card under
 it, and the wheel scrolls the panel under the pointer. Every drawn row and card keeps its `Rect` from the last draw, and a click

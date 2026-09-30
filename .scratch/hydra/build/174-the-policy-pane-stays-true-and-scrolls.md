@@ -1,7 +1,7 @@
 # 174 - The policy pane stays true and scrolls
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 172
 
 ## What

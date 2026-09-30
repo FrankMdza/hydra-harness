@@ -148,7 +148,25 @@ pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
     if is_interactive(text) {
         return harvest::normalize(text, policies);
     }
+    walk(text).finish(policies, layout)
+}
 
+/// The usage the record carries so far, off the same walk and without the
+/// gate replay [`normalize`] finishes with. Build ticket 172.
+///
+/// `None` on an interactive record: its frames are harvested once the session
+/// ends, so while it runs there is nothing to count.
+pub fn usage_so_far(text: &str) -> Option<Usage> {
+    if is_interactive(text) {
+        return None;
+    }
+    walk(text).events.into_iter().find_map(|event| match event {
+        Event::Usage(usage) => Some(usage),
+        _ => None,
+    })
+}
+
+fn walk(text: &str) -> Walk {
     let mut walk = Walk::default();
     for (index, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
@@ -168,7 +186,7 @@ pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
         }
     }
     walk.close();
-    walk.finish(policies, layout)
+    walk
 }
 
 /// Whether line 0 says this run compiled no gate.

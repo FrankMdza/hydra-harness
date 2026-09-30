@@ -35,6 +35,7 @@ pub mod goal;
 pub mod host;
 pub mod mascot;
 pub mod snapshot;
+pub mod window;
 
 use std::io::Stdout;
 use std::path::{Path, PathBuf};
@@ -115,7 +116,8 @@ pub fn run(
         crate::policy::PolicySet::discover(),
         puppets_home(layout),
         goal,
-    );
+    )
+    .with_vendors(crate::paths::hydra_home().join("integrations/puppets"));
     let (asks, asked) = mpsc::channel::<Option<String>>();
     let (snapshots, snapshot) = mpsc::channel();
     std::thread::Builder::new()

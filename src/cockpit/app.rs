@@ -17,7 +17,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 
 use super::goal::TaskRow;
 use super::mascot::Mascot;
-use super::snapshot::{Card, Lane, Snapshot};
+use super::snapshot::{Card, Lane, Snapshot, spend_text};
 use crate::approve::Pending;
 use crate::paths::Layout;
 
@@ -680,14 +680,25 @@ impl App {
 
     /// The dragon left of the title, at the top, when the screen has room for it and the table
     /// still has its rows. Returns what is left below it.
+    ///
+    /// Each provider with a live run gets its tokens per minute and window share
+    /// there, build ticket 172. Without the dragon they take one row of their
+    /// own, and only while some run is live.
     fn draw_header(&self, area: Rect, buf: &mut Buffer) -> Rect {
-        let Some(mascot) = &self.mascot else {
-            return area;
+        let spend: Vec<String> = self.snapshot.spend.iter().map(spend_text).collect();
+        let Some(mascot) = self.mascot.as_ref().filter(|m| {
+            let (cols, rows) = m.size();
+            area.width >= cols + TITLE_WIDTH && area.height >= rows + MIN_BODY
+        }) else {
+            if spend.is_empty() || area.height <= MIN_BODY {
+                return area;
+            }
+            let [row, rest] =
+                Split::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(area);
+            buf.set_line(row.x, row.y, &Line::raw(spend.join(" | ")), row.width);
+            return rest;
         };
         let (cols, rows) = mascot.size();
-        if area.width < cols + TITLE_WIDTH || area.height < rows + MIN_BODY {
-            return area;
-        }
         let [header, rest] =
             Split::vertical([Constraint::Length(rows), Constraint::Min(0)]).areas(area);
         mascot.draw(header, buf);
@@ -712,6 +723,7 @@ impl App {
             format!("{} live seat(s), {}", mascot.live(), mascot.pose().name()),
             dim,
         ));
+        lines.extend(spend.into_iter().map(Line::raw));
         Paragraph::new(lines).render(text, buf);
         rest
     }

@@ -16,7 +16,7 @@ use crossterm::event::{
 use hydra::approve::Pending;
 use hydra::cockpit::app::{App, Effect, Focus, Opened};
 use hydra::cockpit::goal::{self, TaskRow};
-use hydra::cockpit::snapshot::{Card, Lane, Reader, Snapshot, lane_of};
+use hydra::cockpit::snapshot::{Card, Lane, Reader, Snapshot, Spend, lane_of, spend_text};
 use hydra::live::State;
 use hydra::paths::Layout;
 use hydra::policy::PolicySet;
@@ -1417,4 +1417,354 @@ fn an_editor_that_leaves_an_unloadable_file_shows_the_loaders_error_in_red() {
         .unwrap();
     assert_eq!(buf[(x, y)].fg, ratatui::style::Color::Red);
     assert!(text.contains("parsing"), "the loader's own words:\n{text}");
+}
+
+// --- the header's counts, build ticket 172 ---------------------------------
+
+/// The clock the spend tests read at.
+fn noon() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339("2026-09-30T12:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc)
+}
+
+/// A live record of `provider` that started at `started`, with `frames` after
+/// line 0 in the envelope every fixture record carries.
+fn write_live_frames(
+    layout: &Layout,
+    run_id: &str,
+    provider: &str,
+    model: Option<&str>,
+    started: chrono::DateTime<chrono::Utc>,
+    frames: &[serde_json::Value],
+) {
+    let pid = std::process::id();
+    let start = hydra::procinfo::start_time(pid).unwrap().unwrap();
+    let ts = started.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let mut text = json!({
+        "run_id": run_id,
+        "parent_run_id": null,
+        "seq": 0,
+        "ts": ts,
+        "provider": provider,
+        "model": model,
+        "secret_flag": null,
+        "hydra": {
+            "type": "run_start",
+            "schema_version": 1,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "stub",
+            "provider_session_id": null,
+            "task": "probe",
+            "policy": "standard",
+            "policy_sha": null,
+            "cwd": "/tmp",
+            "depth": 0,
+            "pid": pid,
+            "process_start_time": start.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            "subscription": "none",
+        },
+    })
+    .to_string();
+    text.push('\n');
+    std::fs::write(layout.run_file(run_id), text).unwrap();
+    append_frames(layout, run_id, provider, 1, frames);
+}
+
+fn append_frames(
+    layout: &Layout,
+    run_id: &str,
+    provider: &str,
+    first_seq: u64,
+    frames: &[serde_json::Value],
+) {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(layout.run_file(run_id))
+        .unwrap();
+    for (i, raw) in frames.iter().enumerate() {
+        let line = json!({
+            "model": null,
+            "parent_run_id": null,
+            "provider": provider,
+            "raw": raw,
+            "run_id": run_id,
+            "secret_flag": null,
+            "seq": first_seq + i as u64,
+            "ts": "2026-09-30T11:59:00.000Z",
+        });
+        writeln!(file, "{line}").unwrap();
+    }
+}
+
+/// An `agy` step that finished and reported `output` tokens.
+fn agy_step(index: u64, input: u64, output: u64, cache_read: u64) -> serde_json::Value {
+    json!({
+        "event": "step_update",
+        "step_update": {
+            "conversation_id": "c",
+            "state": "DONE",
+            "step_index": index,
+            "step_type": "agent_response",
+            "text_delta": "x",
+            "usage": {
+                "cache_read_tokens": cache_read,
+                "input_tokens": input,
+                "output_tokens": output,
+                "thinking_tokens": 0,
+                "total_tokens": input + output,
+            },
+        },
+    })
+}
+
+/// A scratch `vendors.json` and `aliases.json` in the shapes
+/// `integrations/puppets/` holds.
+fn write_vendors(layout: &Layout, agy_budget: Option<f64>) -> PathBuf {
+    let dir = layout.root().join("vendors");
+    std::fs::create_dir_all(&dir).unwrap();
+    let row = |provider: &str, model: Option<&str>, budget: Option<f64>| {
+        json!({
+            "provider": provider,
+            "model": model,
+            "as_of": null,
+            "source_url": null,
+            "context_tokens": null,
+            "thinking_levels": null,
+            "plan": null,
+            "windows": "7d",
+            "window_budget_tokens": budget,
+        })
+    };
+    let vendors = json!([
+        row("agy", Some("gemini-3.1-pro-high"), agy_budget),
+        row("agy", None, Some(1.0)),
+        row("claude", Some("opus"), Some(1000.0)),
+    ]);
+    let aliases = json!([{
+        "provider": "agy",
+        "recorded_model": "Gemini 3.1 Pro",
+        "canonical": {"provider": "agy", "model": "gemini-3.1-pro-high"},
+    }]);
+    std::fs::write(dir.join("vendors.json"), vendors.to_string()).unwrap();
+    std::fs::write(dir.join("aliases.json"), aliases.to_string()).unwrap();
+    dir
+}
+
+fn spend_reader(layout: &Layout, vendors: PathBuf) -> Reader {
+    Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.root().join("puppets"),
+        None,
+    )
+    .with_vendors(vendors)
+}
+
+fn spend_of<'a>(snapshot: &'a Snapshot, provider: &str) -> &'a Spend {
+    snapshot
+        .spend
+        .iter()
+        .find(|spend| spend.provider == provider)
+        .unwrap_or_else(|| panic!("no spend for {provider}: {:?}", snapshot.spend))
+}
+
+#[test]
+fn a_live_agy_run_counts_its_steps_before_it_ends() {
+    let layout = scratch("spend-agy");
+    let vendors = write_vendors(&layout, Some(4600.0));
+    let run = "01a0f001-0000-7000-8000-000000000001";
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        Some("Gemini 3.1 Pro"),
+        noon() - chrono::Duration::minutes(2),
+        &[agy_step(1, 100, 200, 50), agy_step(2, 10, 100, 0)],
+    );
+    let snapshot = spend_reader(&layout, vendors).read_at(None, noon());
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+
+    let agy = spend_of(&snapshot, "agy");
+    assert_eq!((agy.live, agy.counted), (1, 1));
+    assert_eq!(agy.output_tokens, 300);
+    // Started two minutes ago at zero: 300 tokens over two minutes.
+    assert_eq!(agy.tokens_per_minute, Some(150.0));
+    // sheet.py: (raw_input + output_tokens) / budget, with the model read
+    // through aliases.json. raw_input is 110 in and 50 read from cache.
+    assert_eq!(agy.window_share, Some((160.0 + 300.0) / 4600.0));
+    assert_eq!(spend_text(agy), "agy 150 tok/min, window 10.0%");
+    // Only a provider with a live run gets an entry.
+    assert_eq!(snapshot.spend.len(), 1);
+}
+
+#[test]
+fn a_provider_that_counts_at_the_end_says_so_rather_than_zero() {
+    let layout = scratch("spend-end");
+    let vendors = write_vendors(&layout, Some(4600.0));
+    let started = noon() - chrono::Duration::minutes(1);
+    // `claude` carries `message.usage` on its assistant frames, and the
+    // reader counts the `result` frame's, so a live run has none yet.
+    write_live_frames(
+        &layout,
+        "01a0f002-0000-7000-8000-000000000002",
+        "claude",
+        Some("opus"),
+        started,
+        &[json!({
+            "type": "assistant",
+            "message": {
+                "id": "msg_01",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "working"}],
+                "usage": {"input_tokens": 5, "output_tokens": 70},
+            },
+        })],
+    );
+    write_live_frames(
+        &layout,
+        "01a0f003-0000-7000-8000-000000000003",
+        "codex",
+        None,
+        started,
+        &[
+            json!({"type": "thread.started", "thread_id": "t"}),
+            json!({"type": "turn.started"}),
+            json!({"type": "item.completed", "item": {"id": "m1", "type": "agent_message", "text": "hi"}}),
+        ],
+    );
+    write_live_frames(
+        &layout,
+        "01a0f004-0000-7000-8000-000000000004",
+        "cursor-agent",
+        None,
+        started,
+        &[json!({
+            "type": "assistant",
+            "session_id": "s",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        })],
+    );
+    let snapshot = spend_reader(&layout, vendors).read_at(None, noon());
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+    assert_eq!(snapshot.spend.len(), 3, "{:?}", snapshot.spend);
+    for provider in ["claude", "codex", "cursor-agent"] {
+        let spend = spend_of(&snapshot, provider);
+        assert_eq!((spend.live, spend.counted), (1, 0), "{provider}");
+        assert_eq!(spend.tokens_per_minute, None, "{provider}");
+        assert_eq!(spend.window_share, None, "{provider}");
+        assert_eq!(
+            spend_text(spend),
+            format!("{provider} no count until a run ends")
+        );
+    }
+}
+
+#[test]
+fn tokens_per_minute_look_back_five_minutes_across_reads() {
+    let layout = scratch("spend-rate");
+    let vendors = write_vendors(&layout, None);
+    let run = "01a0f005-0000-7000-8000-000000000005";
+    // Started twenty minutes ago, so its start says nothing about the last
+    // five and the first read has one sample only.
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        Some("gemini-3.1-pro-high"),
+        noon() - chrono::Duration::minutes(20),
+        &[agy_step(1, 10, 100, 0)],
+    );
+    let mut reader = spend_reader(&layout, vendors);
+    let first = reader.read_at(None, noon());
+    assert_eq!(spend_of(&first, "agy").output_tokens, 100);
+    assert_eq!(spend_of(&first, "agy").tokens_per_minute, None);
+    assert_eq!(
+        spend_text(spend_of(&first, "agy")),
+        "agy - tok/min, window -"
+    );
+
+    append_frames(&layout, run, "agy", 2, &[agy_step(2, 10, 300, 0)]);
+    let second = reader.read_at(None, noon() + chrono::Duration::minutes(1));
+    assert_eq!(spend_of(&second, "agy").output_tokens, 400);
+    assert_eq!(spend_of(&second, "agy").tokens_per_minute, Some(300.0));
+
+    // Nothing more is written. Once the first two samples are more than five
+    // minutes old, the rate is over what is left, which did not move.
+    reader.read_at(None, noon() + chrono::Duration::minutes(4));
+    let later = reader.read_at(None, noon() + chrono::Duration::minutes(7));
+    assert_eq!(spend_of(&later, "agy").tokens_per_minute, Some(0.0));
+}
+
+#[test]
+fn a_null_budget_and_claude_show_a_dash_for_the_window() {
+    let layout = scratch("spend-dash");
+    let vendors = write_vendors(&layout, None);
+    write_live_frames(
+        &layout,
+        "01a0f006-0000-7000-8000-000000000006",
+        "agy",
+        Some("gemini-3.1-pro-high"),
+        noon() - chrono::Duration::minutes(1),
+        &[agy_step(1, 10, 60, 0)],
+    );
+    let snapshot = spend_reader(&layout, vendors).read_at(None, noon());
+    let agy = spend_of(&snapshot, "agy");
+    assert_eq!(agy.window_share, None);
+    assert_eq!(spend_text(agy), "agy 60 tok/min, window -");
+
+    // `claude` has a budget in the scratch file and still gets none: sheet.py
+    // measures its window by utilization, not token spend.
+    let claude = Spend {
+        provider: "claude".to_string(),
+        live: 2,
+        counted: 1,
+        output_tokens: 10,
+        tokens_per_minute: Some(10.0),
+        window_share: None,
+    };
+    assert_eq!(
+        spend_text(&claude),
+        "claude 10 tok/min, window - (1 of 2 runs counted)"
+    );
+}
+
+#[test]
+fn the_header_shows_the_counts_without_the_mascot() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    let mut snapshot = fixed_snapshot();
+    snapshot.spend = vec![
+        Spend {
+            provider: "agy".to_string(),
+            live: 1,
+            counted: 1,
+            output_tokens: 300,
+            tokens_per_minute: Some(150.0),
+            window_share: Some(0.1),
+        },
+        Spend {
+            provider: "claude".to_string(),
+            live: 1,
+            counted: 0,
+            output_tokens: 0,
+            tokens_per_minute: None,
+            window_share: None,
+        },
+    ];
+    app.set_snapshot(snapshot);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let top = row_of(&buf, 0);
+    assert!(top.contains("agy 150 tok/min, window 10.0%"), "{top}");
+    assert!(top.contains("claude no count until a run ends"), "{top}");
+    assert!(!screen_text(&buf).contains('$'), "no dollars");
+    // The panels start below it.
+    assert_eq!(app.hits.table.y, 1);
 }

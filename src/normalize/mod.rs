@@ -516,6 +516,34 @@ pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
     }
 }
 
+/// The usage a record carries so far, read by the adapter [`read_with`] would
+/// pick, for a record that may not have ended. Build ticket 172.
+///
+/// **Nothing is replayed.** The walk is the one `read_with` runs, and the gate
+/// replay that finishes a read is left out, because the cockpit asks this of
+/// every live record every tick and a replay is a process per tool call.
+///
+/// What comes back depends on where each provider puts its counts. `agy` sums
+/// them per step, so a live run has a running total. `claude` and
+/// `cursor-agent` report them on the `result` frame and `codex` on
+/// `turn.completed`, each the end of the run, so a live run of those three
+/// gets an `unavailable` usage until then. `None` for a provider with no
+/// adapter and for an interactive `claude` record, whose frames arrive with
+/// the harvest.
+pub fn usage_so_far(text: &str) -> Option<Usage> {
+    let provider = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find_map(|envelope| envelope["provider"].as_str().map(str::to_string));
+    match provider.as_deref() {
+        Some("cursor-agent") => cursor::usage_so_far(text),
+        Some("agy") => agy::usage_so_far(text),
+        Some("codex") => codex::usage_so_far(text),
+        Some("claude") => claude::usage_so_far(text),
+        _ => None,
+    }
+}
+
 /// **What line 0 says about the gate the run was compiled with.** Contract 5.1's
 /// `scopes` and `floor_lifted`, read the way every other line 0 field is read: by
 /// name, out of a `Value`, with absence meaning something. A record written
