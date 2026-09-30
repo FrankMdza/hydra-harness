@@ -1,7 +1,7 @@
 # 161 - BitNet as the second apprentice, measured on this machine
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 160
 
 ## What
@@ -43,3 +43,19 @@ in how much memory, and how does it score on the apprentice bank against the 1B 
   bank if Ollama and the binary run, or the reason one of them did not; the training page with
   sources.
 - Nothing under `src/` changes. The report starts with what could not be measured.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` sonnet on run 01a0f246-232e under `standard`. The session
+applied it as written. `integrations/apprentice/bitnet_serve.py` is a stdlib shim that answers
+`/api/generate` and `/v1/chat/completions` with one binary call per request, one request at a
+time; 5 tests against a stub binary. The README gained the measurements and the training page.
+
+What the ticket assumed that turned out false: the binary under `~/models/BitNet/build/bin` is
+mainline llama.cpp b9918, not the bitnet.cpp kernels. It reads the model as `Q1_0`, aborts on
+Metal (`Asserting on type 36`) and prints `@@@@` for every prompt on the CPU. So the 3.1 tokens a
+second, 1.52 GB peak and 9.4 s load are a floor for a broken run, and neither model has a score on
+the bank: BitNet's would measure the bug, and Ollama was not running for Gemma's. The shim has
+never talked to a working binary. Next step, before any score: rebuild through the checkout's
+`setup_env.py`. Training costs in the README are the run's own estimates (LoRA on the bf16 master
+weights, about 2.20 USD on a 3090); the 0.22 USD an hour is the ticket's figure, unchecked.

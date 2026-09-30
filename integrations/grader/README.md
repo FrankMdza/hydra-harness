@@ -95,6 +95,48 @@ slice: the fit slice's overall rate, and the fit slice's rate for each run's pro
 whether the model beats the second on log loss and on Brier. Most failures in the dataset are
 rate limits, so a model that only learned which provider is out of quota will not beat it.
 
+## The monitor
+
+`monitor.py` predicts the same two labels from a prefix of the run's record, plus the
+pre-launch features `baseline.py` already computes. It calls `baseline.py`'s readers
+for those fields, for the launch-time split and for the fit. It does not copy them.
+The prefix is the first `max(1, floor(fraction * lines))` lines of the record. The
+fractions are 0.1, 0.25 and 0.5. A record of ten lines is read as 1, 2 and 5 lines.
+
+The prefix features are fixed names: events so far, tool calls so far, refusals so
+far, the first refused tool, distinct tools, output tokens so far when a usage frame
+in the prefix carries them, seconds from the first line of the prefix to the last,
+and whether a `seat_request` line has appeared. Provider, model, policy and the first
+refused tool are one-hot categories, the way the baseline's vocabulary works. Output
+tokens are the latest usage report in the prefix, not a sum, and the printed feature
+is null when the prefix has none. A refusal is a hook `permissionDecision` of `deny`,
+or a tool result whose text carries Hydra's refusal voice (`hydra/`, other than
+`hydra/allow`). The echoed tool result after a hook is not a second refusal. Tool
+names are read from each provider's own frame: `claude` `tool_use`, `cursor-agent`
+`tool_call` on `started`, `agy` `step_type: tool`, `codex` `item.completed`.
+
+```
+python3 integrations/grader/monitor.py features RECORD --at 0.1|0.25|0.5
+python3 integrations/grader/monitor.py train DATASET [MODEL] --at FRACTION [--label outcome|verdict] [--test-from YYYY-MM-DD] [--records DIR]
+python3 integrations/grader/monitor.py score MODEL RECORD
+```
+
+`train` joins each dataset row to `<run_id>.jsonl` under `--records` (default
+`$HYDRA_ROOT/runs`). A row with no record is left out. It uses the same logistic
+regression, the same launch-time split and the same per-provider base rate as
+`baseline.py`, and it refuses on the same floor of 10 rows of the rarer class. With
+no `MODEL` it writes `$HYDRA_GRADER_HOME/models/monitor/monitor-<label>-<fraction>.json`.
+The report has the same shape as `baseline.py train`, including `rank_auc` on the
+model and on both bars.
+
+`score` prints `p` and the model version for one record, at the fraction stored on
+the model, and `events_read`, how many lines it used.
+
+`grader.py` scores every JSON file directly in `models/` with `baseline.predict`, which
+does not read a prefix. That is why the monitor's default is the `models/monitor/`
+subfolder: a monitor file moved up into `models/` would be scored as a pre-launch
+model. Nothing stops a run on this score yet. Stopping is a decision for the map.
+
 ## Scores
 
 Every collect that writes new or changed rows scores each of those runs with every model under
@@ -180,6 +222,7 @@ launchctl bootout gui/$(id -u)/co.hephaestuslab.hydra-grader && rm ~/Library/Lau
 |---|---|
 | `grader.py` | CLI, cursor, dataset writer, and scores on every collect |
 | `baseline.py` | The two classifiers, their report, and the verdict queue |
+| `monitor.py` | Prefix features, the same regression on a fraction of a record, and score |
 | `records.py` | Walk `runs/`, cache `hydra show`, and project usage |
 | `labels.py` | Fold Puppets goal logs into per-run labels |
 | `judge.py` | The local judge: `label` and `agree` |

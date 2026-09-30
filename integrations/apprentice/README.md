@@ -99,6 +99,71 @@ Refusals and final text are read from `claude`'s frame shape only, so the other 
 no task on them. `outcome` here is a plain reading of `run_end` and can differ from the
 projection `hydra show` derives.
 
+## BitNet as the second apprentice
+
+Build ticket 161. `bitnet_serve.py` puts the `bitnet.cpp` binary behind the same endpoint the
+apprentice already calls. It answers `/api/generate` with `{"response": ...}` and
+`/v1/chat/completions` in the OpenAI shape, runs one binary call per request, and serves one
+request at a time. It reads `BITNET_BIN`, `BITNET_MODEL` and `BITNET_THREADS`. It ignores Ollama's
+`format: "json"` field, because the binary has no such switch.
+
+```
+python3 integrations/apprentice/bitnet_serve.py --port 11435
+HYDRA_LOCAL_LLM_URL=http://127.0.0.1:11435/api/generate HYDRA_LOCAL_MODEL=bitnet-2b \
+  python3 integrations/apprentice/apprentice.py attempt
+```
+
+`attempt` skips a task when it already has an attempt under the same prompt sha, whatever the
+model. To score two models on one bank, give each its own `HYDRA_GRADER_HOME` with a copy of
+`bank.jsonl`, or the second model's pass writes nothing.
+
+**The binary under `~/models/BitNet/build/bin` does not work yet.** It is mainline llama.cpp
+b9918, not the bitnet.cpp kernels. It reports the file as `Q1_0`, crashes on the Metal backend
+(`Asserting on type 36`), and on the CPU (`-ngl 0`) generates `@@@@@@...` for every prompt. On
+2026-09-30, on the 8-core M2 with 8 GB and other agents running (load average about 7), three
+runs of a 200-token answer with 4 threads gave:
+
+| Measure | Runs | Median |
+|---|---|---|
+| Generation, tokens per second | 3.6, 2.6, 3.1 | 3.1 (`llama-bench` tg200: 3.20 +/- 0.25) |
+| Peak resident memory | 1.57, 1.50, 1.52 GB | 1.52 GB |
+| Load time, model to first token | 9.4, 9.8, 8.6 s | 9.4 s |
+
+The speed and memory are those of a run that emits garbage, so treat them as a floor until the
+binary is rebuilt with `setup_env.py` from the BitNet checkout. A score of that model on the bank
+would only measure the bug, so none is reported. The Gemma score was not taken either, because
+Ollama was not running.
+
+## What training BitNet would take
+
+Sources: the model card of `microsoft/bitnet-b1.58-2B-4T-bf16` on Hugging Face, and the README
+and `gpu/README.md` of `microsoft/BitNet`. Numbers marked "estimate" are mine.
+
+- **Which weights.** The model card says the bf16 repository "contains the master weights in BF16
+  format" and to "use this only for training or fine-tuning purposes". The ternary `i2_s` gguf
+  that runs here is the packed inference form and cannot be trained. Fine-tuning starts from bf16
+  and ends with a fresh conversion (`utils/convert-helper-bitnet.py`, README "Convert from
+  .safetensors checkpoints") back to gguf.
+- **Recipe.** The card names three stages for the released model: pre-training, supervised
+  fine-tuning on instruction and conversation data, and DPO on preference pairs. It gives no
+  hyperparameters and no GPU-hours. Our pairs from `pairs` fit the last stage. The ternary
+  quantization happens in the forward pass during training, which the card and the README do not
+  describe beyond pointing to the "Training Tips, Code, FAQ" PDF in `microsoft/unilm`. I did not
+  read that PDF.
+- **License.** MIT, per the card.
+- **Hardware, estimate.** bf16 weights of 2.4B parameters are 4.8 GB. Full fine-tuning with Adam
+  needs about 16 bytes a parameter, 38 GB, which does not fit a 24 GB 3090. LoRA on the bf16
+  weights fits.
+- **Cost, estimate.** Take 25 million tokens (50,000 examples of 500 tokens), 6ND for 2.4B
+  parameters, about 3.6e17 FLOPs, and a 3090 sustaining 10 TFLOPs. That is about 10 hours, about
+  2.20 USD at 0.22 USD an hour. Even at three times the time for a poor run it stays under 10 USD.
+  Research 77 costs a from-scratch pretrain at about 67,000 USD, and its cheapest A100 is
+  1.19 USD an hour and its cheapest H100 1.99. The ticket names research 85 for prices, but that
+  file is about the cockpit and holds none. The 0.22 USD figure comes from the ticket text and I
+  did not check it.
+- **Blocker.** The pairs do not exist yet: nothing trains on them until a panel has graded open
+  answers, and the bank scores need a working binary first.
+
 ## The nightly job
 
 `launchd/co.hephaestuslab.hydra-apprentice.plist` runs `attempt --minutes 30` at 04:00 local and

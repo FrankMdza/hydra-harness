@@ -1,7 +1,7 @@
 # 162 - A monitor on the prefix of a trace
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -37,3 +37,27 @@ rows, each shown failing before the change. Stdlib only, like `baseline.py`.
   the worktree has it, else `python3`.
 - The report gives the commands for the real home and says what it could not measure (the real
   AUC at each fraction, which needs the real dataset).
+
+## Outcome
+
+Resolved 2026-09-30. Built by `cursor-agent` grok-4.7-high on run 01a0f246-5ec9 under `standard`.
+`integrations/grader/monitor.py` (`features`, `train`, `score`) reads the first 0.1, 0.25 or 0.5
+of a record and reuses `baseline.py`'s fit, split and bars; 6 tests on synthetic records and the
+committed claude fixture. The session changed one thing: the default model path is now
+`models/monitor/`, because `grader.py` scores every `models/*.json` with `baseline.predict` and
+would have scored a monitor file as a pre-launch model. The grader suite passes, 93 tests.
+
+The run could not read `~/hydra`, so the session measured on the real dataset, test from
+2026-09-23:
+
+| Label | Test rows (positive) | 0.1 | 0.25 | 0.5 | Provider and model bar |
+|---|---|---|---|---|---|
+| outcome | 273 (29) | 0.861 | 0.873 | 0.885 | 0.714 |
+| verdict | 48 (37) | 0.686 | 0.563 | 0.668 | 0.652 |
+
+`beats_provider_model_base` is true on log loss and Brier in all six. The outcome gain is real
+but partly cheap: a rate limit or a gate refusal shows in the first lines, and the tenth of the
+record already carries most of it. The verdict model has 11 negatives in its test slice, so its
+numbers move with a handful of runs; it waits for Frank's labels (plan step 1.3). Nothing stops a
+run on the score; that stays a decision for the map. The six models sit in
+`grader/models/monitor/`.
