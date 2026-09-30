@@ -147,6 +147,14 @@ def repeats(raws: list[dict], provider: str = "claude") -> tuple[int, int]:
 
 
 class RepeatTests(unittest.TestCase):
+    def test_cursor_call_ids_inside_the_args_do_not_break_a_repeat(self):
+        def search(n):
+            return {"type": "tool_call", "subtype": "started", "call_id": f"c{n}",
+                    "tool_call": {"webSearchToolCall": {"args": {"searchTerm": "hydra",
+                                                                 "toolCallId": f"c{n}"}}}}
+        raws = [search(1), search(2)] + [{"type": "result"}] * 2
+        self.assertEqual(repeats(raws, "cursor-agent"), (1, 2))
+
     def test_claude_counts_a_call_seen_again_and_the_longest_streak(self):
         raws = [claude_use(1, "Read", path="a"), claude_use(2, "Read", path="b"),
                 claude_use(3, "Read", path="a"), claude_use(4, "Read", path="a")]

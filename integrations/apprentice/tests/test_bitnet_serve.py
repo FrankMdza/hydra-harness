@@ -102,6 +102,11 @@ class ShimTests(unittest.TestCase):
     def test_extract_passes_plain_output_through(self):
         self.assertEqual(shim.extract("just text\n", "prompt"), "just text")
 
+    def test_extract_keeps_a_reply_that_quotes_the_prompt(self):
+        # Found by review on 2026-09-30: the old cut took the last occurrence of the prompt.
+        self.assertEqual(shim.extract("The answer is hello world.\n", "hello"),
+                         "The answer is hello world.")
+
 
 if __name__ == "__main__":
     unittest.main()

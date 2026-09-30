@@ -139,7 +139,12 @@ def cursor_name(tool_call: dict) -> str | None:
 def cursor_args(tool_call: dict):
     for key, value in tool_call.items():
         if key.endswith("ToolCall") and isinstance(value, dict):
-            return value.get("args")
+            args = value.get("args")
+            # The call id rides inside the args and differs on every call, so a repeat
+            # would never match on it.
+            if isinstance(args, dict):
+                args = {k: v for k, v in args.items() if k != "toolCallId"}
+            return args
     return None
 
 

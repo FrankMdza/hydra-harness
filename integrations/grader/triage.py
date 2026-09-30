@@ -59,12 +59,17 @@ def last_refusal(lines):
     tool call came after it."""
     walk = monitor.Prefix()
     found, last = None, False
+
+    def open_calls():
+        return len(walk.pending) + len(walk.anon)
+
     for line in lines:
-        refusals, calls = walk.refusals, walk.tool_calls
+        refusals, calls, opened = walk.refusals, walk.tool_calls, open_calls()
         walk.observe(line)
         if walk.refusals > refusals:
             found, last = line, True
-        elif walk.tool_calls > calls:
+        elif walk.tool_calls > calls or open_calls() < opened:
+            # A new call, or a call that closed without a refusal, comes after it.
             last = False
     return found, last
 
@@ -135,7 +140,8 @@ def run_triage(home: Path, runs: Path):
 
     out = []
     for row in rows:
-        if row.get("outcome") == "completed":
+        # A live run has no outcome yet; triage waits for it.
+        if row.get("outcome") in ("completed", None):
             continue
         run_id = row["run_id"]
         run_file = runs / f"{run_id}.jsonl"
@@ -173,11 +179,11 @@ def table(home: Path):
         by_provider_cause[pc] = by_provider_cause.get(pc, 0) + 1
 
     print("Outcome and cause:")
-    for (o, c), count in sorted(by_outcome_cause.items()):
+    for (o, c), count in sorted(by_outcome_cause.items(), key=lambda kv: tuple(map(str, kv[0]))):
         print(f"{o} {c}: {count}")
 
     print("\nProvider and cause:")
-    for (p, c), count in sorted(by_provider_cause.items()):
+    for (p, c), count in sorted(by_provider_cause.items(), key=lambda kv: tuple(map(str, kv[0]))):
         print(f"{p} {c}: {count}")
 
 def sample(home: Path, n: int, seed: str):

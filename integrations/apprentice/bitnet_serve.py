@@ -50,9 +50,12 @@ def extract(stdout: str, prompt: str) -> str:
     A binary that prints only the reply, with neither echo nor stats, passes through unchanged.
     """
     text = ANSI.sub("", stdout)
-    at = text.rfind(prompt.strip())
-    if at != -1:
-        text = text[at + len(prompt.strip()):]
+    # Only llama-cli's own echo line, "> " and the prompt, is cut. A reply that merely
+    # quotes the prompt stays whole.
+    echo = "> " + prompt.strip()
+    at = text.rfind(echo)
+    if at != -1 and (at == 0 or text[at - 1] == "\n"):
+        text = text[at + len(echo):]
     return STATS.sub("", text).strip()
 
 

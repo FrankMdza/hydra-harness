@@ -83,6 +83,28 @@ class TriageTests(unittest.TestCase):
         res = self.run_triage()
         self.assertEqual(res[0]["cause"], "gate")
 
+    def test_a_successful_result_after_the_refusal_is_not_gate(self):
+        # Found by review on 2026-09-30: a denied call, then a call that succeeded.
+        self.record("r1", [
+            {"raw": {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "a", "name": "Bash", "input": {}},
+                {"type": "tool_use", "id": "b", "name": "Read", "input": {}},
+            ]}}, "ts": "2026-09-24T00:00:00Z"},
+            {"raw": {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "a", "is_error": True,
+                 "content": "hydra/capability: no"},
+            ]}}, "ts": "2026-09-24T00:00:01Z"},
+            {"raw": {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "b", "content": "ok"},
+            ]}}, "ts": "2026-09-24T00:00:02Z"},
+            {"hydra": {"type": "run_end", "exit_code": 1}, "ts": "2026-09-24T00:00:03Z"},
+        ])
+        self.assertEqual(self.run_triage()[0]["cause"], "unknown")
+
+    def test_a_live_run_with_no_outcome_is_left_out(self):
+        self.record("r1", [{"hydra": {"type": "run_start"}}], outcome=None)
+        self.assertEqual(self.run_triage(), [])
+
     def test_provider_crash_no_run_end(self):
         self.record("r1", [{"hydra": {"type": "run_start"}}, {"raw": {"type": "message"}}])
         res = self.run_triage()
