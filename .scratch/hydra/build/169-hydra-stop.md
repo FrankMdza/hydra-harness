@@ -1,8 +1,8 @@
 # 169 - hydra stop
 
 Type: build
-Status: claimed
-Blocked by:
+Status: open
+Blocked by: map 89
 
 ## What
 
@@ -53,3 +53,11 @@ not live is refused; a prefix that names two runs is refused.
 - The check above is in the report, whichever way it went.
 - If built: each test failed before the change; fmt, clippy, `cargo test --lib` and the test
   files you touched pass.
+
+## Outcome so far
+
+2026-09-30, run 01a0f2cc-004a (`claude` opus): stopped at the check, as asked. The stop note fits
+`run_end.error`, but no outcome of contract 8 means a human stop: today it would derive `crashed`
+(which rung one learns from) or `failed` (which contract 8.6 rejects for an interrupted pass).
+Map ticket 89 decides the outcome; this ticket waits for it and is otherwise unchanged.
+
