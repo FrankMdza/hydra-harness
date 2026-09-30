@@ -3365,3 +3365,270 @@ fn a_step_approved_here_stays_out_of_the_lane_until_pending_is_read_again() {
     });
     assert_eq!(labels(&app), ["g2 plan", "g2 launch a"]);
 }
+
+// --- a kanban by agent, build ticket 191 -------------------------------------
+
+/// The middle column of the last draw, row by row: between the table and the detail.
+fn middle_column(app: &App, buf: &Buffer) -> Vec<String> {
+    let (from, to) = (app.hits.table.right(), app.hits.detail.x);
+    (0..buf.area.height)
+        .map(|y| (from..to).map(|x| buf[(x, y)].symbol()).collect())
+        .collect()
+}
+
+/// The row of the middle column holding `needle`, and its text.
+fn column_row(app: &App, buf: &Buffer, needle: &str) -> (u16, String) {
+    let column = middle_column(app, buf);
+    let y = column
+        .iter()
+        .position(|row| row.contains(needle))
+        .unwrap_or_else(|| panic!("no {needle:?} in the column:\n{}", column.join("\n")));
+    (y as u16, column[y].clone())
+}
+
+/// The screen drawn into a buffer of its own, as the terminal draws a frame.
+fn fresh_draw(app: &mut App) -> Buffer {
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    buf
+}
+
+/// The status row drawn 300 columns wide.
+fn status_row(app: &mut App) -> String {
+    let area = Rect { width: 300, ..AREA };
+    let mut buf = Buffer::empty(area);
+    app.draw(area, &mut buf);
+    row_of(&buf, area.height - 1)
+}
+
+const AGENT_LOG: &str = r#"{"event": "goal", "text": "the kanban by agent", "repo": "/r", "base_sha": "abc"}
+{"event": "task", "id": "t7", "text": "x", "class": "docs", "grade": "low", "deps": [], "paths": []}
+{"event": "run", "task": "t7", "attempt": 1, "run_id": "01a0e002-0000-7000-8000-000000000002"}
+"#;
+
+/// Six runs of five providers, one of them no provider Hydra routes, newest
+/// first, and the task table naming the codex run.
+fn agents_snapshot() -> Snapshot {
+    let on = |card: Card, model: &str| Card {
+        model: Some(model.to_string()),
+        ..card
+    };
+    Snapshot {
+        goal: Some(goal::fold("g7", AGENT_LOG.as_bytes())),
+        goal_named: true,
+        cards: vec![
+            on(
+                card(
+                    "01a0e001-0000-7000-8000-000000000001",
+                    "claude",
+                    State::Live,
+                    None,
+                ),
+                "opus",
+            ),
+            on(
+                card(
+                    "01a0e002-0000-7000-8000-000000000002",
+                    "codex",
+                    State::Ended,
+                    Some("completed"),
+                ),
+                "gpt-5.5",
+            ),
+            card(
+                "01a0e003-0000-7000-8000-000000000003",
+                "zeta",
+                State::Ended,
+                Some("failed"),
+            ),
+            on(
+                card(
+                    "01a0e004-0000-7000-8000-000000000004",
+                    "agy",
+                    State::Ended,
+                    Some("gated"),
+                ),
+                "gemini",
+            ),
+            card(
+                "01a0e005-0000-7000-8000-000000000005",
+                "cursor-agent",
+                State::Live,
+                None,
+            ),
+            card(
+                "01a0e006-0000-7000-8000-000000000006",
+                "claude",
+                State::Ended,
+                Some("completed"),
+            ),
+        ],
+        requests: vec![request()],
+        read: true,
+        ..Snapshot::default()
+    }
+}
+
+#[test]
+fn k_turns_the_lanes_into_one_per_agent_in_a_fixed_order_and_back() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(agents_snapshot());
+    let mut buf = fresh_draw(&mut app);
+    let column = middle_column(&app, &buf).join("\n");
+    assert!(column.contains("by state"), "{column}");
+    // The key hint is cut at 160 columns already, so it is read wider.
+    let status = status_row(&mut app);
+    assert!(status.contains("k lanes by agent"), "{status}");
+
+    app.handle(&key(KeyCode::Char('k')));
+    let status = status_row(&mut app);
+    assert!(status.contains("k lanes by state"), "{status}");
+    buf = fresh_draw(&mut app);
+    let column = middle_column(&app, &buf).join("\n");
+    assert!(column.contains("by agent"), "{column}");
+    assert!(!column.contains("ended ok"), "{column}");
+    // Hydra's four in their order, then any other, then the waiting items.
+    let titles = [
+        " claude 2 ",
+        " cursor-agent 1 ",
+        " agy 1 ",
+        " codex 1 ",
+        " zeta 1 ",
+        " waiting approval 1 ",
+    ];
+    let rows: Vec<u16> = titles
+        .iter()
+        .map(|title| column_row(&app, &buf, title).0)
+        .collect();
+    assert!(rows.windows(2).all(|w| w[0] < w[1]), "{rows:?}\n{column}");
+
+    // A card: short id, model, state or outcome, and the task that names it.
+    let (_, codex) = column_row(&app, &buf, "01a0e002");
+    assert!(codex.contains("01a0e002 gpt-5.5 completed t7"), "{codex}");
+    let (_, claude) = column_row(&app, &buf, "01a0e001");
+    assert!(claude.contains("01a0e001 opus live"), "{claude}");
+    let (_, zeta) = column_row(&app, &buf, "01a0e003");
+    assert!(zeta.contains("01a0e003 - failed"), "{zeta}");
+
+    app.handle(&key(KeyCode::Char('k')));
+    buf = fresh_draw(&mut app);
+    let column = middle_column(&app, &buf).join("\n");
+    assert!(column.contains(" ended ok 2 "), "{column}");
+    assert!(column.contains("by state"), "{column}");
+}
+
+#[test]
+fn with_a_session_the_agent_lanes_show_only_it_and_its_seats() {
+    let mut app = App::new(scratch("agents-session"), false, Duration::from_secs(2));
+    let mut cards = session_cards(2);
+    cards.push(card(
+        "01a0f00d-0000-7000-8000-00000000f00d",
+        "agy",
+        State::Ended,
+        Some("completed"),
+    ));
+    app.set_snapshot(snapshot_of(cards, vec![]));
+    app.handle(&key(KeyCode::Char('k')));
+    let mut buf = fresh_draw(&mut app);
+    let column = middle_column(&app, &buf).join("\n");
+    assert!(column.contains("run-live"), "{column}");
+    assert!(column.contains(" agy 1 "), "{column}");
+
+    // As the dragon counts them: the session and the runs it launched.
+    app.watch(WATCHED);
+    buf = fresh_draw(&mut app);
+    let column = middle_column(&app, &buf).join("\n");
+    assert!(column.contains(" claude 1 "), "{column}");
+    assert!(column.contains(" codex 2 "), "{column}");
+    assert!(column.contains("01a0aaaa"), "{column}");
+    assert!(
+        column.contains("seat-0") && column.contains("seat-1"),
+        "{column}"
+    );
+    assert!(!column.contains("run-live"), "{column}");
+    assert!(!column.contains(" agy "), "{column}");
+
+    // The lanes by state still show every run.
+    app.handle(&key(KeyCode::Char('k')));
+    buf = fresh_draw(&mut app);
+    let column = middle_column(&app, &buf).join("\n");
+    assert!(column.contains("run-live"), "{column}");
+}
+
+#[test]
+fn the_same_card_opens_stops_and_answers_from_the_agent_lanes() {
+    let layout = scratch("agents-act");
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    let mut snapshot = agents_snapshot();
+    snapshot.cards.push(seat(SEAT, WATCHED, State::Live, None));
+    app.set_snapshot(snapshot);
+    let mut buf = fresh_draw(&mut app);
+    let x = app.hits.table.right() + 4;
+
+    // A card selected by state is still selected by agent.
+    let (y, _) = column_row(&app, &buf, "01a0e002");
+    app.handle(&click(x, y));
+    app.handle(&key(KeyCode::Esc));
+    app.handle(&key(KeyCode::Char('k')));
+    app.handle(&key(KeyCode::Enter));
+    assert_eq!(
+        app.opened,
+        Some(Opened::Run(
+            "01a0e002-0000-7000-8000-000000000002".to_string()
+        ))
+    );
+
+    // Down walks the codex lane, and m asks about the live seat in it.
+    app.handle(&key(KeyCode::Down));
+    app.handle(&key(KeyCode::Enter));
+    assert_eq!(app.opened, Some(Opened::Run(SEAT.to_string())));
+    buf = fresh_draw(&mut app);
+    let detail = screen_text(&buf);
+    assert!(detail.contains(&format!("run {SEAT}")), "{detail}");
+    app.handle(&key(KeyCode::Char('m')));
+    let text = drawn_app(&mut app);
+    assert!(text.contains("stop 01a0bbbb? y"), "{text}");
+    app.handle(&key(KeyCode::Char('n')));
+    assert!(!layout.stop_marker(SEAT).exists());
+
+    // A click on a card in another agent's lane opens it.
+    buf = fresh_draw(&mut app);
+    let (y, _) = column_row(&app, &buf, "01a0e004");
+    assert_eq!(app.handle(&click(x, y)), Effect::Refresh);
+    assert_eq!(
+        app.opened,
+        Some(Opened::Run(
+            "01a0e004-0000-7000-8000-000000000004".to_string()
+        ))
+    );
+
+    // The waiting request is in the last lane, and a and d answer it.
+    let (y, _) = column_row(&app, &buf, &REQUEST[..8]);
+    app.handle(&click(x, y));
+    assert_eq!(app.opened, Some(Opened::Request(REQUEST.to_string())));
+    assert_eq!(app.focus, Focus::Lane(Lane::Waiting));
+    app.handle(&key(KeyCode::Char('a')));
+    assert!(app.confirming.is_some() && !app.denying);
+    app.handle(&key(KeyCode::Char('n')));
+    app.handle(&key(KeyCode::Char('d')));
+    assert!(app.confirming.is_some() && app.denying);
+    app.handle(&key(KeyCode::Char('n')));
+
+    // Tab goes from the last lane to the detail, and back through each agent's.
+    app.handle(&key(KeyCode::Tab));
+    assert_eq!(app.focus, Focus::Detail);
+    for _ in 0..6 {
+        app.handle(&key(KeyCode::BackTab));
+    }
+    app.handle(&key(KeyCode::Enter));
+    assert_eq!(
+        app.opened,
+        Some(Opened::Run(
+            "01a0e001-0000-7000-8000-000000000001".to_string()
+        ))
+    );
+}

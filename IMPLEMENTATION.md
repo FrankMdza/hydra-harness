@@ -3261,6 +3261,21 @@ outcome, an abandoned run and a record that would not read back. `waiting approv
 model, policy, state, outcome, total tokens, `result_text` and its last fifteen tool calls, or
 with `r` the last twenty record lines.
 
+**Lanes by agent, build ticket 191.** `k` swaps the four lanes for one lane per provider with a
+run in the snapshot, `claude`, `cursor-agent`, `agy` and `codex` in that order and any other after
+them by name, and `k` again brings the four back. Whether this view replaces the one by state is
+not decided, so both stay and the one by state is the default. A card in an agent's lane reads
+short id, model, state or outcome, and the task id when the goal table names the run. The
+waiting approval lane is the last lane in both views, so its requests and steps stay reachable.
+Once the chat has named its session, the lanes by agent show only that run and the runs whose
+parent it is, the runs the dragon counts; the lanes by state still show every run, and the
+waiting lane is not filtered, since a request from another session still waits on the human. A
+selected run stays selected across `k`, in the lane the other view puts it in, and `Enter`, a
+click, the detail, `m`, `a` and `d` act the same from either view; `m` still refuses a run that
+is not live. The view's name sits on the middle column's top border, and the status line names
+`k`. `tests/cockpit.rs` checks the order, a card's text, the session filter, and the same card
+opened, stopped and answered from the lanes by agent, on synthetic snapshots with no terminal.
+
 **Tool calls, build ticket 178.** Each row is the tool's name, what the call's result said, and
 one argument cut to the pane: the first of `command`, `cmd`, `file_path`, `path`,
 `notebook_path`, `pattern`, `query`, `searchTerm`, `url`, `description` and `prompt` the call

@@ -5,6 +5,7 @@
 //! click can land on is kept from the last draw in [`Hits`], and a click is a
 //! `Rect::contains` over those.
 
+use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -25,35 +26,27 @@ use super::goal::{Goal, TaskRow};
 use super::mascot::Mascot;
 use super::snapshot::{CallLine, Card, Lane, Snapshot, Step, spend_text};
 use crate::approve::Pending;
+use crate::live::State;
 use crate::paths::Layout;
 
 /// Which panel has the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Focus {
     Table,
+    /// A lane by state. With the lanes by agent only `Lane::Waiting` is drawn.
     Lane(Lane),
+    /// With the lanes by agent, the lane of the agent at this place in
+    /// [`App::agents`]. Build ticket 191.
+    Agent(usize),
     Detail,
 }
 
-impl Focus {
-    const ORDER: [Focus; 6] = [
-        Focus::Table,
-        Focus::Lane(Lane::Live),
-        Focus::Lane(Lane::Waiting),
-        Focus::Lane(Lane::EndedOk),
-        Focus::Lane(Lane::EndedNotOk),
-        Focus::Detail,
-    ];
+/// The agents whose lanes come first, in this order; any other follows by name.
+const AGENT_ORDER: [&str; 4] = ["claude", "cursor-agent", "agy", "codex"];
 
-    fn step(self, forward: bool) -> Focus {
-        let at = Self::ORDER.iter().position(|f| *f == self).unwrap_or(0);
-        let len = Self::ORDER.len();
-        Self::ORDER[if forward {
-            (at + 1) % len
-        } else {
-            (at + len - 1) % len
-        }]
-    }
+/// The agent a card goes under: its provider, or `?` for a record without one.
+fn agent_of(card: &Card) -> &str {
+    card.provider.as_deref().unwrap_or("?")
 }
 
 /// What the detail panel has open.
@@ -93,8 +86,10 @@ pub struct Hits {
     /// A drawn table row and the index of the task it shows.
     pub table_rows: Vec<(Rect, usize)>,
     pub lanes: [Rect; 4],
-    /// A drawn card, its lane, and its index in that lane.
-    pub cards: Vec<(Rect, Lane, usize)>,
+    /// With the lanes by agent, each agent's lane in [`App::agents`] order.
+    pub agent_lanes: Vec<Rect>,
+    /// A drawn card, the lane it is in, and its index in that lane.
+    pub cards: Vec<(Rect, Focus, usize)>,
     pub detail: Rect,
     /// The policy pane, while it is up, how many runs it had rows for, and
     /// the offset of its last page.
@@ -145,6 +140,13 @@ pub struct App {
     pub lane_selected: [usize; 4],
     table_offset: usize,
     lane_offset: [usize; 4],
+    /// Whether the middle column has a lane per agent rather than the four by
+    /// state. `k` flips it, build ticket 191.
+    pub by_agent: bool,
+    /// The selection and first drawn card of each agent's lane, by agent, so
+    /// an agent whose lane moves keeps them.
+    agent_selected: HashMap<String, usize>,
+    agent_offset: HashMap<String, usize>,
     detail_scroll: u16,
     /// Whether the detail shows the raw record lines rather than the tool
     /// calls. `r` flips it, build ticket 178.
@@ -219,6 +221,9 @@ impl App {
             lane_selected: [0; 4],
             table_offset: 0,
             lane_offset: [0; 4],
+            by_agent: false,
+            agent_selected: HashMap::new(),
+            agent_offset: HashMap::new(),
             detail_scroll: 0,
             raw_tail: false,
             opened: None,
@@ -299,7 +304,9 @@ impl App {
     /// watches it and `m` stops only its seats.
     pub fn watch(&mut self, run_id: &str) {
         if self.session.as_deref() != Some(run_id) {
+            let focused = self.agent_at(self.focus);
             self.session = Some(run_id.to_string());
+            self.refocus_agent(focused);
         }
         if let Some(mascot) = &mut self.mascot {
             mascot.watch(run_id);
@@ -320,7 +327,9 @@ impl App {
         if let Some(mascot) = &mut self.mascot {
             mascot.observe(&snapshot);
         }
+        let focused = self.agent_at(self.focus);
         self.snapshot = snapshot;
+        self.refocus_agent(focused);
         let live: Vec<&str> = self
             .cards_in(Lane::Live)
             .map(|card| card.run_id.as_str())
@@ -338,6 +347,15 @@ impl App {
             let i = lane.index();
             self.lane_selected[i] =
                 self.lane_selected[i].min(self.lane_len(lane).saturating_sub(1));
+        }
+        let agents = self.agents();
+        self.agent_selected
+            .retain(|agent, _| agents.contains(agent));
+        for agent in &agents {
+            let len = self.cards_of(agent).count();
+            if let Some(selected) = self.agent_selected.get_mut(agent) {
+                *selected = (*selected).min(len.saturating_sub(1));
+            }
         }
     }
 
@@ -391,10 +409,149 @@ impl App {
             .collect()
     }
 
-    /// What `Enter` would open in `lane` at `index`.
-    fn item(&self, lane: Lane, index: usize) -> Option<Opened> {
-        match lane {
-            Lane::Waiting => match self.snapshot.requests.get(index) {
+    /// The runs the lanes by agent show. With a session named, only it and
+    /// the runs it launched, the ones the dragon counts; otherwise every run.
+    fn agent_cards(&self) -> impl Iterator<Item = &Card> {
+        let session = self.session.as_deref();
+        self.snapshot.cards.iter().filter(move |card| {
+            session.is_none_or(|session| {
+                card.run_id == session || card.parent_run_id.as_deref() == Some(session)
+            })
+        })
+    }
+
+    /// The agents with a lane by agent, in the order drawn: [`AGENT_ORDER`],
+    /// then any other by name.
+    pub fn agents(&self) -> Vec<String> {
+        let mut agents: Vec<&str> = self.agent_cards().map(agent_of).collect();
+        agents.sort_by_key(|agent| {
+            let at = AGENT_ORDER.iter().position(|known| known == agent);
+            (at.unwrap_or(AGENT_ORDER.len()), *agent)
+        });
+        agents.dedup();
+        agents.into_iter().map(str::to_string).collect()
+    }
+
+    fn cards_of<'a>(&'a self, agent: &'a str) -> impl Iterator<Item = &'a Card> {
+        self.agent_cards()
+            .filter(move |card| agent_of(card) == agent)
+    }
+
+    /// The agent whose lane `focus` is, while the snapshot still has one there.
+    fn agent_at(&self, focus: Focus) -> Option<String> {
+        match focus {
+            Focus::Agent(i) => self.agents().into_iter().nth(i),
+            _ => None,
+        }
+    }
+
+    /// Puts the keyboard back on `agent`'s lane after the lanes moved, or on
+    /// the waiting lane when `agent` has none left.
+    fn refocus_agent(&mut self, agent: Option<String>) {
+        let Some(agent) = agent else {
+            return;
+        };
+        self.focus = match self.agents().iter().position(|a| *a == agent) {
+            Some(i) => Focus::Agent(i),
+            None => Focus::Lane(Lane::Waiting),
+        };
+    }
+
+    /// The panels `Tab` visits, in order.
+    fn order(&self) -> Vec<Focus> {
+        let mut order = vec![Focus::Table];
+        if self.by_agent {
+            order.extend((0..self.agents().len()).map(Focus::Agent));
+            order.push(Focus::Lane(Lane::Waiting));
+        } else {
+            order.extend(Lane::ALL.map(Focus::Lane));
+        }
+        order.push(Focus::Detail);
+        order
+    }
+
+    fn step_focus(&mut self, forward: bool) {
+        let order = self.order();
+        let at = order.iter().position(|f| *f == self.focus).unwrap_or(0);
+        let len = order.len();
+        self.focus = order[if forward {
+            (at + 1) % len
+        } else {
+            (at + len - 1) % len
+        }];
+    }
+
+    /// How many items the lane `focus` holds.
+    fn len_of(&self, focus: Focus) -> usize {
+        match focus {
+            Focus::Lane(lane) => self.lane_len(lane),
+            Focus::Agent(_) => self
+                .agent_at(focus)
+                .map_or(0, |agent| self.cards_of(&agent).count()),
+            _ => 0,
+        }
+    }
+
+    /// Where the lane `focus` was last drawn.
+    fn rect_of(&self, focus: Focus) -> Rect {
+        match focus {
+            Focus::Lane(lane) => self.hits.lanes[lane.index()],
+            Focus::Agent(i) => self.hits.agent_lanes.get(i).copied().unwrap_or_default(),
+            _ => Rect::default(),
+        }
+    }
+
+    fn selected(&self, focus: Focus) -> usize {
+        match focus {
+            Focus::Lane(lane) => self.lane_selected[lane.index()],
+            Focus::Agent(_) => self
+                .agent_at(focus)
+                .and_then(|agent| self.agent_selected.get(&agent).copied())
+                .unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    fn set_selected(&mut self, focus: Focus, index: usize) {
+        match focus {
+            Focus::Lane(lane) => self.lane_selected[lane.index()] = index,
+            Focus::Agent(_) => {
+                if let Some(agent) = self.agent_at(focus) {
+                    self.agent_selected.insert(agent, index);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn offset(&self, focus: Focus) -> usize {
+        match focus {
+            Focus::Lane(lane) => self.lane_offset[lane.index()],
+            Focus::Agent(_) => self
+                .agent_at(focus)
+                .and_then(|agent| self.agent_offset.get(&agent).copied())
+                .unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    fn set_offset(&mut self, focus: Focus, offset: usize) {
+        match focus {
+            Focus::Lane(lane) => self.lane_offset[lane.index()] = offset,
+            Focus::Agent(_) => {
+                if let Some(agent) = self.agent_at(focus) {
+                    self.agent_offset.insert(agent, offset);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// What `Enter` would open in the lane `focus` at `index`.
+    fn item(&self, focus: Focus, index: usize) -> Option<Opened> {
+        let run = |card: &Card| Opened::Run(card.run_id.clone());
+        match focus {
+            Focus::Lane(Lane::Waiting) => match self.snapshot.requests.get(index) {
                 Some(request) => Some(Opened::Request(request.request_id.clone())),
                 None => self
                     .snapshot
@@ -402,11 +559,64 @@ impl App {
                     .get(index - self.snapshot.requests.len())
                     .map(|step| Opened::Step(step.label())),
             },
-            _ => self
-                .cards_in(lane)
-                .nth(index)
-                .map(|card| Opened::Run(card.run_id.clone())),
+            Focus::Lane(lane) => self.cards_in(lane).nth(index).map(run),
+            Focus::Agent(_) => {
+                let agent = self.agent_at(focus)?;
+                self.cards_of(&agent).nth(index).map(run)
+            }
+            Focus::Table | Focus::Detail => None,
         }
+    }
+
+    /// The run selected in the lane that has the keyboard, in either view.
+    fn selected_card(&self) -> Option<Card> {
+        match self.item(self.focus, self.selected(self.focus))? {
+            Opened::Run(id) => self
+                .snapshot
+                .cards
+                .iter()
+                .find(|card| card.run_id == id)
+                .cloned(),
+            _ => None,
+        }
+    }
+
+    /// `k`: flips the middle column between the lanes by state and a lane
+    /// per agent, build ticket 191. A selected run stays selected, in the
+    /// lane the other view puts it in; the waiting lane is in both.
+    fn toggle_lanes(&mut self) -> Effect {
+        let card = self.selected_card();
+        let in_lanes = matches!(self.focus, Focus::Lane(_) | Focus::Agent(_));
+        self.by_agent = !self.by_agent;
+        if !in_lanes || self.focus == Focus::Lane(Lane::Waiting) {
+            return Effect::None;
+        }
+        self.focus = match card.and_then(|card| self.focus_on(&card)) {
+            Some(focus) => focus,
+            None => self.order()[1],
+        };
+        Effect::None
+    }
+
+    /// Selects `card` in the lane the current view puts it in, and returns
+    /// that lane, or `None` when the view does not show it.
+    fn focus_on(&mut self, card: &Card) -> Option<Focus> {
+        let focus = if self.by_agent {
+            let agent = agent_of(card);
+            Focus::Agent(self.agents().iter().position(|a| a == agent)?)
+        } else {
+            Focus::Lane(card.lane())
+        };
+        let index = match focus {
+            Focus::Agent(_) => self
+                .cards_of(agent_of(card))
+                .position(|c| c.run_id == card.run_id)?,
+            _ => self
+                .cards_in(card.lane())
+                .position(|c| c.run_id == card.run_id)?,
+        };
+        self.set_selected(focus, index);
+        Some(focus)
     }
 
     // --- events ----------------------------------------------------------
@@ -485,11 +695,11 @@ impl App {
                 Effect::None
             }
             KeyCode::Tab | KeyCode::Right => {
-                self.focus = self.focus.step(true);
+                self.step_focus(true);
                 Effect::None
             }
             KeyCode::BackTab | KeyCode::Left => {
-                self.focus = self.focus.step(false);
+                self.step_focus(false);
                 Effect::None
             }
             KeyCode::Up => self.move_selection(false),
@@ -506,6 +716,7 @@ impl App {
             KeyCode::Char('d') => self.ask_to_answer(true),
             KeyCode::Char('v') => self.ask_to_review(),
             KeyCode::Char('m') => self.ask_to_stop(),
+            KeyCode::Char('k') => self.toggle_lanes(),
             KeyCode::Char('r') => {
                 self.raw_tail = !self.raw_tail;
                 Effect::None
@@ -581,11 +792,12 @@ impl App {
                 let rows = self.hits.table.height.saturating_sub(4) as usize;
                 self.table_offset = follow(self.table_selected, self.table_offset, rows);
             }
-            Focus::Lane(lane) => {
-                let i = lane.index();
-                self.lane_selected[i] = step(self.lane_selected[i], self.lane_len(lane));
-                let rows = self.hits.lanes[i].height.saturating_sub(2) as usize;
-                self.lane_offset[i] = follow(self.lane_selected[i], self.lane_offset[i], rows);
+            focus @ (Focus::Lane(_) | Focus::Agent(_)) => {
+                let selected = step(self.selected(focus), self.len_of(focus));
+                self.set_selected(focus, selected);
+                let rows = self.rect_of(focus).height.saturating_sub(2) as usize;
+                let offset = follow(selected, self.offset(focus), rows);
+                self.set_offset(focus, offset);
             }
             Focus::Detail => {
                 self.detail_scroll = if down {
@@ -607,7 +819,7 @@ impl App {
                 .and_then(|goal| goal.rows.get(self.table_selected))
                 .and_then(|row| row.run_id.clone())
                 .map(Opened::Run),
-            Focus::Lane(lane) => self.item(lane, self.lane_selected[lane.index()]),
+            focus @ (Focus::Lane(_) | Focus::Agent(_)) => self.item(focus, self.selected(focus)),
             Focus::Detail => return Effect::None,
         };
         match opened {
@@ -638,11 +850,11 @@ impl App {
             self.table_selected = *index;
             return Effect::None;
         }
-        if let Some((_, lane, index)) = self.hits.cards.iter().find(|(r, _, _)| r.contains(at)) {
-            let (lane, index) = (*lane, *index);
-            self.focus = Focus::Lane(lane);
-            self.lane_selected[lane.index()] = index;
-            return match self.item(lane, index) {
+        if let Some((_, focus, index)) = self.hits.cards.iter().find(|(r, _, _)| r.contains(at)) {
+            let (focus, index) = (*focus, *index);
+            self.focus = focus;
+            self.set_selected(focus, index);
+            return match self.item(focus, index) {
                 Some(opened) => self.open(opened),
                 None => Effect::None,
             };
@@ -677,11 +889,11 @@ impl App {
                 let max = self.table_len().saturating_sub(rows);
                 self.table_offset = nudge(self.table_offset, max);
             }
-            Some(Focus::Lane(lane)) => {
-                let i = lane.index();
-                let rows = self.hits.lanes[i].height.saturating_sub(2) as usize;
-                let max = self.lane_len(lane).saturating_sub(rows);
-                self.lane_offset[i] = nudge(self.lane_offset[i], max);
+            Some(focus @ (Focus::Lane(_) | Focus::Agent(_))) => {
+                let rows = self.rect_of(focus).height.saturating_sub(2) as usize;
+                let max = self.len_of(focus).saturating_sub(rows);
+                let offset = nudge(self.offset(focus), max);
+                self.set_offset(focus, offset);
             }
             Some(Focus::Detail) => {
                 self.detail_scroll = if down {
@@ -704,6 +916,9 @@ impl App {
                 return Some(Focus::Lane(lane));
             }
         }
+        if let Some(i) = self.hits.agent_lanes.iter().position(|r| r.contains(at)) {
+            return Some(Focus::Agent(i));
+        }
         self.hits.detail.contains(at).then_some(Focus::Detail)
     }
 
@@ -714,9 +929,7 @@ impl App {
     fn in_hand(&self) -> Option<InHand> {
         let opened = match (&self.opened, self.focus) {
             (Some(opened @ (Opened::Request(_) | Opened::Step(_))), _) => opened.clone(),
-            (_, Focus::Lane(Lane::Waiting)) => {
-                self.item(Lane::Waiting, self.lane_selected[Lane::Waiting.index()])?
-            }
+            (_, focus @ Focus::Lane(Lane::Waiting)) => self.item(focus, self.selected(focus))?,
             _ => return None,
         };
         match opened {
@@ -857,18 +1070,19 @@ impl App {
     // --- stepping in on a seat, build ticket 184 -------------------------------
 
     /// `m`: opens the confirmation that stops the seat selected in the live
-    /// lane. With a chat inside, a seat is a run the chat's session launched;
-    /// without one, any live run with a parent.
+    /// lane, or the live seat selected in an agent's. With a chat inside, a
+    /// seat is a run the chat's session launched; without one, any live run
+    /// with a parent.
     fn ask_to_stop(&mut self) -> Effect {
-        let card = match self.focus {
-            Focus::Lane(Lane::Live) => self
-                .cards_in(Lane::Live)
-                .nth(self.lane_selected[Lane::Live.index()])
-                .cloned(),
-            _ => None,
-        };
+        let card = self
+            .selected_card()
+            .filter(|card| card.state == State::Live);
         let Some(card) = card else {
-            self.message = Some("select a seat in the live lane first".to_string());
+            self.message = Some(if self.by_agent {
+                "select a live seat first".to_string()
+            } else {
+                "select a seat in the live lane first".to_string()
+            });
             return Effect::None;
         };
         let id = short(&card.run_id);
@@ -1249,10 +1463,15 @@ impl App {
             .areas(main)
         };
         self.draw_table(left, buf);
-        let lanes: [Rect; 4] = Split::vertical([Constraint::Ratio(1, 4); 4]).areas(middle);
-        for lane in Lane::ALL {
-            self.draw_lane(lane, lanes[lane.index()], buf);
+        if self.by_agent {
+            self.draw_agent_lanes(middle, buf);
+        } else {
+            let lanes: [Rect; 4] = Split::vertical([Constraint::Ratio(1, 4); 4]).areas(middle);
+            for lane in Lane::ALL {
+                self.draw_lane(lane, lanes[lane.index()], buf);
+            }
         }
+        draw_mode(self.by_agent, middle, buf);
         self.draw_detail(right, buf);
         self.draw_status(status, buf);
         if self.policy_pane {
@@ -1596,12 +1815,7 @@ impl App {
     }
 
     fn draw_lane(&mut self, lane: Lane, area: Rect, buf: &mut Buffer) {
-        let i = lane.index();
-        self.hits.lanes[i] = area;
-        let len = self.lane_len(lane);
-        let block = self.block(Focus::Lane(lane), format!(" {} {len} ", lane.title()));
-        let inner = block.inner(area);
-        block.render(area, buf);
+        self.hits.lanes[lane.index()] = area;
         let lines: Vec<String> = match lane {
             Lane::Waiting => self
                 .snapshot
@@ -1620,37 +1834,96 @@ impl App {
             _ => self
                 .cards_in(lane)
                 .map(|card| {
-                    let said = match (lane, self.live_label(card)) {
-                        (Lane::Live, Some(label)) => label.to_string(),
-                        _ => card
-                            .outcome
-                            .clone()
-                            .unwrap_or_else(|| card.state.as_str().to_string()),
-                    };
                     format!(
-                        "{} {} {said}",
+                        "{} {} {}",
                         short(&card.run_id),
-                        card.provider.as_deref().unwrap_or("?")
+                        agent_of(card),
+                        self.said(card)
                     )
                 })
                 .collect(),
         };
+        let title = format!(" {} {} ", lane.title(), self.lane_len(lane));
+        self.draw_cards(Focus::Lane(lane), title, lines, area, buf);
+    }
+
+    /// The lanes by agent, build ticket 191: one per agent in [`App::agents`],
+    /// then the waiting lane, so a request or a step is reachable from here too.
+    fn draw_agent_lanes(&mut self, area: Rect, buf: &mut Buffer) {
+        let agents = self.agents();
+        let count = agents.len() + 1;
+        let rects = Split::vertical(vec![Constraint::Ratio(1, count as u32); count]).split(area);
+        self.hits.agent_lanes = rects[..agents.len()].to_vec();
+        for (i, agent) in agents.iter().enumerate() {
+            let lines: Vec<String> = self
+                .cards_of(agent)
+                .map(|card| self.agent_line(card))
+                .collect();
+            let title = format!(" {agent} {} ", lines.len());
+            self.draw_cards(Focus::Agent(i), title, lines, rects[i], buf);
+        }
+        self.draw_lane(Lane::Waiting, rects[agents.len()], buf);
+    }
+
+    /// A card in an agent's lane: short id, model, what [`App::said`] says,
+    /// and the task when the goal table names the run.
+    fn agent_line(&self, card: &Card) -> String {
+        let model = card.model.as_deref().unwrap_or("-");
+        let mut line = format!("{} {model} {}", short(&card.run_id), self.said(card));
+        let task = self.snapshot.goal.as_ref().and_then(|goal| {
+            goal.rows
+                .iter()
+                .find(|row| row.run_id.as_ref() == Some(&card.run_id))
+        });
+        if let Some(task) = task {
+            line.push(' ');
+            line.push_str(&task.id);
+        }
+        line
+    }
+
+    /// A run's state or outcome on its card: a live one's stop label while
+    /// it has one, then the outcome, then the state.
+    fn said(&self, card: &Card) -> String {
+        match self.live_label(card) {
+            Some(label) if card.lane() == Lane::Live => label.to_string(),
+            _ => card
+                .outcome
+                .clone()
+                .unwrap_or_else(|| card.state.as_str().to_string()),
+        }
+    }
+
+    /// One lane of the middle column, `lines` one card a row from its offset.
+    fn draw_cards(
+        &mut self,
+        focus: Focus,
+        title: String,
+        lines: Vec<String>,
+        area: Rect,
+        buf: &mut Buffer,
+    ) {
+        let block = self.block(focus, title);
+        let inner = block.inner(area);
+        block.render(area, buf);
         let visible = inner.height as usize;
-        self.lane_offset[i] = self.lane_offset[i].min(lines.len().saturating_sub(visible));
-        for (slot, index) in (self.lane_offset[i]..lines.len()).take(visible).enumerate() {
+        let offset = self.offset(focus).min(lines.len().saturating_sub(visible));
+        self.set_offset(focus, offset);
+        let selected = self.selected(focus);
+        for (slot, index) in (offset..lines.len()).take(visible).enumerate() {
             let rect = Rect {
                 y: inner.y + slot as u16,
                 height: 1,
                 ..inner
             };
-            let style = self.selected_style(Focus::Lane(lane), index == self.lane_selected[i]);
+            let style = self.selected_style(focus, index == selected);
             buf.set_line(
                 rect.x,
                 rect.y,
                 &Line::styled(lines[index].clone(), style),
                 rect.width,
             );
-            self.hits.cards.push((rect, lane, index));
+            self.hits.cards.push((rect, focus, index));
         }
     }
 
@@ -1796,8 +2069,15 @@ impl App {
             .map(|lane| format!("{} {}", lane.title(), self.lane_len(*lane)))
             .collect::<Vec<_>>()
             .join(", ");
-        let keys = "arrows/Tab move, Enter opens, Esc closes, r raw lines, a approves, d denies, \
-                    v reviews a task, m stops a seat, p policies, q quits";
+        let lanes = if self.by_agent {
+            "k lanes by state"
+        } else {
+            "k lanes by agent"
+        };
+        let keys = format!(
+            "arrows/Tab move, Enter opens, {lanes}, Esc closes, r raw lines, a approves, \
+             d denies, v reviews a task, m stops a seat, p policies, q quits"
+        );
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",
             self.interval.as_secs_f32()
@@ -1808,6 +2088,21 @@ impl App {
             text = format!("{error} | {text}");
         }
         buf.set_line(area.x, area.y, &Line::raw(text), area.width);
+    }
+}
+
+/// Which view the middle column shows, on its top border at the right, over
+/// the first lane's.
+fn draw_mode(by_agent: bool, area: Rect, buf: &mut Buffer) {
+    let mode = if by_agent { " by agent " } else { " by state " };
+    let width = mode.width() as u16;
+    if area.width > width + 2 && area.height > 0 {
+        buf.set_string(
+            area.right() - width - 1,
+            area.y,
+            mode,
+            Style::default().add_modifier(Modifier::DIM),
+        );
     }
 }
 

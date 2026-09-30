@@ -1,7 +1,7 @@
 # 191 - A kanban by agent
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -29,3 +29,16 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
 ## Done when
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f3e3-7d64 under `standard`. The session
+applied it as written. `k` toggles the middle column between lanes by state and one lane per
+agent (`claude`, `cursor-agent`, `agy`, `codex`, then others by name) with the waiting lane last,
+keeping the selected run selected. `Focus::Agent` and focus-generic helpers make `Enter`, click,
+wheel, `m`, `a` and `d` work the same in both views. With a watched session the agent lanes show
+the session and its seats; the waiting lane stays unfiltered, since a request from another session
+still waits on the human. Three tests, each failing first; fmt and clippy clean, `--test cockpit`
+74, `--test stop` 13, `--lib` 224 on master. A selection carried across by `k` can sit below a
+crowded lane's visible rows until the next arrow key.
+

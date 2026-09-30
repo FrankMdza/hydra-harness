@@ -154,6 +154,7 @@ two seconds and launches no provider.
 |---|---|
 | arrows, `Tab`, `Shift-Tab` | move within a panel, or between panels |
 | `Enter`, `Esc` | open the selected run, request or step; close it |
+| `k` | swap the four lanes by state for one lane per agent, the waiting approvals last; with `--session`, only the session and its seats |
 | `r` | swap the detail between tool calls and the raw last twenty record lines |
 | `a`, `y` | approve the selected seat request, or run the argv `puppets.py pending` listed for a step |
 | `d`, `y` | deny the selected seat request; a step has no deny |
