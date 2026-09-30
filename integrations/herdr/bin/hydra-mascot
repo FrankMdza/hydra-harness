@@ -656,6 +656,9 @@ COCKPIT_POSES = [
     ("refused", ["awake"] * 3, [0.0] * 3, False, True, 0.3),
     ("meme", ["awake"] * 3, [0.0] * 3, True, False, 0.3),
     ("fire", ["firing"] * 3, [1.0] * 3, False, False, 0.3),
+    # Head i's seat crashed, failed, was rate limited or was stopped. Build ticket 192.
+    *((f"hurt_{i}", ["hurt" if h == i else "awake" for h in range(3)], [0.0] * 3, False, False,
+       0.3) for i in range(3)),
 ]
 
 

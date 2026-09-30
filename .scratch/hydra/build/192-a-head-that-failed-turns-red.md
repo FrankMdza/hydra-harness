@@ -1,7 +1,7 @@
 # 192 - A head that failed turns red
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 191
 
 ## What
@@ -34,3 +34,14 @@ Tests first: the Python test for `--frames` in `integrations/herdr/tests/test_ma
 
 - Each test failed before the change; the herdr Python tests; fmt, clippy, `cargo test --lib`,
   `--test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f40f-e744 under `standard`. The session
+applied it and committed the regenerated frames. Both renderers draw a `hurt` head: red, eyes
+shut, lowered and tilted; `--frames` writes `hurt_0` to `hurt_2` and the eight older frames came
+out byte for byte the same. Seats map to heads in run-id order; a seat on heads 0 to 2 that ends
+`crashed`, `failed`, `rate_limited` or `stopped` shows that head hurt for one read, `gated` keeps
+`refused`, and a seat past the third keeps today's flash. Tests: herdr Python 40, `--test cockpit`
+77, `--lib` 224, fmt and clippy clean. Nobody has looked at the hurt frames in a real terminal.
+

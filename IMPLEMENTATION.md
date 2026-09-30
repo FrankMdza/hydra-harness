@@ -3521,7 +3521,15 @@ the `+N` line and the `N live seat(s)` label count the session's own run and the
 `parent_run_id` is it; a run outside the session neither wakes a head nor flashes. The chat learns
 the session's id from the `hydra: run <uuid>` line, so until the child prints it every live run
 counts, as without `--session`. When one of those seats ends not ok the flash is the same, and
-for that one read the header adds `<short id> <outcome>` under the seat count. Two things are
+for that one read the header adds `<short id> <outcome>` under the seat count.
+Since build ticket 192 the frames number eleven: `hurt_0`, `hurt_1` and `hurt_2` draw head `i`
+red, eyes shut, dropped and tilted a pixel down, the others awake, and both HydraPet renderers
+take the head state `hurt`. Seats map to heads in the order they started, the lowest run id
+(uuid v7, so the earliest launch) on head 0, counted among the seats live at the read before. A
+seat on head 0 to 2 that ends `crashed`, `failed`, `rate_limited` or `stopped` shows its own
+`hurt_<i>` for one read in place of the meme head; `gated` keeps refused, and a seat past the
+third head or any other end not ok keeps meme. Checked by eye only as a dump of the 24 by 12
+cells with one letter per colour, not in a terminal emulator. Two things are
 approximations. A request that leaves the waiting lane is read as
 launched, though a withdrawn one leaves it too. `all_asleep` is generated and never drawn,
 since the ticket says idle when nothing is live. The poses are still frames, so the dragon does

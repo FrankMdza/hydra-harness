@@ -121,7 +121,8 @@ class SkinTests(unittest.TestCase):
 
 
 class FramesTests(unittest.TestCase):
-    POSES = ["idle", "working", "one_asleep", "two_asleep", "all_asleep", "refused", "meme", "fire"]
+    POSES = ["idle", "working", "one_asleep", "two_asleep", "all_asleep", "refused", "meme", "fire",
+             "hurt_0", "hurt_1", "hurt_2"]
 
     def test_frames_writes_every_pose_with_an_index(self):
         import json
@@ -154,3 +155,33 @@ class FramesTests(unittest.TestCase):
             hydra_mascot.write_frames(out)
             texts = {p: open(os.path.join(out, p + ".ans")).read() for p in self.POSES}
             self.assertEqual(len(set(texts.values())), len(self.POSES))
+
+
+class HurtTests(unittest.TestCase):
+    """Build ticket 192: a head whose seat died, crashed or was rate limited is drawn red."""
+
+    @staticmethod
+    def reds(cells):
+        return sum(1 for row in cells for pair in row for rgb in pair
+                   if rgb and rgb[0] > 150 and rgb[1] < 90 and rgb[2] < 90)
+
+    def test_the_compact_dragon_draws_a_hurt_head_red(self):
+        awake = hydra_mascot.pet_cells(0.3, ["awake"] * 3, [0.0] * 3, False, 1)
+        for i in range(3):
+            heads = ["awake"] * 3
+            heads[i] = "hurt"
+            hurt = hydra_mascot.pet_cells(0.3, heads, [0.0] * 3, False, 1)
+            self.assertTrue(hurt != awake, i)
+            self.assertGreater(self.reds(hurt), self.reds(awake), i)
+
+    def test_the_hd_dragon_draws_a_hurt_head_red(self):
+        awake = hydra_mascot.hd_cells(0.3, ["awake"] * 3, [0.0] * 3, cols=48)
+        hurt = hydra_mascot.hd_cells(0.3, ["awake", "hurt", "awake"], [0.0] * 3, cols=48)
+        self.assertGreater(self.reds(hurt), self.reds(awake))
+
+    def test_each_hurt_frame_hurts_its_own_head(self):
+        poses = {name: heads for name, heads, *_ in hydra_mascot.COCKPIT_POSES}
+        for i in range(3):
+            heads = ["awake"] * 3
+            heads[i] = "hurt"
+            self.assertEqual(poses[f"hurt_{i}"], heads)

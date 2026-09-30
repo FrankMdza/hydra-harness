@@ -35,10 +35,14 @@ pub enum Pose {
     Refused,
     Meme,
     Fire,
+    /// Head 0, 1 or 2 drawn hurt, the others awake. Build ticket 192.
+    Hurt0,
+    Hurt1,
+    Hurt2,
 }
 
 impl Pose {
-    pub const ALL: [Pose; 8] = [
+    pub const ALL: [Pose; 11] = [
         Pose::Idle,
         Pose::Working,
         Pose::OneAsleep,
@@ -47,6 +51,9 @@ impl Pose {
         Pose::Refused,
         Pose::Meme,
         Pose::Fire,
+        Pose::Hurt0,
+        Pose::Hurt1,
+        Pose::Hurt2,
     ];
 
     /// The key of this pose in `index.json`.
@@ -60,9 +67,21 @@ impl Pose {
             Pose::Refused => "refused",
             Pose::Meme => "meme",
             Pose::Fire => "fire",
+            Pose::Hurt0 => "hurt_0",
+            Pose::Hurt1 => "hurt_1",
+            Pose::Hurt2 => "hurt_2",
         }
     }
+
+    /// Head `head` hurt, for the three heads there are.
+    pub fn hurt(head: usize) -> Option<Pose> {
+        [Pose::Hurt0, Pose::Hurt1, Pose::Hurt2].get(head).copied()
+    }
 }
+
+/// The outcomes that hurt a seat's head rather than give the meme one: the seat died, crashed,
+/// hit a rate limit or was stopped. Build ticket 192.
+const HURTS: [&str; 4] = ["crashed", "failed", "rate_limited", "stopped"];
 
 /// Where the committed frames live: under `HYDRA_HOME`, as `policies/` and `config/` do.
 pub fn default_dir() -> PathBuf {
@@ -238,8 +257,18 @@ pub struct Mascot {
     session: Option<String>,
     /// The session's seat whose end made this read's flash, and its outcome.
     ended: Option<(String, String)>,
-    /// Run states and waiting requests of the last read; `None` before the first.
-    seen: Option<(HashMap<String, State>, HashSet<String>)>,
+    /// What the last read saw; `None` before the first.
+    seen: Option<Seen>,
+}
+
+/// One read, as the next one compares against it.
+#[derive(Clone, Debug)]
+struct Seen {
+    states: HashMap<String, State>,
+    waiting: HashSet<String>,
+    /// The live seats in the order they started, so a seat's index is its head. Run ids are
+    /// uuid v7 and sort by launch time, which is also how the reader orders the cards.
+    heads: Vec<String>,
 }
 
 impl Mascot {
@@ -297,10 +326,10 @@ impl Mascot {
     }
 
     /// Takes one read. A seat that went from live to ended `gated` gives the refused pose for
-    /// this read, one that ended any other way but ok gives the meme head, and a request that
-    /// left the waiting lane gives fire, in that order of precedence. Otherwise the heads awake
-    /// are the live seats. With a session watched, a run outside it neither wakes a head nor
-    /// flashes.
+    /// this read, one that ended any other way but ok gives its own head hurt when it was on one
+    /// of the three and ended in [`HURTS`], the meme head otherwise, and a request that left the
+    /// waiting lane gives fire, in that order of precedence. Otherwise the heads awake are the
+    /// live seats. With a session watched, a run outside it neither wakes a head nor flashes.
     pub fn observe(&mut self, snapshot: &Snapshot) {
         if !snapshot.read {
             return;
@@ -313,16 +342,20 @@ impl Mascot {
         self.extra = self.live.saturating_sub(HEADS);
         let mut flash = None;
         let mut ended = None;
-        if let Some((states, waiting)) = &self.seen {
+        if let Some(seen) = &self.seen {
             for card in &snapshot.cards {
-                if states.get(&card.run_id) != Some(&State::Live)
+                if seen.states.get(&card.run_id) != Some(&State::Live)
                     || card.state == State::Live
                     || !self.counts(card)
                 {
                     continue;
                 }
+                let head = seen.heads.iter().position(|id| *id == card.run_id);
                 let pose = match (card.lane(), card.outcome.as_deref()) {
                     (_, Some("gated")) => Pose::Refused,
+                    (Lane::EndedNotOk, Some(outcome)) if HURTS.contains(&outcome) => {
+                        head.and_then(Pose::hurt).unwrap_or(Pose::Meme)
+                    }
                     (Lane::EndedNotOk, _) => Pose::Meme,
                     _ => continue,
                 };
@@ -336,7 +369,7 @@ impl Mascot {
                 .iter()
                 .map(|r| r.request_id.as_str())
                 .collect();
-            if flash.is_none() && waiting.iter().any(|id| !now.contains(id.as_str())) {
+            if flash.is_none() && seen.waiting.iter().any(|id| !now.contains(id.as_str())) {
                 flash = Some(Pose::Fire);
             }
         }
@@ -349,18 +382,26 @@ impl Mascot {
             (card.run_id.clone(), outcome)
         });
         self.pose = flash.unwrap_or_else(|| pose_for(self.live));
-        self.seen = Some((
-            snapshot
+        let mut heads: Vec<String> = snapshot
+            .cards
+            .iter()
+            .filter(|card| card.state == State::Live && self.counts(card))
+            .map(|card| card.run_id.clone())
+            .collect();
+        heads.sort();
+        self.seen = Some(Seen {
+            states: snapshot
                 .cards
                 .iter()
                 .map(|card| (card.run_id.clone(), card.state))
                 .collect(),
-            snapshot
+            waiting: snapshot
                 .requests
                 .iter()
                 .map(|r| r.request_id.clone())
                 .collect(),
-        ));
+            heads,
+        });
     }
 
     /// Paints the current pose at the top left of `area`.

@@ -1132,6 +1132,107 @@ fn without_a_session_an_ended_run_is_not_named() {
     assert!(!text.contains("01a0bbbb"), "{text}");
 }
 
+// --- a head that failed turns red, build ticket 192 -------------------------
+
+/// The session and four seats, newest first as the reader lists them. Run ids are uuid v7, so
+/// they sort in the order the runs started: the session is head 0, `01a0bbb1` head 1,
+/// `01a0bbb2` head 2, and `01a0bbb3` and `01a0bbb4` are past the third head.
+fn five_seats(ended: Option<(usize, &str)>) -> Vec<Card> {
+    let mut cards: Vec<Card> = (1..=4)
+        .map(|i| {
+            seat(
+                &format!("01a0bbb{i}-0000-7000-8000-00000000000{i}"),
+                WATCHED,
+                State::Live,
+                None,
+            )
+        })
+        .collect();
+    cards.insert(0, card(WATCHED, "claude", State::Live, None));
+    if let Some((head, outcome)) = ended {
+        let card = &mut cards[head];
+        card.state = State::Ended;
+        card.outcome = Some(outcome.to_string());
+    }
+    cards.reverse();
+    cards
+}
+
+#[test]
+fn a_seat_on_one_of_the_three_heads_that_ends_badly_hurts_that_head() {
+    for outcome in ["crashed", "failed", "rate_limited", "stopped"] {
+        for (head, pose) in [(1, Pose::Hurt1), (2, Pose::Hurt2)] {
+            let mut mascot = Mascot::new(committed_frames());
+            mascot.watch(WATCHED);
+            mascot.observe(&snapshot_of(five_seats(None), vec![]));
+            mascot.observe(&snapshot_of(five_seats(Some((head, outcome))), vec![]));
+            assert_eq!(mascot.pose(), pose, "head {head} {outcome}");
+            // One refresh only.
+            mascot.observe(&snapshot_of(five_seats(Some((head, outcome))), vec![]));
+            assert_eq!(mascot.pose(), Pose::Working, "head {head} {outcome}");
+        }
+    }
+
+    // The first seat is head 0, whatever order the cards come in.
+    let mut mascot = Mascot::new(committed_frames());
+    let cards = |state: State, outcome: Option<&str>| {
+        vec![
+            card(
+                "01a0c002-0000-7000-8000-000000000002",
+                "codex",
+                State::Live,
+                None,
+            ),
+            card(
+                "01a0c001-0000-7000-8000-000000000001",
+                "codex",
+                state,
+                outcome,
+            ),
+        ]
+    };
+    mascot.observe(&snapshot_of(cards(State::Live, None), vec![]));
+    mascot.observe(&snapshot_of(cards(State::Ended, Some("crashed")), vec![]));
+    assert_eq!(mascot.pose(), Pose::Hurt0);
+}
+
+#[test]
+fn gated_other_outcomes_and_seats_past_the_third_head_keep_todays_flash() {
+    let cases = [
+        (1, "gated", Pose::Refused),
+        (1, "timed_out", Pose::Meme),
+        (1, "auth_failed", Pose::Meme),
+        (3, "crashed", Pose::Meme),
+        (4, "rate_limited", Pose::Meme),
+        (3, "gated", Pose::Refused),
+    ];
+    for (head, outcome, pose) in cases {
+        let mut mascot = Mascot::new(committed_frames());
+        mascot.watch(WATCHED);
+        mascot.observe(&snapshot_of(five_seats(None), vec![]));
+        mascot.observe(&snapshot_of(five_seats(Some((head, outcome))), vec![]));
+        assert_eq!(mascot.pose(), pose, "seat {head} {outcome}");
+    }
+}
+
+#[test]
+fn a_hurt_head_is_named_in_the_header() {
+    let mut app = App::new(scratch("hurt-header"), true, Duration::from_secs(2));
+    let mut watching = Mascot::new(committed_frames());
+    watching.watch(WATCHED);
+    app.set_mascot(Some(watching));
+    let mut snapshot = fixed_snapshot();
+    snapshot.cards = five_seats(None);
+    app.set_snapshot(snapshot.clone());
+    snapshot.cards = five_seats(Some((2, "crashed")));
+    app.set_snapshot(snapshot);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let text = (0..12).map(|y| row_of(&buf, y)).collect::<String>();
+    assert!(text.contains("hurt_2"), "{text}");
+    assert!(text.contains("01a0bbb2 crashed"), "{text}");
+}
+
 fn dragon_cells(buf: &Buffer, area: Rect) -> usize {
     (area.y..area.y + area.height)
         .flat_map(|y| (area.x..area.x + area.width).map(move |x| (x, y)))

@@ -39,6 +39,21 @@
       "file": "fire.ans",
       "rows": 12,
       "cols": 24
+    },
+    "hurt_0": {
+      "file": "hurt_0.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "hurt_1": {
+      "file": "hurt_1.ans",
+      "rows": 12,
+      "cols": 24
+    },
+    "hurt_2": {
+      "file": "hurt_2.ans",
+      "rows": 12,
+      "cols": 24
     }
   }
 }

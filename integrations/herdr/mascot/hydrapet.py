@@ -264,6 +264,10 @@ C_EYE_CORE   = np.array([1.00, 0.95, 0.40], dtype=np.float32)
 C_EYE_SLIT   = np.array([0.12, 0.05, 0.02], dtype=np.float32)
 
 C_CLAW       = np.array([0.92, 0.90, 0.82], dtype=np.float32)
+# A hurt head, build ticket 192: its seat crashed, failed, was rate limited or was stopped.
+C_HURT_DARK  = np.array([0.35, 0.03, 0.04], dtype=np.float32)
+C_HURT_MID   = np.array([0.72, 0.10, 0.10], dtype=np.float32)
+C_HURT_LGT   = np.array([0.92, 0.22, 0.18], dtype=np.float32)
 C_CLAW_SHAD  = np.array([0.45, 0.40, 0.32], dtype=np.float32)
 
 def render_hd_dragon(t, head_states, fire_levels, pet_active=False):
@@ -332,15 +336,19 @@ def render_hd_dragon(t, head_states, fire_levels, pet_active=False):
         state = head_states[idx]
         f_lvl = fire_levels[idx]
         is_sleep = (state == 'sleeping')
-        is_fire  = (state == 'firing' or f_lvl > 0.05)
+        is_hurt  = (state == 'hurt')
+        is_fire  = (state == 'firing' or f_lvl > 0.05) and not is_hurt
 
         sway_x = math.sin(t * 1.8 + phase) * 3.5
         sway_y = math.cos(t * 1.5 + phase) * 2.5
         by = body_y - (14 if idx == 1 else 10)
 
         hx = def_hx + sway_x + (-3 if idx==0 and is_sleep else (3 if idx==2 and is_sleep else 0))
-        hy = def_hy + sway_y + (12 if is_sleep else 0) - (6 if is_fire else 0)
+        hy = def_hy + sway_y + (12 if is_sleep else 0) - (6 if is_fire else 0) + (16 if is_hurt else 0)
         ang = ang_bias + (0.25 if is_sleep and idx!=1 else (0.1 if is_sleep else 0)) + (-0.15 if is_fire else 0)
+        # A hurt head hangs: dropped further than asleep and turned down towards the body.
+        if is_hurt:
+            ang += 0.6 if idx != 2 else -0.6
 
         head_positions.append((idx, name, bx, by, hx, hy, ang, state, is_sleep, is_fire, f_lvl))
 
@@ -373,6 +381,9 @@ def render_hd_dragon(t, head_states, fire_levels, pet_active=False):
 
     # Draw Heads & Facial Expressions
     for idx, name, bx, by, hx, hy, ang, state, is_sleep, is_fire, f_lvl in head_positions:
+        is_hurt = (state == 'hurt')
+        scale_mid = C_HURT_MID if is_hurt else C_SCALE_MID
+        scale_lgt = C_HURT_LGT if is_hurt else C_SCALE_LGT
         cos_a = math.cos(ang)
         sin_a = math.sin(ang)
 
@@ -389,16 +400,16 @@ def render_hd_dragon(t, head_states, fire_levels, pet_active=False):
         draw_capsule(canvas, rot(5, -3)[0],  rot(5, -3)[1],  rot(15, -11)[0],  rot(15, -11)[1],  2.6, C_GOLD_DARK)
 
         # Skull
-        draw_circle(canvas, hx, hy, 12.5, C_SCALE_MID)
-        draw_circle(canvas, hx, hy - 2, 10.0, C_SCALE_LGT)
+        draw_circle(canvas, hx, hy, 12.5, scale_mid)
+        draw_circle(canvas, hx, hy - 2, 10.0, scale_lgt)
 
         # Snout
         snout_x, snout_y = rot(0, 8)
-        draw_circle(canvas, snout_x, snout_y, 8.5, C_SCALE_MID)
-        draw_circle(canvas, snout_x, snout_y - 1, 7.0, C_SCALE_LGT)
+        draw_circle(canvas, snout_x, snout_y, 8.5, scale_mid)
+        draw_circle(canvas, snout_x, snout_y - 1, 7.0, scale_lgt)
 
         # Lower Jaw
-        jaw_drop = 8.0 if is_fire else (1.5 if is_sleep else 3.0)
+        jaw_drop = 8.0 if is_fire else (1.5 if is_sleep or is_hurt else 3.0)
         chin_x, chin_y = rot(0, 9 + jaw_drop)
         draw_capsule(canvas, rot(-5, 5)[0], rot(-5, 5)[1], chin_x, chin_y, 4.2, C_GOLD_MID)
         draw_capsule(canvas, rot(5, 5)[0],  rot(5, 5)[1],  chin_x, chin_y, 4.2, C_GOLD_MID)
@@ -410,7 +421,7 @@ def render_hd_dragon(t, head_states, fire_levels, pet_active=False):
             draw_circle(canvas, maw_x, maw_y, 3.2, np.array([1.0, 0.95, 0.5], dtype=np.float32))
             draw_triangle(canvas, rot(-4, 7), rot(-2, 7), rot(-3, 11), C_CLAW)
             draw_triangle(canvas, rot(2, 7),  rot(4, 7),  rot(3, 11),  C_CLAW)
-        elif not is_sleep and idx == 2:
+        elif not is_sleep and not is_hurt and idx == 2:
             t_len = 5.0 + math.sin(t * 12.0) * 3.0
             tx1, ty1 = rot(2, 11)
             tx2, ty2 = rot(5, 11 + t_len)
@@ -419,7 +430,10 @@ def render_hd_dragon(t, head_states, fire_levels, pet_active=False):
         # Eyes (Glowing Amber vs Closed)
         for e_side in (-1, 1):
             ex, ey = rot(e_side * 6.2, -1.0)
-            if is_sleep:
+            if is_hurt:
+                # Shut tight, a dark crease with no gold lid line.
+                draw_capsule(canvas, ex - 3.2, ey + 0.5, ex + 3.2, ey + 0.5, 1.6, C_HURT_DARK)
+            elif is_sleep:
                 draw_capsule(canvas, ex - 3.2, ey + 0.5, ex + 3.2, ey + 0.5, 1.4, C_SCALE_DARK)
                 draw_capsule(canvas, ex - 2.5, ey, ex + 2.5, ey, 0.9, C_GOLD_DARK)
             else:
@@ -514,6 +528,9 @@ def render_compact_dragon(t, head_states, fire_levels, pet_active=False):
     P_BU = (140, 210, 255, 220)
     P_ZZ = (160, 200, 255, 240)
     P_HT = (255, 60, 120, 255)
+    P_RD = (110, 12, 18, 255)
+    P_RL = (225, 45, 40, 255)
+    P_RH = (175, 85, 60, 255)
 
     breathe = 1 if (math.sin(t * 2.5) > 0.2) else 0
 
@@ -551,11 +568,18 @@ def render_compact_dragon(t, head_states, fire_levels, pet_active=False):
         st = head_states[idx]
         fl = fire_levels[idx]
         is_sleep = (st == 'sleeping')
-        is_fire  = (st == 'firing' or fl > 0.05)
+        is_hurt  = (st == 'hurt')
+        is_fire  = (st == 'firing' or fl > 0.05) and not is_hurt
 
         sway = int(math.sin(t * 2.0 + idx * 1.8) * 1.2)
         cur_hx = hx + sway
-        cur_hy = hy + (2 if is_sleep else (0 if not is_fire else -1)) - breathe
+        cur_hy = hy + (2 if is_sleep or is_hurt else (0 if not is_fire else -1)) - breathe
+        # A hurt head tilts down: its outer column hangs a pixel below the rest (left for the
+        # left and centre heads, right for the right one).
+        outer = cur_hx + (1 if idx == 2 else -1)
+
+        def drop(x):
+            return 1 if is_hurt and x == outer else 0
 
         # Neck connection
         for ny in range(cur_hy + 3, 16 - breathe):
@@ -567,20 +591,25 @@ def render_compact_dragon(t, head_states, fire_levels, pet_active=False):
             grid[ny, max(0, nx - 1)] = P_GD
 
         # Horns
-        grid[cur_hy - 2, cur_hx - 1] = P_GD
-        grid[cur_hy - 2, cur_hx + 1] = P_GD
-        grid[cur_hy - 1, cur_hx - 1] = P_GD
-        grid[cur_hy - 1, cur_hx + 1] = P_GD
+        horn = P_RH if is_hurt else P_GD
+        for x in (cur_hx - 1, cur_hx + 1):
+            grid[cur_hy - 2 + drop(x), x] = horn
+            grid[cur_hy - 1 + drop(x), x] = horn
 
         # Skull & Snout
         for y in range(cur_hy, cur_hy + 3):
             for x in range(cur_hx - 1, cur_hx + 2):
-                if 0 <= y < H and 0 <= x < W:
-                    grid[y, x] = P_LT
+                if 0 <= y + drop(x) < H and 0 <= x < W:
+                    grid[y + drop(x), x] = P_RL if is_hurt else P_LT
 
         # Eyes & Expressions
         eye_y = cur_hy
-        if is_sleep:
+        if is_hurt:
+            # Shut: a dark red crease where each eye was.
+            for x in (cur_hx - 1, cur_hx + 1):
+                if 0 <= eye_y + drop(x) < H:
+                    grid[eye_y + drop(x), x] = P_RD
+        elif is_sleep:
             if 0 <= eye_y < H:
                 grid[eye_y, cur_hx - 1] = P_DK
                 grid[eye_y, cur_hx + 1] = P_DK
@@ -634,7 +663,8 @@ class HydraPet:
         self.fps = fps
         self.idle_timeout = idle_timeout
 
-        # States for Left, Center, Right heads: 'awake', 'sleeping', 'firing'
+        # States for Left, Center, Right heads: 'awake', 'sleeping', 'firing'. Both renderers
+        # also draw 'hurt', which only Hydra's cockpit frames ask for.
         self.head_states = ['awake', 'awake', 'awake']
         self.fire_levels = [0.0, 0.0, 0.0]
 
