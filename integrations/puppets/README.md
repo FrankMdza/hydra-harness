@@ -87,10 +87,17 @@ way, exit 2 and nothing written, when that task's current run is different. `--e
 with `--plan` refuses the same way when the chosen plan's path is different. Each `--expect-*`
 check runs again while the goal log's lock is held, on a fold of the lines read under that lock,
 and a mismatch still writes nothing. When the log's last line has no newline, both readers ignore
-that tail, and every writer under the lock leaves the file unchanged and exits 1. A second approval
-of the same kind, ref and run already in the log at the current revision prints `already approved
-<kind> at revision <n>`, writes nothing, and exits 3. For a degraded approval the ref is the
-missing provider. A diff's run is the run id on the approval; other kinds have no run.
+that tail, and every writer under the lock leaves the file unchanged and exits 1.
+
+`repair <goal-id>` prints that unterminated tail, cut to 300 characters, and the move it would
+make, and writes nothing. `repair <goal-id> --yes` holds the log's lock, writes the tail to
+`<goal-id>.torn-<UTC timestamp>.txt` beside the log, then truncates the log to its last newline.
+A log with no torn tail says so and exits 0 either way.
+
+A second approval of the same kind, ref and run already in the log at the current revision prints
+`already approved <kind> at revision <n>`, writes nothing, and exits 3. For a degraded approval
+the ref is the missing provider. A diff's run is the run id on the approval; other kinds have
+no run.
 
 `pending <goal-id> --json` prints a JSON array of the approvals the helper is waiting on. It only
 reads the log. Each object has `kind` (`plan`, `table`, `launch`, `diff`, `degraded`), `ref`,

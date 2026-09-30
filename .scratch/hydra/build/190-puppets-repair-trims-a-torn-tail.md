@@ -1,7 +1,7 @@
 # 190 - puppets repair trims a torn tail
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 188
 
 ## What
@@ -24,3 +24,13 @@ Tests first in `integrations/puppets/tests/`, each shown failing before the chan
 ## Done when
 
 - Each test failed before the change; the puppets suite passes.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `cursor-agent` grok-4.7-high on run 01a0f3e3-2ef4 under `standard`.
+The session applied it as written. `puppets.py repair <goal>` shows the torn tail (300 characters)
+and the move, under the lock, writing nothing; `--yes` writes the tail to
+`<goal>.torn-<UTC timestamp>.txt`, fsyncs it, then truncates the log to its last newline. No torn
+tail says so and exits 0. `UnterminatedLog` names the command. Seven tests, each failing first;
+the puppets suite passes. Never run on a log a real writer tore.
+

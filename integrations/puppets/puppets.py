@@ -316,7 +316,17 @@ class UnterminatedLog(Exception):
 
     def __init__(self, goal_id: str) -> None:
         self.goal_id = goal_id
-        super().__init__(f"goal log {goal_id} ends without a newline; wrote nothing")
+        super().__init__(
+            f"goal log {goal_id} ends without a newline; wrote nothing; "
+            f"puppets.py repair {goal_id}"
+        )
+
+
+def _torn_tail(raw: bytes) -> bytes | None:
+    """Bytes after the last newline when the file does not end on one."""
+    if not raw or raw.endswith(b"\n"):
+        return None
+    return raw[raw.rfind(b"\n") + 1 :]
 
 
 def _locked_update(
@@ -2342,6 +2352,52 @@ def cmd_queue(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_repair(args: argparse.Namespace) -> int:
+    """Print a torn tail, or with `--yes` save it and truncate the log.
+
+    Without `--yes` nothing is written. With `--yes` the tail is written,
+    under the log's lock, to `<goal>.torn-<UTC timestamp>.txt` beside the
+    log, and the log is then truncated to its last newline. A log with no
+    torn tail is left as it is and the command exits 0.
+    """
+    goal_id = args.goal
+    path = goal_log_path(goal_id)
+    if not path.is_file():
+        print(f"goal log {goal_id} has no torn tail")
+        return 0
+    with path.open("r+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            raw = handle.read()
+            tail = _torn_tail(raw)
+            if tail is None:
+                print(f"goal log {goal_id} has no torn tail")
+                return 0
+            if not args.yes:
+                preview = tail.decode("utf-8", errors="replace")[:300]
+                print(f"unterminated tail: {preview}")
+                print(
+                    "would move the tail into "
+                    f"{goal_id}.torn-<UTC timestamp>.txt beside the log, "
+                    "then truncate the log to its last newline"
+                )
+                return 0
+            dest = path.parent / f"{goal_id}.torn-{utc_now()}.txt"
+            with dest.open("xb") as torn:
+                torn.write(tail)
+                torn.flush()
+                os.fsync(torn.fileno())
+            keep = len(raw) - len(tail)
+            handle.seek(keep)
+            handle.truncate()
+            handle.flush()
+            os.fsync(handle.fileno())
+            print(f"moved the tail into {dest.name}")
+            return 0
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def cmd_verdict(args: argparse.Namespace) -> int:
     state = fold(args.goal)
     task = state.tasks.get(args.task)
@@ -2508,6 +2564,21 @@ def build_parser() -> argparse.ArgumentParser:
     verdict_p.add_argument("result", choices=sorted(VERDICT_RESULTS))
     verdict_p.add_argument("--note", default="")
     verdict_p.set_defaults(func=cmd_verdict)
+
+    repair_p = sub.add_parser(
+        "repair",
+        help="save an unterminated tail and truncate the log to its last newline",
+    )
+    repair_p.add_argument("goal", help="goal id")
+    repair_p.add_argument(
+        "--yes",
+        action="store_true",
+        help=(
+            "move the tail aside and truncate; without this flag, "
+            "print what it would do and write nothing"
+        ),
+    )
+    repair_p.set_defaults(func=cmd_repair)
 
     return parser
 
