@@ -2178,6 +2178,77 @@ fn ten_live_runs_at_120x24_scroll_to_the_last() {
     );
 }
 
+// --- the policy pane counts wrapped rows, build ticket 179 -----------------
+
+#[test]
+fn ten_runs_on_another_sha_at_80x30_wrap_and_still_scroll_to_the_last() {
+    let area = Rect::new(0, 0, 80, 30);
+    let cards: Vec<Card> = (0..10)
+        .map(|i| {
+            let mut card = card(&format!("{i:08}-live"), "claude", State::Live, None);
+            card.policy_sha = Some("f1".repeat(32));
+            card
+        })
+        .collect();
+    let mut snapshot = snapshot_of(cards, Vec::new());
+    snapshot.spend = vec![Spend {
+        provider: "claude".to_string(),
+        live: 10,
+        counted: 0,
+        output_tokens: 0,
+        tokens_per_minute: None,
+        window_share: None,
+    }];
+    let layout = scratch("policy-wrap");
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_policies(scratch_policies(&layout));
+    app.set_snapshot(snapshot);
+    app.handle(&key(KeyCode::Char('p')));
+    let draw = |app: &mut App| {
+        let mut buf = Buffer::empty(area);
+        app.draw(area, &mut buf);
+        screen_text(&buf)
+    };
+    let first = draw(&mut app);
+    // Each run's line is wider than the pane and takes two rows.
+    assert!(first.contains("differs"), "{first}");
+    assert!(first.contains("00000000"), "{first}");
+    assert!(!first.contains("00000009"), "{first}");
+    assert!(first.contains(" more"), "the cut says so:\n{first}");
+    assert!(
+        first.contains("closes"),
+        "the footer is not clipped:\n{first}"
+    );
+
+    for _ in 0..10 {
+        app.handle(&key(KeyCode::PageDown));
+        draw(&mut app);
+    }
+    let paged = draw(&mut app);
+    assert!(
+        paged.contains("00000009"),
+        "PageDown reaches the last:\n{paged}"
+    );
+    assert!(!paged.contains("00000000"), "{paged}");
+    assert!(paged.contains("closes"), "{paged}");
+
+    for _ in 0..10 {
+        app.handle(&key(KeyCode::PageUp));
+    }
+    let back = draw(&mut app);
+    assert!(back.contains("00000000"), "{back}");
+
+    for _ in 0..10 {
+        app.handle(&mouse(MouseEventKind::ScrollDown, 40, 15));
+        draw(&mut app);
+    }
+    let wheeled = draw(&mut app);
+    assert!(
+        wheeled.contains("00000009"),
+        "the wheel reaches the last:\n{wheeled}"
+    );
+}
+
 // --- the detail shows tool calls, build ticket 178 -------------------------
 
 /// A `claude` frame calling `Bash` with `command`, as `tool_use` block `id`.

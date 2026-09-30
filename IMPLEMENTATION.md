@@ -3338,6 +3338,18 @@ that is five runs a page. `tests/cockpit.rs` rewrites `standard.json` between tw
 reads `differs`, then breaks it and reads the loader's error, and pages ten live runs at 120x24
 down to the last with the keys and again with the wheel.
 
+Build ticket 179 fixed the page size, which a `codex` review of 174 found counted one row per
+run. At 80x30 a run on another sha is a 78-character line in a 70-column pane and wraps to two
+rows, so the list ran past the border, no `more` line showed and nothing scrolled. The pane now
+counts each line's rows the way its word wrap breaks them, `wrapped_rows` in
+`src/cockpit/app.rs`, and pages by runs whose rows fit, keeping one row for the `more` line.
+The last page starts at the first run from which the rest fit. The headings are counted the same
+way, which matters for the `policies in` line: a long path wraps after `in` and took one row
+more than a width count said. Runs stay whole and wrap rather than being cut to one line,
+because the mark on a run on another sha is the sentence the pane exists to show. A unit test
+checks the count against what `Paragraph` renders at seven widths, and `tests/cockpit.rs` pages
+ten such runs at 80x30 to the last with the keys and the wheel.
+
 **Tokens and windows in the header, build ticket 172.** No dollars: the human pays
 subscriptions. Each provider with a live run gets one entry, beside the dragon or, without it,
 on a row of its own above the panels: output tokens per minute over the last five minutes, and

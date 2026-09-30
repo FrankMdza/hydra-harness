@@ -1,7 +1,7 @@
 # 180 - The detail hides secrets and pairs calls in order
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 179
 
 ## What

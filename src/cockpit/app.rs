@@ -79,9 +79,11 @@ pub struct Hits {
     /// A drawn card, its lane, and its index in that lane.
     pub cards: Vec<(Rect, Lane, usize)>,
     pub detail: Rect,
-    /// The policy pane, while it is up, and how many runs it had rows for.
+    /// The policy pane, while it is up, how many runs it had rows for, and
+    /// the offset of its last page.
     pub policy_pane: Rect,
     pub policy_rows: usize,
+    pub policy_last: usize,
 }
 
 /// Width the header keeps for the title beside the dragon, and the rows the panels keep below it.
@@ -398,10 +400,7 @@ impl App {
 
     /// Moves the pane's run list down by `by`, no further than its last page.
     fn scroll_policy_runs(&mut self, by: usize) {
-        let max = self
-            .lane_len(Lane::Live)
-            .saturating_sub(self.hits.policy_rows);
-        self.policy_offset = (self.policy_offset + by).min(max);
+        self.policy_offset = (self.policy_offset + by).min(self.hits.policy_last);
     }
 
     fn move_selection(&mut self, down: bool) -> Effect {
@@ -712,12 +711,8 @@ impl App {
             ),
         ];
         let inner = rect.width.saturating_sub(2).max(1) as usize;
-        let rows_of = |lines: &[Line]| -> usize {
-            lines
-                .iter()
-                .map(|line| line.width().div_ceil(inner).max(1))
-                .sum()
-        };
+        let rows_of =
+            |lines: &[Line]| -> usize { lines.iter().map(|line| wrapped_rows(line, inner)).sum() };
         let room = (rect.height.saturating_sub(2) as usize)
             .saturating_sub(rows_of(&lines) + rows_of(&footer));
         // The field rather than `cards_in`, which would borrow all of `self`.
@@ -730,34 +725,60 @@ impl App {
         if live.is_empty() {
             lines.push(Line::raw("  no live run"));
         }
-        let shown = if live.len() <= room {
-            live.len()
+        let runs: Vec<Line> = live
+            .iter()
+            .map(|card| {
+                let sha = card.policy_sha.as_deref();
+                let (mark, style) = match (sha, current) {
+                    (None, _) => ("no sha recorded", Style::default()),
+                    (Some(_), None) => ("cannot compare", Style::default()),
+                    (Some(sha), Some(now)) if sha == now => ("current", Style::default()),
+                    (Some(_), Some(_)) => (
+                        "differs: it keeps the gate it launched with",
+                        Style::default().fg(Color::Yellow),
+                    ),
+                };
+                Line::styled(
+                    format!(
+                        "  {} {:<10} {:<12} {mark}",
+                        short(&card.run_id),
+                        card.policy.as_deref().unwrap_or("-"),
+                        sha.map_or("-", short_sha),
+                    ),
+                    style,
+                )
+            })
+            .collect();
+        // A run's line wraps in a narrow pane, so the page is counted in
+        // rows, and a cut list keeps one row for the line that says so.
+        let heights: Vec<usize> = runs.iter().map(|line| wrapped_rows(line, inner)).collect();
+        let budget = if heights.iter().sum::<usize>() <= room {
+            room
         } else {
             room.saturating_sub(1)
         };
+        let fits = |from: usize| {
+            heights[from..]
+                .iter()
+                .scan(0, |used, rows| {
+                    *used += rows;
+                    Some(*used)
+                })
+                .take_while(|used| *used <= budget)
+                .count()
+        };
+        let last = (0..runs.len())
+            .find(|&from| from + fits(from) == runs.len())
+            .unwrap_or(runs.len().saturating_sub(1));
+        self.policy_offset = self.policy_offset.min(last);
+        let shown = fits(self.policy_offset);
         self.hits.policy_rows = shown;
-        self.policy_offset = self.policy_offset.min(live.len() - shown);
-        for card in &live[self.policy_offset..self.policy_offset + shown] {
-            let sha = card.policy_sha.as_deref();
-            let (mark, style) = match (sha, current) {
-                (None, _) => ("no sha recorded", Style::default()),
-                (Some(_), None) => ("cannot compare", Style::default()),
-                (Some(sha), Some(now)) if sha == now => ("current", Style::default()),
-                (Some(_), Some(_)) => (
-                    "differs: it keeps the gate it launched with",
-                    Style::default().fg(Color::Yellow),
-                ),
-            };
-            lines.push(Line::styled(
-                format!(
-                    "  {} {:<10} {:<12} {mark}",
-                    short(&card.run_id),
-                    card.policy.as_deref().unwrap_or("-"),
-                    sha.map_or("-", short_sha),
-                ),
-                style,
-            ));
-        }
+        self.hits.policy_last = last;
+        lines.extend(
+            runs[self.policy_offset..self.policy_offset + shown]
+                .iter()
+                .cloned(),
+        );
         if shown < live.len() {
             lines.push(Line::styled(
                 format!(
@@ -1204,6 +1225,38 @@ fn follow(selected: usize, offset: usize, rows: usize) -> usize {
     }
 }
 
+/// The rows `line` takes wrapped at `width`, breaking between words as the
+/// pane's `Wrap` does and cutting a word wider than a row.
+fn wrapped_rows(line: &Line, width: usize) -> usize {
+    let text: String = line
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect();
+    let width = width.max(1);
+    // The space before a word counts, except on a row the wrap just opened,
+    // which drops it.
+    let (mut rows, mut used, mut opened) = (1, 0, false);
+    for (i, word) in text.split(' ').enumerate() {
+        let len = Span::raw(word).width();
+        let gap = usize::from(i > 0 && !opened);
+        if used + gap + len <= width {
+            used += gap + len;
+            opened = opened && len == 0;
+        } else if len <= width {
+            rows += 1;
+            used = len;
+            opened = len == 0;
+        } else {
+            // A long word starts on its own row and runs over as many as it needs.
+            rows += usize::from(used > 0) + (len - 1) / width;
+            used = (len - 1) % width + 1;
+            opened = false;
+        }
+    }
+    rows
+}
+
 /// The first twelve characters of a sha, as the policy pane shows it.
 fn short_sha(sha: &str) -> &str {
     sha.get(..12).unwrap_or(sha)
@@ -1290,4 +1343,38 @@ fn row_text<'a>(columns: &[(Column, usize)], cell: impl Fn(Column) -> &'a str) -
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rows `Paragraph` with the pane's `Wrap` fills, the last written one.
+    fn rendered_rows(text: &str, width: u16) -> usize {
+        let area = Rect::new(0, 0, width, 20);
+        let mut buf = Buffer::empty(area);
+        Paragraph::new(Line::raw(text))
+            .wrap(Wrap { trim: false })
+            .render(area, &mut buf);
+        (0..area.height)
+            .filter(|&y| (0..width).any(|x| buf[(x, y)].symbol() != " "))
+            .map(|y| y as usize + 1)
+            .max()
+            .unwrap_or(1)
+    }
+
+    #[test]
+    fn wrapped_rows_matches_what_the_paragraph_renders() {
+        let run = "  00000000 standard   f1f1f1f1f1f1 differs: it keeps the gate it launched with";
+        let path = "policies in /var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/hydra-cockpit-1-p/policies";
+        for text in [run, path, "short", "  a  b   c"] {
+            for width in [10u16, 20, 33, 60, 70, 78, 110] {
+                assert_eq!(
+                    wrapped_rows(&Line::raw(text), width as usize),
+                    rendered_rows(text, width),
+                    "{text:?} at {width}"
+                );
+            }
+        }
+    }
 }
