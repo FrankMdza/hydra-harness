@@ -1,7 +1,7 @@
 # 186 - The cockpit draws while a stop waits
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 184
 
 ## What
@@ -28,3 +28,17 @@ each shown failing before the change.
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit`, `--test
   stop` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f330-99db under `standard`. The session
+applied it as written. `y` loads the policy set, then runs `stop::stop` on a named thread that
+answers over a channel; `poll_stops` reads it on every draw. The card reads `stopping`, then the
+outcome; a failed stop says why on the status line and pastes nothing; a second `m` says it is
+stopping. A thread, not a child `hydra stop`, because it returns `Stopped` as is and reuses this
+cockpit's policy set; the marker and SIGTERM go out before the wait, so quitting mid-stop still
+stops the seat. The host pastes the note after each draw, which closed a race an old test caught.
+Three tests on a stub that holds SIGTERM for 2 s, each failing first; fmt and clippy clean,
+`--test cockpit` 61, `--test stop` 12, `--lib` 224 on master. The chat still takes the keys when
+the note lands, up to 40 s after `y`.
+

@@ -90,6 +90,7 @@ impl Host {
     /// Reads what the child wrote, and once it names its run, points the
     /// dragon at that session. Returns whether the screen changed.
     pub fn pump(&mut self) -> bool {
+        self.settle_stops();
         let Some((_, chat)) = &mut self.chat else {
             return false;
         };
@@ -141,7 +142,6 @@ impl Host {
                 }
                 match self.app.handle(event) {
                     Effect::Quit => self.quit(),
-                    Effect::Draft(note) => self.draft(&note),
                     effect => effect,
                 }
             }
@@ -174,20 +174,28 @@ impl Host {
         Effect::None
     }
 
+    /// Takes the stops that reported since the last look and pastes the note
+    /// one left, build ticket 186. A failed stop leaves none.
+    fn settle_stops(&mut self) {
+        self.app.poll_stops();
+        if let Some(note) = self.app.take_draft() {
+            self.draft(&note);
+        }
+    }
+
     /// Pastes `note` into the chat's input and gives the chat the keys, build
     /// ticket 184. [`Chat::paste`] adds no `\r`, so the note waits there
     /// behind whatever the human had typed until they send it.
-    fn draft(&mut self, note: &str) -> Effect {
+    fn draft(&mut self, note: &str) {
         let Some((_, chat)) = &mut self.chat else {
-            return Effect::Refresh;
+            return;
         };
         if chat.exited() {
             self.message = Some("the chat has exited, so the note was not drafted".to_string());
-            return Effect::Refresh;
+            return;
         }
         chat.paste(note);
         self.side = Side::Chat;
-        Effect::Refresh
     }
 
     fn quit(&mut self) -> Effect {
@@ -238,6 +246,9 @@ impl Host {
         chat.draw(title, chat_area, buf, self.side == Side::Chat);
         self.app.has_keys = self.side == Side::Cockpit;
         self.app.draw(cockpit_area, buf);
+        // The cockpit's draw may have taken a stop's answer; its note goes in
+        // now rather than a loop later.
+        self.settle_stops();
         self.draw_status(status, buf);
     }
 

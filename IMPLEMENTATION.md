@@ -3394,9 +3394,17 @@ id> and draft a note to the session? y`. With `--session` a seat is a run whose
 `parent_run_id` is the run the chat named; without it, any live run with a parent, and the
 question is `stop <short id>? y`. A run with no parent is refused, and so is `m` inside a
 seatbelt, as `hydra/stop-inside-seatbelt`. `y` calls `stop::stop` on that one run with the
-policy set the pane loads, which waits for the record to close, so the cockpit does not draw
-for up to `GRACE` plus `CLOSE_BUDGET` while the chat's reader thread keeps draining the
-session's pty. Without `--session` the status line then says `stopped <id>: <outcome>; tell
+policy set the pane loads. Since build ticket 186 it does so on a thread and returns at once,
+so the cockpit keeps drawing and reading keys for the up to `GRACE` plus `CLOSE_BUDGET` the
+stop waits for the record to close. It is a thread rather than a child `hydra stop` because
+the thread hands back `Stopped` as it is, with the policy set this cockpit reads, where a
+child would find its own set with `discover` and answer in text to parse. The card reads
+`stopping` until the thread reports, then the outcome the stop returned until a read moves
+the card out of the live lane. A stop that fails puts `<id> was not stopped: <error>` on the
+status line and pastes nothing, and a second `m` on a seat that is stopping says so and asks
+nothing. A cockpit that quits meanwhile has already written the marker and sent SIGTERM, and
+the watcher closes the record as it always does. Once the stop has reported, and without
+`--session`, the status line says `stopped <id>: <outcome>; tell
 the session yourself`. With it, the chat is handed `Seat <short id> (<provider> <model>) was
 stopped by the human. Its task was: <task>. Instead: ` through `Chat::paste` and gets the keys.
 The task is `run_start.task` read off line 0 with the preamble cut when it is the one that
@@ -3406,7 +3414,9 @@ that turns whitespace and control characters into single spaces, so no `\r` or `
 `tests/stop.rs` drives it on a real watcher over a stub seat and a raw-mode stub chat that
 writes every byte it gets to a file: after the human's `abc`, the file holds
 `ESC[200~<note>ESC[201~` with bracketed paste on and the bare note with it off, nothing after
-either. Whether the real `claude` TUI appends a bracketed paste to its input without clearing
+either. A seat that traps SIGTERM and exits two seconds later shows the rest: `y` returns in
+well under a second, the card reads `stopping`, a second `m` is handled meanwhile, and nothing
+reaches the chat's pty until the stop reports. Whether the real `claude` TUI appends a bracketed paste to its input without clearing
 it or submitting it was not checked: that needs a live TUI, and the tests show only what
 Hydra sends.
 

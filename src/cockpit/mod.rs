@@ -209,8 +209,7 @@ pub fn run(
                 // simply stops refreshing; quitting still works.
                 let _ = asks.send(host.app.open_run_id());
             }
-            // The host pastes a draft itself and never hands one on.
-            Effect::Draft(_) | Effect::None => {}
+            Effect::None => {}
         }
     }
     Ok(())

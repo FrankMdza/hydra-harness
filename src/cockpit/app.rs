@@ -8,6 +8,7 @@
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
 use anyhow::{Context, bail};
@@ -71,9 +72,6 @@ pub enum Effect {
     /// Give the terminal to the human's editor on this policy file, then hand
     /// what happened to [`App::edited`]. The cockpit never writes the file.
     Edit(PathBuf),
-    /// Paste this into the chat, unsent, and give it the keys. Only a cockpit
-    /// with a chat inside asks for it, and [`super::host::Host`] does it.
-    Draft(String),
     Quit,
 }
 
@@ -107,6 +105,13 @@ struct ReviewRun {
     child: Option<Child>,
     /// How it exited, or `None` while it lives or when the wait failed.
     status: Option<ExitStatus>,
+}
+
+/// A stop `y` started, build ticket 186: [`crate::stop::stop`] on a thread
+/// of its own, whose answer [`App::poll_stops`] takes.
+struct StopRun {
+    card: Card,
+    answer: Receiver<anyhow::Result<Vec<crate::stop::Stopped>>>,
 }
 
 /// Width the header keeps for the title beside the dragon, and the rows the panels keep below it.
@@ -163,6 +168,13 @@ pub struct App {
     /// The seat the stop confirmation asks about, while it is up, build
     /// ticket 184.
     pub confirming_stop: Option<Card>,
+    /// The stops that have not reported yet, build ticket 186.
+    stops: Vec<StopRun>,
+    /// Each seat a stop reported on and the outcome it returned, kept while
+    /// the seat's card is still live.
+    stop_outcomes: Vec<(String, String)>,
+    /// The note a stop that reported left for the chat, until the host takes it.
+    drafted: Option<String>,
     /// Whether a chat is inside, so `m` drafts a note to it after a stop.
     pub(crate) chat_inside: bool,
     /// The run the chat named, once it has: the session whose seats `m` stops.
@@ -203,6 +215,9 @@ impl App {
             confirming_review: None,
             reviews: Vec::new(),
             confirming_stop: None,
+            stops: Vec::new(),
+            stop_outcomes: Vec::new(),
+            drafted: None,
             chat_inside: false,
             session: None,
             preamble: None,
@@ -281,6 +296,17 @@ impl App {
             mascot.observe(&snapshot);
         }
         self.snapshot = snapshot;
+        let live: Vec<&str> = self
+            .cards_in(Lane::Live)
+            .map(|card| card.run_id.as_str())
+            .collect();
+        let kept: Vec<(String, String)> = self
+            .stop_outcomes
+            .iter()
+            .filter(|(run_id, _)| live.contains(&run_id.as_str()))
+            .cloned()
+            .collect();
+        self.stop_outcomes = kept;
         self.table_selected = self.table_selected.min(self.table_len().saturating_sub(1));
         for lane in Lane::ALL {
             let i = lane.index();
@@ -713,6 +739,13 @@ impl App {
             return Effect::None;
         };
         let id = short(&card.run_id);
+        self.poll_stops();
+        if self.stops.iter().any(|run| run.card.run_id == card.run_id) {
+            self.message = Some(format!(
+                "{id} is stopping already; its outcome shows here when the stop reports"
+            ));
+            return Effect::None;
+        }
         let refused = match (&card.parent_run_id, self.chat_inside) {
             (None, _) => Some(format!("{id} is not a seat: no run launched it")),
             (Some(parent), true) if self.session.as_deref() != Some(parent.as_str()) => {
@@ -736,40 +769,102 @@ impl App {
         Effect::None
     }
 
-    /// `y` on that confirmation: [`crate::stop::stop`] on the seat, which
-    /// waits for its record to close, then the note for the chat.
+    /// `y` on that confirmation: starts [`crate::stop::stop`] on the seat on a
+    /// thread of its own and returns at once, build ticket 186.
     ///
-    /// The cockpit does not draw while it waits, up to [`crate::stop::GRACE`]
-    /// and [`crate::stop::CLOSE_BUDGET`]; the chat's reader thread keeps
-    /// draining the session's pty meanwhile.
+    /// The stop waits for the record to close, up to [`crate::stop::GRACE`]
+    /// and [`crate::stop::CLOSE_BUDGET`], and the cockpit keeps drawing and
+    /// reading keys meanwhile. A thread rather than a child `hydra stop`: the
+    /// thread hands back [`crate::stop::Stopped`] as it is, where a child
+    /// would find the policies with `discover` rather than the set this
+    /// cockpit reads, refuse inside a seatbelt again, and answer in text to
+    /// parse. The marker is written and the signal sent before the thread
+    /// waits, so a cockpit that quits meanwhile leaves the seat stopping.
     fn stop_seat(&mut self) -> Effect {
         let Some(card) = self.confirming_stop.take() else {
             return Effect::None;
         };
         let id = short(&card.run_id).to_string();
-        let stopped = self
+        let policies = match self
             .policies_dir
             .as_ref()
             .context("no policy directory to read the outcome with")
             .and_then(crate::policy::PolicySet::load)
-            .and_then(|policies| {
-                crate::stop::stop(
-                    &self.layout,
-                    &policies,
-                    crate::stop::Target::Run(&card.run_id),
-                    crate::stop::GRACE,
-                )
-            });
-        let said = match stopped {
-            Ok(stopped) => crate::stop::report(&stopped).trim_end().to_string(),
+        {
+            Ok(policies) => policies,
             Err(err) => {
                 self.message = Some(format!("{id} was not stopped: {err:#}"));
                 return Effect::Refresh;
             }
         };
+        let layout = Layout::at(self.layout.root());
+        let run_id = card.run_id.clone();
+        let (tx, answer) = mpsc::channel();
+        let started = std::thread::Builder::new()
+            .name(format!("stop-{id}"))
+            .spawn(move || {
+                let stopped = crate::stop::stop(
+                    &layout,
+                    &policies,
+                    crate::stop::Target::Run(&run_id),
+                    crate::stop::GRACE,
+                );
+                // The cockpit may have quit, and then nobody is left to tell.
+                let _ = tx.send(stopped);
+            });
+        if let Err(err) = started {
+            self.message = Some(format!("{id} was not stopped: starting the stop: {err}"));
+            return Effect::None;
+        }
+        self.message = Some(format!("stopping {id}"));
+        self.stops.push(StopRun { card, answer });
+        Effect::None
+    }
+
+    /// Takes the answer of each stop that reported, [`mpsc::Receiver::try_recv`]
+    /// and no wait. [`App::draw`] calls it, and so does
+    /// [`super::host::Host`] before it looks for a note to paste.
+    pub fn poll_stops(&mut self) {
+        let mut i = 0;
+        while i < self.stops.len() {
+            let answer = match self.stops[i].answer.try_recv() {
+                Err(TryRecvError::Empty) => {
+                    i += 1;
+                    continue;
+                }
+                Ok(answer) => answer,
+                Err(TryRecvError::Disconnected) => {
+                    Err(anyhow::anyhow!("the stop's thread ended without an answer"))
+                }
+            };
+            let run = self.stops.remove(i);
+            self.stop_reported(run.card, answer);
+        }
+    }
+
+    /// What one stop's answer leaves: the outcome on its card and the status
+    /// line, and with a chat inside, the note for [`App::take_draft`]. A
+    /// failed stop leaves its error and no note.
+    fn stop_reported(&mut self, card: Card, answer: anyhow::Result<Vec<crate::stop::Stopped>>) {
+        let id = short(&card.run_id).to_string();
+        let stopped = match answer {
+            Ok(stopped) => stopped,
+            Err(err) => {
+                self.message = Some(format!("{id} was not stopped: {err:#}"));
+                return;
+            }
+        };
+        let said = crate::stop::report(&stopped).trim_end().to_string();
+        let outcome = stopped
+            .iter()
+            .find(|run| run.run_id == card.run_id)
+            .and_then(|run| run.outcome)
+            .map_or("stop sent, record open", |outcome| outcome.as_str());
+        self.stop_outcomes
+            .push((card.run_id.clone(), outcome.to_string()));
         if !self.chat_inside {
             self.message = Some(format!("{said}; tell the session yourself"));
-            return Effect::Refresh;
+            return;
         }
         self.message = Some(format!(
             "{said}; the note to the session is in the chat, unsent"
@@ -777,7 +872,29 @@ impl App {
         let task = super::snapshot::line_zero(&self.layout.run_file(&card.run_id))
             .and_then(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
             .and_then(|envelope| envelope["hydra"]["task"].as_str().map(str::to_string));
-        Effect::Draft(draft(&card, task.as_deref(), self.preamble.as_deref()))
+        self.drafted = Some(draft(&card, task.as_deref(), self.preamble.as_deref()));
+    }
+
+    /// Whether a stop `y` started has not reported yet.
+    pub fn stopping(&self) -> bool {
+        !self.stops.is_empty()
+    }
+
+    /// The note a stop that reported left for the chat, once.
+    pub fn take_draft(&mut self) -> Option<String> {
+        self.drafted.take()
+    }
+
+    /// What a live card says in its lane: `stopping` while a stop of it
+    /// waits, then the outcome that stop returned until a read moves it.
+    fn live_label(&self, card: &Card) -> Option<&str> {
+        if self.stops.iter().any(|run| run.card.run_id == card.run_id) {
+            return Some("stopping");
+        }
+        self.stop_outcomes
+            .iter()
+            .find(|(run_id, _)| *run_id == card.run_id)
+            .map(|(_, outcome)| outcome.as_str())
     }
 
     // --- a review, build ticket 183 -----------------------------------------
@@ -961,6 +1078,7 @@ impl App {
     /// Paints the whole screen into `buf` and keeps what was drawn where.
     pub fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         self.poll_reviews();
+        self.poll_stops();
         self.hits = Hits::default();
         let area = self.draw_header(area, buf);
         let [main, status] =
@@ -1349,10 +1467,13 @@ impl App {
             _ => self
                 .cards_in(lane)
                 .map(|card| {
-                    let said = card
-                        .outcome
-                        .clone()
-                        .unwrap_or_else(|| card.state.as_str().to_string());
+                    let said = match (lane, self.live_label(card)) {
+                        (Lane::Live, Some(label)) => label.to_string(),
+                        _ => card
+                            .outcome
+                            .clone()
+                            .unwrap_or_else(|| card.state.as_str().to_string()),
+                    };
                     format!(
                         "{} {} {said}",
                         short(&card.run_id),

@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use hydra::env::ChildEnv;
 use hydra::outcome::Outcome;
@@ -460,6 +460,7 @@ fn step_in(layout: &Layout, bracketed: bool) -> (Host, Vec<u8>) {
     host.handle(&key(KeyCode::Char('m')));
     let asked = drawn(&mut host);
     host.handle(&key(KeyCode::Char('y')));
+    reported(&mut host);
     ended(layout, SEAT, &mut watcher);
     assert!(
         asked.contains("stop 01996d3c and draft a note to the session? y"),
@@ -478,8 +479,8 @@ fn step_in(layout: &Layout, bracketed: bool) -> (Host, Vec<u8>) {
     (host, bytes)
 }
 
-/// `y` stops the seat before it returns, so its record is closed by now. A
-/// watcher that is still going is killed rather than waited on for two minutes.
+/// The stop has reported, so the seat's record is closed by now. A watcher
+/// that is still going is killed rather than waited on for two minutes.
 fn ended(layout: &Layout, run_id: &str, watcher: &mut std::process::Child) {
     let waited =
         watch::wait_for_end(&layout.run_file(run_id), watcher, Duration::from_secs(1)).unwrap();
@@ -488,6 +489,24 @@ fn ended(layout: &Layout, run_id: &str, watcher: &mut std::process::Child) {
     }
     watcher.wait().unwrap();
     assert_eq!(waited, Waited::Ended, "the seat was not stopped");
+}
+
+/// Pumps and draws, as the cockpit's loop does, until no stop is in flight,
+/// and returns the last screen.
+fn reported(host: &mut Host) -> String {
+    let deadline = Instant::now() + stop::GRACE + stop::CLOSE_BUDGET + Duration::from_secs(5);
+    loop {
+        host.pump();
+        let text = drawn(host);
+        if !host.app.stopping() {
+            return text;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the stop never reported:\n{text}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn hang_up(host: &mut Host) {
@@ -545,6 +564,7 @@ fn m_without_a_session_stops_the_seat_and_says_to_tell_the_session() {
     host.handle(&key(KeyCode::Char('m')));
     let asked = drawn(&mut host);
     host.handle(&key(KeyCode::Char('y')));
+    reported(&mut host);
     ended(&layout, SEAT, &mut watcher);
     assert!(asked.contains("stop 01996d3c? y"), "{asked}");
 
@@ -554,4 +574,122 @@ fn m_without_a_session_stops_the_seat_and_says_to_tell_the_session() {
     let said = host.app.message.clone().unwrap_or_default();
     assert!(said.contains(&format!("stopped {SEAT}: stopped")), "{said}");
     assert!(said.contains("tell the session yourself"), "{said}");
+}
+
+// --- the cockpit draws while a stop waits, build ticket 186 -------------------
+
+/// Traps SIGTERM and exits two seconds after it, so the stop waits that long
+/// for the group to empty and [`stop::GRACE`] never runs out.
+const HOLDS_ON: &str = r#"trap 'sleep 2; exit 0' TERM; printf '{"type":"system","subtype":"init","model":"stub-1"}\n'; while :; do sleep 0.1; done"#;
+
+#[test]
+fn y_returns_at_once_and_the_cockpit_keeps_going_while_the_seat_holds_on() {
+    let layout = sandbox("holds-on");
+    let mut watcher = start(&layout, SEAT, Some(SESSION), HOLDS_ON);
+    let mut host = Host::alone(cockpit_on_the_seat(&layout));
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat_card()],
+        ..Snapshot::default()
+    });
+
+    host.handle(&key(KeyCode::Char('m')));
+    let asked_at = Instant::now();
+    host.handle(&key(KeyCode::Char('y')));
+    let held = asked_at.elapsed();
+    let text = drawn(&mut host);
+    assert!(
+        held < Duration::from_secs(1),
+        "y held the cockpit for {held:?}"
+    );
+    assert!(text.contains("01996d3c claude stopping"), "{text}");
+
+    // A key handled while the seat holds on: a second `m` says so and asks nothing.
+    host.handle(&key(KeyCode::Char('m')));
+    let text = drawn(&mut host);
+    assert!(
+        host.app.stopping(),
+        "the seat held on, so the stop is still waiting"
+    );
+    let said = host.app.message.clone().unwrap_or_default();
+    assert!(said.contains("01996d3c is stopping already"), "{said}");
+    assert!(!text.contains("stop 01996d3c? y"), "{text}");
+
+    let text = reported(&mut host);
+    ended(&layout, SEAT, &mut watcher);
+    assert!(
+        asked_at.elapsed() >= Duration::from_secs(2),
+        "the seat did not hold on, so this test proved nothing"
+    );
+    assert!(text.contains("01996d3c claude stopped"), "{text}");
+    let said = host.app.message.clone().unwrap_or_default();
+    assert!(said.contains(&format!("stopped {SEAT}: stopped")), "{said}");
+}
+
+#[test]
+fn the_note_waits_until_the_stop_reports() {
+    let layout = sandbox("note-waits");
+    let out = layout.root().join("pty-bytes");
+    let mut host = recording_chat(&layout, &out, false);
+    let mut watcher = start(&layout, SEAT, Some(SESSION), HOLDS_ON);
+    host.handle(&key(KeyCode::F(2)));
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat_card()],
+        ..Snapshot::default()
+    });
+
+    host.handle(&key(KeyCode::Char('m')));
+    host.handle(&key(KeyCode::Char('y')));
+    drawn(&mut host);
+    assert_eq!(
+        host.side,
+        Side::Cockpit,
+        "the keys moved before the stop reported"
+    );
+    assert!(
+        host.app.stopping(),
+        "the seat held on, so the stop is still waiting"
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    host.pump();
+    assert_eq!(
+        std::fs::read(&out).unwrap_or_default(),
+        b"",
+        "something reached the pty before the stop reported"
+    );
+
+    reported(&mut host);
+    ended(&layout, SEAT, &mut watcher);
+    let bytes = recorded(&out, b"Instead: ");
+    assert_eq!(String::from_utf8_lossy(&bytes), DRAFT);
+    assert_eq!(
+        host.side,
+        Side::Chat,
+        "the keys went to the chat with the note"
+    );
+    hang_up(&mut host);
+}
+
+#[test]
+fn a_stop_that_fails_pastes_nothing() {
+    let layout = sandbox("stop-fails");
+    let out = layout.root().join("pty-bytes");
+    let mut host = recording_chat(&layout, &out, false);
+    // No watcher, so no record, and the stop refuses.
+    host.handle(&key(KeyCode::F(2)));
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat_card()],
+        ..Snapshot::default()
+    });
+
+    host.handle(&key(KeyCode::Char('m')));
+    host.handle(&key(KeyCode::Char('y')));
+    let text = reported(&mut host);
+    let said = host.app.message.clone().unwrap_or_default();
+    assert!(said.contains("01996d3c was not stopped"), "{said}");
+    assert!(text.contains("01996d3c claude live"), "{text}");
+    assert_eq!(host.side, Side::Cockpit);
+    std::thread::sleep(Duration::from_millis(300));
+    host.pump();
+    assert_eq!(std::fs::read(&out).unwrap_or_default(), b"");
+    hang_up(&mut host);
 }
