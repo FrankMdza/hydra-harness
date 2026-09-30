@@ -20,18 +20,20 @@ plain denial, the next step adds a reason.
 Read `src/approve.rs`, the approval half of `src/seats.rs` (grep `approval_required`, `withdrawn`),
 `tests/seats.rs`, and the `seat_approval` line in `docs/run-record-contract.md` before code.
 
-**Check first.** If the session's record needs a new line type or a new field to show a denial
-(beside `seat_approval`), that is a contract change: stop and say the smallest one you would
-propose. If a denial fits an existing line shape (for example `seat_approval` with a decision
-value), carry on.
+**Checked already, 2026-09-30, run 01a0f2d1-1e75 (`claude` opus):** no line shape carries a
+denial. `seat_approval` holds only `request_id` (contract lines 121 to 123, enforced at
+`src/record/validate.rs:321-326`), and a new line type is a contract change. Its proposal, a
+`seat_denial` line shaped like `seat_approval`, is left for a map ticket. This ticket writes
+nothing to the run record and needs no contract change.
 
 1. `hydra deny <id>` renames `<id>.pending.json` to `<id>.denied.json` in one `rename`, as
    approve does, so the three writers (approve, deny, the launcher's withdraw) still cannot both
    win. It writes `denied_at` and who denied (the login name from the environment, as the human
    is the only one who types it) into the file, never any free text.
-2. The launcher sees the rename, answers the face with a new fixed refusal constant,
-   `hydra/request-denied`, distinct from `hydra/request-withdrawn`, and records it on the
-   session's record.
+2. The launcher sees the rename and answers the face with a new fixed refusal constant,
+   `hydra/request-denied`, distinct from `hydra/request-withdrawn`. It writes no line on the
+   session's record: the contract has no line for it (see below), and a withdrawal writes none
+   either. The store file is where who and when live.
 3. Refuses inside a seatbelt with its own constant, as approve does; refuses an id that is not
    pending with the existing constants.
 4. The cockpit's approval dialog gains `d`: deny the selected request after the same `y`
@@ -45,6 +47,5 @@ key denies after confirmation.
 
 ## Done when
 
-- The check is in the report.
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, and the test files you
   touched pass.
