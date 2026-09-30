@@ -5,6 +5,7 @@
 //! click can land on is kept from the last draw in [`Hits`], and a click is a
 //! `Rect::contains` over those.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEventKind};
@@ -57,11 +58,14 @@ pub enum Opened {
 }
 
 /// What the loop around [`App::handle`] has to do next.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     None,
     /// Ask the reader for a fresh snapshot now, with the open run's tail.
     Refresh,
+    /// Give the terminal to the human's editor on this policy file, then hand
+    /// what happened to [`App::edited`]. The cockpit never writes the file.
+    Edit(PathBuf),
     Quit,
 }
 
@@ -111,6 +115,13 @@ pub struct App {
     /// The table above the lanes and the detail, for the narrower column the
     /// cockpit gets beside the chat.
     pub stacked: bool,
+    /// `policies/`, which the pane lists and the editor opens files in.
+    policies_dir: Option<PathBuf>,
+    /// The set's sha as last loaded, or the loader's error.
+    policy_set: Option<std::result::Result<String, String>>,
+    /// Whether the policy pane of build ticket 171 is up.
+    pub policy_pane: bool,
+    policy_selected: usize,
 }
 
 impl App {
@@ -134,7 +145,41 @@ impl App {
             mascot: None,
             has_keys: true,
             stacked: false,
+            policies_dir: None,
+            policy_set: None,
+            policy_pane: false,
+            policy_selected: 0,
         }
+    }
+
+    /// Names the policy directory the pane shows and loads it once.
+    pub fn set_policies(&mut self, dir: PathBuf) {
+        self.policies_dir = Some(dir);
+        self.reload_policies();
+    }
+
+    fn reload_policies(&mut self) {
+        self.policy_set = self.policies_dir.as_ref().map(|dir| {
+            crate::policy::PolicySet::load(dir)
+                .map(|set| set.sha().to_string())
+                .map_err(|err| format!("{err:#}"))
+        });
+    }
+
+    /// What the loop reports once the editor on `file` has exited: reloads
+    /// the set, so the pane shows the sha the next launch would record, or
+    /// the loader's refusal.
+    pub fn edited(&mut self, file: &Path, ran: anyhow::Result<()>) {
+        self.reload_policies();
+        let name = file.file_name().map_or_else(
+            || file.display().to_string(),
+            |n| n.to_string_lossy().to_string(),
+        );
+        self.message = Some(match (ran, &self.policy_set) {
+            (Err(err), _) => format!("the editor on {name}: {err:#}"),
+            (Ok(()), Some(Ok(sha))) => format!("edited {name}: the set is now {}", short_sha(sha)),
+            (Ok(()), _) => format!("edited {name}: the set does not load"),
+        });
     }
 
     /// Puts the dragon in the header, or takes it out and gives the row back to the table.
@@ -238,8 +283,16 @@ impl App {
                 _ => Effect::None,
             };
         }
+        if self.policy_pane {
+            return self.policy_key(key);
+        }
         match key.code {
             KeyCode::Char('q') => Effect::Quit,
+            KeyCode::Char('p') => {
+                self.reload_policies();
+                self.policy_pane = true;
+                Effect::None
+            }
             KeyCode::Tab | KeyCode::Right => {
                 self.focus = self.focus.step(true);
                 Effect::None
@@ -260,6 +313,44 @@ impl App {
             }
             KeyCode::Char('a') => self.ask_to_answer(false),
             KeyCode::Char('d') => self.ask_to_answer(true),
+            _ => Effect::None,
+        }
+    }
+
+    /// Keys while the policy pane is up. It reads; `e` is the one key that
+    /// leads anywhere, and it leads to the human's own editor.
+    fn policy_key(&mut self, key: &KeyEvent) -> Effect {
+        let last = crate::policy::NAMES.len() - 1;
+        match key.code {
+            KeyCode::Char('q') => Effect::Quit,
+            KeyCode::Char('p') | KeyCode::Esc => {
+                self.policy_pane = false;
+                Effect::None
+            }
+            KeyCode::Up => {
+                self.policy_selected = self.policy_selected.saturating_sub(1);
+                Effect::None
+            }
+            KeyCode::Down => {
+                self.policy_selected = (self.policy_selected + 1).min(last);
+                Effect::None
+            }
+            KeyCode::Char('e') => {
+                let Some(dir) = &self.policies_dir else {
+                    self.message = Some("no policy directory to edit".to_string());
+                    return Effect::None;
+                };
+                if self.seatbelted {
+                    self.message = Some(
+                        "the cockpit is inside a seatbelt, which is where a model runs, and \
+                         only the human edits policies/ (protected config #1)"
+                            .to_string(),
+                    );
+                    return Effect::None;
+                }
+                let name = crate::policy::NAMES[self.policy_selected.min(last)];
+                Effect::Edit(dir.join(format!("{name}.json")))
+            }
             _ => Effect::None,
         }
     }
@@ -490,9 +581,101 @@ impl App {
         }
         self.draw_detail(right, buf);
         self.draw_status(status, buf);
+        if self.policy_pane {
+            self.draw_policy_pane(main, buf);
+        }
         if let Some(request) = self.confirming.clone() {
             draw_confirmation(&request, self.denying, main, buf);
         }
+    }
+
+    /// The policy pane: the five files, the set's sha now, and each live
+    /// run's sha beside it. A run on another sha kept the gate it launched
+    /// with, and the mark says so.
+    fn draw_policy_pane(&self, area: Rect, buf: &mut Buffer) {
+        let width = area.width.saturating_sub(8).min(110);
+        let height = area.height.saturating_sub(2);
+        let rect = Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + (area.height - height) / 2,
+            width,
+            height,
+        };
+        Clear.render(rect, buf);
+        let bold = Style::default().add_modifier(Modifier::BOLD);
+        let red = Style::default().fg(Color::Red);
+        let mut lines = Vec::new();
+        let current = match &self.policy_set {
+            Some(Ok(sha)) => {
+                lines.push(Line::styled(format!("policy set {sha}"), bold));
+                Some(sha.as_str())
+            }
+            Some(Err(err)) => {
+                lines.push(Line::styled(
+                    "the policy set does not load, and a launch now would be refused",
+                    red.add_modifier(Modifier::BOLD),
+                ));
+                lines.extend(err.lines().map(|l| Line::styled(l.to_string(), red)));
+                None
+            }
+            None => {
+                lines.push(Line::styled("no policy directory", red));
+                None
+            }
+        };
+        lines.push(Line::raw(""));
+        let dir = self
+            .policies_dir
+            .as_ref()
+            .map_or_else(String::new, |d| d.display().to_string());
+        lines.push(Line::styled(format!("policies in {dir}"), bold));
+        for (i, name) in crate::policy::NAMES.iter().enumerate() {
+            let style = if i == self.policy_selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            lines.push(Line::styled(format!("  {name}.json"), style));
+        }
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            "live runs and the set each launched under",
+            bold,
+        ));
+        let live: Vec<&Card> = self.cards_in(Lane::Live).collect();
+        if live.is_empty() {
+            lines.push(Line::raw("  no live run"));
+        }
+        for card in live {
+            let sha = card.policy_sha.as_deref();
+            let (mark, style) = match (sha, current) {
+                (None, _) => ("no sha recorded", Style::default()),
+                (Some(_), None) => ("cannot compare", Style::default()),
+                (Some(sha), Some(now)) if sha == now => ("current", Style::default()),
+                (Some(_), Some(_)) => (
+                    "differs: it keeps the gate it launched with",
+                    Style::default().fg(Color::Yellow),
+                ),
+            };
+            lines.push(Line::styled(
+                format!(
+                    "  {} {:<10} {:<12} {mark}",
+                    short(&card.run_id),
+                    card.policy.as_deref().unwrap_or("-"),
+                    sha.map_or("-", short_sha),
+                ),
+                style,
+            ));
+        }
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            "Up/Down select, e opens it in $EDITOR, p or Esc closes. The cockpit never writes it.",
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        Paragraph::new(lines)
+            .block(Block::bordered().title(" policies "))
+            .wrap(Wrap { trim: false })
+            .render(rect, buf);
     }
 
     /// The dragon left of the title, at the top, when the screen has room for it and the table
@@ -800,7 +983,8 @@ impl App {
             .map(|lane| format!("{} {}", lane.title(), self.lane_len(*lane)))
             .collect::<Vec<_>>()
             .join(", ");
-        let keys = "arrows/Tab move, Enter opens, Esc closes, a approves, d denies, q quits";
+        let keys =
+            "arrows/Tab move, Enter opens, Esc closes, a approves, d denies, p policies, q quits";
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",
             self.interval.as_secs_f32()
@@ -865,6 +1049,11 @@ fn follow(selected: usize, offset: usize, rows: usize) -> usize {
     } else {
         offset
     }
+}
+
+/// The first twelve characters of a sha, as the policy pane shows it.
+fn short_sha(sha: &str) -> &str {
+    sha.get(..12).unwrap_or(sha)
 }
 
 /// The first eight characters of an id, which is what `puppets.py board` shows.

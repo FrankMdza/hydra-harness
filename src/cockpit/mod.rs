@@ -21,7 +21,12 @@
 //! [`app`] holds the state, the event handling and the drawing, with no
 //! terminal, so the suite drives them over a `Buffer`. [`snapshot`] is what one
 //! read of the disk returns, done on a thread so a slow read never holds a key
-//! press. [`goal`] folds a goal log into the table. [`mascot`] is the dragon in the header, drawn
+//! press.
+//!
+//! **`p` shows the policy set and `e` opens one file in the human's editor**,
+//! build ticket 171. The cockpit leaves the screen, runs `$EDITOR` and waits,
+//! then reloads the set and shows its new sha or the loader's refusal. The
+//! editor writes the file; the cockpit does not. [`goal`] folds a goal log into the table. [`mascot`] is the dragon in the header, drawn
 //! from frames the Python mascot wrote.
 
 pub mod app;
@@ -32,7 +37,7 @@ pub mod mascot;
 pub mod snapshot;
 
 use std::io::Stdout;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -124,6 +129,8 @@ pub fn run(
         interval,
     );
 
+    app.set_policies(crate::paths::hydra_home().join("policies"));
+
     if with_mascot {
         match mascot::Frames::load(&mascot::default_dir()) {
             Ok(frames) => app.set_mascot(Some(mascot::Mascot::new(frames))),
@@ -175,6 +182,14 @@ pub fn run(
         let event = crossterm::event::read().context("reading input")?;
         match host.handle(&event) {
             Effect::Quit => break,
+            Effect::Edit(file) => {
+                // The chat's reader thread keeps draining its pty while the
+                // editor has the terminal, so a `--session` child runs on.
+                screen.suspend();
+                let ran = run_editor(&editor(), &file);
+                screen.resume()?;
+                host.app.edited(&file, ran);
+            }
             Effect::Refresh => {
                 // The reader is gone only if it panicked, and then the screen
                 // simply stops refreshing; quitting still works.
@@ -182,6 +197,31 @@ pub fn run(
             }
             Effect::None => {}
         }
+    }
+    Ok(())
+}
+
+/// `$EDITOR`, or `vi` when it is unset or empty.
+pub fn editor() -> String {
+    std::env::var("EDITOR")
+        .ok()
+        .filter(|e| !e.trim().is_empty())
+        .unwrap_or_else(|| "vi".to_string())
+}
+
+/// Runs `editor` on `file` and waits for it. `editor` goes through `sh` the
+/// way git runs it, so `EDITOR="code -w"` works; the file is an argument and
+/// never part of the script.
+pub fn run_editor(editor: &str, file: &Path) -> Result<()> {
+    let status = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!("{editor} \"$1\""))
+        .arg("sh")
+        .arg(file)
+        .status()
+        .with_context(|| format!("starting {editor}"))?;
+    if !status.success() {
+        bail!("{editor} exited with {status}");
     }
     Ok(())
 }
@@ -217,6 +257,26 @@ impl Screen {
                 Err(err).context("opening the screen")
             }
         }
+    }
+}
+
+impl Screen {
+    /// Gives the terminal to another program, as the panic hook does.
+    fn suspend(&mut self) {
+        restore();
+    }
+
+    /// Takes it back and forces a full repaint of what the editor drew over.
+    fn resume(&mut self) -> Result<()> {
+        enable_raw_mode().context("entering raw mode")?;
+        crossterm::execute!(
+            std::io::stdout(),
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        )
+        .context("opening the screen")?;
+        self.terminal.clear().context("clearing the screen")
     }
 }
 

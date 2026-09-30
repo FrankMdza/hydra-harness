@@ -3276,9 +3276,30 @@ confirmation titled `deny this request?`, and `y` there calls `approve::deny` wi
 `hydra deny` records. `tests/cockpit.rs` denies a planted request with `d` then `y`, and checks
 that `n` writes nothing.
 
-**Input.** Arrows and `Tab` move between panels and rows, `Enter` opens, `Esc` closes, `q` quits.
-A click selects the table row under it or opens the card under it, and the wheel scrolls the
-panel under the pointer. Every drawn row and card keeps its `Rect` from the last draw, and a click
+**The policy pane, build ticket 171.** `p` opens a read-only pane over the panels: the five
+policy files under `$HYDRA_HOME/policies/`, the set's sha as the loader computes it now, and each
+live run with the `policy_sha` off its line 0. A run whose sha is not the current one is marked
+`differs: it keeps the gate it launched with`, because its gate was compiled at spawn and a
+later edit does not reach it. `e` on a file hands the terminal to the human's editor: the loop
+undoes raw mode, the alternate screen, mouse capture and bracketed paste as the panic hook does,
+runs `$EDITOR` (`vi` when unset) through `sh -c` with the file as `$1`, waits, takes the screen
+back and reloads the set. The pane then shows the new sha, or in red that the set does not load
+with the loader's error. The cockpit never writes the file, and inside a seatbelt `e` refuses.
+Loading is the whole check: `policy::compile` can only fail on a policy the loader did not
+admit. A broken save is refused at the next launch by `PolicySet::discover` in
+`run::preflight_inputs`, before a run id exists, so it leaves no record. The reader thread
+keeps the set it loaded at start for normalizing ended records. `tests/cockpit.rs` draws the
+pane over two live runs on different shas, and runs a stub `EDITOR` twice: one appends
+whitespace and the pane shows the new sha, one appends `// a comment` and the pane shows the
+parse error in red. JSON has no comments, so the ticket's "stub that appends a comment" is the
+unloadable case, not the loadable one. With `--session` the chat's reader thread keeps draining
+its pty while the editor runs, so the child is not blocked on a full pty, but its output is
+painted only after the editor exits, and a child waiting on a cursor position reply waits that
+long too. Neither has been tried against a real editor in a real terminal.
+
+**Input.** Arrows and `Tab` move between panels and rows, `Enter` opens, `Esc` closes, `p`
+opens the policy pane, `q` quits. A click selects the table row under it or opens the card under
+it, and the wheel scrolls the panel under the pointer. Every drawn row and card keeps its `Rect` from the last draw, and a click
 is `Rect::contains` over them. Mouse capture and the alternate screen are undone on drop and by a
 panic hook.
 

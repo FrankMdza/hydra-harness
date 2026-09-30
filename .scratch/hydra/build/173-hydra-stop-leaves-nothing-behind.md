@@ -1,7 +1,7 @@
 # 173 - hydra stop leaves nothing behind
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 171
 
 ## What

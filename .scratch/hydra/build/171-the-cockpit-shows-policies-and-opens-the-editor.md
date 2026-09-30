@@ -1,7 +1,7 @@
 # 171 - The cockpit shows policies and opens the editor
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 170
 
 ## What
@@ -41,3 +41,21 @@ error. Use a scratch `Layout` with its own `policies/`, never the real one.
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib` and `cargo test --test
   cockpit` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f2e2-de3a under `standard`. The session
+applied it as written. `p` opens a read-only policy pane: the five files, the current set's sha
+(or the loader's error in red), and each live run's policy and `policy_sha` from line 0, marked
+`current`, `differs: it keeps the gate it launched with`, `no sha recorded` or `cannot compare`.
+`e` suspends the screen, runs `$EDITOR` (or `vi`) on the file, restores the screen and reloads the
+set; the cockpit never writes the file, and inside a seatbelt `e` refuses (the run added that).
+Three tests; fmt and clippy clean, `--test cockpit` 28, `--lib` 220 on master.
+
+From reading the code: a broken save is refused at the next launch by `PolicySet::discover()` in
+`run::preflight_inputs`, before a run id exists, so it leaves no record. With `--session` the
+chat child keeps running while the editor is open; its output appears after. The ticket's
+"appends a comment" stub was wrong for JSON; the loadable stub appends whitespace. The snapshot's
+reader thread keeps the set it loaded at start, noted in `IMPLEMENTATION.md`. Never run in a real
+terminal.
+

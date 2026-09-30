@@ -84,6 +84,9 @@ pub struct Card {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub policy: Option<String>,
+    /// The sha of the policy set the run launched under, off line 0. A live
+    /// run keeps the gate compiled from that set whatever `policies/` says now.
+    pub policy_sha: Option<String>,
     pub state: State,
     pub outcome: Option<String>,
     pub total_tokens: Option<u64>,
@@ -257,12 +260,13 @@ impl Reader {
                     continue;
                 }
             };
-            let model = model_of(path);
+            let (model, policy_sha) = opening_of(path);
             let mut card = Card {
                 run_id: view.run_id.clone(),
                 provider: view.provider.clone(),
                 model,
                 policy: view.policy.clone(),
+                policy_sha,
                 state: view.state,
                 outcome: None,
                 total_tokens: None,
@@ -336,15 +340,23 @@ impl Reader {
     }
 }
 
-/// The model on line 0's envelope. [`crate::live::opening_line`] hands back
-/// the body under `hydra`, and the model is beside it.
-fn model_of(path: &Path) -> Option<String> {
+/// The model on line 0's envelope and the `policy_sha` in its body.
+/// [`crate::live::read_view`] reads neither.
+fn opening_of(path: &Path) -> (Option<String>, Option<String>) {
     use std::io::BufRead;
-    let file = std::fs::File::open(path).ok()?;
-    let mut first = String::new();
-    std::io::BufReader::new(file).read_line(&mut first).ok()?;
-    let envelope: serde_json::Value = serde_json::from_str(&first).ok()?;
-    envelope["model"].as_str().map(str::to_string)
+    let envelope = std::fs::File::open(path).ok().and_then(|file| {
+        let mut first = String::new();
+        std::io::BufReader::new(file).read_line(&mut first).ok()?;
+        serde_json::from_str::<serde_json::Value>(&first).ok()
+    });
+    let Some(envelope) = envelope else {
+        return (None, None);
+    };
+    let field = |value: &serde_json::Value| value.as_str().map(str::to_string);
+    (
+        field(&envelope["model"]),
+        field(&envelope["hydra"]["policy_sha"]),
+    )
 }
 
 /// The last `n` lines of a record, each cut to a length a pane can hold.

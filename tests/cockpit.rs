@@ -192,6 +192,11 @@ fn a_goal_log_folds_into_the_rows_board_prints() {
 
 /// A record whose line 0 names this test's own pid, which is alive.
 fn write_live_run(layout: &Layout, run_id: &str) {
+    write_live_run_on(layout, run_id, None);
+}
+
+/// The same, launched under the policy set whose sha is `policy_sha`.
+fn write_live_run_on(layout: &Layout, run_id: &str, policy_sha: Option<&str>) {
     let pid = std::process::id();
     let start = hydra::procinfo::start_time(pid).unwrap().unwrap();
     let line = json!({
@@ -212,7 +217,7 @@ fn write_live_run(layout: &Layout, run_id: &str) {
             "provider_session_id": null,
             "task": "probe",
             "policy": "standard",
-            "policy_sha": null,
+            "policy_sha": policy_sha,
             "cwd": "/tmp",
             "depth": 0,
             "pid": pid,
@@ -396,6 +401,7 @@ fn card(run_id: &str, provider: &str, state: State, outcome: Option<&str>) -> Ca
         provider: Some(provider.to_string()),
         model: None,
         policy: Some("standard".to_string()),
+        policy_sha: None,
         state,
         outcome: outcome.map(str::to_string),
         total_tokens: Some(1234),
@@ -1244,4 +1250,171 @@ fn ctrl_q_asks_while_the_child_lives_and_y_hangs_it_up() {
     until(&mut host, WIDE, "the hangup", |host, _| host.done());
     let line = host.chat().unwrap().ended_line().unwrap();
     assert!(line.starts_with("the chat "), "{line}");
+}
+
+// --- the policy pane, build ticket 171 -------------------------------------
+
+/// A copy of the shipped policy set under a scratch root, so an editor stub
+/// can change it without touching the real one.
+fn scratch_policies(layout: &Layout) -> PathBuf {
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("policies");
+    let to = layout.root().join("policies");
+    std::fs::create_dir_all(&to).unwrap();
+    for entry in std::fs::read_dir(&from).unwrap().flatten() {
+        std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+    }
+    to
+}
+
+/// An `EDITOR` that appends `text` to the file it is handed.
+fn editor_stub(layout: &Layout, text: &str) -> String {
+    let path = layout.root().join("editor");
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\nprintf '%s' '{text}' >> \"$1\"\n"),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path.display().to_string()
+}
+
+const PANE_AREA: Rect = Rect::new(0, 0, 200, 50);
+
+fn draw_wide(app: &mut App) -> Buffer {
+    let mut buf = Buffer::empty(PANE_AREA);
+    app.draw(PANE_AREA, &mut buf);
+    buf
+}
+
+/// The screen row that holds `needle`, whole.
+fn line_with(buf: &Buffer, needle: &str) -> String {
+    (0..buf.area.height)
+        .map(|y| row_of(buf, y))
+        .find(|row| row.contains(needle))
+        .unwrap_or_else(|| panic!("no row holds {needle:?}:\n{}", screen_text(buf)))
+}
+
+#[test]
+fn the_policy_pane_lists_the_five_and_marks_a_run_on_another_sha() {
+    let layout = scratch("policy-pane");
+    let dir = scratch_policies(&layout);
+    let current = PolicySet::load(&dir).unwrap().sha().to_string();
+    let same = "01a0f001-0000-7000-8000-000000000001";
+    let other = "01a0f002-0000-7000-8000-000000000002";
+    write_live_run_on(&layout, same, Some(&current));
+    write_live_run_on(&layout, other, Some(&"f1".repeat(32)));
+
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.root().join("puppets"),
+        None,
+    );
+    let snapshot = reader.read(None);
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_policies(dir);
+    app.set_snapshot(snapshot);
+    let before = screen_text(&draw_wide(&mut app));
+    assert!(!before.contains(&current[..12]), "the pane is shut until p");
+
+    assert_eq!(app.handle(&key(KeyCode::Char('p'))), Effect::None);
+    let buf = draw_wide(&mut app);
+    let text = screen_text(&buf);
+    for name in hydra::policy::NAMES {
+        assert!(
+            text.contains(&format!("{name}.json")),
+            "{name} missing:\n{text}"
+        );
+    }
+    assert!(line_with(&buf, "policy set").contains(&current[..12]));
+    let same_line = line_with(&buf, &same[..8]);
+    let other_line = line_with(&buf, &other[..8]);
+    assert!(same_line.contains(&current[..12]), "{same_line}");
+    assert!(!same_line.contains("differs"), "{same_line}");
+    assert!(other_line.contains(&"f1".repeat(6)), "{other_line}");
+    assert!(other_line.contains("differs"), "{other_line}");
+
+    // Read-only: nothing under policies/ changed by opening the pane.
+    assert_eq!(
+        PolicySet::load(layout.root().join("policies"))
+            .unwrap()
+            .sha(),
+        current
+    );
+
+    assert_eq!(app.handle(&key(KeyCode::Esc)), Effect::None);
+    assert!(!screen_text(&draw_wide(&mut app)).contains("policy set"));
+}
+
+/// `e` in the pane, the editor run the way the loop runs it, and the reload.
+fn edit_standard(app: &mut App, editor: &str) -> PathBuf {
+    app.handle(&key(KeyCode::Char('p')));
+    // judge, curate, read-only, standard.
+    for _ in 0..3 {
+        app.handle(&key(KeyCode::Down));
+    }
+    let Effect::Edit(file) = app.handle(&key(KeyCode::Char('e'))) else {
+        panic!("e on a policy asks the loop to open the editor");
+    };
+    let ran = hydra::cockpit::run_editor(editor, &file);
+    app.edited(&file, ran);
+    file
+}
+
+#[test]
+fn e_runs_the_editor_on_the_selected_policy_and_the_pane_shows_the_new_sha() {
+    let layout = scratch("policy-edit");
+    let dir = scratch_policies(&layout);
+    let old = PolicySet::load(&dir).unwrap().sha().to_string();
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_policies(dir.clone());
+
+    // JSON has no comments, so the stub that leaves a loadable file appends
+    // whitespace. It still changes the bytes, and so the sha.
+    let file = edit_standard(&mut app, &editor_stub(&layout, "\n\n"));
+    assert_eq!(file, dir.join("standard.json"));
+    assert!(std::fs::read_to_string(&file).unwrap().ends_with("}\n\n\n"));
+
+    let new = PolicySet::load(&dir).unwrap().sha().to_string();
+    assert_ne!(new, old);
+    let buf = draw_wide(&mut app);
+    let head = line_with(&buf, "policy set");
+    assert!(head.contains(&new[..12]), "{head}");
+    assert!(!screen_text(&buf).contains(&old[..12]));
+}
+
+#[test]
+fn an_editor_that_leaves_an_unloadable_file_shows_the_loaders_error_in_red() {
+    let layout = scratch("policy-broken");
+    let dir = scratch_policies(&layout);
+    let old = PolicySet::load(&dir).unwrap().sha().to_string();
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_policies(dir.clone());
+
+    edit_standard(&mut app, &editor_stub(&layout, "// a comment"));
+    let err = format!("{:#}", PolicySet::load(&dir).err().unwrap());
+    assert!(err.contains("parsing"), "{err}");
+
+    let buf = draw_wide(&mut app);
+    let text = screen_text(&buf);
+    assert!(
+        !text.contains(&old[..12]),
+        "no stale sha once the set breaks"
+    );
+    let y = (0..buf.area.height)
+        .find(|&y| row_of(&buf, y).contains("does not load"))
+        .unwrap_or_else(|| panic!("no refusal:\n{text}"));
+    let x = (0..buf.area.width)
+        .find(|&x| {
+            (x..buf.area.width)
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+                .starts_with("does not load")
+        })
+        .unwrap();
+    assert_eq!(buf[(x, y)].fg, ratatui::style::Color::Red);
+    assert!(text.contains("parsing"), "the loader's own words:\n{text}");
 }
