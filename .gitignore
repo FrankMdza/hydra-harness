@@ -25,3 +25,6 @@ target/
 
 # The project's own Python, made with `uv venv --python 3.12 .venv`. Ignored so the worktree seed never copies it.
 /.venv/
+
+# Task shards for labelling runs: redacted task text, data and not source.
+/.scratch/hydra/labeling/*/tasks-*.jsonl

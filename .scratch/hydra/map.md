@@ -320,6 +320,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [82 - A judge that needs subagents inside the seatbelt](issues/82-a-judge-that-needs-subagents-inside-the-seatbelt.md): resolved 2026-09-28 with the human in six questions. A gated interactive session asks its own launcher, outside the seatbelt, for seats; a shape in protected config #6 launches alone, anything else waits for a human-typed `hydra approve`; seats that read get a bounded read-only shell under a write-denying seatbelt. Amends 63 and 64. Build tickets 138 to 141.
 - [83 - A seat that runs longer than the launcher waits](issues/83-a-seat-that-runs-longer-than-the-launcher-waits.md): resolved 2026-09-29 by the session under the human's delegation, after a panel of three vendors. Nothing changes until the first live panel measures how long `claude` holds a call open.
 - [84 - A seat that never hands off has no place on the record](issues/84-a-seat-that-never-hands-off.md): resolved 2026-09-29 the same way. The seat gets its own `never_started` record, and the session's record gets no new line type. Build ticket 147.
+- [85 - A cockpit for the orchestrating session](issues/85-a-cockpit-for-the-orchestrating-session.md): resolved 2026-09-29 by the session under the human's delegation. Step 1 is a pane that loops `puppets.py board` beside the chat; Herdr draws no table and takes no cell click; a policy editor that writes is a map ticket. Build ticket 148.
 
 ## Not yet specified
 
