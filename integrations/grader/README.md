@@ -137,6 +137,29 @@ does not read a prefix. That is why the monitor's default is the `models/monitor
 subfolder: a monitor file moved up into `models/` would be scored as a pre-launch
 model. Nothing stops a run on this score yet. Stopping is a decision for the map.
 
+## Triage
+
+`triage.py run` reads every dataset row whose outcome is not `completed`, reads its record, and
+writes one line per run to `$HYDRA_GRADER_HOME/triage.jsonl`: `run_id`, `outcome`, `cause`,
+`evidence` (the deciding line, cut to 300 characters) and `triaged_at`. `table` prints counts per
+outcome and cause and per provider and cause. `sample --n 20 --seed S` prints runs for a human to
+check. The first rule that matches wins:
+
+1. `collision`: `run_end.refusal` is `skill_collision`, or the outcome is.
+2. `quota`: a `result` frame with `api_error_status` 429, or the providers' "You've hit your ...
+   limit" sentence anywhere in the record, or the outcome `rate_limited`. A `rate_limit_event`
+   frame alone is not quota: `claude` sends one on healthy runs.
+3. `gate`: `run_end.refusal` is set, or a refusal by `monitor.Prefix`'s reading is the last tool
+   event, or the outcome is `gated` and the record holds a refusal.
+4. `never_started`: no provider frame (`raw`) at all, the shape build 147 writes.
+5. `provider_crash`: no `run_end`, a `run_end.error` starting "the child died on signal ", the
+   outcome `crashed`, or an exit code of 128 and up.
+6. `stall`: more than ten minutes between the last line before `run_end` and `run_end`.
+7. `unknown`: nothing above.
+
+On 2026-09-30, over 74 runs: 29 of 31 `gated` read `gate`, 27 of 27 `rate_limited` read `quota`,
+and 6 read `unknown`. No run read `stall`.
+
 ## Scores
 
 Every collect that writes new or changed rows scores each of those runs with every model under
