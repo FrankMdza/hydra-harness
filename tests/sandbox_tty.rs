@@ -36,7 +36,7 @@ fn tiocsti_probe() {
     if std::env::var_os(PROBE_ENV).is_none() {
         return;
     }
-    for byte in [b'y', b'\n'] {
+    for byte in *b"y\n" {
         // SAFETY: fd 0 is open for the probe's lifetime, and TIOCSTI reads
         // exactly one byte through the pointer, which points at a live local.
         let rc = unsafe { libc::ioctl(0, libc::TIOCSTI, &byte as *const u8) };
