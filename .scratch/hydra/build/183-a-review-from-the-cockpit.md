@@ -1,8 +1,8 @@
 # 183 - A review from the cockpit
 
 Type: build
-Status: open
-Blocked by: 182
+Status: claimed
+Blocked by: 180
 
 ## What
 
