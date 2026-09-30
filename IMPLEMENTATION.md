@@ -3313,6 +3313,18 @@ its pty while the editor runs, so the child is not blocked on a full pty, but it
 painted only after the editor exits, and a child waiting on a cursor position reply waits that
 long too. Neither has been tried against a real editor in a real terminal.
 
+Build ticket 174 fixed two things a `codex` review of 171 found. The pane used to reload the set
+only after its own `e`, so a file edited in another terminal left every run on the old sha
+marked `current`, and a broken outside save left the old valid sha up. Now every snapshot the
+loop takes while the pane is up reloads the five files too, so the pane is at most one refresh
+behind. And the run list scrolls: the pane counts the rows its headings, the five files and the
+help line take, shows as many live runs as fit, and when some are cut adds a line
+`N more, A above and B below`. PageUp and PageDown move it a page, the wheel over the pane moves
+it one run, and it stops at the last page. At 120x24 with the header's counts row and no dragon
+that is five runs a page. `tests/cockpit.rs` rewrites `standard.json` between two snapshots and
+reads `differs`, then breaks it and reads the loader's error, and pages ten live runs at 120x24
+down to the last with the keys and again with the wheel.
+
 **Tokens and windows in the header, build ticket 172.** No dollars: the human pays
 subscriptions. Each provider with a live run gets one entry, beside the dragon or, without it,
 on a row of its own above the panels: output tokens per minute over the last five minutes, and

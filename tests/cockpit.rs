@@ -1768,3 +1768,106 @@ fn the_header_shows_the_counts_without_the_mascot() {
     // The panels start below it.
     assert_eq!(app.hits.table.y, 1);
 }
+
+// --- the policy pane stays true and scrolls, build ticket 174 --------------
+
+#[test]
+fn a_policy_edited_outside_the_cockpit_shows_on_the_next_refresh() {
+    let layout = scratch("policy-outside");
+    let dir = scratch_policies(&layout);
+    let old = PolicySet::load(&dir).unwrap().sha().to_string();
+    let mut on_old = card(
+        "01a0f003-0000-7000-8000-000000000003",
+        "codex",
+        State::Live,
+        None,
+    );
+    on_old.policy_sha = Some(old.clone());
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_policies(dir.clone());
+    app.set_snapshot(snapshot_of(vec![on_old.clone()], Vec::new()));
+    app.handle(&key(KeyCode::Char('p')));
+    let line = line_with(&draw_wide(&mut app), "01a0f003");
+    assert!(line.contains("current"), "{line}");
+
+    // Someone else's editor, not the cockpit's `e`.
+    let file = dir.join("standard.json");
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text.push('\n');
+    std::fs::write(&file, &text).unwrap();
+    app.set_snapshot(snapshot_of(vec![on_old.clone()], Vec::new()));
+    let buf = draw_wide(&mut app);
+    let line = line_with(&buf, "01a0f003");
+    assert!(line.contains("differs"), "{line}");
+    let new = PolicySet::load(&dir).unwrap().sha().to_string();
+    assert!(line_with(&buf, "policy set").contains(&new[..12]));
+
+    // And a broken outside save puts the loader's error up, not the old sha.
+    text.push_str("// a comment");
+    std::fs::write(&file, &text).unwrap();
+    app.set_snapshot(snapshot_of(vec![on_old], Vec::new()));
+    let text = screen_text(&draw_wide(&mut app));
+    assert!(text.contains("does not load"), "{text}");
+    assert!(!text.contains(&new[..12]), "{text}");
+}
+
+#[test]
+fn ten_live_runs_at_120x24_scroll_to_the_last() {
+    let area = Rect::new(0, 0, 120, 24);
+    let cards: Vec<Card> = (0..10)
+        .map(|i| card(&format!("{i:08}-live"), "claude", State::Live, None))
+        .collect();
+    let mut snapshot = snapshot_of(cards, Vec::new());
+    snapshot.spend = vec![Spend {
+        provider: "claude".to_string(),
+        live: 10,
+        counted: 0,
+        output_tokens: 0,
+        tokens_per_minute: None,
+        window_share: None,
+    }];
+    let layout = scratch("policy-scroll");
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_policies(scratch_policies(&layout));
+    app.set_snapshot(snapshot);
+    app.handle(&key(KeyCode::Char('p')));
+    let draw = |app: &mut App| {
+        let mut buf = Buffer::empty(area);
+        app.draw(area, &mut buf);
+        screen_text(&buf)
+    };
+    let first = draw(&mut app);
+    assert!(first.contains("00000000"), "{first}");
+    assert!(!first.contains("00000009"), "{first}");
+    assert!(first.contains(" more"), "the cut says so:\n{first}");
+
+    // Past the end on purpose: the list stops at its last page.
+    for _ in 0..5 {
+        app.handle(&key(KeyCode::PageDown));
+        draw(&mut app);
+    }
+    let paged = draw(&mut app);
+    assert!(
+        paged.contains("00000009"),
+        "PageDown reaches the last:\n{paged}"
+    );
+    assert!(!paged.contains("00000000"), "{paged}");
+    assert!(paged.contains("below"), "{paged}");
+
+    for _ in 0..5 {
+        app.handle(&key(KeyCode::PageUp));
+    }
+    let back = draw(&mut app);
+    assert!(back.contains("00000000"), "{back}");
+
+    // The wheel over the pane, one run at a time. The pane covers the
+    // middle of the screen.
+    for _ in 0..10 {
+        app.handle(&mouse(MouseEventKind::ScrollDown, 60, 12));
+    }
+    let wheeled = draw(&mut app);
+    assert!(
+        wheeled.contains("00000009"),
+        "the wheel reaches the last:\n{wheeled}"
+    );
+}

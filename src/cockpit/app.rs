@@ -79,6 +79,9 @@ pub struct Hits {
     /// A drawn card, its lane, and its index in that lane.
     pub cards: Vec<(Rect, Lane, usize)>,
     pub detail: Rect,
+    /// The policy pane, while it is up, and how many runs it had rows for.
+    pub policy_pane: Rect,
+    pub policy_rows: usize,
 }
 
 /// Width the header keeps for the title beside the dragon, and the rows the panels keep below it.
@@ -122,6 +125,8 @@ pub struct App {
     /// Whether the policy pane of build ticket 171 is up.
     pub policy_pane: bool,
     policy_selected: usize,
+    /// The first live run the pane shows, build ticket 174.
+    policy_offset: usize,
 }
 
 impl App {
@@ -149,6 +154,7 @@ impl App {
             policy_set: None,
             policy_pane: false,
             policy_selected: 0,
+            policy_offset: 0,
         }
     }
 
@@ -187,8 +193,13 @@ impl App {
         self.mascot = mascot;
     }
 
-    /// Takes a fresh read and keeps every selection inside it.
+    /// Takes a fresh read and keeps every selection inside it. With the
+    /// policy pane up it reloads the set too, so a file changed outside the
+    /// cockpit shows at the next refresh rather than at the next `e`.
     pub fn set_snapshot(&mut self, snapshot: Snapshot) {
+        if self.policy_pane {
+            self.reload_policies();
+        }
         if let Some(mascot) = &mut self.mascot {
             mascot.observe(&snapshot);
         }
@@ -291,6 +302,7 @@ impl App {
             KeyCode::Char('p') => {
                 self.reload_policies();
                 self.policy_pane = true;
+                self.policy_offset = 0;
                 Effect::None
             }
             KeyCode::Tab | KeyCode::Right => {
@@ -335,6 +347,16 @@ impl App {
                 self.policy_selected = (self.policy_selected + 1).min(last);
                 Effect::None
             }
+            KeyCode::PageUp => {
+                let page = self.hits.policy_rows.max(1);
+                self.policy_offset = self.policy_offset.saturating_sub(page);
+                Effect::None
+            }
+            KeyCode::PageDown => {
+                let page = self.hits.policy_rows.max(1);
+                self.scroll_policy_runs(page);
+                Effect::None
+            }
             KeyCode::Char('e') => {
                 let Some(dir) = &self.policies_dir else {
                     self.message = Some("no policy directory to edit".to_string());
@@ -353,6 +375,14 @@ impl App {
             }
             _ => Effect::None,
         }
+    }
+
+    /// Moves the pane's run list down by `by`, no further than its last page.
+    fn scroll_policy_runs(&mut self, by: usize) {
+        let max = self
+            .lane_len(Lane::Live)
+            .saturating_sub(self.hits.policy_rows);
+        self.policy_offset = (self.policy_offset + by).min(max);
     }
 
     fn move_selection(&mut self, down: bool) -> Effect {
@@ -438,6 +468,16 @@ impl App {
     }
 
     fn wheel(&mut self, at: Position, down: bool) -> Effect {
+        if self.policy_pane {
+            if self.hits.policy_pane.contains(at) {
+                if down {
+                    self.scroll_policy_runs(1);
+                } else {
+                    self.policy_offset = self.policy_offset.saturating_sub(1);
+                }
+            }
+            return Effect::None;
+        }
         let nudge = |value: usize, max: usize| {
             if down {
                 (value + 1).min(max)
@@ -591,8 +631,9 @@ impl App {
 
     /// The policy pane: the five files, the set's sha now, and each live
     /// run's sha beside it. A run on another sha kept the gate it launched
-    /// with, and the mark says so.
-    fn draw_policy_pane(&self, area: Rect, buf: &mut Buffer) {
+    /// with, and the mark says so. When the runs outnumber the rows, a line
+    /// counts the ones cut and PageUp, PageDown or the wheel moves the list.
+    fn draw_policy_pane(&mut self, area: Rect, buf: &mut Buffer) {
         let width = area.width.saturating_sub(8).min(110);
         let height = area.height.saturating_sub(2);
         let rect = Rect {
@@ -602,6 +643,7 @@ impl App {
             height,
         };
         Clear.render(rect, buf);
+        self.hits.policy_pane = rect;
         let bold = Style::default().add_modifier(Modifier::BOLD);
         let red = Style::default().fg(Color::Red);
         let mut lines = Vec::new();
@@ -642,11 +684,41 @@ impl App {
             "live runs and the set each launched under",
             bold,
         ));
-        let live: Vec<&Card> = self.cards_in(Lane::Live).collect();
+        let footer = [
+            Line::raw(""),
+            Line::styled(
+                "Up/Down select, e opens $EDITOR, PageUp/PageDown scroll runs, p or Esc closes. \
+                 The cockpit never writes it.",
+                Style::default().add_modifier(Modifier::DIM),
+            ),
+        ];
+        let inner = rect.width.saturating_sub(2).max(1) as usize;
+        let rows_of = |lines: &[Line]| -> usize {
+            lines
+                .iter()
+                .map(|line| line.width().div_ceil(inner).max(1))
+                .sum()
+        };
+        let room = (rect.height.saturating_sub(2) as usize)
+            .saturating_sub(rows_of(&lines) + rows_of(&footer));
+        // The field rather than `cards_in`, which would borrow all of `self`.
+        let live: Vec<&Card> = self
+            .snapshot
+            .cards
+            .iter()
+            .filter(|card| card.lane() == Lane::Live)
+            .collect();
         if live.is_empty() {
             lines.push(Line::raw("  no live run"));
         }
-        for card in live {
+        let shown = if live.len() <= room {
+            live.len()
+        } else {
+            room.saturating_sub(1)
+        };
+        self.hits.policy_rows = shown;
+        self.policy_offset = self.policy_offset.min(live.len() - shown);
+        for card in &live[self.policy_offset..self.policy_offset + shown] {
             let sha = card.policy_sha.as_deref();
             let (mark, style) = match (sha, current) {
                 (None, _) => ("no sha recorded", Style::default()),
@@ -667,11 +739,18 @@ impl App {
                 style,
             ));
         }
-        lines.push(Line::raw(""));
-        lines.push(Line::styled(
-            "Up/Down select, e opens it in $EDITOR, p or Esc closes. The cockpit never writes it.",
-            Style::default().add_modifier(Modifier::DIM),
-        ));
+        if shown < live.len() {
+            lines.push(Line::styled(
+                format!(
+                    "  {} more, {} above and {} below",
+                    live.len() - shown,
+                    self.policy_offset,
+                    live.len() - shown - self.policy_offset,
+                ),
+                Style::default().add_modifier(Modifier::DIM),
+            ));
+        }
+        lines.extend(footer);
         Paragraph::new(lines)
             .block(Block::bordered().title(" policies "))
             .wrap(Wrap { trim: false })
