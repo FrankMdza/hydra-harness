@@ -1,7 +1,7 @@
 # 159 - A record becomes OpenTelemetry, on disk and nowhere else
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -40,3 +40,18 @@ changes. Tests in `integrations/otel/tests/` on the fixture records under
   `.venv/bin/python` if the worktree has it, else `python3`.
 - The report shows one span of the output and says which fields of the contract are not
   carried and why.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `codex` gpt-6.1-sol on run 01a0f0bc-04eb under `standard`, about
+0.69M tokens, the first ticket on the new default model. It wrote its three files without
+trouble. The session applied it as written. `integrations/otel/record_to_otlp.py`: a run span,
+one span per tool call with the gate decision, seat request spans with the seat run ids as
+links, trace ancestry from `parent_run_id`, every string through `redact.py`, batch mode with
+skipping by file length, no network. Six tests on the fixtures, seat links checked on scratch
+records since no fixture has a seat request. Suite passes under `.venv/bin/python`.
+
+The session translated the live session of 2026-09-30 (run 01a0f05b): seven spans, `hydra.run`,
+the two `panel` and `delegate` calls, and two `hydra.seat_request`. Messages, tool arguments and
+outputs are left out on purpose. Sending it anywhere is `hydra export`'s job; the allowlist is
+still the human's to write (plan, phase 2.0).

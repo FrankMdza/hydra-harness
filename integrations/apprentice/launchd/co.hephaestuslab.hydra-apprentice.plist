@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  A template. Replace /Users/USER with your home before installing; integrations/apprentice/README.md
+  has the commands. Runs `attempt` at 04:00 local for at most 30 minutes, when no agent is alive.
+  It has no RunAtLoad, so loading it does not start a pass.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>co.hephaestuslab.hydra-apprentice</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/USER/hydra/integrations/apprentice/apprentice.py</string>
+    <string>attempt</string>
+    <string>--minutes</string>
+    <string>30</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HYDRA_ROOT</key>
+    <string>/Users/USER/hydra</string>
+    <key>HYDRA_GRADER_HOME</key>
+    <string>/Users/USER/hydra/grader</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/USER/hydra/grader/apprentice/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USER/hydra/grader/apprentice/launchd.log</string>
+</dict>
+</plist>

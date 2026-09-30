@@ -1,7 +1,7 @@
 # 160 - The apprentice: a bank of tasks about records, the local model's attempts, and the pairs
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 
 ## What
@@ -59,3 +59,19 @@ stub Ollama, each shown failing before the change.
   else `python3`.
 - The report gives the three commands the human runs on the real home, in order, and what the
   run could not measure (the real model's answers; how long 40 tasks take on the M2).
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` sonnet on run 01a0f0c6-2463 under `standard`, about 1.54M
+tokens. The session applied it as written. `integrations/apprentice/`: `bank build`, `attempt`,
+`score`, `pairs`, a launchd template, the README, 31 tests on the fixture records and a stub
+Ollama. Seven verifiable templates and four open ones. The suite passes under `.venv/bin/python`.
+
+The session built the real bank: 20 verifiable and 20 open tasks from 563 records, in
+`grader/apprentice/bank.jsonl`. `attempt` against the real model waits for a moment with no
+agent alive, since Ollama beside the agents put the swap at 17 GB on 2026-09-29.
+
+Two things the run said: `bank build` reads `run_end` itself and does not call `hydra show`, so
+its outcome names (`success`, `failed`, `refused`, `unfinished`) are not the derived ones; and it
+read `better|same|worse` as a verdict on the local answer, `worse` swapping in the panel's, which
+is what the ticket meant. Nothing trains on the pairs.
