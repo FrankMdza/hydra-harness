@@ -23,6 +23,8 @@ pub struct TaskRow {
     /// `pending`, `assigned`, `running`, `ended`, or the human's verdict.
     pub status: String,
     pub run_id: Option<String>,
+    /// The plan's definition of done, when it stated one.
+    pub done: Option<String>,
 }
 
 /// One goal, as far as the table needs it.
@@ -112,6 +114,7 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
                 model: None,
                 status: "pending".to_string(),
                 run_id: None,
+                done: text("done"),
             };
             match goal.rows.iter_mut().find(|r| r.id == row.id) {
                 Some(slot) => *slot = row,
@@ -171,6 +174,7 @@ fn row_or_default<'a>(goal: &'a mut Goal, task: &str) -> &'a mut TaskRow {
                 model: None,
                 status: "pending".to_string(),
                 run_id: None,
+                done: None,
             });
             goal.rows.len() - 1
         }

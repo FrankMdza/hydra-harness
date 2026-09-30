@@ -14,6 +14,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 
+use super::goal::TaskRow;
 use super::mascot::Mascot;
 use super::snapshot::{Card, Lane, Snapshot};
 use crate::approve::Pending;
@@ -556,7 +557,11 @@ impl App {
             heading = format!("{heading} ({} line(s) skipped)", goal.skipped);
         }
         buf.set_line(inner.x, inner.y, &Line::styled(heading, dim), inner.width);
-        let header = row_text(["id", "class", "grade", "provider", "model", "status", "run"]);
+        let header = with_done(
+            row_text(["id", "class", "grade", "provider", "model", "status", "run"]),
+            "done",
+            inner.width,
+        );
         buf.set_line(
             inner.x,
             inner.y + 1,
@@ -578,15 +583,19 @@ impl App {
         {
             let row = &goal.rows[index];
             let run = row.run_id.as_deref().map(short).unwrap_or("");
-            let text = row_text([
-                &row.id,
-                &row.class,
-                &row.grade,
-                row.provider.as_deref().unwrap_or("-"),
-                row.model.as_deref().unwrap_or("-"),
-                &row.status,
-                run,
-            ]);
+            let text = with_done(
+                row_text([
+                    &row.id,
+                    &row.class,
+                    &row.grade,
+                    row.provider.as_deref().unwrap_or("-"),
+                    row.model.as_deref().unwrap_or("-"),
+                    self.status_of(row),
+                    run,
+                ]),
+                row.done.as_deref().unwrap_or("-"),
+                inner.width,
+            );
             let rect = Rect {
                 y: rows_area.y + slot as u16,
                 height: 1,
@@ -596,6 +605,20 @@ impl App {
             buf.set_line(rect.x, rect.y, &Line::styled(text, style), rect.width);
             self.hits.table_rows.push((rect, index));
         }
+    }
+
+    /// `fold`'s status, except that an `ended` row whose run the snapshot
+    /// has normalized reads that run's outcome. A verdict is never `ended`,
+    /// so the human's word still wins.
+    fn status_of<'a>(&'a self, row: &'a TaskRow) -> &'a str {
+        if row.status != "ended" {
+            return &row.status;
+        }
+        row.run_id
+            .as_deref()
+            .and_then(|id| self.snapshot.cards.iter().find(|c| c.run_id == id))
+            .and_then(|card| card.outcome.as_deref())
+            .unwrap_or(&row.status)
     }
 
     fn selected_style(&self, panel: Focus, selected: bool) -> Style {
@@ -705,8 +728,17 @@ impl App {
                     return vec![Line::raw(format!("no record for run {id}"))];
                 };
                 let or_dash = |value: Option<&str>| value.unwrap_or("-").to_string();
-                let mut lines = vec![
-                    label("run", card.run_id.clone()),
+                let mut lines = vec![label("run", card.run_id.clone())];
+                let task = self
+                    .snapshot
+                    .goal
+                    .as_ref()
+                    .and_then(|goal| goal.rows.iter().find(|r| r.run_id.as_ref() == Some(id)));
+                if let Some(task) = task {
+                    lines.push(label("task", task.id.clone()));
+                    lines.push(label("done", or_dash(task.done.as_deref())));
+                }
+                lines.extend([
                     label("provider", or_dash(card.provider.as_deref())),
                     label("model", or_dash(card.model.as_deref())),
                     label("policy", or_dash(card.policy.as_deref())),
@@ -717,7 +749,7 @@ impl App {
                         card.total_tokens
                             .map_or_else(|| "-".to_string(), |t| t.to_string()),
                     ),
-                ];
+                ]);
                 if let Some(note) = &card.note {
                     lines.push(label("note", note.clone()));
                 }
@@ -825,13 +857,22 @@ fn short(id: &str) -> &str {
 }
 
 /// One table line with the columns `board` prints, narrower than its widths
-/// so the run id fits beside two other panels.
+/// so the run id fits beside two other panels. The status column is as wide
+/// as the longest of contract 8's outcomes, `skill_collision`.
 fn row_text(cells: [&str; 7]) -> String {
-    let widths = [8, 20, 6, 12, 12, 8, 8];
+    let widths = [8, 20, 6, 12, 12, 15, 8];
     cells
         .iter()
         .zip(widths)
         .map(|(cell, width)| format!("{cell:<width$}"))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// `line` with `done` after it, cut to the columns `width` leaves. The detail
+/// of the task's run shows it whole.
+fn with_done(line: String, done: &str, width: u16) -> String {
+    let left = (width as usize).saturating_sub(line.chars().count() + 1);
+    let done: String = done.chars().take(left).collect();
+    format!("{line} {done}")
 }

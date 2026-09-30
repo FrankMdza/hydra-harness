@@ -86,9 +86,9 @@ fn screen_text(buf: &Buffer) -> String {
 /// and a last line still being written.
 const GOAL_LOG: &str = r#"{"seq": 1, "ts": "2026-09-29T10:00:00.000Z", "event": "goal", "text": "ship the cockpit", "repo": "/r", "base_sha": "abc"}
 {"seq": 2, "ts": "2026-09-29T10:00:01.000Z", "event": "plan_proposed", "provider": "claude", "model": "opus", "run_id": "p1"}
-{"seq": 3, "ts": "2026-09-29T10:00:02.000Z", "event": "task", "id": "t1", "text": "fold", "class": "rust_off_launch_path", "grade": "medium", "deps": [], "paths": []}
+{"seq": 3, "ts": "2026-09-29T10:00:02.000Z", "event": "task", "id": "t1", "text": "fold", "class": "rust_off_launch_path", "grade": "medium", "done": "the fold test passes", "deps": [], "paths": []}
 {"seq": 4, "ts": "2026-09-29T10:00:03.000Z", "event": "task", "id": "t2", "text": "lanes", "class": "rust_launch_path", "grade": "high", "deps": ["t1"], "paths": []}
-{"seq": 5, "ts": "2026-09-29T10:00:04.000Z", "event": "task", "id": "t3", "text": "docs", "class": "docs", "grade": "low", "deps": [], "paths": []}
+{"seq": 5, "ts": "2026-09-29T10:00:04.000Z", "event": "task", "id": "t3", "text": "docs", "class": "docs", "grade": "low", "done": "a first definition", "deps": [], "paths": []}
 {"seq": 6, "ts": "2026-09-29T10:00:05.000Z", "event": "assignment", "task": "t1", "provider": "claude", "model": "sonnet", "policy": "standard", "source": "default"}
 {"seq": 7, "ts": "2026-09-29T10:00:06.000Z", "event": "assignment", "task": "t2", "provider": "codex", "model": "", "policy": "standard", "source": "ranked"}
 {"seq": 8, "ts": "2026-09-29T10:00:07.000Z", "event": "assignment", "task": "t3", "provider": "cursor-agent", "model": "composer-2.5", "policy": "standard", "source": "default"}
@@ -118,6 +118,7 @@ fn row(
         model: agent.and_then(|(_, m)| m.map(str::to_string)),
         status: status.to_string(),
         run_id: run_id.map(str::to_string),
+        done: None,
     }
 }
 
@@ -138,14 +139,17 @@ fn a_goal_log_folds_into_the_rows_board_prints() {
         goal.rows,
         vec![
             // A verdict replaces the status.
-            row(
-                "t1",
-                "rust_off_launch_path",
-                "medium",
-                Some(("claude", Some("sonnet"))),
-                "applied",
-                Some("01a0aaaa-0000-7000-8000-000000000001"),
-            ),
+            TaskRow {
+                done: Some("the fold test passes".to_string()),
+                ..row(
+                    "t1",
+                    "rust_off_launch_path",
+                    "medium",
+                    Some(("claude", Some("sonnet"))),
+                    "applied",
+                    Some("01a0aaaa-0000-7000-8000-000000000001"),
+                )
+            },
             // A `run_end` for another run id leaves the row running, and an
             // empty model is no model.
             row(
@@ -156,7 +160,8 @@ fn a_goal_log_folds_into_the_rows_board_prints() {
                 "running",
                 Some("01a0bbbb-0000-7000-8000-000000000002"),
             ),
-            // A repeated `task` resets the row in place, assignment included.
+            // A repeated `task` resets the row in place, assignment included,
+            // and one with no `done` leaves none, as `event.get("done")` does.
             row("t3", "docs", "medium", None, "pending", None),
             // An assignment for a task never defined makes one with `fold`'s
             // defaults.
@@ -516,6 +521,85 @@ fn a_click_selects_the_row_or_opens_the_card_under_it() {
     assert_eq!(app.focus, Focus::Table);
 
     assert_eq!(app.handle(&key(KeyCode::Char('q'))), Effect::Quit);
+}
+
+/// Four tasks whose runs ended: one the snapshot knows failed, one the human
+/// judged, one whose record the snapshot does not hold, and one never run
+/// with a `done` longer than any screen.
+const ENDED_LOG: &str = r#"{"event": "goal", "text": "the cockpit redesign", "repo": "/r", "base_sha": "abc"}
+{"event": "task", "id": "a", "text": "x", "class": "docs", "grade": "low", "done": "the table shows done", "deps": [], "paths": []}
+{"event": "task", "id": "b", "text": "x", "class": "docs", "grade": "low", "deps": [], "paths": []}
+{"event": "task", "id": "c", "text": "x", "class": "docs", "grade": "low", "deps": [], "paths": []}
+{"event": "task", "id": "d", "text": "x", "class": "docs", "grade": "low", "done": "LONG-DONE", "deps": [], "paths": []}
+{"event": "run", "task": "a", "attempt": 1, "run_id": "01a0e004-0000-7000-8000-000000000004"}
+{"event": "run_end", "task": "a", "run_id": "01a0e004-0000-7000-8000-000000000004", "outcome": "gated", "total_tokens": 1}
+{"event": "run", "task": "b", "attempt": 1, "run_id": "01a0e002-0000-7000-8000-000000000002"}
+{"event": "run_end", "task": "b", "run_id": "01a0e002-0000-7000-8000-000000000002", "outcome": "completed", "total_tokens": 1}
+{"event": "human_verdict", "task": "b", "run_id": "01a0e002-0000-7000-8000-000000000002", "result": "rejected", "note": null}
+{"event": "run", "task": "c", "attempt": 1, "run_id": "01a0cccc-0000-7000-8000-00000000000c"}
+{"event": "run_end", "task": "c", "run_id": "01a0cccc-0000-7000-8000-00000000000c", "outcome": "failed", "total_tokens": 1}
+"#;
+
+/// A `done` of 300 characters, ending in a word the detail must still show.
+fn long_done() -> String {
+    format!("{} the-very-end", "word ".repeat(59))
+}
+
+fn ended_snapshot() -> Snapshot {
+    let log = ENDED_LOG.replace("LONG-DONE", &long_done());
+    Snapshot {
+        goal: Some(goal::fold("g2", log.as_bytes())),
+        ..fixed_snapshot()
+    }
+}
+
+#[test]
+fn the_table_shows_done_and_an_ended_rows_outcome() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.stacked = true;
+    app.set_snapshot(ended_snapshot());
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let table = app.hits.table;
+    let header = row_of(&buf, table.y + 2);
+    let done_at = header.find("done").expect(&header);
+    let line = |i: u16| row_of(&buf, table.y + 3 + i);
+
+    // An ended row the snapshot knows reads its run's outcome.
+    assert!(line(0).contains("gated"), "{}", line(0));
+    assert!(!line(0).contains("ended"), "{}", line(0));
+    // The human's verdict still wins over a completed run.
+    assert!(line(1).contains("rejected"), "{}", line(1));
+    assert!(!line(1).contains("completed"), "{}", line(1));
+    // A run the snapshot has no card for stays `ended`.
+    assert!(line(2).contains("ended"), "{}", line(2));
+    // `done` sits under its header, and a long one is cut at the border.
+    assert_eq!(line(0).find("the table shows done"), Some(done_at));
+    assert_eq!(line(3).find("word word"), Some(done_at), "{}", line(3));
+    assert!(!screen_text(&buf).contains("the-very-end"));
+
+    // The detail of a run shows its task's `done` whole.
+    app.handle(&click(1, table.y + 3));
+    app.handle(&key(KeyCode::Enter));
+    app.draw(AREA, &mut buf);
+    let detail = screen_text(&buf);
+    assert!(detail.contains("task a"), "{detail}");
+    assert!(detail.contains("done the table shows done"), "{detail}");
+
+    // A long `done` wraps in the detail rather than being cut. Task `d` never
+    // ran, so the detail of a run that was its is built by hand here.
+    let mut snapshot = ended_snapshot();
+    let goal = snapshot.goal.as_mut().unwrap();
+    goal.rows[3].run_id = Some("01a0e003-0000-7000-8000-000000000003".to_string());
+    app.set_snapshot(snapshot);
+    app.handle(&click(1, table.y + 6));
+    app.handle(&key(KeyCode::Enter));
+    app.draw(AREA, &mut buf);
+    assert!(screen_text(&buf).contains("the-very-end"));
 }
 
 // --- the one write -------------------------------------------------------

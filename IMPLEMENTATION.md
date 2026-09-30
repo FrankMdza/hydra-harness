@@ -3181,6 +3181,18 @@ outcome, an abandoned run and a record that would not read back. `waiting approv
 `hydra approve` with no id lists, from `approve::pending`. The right column is one run: provider,
 model, policy, state, outcome, total tokens, `result_text` and the last twenty record lines.
 
+**Done and the run's end, build ticket 166.** A row carries the `done` of its task event, and a
+later `task` event for the same id replaces it, `None` included, as `fold` does. The table's
+last column is `done`, cut to what the panel has left; a run's detail names its task and shows
+that task's `done` whole, wrapped. The status cell of an `ended` row whose run the lanes have a
+card for reads the card's outcome (`completed`, `failed`, `gated`, ...), and a row with no card,
+or a card with no outcome, still reads `ended`. A verdict is never `ended`, so the human's word
+still wins. The status column is now 15 wide, `skill_collision`'s length. Two gaps are left.
+Side by side at 120 columns the table is 50 columns inside and ends in the `model` column, so
+neither status nor `done` shows; stacked beside the chat both do, and at 160 side by side the
+status starts at column 63 of 68 and is cut. A row with no run still opens nothing, so the
+whole `done` of a pending task shows nowhere yet.
+
 **It does not call `hydra status`.** That command's scan harvests a dead interactive `claude`
 run, which appends to a record, so the cockpit reads each record's liveness itself and leaves an
 abandoned run abandoned. The one exception is the run the cockpit launched itself with
