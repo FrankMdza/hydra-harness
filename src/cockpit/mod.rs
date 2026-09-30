@@ -3,8 +3,11 @@
 //! A full-screen view a human runs in a terminal of their own, beside the chat of
 //! an orchestrating session: the task table of one goal from its Master of
 //! Puppets log, a kanban of runs by state, and the detail of one run. It reads
-//! files and draws. Without `--session` it launches no provider; it edits no
-//! policy and no config, and needs nothing running to exist (D10).
+//! files and draws. Without `--session` it launches no provider itself; it
+//! edits no policy and no config, and needs nothing running to exist (D10).
+//!
+//! **`v` then `y` starts `puppets.py review`**, build ticket 183, which
+//! launches three judge runs. The confirmation says they count against quota.
 //!
 //! **Its one write is the approval of a waiting seat request**, typed by the
 //! human in the cockpit, through [`crate::approve::approve`], the function
@@ -85,15 +88,19 @@ pub fn puppets_home(layout: &Layout) -> PathBuf {
 
 /// A goal id a human typed, checked before it is joined onto a path.
 pub fn check_goal_id(id: &str) -> Result<()> {
-    let fine = !id.is_empty()
-        && !id.starts_with('.')
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    if !fine {
+    if !plain_name(id) {
         bail!("{id:?} is not a goal id");
     }
     Ok(())
+}
+
+/// Whether `id` is safe to join onto a directory as one file name.
+pub(crate) fn plain_name(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('.')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 /// Runs the cockpit until `q`, or with a session until `Ctrl-q`.
@@ -132,6 +139,10 @@ pub fn run(
     );
 
     app.set_policies(crate::paths::hydra_home().join("policies"));
+    app.set_reviewer(
+        crate::paths::hydra_home().join("integrations/puppets/puppets.py"),
+        puppets_home(layout),
+    );
 
     if with_mascot {
         match mascot::Frames::load(&mascot::default_dir()) {

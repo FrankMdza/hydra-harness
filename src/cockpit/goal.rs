@@ -27,6 +27,25 @@ pub struct TaskRow {
     pub done: Option<String>,
 }
 
+/// One `review` event: the panel's verdict on a task's diff.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Review {
+    pub task: String,
+    /// `pass` or `block`, or `None` when the event carries none.
+    pub verdict: Option<String>,
+    /// Whether a substitute filled a missing seat.
+    pub degraded: bool,
+}
+
+impl Goal {
+    /// How many reviews of `task` the log holds, and the last one.
+    pub fn reviews_of(&self, task: &str) -> (usize, Option<&Review>) {
+        let mut of = self.reviews.iter().filter(|r| r.task == task);
+        let count = of.clone().count();
+        (count, of.next_back())
+    }
+}
+
 /// One goal, as far as the table needs it.
 #[derive(Clone, Debug, Default)]
 pub struct Goal {
@@ -35,6 +54,9 @@ pub struct Goal {
     /// In the order `fold` keeps them: a task is where it first appeared, even
     /// after a later `task` event replaces it.
     pub rows: Vec<TaskRow>,
+    /// The `review` events `puppets.py review` appended, in log order, for
+    /// tasks the table has. Build ticket 183 reads the last one per task.
+    pub reviews: Vec<Review>,
     /// Complete lines that were not JSON or lacked a field `fold` needs.
     /// `fold` raises on those; a viewer counts them and carries on.
     pub skipped: usize,
@@ -147,6 +169,17 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
                 && row.run_id.as_deref() == Some(run_id.as_str())
             {
                 row.status = "ended".to_string();
+            }
+        }
+        "review" => {
+            // `fold` indexes `task` and reads the rest with `get`.
+            let task = text("task")?;
+            if goal.rows.iter().any(|r| r.id == task) {
+                goal.reviews.push(Review {
+                    task,
+                    verdict: text("verdict"),
+                    degraded: event["degraded"].as_bool().unwrap_or(false),
+                });
             }
         }
         "human_verdict" => {

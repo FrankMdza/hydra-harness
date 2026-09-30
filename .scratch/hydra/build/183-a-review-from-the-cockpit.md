@@ -1,7 +1,7 @@
 # 183 - A review from the cockpit
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 180
 
 ## What
@@ -28,3 +28,20 @@ Tests first in `tests/cockpit.rs` with a stub `puppets.py`, each shown failing b
 ## Done when
 
 - Each test failed before the change; fmt, clippy, `cargo test --lib`, `--test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-09-30. Built by `claude` opus on run 01a0f320-dd35 under `standard`. The session
+applied it as written. `v` on a task row with a run asks with the ticket's quota text; `y` starts
+`puppets.py review <goal> <task>` in its own process group, stdin null, both streams to
+`$HYDRA_ROOT/cockpit/review-<task>.log`, with `HYDRA_ROOT` and `HYDRA_PUPPETS_HOME` set. Every draw
+polls it with `try_wait`; the row reads `review running`, then the verdict the log recorded, or
+`review failed` with the log path in the detail. One review per task. The goal fold reads `review`
+events. Four tests, each failing first; fmt and clippy clean, `--test cockpit` 57, `--lib` 222.
+
+What the ticket assumed that is false: `puppets.py review` ends by `execvp` of `hunk show`, which
+without a terminal will likely fail or hang, leaving the row on `review running` or showing a
+verdict with a failed exit. Build 185 gives the helper `--no-open` and the cockpit passes it.
+Nothing under `integrations/herdr/` opens a pane; `puppets.py` splits its own in Herdr. A review
+started before a cockpit restart shows nothing until its verdict lands.
+

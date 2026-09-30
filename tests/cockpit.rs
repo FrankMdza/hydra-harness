@@ -2650,3 +2650,231 @@ fn the_raw_tail_masks_secrets_and_hides_a_flagged_line() {
     assert!(lines[0].contains("***"), "{lines:?}");
     assert_eq!(lines[1], "[line hidden: secret_flag]");
 }
+
+// --- a review from the cockpit, build ticket 183 ---------------------------
+
+/// A goal log under a scratch puppets home, `ENDED_LOG` as goal `g2`, and an
+/// app that reads it, with `script` as the review helper.
+fn review_app(name: &str, script: &str) -> (Layout, PathBuf, App) {
+    let layout = scratch(name);
+    let home = layout.root().join("puppets");
+    std::fs::create_dir_all(&home).unwrap();
+    let log = home.join("g2.jsonl");
+    std::fs::write(&log, ENDED_LOG.replace("LONG-DONE", "short")).unwrap();
+    let helper = layout.root().join("puppets.py");
+    std::fs::write(&helper, script).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_reviewer(helper, home);
+    refold(&mut app, &log);
+    (layout, log, app)
+}
+
+/// What the reader would hand the app after `log` changed.
+fn refold(app: &mut App, log: &Path) {
+    app.set_snapshot(Snapshot {
+        goal: Some(goal::read(log).unwrap()),
+        ..fixed_snapshot()
+    });
+}
+
+/// The table row of task `i` on the last draw.
+fn task_line(app: &App, buf: &Buffer, i: u16) -> String {
+    row_of(buf, app.hits.table.y + 3 + i)
+}
+
+/// Draws until `done` holds or `budget` runs out, and says whether it held.
+fn draw_until(app: &mut App, budget: Duration, done: impl Fn(&App, &Buffer) -> bool) -> bool {
+    let start = std::time::Instant::now();
+    let mut buf = Buffer::empty(AREA);
+    loop {
+        app.draw(AREA, &mut buf);
+        if done(app, &buf) {
+            return true;
+        }
+        if start.elapsed() > budget {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// The text of `path` once a whole line is in it.
+fn wait_for_file(path: &Path) -> String {
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(10) {
+        if let Ok(text) = std::fs::read_to_string(path)
+            && text.ends_with('\n')
+        {
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("{} never appeared", path.display());
+}
+
+#[test]
+fn v_asks_before_a_review_and_y_starts_the_helper_detached() {
+    // The stub records its argv, its process group and the two homes, then
+    // writes to both streams.
+    let (layout, _, mut app) = review_app(
+        "review-start",
+        "#!/bin/sh\n\
+         out=\"$HYDRA_ROOT/called\"\n\
+         printf '%s|%s|%s|%s\\n' \"$*\" \"$(ps -o pgid= -p $$ | tr -d ' ')\" \
+         \"$HYDRA_ROOT\" \"$HYDRA_PUPPETS_HOME\" > \"$out.tmp\"\n\
+         echo to-stdout\n\
+         echo to-stderr >&2\n\
+         mv \"$out.tmp\" \"$out\"\n",
+    );
+    let called = layout.root().join("called");
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+
+    // Task `d` never ran, so there is nothing to review.
+    app.table_selected = 3;
+    app.handle(&key(KeyCode::Char('v')));
+    app.draw(AREA, &mut buf);
+    let text = screen_text(&buf);
+    assert!(text.contains("task d has no run to review"), "{text}");
+
+    // Task `a` ran. `v` asks and names the cost; `n` starts nothing.
+    app.table_selected = 0;
+    app.handle(&key(KeyCode::Char('v')));
+    app.draw(AREA, &mut buf);
+    let text = screen_text(&buf);
+    assert!(
+        text.contains("review a: three judge runs, each counts against quota. y starts it"),
+        "{text}"
+    );
+    app.handle(&key(KeyCode::Char('n')));
+    app.draw(AREA, &mut buf);
+    assert!(screen_text(&buf).contains("no review started"));
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!called.exists());
+
+    app.handle(&key(KeyCode::Char('v')));
+    app.handle(&key(KeyCode::Char('y')));
+    let said = wait_for_file(&called);
+    let fields: Vec<&str> = said.trim_end().split('|').collect();
+    assert_eq!(fields[0], "review g2 a");
+    // SAFETY: `getpgrp` takes no argument and cannot fail.
+    let ours = unsafe { libc::getpgrp() };
+    assert_ne!(fields[1], ours.to_string(), "the helper shares our group");
+    assert_eq!(fields[2], layout.root().display().to_string());
+    assert_eq!(
+        fields[3],
+        layout.root().join("puppets").display().to_string()
+    );
+    assert!(draw_until(&mut app, Duration::from_secs(4), |app, buf| {
+        !task_line(app, buf, 0).contains("review running")
+    }));
+    let written = std::fs::read_to_string(layout.root().join("cockpit/review-a.log")).unwrap();
+    assert!(written.contains("to-stdout"), "{written}");
+    assert!(written.contains("to-stderr"), "{written}");
+}
+
+#[test]
+fn the_row_follows_the_child_and_then_shows_the_verdict_it_recorded() {
+    // The stub holds until the test lets it go, then appends the event
+    // `puppets.py review` appends and exits 0.
+    let (layout, log, mut app) = review_app(
+        "review-verdict",
+        "#!/bin/sh\n\
+         while [ ! -e \"$HYDRA_ROOT/go\" ]; do sleep 0.05; done\n\
+         printf '%s\\n' '{\"event\": \"review\", \"task\": \"a\", \"judge_run_ids\": [\"j1\", \"j2\", \"j3\"], \"verdict\": \"pass\", \"degraded\": false}' \
+         >> \"$HYDRA_PUPPETS_HOME/g2.jsonl\"\n",
+    );
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    app.table_selected = 0;
+    app.handle(&key(KeyCode::Char('v')));
+    app.handle(&key(KeyCode::Char('y')));
+    app.draw(AREA, &mut buf);
+    let line = task_line(&app, &buf, 0);
+    assert!(line.contains("review running"), "{line}");
+
+    // One review per task: `v` again says so and asks nothing.
+    app.handle(&key(KeyCode::Char('v')));
+    app.draw(AREA, &mut buf);
+    let text = screen_text(&buf);
+    assert!(text.contains("a review of a is already running"), "{text}");
+    assert!(!text.contains("y starts it"), "{text}");
+
+    std::fs::write(layout.root().join("go"), "").unwrap();
+    let released = std::time::Instant::now();
+    assert!(
+        draw_until(&mut app, Duration::from_secs(4), |app, buf| {
+            !task_line(app, buf, 0).contains("review running")
+        }),
+        "still running 4 s after the helper was let go"
+    );
+    assert!(released.elapsed() < Duration::from_secs(4));
+
+    // The next read of the log carries the verdict.
+    refold(&mut app, &log);
+    app.draw(AREA, &mut buf);
+    let line = task_line(&app, &buf, 0);
+    assert!(line.contains("review pass"), "{line}");
+}
+
+#[test]
+fn a_review_that_exits_non_zero_says_failed_and_names_its_log() {
+    let (layout, _, mut app) = review_app(
+        "review-failed",
+        "#!/bin/sh\necho run a has no branch >&2\nexit 3\n",
+    );
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    app.table_selected = 0;
+    app.handle(&key(KeyCode::Char('v')));
+    app.handle(&key(KeyCode::Char('y')));
+    assert!(draw_until(&mut app, Duration::from_secs(4), |app, buf| {
+        task_line(app, buf, 0).contains("review failed")
+    }));
+
+    // The detail of the task's run names the log whole.
+    let log = layout.root().join("cockpit/review-a.log");
+    app.handle(&key(KeyCode::Enter));
+    app.draw(AREA, &mut buf);
+    // The pane wraps the path, so its rows are joined inside the border with
+    // the spaces out.
+    let pane = app.hits.detail;
+    let detail: String = (pane.y + 1..pane.bottom() - 1)
+        .flat_map(|y| (pane.x + 1..pane.right() - 1).map(move |x| (x, y)))
+        .map(|at| buf[at].symbol().to_string())
+        .collect::<String>()
+        .replace(' ', "");
+    let whole = format!("reviewfailed,see{}", log.display());
+    assert!(detail.contains(&whole), "{}", screen_text(&buf));
+    assert!(
+        std::fs::read_to_string(&log)
+            .unwrap()
+            .contains("has no branch")
+    );
+
+    // A failed review is over, so `v` asks again.
+    app.handle(&key(KeyCode::Esc));
+    app.handle(&key(KeyCode::Char('v')));
+    app.draw(AREA, &mut buf);
+    assert!(screen_text(&buf).contains("y starts it"));
+}
+
+#[test]
+fn a_helper_that_cannot_start_says_so() {
+    let (layout, _, mut app) = review_app("review-missing", "#!/bin/sh\n");
+    app.set_reviewer(
+        layout.root().join("no-such-helper"),
+        layout.root().join("puppets"),
+    );
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    app.table_selected = 0;
+    app.handle(&key(KeyCode::Char('v')));
+    app.handle(&key(KeyCode::Char('y')));
+    app.draw(AREA, &mut buf);
+    let text = screen_text(&buf);
+    assert!(text.contains("the review of a did not start"), "{text}");
+    assert!(!task_line(&app, &buf, 0).contains("review running"));
+}

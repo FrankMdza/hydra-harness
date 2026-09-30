@@ -3362,6 +3362,32 @@ because the mark on a run on another sha is the sentence the pane exists to show
 checks the count against what `Paragraph` renders at seven widths, and `tests/cockpit.rs` pages
 ten such runs at 80x30 to the last with the keys and the wheel.
 
+**A review from the cockpit, build ticket 183.** `v` on a task row whose task has a run opens a
+confirmation, `review <task>: three judge runs, each counts against quota. y starts it`, and `y`
+starts `$HYDRA_HOME/integrations/puppets/puppets.py review <goal> <task>` with `HYDRA_ROOT` and
+the cockpit's puppets home in its environment. The helper gets a process group of its own, stdin
+closed, and stdout and stderr both in `$HYDRA_ROOT/cockpit/review-<task>.log`, truncated at each
+start. It is the one process the cockpit starts without `--session`, and it spends quota: the
+helper launches the three judge runs itself. While it lives the row's status reads
+`review running`. Every draw reaps it with `Child::try_wait`, which is `waitpid` with `WNOHANG`,
+and the loop draws at least every 100 ms. After it exits the row reads `review pass` or
+`review block` once the next read of the goal log folds a `review` event the helper appended
+after the start, or `review failed` on a non-zero exit with no new verdict. The status cell is 15
+wide, so the whole `review failed, see <log>` is on the `review` line of the run's detail and on
+the status line. A verdict in the log shows over an `ended` status and never over the human's.
+One review per task at a time: `v` again says `a review of <task> is already running`. A spawn
+error says `the review of <task> did not start` and why. The cockpit tracks only the children
+it started, so after a restart a review still running shows nothing until its verdict lands.
+Inside Herdr it starts the same way: nothing under `integrations/herdr/` opens a pane (`hy.zsh`
+calls `herdr pane split` inline), and `puppets.py review` already splits its own pane for Hunk
+there. Outside Herdr the helper ends by `execvp`ing `hunk show <branch>` with its output in the
+log and no terminal. That has not been tried; if Hunk exits non-zero after the verdict was
+recorded, the row still shows the verdict. `tests/cockpit.rs` drives all of it on stub helpers:
+the confirmation and `n`, the argv, process group and log, a row that says `review running`
+until the stub is let go and is clear within 4 seconds, then the verdict it appended, a failure
+that names its log, and a helper that is not there. Each test failed against an empty
+`set_reviewer` before the change. No real panel has been run from the cockpit.
+
 **Tokens and windows in the header, build ticket 172.** No dollars: the human pays
 subscriptions. Each provider with a live run gets one entry, beside the dragon or, without it,
 on a row of its own above the panels: output tokens per minute over the last five minutes, and
@@ -3386,7 +3412,7 @@ not added, so the number is a floor. `tests/cockpit.rs` drives all of it on synt
 a fixed clock with a scratch `vendors.json`; no real provider has been watched through it.
 
 **Input.** Arrows and `Tab` move between panels and rows, `Enter` opens, `Esc` closes, `p`
-opens the policy pane, `q` quits. A click selects the table row under it or opens the card under
+opens the policy pane, `v` asks to review the selected task, `q` quits. A click selects the table row under it or opens the card under
 it, and the wheel scrolls the panel under the pointer. Every drawn row and card keeps its `Rect` from the last draw, and a click
 is `Rect::contains` over them. Mouse capture and the alternate screen are undone on drop and by a
 panic hook.

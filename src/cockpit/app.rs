@@ -5,8 +5,12 @@
 //! click can land on is kept from the last draw in [`Hits`], and a click is a
 //! `Rect::contains` over those.
 
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::Duration;
+
+use anyhow::{Context, bail};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
@@ -16,7 +20,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::goal::TaskRow;
+use super::goal::{Goal, TaskRow};
 use super::mascot::Mascot;
 use super::snapshot::{CallLine, Card, Lane, Snapshot, spend_text};
 use crate::approve::Pending;
@@ -87,6 +91,21 @@ pub struct Hits {
     pub policy_last: usize,
 }
 
+/// A review this cockpit started, build ticket 183: `puppets.py review <goal>
+/// <task>` in its own process group, both streams in `log`.
+struct ReviewRun {
+    goal: String,
+    task: String,
+    log: PathBuf,
+    /// How many reviews of the task the goal log held when it started, so
+    /// an older verdict is not read as this one's.
+    before: usize,
+    /// The helper while it lives. [`App::poll_reviews`] reaps it.
+    child: Option<Child>,
+    /// How it exited, or `None` while it lives or when the wait failed.
+    status: Option<ExitStatus>,
+}
+
 /// Width the header keeps for the title beside the dragon, and the rows the panels keep below it.
 const TITLE_WIDTH: u16 = 30;
 const MIN_BODY: u16 = 12;
@@ -133,6 +152,11 @@ pub struct App {
     policy_selected: usize,
     /// The first live run the pane shows, build ticket 174.
     policy_offset: usize,
+    /// `puppets.py` and the goal log home it is handed, build ticket 183.
+    reviewer: Option<(PathBuf, PathBuf)>,
+    /// The goal and task the review confirmation asks about, while it is up.
+    pub confirming_review: Option<(String, String)>,
+    reviews: Vec<ReviewRun>,
 }
 
 impl App {
@@ -162,6 +186,9 @@ impl App {
             policy_pane: false,
             policy_selected: 0,
             policy_offset: 0,
+            reviewer: None,
+            confirming_review: None,
+            reviews: Vec::new(),
         }
     }
 
@@ -169,6 +196,12 @@ impl App {
     pub fn set_policies(&mut self, dir: PathBuf) {
         self.policies_dir = Some(dir);
         self.reload_policies();
+    }
+
+    /// Names the helper `v` starts and the goal log home it is told about,
+    /// the one the reader folds.
+    pub fn set_reviewer(&mut self, script: PathBuf, puppets_home: PathBuf) {
+        self.reviewer = Some((script, puppets_home));
     }
 
     fn reload_policies(&mut self) {
@@ -300,6 +333,17 @@ impl App {
     }
 
     fn key(&mut self, key: &KeyEvent) -> Effect {
+        if self.confirming_review.is_some() {
+            return match key.code {
+                KeyCode::Char('y') => self.start_review(),
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    self.confirming_review = None;
+                    self.message = Some("no review started".to_string());
+                    Effect::None
+                }
+                _ => Effect::None,
+            };
+        }
         if self.confirming.is_some() {
             return match key.code {
                 KeyCode::Char('y') => self.answer(),
@@ -343,6 +387,7 @@ impl App {
             }
             KeyCode::Char('a') => self.ask_to_answer(false),
             KeyCode::Char('d') => self.ask_to_answer(true),
+            KeyCode::Char('v') => self.ask_to_review(),
             KeyCode::Char('r') => {
                 self.raw_tail = !self.raw_tail;
                 Effect::None
@@ -463,7 +508,7 @@ impl App {
     }
 
     fn click(&mut self, at: Position) -> Effect {
-        if self.confirming.is_some() {
+        if self.confirming.is_some() || self.confirming_review.is_some() {
             return Effect::None;
         }
         if let Some((_, index)) = self.hits.table_rows.iter().find(|(r, _)| r.contains(at)) {
@@ -609,10 +654,187 @@ impl App {
         Effect::Refresh
     }
 
+    // --- a review, build ticket 183 -----------------------------------------
+
+    /// `v`: opens the confirmation for the selected task's review, which
+    /// names what it costs.
+    fn ask_to_review(&mut self) -> Effect {
+        let row = match (&self.snapshot.goal, self.focus) {
+            (Some(goal), Focus::Table) => goal.rows.get(self.table_selected).map(|row| (goal, row)),
+            _ => None,
+        };
+        let Some((goal, row)) = row else {
+            self.message = Some("select a task row first".to_string());
+            return Effect::None;
+        };
+        if row.run_id.is_none() {
+            self.message = Some(format!("task {} has no run to review", row.id));
+            return Effect::None;
+        }
+        let asked = (goal.id.clone(), row.id.clone());
+        self.poll_reviews();
+        if self.review_running(&asked.0, &asked.1) {
+            self.message = Some(format!("a review of {} is already running", asked.1));
+            return Effect::None;
+        }
+        self.confirming_review = Some(asked);
+        Effect::None
+    }
+
+    /// `y` on that confirmation: starts the helper, or says why it did not.
+    fn start_review(&mut self) -> Effect {
+        let Some((goal, task)) = self.confirming_review.take() else {
+            return Effect::None;
+        };
+        self.poll_reviews();
+        if self.review_running(&goal, &task) {
+            self.message = Some(format!("a review of {task} is already running"));
+            return Effect::None;
+        }
+        match self.spawn_review(&goal, &task) {
+            Ok(run) => {
+                self.message = Some(format!(
+                    "a review of {task} started, its output in {}",
+                    run.log.display()
+                ));
+                self.reviews.retain(|r| !(r.goal == goal && r.task == task));
+                self.reviews.push(run);
+            }
+            Err(err) => {
+                self.message = Some(format!("the review of {task} did not start: {err:#}"));
+            }
+        }
+        Effect::None
+    }
+
+    /// `puppets.py review <goal> <task>` in a process group of its own, so a
+    /// `Ctrl-C` in the cockpit's terminal does not reach it, with stdin
+    /// closed and both streams in `$HYDRA_ROOT/cockpit/review-<task>.log`.
+    ///
+    /// Inside Herdr it starts the same way: `integrations/herdr/` has no
+    /// command that opens a pane, and the helper opens its own pane for Hunk
+    /// there once the panel has answered.
+    fn spawn_review(&self, goal: &str, task: &str) -> anyhow::Result<ReviewRun> {
+        let Some((script, home)) = &self.reviewer else {
+            bail!("no review helper is set");
+        };
+        super::check_goal_id(goal)?;
+        if !super::plain_name(task) {
+            bail!("{task:?} cannot name a log file");
+        }
+        let dir = self.layout.root().join("cockpit");
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        let log = dir.join(format!("review-{task}.log"));
+        let out =
+            std::fs::File::create(&log).with_context(|| format!("creating {}", log.display()))?;
+        let err = out.try_clone().context("opening the log twice")?;
+        let child = Command::new(script)
+            .arg("review")
+            .arg(goal)
+            .arg(task)
+            .env("HYDRA_ROOT", self.layout.root())
+            .env("HYDRA_PUPPETS_HOME", home)
+            .stdin(Stdio::null())
+            .stdout(out)
+            .stderr(err)
+            .process_group(0)
+            .spawn()
+            .with_context(|| format!("starting {}", script.display()))?;
+        let before = self
+            .snapshot
+            .goal
+            .as_ref()
+            .map_or(0, |g| g.reviews_of(task).0);
+        Ok(ReviewRun {
+            goal: goal.to_string(),
+            task: task.to_string(),
+            log,
+            before,
+            child: Some(child),
+            status: None,
+        })
+    }
+
+    /// Reaps each helper that has exited, `waitpid` with `WNOHANG` through
+    /// [`Child::try_wait`], and says so once. [`App::draw`] calls it, and the
+    /// loop draws at least every tenth of a second, so `review running` is
+    /// gone well inside the four seconds the panel asked for.
+    pub fn poll_reviews(&mut self) {
+        let mut said = None;
+        for run in &mut self.reviews {
+            let Some(child) = &mut run.child else {
+                continue;
+            };
+            match child.try_wait() {
+                Ok(None) => continue,
+                Ok(Some(status)) => run.status = Some(status),
+                Err(_) => run.status = None,
+            }
+            run.child = None;
+            said = Some(match run.status {
+                Some(status) if status.success() => format!(
+                    "the review of {} ended; its verdict shows at the next read",
+                    run.task
+                ),
+                _ => format!("review failed, see {}", run.log.display()),
+            });
+        }
+        if said.is_some() {
+            self.message = said;
+        }
+    }
+
+    fn review_running(&self, goal: &str, task: &str) -> bool {
+        self.reviews
+            .iter()
+            .any(|r| r.goal == goal && r.task == task && r.child.is_some())
+    }
+
+    /// What the table cell and the detail say about `task`'s review: the one
+    /// this cockpit started while it runs or when it failed, and otherwise the
+    /// last verdict in the goal log. `None` when there is neither.
+    fn review_of(&self, goal: &Goal, task: &str) -> Option<(&'static str, String)> {
+        let (count, last) = goal.reviews_of(task);
+        let ours = self
+            .reviews
+            .iter()
+            .find(|r| r.goal == goal.id && r.task == task);
+        if let Some(run) = ours {
+            let log = run.log.display();
+            if run.child.is_some() {
+                return Some(("review running", format!("running, output in {log}")));
+            }
+            // A helper that failed after it recorded a verdict still gave one.
+            if count <= run.before {
+                return Some(match run.status {
+                    Some(status) if status.success() => (
+                        "review ended",
+                        format!("ended, no verdict read yet, see {log}"),
+                    ),
+                    _ => ("review failed", format!("review failed, see {log}")),
+                });
+            }
+        }
+        let last = last?;
+        let verdict = last.verdict.as_deref().unwrap_or("without a verdict");
+        let cell = match verdict {
+            "pass" => "review pass",
+            "block" => "review block",
+            _ => "reviewed",
+        };
+        let degraded = if last.degraded {
+            " by a degraded panel"
+        } else {
+            ""
+        };
+        Some((cell, format!("{verdict}{degraded}")))
+    }
+
     // --- drawing ------------------------------------------------------------
 
     /// Paints the whole screen into `buf` and keeps what was drawn where.
     pub fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+        self.poll_reviews();
         self.hits = Hits::default();
         let area = self.draw_header(area, buf);
         let [main, status] =
@@ -645,6 +867,9 @@ impl App {
         }
         if let Some(request) = self.confirming.clone() {
             draw_confirmation(&request, self.denying, main, buf);
+        }
+        if let Some((_, task)) = &self.confirming_review {
+            draw_review_confirmation(task, main, buf);
         }
     }
 
@@ -915,9 +1140,10 @@ impl App {
         {
             let row = &goal.rows[index];
             let run = row.run_id.as_deref().map(short).unwrap_or("");
+            let status = self.status_of(&goal, row);
             let text = row_text(&columns, |column| match column {
                 Column::Id => &row.id,
-                Column::Status => self.status_of(row),
+                Column::Status => status,
                 Column::Provider => row.provider.as_deref().unwrap_or("-"),
                 Column::Model => row.model.as_deref().unwrap_or("-"),
                 Column::Run => run,
@@ -939,7 +1165,19 @@ impl App {
     /// `fold`'s status, except that an `ended` row whose run the snapshot
     /// has normalized reads that run's outcome. A verdict is never `ended`,
     /// so the human's word still wins.
-    fn status_of<'a>(&'a self, row: &'a TaskRow) -> &'a str {
+    ///
+    /// A review this cockpit runs, or saw fail, shows over any status. A
+    /// verdict from the log shows over an `ended` one, build ticket 183.
+    fn status_of<'a>(&'a self, goal: &Goal, row: &'a TaskRow) -> &'a str {
+        let ours = self
+            .reviews
+            .iter()
+            .any(|r| r.goal == goal.id && r.task == row.id);
+        if let Some((cell, _)) = self.review_of(goal, &row.id)
+            && (ours || row.status == "ended")
+        {
+            return cell;
+        }
         if row.status != "ended" {
             return &row.status;
         }
@@ -1067,6 +1305,10 @@ impl App {
                 if let Some(task) = task {
                     lines.push(label("task", task.id.clone()));
                     lines.push(label("done", or_dash(task.done.as_deref())));
+                    let goal = self.snapshot.goal.as_ref();
+                    if let Some((_, said)) = goal.and_then(|g| self.review_of(g, &task.id)) {
+                        lines.push(label("review", said));
+                    }
                 }
                 lines.extend([
                     label("provider", or_dash(card.provider.as_deref())),
@@ -1136,7 +1378,7 @@ impl App {
             .collect::<Vec<_>>()
             .join(", ");
         let keys = "arrows/Tab move, Enter opens, Esc closes, r raw lines, a approves, d denies, \
-                    p policies, q quits";
+                    v reviews a task, p policies, q quits";
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",
             self.interval.as_secs_f32()
@@ -1230,6 +1472,33 @@ fn draw_confirmation(request: &Pending, deny: bool, area: Rect, buf: &mut Buffer
             Block::bordered()
                 .border_style(Style::default().fg(Color::Red))
                 .title(title),
+        )
+        .wrap(Wrap { trim: false })
+        .render(rect, buf);
+}
+
+/// The question `v` asks before three judge runs spend quota.
+fn draw_review_confirmation(task: &str, area: Rect, buf: &mut Buffer) {
+    let width = area.width.saturating_sub(8).min(90);
+    let height = 5.min(area.height);
+    let rect = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    };
+    Clear.render(rect, buf);
+    let lines = vec![
+        Line::raw(format!(
+            "review {task}: three judge runs, each counts against quota. y starts it"
+        )),
+        Line::styled("n closes", Style::default().add_modifier(Modifier::BOLD)),
+    ];
+    Paragraph::new(lines)
+        .block(
+            Block::bordered()
+                .border_style(Style::default().fg(Color::Red))
+                .title(" start a review? "),
         )
         .wrap(Wrap { trim: false })
         .render(rect, buf);
