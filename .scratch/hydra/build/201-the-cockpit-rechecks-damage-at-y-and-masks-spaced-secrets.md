@@ -1,8 +1,8 @@
 # 201 - The cockpit rechecks damage at `y` and masks spaced secrets
 
 Type: build
-Status: claimed
-Blocked by:
+Status: open
+Blocked by: 199
 
 ## What
 
@@ -34,7 +34,10 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
    another sha, the pane has one interior row, the run needs two, and the row kept for `N more`
    leaves none: the only run cannot be reached. When a whole run cannot fit, show it clipped to
    the room there is. Test heights 3 to 12.
-5. **`removed` on a `repair` event** (`goal.rs` near 208). The rule since build 199 is the
+   A first run of this ticket (codex, `01a0f5ee`, stopped on item 5 before 199 had landed)
+   wrote that test and saw a buffer bounds panic at height 3. No terminal size may panic.
+5. **`removed` on a `repair` event** (`goal.rs` near 208). Read `fold` in `puppets.py` and
+   `crates/puppets/src/fold.rs` first: the rule since build 199 is the
    helper's: `removed` counts when it is an int from 1 to 1,000,000,000, else zero, and the
    revision then adds one. `as_i64()` on `9223372036854775808` gives a different answer. Use that
    rule here.
