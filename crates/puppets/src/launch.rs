@@ -331,8 +331,8 @@ fn replace(text: &PyStr, marker: &str, with: &PyStr) -> PyStr {
     out
 }
 
-fn prompts_dir() -> PathBuf {
-    log::data_dir().join("prompts")
+fn prompts_dir() -> Result<PathBuf> {
+    Ok(log::data_dir()?.join("prompts"))
 }
 
 /// `state.goal["text"]` and friends.
@@ -357,7 +357,7 @@ pub fn plan(
         writeln!(err, "unknown goal {goal_id}")?;
         return Ok(1);
     };
-    let template = read_text(&prompts_dir().join("plan.md"))?;
+    let template = read_text(&prompts_dir()?.join("plan.md"))?;
     let goal_text = match goal_field(goal, "text")? {
         Value::Str(text) => text,
         other => bail!(

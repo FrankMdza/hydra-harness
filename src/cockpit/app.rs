@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
@@ -193,6 +193,8 @@ pub struct App {
     policy_offset: usize,
     /// `hydra-puppets` and the goal log home it is handed, build ticket 183.
     reviewer: Option<(PathBuf, PathBuf)>,
+    /// Why there is no helper to run, when there is none. Build ticket 221.
+    no_helper: Option<String>,
     /// The goal, task and run the review confirmation asks about, while it is up.
     pub confirming_review: Option<(String, String, String)>,
     reviews: Vec<ReviewRun>,
@@ -253,6 +255,7 @@ impl App {
             policy_selected: 0,
             policy_offset: 0,
             reviewer: None,
+            no_helper: None,
             confirming_review: None,
             reviews: Vec::new(),
             confirming_stop: None,
@@ -275,6 +278,18 @@ impl App {
     /// the one the reader folds.
     pub fn set_reviewer(&mut self, script: PathBuf, puppets_home: PathBuf) {
         self.reviewer = Some((script, puppets_home));
+    }
+
+    /// [`super::puppets_helper`]'s answer: the helper, or the line `v` and `a`
+    /// answer with in place of running anything. Build ticket 221.
+    pub fn set_helper(&mut self, helper: Result<PathBuf, String>, puppets_home: PathBuf) {
+        match helper {
+            Ok(script) => self.set_reviewer(script, puppets_home),
+            Err(note) => {
+                self.reviewer = None;
+                self.no_helper = Some(note);
+            }
+        }
     }
 
     fn reload_policies(&mut self) {
@@ -1172,7 +1187,17 @@ impl App {
             self.message = Some(format!("{label} has no command to run"));
             return Effect::None;
         };
-        let mut command = Command::new(program);
+        if let Some(note) = &self.no_helper {
+            self.message = Some(format!("{label} was not approved: {note}"));
+            return Effect::None;
+        }
+        let mut command = match super::helper_command(Path::new(program)) {
+            Ok(command) => command,
+            Err(err) => {
+                self.message = Some(format!("{label} was not approved: {err:#}"));
+                return Effect::None;
+            }
+        };
         command.args(args).env("HYDRA_ROOT", self.layout.root());
         if let Some((_, home)) = &self.reviewer {
             command.env("HYDRA_PUPPETS_HOME", home);
@@ -1503,6 +1528,9 @@ impl App {
     /// detail shows that line for the human to run. Inside Herdr it starts
     /// the same way and opens no pane.
     fn spawn_review(&self, goal: &str, task: &str) -> anyhow::Result<ReviewRun> {
+        if let Some(note) = &self.no_helper {
+            bail!("{note}");
+        }
         let Some((script, home)) = &self.reviewer else {
             bail!("no review helper is set");
         };
@@ -1516,7 +1544,7 @@ impl App {
         let out =
             std::fs::File::create(&log).with_context(|| format!("creating {}", log.display()))?;
         let err = out.try_clone().context("opening the log twice")?;
-        let child = Command::new(script)
+        let child = super::helper_command(script)?
             .arg("review")
             .arg(goal)
             .arg(task)
@@ -2069,7 +2097,27 @@ impl App {
                 .collect(),
         };
         let title = format!(" {} {} ", lane.title(), self.lane_len(lane));
+        let listed = lines.len();
         self.draw_cards(Focus::Lane(lane), title, lines, area, buf);
+        // The line that says why no step is listed goes under the requests, where
+        // the steps would be. It is not a card: nothing selects or opens it.
+        if lane == Lane::Waiting
+            && let Some(note) = &self.snapshot.steps_note
+        {
+            let row = u16::try_from(listed)
+                .ok()
+                .and_then(|listed| area.y.checked_add(1)?.checked_add(listed));
+            if let Some(row) = row
+                && row < area.bottom().saturating_sub(1)
+            {
+                buf.set_line(
+                    area.x + 1,
+                    row,
+                    &Line::raw(note.clone()),
+                    area.width.saturating_sub(2),
+                );
+            }
+        }
     }
 
     /// The lanes by agent, build ticket 191: one per agent in [`App::agents`],

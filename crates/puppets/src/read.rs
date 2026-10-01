@@ -173,7 +173,7 @@ pub fn pending(
         writeln!(err, "unknown goal {goal_id}")?;
         return Ok(1);
     }
-    let items = fold::pending_approvals(&state, &home.vendors, helper)?;
+    let items = fold::pending_approvals(&state, &home.vendors_file()?, helper)?;
     writeln!(out, "{}", json::dumps(&Value::List(items), Some(2)))?;
     Ok(0)
 }

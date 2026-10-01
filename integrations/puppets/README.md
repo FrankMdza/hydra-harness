@@ -30,8 +30,20 @@ Nothing under `src/` imports this directory. Hydra works with it stopped.
 | `HYDRA_BIN` | `hydra` on `PATH` | Hydra binary, same as the Herdr scripts |
 | `HYDRA_PUPPETS_HOME` | `~/hydra/puppets` | Goal logs and per-goal plan copies |
 | `HYDRA_ROOT` | `~/hydra` | Run files polled by `wait` |
-| `HYDRA_PUPPETS_DATA` | `integrations/puppets` under `HYDRA_HOME`, else under the checkout the binary was built in | Where `hydra-puppets` reads `vendors.json`, `priors.json`, `aliases.json` and `prompts/` |
+| `HYDRA_PUPPETS_DATA` | `integrations/puppets` under `HYDRA_HOME`, else under the first directory above the binary that holds `integrations/puppets/prompts` | Where `hydra-puppets` reads `vendors.json`, `priors.json`, `aliases.json` and `prompts/` |
 | `HYDRA_PUPPETS_VENDORS` | `vendors.json` in the data directory | The vendors file alone |
+
+The data directory has to exist. A `hydra-puppets` copied out of its checkout with neither
+`HYDRA_PUPPETS_DATA` nor `HYDRA_HOME` set has none, and every command that reads a data file
+then prints `no data directory at <path>; set HYDRA_PUPPETS_DATA to the directory that holds
+vendors.json, or HYDRA_HOME to the checkout` and exits 1 (build ticket 221). A `vendors.json`
+missing from a data directory that exists still means every provider is up.
+
+Nothing finds the helper on `PATH`. The cockpit runs the `hydra-puppets` beside the real `hydra`
+binary, symlinks resolved. `hydra-board` and the grader take `HYDRA_PUPPETS_BIN`, which must be
+an absolute path, else the one beside `HYDRA_BIN`. With no helper there the cockpit and the
+board run nothing and say `no hydra-puppets beside <path>; run cargo build --release
+--workspace`.
 
 ## Run
 

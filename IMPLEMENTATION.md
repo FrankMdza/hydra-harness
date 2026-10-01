@@ -3417,18 +3417,39 @@ Not ported, and where the Rust differs:
 
 Build ticket 196 moved every caller to `hydra-puppets`, and its second half, after map ticket
 93, deleted `puppets.py` and the seven Python test files that tested it. The cockpit
-runs the `hydra-puppets` beside its own binary and, when none is there, the bare name, which the
-spawn looks up on `PATH` (`cockpit::helper_beside`). `cargo build` at the root builds `hydra`
+runs the `hydra-puppets` beside its own binary and nothing else (`cockpit::helper_beside`). Until
+build ticket 221 it fell back to the bare name, which the spawn looked up on `PATH`, and a
+`hydra` reached through a symlink always fell back, because `current_exe` answers with the
+link's path on macOS. `PATH` is on the allowlist a gated run is given, so the first
+`hydra-puppets` on it could be the one a human's `a` then `y` ran. The executable is now
+canonicalized and the helper is looked for beside the real binary. With none there the cockpit
+runs nothing: the waiting lane and the footer show `no hydra-puppets beside <path>; run cargo
+build --release --workspace`, and `v` and `a` answer with the same line. Every spawn of the
+helper goes through `cockpit::helper_command`, which refuses a program that is not an absolute
+path, the argv a step carries included
+(`a_symlinked_hydra_never_runs_a_helper_planted_on_path`). The cockpit reads no
+`HYDRA_PUPPETS_BIN`. `cargo build` at the root builds `hydra`
 alone, so the README's build line is now `cargo build --release --workspace`. `pending --json`
 prints an `argv` that starts with the canonical path of the `hydra-puppets` that answered, then
 `approve`. `log::python_dir()`, which compiled the build checkout's path into the binary, is
 gone. `log::data_dir()` finds `vendors.json`, `priors.json`, `aliases.json` and `prompts/` when
 the helper runs: `HYDRA_PUPPETS_DATA`, else `integrations/puppets` under `HYDRA_HOME`, else the
 first directory above the binary that holds `integrations/puppets/prompts`. A binary copied out
-of its checkout with neither variable set finds no data, and its error names the path beside it.
+of its checkout with neither variable set has no data directory, and since build ticket 221
+that is an error: `pending`, `review`, `plan` and whatever else reads a data file print `no data
+directory at <path>; set HYDRA_PUPPETS_DATA to the directory that holds vendors.json, or
+HYDRA_HOME to the checkout` and exit 1. Before, a missing `vendors.json` read as every provider
+up, so the copied binary sat a provider the checkout marks down with no degraded approval. A
+`vendors.json` missing from a data directory that exists still means every provider is up, as
+the recorded Python had it. `HYDRA_PUPPETS_VENDORS` names the file without a data directory.
+Commands that read no data file, `show` among them, run as before. Every recorded fixture runs
+with `HYDRA_PUPPETS_DATA` set to a directory the test copies from `fixtures/data`, so none runs
+without a data directory and none changed.
 The damaged-log hint says `hydra-puppets repair <goal>` in the helper and in the
 cockpit. `integrations/herdr/bin/hydra-board` runs `hydra-puppets board`: `HYDRA_PUPPETS_BIN`,
-else the one beside `HYDRA_BIN`, else `PATH`. CI runs fmt, clippy, the build and the tests over
+which must be an absolute path, else the one beside the resolved `HYDRA_BIN`, which must be
+absolute too. It no longer searches `PATH` (build ticket 221): with no helper it prints the
+cockpit's line and exits 1. CI runs fmt, clippy, the build and the tests over
 the workspace, and no longer pins a Python.
 
 **The grader reads a goal through the helper (map ticket 93).** `integrations/grader/labels.py`
@@ -3438,7 +3459,11 @@ each plan's `run_id`, checking that shape. The binary is an absolute path and `P
 searched: `HYDRA_PUPPETS_BIN`, else `hydra-puppets` beside `HYDRA_BIN` when that is absolute,
 which is what the launchd template gives, else `target/release/hydra-puppets` of the checkout.
 The first of those that is configured is the answer, so a missing binary there is an error and
-not a reason to try the next. A missing binary, a non-zero exit or output of another shape
+not a reason to try the next. The goal asked for is the file's name less a literal `.jsonl`,
+not `Path.stem` (build ticket 221): the stem of `.jsonl` is not that, `show` printed the empty
+state for a log that is another file, and the judges in the file read were labelled with no task
+and no goal text. A file whose id is empty or starts with a dot is skipped with a line on
+stderr, and a `goal_id` in `show`'s answer that is not the id asked for raises `LabelsError`. A missing binary, a non-zero exit or output of another shape
 raises `LabelsError`, and `grader.collect` calls `labels.collect` before it writes anything, so
 that pass leaves the dataset, the cursor, the show cache and the scores as they were
 (`test_a_goal_the_helper_refuses_ends_the_pass_with_nothing_written`). `labels.py` still walks

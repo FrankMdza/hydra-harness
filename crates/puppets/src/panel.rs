@@ -225,8 +225,9 @@ fn resolve_panel_seats(
 ) -> Result<std::result::Result<Sitting, String>> {
     let mut resolved = Vec::new();
     let mut substitutions = Vec::new();
+    let vendors = home.vendors_file()?;
     for seat in &PANEL {
-        if fold::provider_available(&home.vendors, seat.provider)? {
+        if fold::provider_available(&vendors, seat.provider)? {
             resolved.push(Resolved {
                 seat,
                 provider: Value::text(seat.provider),

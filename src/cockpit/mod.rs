@@ -87,19 +87,46 @@ pub struct Session {
 /// The Master of Puppets helper's file name.
 pub const PUPPETS_HELPER: &str = "hydra-puppets";
 
-/// The helper the cockpit runs for `pending`, `approve` and `review`, build ticket 196.
-pub fn puppets_helper() -> PathBuf {
+/// The helper the cockpit runs for `pending`, `approve` and `review`, build ticket 196,
+/// or the line the cockpit shows when there is none.
+pub fn puppets_helper() -> Result<PathBuf, String> {
     helper_beside(std::env::current_exe().ok().as_deref())
 }
 
-/// `hydra-puppets` in the directory that holds `exe`, which is where one `cargo build
-/// --workspace` puts both binaries, and the bare name otherwise, which the spawn looks
-/// up on `PATH`.
-pub fn helper_beside(exe: Option<&Path>) -> PathBuf {
-    exe.and_then(Path::parent)
+/// `hydra-puppets` in the directory that holds the real `exe`, which is where one `cargo
+/// build --workspace` puts both binaries. `exe` is canonicalized first, because
+/// `current_exe` answers with a symlink's own path on macOS and the helper is beside the
+/// binary the link names. With no helper there the answer is the line to show and nothing
+/// is run: a bare name would be looked up on `PATH`, and `PATH` is in the environment a
+/// gated run is given. Build ticket 221.
+pub fn helper_beside(exe: Option<&Path>) -> Result<PathBuf, String> {
+    let real = exe.and_then(|exe| exe.canonicalize().ok());
+    let helper = real
+        .as_deref()
+        .and_then(Path::parent)
         .map(|dir| dir.join(PUPPETS_HELPER))
-        .filter(|helper| helper.is_file())
-        .unwrap_or_else(|| PathBuf::from(PUPPETS_HELPER))
+        .filter(|helper| helper.is_absolute() && helper.is_file());
+    helper.ok_or_else(|| {
+        let beside = match (&real, exe) {
+            (Some(real), _) => real.display().to_string(),
+            (None, Some(exe)) => exe.display().to_string(),
+            (None, None) => "a hydra whose path is unknown".to_string(),
+        };
+        format!("no {PUPPETS_HELPER} beside {beside}; run cargo build --release --workspace")
+    })
+}
+
+/// A command that runs `program`, refused unless `program` is an absolute path. Every
+/// spawn of the helper goes through here, the argv a step carries included, so none of
+/// them is a search of `PATH`. Build ticket 221.
+pub(crate) fn helper_command(program: &Path) -> Result<std::process::Command> {
+    if !program.is_absolute() {
+        bail!(
+            "{} is not an absolute path, and the helper is never looked up on PATH",
+            program.display()
+        );
+    }
+    Ok(std::process::Command::new(program))
 }
 
 /// Where the goal logs live: `HYDRA_PUPPETS_HOME` when set, as `hydra-puppets`
@@ -150,7 +177,7 @@ pub fn run(
         goal,
     )
     .with_vendors(crate::paths::hydra_home().join("integrations/puppets"))
-    .with_puppets(puppets_helper());
+    .with_helper(puppets_helper());
     let (asks, asked) = mpsc::channel::<Option<String>>();
     let (snapshots, snapshot) = mpsc::channel();
     std::thread::Builder::new()
@@ -166,7 +193,7 @@ pub fn run(
 
     app.set_policies(crate::paths::hydra_home().join("policies"));
     app.set_preamble(crate::preamble::load().ok());
-    app.set_reviewer(puppets_helper(), puppets_home(layout));
+    app.set_helper(puppets_helper(), puppets_home(layout));
 
     if with_mascot {
         match mascot::Frames::load(&mascot::default_dir()) {

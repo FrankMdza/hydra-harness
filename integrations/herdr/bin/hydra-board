@@ -2,7 +2,6 @@
 """hydra-board: refresh `hydra-puppets board` in a Herdr pane (map 85, build 148)."""
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -19,18 +18,30 @@ def puppets_home() -> Path:
     return Path.home() / "hydra" / "puppets"
 
 
-def puppets_helper() -> str | None:
-    """`HYDRA_PUPPETS_BIN` when set, else the `hydra-puppets` beside `HYDRA_BIN`, which `hy`
-    hands this pane, else the one on `PATH`. None when there is none."""
+class NoHelper(RuntimeError):
+    """There is no `hydra-puppets` this pane may run. The message is the line to print."""
+
+
+def puppets_helper() -> str:
+    """`HYDRA_PUPPETS_BIN` when set, which must be an absolute path, else the `hydra-puppets`
+    beside the real `HYDRA_BIN`, which `hy` hands this pane. `HYDRA_BIN` is resolved first, so
+    a symlink to `hydra` finds the helper beside the binary it names. `PATH` is never
+    searched: a gated run is given `PATH`, and the first `hydra-puppets` on it is not
+    necessarily this checkout's (build 221). Raises `NoHelper` when there is none."""
     named = os.environ.get("HYDRA_PUPPETS_BIN")
     if named:
+        if not Path(named).is_absolute():
+            raise NoHelper(f"HYDRA_PUPPETS_BIN is not an absolute path: {named}")
         return named
     hydra = os.environ.get("HYDRA_BIN")
-    if hydra:
-        beside = Path(hydra).parent / "hydra-puppets"
-        if beside.is_file():
-            return str(beside)
-    return shutil.which("hydra-puppets")
+    if not hydra or not Path(hydra).is_absolute():
+        said = f"HYDRA_BIN={hydra}, which is not an absolute path" if hydra else "an unset HYDRA_BIN"
+        raise NoHelper(f"no hydra-puppets beside {said}; run cargo build --release --workspace")
+    real = Path(hydra).resolve()
+    beside = real.parent / "hydra-puppets"
+    if not beside.is_file():
+        raise NoHelper(f"no hydra-puppets beside {real}; run cargo build --release --workspace")
+    return str(beside)
 
 
 def newest_goal_id(home: Path) -> str | None:
@@ -114,13 +125,10 @@ def main() -> int:
         print("hydra-board: --interval must be positive", file=sys.stderr)
         return 1
     home = puppets_home()
-    helper = puppets_helper()
-    if helper is None:
-        print(
-            "hydra-board: no hydra-puppets beside HYDRA_BIN or on PATH; "
-            "build it with `cargo build --release --workspace`",
-            file=sys.stderr,
-        )
+    try:
+        helper = puppets_helper()
+    except NoHelper as err:
+        print(f"hydra-board: {err}", file=sys.stderr)
         return 1
     try:
         refresh_loop(home, helper, args.goal, args.interval)

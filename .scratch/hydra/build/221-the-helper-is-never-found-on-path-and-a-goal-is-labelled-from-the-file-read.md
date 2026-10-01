@@ -1,7 +1,7 @@
 # 221 - The helper is never found on `PATH`, and a goal is labelled from the file that was read
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -57,3 +57,40 @@ data are found.
 - Each test failed before the change; fmt, clippy over the workspace; `cargo test --lib`, `cargo
   test --test cockpit`, `cargo test -p hydra-puppets` with no fixture changed; the grader and
   Herdr Python suites pass (`test_launchd` aside).
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f6ca` (claude opus 5.5, `standard`, 3.7M tokens), diff read by the
+session and applied to master with one sentence added.
+
+Built: `helper_beside` canonicalizes the executable, looks beside the real binary and returns the
+path or the line to show; `helper_command` refuses a program that is not an absolute path, and
+`pending`, `approve` and `review` all spawn through it, a step's own argv included. With no
+helper the cockpit asks nothing and shows `no hydra-puppets beside <path>; run cargo build
+--release --workspace` under the waiting lane. `hydra-board` no longer calls `shutil.which`:
+`HYDRA_PUPPETS_BIN` and `HYDRA_BIN` must be absolute, `HYDRA_BIN` is resolved, and with no helper
+it prints the line and exits 1. `labels.py` takes the goal id by removing a literal `.jsonl`,
+skips an id that is empty or starts with a dot with a line on stderr, and raises `LabelsError`
+when `show` answers for another goal. `data_dir()` fails when the directory does not exist;
+commands that read no data file, `show` among them, still run.
+
+Measured on master: fmt and clippy clean over the workspace; `cargo test --test cockpit` 112 and
+one ignored (the planted-helper test re-runs the test binary as a child so `PATH` changes only
+there); `cargo test -p hydra-puppets` 45, 5 and 18 with no fixture changed; `cargo test --lib`
+224; the Herdr suite 44; the grader suite 135 with `test_launchd` its one error. The session
+reverted `hydra-board` and saw three failures and an error, the planted helper running; reverted
+`labels.py` and saw two failures; restored both. The run copied the release helper outside the
+checkout: `pending` printed `[]` with exit 0 before, the one-line error with exit 1 after.
+
+The session's sentence: `integrations/herdr/README.md` still said the board falls back to `PATH`.
+
+What the ticket assumed that is false: the cockpit reads no `HYDRA_PUPPETS_BIN`; only the board
+does, and the run added none, since a new variable that picks the binary an approval runs is a
+decision. The `goal_id` check does not by itself catch a file named `.jsonl`: `show` echoes the
+id it was asked for; the suffix rule and the skip are what fix that case.
+
+Left open: `helper_path()` in `crates/puppets/src/main.rs` still falls back to the bare name in
+the `argv` that `pending` prints; the cockpit now refuses such an argv, so the step cannot be
+approved from the cockpit until the helper is found by path. No one ran `hydra cockpit` through
+a real symlink. The board with no `HYDRA_BIN` now exits 1; `hy.zsh` always passes an absolute one.
+

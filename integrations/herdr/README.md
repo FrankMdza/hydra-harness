@@ -29,8 +29,9 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
   (the pattern floor, not a policy). Defaults are `sonnet` and `standard`.
 - `bin/hydra-board`, a refresher for the puppets task table in a pane. Stdlib only; it shells out
   to `hydra-puppets board`, so the loop stays a thin wrapper and failures stay in the
-  subprocess stderr the pane already shows. It runs `HYDRA_PUPPETS_BIN` when that is set, else
-  the `hydra-puppets` beside `HYDRA_BIN`, else the one on `PATH`.
+  subprocess stderr the pane already shows. It runs `HYDRA_PUPPETS_BIN` when that is set, which
+  must be an absolute path, else the `hydra-puppets` beside the real `HYDRA_BIN`. It never searches
+  `PATH`, and with no helper it says so and exits 1 (build 221).
 - `bin/hydra-bridge`, a poller. Every two seconds it lists the panes carrying a `run_id` token,
   reads `hydra status` for each, and reports on change. The state table at the top of the file
   is the whole policy. Resolved 2026-09-07, map ticket 49. A live session with a seat request

@@ -66,34 +66,99 @@ class TestHydraBoard(unittest.TestCase):
         self.assertIn("hydra-board: goal goal-new", text)
         self.assertIn("goal goal-new", text)
 
-    def test_helper_is_named_then_beside_hydra_then_on_path(self):
+    def planted(self):
+        """A `hydra-puppets` in a directory of its own that records that it ran."""
+        path = Path(self.tmp) / "planted" / "hydra-puppets"
+        path.parent.mkdir()
+        ran = Path(self.tmp) / "ran"
+        path.write_text(f"#!/bin/sh\necho \"$*\" >> '{ran}'\necho planted\n", encoding="utf-8")
+        path.chmod(0o755)
+        return path, ran
+
+    def test_helper_is_named_or_beside_the_real_hydra_and_never_on_path(self):
         mod = load_board_module()
         from unittest import mock
 
-        empty = Path(self.tmp) / "empty"
+        planted, _ = self.planted()
+        tmp = Path(self.tmp).resolve()
+        helper = tmp / "bin" / "hydra-puppets"
+        hydra = tmp / "bin" / "hydra"
+        hydra.write_text("", encoding="utf-8")
+        empty = tmp / "empty"
         empty.mkdir()
-        beside = str(self.helper.parent / "hydra")
-        with mock.patch.dict(os.environ, {"PATH": str(empty)}, clear=True):
-            self.assertIsNone(mod.puppets_helper())
+        (empty / "hydra").write_text("", encoding="utf-8")
+        links = tmp / "links"
+        links.mkdir()
+        (links / "hydra").symlink_to(hydra)
+        with mock.patch.dict(os.environ, {"PATH": str(planted.parent)}, clear=True):
+            with self.assertRaisesRegex(mod.NoHelper, "no hydra-puppets beside "):
+                mod.puppets_helper()
             os.environ["HYDRA_BIN"] = str(empty / "hydra")
-            self.assertIsNone(mod.puppets_helper())
-            os.environ["PATH"] = str(self.helper.parent)
-            self.assertEqual(mod.puppets_helper(), str(self.helper))
-            os.environ["PATH"] = str(empty)
-            os.environ["HYDRA_BIN"] = beside
-            self.assertEqual(mod.puppets_helper(), str(self.helper))
+            with self.assertRaisesRegex(mod.NoHelper, f"beside {empty / 'hydra'}; run cargo build"):
+                mod.puppets_helper()
+            # A bare `hydra` is found on PATH by whoever runs it. The helper is not.
+            os.environ["HYDRA_BIN"] = "hydra"
+            with self.assertRaises(mod.NoHelper):
+                mod.puppets_helper()
+            os.environ["HYDRA_BIN"] = str(hydra)
+            self.assertEqual(mod.puppets_helper(), str(helper))
+            # Through a symlink: beside the real binary, not beside the link.
+            os.environ["HYDRA_BIN"] = str(links / "hydra")
+            self.assertEqual(mod.puppets_helper(), str(helper))
             os.environ["HYDRA_PUPPETS_BIN"] = "/named/hydra-puppets"
             self.assertEqual(mod.puppets_helper(), "/named/hydra-puppets")
+            for relative in ("hydra-puppets", "planted/hydra-puppets"):
+                os.environ["HYDRA_PUPPETS_BIN"] = relative
+                with self.assertRaisesRegex(mod.NoHelper, "not an absolute path"):
+                    mod.puppets_helper()
+
+    def run_board(self, **env):
+        planted, ran = self.planted()
+        env = {
+            "PATH": f"{planted.parent}:{os.environ['PATH']}",
+            "HYDRA_PUPPETS_HOME": str(self.home),
+            **env,
+        }
+        (self.home / "g1.jsonl").write_text(MINIMAL_GOAL, encoding="utf-8")
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(BOARD), "--interval", "30"],
+                env=env,
+                cwd=self.tmp,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired:
+            self.fail(f"hydra-board ran a helper; the planted one said: {ran.exists()}")
+        self.assertFalse(ran.exists(), "the helper planted on PATH ran")
+        return proc
 
     def test_missing_helper_is_said_and_exits_1(self):
-        empty = Path(self.tmp) / "empty"
-        empty.mkdir()
-        env = {"PATH": str(empty), "HYDRA_PUPPETS_HOME": str(self.home)}
-        proc = subprocess.run(
-            [sys.executable, str(BOARD)], env=env, capture_output=True, text=True, timeout=10
-        )
+        proc = self.run_board()
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("no hydra-puppets", proc.stderr)
+        self.assertIn("no hydra-puppets beside ", proc.stderr)
+        self.assertIn("; run cargo build --release --workspace", proc.stderr)
+
+    def test_a_symlinked_hydra_never_runs_a_helper_planted_on_path(self):
+        real = Path(self.tmp).resolve() / "real"
+        real.mkdir()
+        (real / "hydra").write_text("", encoding="utf-8")
+        links = Path(self.tmp) / "links"
+        links.mkdir()
+        (links / "hydra").symlink_to(real / "hydra")
+        proc = self.run_board(HYDRA_BIN=str(links / "hydra"))
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(
+            proc.stderr,
+            f"hydra-board: no hydra-puppets beside {real / 'hydra'}; "
+            "run cargo build --release --workspace\n",
+        )
+
+    def test_a_relative_named_helper_is_refused(self):
+        proc = self.run_board(HYDRA_PUPPETS_BIN="planted/hydra-puppets")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("HYDRA_PUPPETS_BIN is not an absolute path", proc.stderr)
 
     def test_subprocess_one_frame_before_sleep(self):
         old = self.home / "g1.jsonl"

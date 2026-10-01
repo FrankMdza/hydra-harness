@@ -26,8 +26,9 @@ pub struct Home {
     pub puppets: PathBuf,
     /// `HYDRA_GRADER_HOME`, else `$HYDRA_ROOT/grader`: `scores.jsonl` for `queue` and `board`.
     pub grader: PathBuf,
-    /// `HYDRA_PUPPETS_VENDORS`, else `vendors.json` in [`data_dir`].
-    pub vendors: PathBuf,
+    /// `HYDRA_PUPPETS_VENDORS` when it is set. [`Home::vendors_file`] is how it is read:
+    /// with none named the file is `vendors.json` in [`data_dir`], which has to exist.
+    pub vendors: Option<PathBuf>,
     /// `HYDRA_ROOT`, else `~/hydra`: `runs/` and `worktrees/`, which the launch commands read.
     pub root: PathBuf,
 }
@@ -42,12 +43,38 @@ const DATA_DIR: &str = "integrations/puppets";
 /// directory above this binary that holds `integrations/puppets/prompts`, which is the
 /// checkout for a binary under its `target/`. With none of those the path is the one
 /// beside the binary, so the error that follows names where the files were looked for.
-pub fn data_dir() -> PathBuf {
-    data_dir_from(
+///
+/// **A directory that does not exist is an error, not a directory with no files in it**
+/// (build 221). A file missing from a data directory that exists keeps the reading the
+/// recorded Python gave it, and a missing `vendors.json` there means every provider is up.
+/// A helper copied out of its checkout, with neither variable set, has no data directory
+/// at all, and reading that the same way would sit a provider the checkout marks down.
+pub fn data_dir() -> Result<PathBuf> {
+    existing(data_dir_from(
         named("HYDRA_PUPPETS_DATA"),
         named("HYDRA_HOME"),
         std::env::current_exe().ok().as_deref(),
-    )
+    ))
+}
+
+/// `dir`, or the one line that says it is not there and how to name another.
+fn existing(dir: PathBuf) -> Result<PathBuf> {
+    if !dir.is_dir() {
+        bail!(
+            "no data directory at {}; set HYDRA_PUPPETS_DATA to the directory that holds \
+             vendors.json, or HYDRA_HOME to the checkout",
+            dir.display()
+        );
+    }
+    Ok(dir)
+}
+
+/// The vendors file: the one named, else `vendors.json` in the data directory.
+fn vendors_from(named: Option<&Path>, data: impl FnOnce() -> Result<PathBuf>) -> Result<PathBuf> {
+    match named {
+        Some(path) => Ok(path.to_path_buf()),
+        None => Ok(data()?.join("vendors.json")),
+    }
 }
 
 fn data_dir_from(
@@ -109,8 +136,7 @@ impl Home {
             None => user_home()?.join("hydra"),
         };
         let grader = named("HYDRA_GRADER_HOME").unwrap_or_else(|| root.join("grader"));
-        let vendors =
-            named("HYDRA_PUPPETS_VENDORS").unwrap_or_else(|| data_dir().join("vendors.json"));
+        let vendors = named("HYDRA_PUPPETS_VENDORS");
         Ok(Home {
             puppets,
             grader,
@@ -125,9 +151,15 @@ impl Home {
         Home {
             puppets: dir.join("puppets"),
             grader: dir.join("grader"),
-            vendors: dir.join("vendors.json"),
+            vendors: Some(dir.join("vendors.json")),
             root: dir.join("root"),
         }
+    }
+
+    /// The file `provider_available` reads. An error when no file is named and the data
+    /// directory does not exist.
+    pub fn vendors_file(&self) -> Result<PathBuf> {
+        vendors_from(self.vendors.as_deref(), data_dir)
     }
 
     pub fn goal_log_path(&self, goal_id: &str) -> PathBuf {
@@ -781,6 +813,44 @@ mod tests {
             std::fs::read(&path).unwrap(),
             [GOAL, b"not json\n", b"\n"].concat()
         );
+    }
+
+    /// Build 221: a helper copied out of its checkout has no data directory, and that is
+    /// an error for whatever reads a data file, where a `vendors.json` missing from a data
+    /// directory that exists still means every provider is up.
+    #[test]
+    fn a_data_directory_that_does_not_exist_is_an_error_and_a_missing_file_in_one_is_not() {
+        let dir = std::env::temp_dir().join(format!("hydra-puppets-nodata-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("copied/bin")).unwrap();
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+        let moved = dir.canonicalize().unwrap().join("copied/bin/hydra-puppets");
+        let absent = data_dir_from(None, None, Some(&moved));
+        assert!(!absent.exists());
+
+        let said = format!("{:#}", existing(absent.clone()).unwrap_err());
+        assert!(!said.contains('\n'), "{said}");
+        for part in [absent.to_str().unwrap(), "HYDRA_PUPPETS_DATA", "HYDRA_HOME"] {
+            assert!(said.contains(part), "{said}");
+        }
+        let err = vendors_from(None, || existing(absent.clone())).unwrap_err();
+        assert_eq!(format!("{err:#}"), said);
+        // A file is not a directory either.
+        std::fs::write(dir.join("file"), "").unwrap();
+        assert!(existing(dir.join("file")).is_err());
+
+        // A vendors file that is named needs no data directory.
+        let named = dir.join("named.json");
+        let got = vendors_from(Some(&named), || existing(absent.clone())).unwrap();
+        assert_eq!(got, named);
+
+        // The directory exists and holds no `vendors.json`: every provider is up, as recorded.
+        let vendors = vendors_from(None, || existing(dir.join("data"))).unwrap();
+        assert_eq!(vendors, dir.join("data/vendors.json"));
+        assert!(crate::fold::provider_available(&vendors, "codex").unwrap());
+        std::fs::write(&vendors, r#"[{"provider": "codex", "available": false}]"#).unwrap();
+        assert!(!crate::fold::provider_available(&vendors, "codex").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Build 196: nothing about the checkout the binary was built in is compiled in.

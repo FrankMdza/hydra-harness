@@ -134,6 +134,9 @@ pub struct Snapshot {
     /// What `hydra-puppets pending <goal> --json` last listed for the goal the
     /// table shows. Build ticket 182.
     pub steps: Vec<Step>,
+    /// Why no step is listed, when the helper that lists them is missing. The
+    /// waiting lane shows it where the steps would be. Build ticket 221.
+    pub steps_note: Option<String>,
     /// When the reader last asked `pending` for them, which may be before
     /// this tick.
     pub steps_read_at: Option<DateTime<Utc>>,
@@ -302,6 +305,8 @@ pub struct Reader {
     /// `hydra-puppets`, asked what the shown goal waits on, or `None` to ask
     /// nothing. Build ticket 182.
     puppets: Option<PathBuf>,
+    /// The line to show in place of the steps when there is no helper to ask.
+    no_puppets: Option<String>,
     pending: Option<PendingRead>,
 }
 
@@ -322,6 +327,7 @@ impl Reader {
             calls: None,
             vendors: None,
             puppets: None,
+            no_puppets: None,
             pending: None,
         }
     }
@@ -341,6 +347,19 @@ impl Reader {
     /// The helper whose `pending` fills the waiting lane with steps.
     pub fn with_puppets(mut self, script: PathBuf) -> Self {
         self.puppets = Some(script);
+        self
+    }
+
+    /// [`super::puppets_helper`]'s answer: the helper, or the line the waiting
+    /// lane shows in place of the steps, and then nothing is asked.
+    pub fn with_helper(mut self, helper: Result<PathBuf, String>) -> Self {
+        match helper {
+            Ok(script) => self.puppets = Some(script),
+            Err(note) => {
+                self.puppets = None;
+                self.no_puppets = Some(note);
+            }
+        }
         self
     }
 
@@ -426,6 +445,13 @@ impl Reader {
     /// It reads the log and writes nothing, so a helper that does not answer
     /// in [`PENDING_BUDGET`] is killed.
     fn read_steps(&mut self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
+        if snapshot.goal.is_some()
+            && let Some(note) = &self.no_puppets
+        {
+            snapshot.steps_note = Some(note.clone());
+            snapshot.errors.push(note.clone());
+            return;
+        }
         let (Some(script), Some(goal)) = (&self.puppets, &snapshot.goal) else {
             return;
         };
@@ -458,7 +484,7 @@ impl Reader {
 
     fn ask_pending(&self, script: &Path, goal: &str) -> Result<Vec<Step>> {
         super::check_goal_id(goal)?;
-        let mut command = std::process::Command::new(script);
+        let mut command = super::helper_command(script)?;
         command
             .args(["pending", goal, "--json"])
             .env("HYDRA_ROOT", self.layout.root())

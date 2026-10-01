@@ -247,7 +247,9 @@ class LabelsTests(unittest.TestCase):
                 labels.collect(self.home)
         # The control: the same stub printing the shape `show` prints is read.
         (self.home / "printed").write_text(
-            json.dumps({"goal": None, "tasks": {"t": task}, "plans": [{"run_id": "p"}]})
+            json.dumps(
+                {"goal_id": "g1", "goal": None, "tasks": {"t": task}, "plans": [{"run_id": "p"}]}
+            )
         )
         self.assertEqual(sorted(labels.collect(self.home)), ["p", "r"])
 
@@ -259,12 +261,55 @@ class LabelsTests(unittest.TestCase):
             HYDRA_PUPPETS_BIN=str(
                 self.stub(
                     f"echo \"$HYDRA_PUPPETS_HOME $*\" > '{seen}'\n"
-                    "echo '{\"goal\": null, \"tasks\": {}, \"plans\": []}'\n"
+                    "echo '{\"goal_id\": \"-g\", \"goal\": null, \"tasks\": {}, \"plans\": []}'\n"
                 )
             ),
         )
         self.assertEqual(labels.collect(self.home), {})
         self.assertEqual(seen.read_text(), f"{self.home} show -- -g\n")
+
+    def test_a_goal_is_the_file_name_less_its_suffix_and_a_dot_name_is_skipped(self):
+        """Build 221: `Path.stem` of `.jsonl` is not the name less `.jsonl`, so `show` was
+        asked for a goal whose log is another file, printed the empty state, and the judges
+        of the file that was read were labelled with no task and no goal text."""
+        import contextlib
+        import io
+
+        judged = [
+            GOAL,
+            {
+                "event": "panel_verdict",
+                "judge_run_ids": ["panel-judge"],
+                "chosen": "codex",
+                "path": "/tmp/codex.md",
+            },
+            {"event": "review", "task": "t1", "judge_run_ids": ["review-judge"], "verdict": "pass"},
+        ]
+        self.write_goal("", judged)
+        self.write_goal(".", judged)
+        self.write_goal(".hidden", judged)
+        self.write_goal("g1", [GOAL, {"event": "plan_proposed", "provider": "codex", "run_id": "r"}])
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
+            got = labels.collect(self.home)
+        self.assertEqual(sorted(got), ["r"])
+        self.assertEqual(got["r"]["text"], "ship it")
+        lines = said.getvalue().splitlines()
+        self.assertEqual(len(lines), 3, lines)
+        for name in (".jsonl", "..jsonl", ".hidden.jsonl"):
+            self.assertTrue(any(str(self.home / name) in line for line in lines), lines)
+
+    def test_show_answering_for_another_goal_raises(self):
+        self.write_goal("g1", [GOAL])
+        for printed in [
+            {"goal_id": "g2", "goal": None, "tasks": {}, "plans": []},
+            {"goal_id": None, "goal": None, "tasks": {}, "plans": []},
+            {"goal": None, "tasks": {}, "plans": []},
+        ]:
+            (self.home / "printed").write_text(json.dumps(printed))
+            self.use(HYDRA_PUPPETS_BIN=str(self.stub(f"cat '{self.home / 'printed'}'\n")))
+            with self.assertRaisesRegex(labels.LabelsError, "goal_id", msg=printed):
+                labels.collect(self.home)
 
     def test_two_tasks_whose_ids_print_alike_are_both_labelled(self):
         self.write_goal(

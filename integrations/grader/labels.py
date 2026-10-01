@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,10 @@ def show_goal(goal_id: str, home: Path) -> dict[str, Any]:
     for key in ("goal", "tasks", "plans"):
         if key not in state:
             raise refuse(f"no `{key}`")
+    # `show` prints the empty state, exit 0, for a goal with no log. An answer about any
+    # goal but the one asked for is not read as this one's.
+    if state.get("goal_id") != goal_id:
+        raise refuse(f"`goal_id` is {state.get('goal_id')!r}, not the goal asked for")
     goal = state["goal"]
     if goal is not None and not (isinstance(goal, dict) and "text" in goal):
         raise refuse("`goal` is neither null nor an object with `text`")
@@ -187,11 +192,20 @@ def labels_for_goal(
 
 def collect(home: Path | None = None) -> dict[str, dict[str, Any]]:
     """Ask `hydra-puppets show` for every goal log under ``home`` and return run_id -> label
-    fields. One goal that cannot be shown raises `LabelsError`, and no label is returned."""
+    fields. One goal that cannot be shown raises `LabelsError`, and no label is returned. A
+    file whose name less `.jsonl` is empty or starts with a dot is skipped with a line on
+    stderr."""
     home = home or puppets_home()
     labels: dict[str, dict[str, Any]] = {}
     for path in sorted(home.glob("*.jsonl")):
-        state = show_goal(path.stem, home)
+        # The id plus `.jsonl` is the name of the file read below, which `Path.stem` does
+        # not promise: the stem of `.jsonl` is `.jsonl`, and `show` would be asked for a
+        # log that is another file.
+        goal_id = path.name.removesuffix(".jsonl")
+        if not goal_id or goal_id.startswith("."):
+            print(f"labels: skipping {path}: its name is not a goal id", file=sys.stderr)
+            continue
+        state = show_goal(goal_id, home)
         for run_id, row in labels_for_goal(state, committed_events(path)).items():
             labels[run_id] = row
     return labels

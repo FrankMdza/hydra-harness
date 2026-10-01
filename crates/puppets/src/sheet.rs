@@ -499,7 +499,7 @@ pub fn ranked_assignment(
         &task.grade,
         events,
         "standard",
-        &log::data_dir().join("priors.json"),
+        &log::data_dir()?.join("priors.json"),
     )?;
     let Some(best) = rows.first() else {
         return Ok(None);

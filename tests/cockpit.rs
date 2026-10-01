@@ -3500,24 +3500,49 @@ fn exit_three_says_already_approved_and_hides_the_step() {
     assert_eq!(labels, ["g2 plan"]);
 }
 
-/// Build ticket 196: the helper is the `hydra-puppets` beside the `hydra` that is running,
-/// and the bare name, for `PATH`, when none is there.
+/// Build ticket 196: the helper is the `hydra-puppets` beside the `hydra` that is running.
+/// Build ticket 221: beside the real binary when `hydra` is a symlink, and with none there
+/// the answer is a line to show, never a bare name for `PATH`.
 #[test]
-fn the_helper_is_the_one_beside_the_binary_and_the_path_otherwise() {
+fn the_helper_is_the_one_beside_the_real_binary_and_nothing_otherwise() {
     use hydra::cockpit::helper_beside;
     let layout = scratch("helper-beside");
-    let bin = layout.root().join("bin");
+    let root = layout.root().canonicalize().unwrap();
+    let bin = root.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let hydra = bin.join("hydra");
-    let bare = PathBuf::from("hydra-puppets");
-    assert_eq!(helper_beside(Some(&hydra)), bare);
-    assert_eq!(helper_beside(None), bare);
+    std::fs::write(&hydra, "").unwrap();
+    let none = format!(
+        "no hydra-puppets beside {}; run cargo build --release --workspace",
+        hydra.display()
+    );
+    assert_eq!(helper_beside(Some(&hydra)), Err(none.clone()));
+    assert!(
+        helper_beside(None)
+            .unwrap_err()
+            .starts_with("no hydra-puppets beside ")
+    );
     // A directory of that name is not a helper.
     std::fs::create_dir(bin.join("hydra-puppets")).unwrap();
-    assert_eq!(helper_beside(Some(&hydra)), bare);
+    assert_eq!(helper_beside(Some(&hydra)), Err(none.clone()));
     std::fs::remove_dir(bin.join("hydra-puppets")).unwrap();
     std::fs::write(bin.join("hydra-puppets"), "").unwrap();
-    assert_eq!(helper_beside(Some(&hydra)), bin.join("hydra-puppets"));
+    assert_eq!(helper_beside(Some(&hydra)), Ok(bin.join("hydra-puppets")));
+
+    // A symlink to `hydra` in a directory with a helper of its own: the one beside the
+    // real binary is the answer, and the line names the real binary when there is none.
+    let links = root.join("links");
+    std::fs::create_dir_all(&links).unwrap();
+    std::os::unix::fs::symlink(&hydra, links.join("hydra")).unwrap();
+    std::fs::write(links.join("hydra-puppets"), "").unwrap();
+    assert_eq!(
+        helper_beside(Some(&links.join("hydra"))),
+        Ok(bin.join("hydra-puppets"))
+    );
+    std::fs::remove_file(bin.join("hydra-puppets")).unwrap();
+    assert_eq!(helper_beside(Some(&links.join("hydra"))), Err(none));
+    // A relative path to a binary resolves too, and the answer is absolute or nothing.
+    assert!(helper_beside(Some(Path::new("hydra"))).is_err());
 }
 
 /// `pending --json`'s output for one step of goal `g2` whose argv ends in `tail`.
@@ -4487,4 +4512,164 @@ fn reveal_closes_after_reveal_seconds() {
     let mut buf = Buffer::empty(AREA);
     app.draw(AREA, &mut buf);
     assert!(!screen_text(&buf).contains("s3cret"));
+}
+
+// --- the helper is never looked up on PATH, build ticket 221 ----------------
+
+/// Where [`planted_inner`] is told to work. Set only by the test that re-runs this binary.
+const PLANT_DIR: &str = "HYDRA_TEST_PLANT_DIR";
+
+/// Build ticket 221: `hydra` reached through a symlink has no helper in the symlink's
+/// directory, and a `hydra-puppets` first on `PATH` must not stand in for it. `PATH` is
+/// this process's, so the body runs in a child of this binary with the planted directory
+/// in front, and no other test's environment changes.
+#[test]
+fn a_symlinked_hydra_never_runs_a_helper_planted_on_path() {
+    let layout = scratch("planted-helper");
+    let dir = layout.root().join("plant");
+    std::fs::create_dir_all(dir.join("path")).unwrap();
+    let planted = dir.join("path/hydra-puppets");
+    std::fs::write(
+        &planted,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{}'\necho '[]'\n",
+            dir.join("ran").display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        dir.join("path").display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "planted_inner", "--ignored", "--nocapture"])
+        .env("PATH", path)
+        .env(PLANT_DIR, &dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    assert!(child.status.success(), "{said}");
+    assert!(
+        said.contains("1 passed"),
+        "the inner test did not run: {said}"
+    );
+    let ran = std::fs::read_to_string(dir.join("ran")).unwrap_or_default();
+    assert_eq!(ran, "", "the helper planted on PATH ran: {ran}");
+}
+
+/// The body of the test above. Ignored, and a no-op, unless that test started it.
+#[test]
+#[ignore = "run by a_symlinked_hydra_never_runs_a_helper_planted_on_path"]
+fn planted_inner() {
+    use hydra::cockpit::helper_beside;
+    let Some(dir) = std::env::var_os(PLANT_DIR).map(PathBuf::from) else {
+        return;
+    };
+    // The real binary, with no helper beside it, and a symlink to it elsewhere.
+    std::fs::create_dir_all(dir.join("real")).unwrap();
+    std::fs::create_dir_all(dir.join("link")).unwrap();
+    std::fs::write(dir.join("real/hydra"), "").unwrap();
+    std::os::unix::fs::symlink(dir.join("real/hydra"), dir.join("link/hydra")).unwrap();
+    let helper = helper_beside(Some(&dir.join("link/hydra")));
+    let real = dir.join("real/hydra").canonicalize().unwrap();
+    let none = format!(
+        "no hydra-puppets beside {}; run cargo build --release --workspace",
+        real.display()
+    );
+    assert_eq!(helper, Err(none.clone()));
+
+    let layout = Layout::at(dir.join("root"));
+    layout.ensure().unwrap();
+    let home = layout.root().join("puppets");
+    std::fs::create_dir_all(&home).unwrap();
+    let log = home.join("g2.jsonl");
+    std::fs::write(&log, ENDED_LOG.replace("LONG-DONE", "short")).unwrap();
+
+    // `pending`: the reader asks nothing and the waiting lane says why.
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        home.clone(),
+        Some("g2".to_string()),
+    )
+    .with_helper(helper.clone());
+    let snapshot = reader.read_at(None, noon());
+    assert!(snapshot.steps.is_empty(), "{:?}", snapshot.steps);
+    assert_eq!(snapshot.steps_note, Some(none.clone()));
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_helper(helper, home.clone());
+    app.set_snapshot(snapshot);
+    let wide = Rect::new(0, 0, 400, 40);
+    let mut buf = Buffer::empty(wide);
+    app.draw(wide, &mut buf);
+    let screen = screen_text(&buf);
+    assert!(screen.contains("no hydra-puppets beside "), "{screen}");
+
+    // `approve`: a step whose argv names the helper by its bare name is not run, with
+    // no helper and with one.
+    let step = hydra::cockpit::snapshot::Step {
+        goal: "g2".to_string(),
+        kind: "plan".to_string(),
+        reference: None,
+        revision: 3,
+        argv: [
+            "hydra-puppets",
+            "approve",
+            "g2",
+            "--plan",
+            "--expect-revision",
+            "3",
+        ]
+        .map(String::from)
+        .to_vec(),
+    };
+    app.confirming_step = Some(step.clone());
+    app.handle(&key(KeyCode::Char('y')));
+    let said = app.message.clone().unwrap();
+    assert!(said.contains("was not approved"), "{said}");
+    assert!(said.contains(&none), "{said}");
+    let mut with_helper = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    with_helper.set_reviewer(dir.join("real/hydra-puppets"), home.clone());
+    refold(&mut with_helper, &log);
+    with_helper.confirming_step = Some(step);
+    with_helper.handle(&key(KeyCode::Char('y')));
+    let said = with_helper.message.clone().unwrap();
+    assert!(said.contains("is not an absolute path"), "{said}");
+
+    // `review`: not started, with no helper and with one named by a bare name.
+    for app in [&mut app, &mut with_helper] {
+        refold(app, &log);
+        app.confirming_review = Some((
+            "g2".into(),
+            "a".into(),
+            "01a0e004-0000-7000-8000-000000000004".into(),
+        ));
+        app.handle(&key(KeyCode::Char('y')));
+        let said = app.message.clone().unwrap();
+        assert!(said.contains("did not start"), "{said}");
+        with_bare_reviewer(app, &home);
+    }
+    for app in [&mut app, &mut with_helper] {
+        app.confirming_review = Some((
+            "g2".into(),
+            "a".into(),
+            "01a0e004-0000-7000-8000-000000000004".into(),
+        ));
+        app.handle(&key(KeyCode::Char('y')));
+        let said = app.message.clone().unwrap();
+        assert!(said.contains("did not start"), "{said}");
+    }
+}
+
+/// Names the review helper by its bare name, as the cockpit did before build ticket 221.
+fn with_bare_reviewer(app: &mut App, home: &Path) {
+    app.set_reviewer(PathBuf::from("hydra-puppets"), home.to_path_buf());
 }
