@@ -10,6 +10,8 @@
 
 pub mod file;
 pub mod json;
+pub mod math;
+pub mod math_probe;
 pub mod models;
 pub mod printable;
 pub mod py;
