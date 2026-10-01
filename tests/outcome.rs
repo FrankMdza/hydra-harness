@@ -452,8 +452,18 @@ fn a_codex_turn_that_hit_its_usage_limit_is_rate_limited_and_not_failed() {
                  https://chatgpt.com/codex/settings/usage to purchase more credits or try \
                  again at 6:31 PM.";
 
+    // Records 01a0f653, 01a0f650 and 01a0f654 on 2026-10-01: same sentence with U+2019.
+    let limit_curly = "You\u{2019}ve hit your usage limit. Upgrade to Pro \
+                       (https://chatgpt.com/explore/pro), visit \
+                       https://chatgpt.com/codex/settings/usage to purchase more credits or try \
+                       again at 4:48 AM.";
+
     assert_eq!(
         outcome_of(&sandbox, &codex(limit)),
+        Some((Outcome::RateLimited, Source::Derived))
+    );
+    assert_eq!(
+        outcome_of(&sandbox, &codex(limit_curly)),
         Some((Outcome::RateLimited, Source::Derived))
     );
     assert_eq!(

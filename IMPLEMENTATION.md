@@ -2032,7 +2032,7 @@ payload does, `gpt-6-astra` on this account, and the record's `model` stays null
 no free probe exists yet.
 
 **A `codex` turn that fails ends on `turn.failed`, and since build ticket 100 that frame is the
-run's terminator.** A message containing "You've hit your usage limit" derives `rate_limited`,
+run's terminator.** A message containing "hit your usage limit" derives `rate_limited`,
 and any other `turn.failed` derives `failed`. This is a text match, like `cursor-agent`'s. Three
 records on this machine read `rate_limited` now: 01a0cfdb-e5c3, 01a0d02d-f812 and
 01a0cc9d-8f15. The first two derived `failed` before, so rung one was learning from a quota

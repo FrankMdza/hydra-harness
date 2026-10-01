@@ -431,7 +431,7 @@ fn codex_limit_refusal(run: &Run) -> Option<Outcome> {
         return None;
     }
     let message = result["error"]["message"].as_str()?;
-    (message.contains("You've hit your usage limit")).then_some(Outcome::RateLimited)
+    (message.contains("hit your usage limit")).then_some(Outcome::RateLimited)
 }
 
 /// The session-limit sentence a harvested `claude` interactive run reports.

@@ -1,7 +1,7 @@
 # 209 - A codex usage limit with a curly apostrophe is `rate_limited`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -25,3 +25,21 @@ same file for the same weakness and say what you found. `IMPLEMENTATION.md`: the
 
 - The test failed before the change; fmt, clippy, `cargo test --lib`, `cargo test --test outcome`
   pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f65c` (cursor-agent composer-2.5, `standard`, 0.3M tokens), diff
+read whole by the session and applied to master as written.
+
+Built: `codex_limit_refusal` matches `hit your usage limit`, and the test
+`a_codex_turn_that_hit_its_usage_limit_is_rate_limited_and_not_failed` carries a message with
+U+2019, which derived `failed` before the change.
+
+Measured on master: `cargo fmt -p hydra --check` and clippy clean, `cargo test --test outcome` 44
+passed, `cargo test --lib` 224 passed. The session read the real record `01a0f653` back with the
+new build: `rate_limited`, where it said `failed`.
+
+`cursor-agent`'s match needs `ActionRequiredError` and `usage limit` and never read the
+apostrophe, so it was not affected. Two more tests of `tests/outcome.rs` fail inside a worktree
+for the `GIT_OBJECT_DIRECTORY` reason the three `run::tests` do; they pass on master.
+
