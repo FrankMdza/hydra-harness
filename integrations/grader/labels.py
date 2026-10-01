@@ -193,8 +193,9 @@ def labels_for_goal(
 def collect(home: Path | None = None) -> dict[str, dict[str, Any]]:
     """Ask `hydra-puppets show` for every goal log under ``home`` and return run_id -> label
     fields. One goal that cannot be shown raises `LabelsError`, and no label is returned. A
-    file whose name less `.jsonl` is empty or starts with a dot is skipped with a line on
-    stderr."""
+    file named `.jsonl` alone has no goal id and is skipped with a line on stderr. A name
+    that starts with a dot is a goal like any other: the helper reads `.real.jsonl` for the
+    goal `.real`."""
     home = home or puppets_home()
     labels: dict[str, dict[str, Any]] = {}
     for path in sorted(home.glob("*.jsonl")):
@@ -202,7 +203,7 @@ def collect(home: Path | None = None) -> dict[str, dict[str, Any]]:
         # not promise: the stem of `.jsonl` is `.jsonl`, and `show` would be asked for a
         # log that is another file.
         goal_id = path.name.removesuffix(".jsonl")
-        if not goal_id or goal_id.startswith("."):
+        if not goal_id:
             print(f"labels: skipping {path}: its name is not a goal id", file=sys.stderr)
             continue
         state = show_goal(goal_id, home)

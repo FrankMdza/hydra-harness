@@ -105,8 +105,14 @@ class TestHydraBoard(unittest.TestCase):
             # Through a symlink: beside the real binary, not beside the link.
             os.environ["HYDRA_BIN"] = str(links / "hydra")
             self.assertEqual(mod.puppets_helper(), str(helper))
+            named = Path(self.tmp).resolve() / "named-hydra-puppets"
+            named.write_text("#!/bin/sh\n", encoding="utf-8")
+            named.chmod(0o755)
+            os.environ["HYDRA_PUPPETS_BIN"] = str(named)
+            self.assertEqual(mod.puppets_helper(), str(named))
             os.environ["HYDRA_PUPPETS_BIN"] = "/named/hydra-puppets"
-            self.assertEqual(mod.puppets_helper(), "/named/hydra-puppets")
+            with self.assertRaisesRegex(mod.NoHelper, "not a file this user can run"):
+                mod.puppets_helper()
             for relative in ("hydra-puppets", "planted/hydra-puppets"):
                 os.environ["HYDRA_PUPPETS_BIN"] = relative
                 with self.assertRaisesRegex(mod.NoHelper, "not an absolute path"):
@@ -159,6 +165,20 @@ class TestHydraBoard(unittest.TestCase):
         proc = self.run_board(HYDRA_PUPPETS_BIN="planted/hydra-puppets")
         self.assertEqual(proc.returncode, 1)
         self.assertIn("HYDRA_PUPPETS_BIN is not an absolute path", proc.stderr)
+
+    def test_a_named_helper_that_cannot_run_is_said_without_a_traceback(self):
+        plain = Path(self.tmp) / "not-executable"
+        plain.write_text("", encoding="utf-8")
+        proc = self.run_board(HYDRA_PUPPETS_BIN=str(plain))
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("HYDRA_PUPPETS_BIN is not a file this user can run", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_a_named_helper_that_is_a_directory_is_said_without_a_traceback(self):
+        proc = self.run_board(HYDRA_PUPPETS_BIN="/usr/bin")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("HYDRA_PUPPETS_BIN is not a file this user can run", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
 
     def test_subprocess_one_frame_before_sleep(self):
         old = self.home / "g1.jsonl"

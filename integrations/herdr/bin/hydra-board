@@ -32,6 +32,8 @@ def puppets_helper() -> str:
     if named:
         if not Path(named).is_absolute():
             raise NoHelper(f"HYDRA_PUPPETS_BIN is not an absolute path: {named}")
+        if not runnable(Path(named)):
+            raise NoHelper(f"HYDRA_PUPPETS_BIN is not a file this user can run: {named}")
         return named
     hydra = os.environ.get("HYDRA_BIN")
     if not hydra or not Path(hydra).is_absolute():
@@ -39,9 +41,15 @@ def puppets_helper() -> str:
         raise NoHelper(f"no hydra-puppets beside {said}; run cargo build --release --workspace")
     real = Path(hydra).resolve()
     beside = real.parent / "hydra-puppets"
-    if not beside.is_file():
+    if not runnable(beside):
         raise NoHelper(f"no hydra-puppets beside {real}; run cargo build --release --workspace")
     return str(beside)
+
+
+def runnable(path: Path) -> bool:
+    """A regular file with an execute bit for this user. A directory or a file without one
+    made `subprocess.run` raise `PermissionError`, and the pane showed a traceback."""
+    return path.is_file() and os.access(path, os.X_OK)
 
 
 def newest_goal_id(home: Path) -> str | None:

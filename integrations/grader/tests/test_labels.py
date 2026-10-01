@@ -268,7 +268,7 @@ class LabelsTests(unittest.TestCase):
         self.assertEqual(labels.collect(self.home), {})
         self.assertEqual(seen.read_text(), f"{self.home} show -- -g\n")
 
-    def test_a_goal_is_the_file_name_less_its_suffix_and_a_dot_name_is_skipped(self):
+    def test_a_goal_is_the_file_name_less_its_suffix_and_only_an_empty_id_is_skipped(self):
         """Build 221: `Path.stem` of `.jsonl` is not the name less `.jsonl`, so `show` was
         asked for a goal whose log is another file, printed the empty state, and the judges
         of the file that was read were labelled with no task and no goal text."""
@@ -292,12 +292,18 @@ class LabelsTests(unittest.TestCase):
         said = io.StringIO()
         with contextlib.redirect_stderr(said):
             got = labels.collect(self.home)
-        self.assertEqual(sorted(got), ["r"])
+        # Only the file with no id at all is skipped. `..jsonl` is the goal `.` and
+        # `.hidden.jsonl` the goal `.hidden`: each is shown and read as one file, so its
+        # judges carry its own goal text and not an empty one.
+        self.assertEqual(sorted(got), ["panel-judge", "r", "review-judge"])
+        # A plan judge carries the goal's text, which was empty when `show` was asked for
+        # a file that did not exist. A review judge carries its task's text, and these logs
+        # have no task `t1`.
+        self.assertEqual(got["panel-judge"]["text"], "ship it")
         self.assertEqual(got["r"]["text"], "ship it")
         lines = said.getvalue().splitlines()
-        self.assertEqual(len(lines), 3, lines)
-        for name in (".jsonl", "..jsonl", ".hidden.jsonl"):
-            self.assertTrue(any(str(self.home / name) in line for line in lines), lines)
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn(str(self.home / ".jsonl"), lines[0])
 
     def test_show_answering_for_another_goal_raises(self):
         self.write_goal("g1", [GOAL])
