@@ -1,7 +1,7 @@
 # 239 - The frontier is a subcommand
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 
 
 ## What
