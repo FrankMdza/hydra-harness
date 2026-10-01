@@ -1,7 +1,7 @@
 # 201 - The cockpit rechecks damage at `y` and masks spaced secrets
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -45,3 +45,28 @@ Items about `removed` on a `repair` event and the `\r` test moved to build 202, 
 
 - Each test failed before the change; fmt, clippy over the workspace, `cargo test --lib` and
   `cargo test --test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f5f2` (codex gpt-6.1-sol, `standard`, 1.6M tokens), diff read whole
+by the session and applied to master as written. An earlier run, `01a0f5ee`, stopped without a
+change because the ticket then held an item that cited a rule build 199 had not landed; that item
+is build 202.
+
+Built: `approve_step` and `start_review` check the goal again at `y`, close the confirmation and
+show the repair message; a secret name may hold `.`, takes `:` as well as `=` before its value,
+and as a `--flag` takes a value after a space; a value in backticks or `$(...)` is masked whole,
+nested quotes and parentheses included; a line that is JSON but for `NaN`, `Infinity` or
+`-Infinity` counts as skipped and is not damage; when no whole run fits the policy pane it shows
+one run clipped; the status line draws nothing in an empty area, which was the panic at height 3.
+
+Measured on master: fmt and clippy clean over the workspace, `cargo test --test cockpit` 92
+passed, `cargo test --lib` 224 passed. The session reverted `app.rs` and `snapshot.rs` and saw
+four of the six tests fail (both confirmations, the secrets, the small pane), then restored them.
+
+Over-masking the run reports, on purpose: the values of `--key-file`, `--keyboard` and
+`--pass-through` are hidden, and any `name: value` whose name holds `KEY`, `TOKEN`, `SECRET` or
+`PASS`.
+
+Left open: a short flag (`-k value`) has no name to match and is not masked.
+

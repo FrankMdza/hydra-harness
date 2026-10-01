@@ -3952,3 +3952,114 @@ fn ticket200_wide_glyphs_wrap_at_an_odd_width() {
         drawn_rows
     );
 }
+
+// Build ticket 201 regressions.
+#[test]
+fn ticket201_damage_after_approval_opens_blocks_y() {
+    let (layout, stub, mut reader) = steps_reader("damage-at-y", "", "echo approved");
+    let mut app = steps_app(&layout, &stub, &mut reader, false);
+    app.handle(&key(KeyCode::Char('a')));
+    assert!(app.confirming_step.is_some());
+    let mut snapshot = reader.read(None);
+    snapshot.goal = Some(goal::fold("g2", b"\n"));
+    app.set_snapshot(snapshot);
+    app.handle(&key(KeyCode::Char('y')));
+    assert!(app.confirming_step.is_none());
+    assert!(app.message.as_deref().unwrap_or("").contains("repair"));
+    assert!(calls(&layout, "approve-calls").is_empty());
+}
+
+#[test]
+fn ticket201_damage_after_review_opens_blocks_y() {
+    let (_layout, _stub, mut app) = review_app("review-damage-at-y", "#!/bin/sh\nexit 0\n");
+    app.focus = Focus::Table;
+    app.handle(&key(KeyCode::Char('v')));
+    assert!(app.confirming_review.is_some());
+    let mut snapshot = fixed_snapshot();
+    snapshot.goal = Some(goal::fold("g-review", b"\n"));
+    app.set_snapshot(snapshot);
+    app.handle(&key(KeyCode::Char('y')));
+    assert!(app.confirming_review.is_none());
+    assert!(app.message.as_deref().unwrap_or("").contains("repair"));
+}
+
+#[test]
+fn ticket201_spaced_and_substitution_secrets() {
+    let layout = scratch("spaced-secrets");
+    for (i, command) in [
+        "curl --api-key s3cret",
+        "curl -H 'x-api-key: s3cret'",
+        "curl -H x-api-key: s3cret",
+        r#"{"api.key":"s3cret"}"#,
+        "TOKEN=`printf s3cret`",
+        "TOKEN=$(printf s3cret)",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let run = format!("01a0f201-0000-7000-8000-{i:012}");
+        write_live_frames(
+            &layout,
+            &run,
+            "claude",
+            Some("opus"),
+            noon(),
+            &[claude_bash("toolu_01", command)],
+        );
+        let input = &calls_in(&layout, &run)[0].input;
+        assert!(!input.contains("s3cret"), "{command}: {input}");
+    }
+}
+
+#[test]
+fn ticket201_nonfinite_json_is_not_damage() {
+    for value in ["NaN", "Infinity", "-Infinity"] {
+        let log = format!(
+            "{{\"event\":\"ignored\",\"x\":{value}}}\n{{\"event\":\"goal\",\"text\":\"after\"}}\n"
+        );
+        let folded = goal::fold("g", log.as_bytes());
+        assert_eq!(folded.damaged_at, None, "{value}");
+        assert_eq!(folded.text.as_deref(), Some("after"));
+        assert_eq!(folded.skipped, 1);
+    }
+}
+
+#[test]
+fn ticket201_policy_one_run_at_small_heights() {
+    for height in 3..=12 {
+        let layout = scratch("tiny-policy");
+        let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+        app.set_policies(scratch_policies(&layout));
+        let mut c = card("00000001-live", "claude", State::Live, None);
+        c.policy_sha = Some("f1".repeat(32));
+        app.set_snapshot(snapshot_of(vec![c], vec![]));
+        app.handle(&key(KeyCode::Char('p')));
+        let area = Rect::new(0, 0, 80, height);
+        let mut buf = Buffer::empty(area);
+        app.draw(area, &mut buf);
+        if height >= 6 {
+            assert!(
+                screen_text(&buf).contains("00000001"),
+                "height {height}: {}",
+                screen_text(&buf)
+            );
+        }
+    }
+}
+
+#[test]
+fn ticket201_nonfinite_does_not_hide_malformed_json() {
+    for line in [
+        r#"{"x":NaN,}"#,
+        r#"{"x":Infinitybroken}"#,
+        r#"{"x":"NaN",bad}"#,
+    ] {
+        assert_eq!(
+            goal::fold("g", format!("{line}\n").as_bytes()).damaged_at,
+            Some(1)
+        );
+    }
+    let folded = goal::fold("g", b"{\"event\":\"goal\",\"text\":\"NaN Infinity\"}\n");
+    assert_eq!(folded.text.as_deref(), Some("NaN Infinity"));
+    assert_eq!(folded.skipped, 0);
+}

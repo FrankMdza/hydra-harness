@@ -123,6 +123,10 @@ pub fn fold(id: &str, bytes: &[u8]) -> Goal {
         // `json.loads` on bytes drops a BOM, and the helper reads such a line.
         let line = line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(line);
         let Ok(event) = serde_json::from_slice::<Value>(line) else {
+            if nonfinite_json(line) {
+                goal.skipped += 1;
+                continue;
+            }
             goal.damaged_at = Some(line_no);
             break;
         };
@@ -236,4 +240,43 @@ fn row_or_default<'a>(goal: &'a mut Goal, task: &str) -> &'a mut TaskRow {
         }
     };
     &mut goal.rows[index]
+}
+
+/// Python accepts these constants. Validate the rest of the line before
+/// skipping it, without changing quoted strings or accepting malformed JSON.
+fn nonfinite_json(line: &[u8]) -> bool {
+    let mut normalized = Vec::with_capacity(line.len());
+    let mut i = 0;
+    let mut quoted = false;
+    let mut replaced = false;
+    while i < line.len() {
+        if quoted && line[i] == b'\\' {
+            normalized.push(line[i]);
+            i += 1;
+            if i < line.len() {
+                normalized.push(line[i]);
+                i += 1;
+            }
+            continue;
+        }
+        if line[i] == b'"' {
+            quoted = !quoted;
+        }
+        let constant = if !quoted {
+            [b"-Infinity".as_slice(), b"Infinity", b"NaN"]
+                .into_iter()
+                .find(|token| line[i..].starts_with(token))
+        } else {
+            None
+        };
+        if let Some(token) = constant {
+            normalized.extend_from_slice(b"null");
+            i += token.len();
+            replaced = true;
+        } else {
+            normalized.push(line[i]);
+            i += 1;
+        }
+    }
+    replaced && serde_json::from_slice::<Value>(&normalized).is_ok()
 }

@@ -1009,6 +1009,10 @@ impl App {
             self.message = Some(step_inside_seatbelt());
             return Effect::None;
         }
+        if let Some(message) = self.goal_damaged_message() {
+            self.message = Some(message);
+            return Effect::None;
+        }
         let label = step.label();
         let Some((program, args)) = step.argv.split_first() else {
             self.message = Some(format!("{label} has no command to run"));
@@ -1298,6 +1302,10 @@ impl App {
         let Some((goal, task)) = self.confirming_review.take() else {
             return Effect::None;
         };
+        if let Some(message) = self.goal_damaged_message() {
+            self.message = Some(message);
+            return Effect::None;
+        }
         self.poll_reviews();
         if self.review_running(&goal, &task) {
             self.message = Some(format!("a review of {task} is already running"));
@@ -1650,6 +1658,8 @@ impl App {
             .unwrap_or(runs.len().saturating_sub(1));
         self.policy_offset = self.policy_offset.min(last);
         let shown = fits(self.policy_offset);
+        let clipped = shown == 0 && room > 0 && !runs.is_empty();
+        let shown = if clipped { 1 } else { shown };
         self.hits.policy_rows = shown;
         self.hits.policy_last = last;
         lines.extend(
@@ -1657,7 +1667,7 @@ impl App {
                 .iter()
                 .cloned(),
         );
-        if shown < live.len() {
+        if shown < live.len() && !clipped {
             lines.push(Line::styled(
                 format!(
                     "  {} more, {} above and {} below",
@@ -2103,6 +2113,9 @@ impl App {
     }
 
     fn draw_status(&self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() {
+            return;
+        }
         let goal = match &self.snapshot.goal {
             Some(goal) if self.snapshot.goal_named => format!("goal {}", goal.id),
             Some(goal) => format!("goal {} (the log that changed last)", goal.id),

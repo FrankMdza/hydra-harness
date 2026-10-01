@@ -867,7 +867,7 @@ fn masked(text: &str) -> String {
 /// A secret starting at `i`: the end of what is kept as is, then the end of
 /// the value that becomes `***`.
 fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
-    let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.';
     let secret_name = |name: &[char]| {
         let name: String = name.iter().collect::<String>().to_ascii_uppercase();
         SECRET_NAMES.iter().any(|part| name.contains(part))
@@ -903,19 +903,18 @@ fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
         let name_end = (i..chars.len())
             .find(|&j| !is_name(chars[j]))
             .unwrap_or(chars.len());
-        if chars.get(name_end) == Some(&'=') && secret_name(&chars[i..name_end]) {
-            let start = name_end + 1;
-            let end = match chars.get(start) {
-                Some(&quote @ ('"' | '\'')) => {
-                    let mut close = start + 1;
-                    while close < chars.len() && chars[close] != quote {
-                        close += if chars[close] == '\\' { 2 } else { 1 };
-                    }
-                    (close + 1).min(chars.len())
+        if secret_name(&chars[i..name_end]) {
+            let separator = chars.get(name_end).copied();
+            let flag = chars[i..name_end].starts_with(&['-', '-']);
+            if matches!(separator, Some('=' | ':'))
+                || (flag && separator.is_some_and(char::is_whitespace))
+            {
+                let mut start = name_end + usize::from(matches!(separator, Some('=' | ':')));
+                while chars.get(start).is_some_and(|c| c.is_whitespace()) {
+                    start += 1;
                 }
-                _ => token_end(chars, start),
-            };
-            return Some((start, end));
+                return Some((start, secret_value_end(chars, start)));
+            }
         }
     }
     if starts_token {
@@ -925,6 +924,46 @@ fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
         }
     }
     None
+}
+
+/// Consume quoted words and command substitutions as one secret value.
+fn secret_value_end(chars: &[char], start: usize) -> usize {
+    match chars.get(start) {
+        Some(&quote @ ('"' | '\'' | '`')) => {
+            let mut close = start + 1;
+            while close < chars.len() && chars[close] != quote {
+                close += if chars[close] == '\\' { 2 } else { 1 };
+            }
+            (close + 1).min(chars.len())
+        }
+        Some('$') if chars.get(start + 1) == Some(&'(') => {
+            let mut depth = 1;
+            let mut j = start + 2;
+            while j < chars.len() {
+                match chars[j] {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return j + 1;
+                        }
+                    }
+                    '\\' => {
+                        j += 2;
+                        continue;
+                    }
+                    '"' | '\'' | '`' => {
+                        j = secret_value_end(chars, j);
+                        continue;
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            chars.len()
+        }
+        _ => token_end(chars, start),
+    }
 }
 
 /// Where a bare value that starts at `from` ends: at whitespace, a quote or

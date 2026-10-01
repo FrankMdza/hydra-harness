@@ -3286,8 +3286,11 @@ that change a row: `task`, `assignment`, `run`, `run_end`, `human_verdict`. With
 takes the log that changed last and says so on the status line. A newline-terminated line that is
 blank or is not JSON makes the goal damaged: the table shows `damaged at line <n>: run
 puppets.py repair <id>` and no rows, and `v` and `a` on a Master of Puppets step refuse until
-`repair` has run; `a` on a seat request and `m` still work, since neither touches the goal log. A line
-that is JSON but lacks a field `fold` needs is counted and skipped; a last line with no newline
+`repair` has run. The confirmation checks damage again at `y` and closes with the repair
+message if a newer snapshot is damaged; `a` on a seat request and `m` still work, since neither touches the goal log. A line
+that is JSON but lacks a field `fold` needs is counted and skipped. Python JSON lines with
+unquoted `NaN`, `Infinity` or `-Infinity` are validated with those constants replaced by null
+and counted as skipped, so they do not request a repair the helper cannot perform; a last line with no newline
 waits for the next read, as `read_log` does. The middle column is four lanes. `live` is contract 5.2's liveness through
 `live::read_view`, `ended ok` is an outcome of `completed`, and `ended not ok` holds every other
 outcome, an abandoned run and a record that would not read back. `waiting approval` is what
@@ -3330,7 +3333,10 @@ fallback alike: a token starting with one of `record::secrets::prefixes`, the sw
 and the value of a `NAME=value` or `"NAME": "value"` whose name holds `TOKEN`, `KEY`, `SECRET`,
 `PASSWORD` or `PASS` in any case, become `***`. That masks `MONKEY=1` too, on purpose. A secret
 name with hyphens, such as `api-key` or `access-token`, is masked too. Quoted assignment
-values consume backslash escapes, so an escaped quote does not end the mask early.
+values consume backslash escapes, so an escaped quote does not end the mask early. Dots
+in names are recognized too. Secret flag values separated by whitespace and header values
+after a colon are hidden, as are whole backtick and `$(...)` assignment values. The broad
+name rule also hides ordinary `--key-file`, `--keyboard` and `--pass-through` values.
 These corrections are covered by build ticket 200. A call on a
 line whose envelope carries a `secret_flag` reads `input hidden: secret_flag`. The row is cut by
 display width through `unicode-width`, `~` inside it, never splitting a wide character. The raw
@@ -3427,7 +3433,9 @@ help line take, shows as many live runs as fit, and when some are cut adds a lin
 it one run, and it stops at the last page. Since build ticket 200, when the dragon leaves
 too few rows, the pane drops help first, then the policy names and directory, then excess
 headings until a full run and the cut-list indicator fit. Tests page to the last run with
-the dragon installed at 80x30, 100x30, 80x24 and 80x33.
+the dragon installed at 80x30, 100x30, 80x24 and 80x33. Since build ticket 201, a run
+that cannot fit whole is clipped into the available rows, ahead of any cut-list indicator.
+The pane is tested at heights 3 through 12; an empty status area is not written.
 At 120x24 with the header's counts row and no dragon
 that is five runs a page. `tests/cockpit.rs` rewrites `standard.json` between two snapshots and
 reads `differs`, then breaks it and reads the loader's error, and pages ten live runs at 120x24
