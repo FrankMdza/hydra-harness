@@ -21,6 +21,13 @@ fn main() -> ExitCode {
             &mut stderr,
         ));
     }
+    if args.first().is_some_and(|first| first == "jev") {
+        return ExitCode::from(hydra_grader::jev_cli::main(
+            &args[1..],
+            &mut std::io::stdout().lock(),
+            &mut std::io::stderr().lock(),
+        ));
+    }
     eprintln!(
         "hydra-grader: no command is ported yet; run integrations/grader/grader.py (build ticket 212 ported the record scan and the redactor as a library)"
     );

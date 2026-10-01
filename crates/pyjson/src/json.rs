@@ -835,7 +835,18 @@ pub fn dumps_default(value: &Value) -> String {
     out
 }
 
+/// `json.dumps(value, ensure_ascii=False)` with default separators.
+pub fn dumps_unicode_default(value: &Value) -> String {
+    let mut out = String::new();
+    write_value_inner(&mut out, value, Style::Spaced, 0, false);
+    out
+}
+
 fn write_value(out: &mut String, value: &Value, style: Style, depth: usize) {
+    write_value_inner(out, value, style, depth, true);
+}
+
+fn write_value_inner(out: &mut String, value: &Value, style: Style, depth: usize, ascii: bool) {
     match value {
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
@@ -849,13 +860,19 @@ fn write_value(out: &mut String, value: &Value, style: Style, depth: usize) {
             out.push_str(if *x > 0.0 { "Infinity" } else { "-Infinity" })
         }
         Value::Float(x) => out.push_str(&float_repr(*x)),
-        Value::Str(s) => write_str(out, s),
+        Value::Str(s) => {
+            if ascii {
+                write_str(out, s);
+            } else {
+                write_str_unicode(out, s);
+            }
+        }
         Value::List(items) if items.is_empty() => out.push_str("[]"),
         Value::List(items) => {
             out.push('[');
             for (n, item) in items.iter().enumerate() {
                 separate(out, n, style, depth + 1);
-                write_value(out, item, style, depth + 1);
+                write_value_inner(out, item, style, depth + 1, ascii);
             }
             close(out, style, depth);
             out.push(']');
@@ -865,13 +882,17 @@ fn write_value(out: &mut String, value: &Value, style: Style, depth: usize) {
             out.push('{');
             for (n, (key, item)) in dict.iter().enumerate() {
                 separate(out, n, style, depth + 1);
-                write_str(out, key);
+                if ascii {
+                    write_str(out, key);
+                } else {
+                    write_str_unicode(out, key);
+                }
                 out.push_str(if matches!(style, Style::Compact) {
                     ":"
                 } else {
                     ": "
                 });
-                write_value(out, item, style, depth + 1);
+                write_value_inner(out, item, style, depth + 1, ascii);
             }
             close(out, style, depth);
             out.push('}');
@@ -901,6 +922,14 @@ fn close(out: &mut String, style: Style, depth: usize) {
 }
 
 fn write_str(out: &mut String, s: &PyStr) {
+    write_str_impl(out, s, true);
+}
+
+fn write_str_unicode(out: &mut String, s: &PyStr) {
+    write_str_impl(out, s, false);
+}
+
+fn write_str_impl(out: &mut String, s: &PyStr, ascii: bool) {
     out.push('"');
     for code in s.code_points() {
         match *code {
@@ -911,8 +940,12 @@ fn write_str(out: &mut String, s: &PyStr) {
             0x9 => out.push_str("\\t"),
             0x8 => out.push_str("\\b"),
             0xc => out.push_str("\\f"),
-            // Printable ASCII; the arms above took the quote and the backslash.
             code @ 0x20..=0x7e => out.push(code as u8 as char),
+            code if !ascii && code >= 0x7f && char::from_u32(code).is_some() => {
+                if let Some(ch) = char::from_u32(code) {
+                    out.push(ch);
+                }
+            }
             code @ 0x10000.. => {
                 let v = code - 0x10000;
                 let _ = write!(
@@ -922,7 +955,6 @@ fn write_str(out: &mut String, s: &PyStr) {
                     0xdc00 + (v & 0x3ff)
                 );
             }
-            // The rest of the BMP, a lone surrogate included: its own escape.
             code => {
                 let _ = write!(out, "\\u{code:04x}");
             }

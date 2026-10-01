@@ -948,6 +948,11 @@ def main() -> int:
     record_preamble(out, records)
     # Build ticket 213: `baseline.py`'s `train` and `score`, in the file beside this one.
     load_module("record_baseline", HERE / "record_baseline.py").record(out, REPO, scan_inputs())
+    sys.path.insert(0, str(HERE))
+    for name in ("queue", "jev"):
+        module = load_module("record_" + name, HERE / ("record_" + name + ".py"))
+        write(out, name + ".json", {"version": sys.version, "cases": module.record()})
+
 
     digest = hashlib.sha256()
     for path in sorted(p for p in out.rglob("*") if p.is_file()):

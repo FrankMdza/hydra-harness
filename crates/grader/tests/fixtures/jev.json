@@ -1,0 +1,1566 @@
+{
+  "version": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
+  "cases": [
+    {
+      "name": "normal",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.8}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.2}}\n{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.6}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 3\nbrier: 0.080000\naccuracy_at_0.5: 1.000000\nrank_auc: 1.000000  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 0.666667  (always answering the majority label scores 0.666667)\nbrier_of_the_base_rate: 0.222222\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=1 mean_pred=0.2000 fraction_yes=0.0000\n  [0.4,0.6) n=1 mean_pred=0.6000 fraction_yes=1.0000\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0] n=1 mean_pred=0.8000 fraction_yes=1.0000\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.8}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.2}}\n{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.6}}\n"
+      }
+    },
+    {
+      "name": "nan",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": NaN}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.3}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 2\nbrier: nan\naccuracy_at_0.5: 0.500000\nrank_auc: 0.000000  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 0.500000  (always answering the majority label scores 0.500000)\nbrier_of_the_base_rate: 0.250000\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=1 mean_pred=0.3000 fraction_yes=0.0000\n  [0.4,0.6) n=0 mean_pred=- fraction_yes=-\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0) n=0 mean_pred=- fraction_yes=-\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": NaN}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.3}}\n"
+      }
+    },
+    {
+      "name": "ties",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.5}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.5}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 2\nbrier: 0.250000\naccuracy_at_0.5: 0.500000\nrank_auc: 0.500000  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 0.500000  (always answering the majority label scores 0.500000)\nbrier_of_the_base_rate: 0.250000\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=0 mean_pred=- fraction_yes=-\n  [0.4,0.6) n=2 mean_pred=0.5000 fraction_yes=0.5000\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0) n=0 mean_pred=- fraction_yes=-\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.5}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.5}}\n"
+      }
+    },
+    {
+      "name": "near-ties",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.5}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.5000000000000001}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 2\nbrier: 0.250000\naccuracy_at_0.5: 0.500000\nrank_auc: 0.000000  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 0.500000  (always answering the majority label scores 0.500000)\nbrier_of_the_base_rate: 0.250000\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=0 mean_pred=- fraction_yes=-\n  [0.4,0.6) n=2 mean_pred=0.5000 fraction_yes=0.5000\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0) n=0 mean_pred=- fraction_yes=-\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.5}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.5000000000000001}}\n"
+      }
+    },
+    {
+      "name": "empty",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": ""
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 0\nbrier: nan\naccuracy_at_0.5: nan\nrank_auc: nan  (0.5 is chance; with few as_written rows it is loose)\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=0 mean_pred=- fraction_yes=-\n  [0.4,0.6) n=0 mean_pred=- fraction_yes=-\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0) n=0 mean_pred=- fraction_yes=-\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": ""
+      }
+    },
+    {
+      "name": "single-class",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 1.0}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 1\nbrier: 0.000000\naccuracy_at_0.5: 1.000000\nrank_auc: nan  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 1.000000  (always answering the majority label scores 1.000000)\nbrier_of_the_base_rate: 0.000000\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=0 mean_pred=- fraction_yes=-\n  [0.4,0.6) n=0 mean_pred=- fraction_yes=-\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0] n=1 mean_pred=1.0000 fraction_yes=1.0000\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 1.0}}\n"
+      }
+    },
+    {
+      "name": "boundaries",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.2}}\n{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.4}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.6}}\n{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.8}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 1}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 6\nbrier: 0.466667\naccuracy_at_0.5: 0.333333\nrank_auc: 0.333333  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 0.500000  (always answering the majority label scores 0.500000)\nbrier_of_the_base_rate: 0.250000\nreliability:\n  [0.0,0.2) n=1 mean_pred=0.0000 fraction_yes=1.0000\n  [0.2,0.4) n=1 mean_pred=0.2000 fraction_yes=0.0000\n  [0.4,0.6) n=2 mean_pred=0.5000 fraction_yes=0.5000\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0] n=2 mean_pred=0.9000 fraction_yes=0.5000\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.2}}\n{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.4}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 0.6}}\n{\"label\": \"changed\", \"answers\": {\"needs_correction\": 0.8}}\n{\"label\": \"as_written\", \"answers\": {\"needs_correction\": 1}}\n"
+      }
+    },
+    {
+      "name": "no-answers",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\":\"changed\"}\n{\"label\":\"as_written\",\"answers\":{}}\n{\"label\":\"other\",\"answers\":{\"needs_correction\":0.5}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 0\nbrier: nan\naccuracy_at_0.5: nan\nrank_auc: nan  (0.5 is chance; with few as_written rows it is loose)\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=0 mean_pred=- fraction_yes=-\n  [0.4,0.6) n=0 mean_pred=- fraction_yes=-\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0) n=0 mean_pred=- fraction_yes=-\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\":\"changed\"}\n{\"label\":\"as_written\",\"answers\":{}}\n{\"label\":\"other\",\"answers\":{\"needs_correction\":0.5}}\n"
+      }
+    },
+    {
+      "name": "patches-unicode",
+      "argv": [
+        "patches",
+        "labels.json",
+        "out.jsonl"
+      ],
+      "seed": {
+        "a.patch": "diff\n+caf\u00e9 \ud83d\ude00\r\n",
+        "b.patch": "diff\n+two\n",
+        "labels.json": "[{\"ticket\": 1, \"label\": \"changed\", \"patch\": \"a.patch\"}, {\"ticket\": 2, \"label\": \"as_written\", \"patch\": \"b.patch\"}]"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 1\n",
+      "stderr": "",
+      "left": {
+        "a.patch": "diff\n+caf\u00e9 \ud83d\ude00\r\n",
+        "b.patch": "diff\n+two\n",
+        "labels.json": "[{\"ticket\": 1, \"label\": \"changed\", \"patch\": \"a.patch\"}, {\"ticket\": 2, \"label\": \"as_written\", \"patch\": \"b.patch\"}]",
+        "out.jsonl": "{\"ticket\": 1, \"label\": \"changed\", \"diff\": \"diff\\n+caf\u00e9 \ud83d\ude00\\n\"}\n{\"ticket\": 2, \"label\": \"as_written\", \"diff\": \"diff\\n+two\\n\"}\n"
+      }
+    },
+    {
+      "name": "patches-empty",
+      "argv": [
+        "patches",
+        "labels.json",
+        "out.jsonl"
+      ],
+      "seed": {
+        "a.patch": "diff\n+caf\u00e9 \ud83d\ude00\r\n",
+        "b.patch": "diff\n+two\n",
+        "labels.json": "[]"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        "a.patch": "diff\n+caf\u00e9 \ud83d\ude00\r\n",
+        "b.patch": "diff\n+two\n",
+        "labels.json": "[]",
+        "out.jsonl": ""
+      }
+    },
+    {
+      "name": "build-all-skips",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "fn a() {}\n",
+        ".scratch/hydra/build/200-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed the diff.",
+        ".scratch/hydra/build/201-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as written.",
+        ".scratch/hydra/build/202-test.md": "Status: open\n",
+        ".scratch/hydra/build/203-test.md": "no status",
+        ".scratch/hydra/build/204-test.md": "Status: resolved\nno outcome",
+        ".scratch/hydra/build/205-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session fixed the diff.",
+        ".scratch/hydra/build/206-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied the diff as written.",
+        ".scratch/hydra/build/111-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed the diff."
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "fn a() { /* caf\u00e9 */ }\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ],
+        {
+          "path": "src/b.rs",
+          "text": "fn b() {}\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 201: change"
+        ],
+        {
+          "path": "other",
+          "text": "ignored\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 206: ignored"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 1\nskip: 202: status open\nskip: 203: status missing\nskip: 204: outcome not labelled\nskip: 205: no Build 205: commit\nskip: 206: empty diff under src/, tests/, integrations/\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/111-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed the diff.",
+        ".scratch/hydra/build/200-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed the diff.",
+        ".scratch/hydra/build/201-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as written.",
+        ".scratch/hydra/build/202-test.md": "Status: open\n",
+        ".scratch/hydra/build/203-test.md": "no status",
+        ".scratch/hydra/build/204-test.md": "Status: resolved\nno outcome",
+        ".scratch/hydra/build/205-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session fixed the diff.",
+        ".scratch/hydra/build/206-test.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied the diff as written.",
+        "other": "ignored\n",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex ca05282..f330097 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-fn a() {}\\n+fn a() { /* caf\u00e9 */ }\\n\", \"commit\": \"0af6b841c255edb7d25f6c7432e25846fd9f5a70\"}\n{\"ticket\": 201, \"label\": \"as_written\", \"diff\": \"diff --git a/src/b.rs b/src/b.rs\\nnew file mode 100644\\nindex 0000000..77c3e26\\n--- /dev/null\\n+++ b/src/b.rs\\n@@ -0,0 +1 @@\\n+fn b() {}\\n\", \"commit\": \"7c0fca90ffbead289b624a2cd04b669cde16f874\"}\n",
+        "src/a.rs": "fn a() { /* caf\u00e9 */ }\n",
+        "src/b.rs": "fn b() {}\n"
+      }
+    },
+    {
+      "name": "outcome-0",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed it",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"526c72a06d0a575289219f76d4de3f98cd947d27\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-1",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nRUN 01234567-ABCD session fixed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nRUN 01234567-ABCD session fixed it",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"2dd3713eb6223b61c7876929e5da8f99babff0b8\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-2",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun\t01234567-abcd session\nreworded it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun\t01234567-abcd session\nreworded it",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"c6fccc3d5b17105235653fc35a97fdcf86828c06\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-3",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd added something to the diff"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd added something to the diff",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"153b27c89be67966d9b4e4df36c152be24f26783\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-4",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied the diff as written"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 1\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied the diff as written",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"as_written\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"68d5db310234227ec1b4a0ccff44baa97e017d7e\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-5",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd (applied as written)."
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 1\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd (applied as written).",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"as_written\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"0ec68f9127794e933d35866403a89da75f38706c\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-6",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd misapplied as written"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 0\nskip: 200: outcome not labelled\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd misapplied as written",
+        "out.jsonl": "",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-7",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as writtenx"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 0\nskip: 200: outcome not labelled\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as writtenx",
+        "out.jsonl": "",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-8",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\noutrun 01234567-abcd session changed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 0\nskip: 200: outcome not labelled\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\noutrun 01234567-abcd session changed it",
+        "out.jsonl": "",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-9",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abc session changed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 0\nskip: 200: outcome not labelled\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abc session changed it",
+        "out.jsonl": "",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-10",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun \"01234567-abcd\" session changed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 0\nskip: 200: outcome not labelled\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun \"01234567-abcd\" session changed it",
+        "out.jsonl": "",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-11",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changedness"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changedness",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"ae348793af0e6e5d0bc115993d7301b8781181b8\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-12",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd obsession changed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd obsession changed it",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"c761b455d36419a65b80f8d11f40a5e9d088f654\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-13",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd added\u001c something\tto the\ndiff"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd added\u001c something\tto the\ndiff",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"42789ba2ad11b842cc0bb624f083bca53f013614\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-14",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as written; session fixed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as written; session fixed it",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"6b5ca347524999c39552e2f1407ef3414887667e\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-15",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed it\n## Outcome\nignored"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 1\nas_written: 0\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd session changed it\n## Outcome\nignored",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"changed\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"6fc62024b03df48264dd49f865f623c0887ca06d\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "outcome-16",
+      "argv": [
+        "build",
+        "out.jsonl"
+      ],
+      "seed": {
+        "src/a.rs": "before\n",
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as written\n## Notes\nsession changed it"
+      },
+      "git": [
+        [
+          "init",
+          "-b",
+          "main"
+        ],
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "seed"
+        ],
+        {
+          "path": "src/a.rs",
+          "text": "after\n"
+        },
+        [
+          "add",
+          "."
+        ],
+        [
+          "commit",
+          "-m",
+          "Build 200: change"
+        ]
+      ],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home",
+        "GIT_AUTHOR_DATE": "2026-10-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-10-01T00:00:00Z",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null"
+      },
+      "code": 0,
+      "stdout": "changed: 0\nas_written: 1\n",
+      "stderr": "",
+      "left": {
+        ".scratch/hydra/build/200-one.md": "Status: resolved\n## Outcome\nrun 01234567-abcd applied as written\n## Notes\nsession changed it",
+        "out.jsonl": "{\"ticket\": 200, \"label\": \"as_written\", \"diff\": \"diff --git a/src/a.rs b/src/a.rs\\nindex 90be1f3..294186e 100644\\n--- a/src/a.rs\\n+++ b/src/a.rs\\n@@ -1 +1 @@\\n-before\\n+after\\n\", \"commit\": \"52fbb183fed5b7ebf222ebc414a70d9069468c49\"}\n",
+        "src/a.rs": "after\n"
+      }
+    },
+    {
+      "name": "argv-0",
+      "argv": [],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py [-h] {build,patches,ask,score} ...\njev_probe.py: error: the following arguments are required: command\n",
+      "left": {}
+    },
+    {
+      "name": "argv-1",
+      "argv": [
+        "wrong"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py [-h] {build,patches,ask,score} ...\njev_probe.py: error: argument command: invalid choice: 'wrong' (choose from 'build', 'patches', 'ask', 'score')\n",
+      "left": {}
+    },
+    {
+      "name": "argv-2",
+      "argv": [
+        "build"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py build [-h] out\njev_probe.py build: error: the following arguments are required: out\n",
+      "left": {}
+    },
+    {
+      "name": "argv-3",
+      "argv": [
+        "patches"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py patches [-h] labels out\njev_probe.py patches: error: the following arguments are required: labels, out\n",
+      "left": {}
+    },
+    {
+      "name": "argv-4",
+      "argv": [
+        "patches",
+        "labels"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py patches [-h] labels out\njev_probe.py patches: error: the following arguments are required: out\n",
+      "left": {}
+    },
+    {
+      "name": "argv-5",
+      "argv": [
+        "score"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py score [-h] answers\njev_probe.py score: error: the following arguments are required: answers\n",
+      "left": {}
+    },
+    {
+      "name": "argv-6",
+      "argv": [
+        "build",
+        "out",
+        "extra"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py [-h] {build,patches,ask,score} ...\njev_probe.py: error: unrecognized arguments: extra\n",
+      "left": {}
+    },
+    {
+      "name": "argv-7",
+      "argv": [
+        "score",
+        "x",
+        "--bad"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py [-h] {build,patches,ask,score} ...\njev_probe.py: error: unrecognized arguments: --bad\n",
+      "left": {}
+    },
+    {
+      "name": "argv-8",
+      "argv": [
+        "score",
+        "--help=bad"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py score [-h] answers\njev_probe.py score: error: argument -h/--help: ignored explicit argument 'bad'\n",
+      "left": {}
+    },
+    {
+      "name": "argv-9",
+      "argv": [
+        "--bad",
+        "score",
+        "x"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 2,
+      "stdout": "",
+      "stderr": "usage: jev_probe.py [-h] {build,patches,ask,score} ...\njev_probe.py: error: unrecognized arguments: --bad\n",
+      "left": {}
+    },
+    {
+      "name": "argv-10",
+      "argv": [
+        "build",
+        "--help"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "usage: jev_probe.py build [-h] out\n\npositional arguments:\n  out\n\noptions:\n  -h, --help  show this help message and exit\n",
+      "stderr": "",
+      "left": {}
+    },
+    {
+      "name": "argv-11",
+      "argv": [
+        "patches",
+        "--help"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "usage: jev_probe.py patches [-h] labels out\n\npositional arguments:\n  labels\n  out\n\noptions:\n  -h, --help  show this help message and exit\n",
+      "stderr": "",
+      "left": {}
+    },
+    {
+      "name": "argv-12",
+      "argv": [
+        "score",
+        "--help"
+      ],
+      "seed": {},
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "usage: jev_probe.py score [-h] answers\n\npositional arguments:\n  answers\n\noptions:\n  -h, --help  show this help message and exit\n",
+      "stderr": "",
+      "left": {}
+    }
+  ]
+}

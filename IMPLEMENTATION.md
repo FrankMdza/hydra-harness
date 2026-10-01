@@ -3539,8 +3539,27 @@ neither `hydra-puppets` nor `hydra`. It holds two of the Python's modules:
   time with no colons and any one character before an offset read as they do in Python.
   `chrono` reads fewer spellings and would answer `None` where the Python answers a number.
 
-Neither module has a command line, so the binary has no command yet: it says so on stderr and
-exits 2. `hydra-pyjson` gained `json::loads_bytes_explained`, which returns `str(err)` for a
+Build ticket 217 ported the verdict queue and the Jev probe's local half. `queue.rs` is
+`baseline.py` lines 279 to 370. `hydra-grader baseline label-queue` writes Python CSV bytes
+with CRLF endings, minimal quoting and doubled quotes; `label-import` folds a filled queue
+into `ticket-verdicts.json` and the dataset's `human_verdict`. CSV reading and writing and
+Outcome matching use handwritten code, with no new dependencies. `jev.rs` implements
+`hydra-grader jev build`, `patches` and `score`; `ask` stays Python, and no TLS is added.
+`hydra-pyjson` gained `json::dumps_unicode_default` for `ensure_ascii=False` with Python's
+default separators. Text reads translate CRLF and CR as Python does, while CSV preserves them.
+
+`tests/record_queue.py` and `record_jev.py` recorded 45 queue and 41 Jev command cases under
+CPython 3.14.7 into `queue.json` and `jev.json`, with an empty child environment and fixed git
+metadata. `tests/differential/queue.rs` and `jev.rs` replay 344 comparisons without Python.
+CSV punctuation, embedded CR/LF/CRLF, Unicode, empty cells, import refusals, missing columns,
+duplicate rows, missing dataset runs, Outcome section boundaries, build skips, NaN, empty
+answers, exact and near ties, and wrong arguments are covered. File bytes and successful
+output match exactly. Help and usage name the Rust binary; argparse error sentences match,
+and tracebacks compare exception classes. Commit ids match without normalization. Deliberate
+mutations to CSV line endings, the accepted verdict word and AUC tie credit caused 15, 47 and
+1 comparisons to fail, respectively, before restoration.
+
+`hydra-pyjson` gained `json::loads_bytes_explained`, which returns `str(err)` for a
 `UnicodeDecodeError` as well as a `JSONDecodeError`, because `scan_record` prints that text when
 it skips a record.
 

@@ -8,7 +8,7 @@
 //! with a usage line and then `PROG: error: MESSAGE`, and the message is the Python's. The
 //! usage line and the help are this binary's own, since its name is not `baseline.py`.
 //!
-//! `label-queue` and `label-import` are the other half of `baseline.py` and are not here.
+//! Build 217 adds `label-queue` and `label-import` using the same argument parser.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -152,7 +152,7 @@ fn kind(arg: &str, longs: &[&'static str]) -> Kind {
 }
 
 /// One command line, read.
-enum Parsed {
+pub(crate) enum Parsed {
     Help,
     /// The message after `error: `.
     Wrong(String),
@@ -166,7 +166,7 @@ enum Parsed {
 /// Read `args` for a command with `valued` options, each taking one value, and at most
 /// `places` positionals. `take` is handed each option's value as it is met and answers with
 /// the error `argparse` would raise for it.
-fn parse(
+pub(crate) fn parse(
     args: &[String],
     valued: &[&'static str],
     places: usize,
@@ -224,12 +224,12 @@ fn parse(
 }
 
 /// A wrong command line: the usage, the error, and exit code 2.
-fn wrong(stderr: &mut dyn Write, usage: &str, prog: &str, message: &str) -> u8 {
+pub(crate) fn wrong(stderr: &mut dyn Write, usage: &str, prog: &str, message: &str) -> u8 {
     let _ = writeln!(stderr, "{usage}\n{prog}: error: {message}");
     2
 }
 
-fn required(names: &[&str], given: usize) -> Option<String> {
+pub(crate) fn required(names: &[&str], given: usize) -> Option<String> {
     (given < names.len()).then(|| {
         format!(
             "the following arguments are required: {}",
@@ -414,12 +414,82 @@ pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
             let done = score(Path::new(&positionals[0]), &positionals[1], stderr);
             finish(done, stdout, stderr)
         }
-        other => {
-            let _ = writeln!(
-                stderr,
-                "{PROG}: {other} is not ported yet; run integrations/grader/baseline.py {other}"
+        command => {
+            let prog = format!("{PROG} {command}");
+            let usage = format!(
+                "usage: {prog} [-h] [--dataset DATASET] {}",
+                if command == "label-queue" {
+                    "[--tickets TICKETS] out"
+                } else {
+                    "[--home HOME] csv"
+                }
             );
-            2
+            let mut dataset = None;
+            let mut home = None;
+            let mut tickets = crate::queue::default_tickets_dir();
+            let options = if command == "label-queue" {
+                vec!["--tickets", "--dataset"]
+            } else {
+                vec!["--home", "--dataset"]
+            };
+            let mut take = |option: &'static str, value: &str| -> Result<(), String> {
+                match option {
+                    "--dataset" => dataset = Some(PathBuf::from(value)),
+                    "--home" => home = Some(PathBuf::from(value)),
+                    _ => tickets = PathBuf::from(value),
+                }
+                Ok(())
+            };
+            let (positionals, extras) = match parse(rest, &options, 1, &mut take) {
+                Parsed::Help => {
+                    let _ = writeln!(stdout, "{usage}");
+                    return 0;
+                }
+                Parsed::Wrong(message) => return wrong(stderr, &usage, &prog, &message),
+                Parsed::Args {
+                    positionals,
+                    extras,
+                } => (positionals, extras),
+            };
+            if let Some(message) = required(
+                &[if command == "label-queue" {
+                    "out"
+                } else {
+                    "csv"
+                }],
+                positionals.len(),
+            ) {
+                return wrong(stderr, &usage, &prog, &message);
+            }
+            if let Some(code) = unrecognized(stderr, extras) {
+                return code;
+            }
+            let done = (|| -> Result<String> {
+                if command == "label-queue" {
+                    let dataset = match dataset {
+                        Some(p) => p,
+                        None => records::grader_home()?.join("dataset.jsonl"),
+                    };
+                    let rows = records::read_jsonl(&dataset)?;
+                    let (queue, skips) = crate::queue::label_queue(&tickets, &rows)?;
+                    crate::queue::write_label_queue_csv(Path::new(&positionals[0]), &queue)?;
+                    let mut printed = format!("rows: {}", queue.len());
+                    for skip in skips {
+                        printed.push_str(&format!("\nskip: {skip}"));
+                    }
+                    Ok(printed)
+                } else {
+                    let home = match home {
+                        Some(p) => p,
+                        None => records::grader_home()?,
+                    };
+                    let dataset = dataset.unwrap_or_else(|| home.join("dataset.jsonl"));
+                    let (labelled, unknown) =
+                        crate::queue::label_import(Path::new(&positionals[0]), &dataset, &home)?;
+                    Ok(format!("labelled: {labelled}\nunknown: {unknown}"))
+                }
+            })();
+            finish(done, stdout, stderr)
         }
     }
 }
@@ -427,17 +497,6 @@ pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn run(args: &[&str]) -> (u8, String, String) {
-        let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
-        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-        let code = main(&args, &mut stdout, &mut stderr);
-        (
-            code,
-            String::from_utf8(stdout).unwrap(),
-            String::from_utf8(stderr).unwrap(),
-        )
-    }
 
     #[test]
     fn a_negative_number_is_an_argument_and_not_an_option() {
@@ -447,14 +506,6 @@ mod tests {
         for other in ["-", "--1", "-x", "-.", "-_1", "1", ".5"] {
             assert!(!negative_number(other), "{other}");
         }
-    }
-
-    #[test]
-    fn the_half_that_is_not_ported_says_where_it_still_runs() {
-        let (code, stdout, stderr) = run(&["label-queue", "out.csv"]);
-        assert_eq!(code, 2);
-        assert!(stdout.is_empty());
-        assert!(stderr.contains("label-queue is not ported yet"), "{stderr}");
     }
 
     #[test]

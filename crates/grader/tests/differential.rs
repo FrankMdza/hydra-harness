@@ -555,3 +555,8 @@ fn the_binary_has_no_command_yet_and_says_so() {
         "{stderr}"
     );
 }
+
+#[path = "differential/jev.rs"]
+mod jev;
+#[path = "differential/queue.rs"]
+mod queue;

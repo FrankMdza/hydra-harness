@@ -1,7 +1,7 @@
 # 222 - The math probe tests what it exports and hashes what it sums
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 213
 
 ## What
