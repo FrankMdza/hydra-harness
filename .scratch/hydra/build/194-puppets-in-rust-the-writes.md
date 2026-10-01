@@ -2,7 +2,7 @@
 
 Type: build
 Status: open
-Blocked by: 197
+Blocked by: 197, 199
 
 ## What
 
@@ -34,7 +34,8 @@ and ids, and say which). The Python stays.
 - The differential test normalizes three things (`pending`'s `argv[0]`, the torn file's
   timestamp, a traceback by exception class). For the writers, add only timestamps and generated
   ids, and list each in the report.
-- A lone UTF-16 surrogate in a string is a known divergence (Python reads it, Rust exits 1).
+- Build 199 closed the ten parity gaps codex found in 193, the lone surrogate among them, and
+  tightened the differential test's three normalizations. Keep to its comparator.
 
 ## Done when
 
