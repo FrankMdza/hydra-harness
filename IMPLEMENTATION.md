@@ -3283,9 +3283,12 @@ Ratatui view a human runs in a terminal of their own, beside an orchestrating se
 **What it reads.** The left column is one goal's task table, folded in Rust from the goal log
 under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `puppets.py`'s `fold` rules for the events
 that change a row: `task`, `assignment`, `run`, `run_end`, `human_verdict`. Without `--goal` it
-takes the log that changed last and says so on the status line. A complete line `fold` would
-raise on is counted and skipped; a last line with no newline waits for the next read, as
-`read_log` does. The middle column is four lanes. `live` is contract 5.2's liveness through
+takes the log that changed last and says so on the status line. A newline-terminated line that is
+blank or is not JSON makes the goal damaged: the table shows `damaged at line <n>: run
+puppets.py repair <id>` and no rows, and `v` and `a` on a Master of Puppets step refuse until
+`repair` has run; `a` on a seat request and `m` still work, since neither touches the goal log. A line
+that is JSON but lacks a field `fold` needs is counted and skipped; a last line with no newline
+waits for the next read, as `read_log` does. The middle column is four lanes. `live` is contract 5.2's liveness through
 `live::read_view`, `ended ok` is an outcome of `completed`, and `ended not ok` holds every other
 outcome, an abandoned run and a record that would not read back. `waiting approval` is what
 `hydra approve` with no id lists, from `approve::pending`. The right column is one run: provider,

@@ -192,6 +192,109 @@ fn a_goal_log_folds_into_the_rows_board_prints() {
     assert_eq!(goal::latest(&home.join("absent")).unwrap(), None);
 }
 
+#[test]
+fn a_blank_or_non_json_interior_line_marks_the_goal_damaged() {
+    let good = r#"{"event": "goal", "text": "g", "repo": "/r", "base_sha": "a"}
+{"event": "task", "id": "t1", "text": "one", "class": "c", "grade": "low", "deps": [], "paths": []}
+"#;
+    let bom = format!("\u{feff}{good}");
+    assert!(goal::fold("g-bom", bom.as_bytes()).damaged_at.is_none());
+    let blank = format!("{good}\n\n");
+    let goal = goal::fold("g-blank", blank.as_bytes());
+    assert_eq!(goal.damaged_at, Some(3));
+    assert_eq!(goal.skipped, 0);
+
+    let not_json = format!("{good}not json\n");
+    let goal = goal::fold("g-bad", not_json.as_bytes());
+    assert_eq!(goal.damaged_at, Some(3));
+}
+
+#[test]
+fn a_missing_field_on_good_json_still_counts_as_skipped() {
+    let log = r#"{"event": "goal", "text": "g", "repo": "/r", "base_sha": "a"}
+{"event": "assignment", "task": "t3"}
+"#;
+    let goal = goal::fold("g-skip", log.as_bytes());
+    assert!(goal.damaged_at.is_none());
+    assert_eq!(goal.skipped, 1);
+}
+
+#[test]
+fn apply_handles_a_repair_event_like_the_helper_fold() {
+    let log = r#"{"event": "goal", "text": "g", "repo": "/r", "base_sha": "a"}
+{"event": "task", "id": "t1", "text": "one", "class": "c", "grade": "low", "deps": [], "paths": []}
+{"event": "repair", "removed": 2}
+{"event": "repair", "removed": "x"}
+"#;
+    let goal = goal::fold("g-repair", log.as_bytes());
+    assert!(goal.damaged_at.is_none());
+    // One for the task, three for the first repair, one for the second.
+    assert_eq!(goal.revision, 5);
+}
+
+#[test]
+fn a_damaged_goal_shows_repair_and_refuses_a_and_v() {
+    let log = r#"{"event": "goal", "text": "ship", "repo": "/r", "base_sha": "a"}
+{"event": "task", "id": "t1", "text": "one", "class": "c", "grade": "low", "deps": [], "paths": []}
+
+{"event": "task", "id": "t2", "text": "two", "class": "c", "grade": "low", "deps": [], "paths": []}
+"#;
+    let goal = goal::fold("g-damaged", log.as_bytes());
+    assert_eq!(goal.damaged_at, Some(3));
+
+    let mut snapshot = fixed_snapshot();
+    snapshot.goal = Some(goal);
+    snapshot.steps = vec![hydra::cockpit::snapshot::Step {
+        goal: "g-damaged".to_string(),
+        kind: "plan".to_string(),
+        reference: None,
+        revision: 1,
+        argv: vec![
+            "puppets.py".into(),
+            "approve".into(),
+            "g-damaged".into(),
+            "--plan".into(),
+            "--expect-revision".into(),
+            "1".into(),
+        ],
+    }];
+
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    app.focus = Focus::Table;
+    let text = drawn_app(&mut app);
+    assert!(
+        text.contains("damaged at line 3: run puppets.py repair g-damaged"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("t1"),
+        "task table must not show, got: {text}"
+    );
+
+    app.handle(&key(KeyCode::Char('a')));
+    let msg = app.message.as_deref().unwrap();
+    assert!(msg.contains("damaged"), "{msg}");
+    app.message = None;
+
+    app.handle(&key(KeyCode::Char('v')));
+    let msg = app.message.as_deref().unwrap();
+    assert!(msg.contains("damaged"), "{msg}");
+
+    // `m` stops a seat with `hydra stop`, which never touches the goal log.
+    app.message = None;
+    app.handle(&key(KeyCode::Char('m')));
+    assert!(
+        !app.message.as_deref().unwrap_or("").contains("damaged"),
+        "{:?}",
+        app.message
+    );
+}
+
 // --- the lanes -----------------------------------------------------------
 
 /// A record whose line 0 names this test's own pid, which is alive.

@@ -924,6 +924,15 @@ impl App {
 
     // --- the one write -----------------------------------------------------
 
+    fn goal_damaged_message(&self) -> Option<String> {
+        let goal = self.snapshot.goal.as_ref()?;
+        let line = goal.damaged_at?;
+        Some(format!(
+            "damaged at line {line}: run puppets.py repair {}",
+            goal.id
+        ))
+    }
+
     /// What `a` would ask about: the request or step open in the detail, or
     /// the one selected in the waiting lane.
     fn in_hand(&self) -> Option<InHand> {
@@ -954,7 +963,15 @@ impl App {
     /// `a` or `d`: opens the confirmation that approves, or denies, the
     /// request or step in hand. A step has no deny: leaving it is saying no.
     fn ask_to_answer(&mut self, deny: bool) -> Effect {
-        let Some(in_hand) = self.in_hand() else {
+        let in_hand = self.in_hand();
+        // A seat request goes to `hydra approve` and has nothing to do with the goal log.
+        if !matches!(in_hand, Some(InHand::Request(_)))
+            && let Some(message) = self.goal_damaged_message()
+        {
+            self.message = Some(message);
+            return Effect::None;
+        }
+        let Some(in_hand) = in_hand else {
             self.message = Some("select a request in the waiting approval lane first".to_string());
             return Effect::None;
         };
@@ -1250,6 +1267,10 @@ impl App {
     /// `v`: opens the confirmation for the selected task's review, which
     /// names what it costs.
     fn ask_to_review(&mut self) -> Effect {
+        if let Some(message) = self.goal_damaged_message() {
+            self.message = Some(message);
+            return Effect::None;
+        }
         let row = match (&self.snapshot.goal, self.focus) {
             (Some(goal), Focus::Table) => goal.rows.get(self.table_selected).map(|row| (goal, row)),
             _ => None,
@@ -1727,6 +1748,16 @@ impl App {
             return;
         };
         if inner.height < 2 {
+            return;
+        }
+        if let Some(line) = goal.damaged_at {
+            let heading = format!("damaged at line {line}: run puppets.py repair {}", goal.id);
+            buf.set_line(
+                inner.x,
+                inner.y,
+                &Line::styled(heading, Style::default().fg(Color::Yellow)),
+                inner.width,
+            );
             return;
         }
         let dim = Style::default().add_modifier(Modifier::DIM);

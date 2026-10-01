@@ -4,8 +4,9 @@
 //! it reads the JSONL itself rather than shelling out to Python. The events and
 //! their fields are the ones `integrations/puppets/README.md` documents; the
 //! rules below are `fold`'s, event by event, and only the ones that change a
-//! row. Plans, approvals and intents are the helper's business and the cockpit
-//! shows none of them.
+//! row. Map 91: a blank or non-JSON line stops the fold as damage; JSON that
+//! lacks a field is skipped. Plans, approvals and intents are the helper's
+//! business and the cockpit shows none of them.
 
 use std::path::{Path, PathBuf};
 
@@ -57,9 +58,16 @@ pub struct Goal {
     /// The `review` events `puppets.py review` appended, in log order, for
     /// tasks the table has. Build ticket 183 reads the last one per task.
     pub reviews: Vec<Review>,
-    /// Complete lines that were not JSON or lacked a field `fold` needs.
-    /// `fold` raises on those; a viewer counts them and carries on.
+    /// JSON lines that lacked a field `fold` needs. Map 91: a blank or
+    /// non-JSON line is damage and stops the fold; these are counted and
+    /// skipped only on good JSON.
     pub skipped: usize,
+    /// The first newline-terminated line that is blank or is not JSON, if any.
+    /// The fold stops there; the cockpit shows repair, not a table.
+    pub damaged_at: Option<usize>,
+    /// The table revision as the helper's `fold` counts it: one per `task` and
+    /// `assignment` event, and `removed + 1` per `repair`.
+    pub revision: i64,
 }
 
 /// Reads and folds `<home>/<id>.jsonl`.
@@ -106,14 +114,19 @@ pub fn fold(id: &str, bytes: &[u8]) -> Goal {
     // `split` yields what follows the last newline as a final piece: empty
     // when the log ends cleanly, a partial line when it does not.
     lines.pop();
-    for line in lines {
+    for (index, line) in lines.iter().enumerate() {
+        let line_no = index + 1;
         if line.iter().all(u8::is_ascii_whitespace) {
-            continue;
+            goal.damaged_at = Some(line_no);
+            break;
         }
-        let applied = serde_json::from_slice::<Value>(line)
-            .ok()
-            .and_then(|event| apply(&mut goal, &event));
-        if applied.is_none() {
+        // `json.loads` on bytes drops a BOM, and the helper reads such a line.
+        let line = line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(line);
+        let Ok(event) = serde_json::from_slice::<Value>(line) else {
+            goal.damaged_at = Some(line_no);
+            break;
+        };
+        if apply(&mut goal, &event).is_none() {
             goal.skipped += 1;
         }
     }
@@ -126,6 +139,7 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
     match event["event"].as_str()? {
         "goal" => goal.text = Some(text("text")?),
         "task" => {
+            goal.revision = goal.revision.saturating_add(1);
             // `fold` builds a fresh `TaskState`, so a repeated `task` event
             // resets the assignment and status too. The dict keeps its slot.
             let row = TaskRow {
@@ -144,6 +158,7 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
             }
         }
         "assignment" => {
+            goal.revision = goal.revision.saturating_add(1);
             let task = text("task")?;
             let provider = text("provider")?;
             let model = text("model").filter(|m| !m.is_empty());
@@ -188,6 +203,14 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
             if let Some(row) = goal.rows.iter_mut().find(|r| r.id == task) {
                 row.status = result;
             }
+        }
+        "repair" => {
+            let removed = event
+                .get("removed")
+                .and_then(|v| v.as_i64())
+                .filter(|&n| n > 0)
+                .unwrap_or(0);
+            goal.revision = goal.revision.saturating_add(removed).saturating_add(1);
         }
         _ => {}
     }

@@ -424,6 +424,9 @@ impl Reader {
         let (Some(script), Some(goal)) = (&self.puppets, &snapshot.goal) else {
             return;
         };
+        if goal.damaged_at.is_some() {
+            return;
+        };
         let fresh = self
             .pending
             .as_ref()
