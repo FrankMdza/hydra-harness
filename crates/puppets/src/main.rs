@@ -6,13 +6,14 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use hydra_puppets::json::Value;
 use hydra_puppets::launch;
 use hydra_puppets::log::{self, Home};
 use hydra_puppets::panel;
 use hydra_puppets::read;
 use hydra_puppets::write::{self, Approve, arg};
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[command(
     name = "hydra-puppets",
     about = "Master of Puppets goal log",
@@ -23,7 +24,7 @@ struct Cli {
     command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Command {
     /// the goal at a glance
     Board {
@@ -95,7 +96,7 @@ enum Command {
         degraded: Option<OsString>,
         /// refuse unless the goal is still at this revision
         #[arg(long, value_parser = py_int, allow_negative_numbers = true)]
-        expect_revision: Option<i128>,
+        expect_revision: Option<Value>,
         /// with --diff, refuse unless the task's current run is this id
         #[arg(long, allow_negative_numbers = true)]
         expect_run: Option<OsString>,
@@ -187,7 +188,7 @@ enum Command {
         task: OsString,
         /// attempt number from the intent
         #[arg(value_parser = py_int, allow_negative_numbers = true)]
-        attempt: i128,
+        attempt: Value,
         /// the run hydra status shows for this attempt
         #[arg(
             long,
@@ -202,13 +203,10 @@ enum Command {
     },
 }
 
-/// `int(text)` as argparse's `type=int` applies it: whitespace around the number, a sign,
-/// and single underscores between digits. An int past `i128` is refused here, where Python
-/// has no limit; no revision or attempt is that wide.
-fn py_int(text: &str) -> Result<i128, String> {
-    hydra_puppets::int_literal(text)
-        .and_then(|digits| digits.parse().ok())
-        .ok_or_else(|| format!("invalid int value: '{text}'"))
+/// `int(text)` as argparse's `type=int` applies it, at any width: Python has no widest int,
+/// and one past `i128` reaches the command as it does there.
+fn py_int(text: &str) -> Result<Value, String> {
+    hydra_puppets::int_value(text).ok_or_else(|| format!("invalid int value: '{text}'"))
 }
 
 fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32> {
@@ -295,7 +293,7 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
             abandon: _,
         } => {
             let run_id = run_id.map(|run_id| arg(&run_id));
-            write::reconcile(&home, &goal, &arg(&task), attempt, run_id.as_ref(), err)
+            write::reconcile(&home, &goal, &arg(&task), &attempt, run_id.as_ref(), err)
         }
     }
 }
@@ -343,4 +341,146 @@ fn command(cli: Cli) -> ExitCode {
     };
     let _ = out.flush();
     ExitCode::from(u8::try_from(code).unwrap_or(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn revision(text: &str) -> Result<Option<Value>, clap::Error> {
+        let argv = [
+            "puppets",
+            "approve",
+            "g1",
+            "--plan",
+            "--expect-revision",
+            text,
+        ];
+        Cli::try_parse_from(argv).map(|cli| match cli.command {
+            Command::Approve {
+                expect_revision, ..
+            } => expect_revision,
+            _ => None,
+        })
+    }
+
+    /// Each row is what `int()` of Python 3.14 answers.
+    #[test]
+    fn revision_int_matches_python() {
+        let wide = "99999999999999999999999999999999999999999999999999";
+        for (input, expected) in [
+            ("٧", "7"),
+            (" +٧_２\u{a0}", "72"),
+            ("\u{3000}-0_7\u{2028}", "-7"),
+            (wide, wide),
+        ] {
+            let value = revision(input).unwrap().unwrap();
+            assert_eq!(
+                hydra_puppets::json::dumps(&value, None),
+                expected,
+                "{input:?}"
+            );
+        }
+        for input in [
+            "\u{1c}7", "7\u{1f}", "1__2", "1_", "²", "_7", "- 7", "0x7", "",
+        ] {
+            assert!(revision(input).is_err(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn revision_rejects_ascii_separator() {
+        assert!(py_int("\u{1c}7").is_err());
+    }
+
+    #[test]
+    fn revision_accepts_wide_integer() {
+        let wide = "99999999999999999999999999999999999999999999999999";
+        assert!(matches!(py_int(wide), Ok(Value::BigInt(digits)) if digits == wide));
+        assert!(matches!(py_int("7"), Ok(Value::Int(7))));
+    }
+
+    /// One full command line per command that takes an option, the options last.
+    const LINES: [&[&str]; 8] = [
+        &["plan", "g1", "--seat=x"],
+        &["choose", "g1", "--judge"],
+        &["set", "g1", "t1", "--provider=x", "--model=x", "--policy=x"],
+        &[
+            "approve",
+            "g1",
+            "--plan",
+            "--table",
+            "--launch=x",
+            "--diff=x",
+            "--degraded=x",
+            "--expect-revision=7",
+            "--expect-run=x",
+            "--expect-plan=x",
+        ],
+        &["reconcile", "g1", "t1", "1", "--run-id=x"],
+        &["reconcile", "g1", "t1", "1", "--abandon"],
+        &["review", "g1", "t1", "--no-open"],
+        &["verdict", "g1", "t1", "fixed", "--note=x"],
+    ];
+
+    /// argparse takes a prefix of a long option when exactly one option of the command
+    /// starts with it, `--help` among them, and calls any other prefix ambiguous.
+    #[test]
+    fn a_prefix_of_an_option_resolves_as_argparse_resolves_it() {
+        let parse = |line: &[String]| {
+            let argv = std::iter::once("puppets").chain(line.iter().map(String::as_str));
+            Cli::try_parse_from(argv).map(|cli| format!("{cli:?}"))
+        };
+        let mut checked = 0;
+        for line in LINES {
+            let full: Vec<String> = line.iter().map(|word| word.to_string()).collect();
+            let expected = parse(&full).unwrap();
+            let mut names: Vec<&str> = line
+                .iter()
+                .filter(|word| word.starts_with("--"))
+                .map(|word| word.split('=').next().unwrap())
+                .collect();
+            if line[0] == "reconcile" {
+                names = vec!["--run-id", "--abandon"];
+            }
+            names.push("--help");
+            for (at, word) in line.iter().enumerate() {
+                let Some(name) = word.strip_prefix("--") else {
+                    continue;
+                };
+                let (name, value) = match name.split_once('=') {
+                    Some((name, value)) => (name, format!("={value}")),
+                    None => (name, String::new()),
+                };
+                for cut in 1..name.len() {
+                    let prefix = format!("--{}", &name[..cut]);
+                    let matches = names.iter().filter(|n| n.starts_with(&prefix)).count();
+                    let mut abbreviated = full.clone();
+                    abbreviated[at] = format!("{prefix}{value}");
+                    let parsed = parse(&abbreviated);
+                    match matches {
+                        1 => assert_eq!(parsed.unwrap(), expected, "{abbreviated:?}"),
+                        _ => assert!(parsed.is_err(), "{abbreviated:?}"),
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 60, "{checked}");
+    }
+
+    #[test]
+    fn writer_options_accept_unambiguous_prefixes() {
+        for args in [
+            vec!["puppets", "approve", "g1", "--pl"],
+            vec![
+                "puppets", "set", "g1", "t1", "--pr", "codex", "--po", "standard",
+            ],
+            vec!["puppets", "verdict", "g1", "t1", "fixed", "--no", "ok"],
+            vec!["puppets", "reconcile", "g1", "t1", "1", "--ab"],
+        ] {
+            assert!(Cli::try_parse_from(args.clone()).is_ok(), "{args:?}");
+        }
+        assert!(Cli::try_parse_from(["puppets", "approve", "g1", "--expect", "1"]).is_err());
+    }
 }

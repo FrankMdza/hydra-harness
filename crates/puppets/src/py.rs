@@ -306,27 +306,75 @@ pub fn strip(s: &PyStr) -> PyStr {
     out
 }
 
+/// The first code point of each run of ten decimal digits, `0` to `9` in order: every
+/// character `str.isdecimal` accepts in Unicode 16.0, which is what Python 3.14 carries.
+/// `the_int_parser_matches_python_on_every_code_point` in `tests/differential.rs` checks the
+/// table against the `python3` on the machine.
+const DECIMAL_ZEROS: [u32; 76] = [
+    0x0030, 0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6,
+    0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80,
+    0x1A90, 0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0,
+    0xFF10, 0x104A0, 0x10D30, 0x10D40, 0x11066, 0x110F0, 0x11136, 0x111D0, 0x112F0, 0x11450,
+    0x114D0, 0x11650, 0x116C0, 0x116D0, 0x116DA, 0x11730, 0x118E0, 0x11950, 0x11BF0, 0x11C50,
+    0x11D50, 0x11DA0, 0x11F50, 0x16130, 0x16A60, 0x16AC0, 0x16B50, 0x16D70, 0x1CCF0, 0x1D7CE,
+    0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6, 0x1E140, 0x1E2F0, 0x1E4F0, 0x1E5F1, 0x1E950, 0x1FBF0,
+];
+
+/// The ASCII digit a decimal digit of any script stands for, as `int()` reads it.
+fn decimal_digit(c: char) -> Option<char> {
+    let code = u32::from(c);
+    let at = DECIMAL_ZEROS
+        .partition_point(|zero| *zero <= code)
+        .checked_sub(1)?;
+    char::from_digit(code - DECIMAL_ZEROS[at], 10)
+}
+
+/// The whitespace `int()` strips from a string: `str.isspace` without the four information
+/// separators U+001C to U+001F. `int('\x1c7')` raises where `'\x1c7'.strip()` is `'7'`.
+fn is_int_space(c: char) -> bool {
+    c.is_whitespace()
+}
+
+/// `sys.get_int_max_str_digits()`, which nothing in `puppets.py` changes. `int()` counts
+/// leading zeros towards it, and not underscores, the sign or the whitespace.
+const INT_MAX_STR_DIGITS: usize = 4300;
+
 /// The integer `int(text)` reads, as decimal digits with a `-` when negative: whitespace
-/// around the number, a sign, and single underscores between digits. `None` where Python
-/// raises `ValueError`.
+/// around the number, a sign, and single underscores between decimal digits of any script.
+/// The digits come back at whatever width `int()` takes. `None` where Python raises
+/// `ValueError`.
 pub fn int_literal(text: &str) -> Option<String> {
-    let body = strip_str(text);
+    let body = text.trim_matches(is_int_space);
     let (negative, number) = match body.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, body.strip_prefix('+').unwrap_or(body)),
     };
-    let well_formed = number
-        .split('_')
-        .all(|run| !run.is_empty() && run.bytes().all(|b| b.is_ascii_digit()));
-    if !well_formed {
+    let mut digits = String::new();
+    for run in number.split('_') {
+        if run.is_empty() {
+            return None;
+        }
+        for c in run.chars() {
+            digits.push(decimal_digit(c)?);
+        }
+    }
+    if digits.len() > INT_MAX_STR_DIGITS {
         return None;
     }
-    let digits = number.replace('_', "");
     let digits = match digits.trim_start_matches('0') {
         "" => "0",
         digits => digits,
     };
     Some(format!("{}{digits}", if negative { "-" } else { "" }))
+}
+
+/// `int(text)` as a value: an `Int` where it fits `i128`, a `BigInt` where it does not.
+pub fn int_value(text: &str) -> Option<Value> {
+    let digits = int_literal(text)?;
+    Some(match digits.parse() {
+        Ok(n) => Value::Int(n),
+        Err(_) => Value::BigInt(digits),
+    })
 }
 
 /// `d[key]` on a value that must be a dict holding `key`.

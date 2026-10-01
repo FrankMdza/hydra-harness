@@ -33,38 +33,124 @@ fn load(path: &Path) -> Result<Value> {
     json::loads_str(&read_text(path)?).map_err(|err| anyhow!("{}: {}", err.class(), path.display()))
 }
 
+/// The constants of CPython's `Modules/mathmodule.c`, each written with the digits that
+/// name its `f64` and no more. The C source carries about fifty.
+const LANCZOS_G: f64 = 6.02468004077673;
+const LANCZOS_NUM: [f64; 13] = [
+    23531376880.41076,
+    42919803642.6491,
+    35711959237.35567,
+    17921034426.03721,
+    6039542586.352028,
+    1439720407.3117216,
+    248874557.86205417,
+    31426415.585400194,
+    2876370.6289353725,
+    186056.26539522348,
+    8071.672002365816,
+    210.82427775157936,
+    2.5066282746310002,
+];
+/// The denominator is `x * (x + 1) * ... * (x + 11)`.
+const LANCZOS_DEN: [f64; 13] = [
+    0.0,
+    39916800.0,
+    120543840.0,
+    150917976.0,
+    105258076.0,
+    45995730.0,
+    13339535.0,
+    2637558.0,
+    357423.0,
+    32670.0,
+    1925.0,
+    66.0,
+    1.0,
+];
+
+/// `a * b + c` as the compiler that built CPython computes it inside one C expression. On
+/// arm64 clang contracts it into a fused multiply-add, which rounds once, and CPython's
+/// build passes no flag against that. On x86-64 the baseline has no such instruction and the
+/// product rounds before the sum. `the_ranking_arithmetic_matches_python` in
+/// `tests/differential.rs` checks the choice against the `python3` on the machine.
+fn c_mul_add(a: f64, b: f64, c: f64) -> f64 {
+    if cfg!(target_arch = "aarch64") {
+        a.mul_add(b, c)
+    } else {
+        a * b + c
+    }
+}
+
+/// `lanczos_sum` of CPython's `Modules/mathmodule.c`: the rational function, evaluated
+/// from the high coefficient down below 5 and in powers of `1 / x` from 5 up.
+fn lanczos_sum(x: f64) -> f64 {
+    let (mut num, mut den) = (0.0f64, 0.0f64);
+    if x < 5.0 {
+        for i in (0..LANCZOS_NUM.len()).rev() {
+            num = c_mul_add(num, x, LANCZOS_NUM[i]);
+            den = c_mul_add(den, x, LANCZOS_DEN[i]);
+        }
+    } else {
+        for i in 0..LANCZOS_NUM.len() {
+            num = num / x + LANCZOS_NUM[i];
+            den = den / x + LANCZOS_DEN[i];
+        }
+    }
+    num / den
+}
+
+/// `math.lgamma(x)` for a positive `x`, which is all `beta_lower` asks. It is `m_lgamma`
+/// of CPython's `Modules/mathmodule.c`, operation for operation: CPython does not call the
+/// C library's `lgamma`, and on macOS the two differ in the last bits on 196 of the integers
+/// from 1 to 399, which is enough to swap two agents `rank` scores a rounding apart.
+pub fn lgamma(x: f64) -> f64 {
+    if x == x.floor() && x <= 2.0 {
+        return 0.0;
+    }
+    if x < 1e-20 {
+        return -x.ln();
+    }
+    let r = lanczos_sum(x).ln() - LANCZOS_G;
+    c_mul_add(x - 0.5, (x + LANCZOS_G - 0.5).ln() - 1.0, r)
+}
+
 /// `beta_lower`: the 10th percentile of Beta(a, b) for integers, by bisection on the
 /// binomial sum that equals its distribution function.
 ///
-/// Python sums `exp(lgamma(..) ..)`; this sums the same terms with `ln(k!)` as a sum of
-/// logs, so the two agree to rounding and not to the last bit. `rank` only compares the
-/// result with a threshold and orders by it.
+/// Each term is Python's, with the same `lgamma` and the operations in the same order, so
+/// the result is the same float and `rank` orders a near tie as `sheet.py` does.
 pub fn beta_lower(a: i128, b: i128) -> Result<f64> {
     const PROBABILITY: f64 = 0.1;
-    if a < 1 {
-        bail!("ValueError: math domain error");
-    }
     let n = a + b - 1;
     let terms = usize::try_from((n - a + 1).max(0))
         .ok()
         .filter(|terms| *terms <= 10_000_000)
         .ok_or_else(|| anyhow!("OverflowError: prior and verdict counts are too large"))?;
-    // ln(k!) for k in 0..=n, when there is anything to sum.
-    let mut ln_factorial = vec![0.0f64];
-    if terms > 0 {
-        for k in 1..=n {
-            let last = ln_factorial[ln_factorial.len() - 1];
-            ln_factorial.push(last + (k as f64).ln());
-        }
+    // The first term asks `math.lgamma` for `a + 1`, which raises at zero and below. With no
+    // term to sum Python never asks, and a zero `a` is a term like any other.
+    if a < 0 && terms > 0 {
+        bail!("ValueError: expected a noninteger or positive integer");
     }
+    // `sum()` over floats is compensated since Python 3.12: it carries the rounding error of
+    // each addition in `lost` and adds it back once at the end.
     let cdf = |x: f64| -> f64 {
-        let mut sum = 0.0;
+        let (mut sum, mut lost) = (0.0f64, 0.0f64);
         for j in a..a + terms as i128 {
-            let (at, rest) = (j as usize, (n - j) as usize);
-            sum += (ln_factorial[n as usize] - ln_factorial[at] - ln_factorial[rest]
-                + j as f64 * x.ln()
-                + (n - j) as f64 * (-x).ln_1p())
-            .exp();
+            let term =
+                (lgamma((n + 1) as f64) - lgamma((j + 1) as f64) - lgamma((n - j + 1) as f64)
+                    + j as f64 * x.ln()
+                    + (n - j) as f64 * (-x).ln_1p())
+                .exp();
+            let next = sum + term;
+            lost += if sum.abs() >= term.abs() {
+                (sum - next) + term
+            } else {
+                (term - next) + sum
+            };
+            sum = next;
+        }
+        if lost != 0.0 && lost.is_finite() {
+            sum += lost;
         }
         sum
     };
@@ -446,7 +532,39 @@ mod tests {
         close(beta_lower(1, 4).unwrap(), 1.0 - 0.9f64.powf(0.25));
         close(beta_lower(4, 2).unwrap(), 0.4161096253804709);
         close(beta_lower(5, 3).unwrap(), 0.40382027215195604);
-        assert!(beta_lower(0, 1).is_err());
+        // A zero `a` is no error in Python, and neither is a negative one with no term to sum.
+        assert_eq!(beta_lower(0, 1).unwrap(), 4.336808689942018e-19);
+        assert_eq!(beta_lower(1, -3).unwrap(), 1.0);
+        assert!(beta_lower(-1, 5).is_err());
+    }
+
+    /// `math.lgamma` of Python 3.14, which is CPython's own Lanczos sum. The C library's
+    /// `lgamma` on this machine gives 1.7917594692280552 for 4 and 4.787491742782045 for 6.
+    #[test]
+    fn lgamma_is_cpythons_and_not_the_c_librarys() {
+        for (x, want) in [
+            (1.0, 0.0),
+            (2.0, 0.0),
+            (4.0, 1.791759469228055),
+            (5.0, 3.1780538303479444),
+            (6.0, 4.787491742782047),
+            (11.0, 15.104412573075514),
+            (171.0, 706.5730622457874),
+            (0.5, 0.5723649429247004),
+        ] {
+            assert_eq!(lgamma(x), want, "lgamma({x})");
+        }
+    }
+
+    /// Build ticket 207. Summing logs for `ln(k!)` scored the first agent
+    /// 1.9610965296978333 and ranked it second.
+    #[test]
+    fn near_tie_ranks_as_python_lgamma() {
+        let first = 1.0 / beta_lower(7, 3).unwrap();
+        let second = 1.102805621336474 / beta_lower(4, 1).unwrap();
+        assert!(first < second, "{first:?} >= {second:?}");
+        assert_eq!(first, 1.9610965296978324);
+        assert_eq!(second, 1.9610965296978329);
     }
 
     fn sheet(provider: &str, model: &str, p50: &str, runs: &str) -> Value {

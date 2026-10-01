@@ -311,9 +311,25 @@ struct Report {
     mismatches: Vec<String>,
 }
 
+/// Whether `outcome` is argparse refusing the command line: exit 2, the usage block, and
+/// the `error:` line last.
+fn is_usage_error(outcome: &Outcome) -> bool {
+    let last = outcome.stderr.trim_end().lines().last().unwrap_or("");
+    outcome.code == 2 && outcome.stderr.starts_with("usage: ") && last.contains(": error: ")
+}
+
 /// What differs between the two outcomes of one command, and the exception class when the
 /// Python died with a traceback. A traceback is compared by exit code, stdout and class.
+/// A command line argparse refuses is compared by exit code and stdout, and clap must have
+/// refused it too: the two word the refusal differently.
 fn judge(py: &Outcome, rs: &Outcome) -> (Option<String>, Option<String>) {
+    if is_usage_error(py) {
+        let same = rs.code == 2 && py.stdout == rs.stdout && rs.stderr.starts_with("error: ");
+        return (
+            None,
+            (!same).then(|| format!("python {py:#?}\nrust {rs:#?}")),
+        );
+    }
     match exception_class(&py.stderr) {
         Some(class) => {
             let same =
@@ -1500,28 +1516,45 @@ fn appended_line(line: &[u8]) -> Option<(&[u8], &[u8])> {
     Some((&line[..at], &line[at + 24..]))
 }
 
-/// Whether `text` has the shape `str(uuid.uuid4())` prints.
+/// Whether `text` has the shape `str(uuid.uuid4())` prints: lower-case hex, version 4, and
+/// the variant of RFC 4122, whose character is `8`, `9`, `a` or `b`.
 fn is_goal_id(text: &str) -> bool {
     text.len() == 36
         && text.bytes().enumerate().all(|(i, b)| match i {
             8 | 13 | 18 | 23 => b == b'-',
             14 => b == b'4',
+            19 => matches!(b, b'8' | b'9' | b'a' | b'b'),
             _ => b.is_ascii_digit() || (b'a'..=b'f').contains(&b),
         })
 }
 
-/// `new` prints the goal id it generated and nothing else: mask that one line.
-fn mask_new_stdout(stdout: &str) -> String {
-    match stdout.strip_suffix('\n') {
-        Some(id) if is_goal_id(id) => "<goal>\n".to_string(),
-        _ => stdout.to_string(),
+/// The goal id `new` printed, when it printed one and nothing else and the log it names is
+/// in `dir`. A writer that prints one id and creates the log under another gets `None`.
+fn new_goal_id<'a>(stdout: &'a str, dir: &Path) -> Option<&'a str> {
+    let id = stdout.strip_suffix('\n').filter(|id| is_goal_id(id))?;
+    dir.join("puppets")
+        .join(format!("{id}.jsonl"))
+        .is_file()
+        .then_some(id)
+}
+
+fn new_stdout_names_log(stdout: &str, dir: &Path) -> bool {
+    new_goal_id(stdout, dir).is_some()
+}
+
+/// `new` prints the goal id it generated and nothing else: mask that one line, when it
+/// names the log `new` created in `dir`.
+fn mask_new_stdout(stdout: &str, dir: &Path) -> String {
+    match new_goal_id(stdout, dir) {
+        Some(_) => "<goal>\n".to_string(),
+        None => stdout.to_string(),
     }
 }
 
 /// The goal logs a write command left in `dir`, each with the stamps of its appended lines
-/// masked. `seed` is the home both copies were made from. Under `new` the log named by a
-/// generated goal id is listed as `<goal>.jsonl`.
-fn written(dir: &Path, seed: &Path, new_goal: bool) -> Vec<(String, Vec<u8>)> {
+/// masked. `seed` is the home both copies were made from. Under `new` the log named by
+/// the goal id on stdout is listed as `<goal>.jsonl`, and no other log is renamed.
+fn written(dir: &Path, seed: &Path, new_goal: Option<&str>) -> Vec<(String, Vec<u8>)> {
     let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir.join("puppets"))
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -1531,7 +1564,7 @@ fn written(dir: &Path, seed: &Path, new_goal: bool) -> Vec<(String, Vec<u8>)> {
             let before = std::fs::read(seed.join("puppets").join(&name)).unwrap_or_default();
             let bytes = mask_appended_ts(&before, &std::fs::read(&p).unwrap());
             let name = match name.strip_suffix(".jsonl") {
-                Some(stem) if new_goal && is_goal_id(stem) => "<goal>.jsonl".to_string(),
+                Some(stem) if new_goal == Some(stem) => "<goal>.jsonl".to_string(),
                 _ => name,
             };
             (name, bytes)
@@ -1595,15 +1628,27 @@ fn compare_write(case: &WriteCase, root: &Path, n: usize) -> (Option<String>, Ve
         Some(&case.cwd),
     );
     let mut rs = run_in(&[RUST], &args, &rs_dir, Some(&case.cwd));
-    let new_goal = args[0] == "new";
-    if new_goal {
-        py.stdout = mask_new_stdout(&py.stdout);
-        rs.stdout = mask_new_stdout(&rs.stdout);
-    }
     let mut problems = Vec::new();
+    // The id each printed is tied to the log it created before either is masked.
+    let (mut py_goal, mut rs_goal) = (None, None);
+    if args[0] == "new" {
+        for (who, outcome, dir, goal) in [
+            ("python", &mut py, &py_dir, &mut py_goal),
+            ("rust", &mut rs, &rs_dir, &mut rs_goal),
+        ] {
+            *goal = new_goal_id(&outcome.stdout, dir).map(str::to_string);
+            if outcome.code == 0 && goal.is_none() {
+                problems.push(format!(
+                    "{who} exited 0 and its stdout names no log it created: {:?}",
+                    outcome.stdout
+                ));
+            }
+            outcome.stdout = mask_new_stdout(&outcome.stdout, dir);
+        }
+    }
     let (py_files, rs_files) = (
-        written(&py_dir, &seed, new_goal),
-        written(&rs_dir, &seed, new_goal),
+        written(&py_dir, &seed, py_goal.as_deref()),
+        written(&rs_dir, &seed, rs_goal.as_deref()),
     );
     if py_files != rs_files {
         let show = |files: &[(String, Vec<u8>)]| {
@@ -1759,6 +1804,61 @@ fn write_cases(shared: &Path) -> Vec<WriteCase> {
     let codex_down = r#"[{"provider":"codex","model":null,"available":false}]"#;
 
     let mut cases = Vec::new();
+
+    // Build ticket 207: `--expect-revision` and `attempt` are `int()` of the argument. The
+    // log is at revision 5, so the fifth row records the approval under both.
+    let wide = "99999999999999999999999999999999999999999999999999";
+    let too_long = "9".repeat(4301);
+    for value in [
+        "\u{1c}7",
+        "٧",
+        " +٧_２\u{a0}",
+        wide,
+        "\u{3000}٥\u{2028}",
+        "0_5",
+        "-0",
+        "5_",
+        "²",
+        &too_long,
+    ] {
+        let label: String = value.chars().take(60).collect();
+        cases.push(WriteCase::new(
+            &format!("Python int revision {label:?}"),
+            Some(tasks.as_bytes()),
+            &["approve", "g1", "--plan", "--expect-revision", value],
+            shared,
+        ));
+    }
+    // Build ticket 207: argparse takes a prefix of an option that only one option starts
+    // with, and refuses one that two do.
+    let abbreviated: [&[&str]; 9] = [
+        &["approve", "g1", "--pl"],
+        &["approve", "g1", "--t", "--expect-rev", "5"],
+        &["approve", "g1", "--expect", "1"],
+        &["approve", "g1", "--expect-r=5", "--plan"],
+        &["approve", "g1", "--d", "t1"],
+        &["approve", "g1", "--di", "t1"],
+        &[
+            "set",
+            "g1",
+            "t1",
+            "--pr",
+            "codex",
+            "--po=standard",
+            "--m",
+            "sol",
+        ],
+        &["set", "g1", "t1", "--p", "codex"],
+        &["verdict", "g1", "t1", "fixed", "--no", "ok"],
+    ];
+    for args in abbreviated {
+        cases.push(WriteCase::new(
+            &format!("abbreviation {args:?}"),
+            Some(tasks.as_bytes()),
+            args,
+            shared,
+        ));
+    }
 
     // Every writer that names a goal, on the logs a writer must refuse and on no log at all.
     let damaged = [line(GOAL), line("not json"), task("t1", "docs", "low")].concat();
@@ -1968,6 +2068,10 @@ fn write_cases(shared: &Path) -> Vec<WriteCase> {
             &["reconcile", "g1", "t1", "2", "--abandon"],
             &["reconcile", "g1", "t2", "2", "--run-id", "r9"],
             &["reconcile", "g1", "nobody", "1", "--abandon"],
+            &["reconcile", "g1", "t1", " ١\u{a0}", "--ab"],
+            &["reconcile", "g1", "t1", "\u{1c}1", "--abandon"],
+            &["reconcile", "g1", "t1", wide, "--run", "r9"],
+            &["reconcile", "g1", "t1", "1", "--r", "r9"],
         ],
     );
     let good = plan("good.md");
@@ -2249,9 +2353,16 @@ fn the_comparator_masks_only_the_stamps_of_appended_lines() {
 
 #[test]
 fn the_comparator_masks_a_goal_id_only_when_it_is_a_uuid4() {
+    let scratch = Scratch::new("mask-goal-id");
+    let dir = &scratch.0;
+    std::fs::create_dir_all(dir.join("puppets")).unwrap();
     let id = "0b9f2c3e-6a1d-4c7b-9e2f-5d8a7b6c4e31";
+    let seven = "0b9f2c3e-6a1d-7c7b-9e2f-5d8a7b6c4e31";
+    for name in [id, seven, "g1"] {
+        std::fs::write(dir.join("puppets").join(format!("{name}.jsonl")), b"{}\n").unwrap();
+    }
     assert!(is_goal_id(id));
-    assert_eq!(mask_new_stdout(&format!("{id}\n")), "<goal>\n");
+    assert_eq!(mask_new_stdout(&format!("{id}\n"), dir), "<goal>\n");
     for odd in [
         "g1\n".to_string(),
         id.to_string(),
@@ -2259,9 +2370,9 @@ fn the_comparator_masks_a_goal_id_only_when_it_is_a_uuid4() {
         format!("goal {id}\n"),
         format!("{}\n", id.to_uppercase()),
         // Version 7, which `uuid.uuid4()` never prints.
-        "0b9f2c3e-6a1d-7c7b-9e2f-5d8a7b6c4e31\n".to_string(),
+        format!("{seven}\n"),
     ] {
-        assert_eq!(mask_new_stdout(&odd), odd);
+        assert_eq!(mask_new_stdout(&odd, dir), odd);
     }
 }
 
@@ -3383,4 +3494,161 @@ fn the_comparator_masks_an_implementation_home_and_nothing_else() {
     );
     assert_eq!(mask_home(b"/tmp/case/p", dir), b"/tmp/case/p");
     assert_eq!(mask_home(b"", dir), b"");
+}
+
+/// Build ticket 207: `c` at the variant character is the Microsoft variant and `0` the NCS
+/// one, and `uuid.uuid4()` prints neither.
+#[test]
+fn goal_id_requires_the_uuid4_variant() {
+    assert!(!is_goal_id("0b9f2c3e-6a1d-4c7b-0e2f-5d8a7b6c4e31"));
+    for (variant, valid) in [
+        ('7', false),
+        ('8', true),
+        ('9', true),
+        ('a', true),
+        ('b', true),
+        ('c', false),
+        ('f', false),
+    ] {
+        let id = format!("0b9f2c3e-6a1d-4c7b-{variant}e2f-5d8a7b6c4e31");
+        assert_eq!(is_goal_id(&id), valid, "{id}");
+    }
+}
+
+/// Build ticket 207: a writer that prints one valid id and creates the log under another
+/// used to pass, because stdout and the file name were masked apart.
+#[test]
+fn new_stdout_must_name_the_created_log() {
+    let scratch = Scratch::new("new-id-link");
+    let (dir, seed) = (scratch.0.join("run"), scratch.0.join("seed"));
+    std::fs::create_dir_all(dir.join("puppets")).unwrap();
+    std::fs::create_dir_all(seed.join("puppets")).unwrap();
+    let printed = "0b9f2c3e-6a1d-4c7b-9e2f-5d8a7b6c4e31";
+    let created = "1b9f2c3e-6a1d-4c7b-9e2f-5d8a7b6c4e31";
+    std::fs::write(
+        dir.join("puppets").join(format!("{created}.jsonl")),
+        b"{}\n",
+    )
+    .unwrap();
+    assert!(!new_stdout_names_log(&format!("{printed}\n"), &dir));
+    assert!(new_stdout_names_log(&format!("{created}\n"), &dir));
+    // The id that names no log stays on stdout, and the log it did not name keeps its name.
+    let stdout = format!("{printed}\n");
+    assert_eq!(mask_new_stdout(&stdout, &dir), stdout);
+    let goal = new_goal_id(&stdout, &dir);
+    let names = |goal: Option<&str>| -> Vec<String> {
+        let files = written(&dir, &seed, goal);
+        files.into_iter().map(|(name, _)| name).collect()
+    };
+    assert_eq!(names(goal), [format!("{created}.jsonl")]);
+    assert_eq!(names(Some(created)), ["<goal>.jsonl"]);
+}
+
+fn python(code: &str) -> String {
+    let out = Command::new("python3")
+        .args(["-c", code])
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// Build ticket 207. `int()` under the `python3` on this machine, for every code point
+/// before a `7`, after one and alone: which it strips, which are digits and of what value.
+/// It is the check on the digit table and the whitespace rule in `src/py.rs`.
+#[test]
+fn the_int_parser_matches_python_on_every_code_point() {
+    let expected = python(
+        r#"
+def read(text):
+    try:
+        return str(int(text))
+    except ValueError:
+        return '-'
+for c in range(0x110000):
+    if 0xD800 <= c < 0xE000:
+        continue
+    ch = chr(c)
+    row = [read(ch + '7'), read('7' + ch), read(ch), read(ch + '_7'), read('7_' + ch)]
+    if any(cell != '-' for cell in row):
+        print('%x' % c, ' '.join(row))
+"#,
+    );
+    let read = |text: String| hydra_puppets::int_literal(&text).unwrap_or_else(|| "-".to_string());
+    let mut got = String::new();
+    for c in (0..0x110000).filter_map(char::from_u32) {
+        let row = [
+            read(format!("{c}7")),
+            read(format!("7{c}")),
+            read(format!("{c}")),
+            read(format!("{c}_7")),
+            read(format!("7_{c}")),
+        ];
+        if row.iter().any(|cell| cell != "-") {
+            got.push_str(&format!("{:x} {}\n", u32::from(c), row.join(" ")));
+        }
+    }
+    assert!(
+        expected.lines().count() > 700,
+        "python printed {expected:?}"
+    );
+    for (ours, theirs) in got.lines().zip(expected.lines()) {
+        assert_eq!(ours, theirs);
+    }
+    assert_eq!(got.lines().count(), expected.lines().count());
+}
+
+/// Build ticket 207. `math.lgamma` and `sheet.beta_lower` under the `python3` on this
+/// machine, bit for bit: `rank` orders agents by a quotient of the second, and a last bit
+/// swaps a near tie.
+#[test]
+fn the_ranking_arithmetic_matches_python() {
+    let bits = |f: f64| format!("{:016x}", f.to_bits());
+    let expected = python(
+        r#"
+import math, struct
+for k in range(1, 6001):
+    for x in (float(k), k / 2, k / 7):
+        print(struct.pack('>d', math.lgamma(x)).hex())
+"#,
+    );
+    let mut got = String::new();
+    for k in 1..=6000 {
+        let k = f64::from(k);
+        for x in [k, k / 2.0, k / 7.0] {
+            got.push_str(&bits(hydra_puppets::sheet::lgamma(x)));
+            got.push('\n');
+        }
+    }
+    let wrong = got
+        .lines()
+        .zip(expected.lines())
+        .filter(|(ours, theirs)| ours != theirs)
+        .count();
+    assert_eq!(wrong, 0, "lgamma differs on {wrong} of 18000 arguments");
+    assert_eq!(got.len(), expected.len());
+
+    let pairs: Vec<(i128, i128)> = (0..=24)
+        .flat_map(|a| (0..=24).map(move |b| (a, b)))
+        .chain([(120, 80), (300, 10), (2, 400)])
+        .collect();
+    let list: Vec<String> = pairs.iter().map(|(a, b)| format!("({a},{b})")).collect();
+    let code = format!(
+        "import struct, sys\nsys.path.insert(0, {:?})\nimport sheet\nfor a, b in [{}]:\n    print(struct.pack('>d', sheet.beta_lower(a, b)).hex())\n",
+        script().parent().unwrap().to_str().unwrap(),
+        list.join(",")
+    );
+    let expected = python(&code);
+    let expected: Vec<&str> = expected.lines().collect();
+    assert_eq!(expected.len(), pairs.len());
+    for ((a, b), theirs) in pairs.iter().zip(expected) {
+        let ours = hydra_puppets::sheet::beta_lower(*a, *b).unwrap();
+        assert_eq!(bits(ours), theirs, "beta_lower({a}, {b})");
+    }
 }

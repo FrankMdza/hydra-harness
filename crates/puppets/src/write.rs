@@ -211,7 +211,7 @@ pub struct Approve {
     pub launch: Option<PyStr>,
     pub diff: Option<PyStr>,
     pub degraded: Option<PyStr>,
-    pub expect_revision: Option<i128>,
+    pub expect_revision: Option<Value>,
     pub expect_run: Option<PyStr>,
     pub expect_plan: Option<PyStr>,
 }
@@ -298,13 +298,14 @@ fn duplicate(state: &GoalState, kind: &str, reference: &Value, run_id: &Value) -
 /// refusal. A degraded approval's ref is the missing provider; a diff's run is the task's
 /// current run id.
 fn prepare_approval(args: &Approve, state: &GoalState) -> Result<Prepared> {
-    if let Some(expected) = args.expect_revision
-        && expected != state.revision
+    if let Some(expected) = &args.expect_revision
+        && !py::eq(expected, &Value::Int(state.revision))
     {
         return refused(
             2,
             format!(
-                "expected revision {expected}, current revision {}",
+                "expected revision {}, current revision {}",
+                py::repr(expected),
                 state.revision
             ),
         );
@@ -825,12 +826,12 @@ pub fn reconcile(
     home: &Home,
     goal_id: &str,
     task: &PyStr,
-    attempt: i128,
+    attempt: &Value,
     run_id: Option<&PyStr>,
     err: &mut dyn Write,
 ) -> Result<i32> {
     let state = folded(home, goal_id)?;
-    let (task_value, attempt_value) = (Value::Str(task.clone()), Value::Int(attempt));
+    let (task_value, attempt_value) = (Value::Str(task.clone()), attempt.clone());
     let mut dangling = false;
     for intent in &state.dangling_intents {
         if py::eq(py::item(intent, "task")?, &task_value)
@@ -846,7 +847,7 @@ pub fn reconcile(
                 "no dangling intent for task ",
                 task.clone(),
                 " attempt ",
-                attempt.to_string()
+                py::repr(attempt)
             ),
         )?;
         return Ok(1);
@@ -1033,7 +1034,7 @@ mod tests {
     fn approve_checks_the_revision_it_expects_again_under_the_lock() {
         let args = Approve {
             table: true,
-            expect_revision: Some(1),
+            expect_revision: Some(Value::Int(1)),
             ..Approve::default()
         };
         let (code, err, log) = approve_behind_a_writer("expect", args);

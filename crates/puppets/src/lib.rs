@@ -14,7 +14,7 @@ pub mod models;
 pub mod panel;
 pub mod printable;
 mod py;
-pub use py::int_literal;
+pub use py::{int_literal, int_value};
 pub mod pysort;
 pub mod read;
 pub mod sheet;

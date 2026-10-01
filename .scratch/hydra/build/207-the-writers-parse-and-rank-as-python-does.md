@@ -1,7 +1,7 @@
 # 207 - The writers parse and rank as Python does
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 195
 
 ## What
@@ -44,3 +44,41 @@ before the change.
 
 - Each test failed before the change; fmt and clippy clean over the workspace; `cargo test --lib`
   and `cargo test -p hydra-puppets` pass with the differential test green.
+
+## Outcome
+
+Resolved 2026-10-01. Two runs: `01a0f654` (codex gpt-6.1-sol) probed Python and wrote the first
+tests, then stopped at the account's usage limit; the session applied its unfinished diff to
+master uncommitted, and `01a0f659-688b` (claude opus 5.5, 4.4M tokens) finished it. Diff applied
+to master as written.
+
+Built: `int_literal` follows `int()`: its own whitespace, which leaves out U+001C to U+001F,
+decimal digits of any script from a table generated from `python3`, the 4,300-digit cap, and no
+width limit below it; `--expect-revision` and `reconcile`'s attempt are a `Value` compared with
+`py::eq`. `sheet.rs` has `lgamma`, a port of CPython's `m_lgamma`, and `beta_lower` uses it with
+Python's compensated `sum()`. `is_goal_id` checks the variant character, and `new`'s printed id
+is tied to the log it created before either is masked.
+
+Measured on master: fmt and clippy clean over the workspace; `cargo test -p hydra-puppets` 62
+unit tests, 5 in the binary and 18 differential; the write test has 173 cases; the int parser is
+compared with `python3` on every code point; `lgamma` matches `python3` 3.14.7 bit for bit on
+18,000 arguments; the ignored real-log test passed; `cargo test --lib` 224 passed; the puppets
+Python suite passed.
+
+What the ticket assumed that is false:
+
+- Item 2 said to call the C library's `lgamma` through `libc`, as CPython does. CPython's
+  `math.lgamma` is its own, and the C library differs from it on 196 of the integers 1 to 399.
+  `lgamma` alone was not enough either: this machine's CPython fuses `a * b + c` inside it, and
+  `sum()` is compensated; both were needed for Python's floats.
+- Item 4: the writers already took abbreviations, since `infer_long_args` on `Cli` reaches every
+  subcommand. What was missing was the comparison: the test compared usage errors by stderr. A
+  probe of 232 prefixes found no flag argparse and clap resolve differently.
+- `beta_lower(0, 1)` raised in the Rust where Python returns `4.336808689942018e-19`. Fixed,
+  outside the ticket.
+
+Left open: the fused multiply-add branch is taken on `aarch64` only, and the plain branch has
+never run against a real `python3`; `the_ranking_arithmetic_matches_python` would catch it on
+such a machine. `m_lgamma` and the compensated sum were written from memory and checked by
+measurement. The digit table is Unicode 16.0.
+

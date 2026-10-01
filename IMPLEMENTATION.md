@@ -3325,12 +3325,14 @@ is the same `\udcXX`. The Python stays, and nothing in `integrations/puppets/` c
 
 A third test in `differential.rs` runs each of those commands under both implementations, each
 on its own copy of one starting home, and requires the same stdout, stderr and exit code and the
-same goal logs afterwards. It ran 150 commands on 2026-10-01. Every writer that names a goal
+same goal logs afterwards. It ran 173 commands on 2026-10-01. Every writer that names a goal
 runs on a damaged log, an unterminated one, an invalid UTF-8 tail, invalid UTF-8 inside a
 terminated line, and no log. Two things are normalized beyond the read side's: the `ts` of each
 line the command appended, only when the log still begins with its input and the line starts
 `{"seq":N,"ts":"<time>","event":"`, and the goal id `new` generates, only when it is a version 4
-UUID alone on stdout or as the log's name.
+UUID alone on stdout. Since build ticket 207 the comparator also checks the UUID's variant
+character, masks the id only when the log it names exists, and renames that log and no other, so
+a writer that prints one id and creates the log under another fails.
 
 Build ticket 195 added the commands that launch: `plan`, `plans`, `launch` and `wait` in
 `launch.rs`, and `review`, `review --no-open` and `choose --judge` in `panel.rs`. The binary now
@@ -3373,13 +3375,24 @@ Not ported, and where the Rust differs:
 - Not compared, because each takes thirty seconds or never ends: a `review` whose findings no
   Hunk session takes, a `review` outside Herdr with no `hunk` on `PATH`, and a panel run whose
   record never gets a `run_end`. Both implementations wait on that last one without a limit.
-- `beta_lower` sums the same binomial terms with `ln(k!)` as a sum of logs, where Python calls
-  `math.lgamma`. The two agree to rounding, not to the last bit. `rank` only compares the bound
-  with a threshold and sorts by it, and `assign` records the first row's provider and model.
+- Since build ticket 207 `beta_lower` returns the float `sheet.py` returns. `math.lgamma` is
+  CPython's own Lanczos sum and not the C library's `lgamma`, so `sheet.rs` ports `m_lgamma`
+  from `Modules/mathmodule.c`, and it ports the compensated addition `sum()` has done over floats
+  since Python 3.12. One part depends on how CPython was compiled: on arm64 clang fuses
+  `a * b + c` inside `m_lgamma` into one rounding, and `sheet.rs` does the same on `aarch64` and
+  not elsewhere. `the_ranking_arithmetic_matches_python` compares 18,000 `lgamma` arguments and
+  628 `beta_lower` pairs bit for bit with the `python3` on the machine, and has run on arm64
+  macOS only. A zero `a` is a value in both, where the Rust used to raise.
 - `ranked_assignment` does not return early when `sheet.py` is missing, since ticket 196 deletes
   that file. `priors.json` is still read from `integrations/puppets/`.
-- A usage error exits 2 in both, with clap's text in place of argparse's.
-- `--expect-revision` and `reconcile`'s attempt are `i128`; Python's `int` has no width.
+- A usage error exits 2 in both, with clap's text in place of argparse's. The write test
+  compares one by exit code and stdout.
+- Since build ticket 207 `--expect-revision` and `reconcile`'s attempt are read as `int()` reads
+  them and held at any width: the whitespace `int()` strips, which leaves out U+001C to U+001F,
+  the decimal digits of every script in Unicode 16.0, single underscores, and the 4300-digit
+  limit. `the_int_parser_matches_python_on_every_code_point` checks the table against `python3`.
+- A prefix of a long option resolves as argparse resolves it, on every command. A probe of all
+  232 prefixes of two characters or more found no flag the two treat differently.
 - A goal id that is not UTF-8 is a usage error in the Rust.
 - `choose <file>` names the plan by `Path.stem` as Python 3.14 computes it, where a trailing dot
   is a suffix. Python 3.13 and earlier keep the dot.
