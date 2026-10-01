@@ -67,6 +67,9 @@ def record():
         data = DATA + (DATA.replace(ID, ID[:-1]+'2') if name=='ambiguous' else '')
         cases.append(case('baseline', name, ['label-queue','queue.csv','--tickets=build','--dat=dataset.jsonl'], {'dataset.jsonl':data, 'build/200-one.md':body}))
     for name, text in [
+        ('blank-header', '\nrun_id,verdict\nx,fixed\n'),
+        ('missing-run-cell', 'verdict,run_id\nfixed\n'),
+        ('field-limit', 'run_id,verdict\n'+'a'*131073+',fixed\n'),
         ('missing-verdict', 'run_id\r\n'+ID+'\r\n'),
         ('missing-run', 'verdict\r\nfixed\r\n'),
         ('missing-run-refusal', 'verdict\r\nBAD\r\n'),
@@ -79,7 +82,7 @@ def record():
         ('extra-column', 'run_id,verdict\r\n'+ID+',fixed,extra\r\n'),
         ('strip-lower', 'run_id,verdict\r\n'+ID+', FIXED \r\n'),
     ]:
-        cases.append(case('baseline',name,['label-import','queue.csv','--dataset','dataset.jsonl','--home','home'],{'queue.csv':text,'dataset.jsonl':DATA}))
+        cases.append(case('baseline',name,['label-import','queue.csv','--dataset','dataset.jsonl','--home','home'],{'queue.csv':text,'dataset.jsonl':(json.dumps(dict(run_id='x',human_verdict=None))+'\n' if name=='blank-header' else DATA)}))
     for i, field in enumerate(['a,b','a"b','a\rb','a\nb','a\r\nb','é😀','']):
         buf=io.StringIO(newline=''); writer=csv.writer(buf);writer.writerow(['run_id','verdict','note']);writer.writerow([field,'fixed',field])
         cases.append(case('baseline',f'import-csv-{i}',['label-import','queue.csv','--dataset','dataset.jsonl'],{'queue.csv':buf.getvalue(),'dataset.jsonl':DATA}))

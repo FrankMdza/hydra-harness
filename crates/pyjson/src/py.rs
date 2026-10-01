@@ -377,6 +377,38 @@ pub fn int_value(text: &str) -> Option<Value> {
     })
 }
 
+/// Python's float string conversion, with Unicode decimal digits and underscores.
+pub fn float_literal(text: &str) -> Option<f64> {
+    let body = text.trim_matches(is_int_space);
+    let chars: Vec<char> = body.chars().collect();
+    let mut normalized = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '_' {
+            if i == 0
+                || i + 1 == chars.len()
+                || decimal_digit(chars[i - 1]).is_none()
+                || decimal_digit(chars[i + 1]).is_none()
+            {
+                return None;
+            }
+        } else {
+            normalized.push(decimal_digit(c).unwrap_or(c));
+        }
+    }
+    let lower = normalized.to_ascii_lowercase();
+    let unsigned = lower.strip_prefix(['+', '-']).unwrap_or(&lower);
+    if matches!(unsigned, "inf" | "infinity" | "nan") {
+        return lower.parse().ok();
+    }
+    if !lower
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '+' | '-' | '.' | 'e'))
+    {
+        return None;
+    }
+    lower.parse().ok()
+}
+
 /// `d[key]` on a value that must be a dict holding `key`.
 pub fn item<'a>(v: &'a Value, key: &str) -> Result<&'a Value> {
     match v {

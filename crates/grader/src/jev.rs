@@ -270,7 +270,11 @@ pub fn cmd_patches(labels_path: &Path, out_path: &Path) -> Result<String> {
         out_row.set("diff", Value::Str(PyStr::from(diff)));
         let line = hydra_pyjson::json::dumps_unicode_default(&Value::Dict(out_row));
         writeln!(file, "{line}")?;
-        counts[if label == "changed" { 0 } else { 1 }] += 1;
+        counts[match label.as_str() {
+            "changed" => 0,
+            "as_written" => 1,
+            _ => bail!("KeyError: '{}'", label),
+        }] += 1;
     }
     Ok(format!(
         "changed: {}\nas_written: {}\n",
@@ -282,17 +286,24 @@ fn label_yes(label: &str) -> f64 {
     if label == "changed" { 1.0 } else { 0.0 }
 }
 
-fn brier_score(pairs: &[(f64, f64)]) -> f64 {
+fn brier_score(pairs: &[(f64, f64)]) -> Result<f64> {
     if pairs.is_empty() {
-        return f64::NAN;
+        return Ok(f64::NAN);
     }
     let sum: f64 = fsum_like_python(
         &pairs
             .iter()
-            .map(|(p, y)| pow(p - y, 2.0))
-            .collect::<Vec<_>>(),
+            .map(|(p, y)| {
+                let delta = p - y;
+                let squared = pow(delta, 2.0);
+                if delta.is_finite() && squared.is_infinite() {
+                    bail!("OverflowError: numerical result out of range");
+                }
+                Ok(squared)
+            })
+            .collect::<Result<Vec<_>>>()?,
     );
-    sum / pairs.len() as f64
+    Ok(sum / pairs.len() as f64)
 }
 
 fn format_fixed6(x: f64) -> String {
@@ -387,6 +398,11 @@ fn reliability_bins(
 
 /// Score calibration for `needs_correction`.
 pub fn cmd_score(path: &Path) -> Result<String> {
+    cmd_score_with_output(path, &mut std::io::sink())
+}
+
+/// Preserve Python's printed prefix when score computation raises.
+pub fn cmd_score_with_output(path: &Path, stdout: &mut dyn Write) -> Result<String> {
     let text = read_text(path)?;
     let mut pairs = Vec::new();
     for line in text.lines() {
@@ -416,11 +432,8 @@ pub fn cmd_score(path: &Path) -> Result<String> {
             Value::Float(p) => *p,
             Value::Int(n) => *n as f64,
             Value::Bool(b) => f64::from(*b),
-            Value::Str(s) => s
-                .lossy()
-                .trim_matches(hydra_pyjson::py::is_space)
-                .parse::<f64>()
-                .map_err(|_| anyhow!("ValueError: could not convert string to float"))?,
+            Value::Str(s) => hydra_pyjson::py::float_literal(&s.lossy())
+                .ok_or_else(|| anyhow!("ValueError: could not convert string to float"))?,
             _ => bail!("TypeError: float() argument must be a string or a real number"),
         };
         pairs.push((p, label_yes(label.as_deref().unwrap())));
@@ -431,7 +444,14 @@ pub fn cmd_score(path: &Path) -> Result<String> {
     );
     out.push_str(&format!("question: {SCORE_QUESTION}\n"));
     out.push_str(&format!("n: {}\n", pairs.len()));
-    out.push_str(&format!("brier: {}\n", format_fixed6(brier_score(&pairs))));
+    let brier = match brier_score(&pairs) {
+        Ok(score) => score,
+        Err(err) => {
+            write!(stdout, "{out}")?;
+            return Err(err);
+        }
+    };
+    out.push_str(&format!("brier: {}\n", format_fixed6(brier)));
     out.push_str(&format!(
         "accuracy_at_0.5: {}\n",
         format_fixed6(accuracy_at_threshold(&pairs, 0.5))

@@ -207,7 +207,8 @@ fn csv_line(fields: &[&str]) -> String {
 }
 
 // csv's default dialect is permissive: doubled quotes, embedded line ends, blank
-// records skipped, and text after a closing quote retained.
+// data records skipped, and text after a closing quote retained. The first record,
+// including an empty one, supplies DictReader's headers.
 fn read_csv_rows(path: &Path) -> Result<Vec<Dict>> {
     let text = hydra_pyjson::file::read_text(path)?;
     let mut chars = text.chars().peekable();
@@ -217,17 +218,20 @@ fn read_csv_rows(path: &Path) -> Result<Vec<Dict>> {
     let mut quoted = false;
     let mut start = true;
     let mut active = false;
+    let mut field_size = 0usize;
     while let Some(c) = chars.next() {
         if quoted {
             if c == '"' {
                 if chars.peek() == Some(&'"') {
                     chars.next();
                     field.push('"');
+                    field_size += 1;
                 } else {
                     quoted = false;
                 }
             } else {
                 field.push(c);
+                field_size += 1;
             }
         } else {
             match c {
@@ -238,6 +242,7 @@ fn read_csv_rows(path: &Path) -> Result<Vec<Dict>> {
                 }
                 ',' => {
                     row.push(std::mem::take(&mut field));
+                    field_size = 0;
                     start = true;
                     active = true;
                 }
@@ -247,17 +252,24 @@ fn read_csv_rows(path: &Path) -> Result<Vec<Dict>> {
                     }
                     if active {
                         row.push(std::mem::take(&mut field));
+                        field_size = 0;
                         records.push(std::mem::take(&mut row));
+                    } else if records.is_empty() {
+                        records.push(Vec::new());
                     }
                     active = false;
                     start = true;
                 }
                 _ => {
                     field.push(c);
+                    field_size += 1;
                     start = false;
                     active = true;
                 }
             }
+        }
+        if field_size > 131_072 {
+            bail!("_csv.Error: field larger than field limit (131072)");
         }
     }
     if active {
@@ -306,7 +318,12 @@ pub fn label_import(csv_path: &Path, dataset_path: &Path, home: &Path) -> Result
         if row.get("run_id").is_none() {
             bail!("KeyError: 'run_id'");
         }
-        verdicts.set(run_id.as_str(), Value::Str(PyStr::from(verdict)));
+        let key = if matches!(row.get("run_id"), Some(Value::Null)) {
+            "null"
+        } else {
+            run_id.as_str()
+        };
+        verdicts.set(key, Value::Str(PyStr::from(verdict)));
     }
     let kept_path = home.join(TICKET_VERDICTS);
     let mut kept = records::read_json(&kept_path)?.unwrap_or(Value::Dict(Dict::new()));

@@ -2,6 +2,69 @@
   "version": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
   "cases": [
     {
+      "name": "float-underscores",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": \"0_0.8\"}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 1\nbrier: 0.040000\naccuracy_at_0.5: 1.000000\nrank_auc: nan  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 1.000000  (always answering the majority label scores 1.000000)\nbrier_of_the_base_rate: 0.000000\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=0 mean_pred=- fraction_yes=-\n  [0.4,0.6) n=0 mean_pred=- fraction_yes=-\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0] n=1 mean_pred=0.8000 fraction_yes=1.0000\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": \"0_0.8\"}}\n"
+      }
+    },
+    {
+      "name": "float-unicode",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": \"\\uff10.\\uff12\"}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 0,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 1\nbrier: 0.640000\naccuracy_at_0.5: 0.000000\nrank_auc: nan  (0.5 is chance; with few as_written rows it is loose)\nbase_rate_yes: 1.000000  (always answering the majority label scores 1.000000)\nbrier_of_the_base_rate: 0.000000\nreliability:\n  [0.0,0.2) n=0 mean_pred=- fraction_yes=-\n  [0.2,0.4) n=1 mean_pred=0.2000 fraction_yes=1.0000\n  [0.4,0.6) n=0 mean_pred=- fraction_yes=-\n  [0.6,0.8) n=0 mean_pred=- fraction_yes=-\n  [0.8,1.0) n=0 mean_pred=- fraction_yes=-\n",
+      "stderr": "",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": \"\\uff10.\\uff12\"}}\n"
+      }
+    },
+    {
+      "name": "brier-overflow",
+      "argv": [
+        "score",
+        "answers.jsonl"
+      ],
+      "seed": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 1e+200}}\n"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 1,
+      "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 1\n",
+      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 6, in <module>\n    raise SystemExit(m.main())\n                     ~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 410, in main\n    return cmd_score(args.answers)\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 367, in cmd_score\n    print(f\"brier: {brier_score(pairs):.6f}\")\n                    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 292, in brier_score\n    return sum((p - y) ** 2 for p, y in pairs) / len(pairs)\n           ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 292, in <genexpr>\n    return sum((p - y) ** 2 for p, y in pairs) / len(pairs)\n               ~~~~~~~~^^~~\nOverflowError: (34, 'Result too large')\n",
+      "left": {
+        "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 1e+200}}\n"
+      }
+    },
+    {
       "name": "normal",
       "argv": [
         "score",
@@ -221,6 +284,33 @@
         "b.patch": "diff\n+two\n",
         "labels.json": "[]",
         "out.jsonl": ""
+      }
+    },
+    {
+      "name": "patches-unknown",
+      "argv": [
+        "patches",
+        "labels.json",
+        "out.jsonl"
+      ],
+      "seed": {
+        "a.patch": "diff\n+caf\u00e9 \ud83d\ude00\r\n",
+        "b.patch": "diff\n+two\n",
+        "labels.json": "[{\"ticket\": 1, \"label\": \"unknown\", \"patch\": \"a.patch\"}]"
+      },
+      "git": [],
+      "env": {
+        "HYDRA_ROOT": "unused-root",
+        "HYDRA_GRADER_HOME": "home"
+      },
+      "code": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 6, in <module>\n    raise SystemExit(m.main())\n                     ~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 406, in main\n    return cmd_patches(args.labels, args.out)\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 203, in cmd_patches\n    counts[row[\"label\"]] += 1\n    ~~~~~~^^^^^^^^^^^^^^\nKeyError: 'unknown'\n",
+      "left": {
+        "a.patch": "diff\n+caf\u00e9 \ud83d\ude00\r\n",
+        "b.patch": "diff\n+two\n",
+        "labels.json": "[{\"ticket\": 1, \"label\": \"unknown\", \"patch\": \"a.patch\"}]",
+        "out.jsonl": "{\"ticket\": 1, \"label\": \"unknown\", \"diff\": \"diff\\n+caf\u00e9 \ud83d\ude00\\n\"}\n"
       }
     },
     {

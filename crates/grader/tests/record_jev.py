@@ -7,6 +7,9 @@ from record_queue import HERE, case
 def record():
     cases=[]
     for name, rows in [
+        ('float-underscores', [('changed','0_0.8')]),
+        ('float-unicode', [('changed','０.２')]),
+        ('brier-overflow', [('changed',1e200)]),
         ('normal', [('changed',.8),('as_written',.2),('changed',.6)]),
         ('nan', [('changed',float('nan')),('as_written',.3)]),
         ('ties', [('changed',.5),('as_written',.5)]),
@@ -17,7 +20,7 @@ def record():
         text=''.join(json.dumps(dict(label=l,answers={'needs_correction':p}))+'\n' for l,p in rows)
         cases.append(case('jev_probe',name,['score','answers.jsonl'],{'answers.jsonl':text}))
     cases.append(case('jev_probe','no-answers',['score','answers.jsonl'],{'answers.jsonl':'{"label":"changed"}\n{"label":"as_written","answers":{}}\n{"label":"other","answers":{"needs_correction":0.5}}\n'}))
-    for name, labels in [('patches-unicode',[{'ticket':1,'label':'changed','patch':'a.patch'},{'ticket':2,'label':'as_written','patch':'b.patch'}]),('patches-empty',[])]:
+    for name, labels in [('patches-unicode',[{'ticket':1,'label':'changed','patch':'a.patch'},{'ticket':2,'label':'as_written','patch':'b.patch'}]),('patches-empty',[]),('patches-unknown',[{'ticket':1,'label':'unknown','patch':'a.patch'}])]:
         cases.append(case('jev_probe',name,['patches','labels.json','out.jsonl'],{'a.patch':'diff\n+café 😀\r\n','b.patch':'diff\n+two\n','labels.json':json.dumps(labels)}))
     seed={'src/a.rs':'fn a() {}\n'}
     bodies={

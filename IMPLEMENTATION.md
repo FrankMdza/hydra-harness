@@ -3548,6 +3548,22 @@ Outcome matching use handwritten code, with no new dependencies. `jev.rs` implem
 `hydra-pyjson` gained `json::dumps_unicode_default` for `ensure_ascii=False` with Python's
 default separators. Text reads translate CRLF and CR as Python does, while CSV preserves them.
 
+Build ticket 223 corrected six edge cases in that port. CSV imports retain a blank first
+record as an empty header, serialize a missing run-id cell as the JSON key `null`, and
+enforce Python's 131,072-character field limit before writing either output. Patches write
+the row before rejecting an unknown label. Score uses `hydra-pyjson::py::float_literal` for
+Unicode decimal digits, underscores and Python's other float string forms, and rejects a
+finite Brier term whose square overflows. `jev_cli.rs` passes its output writer into score
+so the lines through `n` survive that error. Three queue cases and four Jev cases were
+recorded with CPython 3.14.7 and failed against the previous Rust before passing with these
+fixes. A further 37 float string conversions compare recorded results, including invalid
+underscore placements and whitespace.
+
+The other square sites were inspected without changes: baseline Brier inputs come from
+sigmoid, and its scaling squares log-transformed task lengths. Monitor scaling squares
+numeric prefix features, including externally supplied output-token values; large finite
+values can overflow there too. That potential difference remains outside build 223's edits.
+
 `tests/record_queue.py` and `record_jev.py` recorded 45 queue and 41 Jev command cases under
 CPython 3.14.7 into `queue.json` and `jev.json`, with an empty child environment and fixed git
 metadata. `tests/differential/queue.rs` and `jev.rs` replay 344 comparisons without Python.

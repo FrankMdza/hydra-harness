@@ -1,7 +1,7 @@
 # 223 - The verdict queue and the probe match Python on six odd inputs
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -45,3 +45,26 @@ No dependency is added. `IMPLEMENTATION.md`: the passage on build 217.
 
 - Each input failed before its fix; fmt and clippy clean over the workspace; `cargo test -p
   hydra-grader` and `-p hydra-pyjson` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f71b` (codex gpt-6.1-sol, `standard`, 2.8M tokens), diff read by
+the session and applied to master as written.
+
+Built: `queue.rs` keeps a blank first record as the header, writes a missing run id cell as the
+key `null`, and enforces the CSV module's 131,072-character field limit; `jev.rs` raises
+`KeyError` on a patch label it does not know, after writing the row, reads `needs_correction`
+through a new `hydra_pyjson::py::float_literal` (Python's `float()` on a string), and raises
+`OverflowError` in the Brier term, with stdout kept through `n`. Three queue cases and four probe
+cases recorded; each failed before its fix. `float_literal` has 37 forms recorded from `python3`.
+
+Measured on master: fmt and clippy clean over the workspace; `cargo test -p hydra-grader` 15 unit
+and 13 differential; `hydra-pyjson` 22, the float test and 3 probes. The session ran
+`label-import` with the real `baseline.py` and with the Rust on the blank-first-line CSV and on
+the row with no run id: same exit code, same stdout, same files (`{}` and `{"null":"fixed"}`).
+
+Left open: `baseline.rs` squares only sigmoid probabilities and log-transformed lengths, which
+cannot overflow; `monitor.rs` squares prefix features with no bound in its scaling, where Python
+would raise `OverflowError` and the Rust would give infinity. Not reproduced; for the cutover's
+review.
+

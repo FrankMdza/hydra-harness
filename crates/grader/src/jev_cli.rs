@@ -87,7 +87,7 @@ pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         "patches" => {
             crate::jev::cmd_patches(Path::new(&positionals[0]), Path::new(&positionals[1]))
         }
-        "score" => crate::jev::cmd_score(Path::new(&positionals[0])),
+        "score" => crate::jev::cmd_score_with_output(Path::new(&positionals[0]), stdout),
         _ => {
             let _ = writeln!(
                 stderr,
