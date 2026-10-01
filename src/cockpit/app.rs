@@ -153,6 +153,8 @@ pub struct App {
     detail_call: usize,
     /// While set, the selected call or line shows its whole input, build 206.
     reveal_until: Option<Instant>,
+    revealed_call: Option<CallLine>,
+    revealed_line: Option<String>,
     /// Whether the detail shows the raw record lines rather than the tool
     /// calls. `r` flips it, build ticket 178.
     raw_tail: bool,
@@ -232,6 +234,8 @@ impl App {
             detail_scroll: 0,
             detail_call: 0,
             reveal_until: None,
+            revealed_call: None,
+            revealed_line: None,
             raw_tail: false,
             opened: None,
             confirming: None,
@@ -677,7 +681,7 @@ impl App {
 
     fn key(&mut self, key: &KeyEvent) -> Effect {
         if self.reveal_until.is_some() {
-            self.reveal_until = None;
+            self.close_reveal();
             return Effect::None;
         }
         if self.confirming_step.is_some() {
@@ -777,8 +781,37 @@ impl App {
             self.message = Some("input hidden: secret_flag".to_string());
             return Effect::None;
         }
-        self.reveal_until = Some(Instant::now() + Duration::from_secs(REVEAL_SECONDS));
+        let Some(Opened::Run(id)) = &self.opened else {
+            return Effect::None;
+        };
+        if self.raw_tail {
+            self.revealed_line = self
+                .snapshot
+                .tail
+                .as_ref()
+                .filter(|(tail_id, _)| tail_id == id)
+                .and_then(|(_, lines)| lines.get(self.detail_call))
+                .cloned();
+        } else {
+            self.revealed_call = self
+                .snapshot
+                .calls
+                .as_ref()
+                .filter(|(calls_id, _)| calls_id == id)
+                .and_then(|(_, calls)| calls.get(self.detail_call))
+                .cloned();
+        }
+        if self.revealed_line.is_some() || self.revealed_call.is_some() {
+            self.reveal_until = Some(Instant::now() + Duration::from_secs(REVEAL_SECONDS));
+        }
         Effect::None
+    }
+
+    /// Close a reveal even when the host consumes the key or click itself.
+    pub fn close_reveal(&mut self) {
+        self.reveal_until = None;
+        self.revealed_call = None;
+        self.revealed_line = None;
     }
 
     fn call_or_tail_hidden(&self) -> bool {
@@ -810,7 +843,7 @@ impl App {
             .reveal_until
             .is_some_and(|until| Instant::now() >= until)
         {
-            self.reveal_until = None;
+            self.close_reveal();
         }
     }
 
@@ -951,7 +984,7 @@ impl App {
         self.opened = Some(opened);
         self.detail_scroll = 0;
         self.detail_call = 0;
-        self.reveal_until = None;
+        self.close_reveal();
         Effect::Refresh
     }
 
@@ -2213,6 +2246,15 @@ impl App {
                     None => lines.push(Line::raw("-")),
                 }
                 lines.push(Line::raw(""));
+                if self.reveal_until.is_some() {
+                    if let Some(call) = &self.revealed_call {
+                        lines.extend(wrap_call_reveal(call, width));
+                    }
+                    if let Some(line) = &self.revealed_line {
+                        lines.extend(wrap_plain(line, width.max(1)).into_iter().map(Line::raw));
+                    }
+                    return lines;
+                }
                 if self.raw_tail {
                     lines.push(Line::styled(
                         "last record lines (r shows tool calls, i reveals)",
@@ -2221,13 +2263,7 @@ impl App {
                     match &self.snapshot.tail {
                         Some((tail_id, tail)) if tail_id == id => {
                             for (index, line) in tail.iter().enumerate() {
-                                let reveal =
-                                    self.reveal_until.is_some() && index == self.detail_call;
-                                let text = if reveal {
-                                    line.clone()
-                                } else {
-                                    call_head::tail_line_shown(line, 400)
-                                };
+                                let text = call_head::tail_line_shown(line, 400);
                                 let style = self.detail_call_style(index);
                                 lines.push(Line::styled(text, style));
                             }
@@ -2246,8 +2282,7 @@ impl App {
                             lines.push(Line::raw("none yet"));
                         }
                         for (index, call) in calls.iter().enumerate() {
-                            let reveal = self.reveal_until.is_some() && index == self.detail_call;
-                            lines.extend(self.call_rows(call, width, reveal, index));
+                            lines.extend(self.call_rows(call, width, index));
                         }
                     }
                     _ => lines.push(Line::raw("reading")),
@@ -2265,16 +2300,7 @@ impl App {
         }
     }
 
-    fn call_rows(
-        &self,
-        call: &CallLine,
-        width: usize,
-        reveal: bool,
-        index: usize,
-    ) -> Vec<Line<'static>> {
-        if reveal {
-            return wrap_call_reveal(call, width);
-        }
+    fn call_rows(&self, call: &CallLine, width: usize, index: usize) -> Vec<Line<'static>> {
         vec![call_line(
             call,
             &call.input,

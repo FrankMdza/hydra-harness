@@ -118,9 +118,11 @@ impl Host {
                 return self.answer(key);
             }
             if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                self.app.close_reveal();
                 return self.quit();
             }
             if key.code == KeyCode::F(2) {
+                self.app.close_reveal();
                 self.side = match self.side {
                     Side::Chat => Side::Cockpit,
                     Side::Cockpit => Side::Chat,
@@ -137,6 +139,7 @@ impl Host {
                         .chat_area
                         .contains(Position::new(mouse.column, mouse.row))
                 {
+                    self.app.close_reveal();
                     self.side = Side::Chat;
                     return Effect::None;
                 }

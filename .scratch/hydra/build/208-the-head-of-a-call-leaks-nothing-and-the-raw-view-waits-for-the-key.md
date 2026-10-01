@@ -1,7 +1,7 @@
 # 208 - The head of a call leaks nothing, and the raw view waits for the key
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -57,3 +57,26 @@ shape.
 
 - Each test failed before the change; fmt, clippy over the workspace, `cargo test --lib` and
   `cargo test --test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Two runs: `01a0f650` (codex gpt-6.1-sol) wrote the tests and most of
+`call_head.rs` and stopped at the account's usage limit; the session applied its unfinished diff
+to master uncommitted, and `01a0f659-191b` (cursor-agent composer-2.5, 0.7M tokens) finished it
+from there. Diff applied to master as written.
+
+Built: a row shows a path and never a pattern; each program of the list has its own subcommands
+and any other second word is `...`; a program token that held a quote, a space, `$`, a backtick,
+a bracket, `<`, `>`, `=` or `!` is `...`; a flag after `sudo`, `env` or `time` leaves the row at
+`env ...`; agy's `CommandLine` is a command key; the raw view shows `seq`, `ts`, the type, the
+tool, the head and the line's length, parses before it cuts, and says `not JSON, <n> bytes` for
+the rest; `i` keeps the text it revealed, so a snapshot that slides the list does not change
+what is shown; `F2`, `Ctrl-q` and a click on the chat close the reveal.
+
+Measured on master: fmt and clippy clean on the cockpit's files, `cargo test --test cockpit` 109
+passed, `cargo test --lib` 224 passed. Neither run saw the eight `ticket208_*` tests fail before
+the change; the session reverted `src/cockpit/` with the tests in place and all eight failed,
+then restored it.
+
+Known and left: the program's own base name shows, so `./deploy-s3cret` shows `deploy-s3cret`.
+

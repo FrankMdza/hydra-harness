@@ -2705,8 +2705,9 @@ fn r_toggles_the_detail_between_tool_calls_and_raw_lines() {
 
     app.handle(&key(KeyCode::Char('r')));
     let text = screen_text(&draw(&mut app));
-    assert!(text.contains("frame-line"), "{text}");
+    assert!(text.contains("bytes"), "{text}");
     assert!(text.contains("last record lines"), "{text}");
+    assert!(!text.contains("frame-line"), "{text}");
     assert!(!text.contains("echo x >> /r"), "{text}");
 
     app.handle(&key(KeyCode::Char('r')));
@@ -4113,6 +4114,173 @@ use hydra::cockpit::call_head::shell_head;
 use hydra::cockpit::snapshot::REVEAL_SECONDS;
 
 #[test]
+fn ticket208_pattern_is_free_text() {
+    let (head, _) =
+        hydra::cockpit::call_head::call_inputs("Grep", &json!({"pattern":"sk-ant-api03-s3cret"}));
+    assert_eq!(head, "Grep ...");
+}
+
+#[test]
+fn ticket208_subcommands_are_per_program() {
+    for command in [
+        "aws s3cret",
+        "docker hunter2",
+        "git hunter2",
+        "git test",
+        "cargo push",
+    ] {
+        let program = command.split_whitespace().next().unwrap();
+        assert_eq!(shell_head(command), format!("{program} ..."));
+    }
+}
+
+#[test]
+fn ticket208_program_token_must_be_plain() {
+    for command in [
+        r#""echo s3cret""#,
+        r#""cat .env""#,
+        "$(s3cret)",
+        "$(cat<.env)",
+        "ec' ho'",
+        "foo!",
+        "foo{bar}",
+        "foo`bar`",
+        "foo>bar",
+    ] {
+        assert_eq!(shell_head(command), "...", "{command}");
+    }
+}
+
+#[test]
+fn ticket208_wrapper_flags_hide_the_rest() {
+    for command in [
+        "sudo -u root systemctl restart nginx",
+        "env -i cat .env",
+        "time -p cat .env",
+    ] {
+        assert_eq!(shell_head(command), "env ...");
+    }
+}
+
+#[test]
+fn ticket208_agy_commandline_is_a_command() {
+    let layout = scratch("208-agy");
+    let run = "01a0f208-0000-7000-8000-000000000208";
+    let frame = json!({"event":"step_update", "step_update":{"step_index":1, "step_type":"tool", "state":"ACTIVE", "tool_info":{"name":"run_command", "parameters":{"CommandLine":"cat .env"}}}});
+    write_live_frames(&layout, run, "agy", None, noon(), &[frame]);
+    let calls = calls_in(&layout, run);
+    assert_eq!(calls[0].input, "cat ...");
+    assert_eq!(calls[0].full_input, "cat .env");
+    let raw = json!({"seq":1,"raw":{"type":"step_update","tool_info":{"name":"run_command","parameters":{"CommandLine":"cat .env"}}}}).to_string();
+    let shown = hydra::cockpit::call_head::tail_line_shown(&raw, 400);
+    assert!(shown.contains("cat ..."), "{shown}");
+    assert!(!shown.contains(".env"));
+}
+
+#[test]
+fn ticket208_raw_lines_only_show_metadata() {
+    let layout = scratch("208-tail");
+    let path = layout.root().join("tail.jsonl");
+    let mut records = Vec::new();
+    for field in [
+        "content",
+        "output",
+        "text",
+        "aggregated_output",
+        "streamContent",
+        "script",
+    ] {
+        records.push(json!({"seq":7,"ts":"2026-10-01T00:00:00Z","raw":{"type":"tool_result", field:"s3cret"}}).to_string());
+    }
+    records.push(
+        json!({"seq":8,"raw":{"type":"tool_result","output":format!("{}s3cret", "x".repeat(500))}})
+            .to_string(),
+    );
+    records.push("s3cret is not json".into());
+    std::fs::write(&path, records.join("\n")).unwrap();
+    let lines = hydra::cockpit::snapshot::tail(&path, 20).unwrap();
+    for (line, original) in lines.iter().zip(&records) {
+        assert_eq!(line, original, "retain full line for explicit reveal");
+        let shown = hydra::cockpit::call_head::tail_line_shown(line, 400);
+        assert!(!shown.contains("s3cret"), "{shown}");
+        assert!(
+            shown.contains(&format!("{} bytes", original.len())),
+            "{shown}"
+        );
+    }
+    assert_eq!(
+        hydra::cockpit::call_head::tail_line_shown(records.last().unwrap(), 400),
+        "not JSON, 18 bytes"
+    );
+}
+
+fn ticket208_app(raw: bool) -> App {
+    let run = "01a0e002-0000-7000-8000-000000000002";
+    let mut snapshot = fixed_snapshot();
+    let mut call = call_line("Bash", "echo ...", None);
+    call.full_input = "echo original_secret".into();
+    snapshot.calls = Some((run.into(), vec![call]));
+    snapshot.tail = Some((
+        run.into(),
+        vec![json!({"raw":{"output":"original_secret"}}).to_string()],
+    ));
+    let mut app = App::new(scratch("208-app"), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    app.opened = Some(Opened::Run(run.into()));
+    app.focus = Focus::Detail;
+    if raw {
+        app.handle(&key(KeyCode::Char('r')));
+    }
+    app.handle(&key(KeyCode::Char('i')));
+    app
+}
+
+#[test]
+fn ticket208_reveal_keeps_selected_text_across_snapshots() {
+    for raw in [false, true] {
+        let mut app = ticket208_app(raw);
+        let run = "01a0e002-0000-7000-8000-000000000002";
+        let mut snapshot = fixed_snapshot();
+        let mut call = call_line("Bash", "echo ...", None);
+        call.full_input = "echo replacement_secret".into();
+        snapshot.calls = Some((run.into(), vec![call]));
+        snapshot.tail = Some((
+            run.into(),
+            vec![json!({"raw":{"output":"replacement_secret"}}).to_string()],
+        ));
+        app.set_snapshot(snapshot);
+        let mut buf = Buffer::empty(AREA);
+        app.draw(AREA, &mut buf);
+        let text = screen_text(&buf);
+        assert!(text.contains("original_secret"), "{text}");
+        assert!(!text.contains("replacement_secret"), "{text}");
+    }
+}
+
+#[test]
+fn ticket208_host_exits_close_reveal() {
+    for exit in [
+        key(KeyCode::F(2)),
+        Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL)),
+        click(1, 1),
+    ] {
+        let layout = scratch("208-host");
+        let mut host = stub(&layout, "exit 0", "208", WIDE);
+        host.app = ticket208_app(false);
+        host.side = Side::Cockpit;
+        let mut buf = Buffer::empty(WIDE);
+        host.draw(WIDE, &mut buf);
+        let mut buf = Buffer::empty(AREA);
+        host.app.draw(AREA, &mut buf);
+        assert!(screen_text(&buf).contains("original_secret"));
+        host.handle(&exit);
+        let mut buf = Buffer::empty(AREA);
+        host.app.draw(AREA, &mut buf);
+        assert!(!screen_text(&buf).contains("original_secret"));
+    }
+}
+
+#[test]
 fn shell_heads_match_the_ticket_examples() {
     let cases = [
         ("curl", "curl"),
@@ -4196,7 +4364,7 @@ fn non_shell_tools_show_name_and_path_or_pattern() {
         .into_iter()
         .map(|c| c.input)
         .collect::<Vec<_>>();
-    assert_eq!(inputs, ["Read src/x.rs", "Grep foo", "mcp_unknown ..."]);
+    assert_eq!(inputs, ["Read src/x.rs", "Grep ...", "mcp_unknown ..."]);
 }
 
 #[test]

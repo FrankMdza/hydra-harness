@@ -3447,17 +3447,23 @@ reveal key. By default a shell row shows the program's base name, with `env ...`
 assignments or `sudo`, `env` or `time` were skipped, and ` ...` when anything was left out,
 including the rest of a pipeline or `&&` list. A second word shows only where it cannot be an
 argument: a bare subcommand after one of a fixed list of programs (`git`, `cargo`, `docker`,
-`npm`, `kubectl`, `aws`, `gh`, `hydra` and the like, `SUBCOMMAND_PROGRAMS` in
+`npm`, `kubectl`, `aws`, `gh`, `hydra` and the like, per-program lists in
 `src/cockpit/call_head.rs`), or `-c` and `-lc` after a shell. So `echo hunter2` is `echo ...`.
-A call that carries `command` or `cmd` is read as a shell call whatever its tool is named. Other
-tools show the tool name and a `file_path`, `path`, `notebook_path` or `pattern`; a URL, a query,
-a prompt or a description stays behind the key, and the row reads `<tool> ...`. `i` on the selected call or raw line shows the whole input
-unmasked and wrapped; the next key closes it, and it closes after ten seconds
-([`REVEAL_SECONDS`](src/cockpit/call_head.rs)). A new snapshot does not close or extend it. A call
-on a line whose envelope carries a `secret_flag` still reads `input hidden: secret_flag`, and `i`
-says so. The row is still cut by display width through `unicode-width`, `~` inside it, never
-splitting a wide character. The raw view behind `r` still hides `secret_flag` lines and shows each
-line's tool input as its head for the first 400 characters, with a cut marker for longer lines.
+A call that carries `command`, `cmd` or agy's `CommandLine` is read as a shell call whatever its
+tool is named. Other tools show the tool name and a `file_path`, `path` or `notebook_path` only; a
+`pattern`, URL, query, prompt or description stays behind the key, and the row reads `<tool> ...`.
+`i` on the selected call or raw line shows the whole input unmasked and wrapped; the next key
+closes it, and it closes after ten seconds ([`REVEAL_SECONDS`](src/cockpit/call_head.rs)). `F2`,
+`Ctrl-q` and a click on the chat close it too. The reveal keeps the text that was open when the
+snapshot slid; a new snapshot does not close or extend it. A call on a line whose envelope carries
+a `secret_flag` still reads `input hidden: secret_flag`, and `i` says so. The row is still cut by
+display width through `unicode-width`, `~` inside it, never splitting a wide character. The raw view
+behind `r` still hides `secret_flag` lines; by default each line shows only `seq`, `ts`, record or
+frame `type`, tool name when there is one, call head when the frame is a call, and byte length,
+with no tool-result payload fields on screen. `i` on the selected line shows the full line, cut to
+the pane. Lines over 400 characters are parsed before cutting; non-JSON lines read `not JSON, <n>
+bytes`. Known and left as it is: a program's own base name shows (`./deploy-s3cret` shows
+`deploy-s3cret`), and a program name cannot be told from a secret by its shape alone.
 
 **Done and the run's end, build ticket 166.** A row carries the `done` of its task event, and a
 later `task` event for the same id replaces it, `None` included, as `fold` does. The table's

@@ -8,6 +8,7 @@ pub const REVEAL_SECONDS: u64 = 10;
 const INPUT_KEYS: &[&str] = &[
     "command",
     "cmd",
+    "CommandLine",
     "file_path",
     "path",
     "notebook_path",
@@ -22,38 +23,255 @@ const INPUT_KEYS: &[&str] = &[
 const SHELL_TOOLS: &[&str] = &["Bash", "Shell", "shell", "run_terminal_cmd"];
 
 /// A call that carries one of these is a shell call whatever its tool is named.
-const COMMAND_KEYS: &[&str] = &["command", "cmd"];
+const COMMAND_KEYS: &[&str] = &["command", "cmd", "CommandLine"];
 
 /// The arguments a row may show as they are: where a tool reads or what it looks for.
-const SHOWN_KEYS: &[&str] = &["file_path", "path", "notebook_path", "pattern"];
+const SHOWN_KEYS: &[&str] = &["file_path", "path", "notebook_path"];
 
 /// Programs whose second word is a subcommand. For any other program the second word is an
 /// argument, and an argument can be a secret (`echo hunter2`), so it stays behind the key.
-const SUBCOMMAND_PROGRAMS: &[&str] = &[
-    "git",
-    "cargo",
-    "docker",
-    "npm",
-    "pnpm",
-    "yarn",
-    "kubectl",
-    "aws",
-    "gh",
-    "hydra",
-    "go",
-    "brew",
-    "pip",
-    "pip3",
-    "uv",
-    "rustup",
-    "systemctl",
-    "apt",
-    "apt-get",
-    "terraform",
-    "gcloud",
-    "az",
-    "herdr",
-];
+// Deliberately short lists, not aliases or user-defined commands. Unknown words stay hidden.
+fn subcommands(program: &str) -> &'static [&'static str] {
+    match program {
+        "git" => &[
+            "add", "commit", "push", "pull", "clone", "status", "diff", "log", "checkout",
+            "switch", "branch", "merge", "rebase", "fetch", "stash", "apply", "worktree", "show",
+            "reset", "restore", "tag", "remote", "init",
+        ],
+        "cargo" => &[
+            "build", "check", "test", "run", "fmt", "clippy", "doc", "clean", "new", "init", "add",
+            "remove", "update", "fetch", "metadata", "tree", "bench", "publish", "install",
+        ],
+        "docker" => &[
+            "run",
+            "exec",
+            "ps",
+            "build",
+            "pull",
+            "push",
+            "images",
+            "compose",
+            "container",
+            "image",
+            "network",
+            "volume",
+            "inspect",
+            "logs",
+            "start",
+            "stop",
+            "rm",
+        ],
+        "npm" => &[
+            "install",
+            "ci",
+            "run",
+            "test",
+            "build",
+            "init",
+            "audit",
+            "publish",
+            "uninstall",
+            "update",
+            "exec",
+            "outdated",
+            "list",
+            "ls",
+            "cache",
+            "config",
+        ],
+        "pnpm" => &[
+            "add", "install", "remove", "update", "run", "test", "exec", "dlx", "publish", "init",
+            "list", "audit",
+        ],
+        "yarn" => &[
+            "add", "install", "remove", "run", "test", "init", "publish", "upgrade", "info",
+            "list", "cache", "config",
+        ],
+        "kubectl" => &[
+            "get",
+            "describe",
+            "apply",
+            "delete",
+            "create",
+            "edit",
+            "logs",
+            "exec",
+            "config",
+            "rollout",
+            "scale",
+            "port-forward",
+            "diff",
+            "patch",
+            "version",
+        ],
+        "aws" => &[
+            "configure",
+            "s3",
+            "s3api",
+            "ec2",
+            "ecs",
+            "eks",
+            "iam",
+            "sts",
+            "lambda",
+            "cloudformation",
+            "logs",
+            "help",
+        ],
+        "gh" => &[
+            "auth",
+            "pr",
+            "issue",
+            "repo",
+            "run",
+            "workflow",
+            "release",
+            "api",
+            "gist",
+            "search",
+            "status",
+            "project",
+            "extension",
+        ],
+        "hydra" => &["run", "show", "status", "logs", "doctor", "reap", "cockpit"],
+        "go" => &[
+            "build", "test", "run", "fmt", "vet", "mod", "get", "install", "clean", "env",
+            "version", "list", "work", "generate",
+        ],
+        "brew" => &[
+            "install",
+            "uninstall",
+            "update",
+            "upgrade",
+            "list",
+            "info",
+            "search",
+            "doctor",
+            "config",
+            "help",
+            "create",
+            "edit",
+        ],
+        "pip" | "pip3" => &[
+            "install",
+            "uninstall",
+            "download",
+            "freeze",
+            "list",
+            "show",
+            "check",
+            "config",
+            "cache",
+            "wheel",
+            "help",
+        ],
+        "uv" => &[
+            "run", "init", "add", "remove", "sync", "lock", "tree", "tool", "python", "pip",
+            "venv", "build", "publish", "cache", "help",
+        ],
+        "rustup" => &[
+            "install",
+            "uninstall",
+            "toolchain",
+            "default",
+            "show",
+            "update",
+            "check",
+            "target",
+            "component",
+            "override",
+            "run",
+            "which",
+            "doc",
+            "self",
+            "set",
+            "help",
+        ],
+        "systemctl" => &[
+            "start",
+            "stop",
+            "restart",
+            "reload",
+            "status",
+            "enable",
+            "disable",
+            "list-units",
+            "daemon-reload",
+            "is-active",
+            "is-enabled",
+        ],
+        "apt" | "apt-get" => &[
+            "update",
+            "upgrade",
+            "install",
+            "remove",
+            "purge",
+            "autoremove",
+            "clean",
+            "autoclean",
+            "check",
+            "download",
+        ],
+        "terraform" => &[
+            "init",
+            "plan",
+            "apply",
+            "destroy",
+            "fmt",
+            "validate",
+            "show",
+            "output",
+            "state",
+            "import",
+            "workspace",
+            "version",
+        ],
+        "gcloud" => &[
+            "auth",
+            "config",
+            "compute",
+            "container",
+            "run",
+            "storage",
+            "projects",
+            "iam",
+            "functions",
+            "version",
+            "help",
+        ],
+        "az" => &[
+            "login",
+            "logout",
+            "account",
+            "group",
+            "vm",
+            "aks",
+            "storage",
+            "network",
+            "keyvault",
+            "deployment",
+            "version",
+        ],
+        "herdr" => &[
+            "session",
+            "completion",
+            "update",
+            "channel",
+            "server",
+            "api",
+            "config",
+            "workspace",
+            "worktree",
+            "tab",
+            "notification",
+            "agent",
+            "pane",
+            "integration",
+            "status",
+        ],
+        _ => &[],
+    }
+}
 
 /// The text a call row shows and the full text the reveal key may open.
 pub fn call_inputs(name: &str, arguments: &Value) -> (String, String) {
@@ -113,8 +331,21 @@ pub fn shell_head(command: &str) -> String {
         }
         return head;
     }
-    let program = program_base(&segment[i]);
-    let takes_subcommand = SUBCOMMAND_PROGRAMS.contains(&program.as_str());
+    let token = &segment[i];
+    if skipped && token.starts_with('-') {
+        return "env ...".into();
+    }
+    if token.chars().any(|c| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '\'' | '"' | '$' | '`' | '(' | ')' | '<' | '>' | '{' | '}' | '=' | '!'
+            )
+    }) {
+        return if skipped { "env ..." } else { "..." }.into();
+    }
+    let program = program_base(token);
+    let allowed = subcommands(&program);
     parts.push(program);
     i += 1;
     let mut truncated = piped;
@@ -124,7 +355,9 @@ pub fn shell_head(command: &str) -> String {
             parts.last().map(String::as_str),
             Some("bash" | "sh" | "zsh" | "dash" | "fish")
         );
-        if (takes_subcommand && is_bare_subcommand(tok)) || (shell && is_script_flag(tok)) {
+        if (allowed.contains(&tok.as_str()) && is_bare_subcommand(tok))
+            || (shell && is_script_flag(tok))
+        {
             parts.push(tok.clone());
             i += 1;
         } else {
@@ -264,27 +497,27 @@ fn shell_segments(command: &str) -> Vec<Vec<String>> {
         if in_single {
             if ch == '\'' {
                 in_single = false;
-            } else {
-                word.push(ch);
             }
+            word.push(ch);
             i += 1;
             continue;
         }
         if in_double {
             if ch == '"' {
                 in_double = false;
-            } else {
-                word.push(ch);
             }
+            word.push(ch);
             i += 1;
             continue;
         }
         if ch == '\'' {
+            word.push(ch);
             in_single = true;
             i += 1;
             continue;
         }
         if ch == '"' {
+            word.push(ch);
             in_double = true;
             i += 1;
             continue;
@@ -323,46 +556,91 @@ fn shell_segments(command: &str) -> Vec<Vec<String>> {
     segments
 }
 
-/// A raw record line with tool inputs shortened the same way as the call rows.
+/// A raw record line exposes metadata only until the explicit reveal key.
 pub fn tail_line_shown(line: &str, max_chars: usize) -> String {
-    if line.contains("\"secret_flag\":[") {
-        return "[line hidden: secret_flag]".to_string();
+    if line.starts_with("[line hidden:") {
+        return line.into();
     }
-    let truncated = line.chars().nth(max_chars).is_some();
-    let shown = abbreviate_line(line);
+    let Ok(value) = serde_json::from_str::<Value>(line) else {
+        return format!("not JSON, {} bytes", line.len());
+    };
+    if value["secret_flag"].is_array() {
+        return "[line hidden: secret_flag]".into();
+    }
+    let mut metadata = serde_json::Map::new();
+    if let Some(seq) = value["seq"].as_u64() {
+        metadata.insert("seq".into(), seq.into());
+    }
+    if let Some(ts) = value["ts"].as_str()
+        && chrono::DateTime::parse_from_rfc3339(ts).is_ok()
+    {
+        metadata.insert("ts".into(), ts.into());
+    }
+    let frame = value.get("raw").unwrap_or(&value);
+    let kind = value
+        .get("hydra")
+        .and_then(|v| v.get("type"))
+        .or_else(|| frame.get("type"))
+        .or_else(|| frame.get("event"));
+    if let Some(kind) = kind.and_then(Value::as_str) {
+        metadata.insert("type".into(), kind.into());
+    }
+    if let Some((name, arguments)) = frame_call(frame) {
+        if !name.is_empty() {
+            metadata.insert("tool".into(), name.into());
+        }
+        metadata.insert("head".into(), call_inputs(name, &arguments).0.into());
+    }
+    let shown = format!("{}, {} bytes", Value::Object(metadata), line.len());
     let mut cut: String = shown.chars().take(max_chars).collect();
-    if cut.len() < shown.len() || truncated {
+    if cut.len() < shown.len() {
         cut.push_str(" [cut]");
     }
     cut
 }
 
-fn abbreviate_line(line: &str) -> String {
-    let Ok(mut value) = serde_json::from_str::<Value>(line) else {
-        return line.to_string();
-    };
-    abbreviate_value(&mut value);
-    value.to_string()
-}
-
-fn abbreviate_value(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                if INPUT_KEYS.contains(&key.as_str()) {
-                    if let Value::String(text) = child {
-                        *text = shell_head(text);
-                    }
-                } else {
-                    abbreviate_value(child);
-                }
+// Walk only the adapters' structural call positions, never tool result payloads.
+fn frame_call(frame: &Value) -> Option<(&str, Value)> {
+    if let Some(command) = COMMAND_KEYS.iter().find_map(|key| frame.get(key)) {
+        return Some(("", serde_json::json!({"command": command})));
+    }
+    if let Some(blocks) = frame["message"]["content"].as_array() {
+        for block in blocks {
+            if block["type"] == "tool_use" {
+                return Some((block["name"].as_str().unwrap_or(""), block["input"].clone()));
             }
         }
-        Value::Array(items) => {
-            for item in items {
-                abbreviate_value(item);
-            }
+    }
+    let step = frame.get("step_update").unwrap_or(frame);
+    if step["step_type"] == "tool" || step.get("tool_info").is_some() {
+        let info = &step["tool_info"];
+        let name = step["tool_name"]
+            .as_str()
+            .or_else(|| info["name"].as_str())
+            .unwrap_or("");
+        return Some((name, info["parameters"].clone()));
+    }
+    let item = &frame["item"];
+    match item["type"].as_str() {
+        Some("command_execution") => {
+            return Some(("Bash", serde_json::json!({"command": item["command"]})));
+        }
+        Some("mcp_tool_call") => {
+            return Some((
+                item["tool"].as_str().unwrap_or(""),
+                item["arguments"].clone(),
+            ));
         }
         _ => {}
     }
+    if frame["type"] == "tool_call"
+        && let Some(calls) = frame["tool_call"].as_object()
+    {
+        for (name, call) in calls {
+            if call.get("args").is_some() {
+                return Some((name.as_str(), call["args"].clone()));
+            }
+        }
+    }
+    None
 }

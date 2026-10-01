@@ -37,7 +37,6 @@ pub const TAIL_LINES: usize = 20;
 /// How many tool calls the detail shows, the last ones.
 pub const DETAIL_CALLS: usize = 15;
 /// Where a long record line is cut in the detail.
-const TAIL_LINE_CHARS: usize = 400;
 /// How far back from the end the tail looks for its lines.
 const TAIL_WINDOW: u64 = 256 * 1024;
 /// How far back the header's tokens per minute look.
@@ -877,12 +876,7 @@ pub fn tail(path: &Path, n: usize) -> Result<Vec<String>> {
             if line.contains("\"secret_flag\":[") {
                 return "[line hidden: secret_flag]".to_string();
             }
-            let truncated = line.chars().nth(TAIL_LINE_CHARS).is_some();
-            let mut cut: String = line.chars().take(TAIL_LINE_CHARS).collect();
-            if truncated {
-                cut.push_str(" [cut]");
-            }
-            cut
+            line.to_string()
         })
         .collect())
 }
