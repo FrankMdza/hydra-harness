@@ -72,3 +72,47 @@ Map ticket 94, "plan 217" of `.scratch/hydra/research/94-the-grader-port-plan.md
 - fmt and clippy over the workspace; `cargo test --workspace`; the remaining Python suites pass;
   outside `.scratch/`, `docs/` and the fixtures, `grader.py` is named only where a sentence says
   it was deleted.
+
+## Built and held, 2026-10-01
+
+Run `01a0f74f-70c5` (claude opus 5.5, `standard`, 22.0M tokens) did the cutover in its worktree.
+The diff is in the human's `builds/diff-220.patch` (65 files, 2,525 lines added, 5,996 removed)
+and the worktree is kept. **It is not on master**: the launchd job installed on this machine
+runs `/usr/bin/python3 integrations/grader/grader.py once` from this checkout every fifteen
+minutes, and the diff deletes that file. Master takes it after the human has replaced the job
+with the two commands in `integrations/grader/README.md`, section "Schedule" (in the diff), or
+has told the session to. The ticket stays `claimed` until then.
+
+What the diff does: item 0 whole (one data-directory rule shared by both binaries, in
+`hydra-pyjson`; one `argparse` reader; the helper error names its two variables; the scratch
+directory falls back as `tempfile` does; an `flock` on the grader home for the length of a pass,
+and a second pass says `grader: another pass is running in <home>; nothing done` and exits 0; the
+monitor's scaling raises `OverflowError` before any write; recorders write `<repo>`). The plist
+template runs `target/release/hydra-grader once`. `grader.py`, `baseline.py`, `monitor.py`,
+`triage.py`, `judge.py`, `labels.py`, `jev_probe.py` and their tests are deleted; `records.py`,
+`redact.py` and `models.py` move to `integrations/apprentice/` with their tests.
+`test_launchd.py` is `crates/grader/tests/launchd.rs`, and `test_labels_recorded.py` is
+`crates/puppets/tests/grader_labels.rs` (147 logs equal, 291 labels, 10 verdicts, 17 refused, the
+numbers the Python test gave). `libc` is added to the grader for `flock`.
+
+The run's results in its worktree: fmt and clippy clean; `hydra-grader` 41 unit, 6 cutover, 17
+differential, 8 launchd; `hydra-puppets` and `hydra-pyjson` pass; otel 6, Herdr 46, apprentice 60
+under 3.9.6.
+
+**The gate, run by the session with the diff's binary** against master's Python under 3.14.7,
+reading the real runs, goal logs, models, class files and ticket verdicts, each side writing to a
+scratch home: `once`, `rebuild`, `backfill` and `triage run` give the same exit code, stdout and
+stderr; `cursor.json` and `show-cache.json` are byte-identical; `dataset.jsonl` (697 rows),
+`scores.jsonl` (1,394 lines) and `triage.jsonl` (78 rows) are identical but for their
+wall-clock stamps; `baseline train` and `monitor train --at 0.5` for `outcome` and `verdict`
+write byte-identical models and reports.
+
+Not yet done: the suite on master with the diff applied, a review of the diff, and
+`hydra-grader once` started by launchd.
+
+Found by the run, for after: the lock covers `once`, `rebuild`, `backfill` and `watch` only;
+`label-import` rewrites `dataset.jsonl` without it. The lock creates the grader home when it is
+missing. `src/cockpit/window.rs` and `tests/cockpit.rs` still name `sheet.py` and `models.py` in
+comments. The apprentice's and otel's own tests are not in CI. `record_sheet.py` and `record.py`
+no longer run from this tree.
+
