@@ -1,7 +1,7 @@
 # 199 - The read side matches Python where the review found it does not
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 197
 
 ## What
@@ -47,19 +47,56 @@ test where the item is about the comparator itself), shown failing before the ch
    with a table small enough to read, and say where it came from.
 8. **An empty model version** (`read.rs:446`). `"model_version":""` on the chosen score row:
    Python prints `verdict none`, Rust `verdict ` and two spaces.
-9. **The integer digit limit** (`json.rs:182`). An integer of 4,301 digits raises `ValueError` in
-   Python (the 4,300-digit default of `sys.set_int_max_str_digits`), and the Rust keeps it.
+9. **The integer digit limit** (`json.rs:182`, `puppets.py` `_bad_line`). An integer of 4,301
+   digits raises `ValueError` in Python (the 4,300-digit default of
+   `sys.set_int_max_str_digits`), which `_bad_line` does not catch, so `read_log` and `repair`
+   both die with a traceback; the Rust keeps the number. Such a line is a bad line in both:
+   `_bad_line` catches `ValueError`, and the Rust parser refuses an integer past 4,300 digits.
 10. **Invalid UTF-8 and the locked callback** (`log.rs:226`). A good line then an unterminated
     `0xff`: Python raises `UnicodeDecodeError` before `decide` runs, Rust runs `decide` and
     returns `UnterminatedLog`. Decode before deciding, and fail as Python does. Python decodes in
     buffered chunks, so say in the report what happens on a file larger than one chunk.
 
-Nothing changes in `integrations/puppets/`. If an item cannot match Python without changing the
-Python, stop on that item, say so, and finish the rest.
+A second review by `codex` on 2026-10-01, of build 197 (`58d4b4d`), found these. They change the
+Python and the Rust together, as 197 did, with tests in `integrations/puppets/tests/` and inputs
+in the differential test.
+
+11. **`repair --yes` is not crash-safe** (`puppets.py` `cmd_repair`, `log.rs` `repair`). It
+    overwrites the log in place, then truncates, then appends the `repair` event. Killed after
+    the overwrite, `xxxxxxxxxxxxxxxx\n{"event":"note"}\n` becomes two `note` lines and reads as a
+    clean log. Killed after the rewrite and before the event, the log is clean and the old
+    approvals are live. Make it one step: build the whole new content, good lines and the
+    `repair` event together, write it to a temporary file beside the log, fsync, and rename it
+    over the log. A writer that was waiting on the old file's lock must not append to the file
+    the rename replaced: after taking the lock, every locker (`_locked_update`, `locked_update`,
+    both `repair`s) compares the inode of its descriptor with the path's and reopens when they
+    differ. Test it with a second process that holds the lock path open across a repair.
+12. **`removed` past `i64`** (`fold.rs`). Two repairs with `removed: 9223372036854775807` leave the
+    Rust revision saturated at the same value, so an approval between them stays live; Python
+    counts on. A `removed` wider than `i128` is a `BigInt` and counts as zero in Rust. One rule
+    in both: `removed` counts when it is an int from 1 to 1,000,000,000, else zero, and the
+    revision is wide enough not to saturate on any log that fits in memory.
+13. **A lone `\r` inside the file** (`puppets.py` `_partition_log`, `damaged_line_numbers`,
+    `read_log`; `log.rs` `split_lines`). `splitlines` breaks on `\r`, so `BAD\r` followed by good
+    lines reads as an unterminated tail: readers miss everything after it and `repair --yes`
+    writes only `BAD\r` to the torn file and drops the good lines that follow from both files.
+    Split on `\n` only, everywhere a goal log is read. A CRLF line still parses, since `\r` is
+    JSON whitespace; a tail that ends in `\r` with no `\n` is still unterminated.
+14. **The "repair voids table approval" input tests nothing** (`differential.rs`). Its last line
+    is bad, so every read command stops before the fold. After `repair --yes`, run `show` and
+    `pending --json` on each repaired copy and compare those too.
+15. **`mask_repair_ts`** (`differential.rs`). It masks `ts` on any line containing
+    `"event":"repair"`, a nested one included, and on `repair` events that were already in the
+    input. Mask only the `ts` of the one line `repair --yes` appended.
+
+Items 1 to 10 change nothing in `integrations/puppets/` except `_bad_line` in item 9. If one of
+them cannot match Python without changing more of the Python, stop on that item, say so, and
+finish the rest.
 
 ## Done when
 
-- Each input failed before the change. fmt and clippy clean over the workspace, `cargo test
-  --lib` and `cargo test -p hydra-puppets` pass, the differential test green.
+- Each input failed before the change. The puppets Python suite passes. fmt and clippy clean over
+  the workspace, `cargo test --lib` and `cargo test -p hydra-puppets` pass, the differential test
+  green.
 - `IMPLEMENTATION.md`: the "Known divergence" sentence of the `crates/puppets` passage says what
   is left, or goes.
