@@ -946,6 +946,8 @@ def main() -> int:
     record_rows(out, records, aliases, fuzz)
     record_files(out, records)
     record_preamble(out, records)
+    # Build ticket 213: `baseline.py`'s `train` and `score`, in the file beside this one.
+    load_module("record_baseline", HERE / "record_baseline.py").record(out, REPO, scan_inputs())
 
     digest = hashlib.sha256()
     for path in sorted(p for p in out.rglob("*") if p.is_file()):

@@ -47,6 +47,10 @@ use hydra_pyjson::py;
 
 const RUST: &str = env!("CARGO_BIN_EXE_hydra-grader");
 
+// Build ticket 213: `baseline.py`'s `train` and `score`, command by command.
+#[path = "differential/baseline.rs"]
+mod baseline;
+
 fn fixtures() -> PathBuf {
     match std::env::var_os("HYDRA_GRADER_FIXTURES") {
         Some(named) => PathBuf::from(named),

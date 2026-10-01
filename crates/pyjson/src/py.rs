@@ -321,7 +321,7 @@ const DECIMAL_ZEROS: [u32; 76] = [
 ];
 
 /// The ASCII digit a decimal digit of any script stands for, as `int()` reads it.
-fn decimal_digit(c: char) -> Option<char> {
+pub fn decimal_digit(c: char) -> Option<char> {
     let code = u32::from(c);
     let at = DECIMAL_ZEROS
         .partition_point(|zero| *zero <= code)

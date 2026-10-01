@@ -7,6 +7,13 @@ const BLOCK_SIZE: usize = 10_000;
 const SUM_LISTS: usize = 10_000;
 const LOG_EPS: f64 = 1e-12;
 
+/// Build 213: the counts `baseline.py` takes `log1p` of. Every one below `COUNT_DENSE`, then
+/// `COUNT_SPARSE` of them below `COUNT_MAX`.
+const COUNT_SEED: u64 = SEED + 213;
+const COUNT_DENSE: u64 = 200_000;
+const COUNT_SPARSE: usize = 100_000;
+const COUNT_MAX: u64 = 100_000_000;
+
 /// Fixed seed for the unary and sum probes.
 pub const PROBE_SEED: u64 = SEED;
 
@@ -109,4 +116,12 @@ pub fn all_sum_lists() -> Vec<Vec<f64>> {
     let mut rng = SplitMix64::new(SEED);
     advance_unary_rng(UNARY_COUNT, &mut rng);
     (0..SUM_LISTS).map(|i| sum_list(i, &mut rng)).collect()
+}
+
+/// The task lengths of build 213 as floats, in the order `record_math.py` hashes them.
+pub fn all_count_inputs() -> Vec<f64> {
+    let mut rng = SplitMix64::new(COUNT_SEED);
+    let mut counts: Vec<f64> = (0..COUNT_DENSE).map(|n| n as f64).collect();
+    counts.extend((0..COUNT_SPARSE).map(|_| (rng.next_u64() % COUNT_MAX) as f64));
+    counts
 }

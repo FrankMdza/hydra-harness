@@ -16,6 +16,12 @@ UNARY_COUNT = 1_000_000
 BLOCK_SIZE = 10_000
 SUM_LISTS = 10_000
 LOG_EPS = 1e-12
+# Build 213: `baseline.py` takes `log1p` of a task's length in characters, an integer far past
+# the 0 to 707 above. Every count up to COUNT_DENSE, then COUNT_SPARSE of them below COUNT_MAX.
+COUNT_SEED = SEED + 213
+COUNT_DENSE = 200_000
+COUNT_SPARSE = 100_000
+COUNT_MAX = 100_000_000
 
 
 class SplitMix64:
@@ -80,6 +86,11 @@ def sum_list(_i: int, rng: SplitMix64) -> list[float]:
     return out
 
 
+def count_inputs() -> list[int]:
+    rng = SplitMix64(COUNT_SEED)
+    return list(range(COUNT_DENSE)) + [rng.next_u64() % COUNT_MAX for _ in range(COUNT_SPARSE)]
+
+
 def pack_f64(x: float) -> bytes:
     return struct.pack(">d", x)
 
@@ -109,6 +120,12 @@ def main() -> int:
     write_lines("exp_hashes.txt", unary_block_hashes(xs, math.exp))
     write_lines("log_hashes.txt", unary_block_hashes(xs, unary_log))
     write_lines("log1p_hashes.txt", unary_block_hashes(xs, unary_log1p))
+    # Build 213. `x ** 2` is the C library's `pow`, which is not `x * x`: the two differ on
+    # about one input in a thousand, so the port has to call `pow` as well.
+    write_lines("square_hashes.txt", unary_block_hashes(xs, lambda x: x ** 2))
+    write_lines("sqrt_hashes.txt", unary_block_hashes(xs, lambda x: math.sqrt(abs(x))))
+    # `math.log1p(len(text))`: the argument is an int, as it is in `baseline.py`.
+    write_lines("log1p_count_hashes.txt", unary_block_hashes(count_inputs(), math.log1p))
 
     rng = SplitMix64(SEED)
     for i in range(UNARY_COUNT):

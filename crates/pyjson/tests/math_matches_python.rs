@@ -1,9 +1,9 @@
 //! Ticket 211: Rust `math` and the probe inputs match the hashes `record_math.py` took from CPython.
 
-use hydra_pyjson::math::{exp, fsum_like_python};
+use hydra_pyjson::math::{exp, fsum_like_python, log1p, pow, sqrt};
 use hydra_pyjson::math_probe::{
-    PROBE_BLOCK_SIZE, PROBE_SUM_LISTS, PROBE_UNARY_COUNT, all_sum_lists, all_unary_inputs,
-    unary_log, unary_log1p,
+    PROBE_BLOCK_SIZE, PROBE_SUM_LISTS, PROBE_UNARY_COUNT, all_count_inputs, all_sum_lists,
+    all_unary_inputs, unary_log, unary_log1p,
 };
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -46,6 +46,13 @@ where
     blocks
 }
 
+/// How many blocks of `got` differ from the recorded ones.
+fn differing(name: &str, got: &[String]) -> usize {
+    let expected = read_lines(&format!("{name}_hashes.txt"));
+    assert_eq!(got.len(), expected.len(), "{name}: block count mismatch");
+    expected.iter().zip(got).filter(|(a, b)| a != b).count()
+}
+
 fn assert_hashes(name: &str, got: Vec<String>) {
     let expected = read_lines(&format!("{name}_hashes.txt"));
     assert_eq!(got.len(), expected.len(), "{name}: block count mismatch");
@@ -85,4 +92,35 @@ fn math_unary_and_sum_match_cpython_hashes() {
             );
         }
     }
+}
+
+/// Build 213: what `baseline.py` leans on beyond build 211's probe. `x ** 2` over the same
+/// million inputs, `math.sqrt`, and `math.log1p` of a task's length, every count below
+/// 200,000 and 100,000 more below 100,000,000.
+#[test]
+fn the_square_the_root_and_log1p_of_a_count_match_cpython_hashes() {
+    let xs = all_unary_inputs();
+    assert_hashes(
+        "square",
+        block_hashes(&xs, PROBE_BLOCK_SIZE, |x| pow(x, 2.0)),
+    );
+    assert_hashes(
+        "sqrt",
+        block_hashes(&xs, PROBE_BLOCK_SIZE, |x| sqrt(x.abs())),
+    );
+    let counts = all_count_inputs();
+    assert_eq!(counts.len(), 300_000);
+    assert_hashes(
+        "log1p_count",
+        block_hashes(&counts, PROBE_BLOCK_SIZE, log1p),
+    );
+}
+
+/// Python's `x ** 2` is `pow`, and the multiplication is a different function: if the two
+/// agreed on these inputs, the test above could not tell a `pow` the compiler folded.
+#[test]
+fn a_multiplication_is_not_the_square_python_takes() {
+    let xs = all_unary_inputs();
+    let folded = block_hashes(&xs, PROBE_BLOCK_SIZE, |x| x * x);
+    assert!(differing("square", &folded) > 0);
 }

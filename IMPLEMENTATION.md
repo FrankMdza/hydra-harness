@@ -3568,6 +3568,62 @@ Three things the Python does that a reader would not guess, all kept:
 - `write_jsonl` given a NaN leaves the rows before it in the `.tmp` file and does not touch the
   target.
 
+#### The logistic baseline, since build ticket 213
+
+`baseline.rs` is `baseline.py` lines 51 to 276 and 373 to 398: `target`, the features, `fit`, the
+three measures, the reliability table, the provider and model rates, `train`, `predict`, `report`
+and `row_from_record`. `baseline_cli.rs` is its `train` and `score` commands, which the binary
+runs as `hydra-grader baseline train DATASET [MODEL] [--label L] [--test-from DAY]` and
+`hydra-grader baseline score MODEL RUN`. The label queue, `label-queue` and `label-import`, is the
+other half of `baseline.py` and is not here: the binary says so and exits 2.
+
+A model's `version` is a SHA-256 over its weights, so one bit off after 3,000 steps renames the
+model. The Rust gives CPython 3.14.7's bytes on arm64 macOS, in a debug and in a release build.
+Four things make that true, and each one fails the differential test when it is undone:
+
+- Every float `sum()` is `hydra_pyjson::math::fsum_like_python`, the compensated sum Python has
+  had since 3.12. A plain fold changes 45 comparisons.
+- `x ** 2` is the C library's `pow`, which is not `x * x`. The two differ on about one float in a
+  thousand here, 2,683 of 2,000,000 measured. `math::pow` passes the exponent through
+  `black_box` so the compiler cannot rewrite it into the multiplication.
+- A run's launch time is `datetime.fromtimestamp(millis / 1000)`, a float division rounded half to
+  even at the microsecond. The last millisecond of year 9999 lands on `.998993`.
+- `int(text, 16)` on a run id reads whitespace, a `+`, a `0x`, single underscores and the decimal
+  digits of any script, so `0x_1f` and `１２` are launch times and `_1` is a `ValueError`.
+
+`hydra-pyjson` gained `math::pow` and `math::sqrt`, and `py::decimal_digit` became public. Its
+probe, `tests/record_math.py`, now also hashes `x ** 2` and `math.sqrt` over build 211's million
+inputs, and `math.log1p` of a task's length for every count below 200,000 and 100,000 more below
+100,000,000. `isotime.rs` gained `from_unix_millis`, `replace_utc`, `instant` and `isoformat`.
+
+`crates/grader/tests/record_baseline.py`, which `record.py` loads, ran the Python once per case
+as a child with nothing in its environment but `HYDRA_ROOT` or `HYDRA_GRADER_HOME`, in a scratch
+directory holding the case's files under relative paths. `tests/differential/baseline.rs` runs
+the binary the same way and makes 1,116 comparisons over 279 cases, four per case: the exit
+code, stdout, stderr and every file left behind. The cases are 18 models trained on five
+generated datasets (200 rows on both sides of `--test-from`, each label, rows of odd shapes,
+tasks of one length, two found by search where `pow` and the multiplication part ways), 40
+refusals under the floor of ten, 31 datasets the Python ends in a traceback on, 105 records
+scored (the twelve of `tests/fixtures/records/` under four models, generated ones, and one
+record under model files somebody edited), 43 scores refused or raised, 41 wrong command lines
+and one request for help.
+
+Three things are normalized. Where the Python ends in a traceback, the Rust's last line of stderr
+starts with the same exception class and the rest is not compared. On a wrong command line only
+the last line of stderr is compared, with `baseline.py` read as `hydra-grader baseline`: the
+usage above it names another program. Where the Python prints its help, the Rust exits 0 and
+prints a usage line of its own. The model file, the report, the score line and each refusal are
+compared to the byte.
+
+`score` reads `aliases.json` from `HYDRA_PUPPETS_DATA`, else `integrations/puppets` under
+`HYDRA_HOME`, else the first directory above the binary that holds one, which is the rule
+`hydra-puppets` finds its data by. The recorder made the Python read the frozen copy in
+`fixtures/data/`.
+
+Not compared, and why: `max(p, eps)` keeping a NaN where `f64::max` drops it has a unit test and
+no differential case, because no command reaches the log loss with a NaN score. Nothing ran on
+the real grader home or its models.
+
 ## `hydra cockpit`, since build ticket 150
 
 Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen

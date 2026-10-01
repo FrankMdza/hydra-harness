@@ -340,6 +340,79 @@ pub fn fromisoformat(text: &PyStr) -> Option<DateTime> {
     Some(DateTime { local, offset })
 }
 
+/// 1970-01-01T00:00:00 in microseconds since 0001-01-01T00:00:00.
+const EPOCH: i128 = 719_162 * DAY;
+
+/// The first microsecond of year 10000, which no `datetime` reaches.
+const END: i128 = 3_652_059 * DAY;
+
+impl DateTime {
+    /// `datetime.fromtimestamp(millis / 1000, timezone.utc)`, `None` where it raises
+    /// `ValueError` for a year past 9999. The division is a float's, so the microseconds are
+    /// what the float holds once rounded half to even, which past the year 2255 is no longer
+    /// a whole millisecond.
+    pub fn from_unix_millis(millis: u64) -> Option<DateTime> {
+        let stamp = millis as f64 / 1000.0;
+        let mut seconds = stamp.trunc();
+        let mut micros = ((stamp - seconds) * 1e6).round_ties_even();
+        if micros >= 1e6 {
+            micros -= 1e6;
+            seconds += 1.0;
+        }
+        let local = EPOCH + seconds as i128 * 1_000_000 + micros as i128;
+        (local < END).then_some(DateTime {
+            local,
+            offset: Some(0),
+        })
+    }
+
+    /// `.replace(tzinfo=timezone.utc)`: the same wall-clock time, now said to be UTC.
+    pub fn replace_utc(self) -> DateTime {
+        DateTime {
+            local: self.local,
+            offset: Some(0),
+        }
+    }
+
+    /// The moment as microseconds of UTC since 0001-01-01, which is what two times with an
+    /// offset compare by. `None` for a time with no offset.
+    pub fn instant(&self) -> Option<i128> {
+        self.offset.map(|offset| self.local - offset)
+    }
+
+    /// `.isoformat()`.
+    pub fn isoformat(&self) -> String {
+        let (year, month, day) = from_ordinal(self.local.div_euclid(DAY) + 1);
+        let clock = self.local.rem_euclid(DAY);
+        let (seconds, micros) = (clock / 1_000_000, clock % 1_000_000);
+        let mut out = format!(
+            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}",
+            seconds / 3600,
+            seconds / 60 % 60,
+            seconds % 60
+        );
+        if micros != 0 {
+            out.push_str(&format!(".{micros:06}"));
+        }
+        if let Some(offset) = self.offset {
+            let sign = if offset < 0 { '-' } else { '+' };
+            let (seconds, micros) = (offset.abs() / 1_000_000, offset.abs() % 1_000_000);
+            out.push_str(&format!(
+                "{sign}{:02}:{:02}",
+                seconds / 3600,
+                seconds / 60 % 60
+            ));
+            if seconds % 60 != 0 || micros != 0 {
+                out.push_str(&format!(":{:02}", seconds % 60));
+            }
+            if micros != 0 {
+                out.push_str(&format!(".{micros:06}"));
+            }
+        }
+        out
+    }
+}
+
 /// `(ended - started).total_seconds()`. `None` where the subtraction raises `TypeError`:
 /// one of the two carries an offset and the other does not.
 pub fn seconds_between(started: &DateTime, ended: &DateTime) -> Option<f64> {
