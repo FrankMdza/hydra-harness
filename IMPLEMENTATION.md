@@ -3421,8 +3421,8 @@ The broad name rule also hides ordinary `--key-file`, `--keyboard` and `key: ena
 These corrections are covered by build tickets 200, 201 and 203. A call on a
 line whose envelope carries a `secret_flag` reads `input hidden: secret_flag`. The row is cut by
 display width through `unicode-width`, `~` inside it, never splitting a wide character. The raw
-view behind `r` masks nothing: it shows each of the last twenty lines verbatim up to 400
-characters, so a secret in a line's first 400 characters is on screen there.
+view behind `r` hides lines carrying `secret_flag` and applies the same secret masking
+to the first 400 characters of each of the last twenty lines, with a cut marker for longer lines.
 
 **Done and the run's end, build ticket 166.** A row carries the `done` of its task event, and a
 later `task` event for the same id replaces it, `None` included, as `fold` does. The table's

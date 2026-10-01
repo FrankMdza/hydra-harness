@@ -186,8 +186,8 @@ pub struct App {
     policy_offset: usize,
     /// `puppets.py` and the goal log home it is handed, build ticket 183.
     reviewer: Option<(PathBuf, PathBuf)>,
-    /// The goal and task the review confirmation asks about, while it is up.
-    pub confirming_review: Option<(String, String)>,
+    /// The goal, task and run the review confirmation asks about, while it is up.
+    pub confirming_review: Option<(String, String, String)>,
     reviews: Vec<ReviewRun>,
     /// The seat the stop confirmation asks about, while it is up, build
     /// ticket 184.
@@ -1307,7 +1307,7 @@ impl App {
             self.message = Some(format!("task {} has no run to review", row.id));
             return Effect::None;
         }
-        let asked = (goal.id.clone(), row.id.clone());
+        let asked = (goal.id.clone(), row.id.clone(), row.run_id.clone().unwrap());
         self.poll_reviews();
         if self.review_running(&asked.0, &asked.1) {
             self.message = Some(format!("a review of {} is already running", asked.1));
@@ -1319,11 +1319,24 @@ impl App {
 
     /// `y` on that confirmation: starts the helper, or says why it did not.
     fn start_review(&mut self) -> Effect {
-        let Some((goal, task)) = self.confirming_review.take() else {
+        let Some((goal, task, run_id)) = self.confirming_review.take() else {
             return Effect::None;
         };
         if let Some(message) = self.goal_damaged_message() {
             self.message = Some(message);
+            return Effect::None;
+        }
+        let current_run = self
+            .snapshot
+            .goal
+            .as_ref()
+            .filter(|shown| shown.id == goal)
+            .and_then(|shown| shown.rows.iter().find(|row| row.id == task))
+            .and_then(|row| row.run_id.as_deref());
+        if current_run != Some(run_id.as_str()) {
+            self.message = Some(format!(
+                "task {task} run changed; review confirmation cancelled"
+            ));
             return Effect::None;
         }
         self.poll_reviews();
@@ -1532,8 +1545,8 @@ impl App {
         if let Some(step) = &self.confirming_step {
             draw_step_confirmation(step, main, buf);
         }
-        if let Some((_, task)) = &self.confirming_review {
-            draw_review_confirmation(task, main, buf);
+        if let Some((_, task, run)) = &self.confirming_review {
+            draw_review_confirmation(task, run, main, buf);
         }
         if let Some(card) = &self.confirming_stop {
             draw_stop_confirmation(short(&card.run_id), self.chat_inside, main, buf);
@@ -2325,9 +2338,9 @@ fn draw_confirmation(request: &Pending, deny: bool, area: Rect, buf: &mut Buffer
 }
 
 /// The question `v` asks before three judge runs spend quota.
-fn draw_review_confirmation(task: &str, area: Rect, buf: &mut Buffer) {
+fn draw_review_confirmation(task: &str, run: &str, area: Rect, buf: &mut Buffer) {
     let width = area.width.saturating_sub(8).min(90);
-    let height = 5.min(area.height);
+    let height = 7.min(area.height);
     let rect = Rect {
         x: area.x + (area.width - width) / 2,
         y: area.y + (area.height - height) / 2,
@@ -2336,6 +2349,7 @@ fn draw_review_confirmation(task: &str, area: Rect, buf: &mut Buffer) {
     };
     Clear.render(rect, buf);
     let lines = vec![
+        Line::raw(format!("run {run}")),
         Line::raw(format!(
             "review {task}: three judge runs, each counts against quota. y starts it"
         )),

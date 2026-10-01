@@ -1,7 +1,7 @@
 # 206 - The detail shows the head of a call, and a key shows the rest
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 205
 
 ## What

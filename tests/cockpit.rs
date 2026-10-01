@@ -4222,3 +4222,53 @@ fn ticket203_goal_switch_cancels_review() {
     assert!(app.confirming_review.is_none());
     app.handle(&key(KeyCode::Char('y')));
 }
+
+#[test]
+fn ticket205_megabyte_mask_has_a_two_second_budget() {
+    let command = "KEY=x ".repeat(174_763);
+    let start = std::time::Instant::now();
+    let input = ticket203_input("megabyte-mask", &command);
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "1 MB masking exceeded two seconds: {:?}",
+        start.elapsed()
+    );
+    assert!(
+        input.len() <= 410,
+        "screen input was not bounded: {}",
+        input.len()
+    );
+    let layout = scratch("megabyte-whole-mask");
+    let run = "01a0f205-0000-7000-8000-000000000205";
+    let frame = claude_call("toolu_01", "Other", serde_json::json!({"data": command}));
+    let start = std::time::Instant::now();
+    write_live_frames(&layout, run, "claude", Some("opus"), noon(), &[frame]);
+    let input = calls_in(&layout, run)[0].input.clone();
+    assert!(start.elapsed() < Duration::from_secs(2));
+    assert!(input.len() <= 410);
+}
+
+#[test]
+fn ticket205_review_refuses_a_reassigned_run() {
+    let (layout, log, mut app) = review_app("review-reassigned", "#!/bin/sh\nexit 0\n");
+    app.focus = Focus::Table;
+    app.handle(&key(KeyCode::Char('v')));
+    let old_run = app.snapshot.goal.as_ref().unwrap().rows[0]
+        .run_id
+        .clone()
+        .unwrap();
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    assert!(
+        screen_text(&buf).contains(&old_run),
+        "confirmation did not show its run"
+    );
+    let text = std::fs::read_to_string(&log)
+        .unwrap()
+        .replace(&old_run, "replacement-run");
+    std::fs::write(&log, text).unwrap();
+    refold(&mut app, &log);
+    app.handle(&key(KeyCode::Char('y')));
+    assert!(app.message.as_deref().unwrap().contains("run changed"));
+    assert!(!layout.root().join("cockpit/review-a.log").exists());
+}

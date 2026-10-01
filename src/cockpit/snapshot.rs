@@ -845,11 +845,14 @@ const SECRET_NAMES: &[&str] = &["TOKEN", "KEY", "SECRET", "PASSWORD", "PASS"];
 /// [`SECRET_NAMES`]. A name like `MONKEY` is masked too; hiding too much is
 /// the cheap mistake here.
 fn masked(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().take(TAIL_LINE_CHARS).collect();
+    let mut out = String::with_capacity(chars.len());
+    let mut quote = None;
+    let mut escaped = false;
     let mut i = 0;
     while i < chars.len() {
-        match secret_at(&chars, i) {
+        let from = i;
+        match secret_at(&chars, i, quote) {
             Some((keep, end)) => {
                 out.extend(&chars[i..keep]);
                 out.push_str("***");
@@ -860,13 +863,25 @@ fn masked(text: &str) -> String {
                 i += 1;
             }
         }
+        // Advance through kept and hidden characters alike, once.
+        for &c in &chars[from..i] {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if quote == Some(c) {
+                quote = None;
+            } else if quote.is_none() && matches!(c, '\'' | '"' | '`') {
+                quote = Some(c);
+            }
+        }
     }
-    out
+    out.chars().take(TAIL_LINE_CHARS).collect()
 }
 
 /// A secret starting at `i`: the end of what is kept as is, then the end of
 /// the value that becomes `***`.
-fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
+fn secret_at(chars: &[char], i: usize, quote: Option<char>) -> Option<(usize, usize)> {
     let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.';
     let secret_name = |name: &[char]| {
         let name: String = name.iter().collect::<String>().to_ascii_uppercase();
@@ -938,7 +953,7 @@ fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
                 if separator.is_some_and(char::is_whitespace) && chars.get(start) == Some(&'-') {
                     return None;
                 }
-                let end = if let Some(quote) = enclosing_quote(chars, i) {
+                let end = if let Some(quote) = quote {
                     quoted_end(chars, start, quote)
                 } else if authorization {
                     (start..chars.len())
@@ -1019,26 +1034,6 @@ fn token_end(chars: &[char], from: usize) -> usize {
         }
     }
     j
-}
-
-fn enclosing_quote(chars: &[char], end: usize) -> Option<char> {
-    let mut quote = None;
-    let mut j = 0;
-    while j < end {
-        if chars[j] == '\\' {
-            j += 2;
-            continue;
-        }
-        if let Some(open) = quote {
-            if chars[j] == open {
-                quote = None;
-            }
-        } else if matches!(chars[j], '\'' | '"' | '`') {
-            quote = Some(chars[j]);
-        }
-        j += 1;
-    }
-    quote
 }
 
 fn quoted_end(chars: &[char], start: usize, quote: char) -> usize {
@@ -1124,9 +1119,10 @@ pub fn tail(path: &Path, n: usize) -> Result<Vec<String>> {
             if line.contains("\"secret_flag\":[") {
                 return "[line hidden: secret_flag]".to_string();
             }
+            let truncated = line.chars().nth(TAIL_LINE_CHARS).is_some();
             let line = masked(line);
             let mut cut: String = line.chars().take(TAIL_LINE_CHARS).collect();
-            if cut.len() < line.len() {
+            if cut.len() < line.len() || truncated {
                 cut.push_str(" [cut]");
             }
             cut

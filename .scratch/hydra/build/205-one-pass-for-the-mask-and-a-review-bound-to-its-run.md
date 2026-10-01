@@ -1,7 +1,7 @@
 # 205 - One pass for the mask, and a review bound to its run
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -35,3 +35,20 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
 
 - Each test failed before the change; fmt, clippy over the workspace, `cargo test --lib` and
   `cargo test --test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f624` (codex gpt-6.1-sol, `standard`, 2.2M tokens), diff read whole
+by the session and applied to master as written.
+
+Built: `masked` tracks the quote state in its one forward pass and reads at most 400 characters,
+so `enclosing_quote` is gone; the review confirmation holds and shows the run id, and `y` refuses
+with a message when the task's run in the snapshot is no longer that one; `IMPLEMENTATION.md` no
+longer says the raw view masks nothing.
+
+Measured: the 1 MB input took 349.56 seconds before the change against a two-second budget, and
+passes after. On master: fmt and clippy clean over the workspace, `cargo test --test cockpit`
+105 passed, `cargo test --lib` 224 passed.
+
+Build 206 deletes the mask this ticket made linear. The review binding stays.
+

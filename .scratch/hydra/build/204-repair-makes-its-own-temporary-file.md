@@ -1,7 +1,7 @@
 # 204 - `repair` makes its own temporary file
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 194
 
 ## What
