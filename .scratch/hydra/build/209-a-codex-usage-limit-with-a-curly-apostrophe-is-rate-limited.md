@@ -1,7 +1,7 @@
 # 209 - A codex usage limit with a curly apostrophe is `rate_limited`
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
