@@ -2,7 +2,7 @@
 
 Type: build
 Status: open
-Blocked by: 193
+Blocked by: 197
 
 ## What
 
@@ -19,6 +19,22 @@ and say where the launch is), `tasks`, `assign` (with `sheet.py` and `models.py`
 nothing. Differential tests as in 193: each command on the same starting log in two temp homes,
 one per implementation, then the resulting logs compared line by line (normalize only timestamps
 and ids, and say which). The Python stays.
+
+## Notes from 193
+
+- `log::locked_update` exists and holds one `flock` across the read and the append. It decodes
+  line by line, where `_locked_update` reads in text mode: with invalid UTF-8 anywhere in the file
+  the Python raises `UnicodeDecodeError`, and the Rust can return `UnterminatedLog` or skip the
+  line instead. Add that input to the differential test and make the two agree.
+- Map ticket 91 and build 197 changed what a bad line does before this ticket: `read_log` and
+  `_locked_update` both raise `DamagedLog`, in the Python and in the crate. Every writer you port
+  refuses a damaged log with that message and exit 1, and the differential test covers it.
+- `pending`'s `argv` still names `python3 integrations/puppets/puppets.py approve`. Leave it;
+  196 changes it.
+- The differential test normalizes three things (`pending`'s `argv[0]`, the torn file's
+  timestamp, a traceback by exception class). For the writers, add only timestamps and generated
+  ids, and list each in the report.
+- A lone UTF-16 surrogate in a string is a known divergence (Python reads it, Rust exits 1).
 
 ## Done when
 

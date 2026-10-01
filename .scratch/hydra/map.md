@@ -326,6 +326,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [88 - A harness of our own for the small models](issues/88-a-harness-of-our-own-for-the-minis.md): resolved 2026-09-30 by a panel of three under the human's delegation. pi is not routed; an own harness is a separate Rust child speaking `claude`'s dialect, deferred until a local model emits tool calls, which none does today (Ollama: gemma3 1B does not support tools).
 - [89 - A human stop, and the outcome it leaves](issues/89-a-human-stop-and-its-outcome.md): resolved 2026-09-30 by a panel of three under the human's delegation. A tenth outcome, `stopped`, from a stop-note prefix in `run_end.error`; rung one never learns from it.
 - [90 - The integrations in Rust](issues/90-the-integrations-in-rust.md): resolved 2026-09-30 by a panel of three under the human's delegation. A Cargo workspace, one crate per integration, `puppets` first, each proved by differential runs against the Python before the Python goes; the cockpit keeps a subprocess.
+- [91 - A bad line inside a goal log](issues/91-a-bad-line-inside-a-goal-log.md): resolved 2026-09-30 by a panel of three under the human's delegation. Nobody skips: readers fail by name, writers refuse, `repair` moves the bad lines aside and voids earlier approvals; in the Python and the Rust before build 194.
 
 ## Not yet specified
 
