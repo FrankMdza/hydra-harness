@@ -1,7 +1,7 @@
 # 214 - grader in Rust: collect writes the dataset, the cursor and the scores
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 212, 213
 
 ## What

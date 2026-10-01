@@ -1,7 +1,7 @@
 # 215 - grader in Rust: the monitor reads a prefix of a record
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 213
 
 ## What
