@@ -1,7 +1,7 @@
 # 92 - What the cockpit shows of a tool call's input
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-01, by the session, after the fifth review of the cockpit's secret mask.
 
@@ -38,3 +38,31 @@ Options:
   today, frozen as it is.
 
 ## Answer
+
+Resolved 2026-10-01 by a panel of three under the human's delegation. Unanimous: **C**. codex
+0.76, cursor-agent grok-4.7-high 0.71, agy gemini-3.1-pro-high 0.90; all three named D second.
+Answers in the human's decision log, `decisiones/2026-10-01/answer-92-*.md`.
+
+The row shows the head of the call and nothing else by default, and a key on the selected call
+shows the whole input unmasked. The pattern mask goes: five reviews showed it has no finish
+line, it leaks on a shared screen and hides the deploy target at once, and a head that is too
+short is seen at a glance where a missed pattern is not.
+
+Conditions the seats attached, which build 206 carries:
+
+- What is uncertain stays hidden (codex). The head is the program and a bare subcommand; when a
+  review cannot agree where a path-like argument starts, the stricter head ships (cursor).
+- A cut row is told apart from a command that simply ended there (agy): the row ends in `...`
+  only when something was left out.
+- The whole input is on screen only on request and leaves by itself (cursor, agy). All three
+  wrote "while the key is held". A terminal does not report a key's release without the kitty
+  keyboard protocol, so the session set it as: the key opens the full input, the next key of any
+  kind closes it, and it closes by itself after ten seconds. The human can change that number.
+
+What reverses it, from the seats: the reveal used on more than half of the tool calls, or open
+longer than ten seconds on more than half of real approvals (then D, the frozen mask behind the
+key); a default row that leaks a secret blocks the release of 206.
+
+A record line with `secret_flag` stays `input hidden: secret_flag`, and the reveal does not open
+it. Carried by build 206.
+

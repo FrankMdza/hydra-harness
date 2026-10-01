@@ -327,6 +327,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [89 - A human stop, and the outcome it leaves](issues/89-a-human-stop-and-its-outcome.md): resolved 2026-09-30 by a panel of three under the human's delegation. A tenth outcome, `stopped`, from a stop-note prefix in `run_end.error`; rung one never learns from it.
 - [90 - The integrations in Rust](issues/90-the-integrations-in-rust.md): resolved 2026-09-30 by a panel of three under the human's delegation. A Cargo workspace, one crate per integration, `puppets` first, each proved by differential runs against the Python before the Python goes; the cockpit keeps a subprocess.
 - [91 - A bad line inside a goal log](issues/91-a-bad-line-inside-a-goal-log.md): resolved 2026-09-30 by a panel of three under the human's delegation. Nobody skips: readers fail by name, writers refuse, `repair` moves the bad lines aside and voids earlier approvals; in the Python and the Rust before build 194.
+- [92 - What the cockpit shows of a tool call's input](issues/92-what-the-cockpit-shows-of-a-tool-call.md): resolved 2026-10-01 by a panel of three under the human's delegation. The row shows the head of the call; a key shows the whole input and it leaves by itself; the pattern mask goes.
 
 ## Not yet specified
 
