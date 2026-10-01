@@ -20,6 +20,8 @@
 //! Build ticket 214 ported `labels.py` (`labels.rs`), `grader.py` and
 //! `records.refresh_show_answer` (`collect.rs`), and the four commands of `grader.py`
 //! (`collect_cli.rs`): `hydra-grader once`, `watch`, `rebuild` and `backfill`.
+//! Build ticket 218 ported `judge.py` whole (`judge.rs`, `judge_cli.rs`) as `hydra-grader judge
+//! label` and `agree`, over a client that calls this machine only (`judge_http.rs`).
 //!
 //! There is no `serde_json` here, for the reason `hydra-pyjson` gives.
 
@@ -30,6 +32,9 @@ pub mod collect_cli;
 pub mod isotime;
 pub mod jev;
 pub mod jev_cli;
+pub mod judge;
+pub mod judge_cli;
+pub mod judge_http;
 pub mod labels;
 pub mod monitor;
 pub mod monitor_cli;

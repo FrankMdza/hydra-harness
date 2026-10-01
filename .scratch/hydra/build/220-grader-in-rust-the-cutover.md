@@ -44,10 +44,21 @@ Map ticket 94, "plan 217" of `.scratch/hydra/research/94-the-grader-port-plan.md
    - `record_baseline.py` writes the checkout's path into tracebacks; make it write `<repo>`, as
      `record_monitor.py` and `record_collect.py` do, so recording again changes no other
      ticket's fixture.
-1. The gate, run by the session on a read-only copy of the real grader home (a run cannot read
-   it): both implementations over the real `dataset.jsonl`, models and runs, identical output.
-   The human moves the launchd job to Python 3.14 and retrains the models once before this, so
-   the Python side of the gate is the reference the fixtures were recorded with.
+1. The gate, run by the session on the real grader inputs (a run cannot read them): both
+   implementations over the real runs, goal logs, models, class files and ticket verdicts, each
+   writing to a scratch home, identical output. Measured once already on 2026-10-01, after build
+   214: against `grader.py once` under CPython 3.14.7 everything is byte-identical but the two
+   wall-clock stamps (692 dataset rows, 1,384 scores). Against `/usr/bin/python3`, which is 3.9.6
+   and is what the launchd job runs today, `cursor.json`, `show-cache.json` and `dataset.jsonl`
+   are identical and `scores.jsonl` differs in the last digit of `p` on 136 of 1,390 lines
+   (`0.7363960157201249` against `0.736396015720125`): 3.9's `sum()` is not compensated. So the
+   cutover changes the last digit of about one new score in ten and nothing else; `scores.jsonl`
+   is append-only and `backfill` scores only pairs that are missing, so no old score is rewritten.
+   Map 94 asked for the launchd job to move to Python 3.14 and the models to be retrained first.
+   The measurement says neither is needed for the port to be exact: the models are files both
+   implementations read alike, and training is byte-identical with 3.14.7. Whether to retrain
+   anyway is the human's call, recorded in his pending list. Run the gate once more before
+   deleting, on `once`, `rebuild`, `backfill`, `baseline train`, `monitor train`, `triage run`.
 2. The plist template runs `hydra-grader once`; `test_launchd.py` and
    `test_labels_recorded.py` become Rust tests.
 3. `records.py` and `redact.py` move beside their remaining callers, `apprentice.py` and

@@ -72,7 +72,7 @@ fn out_of_range(value: &Value) -> Option<f64> {
 }
 
 /// The value with every object's keys in the order `sort_keys=True` prints them.
-fn sorted_keys(value: &Value) -> Value {
+pub(crate) fn sorted_keys(value: &Value) -> Value {
     match value {
         Value::Dict(dict) => {
             let mut pairs: Vec<(&PyStr, &Value)> = dict.iter().collect();

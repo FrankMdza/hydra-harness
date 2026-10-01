@@ -3758,6 +3758,59 @@ the build ticket numbers. Its `Prefix` is the private Rust `Walk`, and Python's
 zero-positional subcommands preserve `--` in unrecognized-argument errors, unlike the
 shared parser's usual treatment of the separator. No dependency was added and nothing
 ran against the real grader home or run records.
+
+#### The local judge, since build ticket 218
+
+`judge.rs` and `judge_cli.rs` port `judge.py` whole as `hydra-grader judge label
+[--limit N] [--only-unlabelled]` and `hydra-grader judge agree`. The Python stays as the
+reference. `label` appends to `judge-labels.jsonl` one line per run it has not asked about
+under this model and this prompt, a rule writes the line of a `rate_limited` or `gated` run
+without a call, and `agree` prints the count of runs that hold a human verdict and a judge's.
+`show_projection` runs `hydra show <id>` with `HYDRA_ROOT` set to the directory above the
+resolved `runs`.
+
+`judge_http.rs` is the client, written over `std::net::TcpStream` as map ticket 94 decided.
+It speaks plain HTTP and reads `HYDRA_LOCAL_LLM_URL` as `http://HOST[:PORT][/PATH]`, where HOST
+is `127.0.0.1`, `localhost` or `[::1]`, compared as text. Any other host is refused before a
+name is resolved or a socket opened, and so are `https`, a user name in the URL and a port that
+is not a number. The pass then stops as it does when the server is down: one sentence on
+stderr, exit 1, the labels already written kept. This is where the Rust departs from the
+Python on purpose. `urllib` goes wherever the URL points, follows a redirect that names a
+`Location`, and honours `http_proxy` and the system proxy. The Rust does none of the three. A
+reply is read by `Content-Length`, by chunks, or to the end of the stream, and each connect,
+read and write may take 300 seconds, the Python's timeout.
+
+`record_judge.py`, loaded by `record.py`, recorded 183 cases and 201 commands with CPython
+3.14.7 into `fixtures/judge.json`, 665 KB. Each command ran with nothing in its environment
+but the variables its step names, against a shell stub for `hydra` and a stub model server the
+recorder started on a free port of 127.0.0.1. No real model server was contacted. The cases
+are those of `test_judge.py`, then replies of every kind (a 404, a 500, a 302 with no
+`Location`, a hang-up, a line that is no status line, a short body, a chunked body, a 100
+before the reply, a body that is not UTF-8, a `response` that is not text), every shape of
+what `hydra show` prints, rows and label lines of the wrong shape, `agree` on ties of the
+second decimal, and 51 command lines.
+
+`tests/differential/judge.rs` starts its own stub server and makes 1,261 comparisons: the exit
+code, stdout, stderr, the names of the files left, the bytes of `judge-labels.jsonl` and of
+what the stub `hydra` was called with, and the method, path, content type and body of each of
+98 requests. The body holds the whole prompt and the file holds `prompt_sha256`, so the
+prompt is compared to the byte, with its cut by code points and its `sort_keys` dump of the
+diff stat. Three things are normalized. `judged_at` is checked to be a second of UTC and read
+as `<time>`. The stub's port and the scratch directory are `<port>` and `<root>`. A traceback
+is compared by its exception class and an `argparse` error by its message. A second test
+names the stub by `127.1`, `LOCALHOST.` and three other hosts and requires that it receives
+nothing. With the refusal switched off, the `127.1` request reached the stub and the test
+failed.
+
+Before the binary dispatched `judge`, 807 of 1,163 comparisons failed. One word changed in
+the instructions failed 157 of 1,261, and a task budget of 3,001 failed 4. The plan expected
+`cut()` and the `sort_keys` dump to be where the two differ, and neither did on the first run.
+What the plan did not name: `show_projection`'s scratch link for a directory not called `runs`
+is dead code under `label`, which always passes `runs`, and is not ported; the scratch
+directory the Python makes before every `hydra show` is not made; a model name or URL that
+is not UTF-8 in the environment is read with replacement characters where Python keeps
+surrogates; and a run id holding `\udc80` to `\udcff`, which Python passes to `hydra` as a
+raw byte, is an error here. No dependency was added.
 #### Collect, since build ticket 214
 
 `labels.rs` is `labels.py` whole, `collect.rs` is `grader.py`'s `collect`, `score_rows` and

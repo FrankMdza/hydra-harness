@@ -558,3 +558,7 @@ mod queue;
 
 #[path = "differential/triage.rs"]
 mod triage;
+
+// Build ticket 218: `judge.py`'s `label` and `agree`, against a stub model server.
+#[path = "differential/judge.rs"]
+mod judge;

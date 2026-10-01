@@ -46,6 +46,9 @@ fn main() -> ExitCode {
             &mut std::io::stderr().lock(),
         ));
     }
+    // Build ticket 218: `judge.py`'s `label` and `agree`, on the same deep stack as the pass
+    // below, since both read lines of the dataset and what a model wrote.
+    let judging = args.first().is_some_and(|first| first == "judge");
     // Build ticket 214: the four commands of `grader.py` itself, and its errors for the rest.
     // A record line or a goal log line may nest as deep as `json::MAX_NESTING`, and reading
     // one recurses once per level, so the command runs on a thread with room for it, as
@@ -56,6 +59,9 @@ fn main() -> ExitCode {
         .spawn(move || {
             let (mut stdout, mut stderr) = (std::io::stdout().lock(), std::io::stderr().lock());
             let env = hydra_grader::labels::Env::process();
+            if judging {
+                return hydra_grader::judge_cli::main(&args[1..], &env, &mut stdout, &mut stderr);
+            }
             hydra_grader::collect_cli::main(&args, &env, &mut stdout, &mut stderr)
         })
         .and_then(|thread| {
