@@ -1,7 +1,7 @@
 # 94 - The grader in Rust: shared code, the reference Python, and what is not ported
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-01, by the session, from a read-only plan of the grader's port (claude opus 5.5,
 run `01a0f6b6-a5ce`, kept in the human's `builds/plan-grader.md`). The plan is eight build
@@ -51,3 +51,40 @@ different weights under CPython 3.9.6 and 3.14.7 (`scale` mean `6.05978435322773
   ninth ticket ports them into `hydra-puppets`; C7 into `hydra-grader`; C8 they stay in Python.
 
 ## Answer
+
+Resolved 2026-10-01 by a panel of three under the human's delegation: agy gemini-3.1-pro-high,
+cursor-agent grok-4.7-high and claude opus 5.5 (`codex` was `rate_limited`). The brief folded
+the question's sub-options into three decisions; each went 2 to 1. Answers in the human's
+decision log, `decisiones/2026-10-01/answer-94-*.md`. The plan is
+`.scratch/hydra/research/94-the-grader-port-plan.md`.
+
+- **Shared code: a new crate, `crates/pyjson`** (agy 0.85, cursor 0.57; opus chose a library
+  dependency on `hydra-puppets` at 0.50 and named this second). The Python-exact JSON, string,
+  sort and alias code stays one implementation, and both crates depend on it. Opus's objection
+  was that the move cannot be checked now that `puppets.py` is gone; the session checked that
+  `crates/puppets` already has a library target and that `json.rs`, `py.rs`, `pysort.rs`,
+  `printable.rs` and `models.rs` use nothing else of the crate but one file reader, and the
+  recorded fixtures are the check: the extraction must change no fixture comparison. Cursor's
+  gap is closed the same way: the alias table moves too. `records.py` and `redact.py` move
+  beside `apprentice.py` and `record_to_otlp.py` at the cutover.
+- **The numbers match CPython 3.14.7 byte for byte** (cursor 0.62, opus 0.60; agy chose 3.9.6 at
+  0.60 so that launchd's configuration would not change, which it will at the cutover in any
+  case). The compensated `sum` is ported, and `exp`, `log` and `log1p` are probed first: opus's
+  condition is one million sampled inputs with not one bit of difference between Rust and
+  CPython 3.14.7 on this machine, or this decision falls to the tolerance. The launchd job moves
+  to that Python and the models are retrained once with it before the cutover's gate; that step
+  is the human's, since it changes his machine.
+- **Not ported as it is** (cursor 0.70, opus 0.55; agy chose to leave `sheet.py` in Python at
+  0.90): `jev_probe ask` is dropped and its results stay recorded, so no TLS dependency; `judge`
+  gets a hand-written client for plain HTTP to localhost; `triage sample` gives a different but
+  reproducible sample for a seed (the session checked that the one open sample is stored as a
+  file, `triage-sample-163.txt`, which was opus's condition); `sheet.py`'s `build`, `budget` and
+  `show` are ported into `hydra-grader` as a ticket of their own.
+
+What reverses each: the extraction changing one fixture comparison, or taking more than two
+review rounds (then a library dependency on `hydra-puppets`); one differing bit in the `exp`,
+`log`, `log1p` probe (then the tolerance); a stored triage sample that must be drawn again from
+its seed (then CPython's Mersenne Twister is ported).
+
+Carried by builds 210 to 220.
+
