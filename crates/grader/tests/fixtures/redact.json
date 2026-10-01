@@ -1,0 +1,1053 @@
+{
+ "strings": [
+  {
+   "text": "here is sk-ant-secret-key-value",
+   "spans": [],
+   "redacted": "here is [REDACTED:anthropic_api_key]"
+  },
+  {
+   "text": "token sk-ant-planted end",
+   "spans": [],
+   "redacted": "token [REDACTED:anthropic_api_key] end"
+  },
+  {
+   "text": "xAIzaSyPlanted",
+   "spans": [],
+   "redacted": "x[REDACTED:google_api_key]"
+  },
+  {
+   "text": "ghp_plantedtoken",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ya29.plantedtoken",
+   "spans": [],
+   "redacted": "[REDACTED:google_oauth_token]"
+  },
+  {
+   "text": "AKIAPlantedSecretKey",
+   "spans": [],
+   "redacted": "[REDACTED:aws_access_key]"
+  },
+  {
+   "text": "aws_secret_access_key=planted-aws-secret-value",
+   "spans": [],
+   "redacted": "[REDACTED:aws_secret_access_key]"
+  },
+  {
+   "text": "AWS_SECRET_ACCESS_KEY=planted-aws-env-secret",
+   "spans": [],
+   "redacted": "[REDACTED:aws_secret_access_key]"
+  },
+  {
+   "text": "xoxb-planted-slack-bot-token",
+   "spans": [],
+   "redacted": "[REDACTED:slack_bot_token]"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]"
+  },
+  {
+   "text": "github_pat_plantedtokenvalue",
+   "spans": [],
+   "redacted": "[REDACTED:github_fine_grained_pat]"
+  },
+  {
+   "text": "gho_plantedoauthtokenvalue",
+   "spans": [],
+   "redacted": "[REDACTED:github_oauth_token]"
+  },
+  {
+   "text": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAplanted\nbodyline2\n-----END RSA PRIVATE KEY-----\nafter",
+   "spans": [],
+   "redacted": "[REDACTED:pem_private_key]\nafter"
+  },
+  {
+   "text": "-----BEGIN RSA PRIVATE KEY-----\r\nshort-body\r\n-----END RSA PRIVATE KEY-----",
+   "spans": [],
+   "redacted": "[REDACTED:pem_private_key]"
+  },
+  {
+   "text": "before -----BEGIN PRIVATE KEY-----\nno footer",
+   "spans": [],
+   "redacted": "before [REDACTED:pem_private_key]"
+  },
+  {
+   "text": "before -----BEGIN RSA PRIVATE KEY-----\nMIIE body\n-----END RSA PRIVATE KEY----- after",
+   "spans": [],
+   "redacted": "before [REDACTED:pem_private_key] after"
+  },
+  {
+   "text": "sk-proj-planted_openai-key-value-0123",
+   "spans": [
+    [
+     0,
+     37
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-svcacct-planted_openai-key-value-0123",
+   "spans": [
+    [
+     0,
+     40
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "key `sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD`, done",
+   "spans": [
+    [
+     5,
+     48
+    ]
+   ],
+   "redacted": "key `[REDACTED:openai_api_key]`, done"
+  },
+  {
+   "text": "key `sk-proj-planted_openai-key-value-0123`, done",
+   "spans": [
+    [
+     5,
+     42
+    ]
+   ],
+   "redacted": "key `[REDACTED:openai_api_key]`, done"
+  },
+  {
+   "text": "key `sk-svcacct-planted_openai-key-value-0123`, done",
+   "spans": [
+    [
+     5,
+     45
+    ]
+   ],
+   "redacted": "key `[REDACTED:openai_api_key]`, done"
+  },
+  {
+   "text": "the sk- prefix in prose is not a key",
+   "spans": [],
+   "redacted": "the sk- prefix in prose is not a key"
+  },
+  {
+   "text": "task-management-system-v2",
+   "spans": [],
+   "redacted": "task-management-system-v2"
+  },
+  {
+   "text": "disk-utilization-report",
+   "spans": [],
+   "redacted": "disk-utilization-report"
+  },
+  {
+   "text": "risk-assessment-notes",
+   "spans": [],
+   "redacted": "risk-assessment-notes"
+  },
+  {
+   "text": "flask-sqlalchemy==3.1.1",
+   "spans": [],
+   "redacted": "flask-sqlalchemy==3.1.1"
+  },
+  {
+   "text": "the `sk-proj-` prefix",
+   "spans": [],
+   "redacted": "the `sk-proj-` prefix"
+  },
+  {
+   "text": "sk-ant-planted-secret",
+   "spans": [],
+   "redacted": "[REDACTED:anthropic_api_key]"
+  },
+  {
+   "text": "AIzaSyPlanted",
+   "spans": [],
+   "redacted": "[REDACTED:google_api_key]"
+  },
+  {
+   "text": "\u00e9 sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+   "spans": [
+    [
+     2,
+     45
+    ]
+   ],
+   "redacted": "\u00e9 [REDACTED:openai_api_key]"
+  },
+  {
+   "text": "\u00e9\u00e9\u00e9 sk-proj-planted_openai-key-value-0123 tail",
+   "spans": [
+    [
+     4,
+     41
+    ]
+   ],
+   "redacted": "\u00e9\u00e9\u00e9 [REDACTED:openai_api_key] tail"
+  },
+  {
+   "text": "",
+   "spans": [],
+   "redacted": ""
+  },
+  {
+   "text": "nothing to hide",
+   "spans": [],
+   "redacted": "nothing to hide"
+  },
+  {
+   "text": "\ud83d\ude00 caf\u00e9 sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD \u00e9 sk-proj-planted_openai-key-value-0123 fin",
+   "spans": [
+    [
+     7,
+     50
+    ],
+    [
+     53,
+     90
+    ]
+   ],
+   "redacted": "\ud83d\ude00 caf\u00e9 [REDACTED:openai_api_key] \u00e9 [REDACTED:openai_api_key] fin"
+  },
+  {
+   "text": "sk-admin-planted_openai-key-value-0123",
+   "spans": [
+    [
+     0,
+     38
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-proj-aaaaaaaaaaaaaaaaaaaa",
+   "spans": [
+    [
+     0,
+     28
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-proj-aaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "sk-proj-aaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [
+    [
+     0,
+     35
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-tail",
+   "spans": [],
+   "redacted": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-tail"
+  },
+  {
+   "text": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_tail",
+   "spans": [],
+   "redacted": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_tail"
+  },
+  {
+   "text": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tail",
+   "spans": [
+    [
+     0,
+     35
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key].tail"
+  },
+  {
+   "text": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u00e9",
+   "spans": [
+    [
+     0,
+     35
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u00e9"
+  },
+  {
+   "text": "sk-aaaaaaaaaaaaaaaa\u00e9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "sk-aaaaaaaaaaaaaaaa\u00e9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "sk-\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11",
+   "spans": [],
+   "redacted": "sk-\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11\uff11"
+  },
+  {
+   "text": "xsk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "xsk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "_sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "_sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "-sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "-sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "\u00e9sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [
+    [
+     1,
+     44
+    ]
+   ],
+   "redacted": "\u00e9[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "sk-sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "sk-proj-sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [
+    [
+     0,
+     51
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+   "spans": [
+    [
+     0,
+     43
+    ],
+    [
+     44,
+     87
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key] [REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD,sk-proj-planted_openai-key-value-0123;sk-svcacct-planted_openai-key-value-0123",
+   "spans": [
+    [
+     0,
+     43
+    ],
+    [
+     44,
+     81
+    ],
+    [
+     82,
+     122
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key],[REDACTED:openai_api_key];[REDACTED:openai_api_key]"
+  },
+  {
+   "text": "sk-proj-aaaaaaaaaaaaaaaaaaaaaaaaa\u00e9",
+   "spans": [
+    [
+     0,
+     33
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u00e9"
+  },
+  {
+   "text": "sk-svcacct-short",
+   "spans": [],
+   "redacted": "sk-svcacct-short"
+  },
+  {
+   "text": "sk-",
+   "spans": [],
+   "redacted": "sk-"
+  },
+  {
+   "text": "sk",
+   "spans": [],
+   "redacted": "sk"
+  },
+  {
+   "text": "ends with sk-",
+   "spans": [],
+   "redacted": "ends with sk-"
+  },
+  {
+   "text": "sk-ant-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "spans": [],
+   "redacted": "[REDACTED:anthropic_api_key]"
+  },
+  {
+   "text": "sk-ant-api03 'quoted' tail",
+   "spans": [],
+   "redacted": "[REDACTED:anthropic_api_key] 'quoted' tail"
+  },
+  {
+   "text": "say \"ghp_inquotes\" and go",
+   "spans": [],
+   "redacted": "say \"[REDACTED:github_pat]\" and go"
+  },
+  {
+   "text": "say 'ghp_inquotes' and go",
+   "spans": [],
+   "redacted": "say '[REDACTED:github_pat]' and go"
+  },
+  {
+   "text": "ghp_one ghp_two\tghp_three\nghp_four",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat] [REDACTED:github_pat]\t[REDACTED:github_pat]\n[REDACTED:github_pat]"
+  },
+  {
+   "text": "AIzaAIzaAIza",
+   "spans": [],
+   "redacted": "[REDACTED:google_api_key]"
+  },
+  {
+   "text": "AKIA",
+   "spans": [],
+   "redacted": "[REDACTED:aws_access_key]"
+  },
+  {
+   "text": "prefix-at-end ghp_",
+   "spans": [],
+   "redacted": "prefix-at-end [REDACTED:github_pat]"
+  },
+  {
+   "text": "ya29.a ya29.b",
+   "spans": [],
+   "redacted": "[REDACTED:google_oauth_token] [REDACTED:google_oauth_token]"
+  },
+  {
+   "text": "aws_secret_access_key= spaced",
+   "spans": [],
+   "redacted": "[REDACTED:aws_secret_access_key] spaced"
+  },
+  {
+   "text": "AWS_SECRET_ACCESS_KEY=\"quoted\"",
+   "spans": [],
+   "redacted": "[REDACTED:aws_secret_access_key]\"quoted\""
+  },
+  {
+   "text": "xoxb-1 and https://hooks.slack.com/services/T00/B00/planted and http://hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "[REDACTED:slack_bot_token] and [REDACTED:slack_webhook] and [REDACTED:slack_webhook]"
+  },
+  {
+   "text": "http://hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]"
+  },
+  {
+   "text": "hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]"
+  },
+  {
+   "text": "ftp://hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "ftp://[REDACTED:slack_webhook]"
+  },
+  {
+   "text": "ttps://hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "ttps://[REDACTED:slack_webhook]"
+  },
+  {
+   "text": "s://hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "s://[REDACTED:slack_webhook]"
+  },
+  {
+   "text": "'https://hooks.slack.com/services/T00/B00/planted'",
+   "spans": [],
+   "redacted": "'[REDACTED:slack_webhook]'"
+  },
+  {
+   "text": "a hooks.slack.com/services/T00/B00/planted b hooks.slack.com/services/T00/B00/planted",
+   "spans": [],
+   "redacted": "a [REDACTED:slack_webhook] b [REDACTED:slack_webhook]"
+  },
+  {
+   "text": "-----BEGIN",
+   "spans": [],
+   "redacted": "[REDACTED:pem_private_key]"
+  },
+  {
+   "text": "-----BEGIN-----END",
+   "spans": [],
+   "redacted": "[REDACTED:pem_private_key]"
+  },
+  {
+   "text": "-----BEGIN-----END-----",
+   "spans": [],
+   "redacted": "[REDACTED:pem_private_key]"
+  },
+  {
+   "text": "-----BEGIN X-----END X----- tail -----BEGIN Y-----\nbody",
+   "spans": [],
+   "redacted": "[REDACTED:pem_private_key] tail [REDACTED:pem_private_key]"
+  },
+  {
+   "text": "-----END RSA PRIVATE KEY----- then -----BEGIN RSA PRIVATE KEY-----",
+   "spans": [],
+   "redacted": "-----END RSA PRIVATE KEY----- then [REDACTED:pem_private_key]"
+  },
+  {
+   "text": "x -----BEGIN A----- ghp_inside -----END A----- y ghp_outside z",
+   "spans": [],
+   "redacted": "x [REDACTED:pem_private_key] y [REDACTED:github_pat] z"
+  },
+  {
+   "text": "ghp_before -----BEGIN A-----\nbody\n-----END A-----",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat] [REDACTED:pem_private_key]"
+  },
+  {
+   "text": "github_pat_x and ghp_y and gho_z",
+   "spans": [],
+   "redacted": "[REDACTED:github_fine_grained_pat] and [REDACTED:github_pat] and [REDACTED:github_oauth_token]"
+  },
+  {
+   "text": "[REDACTED:github_pat] already",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat] already"
+  },
+  {
+   "text": "ghp_lone\ud800surrogate",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "\ud800 sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD \udfff",
+   "spans": [
+    [
+     2,
+     45
+    ]
+   ],
+   "redacted": "\ud800 [REDACTED:openai_api_key] \udfff"
+  },
+  {
+   "text": "ghp_nul\u0000after",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "tab\tAIzaTab\tend",
+   "spans": [],
+   "redacted": "tab\t[REDACTED:google_api_key]\tend"
+  },
+  {
+   "text": "ghp_planted\u0000tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0001tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0002tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0003tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0004tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0005tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0006tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0007tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\btail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\ttail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\ttail"
+  },
+  {
+   "text": "ghp_planted\ntail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\ntail"
+  },
+  {
+   "text": "ghp_planted\u000btail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u000btail"
+  },
+  {
+   "text": "ghp_planted\ftail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\ftail"
+  },
+  {
+   "text": "ghp_planted\rtail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\rtail"
+  },
+  {
+   "text": "ghp_planted\u000etail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u000ftail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0010tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0011tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0012tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0013tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0014tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0015tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0016tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0017tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0018tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0019tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u001atail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u001btail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u001ctail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u001ctail"
+  },
+  {
+   "text": "ghp_planted\u001dtail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u001dtail"
+  },
+  {
+   "text": "ghp_planted\u001etail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u001etail"
+  },
+  {
+   "text": "ghp_planted\u001ftail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u001ftail"
+  },
+  {
+   "text": "ghp_planted tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat] tail"
+  },
+  {
+   "text": "ghp_planted!tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\"tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\"tail"
+  },
+  {
+   "text": "ghp_planted#tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted$tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted%tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted&tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted'tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]'tail"
+  },
+  {
+   "text": "ghp_planted(tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted)tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted*tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted+tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted,tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted-tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted.tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted/tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u007ftail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u0085tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u0085tail"
+  },
+  {
+   "text": "ghp_planted\u00a0tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u00a0tail"
+  },
+  {
+   "text": "ghp_planted\u1680tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u1680tail"
+  },
+  {
+   "text": "ghp_planted\u180etail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u2000tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u2000tail"
+  },
+  {
+   "text": "ghp_planted\u200atail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u200atail"
+  },
+  {
+   "text": "ghp_planted\u200btail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u2028tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u2028tail"
+  },
+  {
+   "text": "ghp_planted\u2029tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u2029tail"
+  },
+  {
+   "text": "ghp_planted\u202ftail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u202ftail"
+  },
+  {
+   "text": "ghp_planted\u205ftail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u205ftail"
+  },
+  {
+   "text": "ghp_planted\u2060tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "ghp_planted\u3000tail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]\u3000tail"
+  },
+  {
+   "text": "ghp_planted\ufefftail",
+   "spans": [],
+   "redacted": "[REDACTED:github_pat]"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD\u001ctail",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u001ctail"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted\u001ctail",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]\u001ctail"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD\u001dtail",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u001dtail"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted\u001dtail",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]\u001dtail"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD\u001etail",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u001etail"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted\u001etail",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]\u001etail"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD\u001ftail",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u001ftail"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted\u001ftail",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]\u001ftail"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD tail",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key] tail"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted tail",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook] tail"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD\u0085tail",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u0085tail"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted\u0085tail",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]\u0085tail"
+  },
+  {
+   "text": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD\u3000tail",
+   "spans": [
+    [
+     0,
+     43
+    ]
+   ],
+   "redacted": "[REDACTED:openai_api_key]\u3000tail"
+  },
+  {
+   "text": "https://hooks.slack.com/services/T00/B00/planted\u3000tail",
+   "spans": [],
+   "redacted": "[REDACTED:slack_webhook]\u3000tail"
+  }
+ ],
+ "values": [
+  {
+   "source": "{\"output\": \"token sk-ant-planted end\"}",
+   "redacted": "{\"output\": \"token [REDACTED:anthropic_api_key] end\"}"
+  },
+  {
+   "source": "{\"output\": \"xAIzaSyPlanted\"}",
+   "redacted": "{\"output\": \"x[REDACTED:google_api_key]\"}"
+  },
+  {
+   "source": "{\"events\": [{\"output\": \"sk-ant-planted-secret\"}, {\"arguments\": {\"nested\": \"AIzaSyPlanted\"}}]}",
+   "redacted": "{\"events\": [{\"output\": \"[REDACTED:anthropic_api_key]\"}, {\"arguments\": {\"nested\": \"[REDACTED:google_api_key]\"}}]}"
+  },
+  {
+   "source": "{\"sk-ant-planted\": \"AIzaPlanted\"}",
+   "redacted": "{\"[REDACTED:anthropic_api_key]\": \"[REDACTED:google_api_key]\"}"
+  },
+  {
+   "source": "{\"ghp_one\": 1, \"ghp_two\": 2, \"plain\": 3, \"ghp_three\": [4, \"ghp_four\"]}",
+   "redacted": "{\"[REDACTED:github_pat]\": [4, \"[REDACTED:github_pat]\"], \"plain\": 3}"
+  },
+  {
+   "source": "{\"plain\": 1, \"ghp_x\": 2, \"[REDACTED:github_pat]\": 3}",
+   "redacted": "{\"plain\": 1, \"[REDACTED:github_pat]\": 3}"
+  },
+  {
+   "source": "[\"ghp_a\", 1, 2.5, true, false, null, {\"k\": [\"AKIAX\", {\"AKIAY\": \"xoxb-z\"}]}]",
+   "redacted": "[\"[REDACTED:github_pat]\", 1, 2.5, true, false, null, {\"k\": [\"[REDACTED:aws_access_key]\", {\"[REDACTED:aws_access_key]\": \"[REDACTED:slack_bot_token]\"}]}]"
+  },
+  {
+   "source": "\"ya29.top\"",
+   "redacted": "\"[REDACTED:google_oauth_token]\""
+  },
+  {
+   "source": "12",
+   "redacted": "12"
+  },
+  {
+   "source": "null",
+   "redacted": "null"
+  },
+  {
+   "source": "[]",
+   "redacted": "[]"
+  },
+  {
+   "source": "{}",
+   "redacted": "{}"
+  },
+  {
+   "source": "{\"nan\": NaN, \"big\": 123456789012345678901234567890123456789012345, \"f\": 1e+16}",
+   "redacted": "{\"nan\": NaN, \"big\": 123456789012345678901234567890123456789012345, \"f\": 1e+16}"
+  },
+  {
+   "source": "{\"\\ud800ghp_k\": \"ghp_v\\udc00 tail\"}",
+   "redacted": "{\"\\ud800[REDACTED:github_pat]\": \"[REDACTED:github_pat] tail\"}"
+  }
+ ]
+}

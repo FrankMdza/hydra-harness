@@ -1,7 +1,7 @@
 # 217 - grader in Rust: the verdict queue and the Jev probe's local half
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 212
 
 ## What

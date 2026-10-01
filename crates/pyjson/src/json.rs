@@ -240,7 +240,16 @@ pub fn loads_str(text: &str) -> Result<Value, ParseError> {
 /// Parse a document as `json.loads(bytes)` does: the encoding is the one
 /// `json.detect_encoding` names, decoded with the `surrogatepass` error handler.
 pub fn loads_bytes(raw: &[u8]) -> Result<Value, ParseError> {
-    loads(&decode(raw).ok_or(ParseError::Unicode)?)
+    loads_bytes_explained(raw).map_err(|(err, _)| err)
+}
+
+/// `json.loads(bytes)`, and what `str(err)` says for the two classes a caller prints: a
+/// `JSONDecodeError` as `loads_explained` gives it, and a `UnicodeDecodeError` as
+/// `'utf-8' codec can't decode byte 0xff in position 0: invalid start byte`. The grader
+/// names a record it skips with that text.
+pub fn loads_bytes_explained(raw: &[u8]) -> Result<Value, (ParseError, String)> {
+    let text = decode(raw).map_err(|message| (ParseError::Unicode, message))?;
+    loads_explained(&text)
 }
 
 /// What `json.detect_encoding` chooses between.
@@ -303,52 +312,81 @@ fn detect_encoding(b: &[u8]) -> (Encoding, usize) {
     (encoding, 0)
 }
 
-/// `raw.decode(json.detect_encoding(raw), "surrogatepass")`, `None` where that raises.
-fn decode(raw: &[u8]) -> Option<PyStr> {
+/// `str(UnicodeDecodeError)`: the codec, the bytes `start..end` it stopped on, and why.
+fn decode_error(codec: &str, raw: &[u8], start: usize, end: usize, reason: &str) -> String {
+    if end == start + 1 {
+        format!(
+            "'{codec}' codec can't decode byte 0x{:02x} in position {start}: {reason}",
+            raw[start]
+        )
+    } else {
+        format!(
+            "'{codec}' codec can't decode bytes in position {start}-{}: {reason}",
+            end - 1
+        )
+    }
+}
+
+/// `raw.decode(json.detect_encoding(raw), "surrogatepass")`, or `str(err)` where that
+/// raises. The UTF-8 codec behind a byte order mark is handed the bytes after the mark, so
+/// its positions count from there; the UTF-16 and UTF-32 codecs skip the mark themselves
+/// and count from the first byte.
+fn decode(raw: &[u8]) -> Result<PyStr, String> {
     let (encoding, mark) = detect_encoding(raw);
-    let body = &raw[mark..];
     match encoding {
-        Encoding::Utf8 | Encoding::Utf8Sig => decode_utf8(body),
-        Encoding::Utf16 { big_endian } => decode_utf16(body, big_endian),
-        Encoding::Utf32 { big_endian } => decode_utf32(body, big_endian),
+        Encoding::Utf8 | Encoding::Utf8Sig => decode_utf8(&raw[mark..]),
+        Encoding::Utf16 { big_endian } => decode_utf16(raw, mark, big_endian),
+        Encoding::Utf32 { big_endian } => decode_utf32(raw, mark, big_endian),
     }
 }
 
 /// UTF-8 under `surrogatepass`: strict, except that the three bytes a surrogate would
 /// encode to decode to that surrogate.
-fn decode_utf8(mut raw: &[u8]) -> Option<PyStr> {
+fn decode_utf8(raw: &[u8]) -> Result<PyStr, String> {
     let mut out = PyStr::new();
+    let mut at = 0;
     loop {
-        match std::str::from_utf8(raw) {
+        let err = match std::str::from_utf8(&raw[at..]) {
             Ok(text) => {
                 out.push_str(text);
-                return Some(out);
+                return Ok(out);
             }
-            Err(err) => {
-                let (good, bad) = raw.split_at(err.valid_up_to());
-                out.push_str(std::str::from_utf8(good).ok()?);
-                let [a, b, c, ..] = *bad else { return None };
-                if a & 0xf0 != 0xe0 || b & 0xc0 != 0x80 || c & 0xc0 != 0x80 {
-                    return None;
-                }
-                let code =
-                    (u32::from(a & 0x0f) << 12) | (u32::from(b & 0x3f) << 6) | u32::from(c & 0x3f);
-                if !is_surrogate(code) {
-                    return None;
-                }
+            Err(err) => err,
+        };
+        let start = at + err.valid_up_to();
+        out.push_str(&String::from_utf8_lossy(&raw[at..start]));
+        if let [a, b, c, ..] = raw[start..]
+            && a & 0xf0 == 0xe0
+            && b & 0xc0 == 0x80
+            && c & 0xc0 == 0x80
+        {
+            let code =
+                (u32::from(a & 0x0f) << 12) | (u32::from(b & 0x3f) << 6) | u32::from(c & 0x3f);
+            if is_surrogate(code) {
                 out.push_code(code);
-                raw = &bad[3..];
+                at = start + 3;
+                continue;
             }
         }
+        // CPython stops on the same bytes Rust does, the longest prefix of a sequence that
+        // could still have been valid, and names three reasons for them.
+        let (end, reason) = match err.error_len() {
+            None => (raw.len(), "unexpected end of data"),
+            Some(1) if !(0xc2..=0xf4).contains(&raw[start]) => (start + 1, "invalid start byte"),
+            Some(len) => (start + len, "invalid continuation byte"),
+        };
+        return Err(decode_error("utf-8", raw, start, end, reason));
     }
 }
 
 /// UTF-16 under `surrogatepass`: a pair is one code point, a surrogate without its partner
 /// stands as itself, and a trailing odd byte raises.
-fn decode_utf16(raw: &[u8], big_endian: bool) -> Option<PyStr> {
-    let (pairs, odd) = raw.as_chunks::<2>();
+fn decode_utf16(raw: &[u8], mark: usize, big_endian: bool) -> Result<PyStr, String> {
+    let (pairs, odd) = raw[mark..].as_chunks::<2>();
     if !odd.is_empty() {
-        return None;
+        let codec = if big_endian { "utf-16-be" } else { "utf-16-le" };
+        let start = raw.len() - 1;
+        return Err(decode_error(codec, raw, start, raw.len(), "truncated data"));
     }
     let units: Vec<u32> = pairs
         .iter()
@@ -376,29 +414,38 @@ fn decode_utf16(raw: &[u8], big_endian: bool) -> Option<PyStr> {
             }
         }
     }
-    Some(out)
+    Ok(out)
 }
 
 /// UTF-32 under `surrogatepass`: a surrogate stands as itself, a unit past U+10FFFF and a
-/// trailing partial unit raise.
-fn decode_utf32(raw: &[u8], big_endian: bool) -> Option<PyStr> {
-    let (units, partial) = raw.as_chunks::<4>();
-    if !partial.is_empty() {
-        return None;
-    }
+/// trailing partial unit raise, whichever comes first.
+fn decode_utf32(raw: &[u8], mark: usize, big_endian: bool) -> Result<PyStr, String> {
+    let codec = if big_endian { "utf-32-be" } else { "utf-32-le" };
+    let (units, partial) = raw[mark..].as_chunks::<4>();
     let mut out = PyStr::new();
-    for unit in units {
+    for (n, unit) in units.iter().enumerate() {
         let code = if big_endian {
             u32::from_be_bytes(*unit)
         } else {
             u32::from_le_bytes(*unit)
         };
         if code > 0x10ffff {
-            return None;
+            let start = mark + 4 * n;
+            return Err(decode_error(
+                codec,
+                raw,
+                start,
+                start + 4,
+                "code point not in range(0x110000)",
+            ));
         }
         out.push_code(code);
     }
-    Some(out)
+    if !partial.is_empty() {
+        let start = raw.len() - partial.len();
+        return Err(decode_error(codec, raw, start, raw.len(), "truncated data"));
+    }
+    Ok(out)
 }
 
 struct Parser<'a> {
@@ -1087,6 +1134,79 @@ mod tests {
         ] {
             assert_eq!(loads_bytes(raw).err(), Some(ParseError::Decode), "{raw:?}");
         }
+    }
+
+    /// Each message is what `str(err)` gave under Python 3.14.7 for `json.loads` of the
+    /// same bytes. `crates/grader/tests/differential.rs` compares more of them, all behind
+    /// a newline, which is why the three that end a text are here.
+    #[test]
+    fn a_decode_error_says_what_python_says() {
+        for (raw, want) in [
+            (
+                &b"\xff\n"[..],
+                "'utf-8' codec can't decode byte 0xff in position 0: invalid start byte",
+            ),
+            (
+                b"{\"a\":\"\xe9\"}\n",
+                "'utf-8' codec can't decode byte 0xe9 in position 6: invalid continuation byte",
+            ),
+            (
+                b"{\"a\":\"\xe2\x82\"}\n",
+                "'utf-8' codec can't decode bytes in position 6-7: invalid continuation byte",
+            ),
+            (
+                b"\"\xe2\x82",
+                "'utf-8' codec can't decode bytes in position 1-2: unexpected end of data",
+            ),
+            (
+                b"\"\xf0\x9f\x98",
+                "'utf-8' codec can't decode bytes in position 1-3: unexpected end of data",
+            ),
+            (
+                b"\"\xc3",
+                "'utf-8' codec can't decode byte 0xc3 in position 1: unexpected end of data",
+            ),
+            (
+                b"\"\xed\xa0\"",
+                "'utf-8' codec can't decode byte 0xed in position 1: invalid continuation byte",
+            ),
+            (
+                b"\"\xc0\x80\"",
+                "'utf-8' codec can't decode byte 0xc0 in position 1: invalid start byte",
+            ),
+            // Behind a mark the UTF-8 codec counts from after it, the wide ones from 0.
+            (
+                b"\xef\xbb\xbf\"\xff\"",
+                "'utf-8' codec can't decode byte 0xff in position 1: invalid start byte",
+            ),
+            (
+                b"\xff\xfe\"\x00a\x00\"",
+                "'utf-16-le' codec can't decode byte 0x22 in position 6: truncated data",
+            ),
+            (
+                b"\xfe\xff\x00\"\x00a\x00\"\x00",
+                "'utf-16-be' codec can't decode byte 0x00 in position 8: truncated data",
+            ),
+            (
+                b"\"\x00\x00\x00a\x00\x00\x00\"\x00\x00\x00\x01",
+                "'utf-32-le' codec can't decode byte 0x01 in position 12: truncated data",
+            ),
+            (
+                b"\"\x00\x00\x00\x00\x00\x11\x00\"\x00\x00\x00",
+                "'utf-32-le' codec can't decode bytes in position 4-7: code point not in range(0x110000)",
+            ),
+            (
+                b"\x00\x00\xfe\xff\x00\x00\x00\"\x00\x00",
+                "'utf-32-be' codec can't decode bytes in position 8-9: truncated data",
+            ),
+        ] {
+            let (err, message) = loads_bytes_explained(raw).unwrap_err();
+            assert_eq!(err, ParseError::Unicode, "{raw:?}");
+            assert_eq!(message, want, "{raw:?}");
+        }
+        let (err, message) = loads_bytes_explained(b"\xef\xbb\xbf{\"a\":").unwrap_err();
+        assert_eq!(err, ParseError::Decode);
+        assert_eq!(message, "Expecting value: line 1 column 6 (char 5)");
     }
 
     #[test]

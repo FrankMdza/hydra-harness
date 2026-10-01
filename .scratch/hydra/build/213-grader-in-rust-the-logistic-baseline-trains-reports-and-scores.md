@@ -1,7 +1,7 @@
 # 213 - grader in Rust: the logistic baseline trains, reports and scores
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 211, 212
 
 ## What

@@ -1,0 +1,282 @@
+{
+ "strips": [
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\nthe task",
+   "current": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "text": "the task",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\nthe task",
+   "current": null,
+   "text": "the task",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\nthe task",
+   "current": "",
+   "text": "the task",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "current": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "text": "",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.",
+   "current": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "text": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.",
+   "stripped": false
+  },
+  {
+   "task": "the task",
+   "current": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "text": "the task",
+   "stripped": false
+  },
+  {
+   "task": "",
+   "current": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "text": "",
+   "stripped": false
+  },
+  {
+   "task": "",
+   "current": null,
+   "text": "",
+   "stripped": false
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.\n\nthe task",
+   "current": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "text": "the task",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.\n\nthe task",
+   "current": null,
+   "text": "the task",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.\n\nsay so and stop.\n\nthe task",
+   "current": null,
+   "text": "say so and stop.\n\nthe task",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.the task",
+   "current": null,
+   "text": "Hydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.the task",
+   "stripped": false
+  },
+  {
+   "task": "xHydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.\n\nthe task",
+   "current": null,
+   "text": "xHydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.\n\nthe task",
+   "stripped": false
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn.",
+   "current": null,
+   "text": "Hydra launched this run and wrote its instructions at spawn.",
+   "stripped": false
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn.say so and stop.\n\n",
+   "current": null,
+   "text": "",
+   "stripped": true
+  },
+  {
+   "task": "caf\u00e9 \ud83d\ude00\n\nthe task \u00e9",
+   "current": "caf\u00e9 \ud83d\ude00\n\n",
+   "text": "the task \u00e9",
+   "stripped": true
+  },
+  {
+   "task": "\ud800 lone\n\nthe task",
+   "current": "\ud800 lone\n\n",
+   "text": "the task",
+   "stripped": true
+  },
+  {
+   "task": "Hydra launched this run and wrote its instructions at spawn. An older wording,\nsay so and stop.\n\ncaf\u00e9 \ud83d\ude00 \ud800",
+   "current": "something else\n\n",
+   "text": "caf\u00e9 \ud83d\ude00 \ud800",
+   "stripped": true
+  }
+ ],
+ "currents": [
+  {
+   "data": null,
+   "preamble": null,
+   "raises": null
+  },
+  {
+   "data": "4879647261206c61756e6368656420746869732072756e20616e642077726f74652069747320696e737472756374696f6e7320617420737061776e2e205468657265206172652074687265652e0a0a576f726b20696e736964652069742c20616e6420696620746865207461736b2063616e6e6f7420626520646f6e6520696e736964652069742c0a73617920736f20616e642073746f702e0a",
+   "preamble": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "raises": null
+  },
+  {
+   "data": "4879647261206c61756e6368656420746869732072756e20616e642077726f74652069747320696e737472756374696f6e7320617420737061776e2e205468657265206172652074687265652e0a0a576f726b20696e736964652069742c20616e6420696620746865207461736b2063616e6e6f7420626520646f6e6520696e736964652069742c0a73617920736f20616e642073746f702e0a0a0a0a",
+   "preamble": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "raises": null
+  },
+  {
+   "data": "4879647261206c61756e6368656420746869732072756e20616e642077726f74652069747320696e737472756374696f6e7320617420737061776e2e205468657265206172652074687265652e0a0a576f726b20696e736964652069742c20616e6420696620746865207461736b2063616e6e6f7420626520646f6e6520696e736964652069742c0a73617920736f20616e642073746f702e",
+   "preamble": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "raises": null
+  },
+  {
+   "data": "",
+   "preamble": "\n\n",
+   "raises": null
+  },
+  {
+   "data": "0a",
+   "preamble": "\n\n",
+   "raises": null
+  },
+  {
+   "data": "4879647261206c61756e6368656420746869732072756e20616e642077726f74652069747320696e737472756374696f6e7320617420737061776e2e205468657265206172652074687265652e0d0a0d0a576f726b20696e736964652069742c20616e6420696620746865207461736b2063616e6e6f7420626520646f6e6520696e736964652069742c0d0a73617920736f20616e642073746f702e0d0a",
+   "preamble": "Hydra launched this run and wrote its instructions at spawn. There are three.\n\nWork inside it, and if the task cannot be done inside it,\nsay so and stop.\n\n",
+   "raises": null
+  },
+  {
+   "data": "6f6e650d74776f0d0a0d0a",
+   "preamble": "one\ntwo\n\n",
+   "raises": null
+  },
+  {
+   "data": "747261696c696e672073706163657320200a200a",
+   "preamble": "trailing spaces  \n \n\n",
+   "raises": null
+  },
+  {
+   "data": "636166c3a920f09f98800a",
+   "preamble": "caf\u00e9 \ud83d\ude00\n\n",
+   "raises": null
+  },
+  {
+   "data": "efbbbf6d61726b65640a",
+   "preamble": "\ufeffmarked\n\n",
+   "raises": null
+  },
+  {
+   "data": "6c6174696e20e90a",
+   "preamble": null,
+   "raises": "UnicodeDecodeError"
+  },
+  {
+   "data": "directory",
+   "preamble": null,
+   "raises": null
+  }
+ ],
+ "homes": [
+  {
+   "env": {
+    "HYDRA_ROOT": "/named/root",
+    "HOME": "/users/x"
+   },
+   "root": "/named/root",
+   "home": "/named/root/grader"
+  },
+  {
+   "env": {
+    "HYDRA_ROOT": "/named/root/",
+    "HOME": "/users/x"
+   },
+   "root": "/named/root",
+   "home": "/named/root/grader"
+  },
+  {
+   "env": {
+    "HYDRA_ROOT": "relative/root",
+    "HOME": "/users/x"
+   },
+   "root": "relative/root",
+   "home": "relative/root/grader"
+  },
+  {
+   "env": {
+    "HYDRA_ROOT": "",
+    "HOME": "/users/x"
+   },
+   "root": "/users/x/hydra",
+   "home": "/users/x/hydra/grader"
+  },
+  {
+   "env": {
+    "HOME": "/users/x"
+   },
+   "root": "/users/x/hydra",
+   "home": "/users/x/hydra/grader"
+  },
+  {
+   "env": {
+    "HOME": "/users/x/"
+   },
+   "root": "/users/x/hydra",
+   "home": "/users/x/hydra/grader"
+  },
+  {
+   "env": {
+    "HOME": ""
+   },
+   "root": "/hydra",
+   "home": "/hydra/grader"
+  },
+  {
+   "env": {
+    "HOME": "/"
+   },
+   "root": "/hydra",
+   "home": "/hydra/grader"
+  },
+  {
+   "env": {
+    "HOME": "relative"
+   },
+   "root": "relative/hydra",
+   "home": "relative/hydra/grader"
+  },
+  {
+   "env": {
+    "HYDRA_GRADER_HOME": "/named/grader",
+    "HOME": "/users/x"
+   },
+   "root": "/users/x/hydra",
+   "home": "/named/grader"
+  },
+  {
+   "env": {
+    "HYDRA_GRADER_HOME": "",
+    "HYDRA_ROOT": "/named/root",
+    "HOME": "/users/x"
+   },
+   "root": "/named/root",
+   "home": "/named/root/grader"
+  },
+  {
+   "env": {
+    "HYDRA_GRADER_HOME": "/named/grader",
+    "HYDRA_ROOT": "/named/root",
+    "HOME": "/users/x"
+   },
+   "root": "/named/root",
+   "home": "/named/grader"
+  },
+  {
+   "env": {
+    "HYDRA_GRADER_HOME": "relative/./grader//x/",
+    "HOME": "/users/x"
+   },
+   "root": "/users/x/hydra",
+   "home": "relative/grader/x"
+  }
+ ]
+}

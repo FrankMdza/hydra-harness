@@ -3521,6 +3521,53 @@ equal with 291 labels, ten with a human verdict, and 17 that both refuse.
   prints `hunk show <branch>` or becomes Hunk. The `review` event is in the log by then, and
   exiting 1 made a retry sit the panel again.
 
+### The grader in Rust, since build ticket 212
+
+Map ticket 94 ports `integrations/grader/` a ticket at a time, and the Python stays as the
+reference until the last one. Build ticket 212 added the workspace's fourth member, `crates/grader`
+(package and binary `hydra-grader`), which depends on `hydra-pyjson`, `anyhow` and `sha2` and on
+neither `hydra-puppets` nor `hydra`. It holds two of the Python's modules:
+
+- `records.rs` is `records.py` without `refresh_show_answer` and `iter_records`, the two
+  functions that run `hydra show`: `scan_record`, `committed_lines`, `record_row`,
+  `duration_seconds`, `read_json`, `write_json`, `read_jsonl`, `write_jsonl`, `current_preamble`,
+  `strip_preamble`, `hydra_root` and `grader_home`.
+- `redact.rs` is `redact.py` whole. It indexes code points, never bytes, and ends a prefixed
+  secret on `hydra_pyjson::py::is_space`, which counts U+001C to U+001F as `str.isspace` does.
+- `isotime.rs` is `datetime.fromisoformat` and the subtraction of two results, which
+  `duration_seconds` needs. It follows CPython 3.14's C parser byte for byte, so a week date, a
+  time with no colons and any one character before an offset read as they do in Python.
+  `chrono` reads fewer spellings and would answer `None` where the Python answers a number.
+
+Neither module has a command line, so the binary has no command yet: it says so on stderr and
+exits 2. `hydra-pyjson` gained `json::loads_bytes_explained`, which returns `str(err)` for a
+`UnicodeDecodeError` as well as a `JSONDecodeError`, because `scan_record` prints that text when
+it skips a record.
+
+`crates/grader/tests/record.py` ran the Python once under CPython 3.14.7, from an empty
+environment, and wrote `crates/grader/tests/fixtures/` with each input beside its result.
+`differential.rs` calls the Rust on the same inputs and starts no `python3`. It makes 6,316
+comparisons: 350 on the redactor, 1,256 on the scan of 127 records (the twelve of
+`tests/fixtures/records/` and 115 synthesized: a torn tail, a garbled line, a line 0 that is not
+an object, invalid UTF-8 of each kind the decoder names), 4,458 on `record_row` and on 2,197
+pairs of timestamps, 164 on the files written and read, 88 on the preamble and the homes. A
+further 150,000 generated timestamp pairs matched once and are not kept. `aliases.json` is the
+frozen copy in `fixtures/data/`.
+
+Two things are normalized. Where the Python raises, the Rust returns an error that starts with
+the same exception class, and the rest of the message is not compared. A home directory is
+compared by its components, since `pathlib` drops a trailing slash and a `.` that a `PathBuf`
+keeps. The record's directory, which the plan expected to mask, appears in nothing compared.
+
+Three things the Python does that a reader would not guess, all kept:
+
+- `duration_seconds` raises `TypeError` when one timestamp has an offset and the other has none.
+  The subtraction sits outside its `try`.
+- `committed_lines` stops at a lone carriage return as it stops at a torn tail, because
+  `bytes.splitlines` ends a line there and the line then does not end in `\n`.
+- `write_jsonl` given a NaN leaves the rows before it in the `.tmp` file and does not touch the
+  target.
+
 ## `hydra cockpit`, since build ticket 150
 
 Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen

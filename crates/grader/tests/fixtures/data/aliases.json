@@ -1,0 +1,210 @@
+[
+  {
+    "provider": "claude",
+    "recorded_model": null,
+    "canonical": {
+      "provider": "claude",
+      "model": null
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "haiku",
+    "canonical": {
+      "provider": "claude",
+      "model": "haiku"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "Haiku 4.5",
+    "canonical": {
+      "provider": "claude",
+      "model": "haiku"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "sonnet",
+    "canonical": {
+      "provider": "claude",
+      "model": "sonnet"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "Sonnet 5",
+    "canonical": {
+      "provider": "claude",
+      "model": "sonnet"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "claude-sonnet-5",
+    "canonical": {
+      "provider": "claude",
+      "model": "sonnet"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "opus",
+    "canonical": {
+      "provider": "claude",
+      "model": "opus"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "Opus 5",
+    "canonical": {
+      "provider": "claude",
+      "model": "opus"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "Opus 5.5",
+    "canonical": {
+      "provider": "claude",
+      "model": "opus"
+    }
+  },
+  {
+    "provider": "claude",
+    "recorded_model": "Opus 4.7",
+    "canonical": {
+      "provider": "claude",
+      "model": "opus"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": null,
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": null
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "composer-2.5",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "composer-2.5"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "Composer 2.5",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "composer-2.5"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "composer-2.5-fast",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "composer-2.5-fast"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "Grok 4.6 Fast",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "cursor-grok-4.6-high-fast"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "cursor-grok-4.6-high-fast",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "cursor-grok-4.6-high-fast"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "grok-4.7-high-fast",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "grok-4.7-high-fast"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "gpt-5.6",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "gpt-5.6"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "gpt-5.6-sol-high",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "gpt-5.6-sol-high"
+    }
+  },
+  {
+    "provider": "agy",
+    "recorded_model": null,
+    "canonical": {
+      "provider": "agy",
+      "model": null
+    }
+  },
+  {
+    "provider": "agy",
+    "recorded_model": "gemini-3.8-flash-low",
+    "canonical": {
+      "provider": "agy",
+      "model": "gemini-3.8-flash-low"
+    }
+  },
+  {
+    "provider": "agy",
+    "recorded_model": "gemini-3.8-flash-high",
+    "canonical": {
+      "provider": "agy",
+      "model": "gemini-3.8-flash-high"
+    }
+  },
+  {
+    "provider": "agy",
+    "recorded_model": "gemini-3.1-pro-high",
+    "canonical": {
+      "provider": "agy",
+      "model": "gemini-3.1-pro-high"
+    }
+  },
+  {
+    "provider": "agy",
+    "recorded_model": "Gemini 3.1 Pro",
+    "canonical": {
+      "provider": "agy",
+      "model": "gemini-3.1-pro-high"
+    }
+  },
+  {
+    "provider": "codex",
+    "recorded_model": null,
+    "canonical": {
+      "provider": "codex",
+      "model": null
+    }
+  },
+  {
+    "provider": "codex",
+    "recorded_model": "gpt-6-astra",
+    "canonical": {
+      "provider": "codex",
+      "model": "gpt-6-astra"
+    }
+  }
+]

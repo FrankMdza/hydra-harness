@@ -1,0 +1,20 @@
+[package]
+name = "hydra-grader"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The grader: the record scan, the redactor and, ticket by ticket, the rest of its Python"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "hydra-grader"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+hydra-pyjson = { path = "../pyjson" }
+sha2 = "0.10"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"
