@@ -1,0 +1,25 @@
+{
+ "label": "repair --yes over a temporary that is a symlink",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/symlink",
+ "home": "/private/tmp/hp196/jobs/symlink/symlink/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/symlink/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "UnsafeRepairTemporary: repair temporary path is not a regular file; wrote nothing\n"
+   }
+  }
+ ],
+ "files": []
+}

@@ -1,0 +1,32 @@
+{
+ "label": "no log: approve g1 --table",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w056/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "approve",
+    "g1",
+    "--table"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-10-01T08:35:38.144Z\",\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":0,\"yes\":true}\n"
+   }
+  }
+ ]
+}

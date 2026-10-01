@@ -12,6 +12,7 @@ standard library and makes no network calls.
 | `HYDRA_GRADER_HOME` | `$HYDRA_ROOT/grader` | Cursor, dataset, and `hydra show` cache |
 | `HYDRA_BIN` | `hydra` | Binary used for `hydra show <id> --events` |
 | `HYDRA_PUPPETS_HOME` | `$HYDRA_ROOT/puppets` | Goal logs for task labels |
+| `HYDRA_PUPPETS_BIN` | `hydra-puppets` beside `HYDRA_BIN` when that is an absolute path, else `target/release/hydra-puppets` of this checkout | The helper that folds a goal log. An absolute path; `PATH` is never searched |
 
 ## Dataset and cursor
 
@@ -34,11 +35,23 @@ The same directory holds `show-cache.json`, the memoized answers from
 ## Labels
 
 Task labels come from Puppets goal logs under `HYDRA_PUPPETS_HOME`. Each
-`*.jsonl` file is one goal; `labels.py` folds it the same way `puppets fold`
-does and maps each `run_id` to task class, grade, human verdict, and task text.
-When a run id appears in more than one goal log, the last sorted goal id wins.
-Runs with no matching goal log keep the task text from the record and leave the
-label fields null.
+`*.jsonl` file is one goal. `labels.py` runs `hydra-puppets show <goal>` on it,
+reads the state that prints, and maps each `run_id` to task class, grade, human
+verdict, and task text. When a run id appears in more than one goal log, the
+last sorted goal id wins. Runs with no matching goal log keep the task text
+from the record and leave the label fields null.
+
+There is one fold of a goal log, the helper's, and the grader does not carry a
+second (map ticket 93). The cost is that a pass fails where it used to guess. A
+missing helper, a `show` that exits non-zero, which a damaged goal log makes it
+do, or output without the fields `labels.py` reads raises `LabelsError` before
+the dataset, the cursor, the show cache or the scores are written. `once` and
+`rebuild` exit with the traceback, and `watch` prints the failure and tries
+again after its interval. Repair the log with `hydra-puppets repair <goal>` and
+the next pass collects what the failed one left.
+
+`labels.py` used to pass over a last line that was not JSON. The helper calls
+that damage, so the grader now does too.
 
 A model can fill those fields too. Every `task-classes-*.jsonl` under
 `HYDRA_GRADER_HOME` holds one JSON object per run: `run_id`, `task_class`,
@@ -178,7 +191,7 @@ Every collect that writes new or changed rows scores each of those runs with eve
 `$HYDRA_GRADER_HOME/models/` and appends one line per run and model version to
 `$HYDRA_GRADER_HOME/scores.jsonl`: `run_id`, `label`, `p`, `model_version`, `scored_at`. A run
 already scored by that model version is skipped. With no model there, nothing is written.
-`puppets.py queue` and `board` read the verdict scores to order reviews. `sheet.py rank` does not
+`hydra-puppets queue` and `board` read the verdict scores to order reviews. `sheet.py rank` does not
 read the file, so the model does not choose which agent is assigned.
 
 A collect scores only its own rows, so a model trained later never sees the older ones. Run
@@ -238,8 +251,10 @@ Nothing reads the labels yet.
 
 Nothing collects on its own. `launchd/co.hephaestuslab.hydra-grader.plist` is a template that
 runs `grader.py once` every 15 minutes and logs to `$HYDRA_GRADER_HOME/launchd.log`. Replace
-`/Users/USER` with your home, add `HYDRA_BIN` if `hydra` is not on the plist's `PATH`, and run
-`once` by hand first so the grader home exists. Then install it:
+`/Users/USER` with your home, and run `once` by hand first so the grader home exists. The
+template's `HYDRA_BIN` names `target/release/hydra`, and the grader runs the `hydra-puppets`
+beside it, so build both with `cargo build --release --workspace`. Neither needs a Hydra run
+alive. Then install it:
 
 ```
 cp integrations/grader/launchd/co.hephaestuslab.hydra-grader.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/co.hephaestuslab.hydra-grader.plist
@@ -259,7 +274,8 @@ launchctl bootout gui/$(id -u)/co.hephaestuslab.hydra-grader && rm ~/Library/Lau
 | `baseline.py` | The three classifiers, their report, and the verdict queue |
 | `monitor.py` | Prefix features, the same regression on a fraction of a record, and score |
 | `records.py` | Walk `runs/`, cache `hydra show`, and project usage |
-| `labels.py` | Fold Puppets goal logs into per-run labels |
+| `labels.py` | Per-run labels from what `hydra-puppets show` prints for each goal log |
+| `jev_probe.py` | The Jev probe, and the ticket reader `baseline.py` loads from it. Moved here from `integrations/puppets/` by build ticket 196 |
 | `judge.py` | The local judge: `label` and `agree` |
 | `redact.py` | Secret redaction ported from `src/export.rs` |
 

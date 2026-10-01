@@ -1,0 +1,50 @@
+{
+ "label": "launch: a second attempt",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l027/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "launch",
+    "g1",
+    "t1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "run-1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship caf\u00e9 \u2615\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2 \u2615\",\"class\":\"docs\",\"grade\":\"high\",\"done\":\"cargo test passes\",\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"assignment\",\"task\":\"t2\",\"provider\":\"codex\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":5,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"launch\",\"ref\":\"t2\",\"revision\":5,\"yes\":true}\n{\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"x\"}\n{\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"r1\"}\n{\"event\":\"run_end\",\"task\":\"t1\",\"run_id\":\"r1\",\"outcome\":\"completed\",\"total_tokens\":12}\n{\"seq\":12,\"ts\":\"2026-10-01T08:33:56.929Z\",\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":2,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"bf0733830d4ccbd050865ed784930787daa62fa9f540f3650353ddaf5214ad7e\"}\n{\"seq\":13,\"ts\":\"2026-10-01T08:33:56.943Z\",\"event\":\"run\",\"task\":\"t1\",\"attempt\":2,\"run_id\":\"run-1\"}\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.argv",
+   "bytes": {
+    "text": "run\u0000--provider\u0000cursor-agent\u0000--model\u0000composer-2.5\u0000--policy\u0000standard\u0000--timeout\u00000\u0000--task\u0000do t1 \u2615\n\nDone means: not stated by the plan; say in your report what you took it to be.\n\nWhen you report back, start with a section headed \"Not confirmed\": every claim you could not check yourself, and where you looked. Then say what changed.\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l027/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l027/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l027/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l027/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l027/py/stub\n"
+   }
+  }
+ ]
+}

@@ -1,0 +1,136 @@
+{
+ "label": "harvest 0144/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-091/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"only\", \"text\": \"only\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"only\", \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"only\", \"attempt\": 4, \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"only\", \"attempt\": 4, \"run_id\": \"run-only\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"only\", \"run_id\": \"run-only\", \"outcome\": \"completed\", \"total_tokens\": 1}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"run-only\", {\"task_id\": \"only\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"only\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 2,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"only\": {\n      \"id\": \"only\",\n      \"text\": \"only\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-only\",\n      \"attempt\": 4,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 2\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  only         docs                  low    codex                        ended     no score run-only\nwaiting on you: table, diff only\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"only\",\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"only\",\n      \"--expect-run\",\n      \"run-only\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  1 task with no score\ntask         provider       model            run                                  p        attempt\nonly         codex                           run-only                             no score 4\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 2,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"only\": {\n      \"id\": \"only\",\n      \"text\": \"only\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-only\",\n      \"attempt\": 4,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"only\",\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"only\",\n      \"--expect-run\",\n      \"run-only\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"only\", \"text\": \"only\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"only\", \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"only\", \"attempt\": 4, \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"only\", \"attempt\": 4, \"run_id\": \"run-only\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"only\", \"run_id\": \"run-only\", \"outcome\": \"completed\", \"total_tokens\": 1}\n"
+   }
+  }
+ ]
+}

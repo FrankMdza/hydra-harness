@@ -1,0 +1,136 @@
+{
+ "label": "harvest 0022/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-013/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"panel_verdict\", \"judge_run_ids\": [], \"chosen\": \"codex\", \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmphmy4ae7o/puppets/g1/plans/chosen.md\"}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"approval\", \"kind\": \"plan\", \"ref\": null, \"revision\": 0, \"yes\": true}\n{\"seq\":4,\"ts\":\"2026-10-01T08:26:39.583Z\",\"event\":\"task\",\"id\":\"t1\",\"text\":\"write tests\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[\"tests/\"]}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 1,\n  \"plans\": [],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [],\n    \"chosen\": \"codex\",\n    \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmphmy4ae7o/puppets/g1/plans/chosen.md\",\n    \"degraded\": false,\n    \"substitutions\": []\n  },\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"write tests\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [\n        \"tests/\"\n      ],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 0,\n      \"yes\": true,\n      \"seq\": 3,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 1\n  test\nchosen  codex  judges 0\ntasks\n  id           class                 grade  agent                        status    p        run\n  t1           docs                  low    (unassigned)                 pending            \nwaiting on you: table\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 1,\n  \"plans\": [],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [],\n    \"chosen\": \"codex\",\n    \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmphmy4ae7o/puppets/g1/plans/chosen.md\",\n    \"degraded\": false,\n    \"substitutions\": []\n  },\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"write tests\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [\n        \"tests/\"\n      ],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 0,\n      \"yes\": true,\n      \"seq\": 3,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"panel_verdict\", \"judge_run_ids\": [], \"chosen\": \"codex\", \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmphmy4ae7o/puppets/g1/plans/chosen.md\"}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"approval\", \"kind\": \"plan\", \"ref\": null, \"revision\": 0, \"yes\": true}\n{\"seq\":4,\"ts\":\"2026-10-01T08:26:39.583Z\",\"event\":\"task\",\"id\":\"t1\",\"text\":\"write tests\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[\"tests/\"]}\n"
+   }
+  }
+ ]
+}

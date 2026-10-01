@@ -1,4 +1,4 @@
-//! A goal's state, folded from its log the way `puppets.py`'s `fold` does, and the
+//! A goal's state, folded from its log the way the Python helper's `fold` did, and the
 //! questions the read commands ask of it: which approvals are live, which launches would be
 //! refused, and what the helper is waiting on.
 
@@ -100,7 +100,7 @@ fn s(text: &str) -> Value {
     Value::text(text)
 }
 
-/// The most bad lines one `repair` event is believed about. `puppets.py` has the same number.
+/// The most bad lines one `repair` event is believed about. The Python helper had the same number.
 pub const MAX_REPAIR_REMOVED: i128 = 1_000_000_000;
 
 fn dict(pairs: Vec<(&str, Value)>) -> Dict {
@@ -514,7 +514,7 @@ pub fn launch_refusal(state: &GoalState, task_id: &Value) -> Result<Option<Strin
     Ok(None)
 }
 
-/// The panel seats `puppets.py` sits, in order, by provider.
+/// The panel seats the Python helper sat, in order, by provider.
 pub const PANEL_PROVIDERS: [&str; 3] = ["claude", "codex", "cursor-agent"];
 
 /// The text `approve` prints for a seat that is down; not itself a substitute.
@@ -605,7 +605,7 @@ pub fn approve_argv(helper: &str, goal_id: &str, revision: i128, args: &[Value])
     Value::List(argv)
 }
 
-/// `pending_approvals`: what the helper is waiting on, in the order `puppets.py` lists it.
+/// `pending_approvals`: what the helper is waiting on, in the order the Python helper listed it.
 pub fn pending_approvals(state: &GoalState, vendors: &Path, helper: &str) -> Result<Vec<Value>> {
     let item = |kind: &str, reference: Value, args: Vec<Value>| {
         Value::Dict(dict(vec![
@@ -757,7 +757,7 @@ mod tests {
         fold("g1", &events)
     }
 
-    /// Build 199, item 12, the rule `puppets.py` has too: `removed` counts when it is an int
+    /// Build 199, item 12, the rule the Python helper had too: `removed` counts when it is an int
     /// from 1 to a billion.
     #[test]
     fn a_repair_counts_removed_only_from_one_to_a_billion() {

@@ -1,0 +1,33 @@
+{
+ "label": "a running task: approve g1 --launch t1",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w106/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "approve",
+    "g1",
+    "--launch",
+    "t1"
+   ],
+   "code": 3,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "already approved launch at revision 6\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3\",\"class\":\"research\",\"grade\":\"agi\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t4\",\"text\":\"do t4\",\"class\":\"weird\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t5\",\"text\":\"do t5\",\"class\":\"security_review\",\"grade\":\"medium\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"codex\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":6,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"launch\",\"ref\":\"t1\",\"revision\":6,\"yes\":true}\n{\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"codex\"}\n{\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"r1\"}\n"
+   }
+  }
+ ]
+}

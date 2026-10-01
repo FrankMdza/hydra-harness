@@ -1,0 +1,37 @@
+{
+ "label": "a sheet that is not JSON: assign",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w166/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "assign",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2067, in cmd_assign\n    row = ranked_assignment(task, events)\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 1622, in ranked_assignment\n    sheets = [json.loads(p.read_text(encoding=\"utf-8\")) for p in sorted(agents_dir.glob(\"*.json\"))]\n              ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 352, in loads\n    return _default_decoder.decode(s)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 345, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 361, in raw_decode\n    obj, end = self.scan_once(s, idx)\n               ~~~~~~~~~~~~~~^^^^^^^^\njson.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/agents/broken.json",
+   "bytes": {
+    "text": "{"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3\",\"class\":\"research\",\"grade\":\"agi\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t4\",\"text\":\"do t4\",\"class\":\"weird\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t5\",\"text\":\"do t5\",\"class\":\"security_review\",\"grade\":\"medium\",\"done\":null,\"deps\":[],\"paths\":[]}\n"
+   }
+  }
+ ]
+}

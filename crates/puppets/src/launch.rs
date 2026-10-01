@@ -1,7 +1,7 @@
 //! The commands that start a run: `plan`, `plans`, `launch` and `wait`, and what every
 //! launch shares with the panel in `panel.rs`. Each hands `hydra` and `herdr` the argv
-//! `puppets.py` hands them, appends the lines it appends, prints what it prints, and
-//! returns its exit code or the error Python would raise.
+//! the Python helper handed them, appends the lines it appended, prints what it printed,
+//! and returns its exit code or the error Python would raise.
 //!
 //! `hydra` is the program `HYDRA_BIN` names, `hydra` when it names none. A child's output
 //! is read as UTF-8 with `\r\n` and `\r` turned into `\n`, which is what Python's

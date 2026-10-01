@@ -46,7 +46,7 @@ def baseline():
 
 def score_rows(home: Path, rows: list[dict], scored_at: str) -> int:
     """Score each row with every model under `home/models/` and append one line per run and
-    model version to `home/scores.jsonl`. `puppets.py queue` and `board` read the verdict scores
+    model version to `home/scores.jsonl`. `hydra-puppets queue` and `board` read the verdict scores
     when ordering reviews. `sheet.py rank` does not, so the model still does not choose which
     agent is assigned (build 143, D6). Returns how many lines were appended."""
     paths = sorted((home / "models").glob("*.json"))

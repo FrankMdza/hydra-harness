@@ -1,0 +1,142 @@
+{
+ "label": "edge: item 3: a NaN score ahead of a real one",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-27/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "grader/scores.jsonl",
+   "bytes": {
+    "text": "{\"label\":\"verdict\",\"model_version\":\"v\",\"run_id\":\"rz\",\"p\":NaN}\n{\"label\":\"verdict\",\"model_version\":\"v\",\"run_id\":\"ra\",\"p\":0.5}\n"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"z\",\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"a\",\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"run\",\"task\":\"z\",\"attempt\":1,\"run_id\":\"rz\"}\n{\"event\":\"run_end\",\"task\":\"z\",\"run_id\":\"rz\"}\n{\"event\":\"run\",\"task\":\"a\",\"attempt\":1,\"run_id\":\"ra\"}\n{\"event\":\"run_end\",\"task\":\"a\",\"run_id\":\"ra\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"rz\", {\"task_id\": \"z\", \"class\": \"c\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"t\"}], [\"ra\", {\"task_id\": \"a\", \"class\": \"c\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"t\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 2,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"z\": {\n      \"id\": \"z\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"rz\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"a\": {\n      \"id\": \"a\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"ra\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 2\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  z            c                     low    (unassigned)                 ended     nan      rz\n  a            c                     low    (unassigned)                 ended     0.50     ra\nwaiting on you: table, diff z, diff a\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"z\",\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"z\",\n      \"--expect-run\",\n      \"rz\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"a\",\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"a\",\n      \"--expect-run\",\n      \"ra\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict v  0 tasks with no score\ntask         provider       model            run                                  p        attempt\nz                                            rz                                   nan      1\na                                            ra                                   0.50     1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 2,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"z\": {\n      \"id\": \"z\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"rz\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"a\": {\n      \"id\": \"a\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"ra\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"z\",\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"z\",\n      \"--expect-run\",\n      \"rz\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"a\",\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"a\",\n      \"--expect-run\",\n      \"ra\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"z\",\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"a\",\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"run\",\"task\":\"z\",\"attempt\":1,\"run_id\":\"rz\"}\n{\"event\":\"run_end\",\"task\":\"z\",\"run_id\":\"rz\"}\n{\"event\":\"run\",\"task\":\"a\",\"attempt\":1,\"run_id\":\"ra\"}\n{\"event\":\"run_end\",\"task\":\"a\",\"run_id\":\"ra\"}\n"
+   }
+  }
+ ]
+}

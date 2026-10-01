@@ -1,5 +1,5 @@
 //! The read commands: `show`, `board`, `pending --json` and `queue`. Each writes what
-//! `puppets.py` prints to `out`, line by line, so a value Python would choke on stops the
+//! the Python helper printed to `out`, line by line, so a value Python would choke on stops the
 //! output at the same line, and returns the exit code or the error Python would raise.
 
 use std::io::Write;

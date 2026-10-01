@@ -1,0 +1,26 @@
+{
+ "label": "plan: no log",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l002/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "plan",
+    "g1",
+    "--seat",
+    "codex"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "unknown goal g1\n"
+   }
+  }
+ ],
+ "files": []
+}

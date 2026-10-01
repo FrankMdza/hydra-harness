@@ -1,0 +1,140 @@
+{
+ "label": "choose --judge: two seats down, a seat provider and an outsider sit in",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l058/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "choose",
+    "g1",
+    "--judge"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "judge claude (judge) run run-1\njudge agy for codex (judge) run run-2\njudge codex for cursor-agent (standard) run run-3\nchosen claude -> /private/tmp/hp196/jobs/launch/shared/claude.md\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship caf\u00e9 \u2615\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"model\":null,\"run_id\":\"p1\"}\n{\"event\":\"plan_proposed\",\"provider\":\"claude\",\"model\":\"opus\",\"run_id\":\"p2\"}\n{\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"p1\",\"path\":\"/private/tmp/hp196/jobs/launch/shared/codex.md\"}\n{\"event\":\"plan_ready\",\"provider\":\"claude\",\"run_id\":\"p2\",\"path\":\"/private/tmp/hp196/jobs/launch/shared/claude.md\"}\n{\"event\":\"approval\",\"kind\":\"degraded\",\"missing\":\"codex\",\"substitute\":\"agy\",\"revision\":0,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"degraded\",\"missing\":\"cursor-agent\",\"substitute\":\"codex\",\"revision\":0,\"yes\":true}\n{\"seq\":8,\"ts\":\"2026-10-01T08:34:00.117Z\",\"event\":\"panel_verdict\",\"judge_run_ids\":[\"run-1\",\"run-2\",\"run-3\"],\"judge_policies\":[\"judge\",\"judge\",\"standard\"],\"chosen\":\"claude\",\"path\":\"/private/tmp/hp196/jobs/launch/shared/claude.md\",\"degraded\":true,\"substitutions\":[{\"missing\":\"codex\",\"substitute\":\"agy\",\"model\":\"\"},{\"missing\":\"cursor-agent\",\"substitute\":\"codex\",\"model\":\"\"}]}\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.argv",
+   "bytes": {
+    "text": "run\u0000--provider\u0000claude\u0000--model\u0000opus\u0000--policy\u0000judge\u0000--timeout\u00000\u0000--task\u0000You are one judge on a three-seat panel choosing a work plan.\n\n## Role\n\nYour role is reviewer: decide whether the diff does what the task asked, naming what is missing if not.\n\n## Goal\n\nship caf\u00e9 \u2615\n\n## Proposals\n\n### codex\n\nCodex plan.\n\n```json\n[]\n```\n\n### claude\n\nClaude plan, caf\u00e9.\n\n## Instructions\n\nPick exactly one proposer name (codex, claude) or `composed` when no single proposal is best.\n\nAnswer in exactly one JSON object and nothing else:\n\n```json\n{\"chosen\": \"<provider>|composed\", \"findings\": []}\n```\n\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l058/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l058/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l058/py/puppets\nHYDRA_PUPPETS_VENDORS=/private/tmp/hp196/jobs/launch/l058/py/vendors.json\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l058/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l058/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-2.argv",
+   "bytes": {
+    "text": "run\u0000--provider\u0000agy\u0000--policy\u0000judge\u0000--timeout\u00000\u0000--task\u0000You are one judge on a three-seat panel choosing a work plan.\n\n## Role\n\nYour role is adversary: argue the diff should be rejected; name the strongest reason.\n\n## Proposals\n\n### codex\n\nCodex plan.\n\n```json\n[]\n```\n\n### claude\n\nClaude plan, caf\u00e9.\n\n## Instructions\n\nPick exactly one proposer name (codex, claude) or `composed` when no single proposal is best.\n\nAnswer in exactly one JSON object and nothing else:\n\n```json\n{\"chosen\": \"<provider>|composed\", \"findings\": []}\n```\n\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-2.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-2.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l058/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l058/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l058/py/puppets\nHYDRA_PUPPETS_VENDORS=/private/tmp/hp196/jobs/launch/l058/py/vendors.json\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l058/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l058/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-3.argv",
+   "bytes": {
+    "text": "run\u0000--provider\u0000codex\u0000--policy\u0000standard\u0000--timeout\u00000\u0000--task\u0000You are one judge on a three-seat panel choosing a work plan.\n\n## Role\n\nYour role is security: apply the checklist items about secrets, paths, gates and the record.\n\n## Proposals\n\n### codex\n\nCodex plan.\n\n```json\n[]\n```\n\n### claude\n\nClaude plan, caf\u00e9.\n\n## Note\n\nWeigh test and verification coverage in each proposal before you choose.\n\n## Instructions\n\nPick exactly one proposer name (codex, claude) or `composed` when no single proposal is best.\n\nAnswer in exactly one JSON object and nothing else:\n\n```json\n{\"chosen\": \"<provider>|composed\", \"findings\": []}\n```\n\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-3.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-3.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l058/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l058/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l058/py/puppets\nHYDRA_PUPPETS_VENDORS=/private/tmp/hp196/jobs/launch/l058/py/vendors.json\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l058/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l058/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.argv",
+   "bytes": {
+    "text": "show\u0000run-1\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l058/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l058/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l058/py/puppets\nHYDRA_PUPPETS_VENDORS=/private/tmp/hp196/jobs/launch/l058/py/vendors.json\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l058/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l058/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-2.argv",
+   "bytes": {
+    "text": "show\u0000run-2\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-2.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-2.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l058/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l058/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l058/py/puppets\nHYDRA_PUPPETS_VENDORS=/private/tmp/hp196/jobs/launch/l058/py/vendors.json\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l058/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l058/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-3.argv",
+   "bytes": {
+    "text": "show\u0000run-3\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-3.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-3.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l058/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l058/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l058/py/puppets\nHYDRA_PUPPETS_VENDORS=/private/tmp/hp196/jobs/launch/l058/py/vendors.json\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l058/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l058/py/stub\n"
+   }
+  }
+ ]
+}

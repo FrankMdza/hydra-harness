@@ -1,0 +1,31 @@
+{
+ "label": "new with text that is not ASCII",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w171/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "new",
+    "caf\u00e9 \u2615 \ud83d\ude00"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "fcc7aa96-bbfc-46cf-9ba4-8c3e60c95e8f\n"
+   },
+   "stderr": {
+    "text": "fatal: not a git repository (or any of the parent directories): .git\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/fcc7aa96-bbfc-46cf-9ba4-8c3e60c95e8f.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-10-01T08:35:46.127Z\",\"event\":\"goal\",\"text\":\"caf\\u00e9 \\u2615 \\ud83d\\ude00\",\"repo\":\"/private/tmp/hp196/jobs/write/shared\",\"base_sha\":\"\"}\n"
+   }
+  }
+ ]
+}

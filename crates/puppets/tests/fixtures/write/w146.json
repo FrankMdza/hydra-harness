@@ -1,0 +1,31 @@
+{
+ "label": "an approved plan two-fences.md: tasks g1",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w146/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "tasks",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[],\"chosen\":\"codex\",\"path\":\"/private/tmp/hp196/jobs/write/shared/two-fences.md\"}\n{\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":0,\"yes\":true}\n{\"seq\":4,\"ts\":\"2026-10-01T08:35:44.260Z\",\"event\":\"task\",\"id\":\"first\",\"text\":\"t\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n"
+   }
+  }
+ ]
+}

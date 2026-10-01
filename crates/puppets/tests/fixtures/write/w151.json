@@ -1,0 +1,31 @@
+{
+ "label": "an approved plan list-class.md: tasks g1",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w151/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "tasks",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2038, in cmd_tasks\n    if task[\"class\"] not in TASK_CLASSES or task[\"grade\"] not in TASK_GRADES:\n       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'list' as a set element (unhashable type: 'list')\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[],\"chosen\":\"codex\",\"path\":\"/private/tmp/hp196/jobs/write/shared/list-class.md\"}\n{\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":0,\"yes\":true}\n"
+   }
+  }
+ ]
+}

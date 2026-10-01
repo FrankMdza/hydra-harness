@@ -1,0 +1,37 @@
+{
+ "label": "an agents directory with no sheet: assign",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w168/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "assign",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "t1: cursor-agent composer-2.5 (default)\nt2: claude sonnet (default)\nt5: codex  (default)\n"
+   },
+   "stderr": {
+    "text": "task t3 needs a human assignment (agi)\ntask t4 needs a human assignment\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/agents/notes.txt",
+   "bytes": {
+    "text": "x"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3\",\"class\":\"research\",\"grade\":\"agi\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t4\",\"text\":\"do t4\",\"class\":\"weird\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t5\",\"text\":\"do t5\",\"class\":\"security_review\",\"grade\":\"medium\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"seq\":7,\"ts\":\"2026-10-01T08:35:45.818Z\",\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"cursor-agent\",\"policy\":\"standard\",\"source\":\"default\",\"model\":\"composer-2.5\"}\n{\"seq\":8,\"ts\":\"2026-10-01T08:35:45.822Z\",\"event\":\"assignment\",\"task\":\"t2\",\"provider\":\"claude\",\"policy\":\"standard\",\"source\":\"default\",\"model\":\"sonnet\"}\n{\"seq\":9,\"ts\":\"2026-10-01T08:35:45.828Z\",\"event\":\"assignment\",\"task\":\"t5\",\"provider\":\"codex\",\"policy\":\"standard\",\"source\":\"default\"}\n"
+   }
+  }
+ ]
+}

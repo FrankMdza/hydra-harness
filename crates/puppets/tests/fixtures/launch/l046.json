@@ -1,0 +1,31 @@
+{
+ "label": "wait: a run record that is a list",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l046/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "wait",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/launch/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/launch/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/launch/data/puppets.py\", line 2464, in cmd_wait\n    if not run_file_has_end(run_id):\n           ~~~~~~~~~~~~~~~~^^^^^^^^\n  File \"/private/tmp/hp196/jobs/launch/data/puppets.py\", line 2434, in run_file_has_end\n    body = record.get(\"hydra\") or record\n           ^^^^^^^^^^\nAttributeError: 'list' object has no attribute 'get'\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship caf\u00e9 \u2615\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2 \u2615\",\"class\":\"docs\",\"grade\":\"high\",\"done\":\"cargo test passes\",\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"assignment\",\"task\":\"t2\",\"provider\":\"codex\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":5,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"launch\",\"ref\":\"t2\",\"revision\":5,\"yes\":true}\n{\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"x\"}\n{\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"r1\"}\n"
+   }
+  }
+ ]
+}

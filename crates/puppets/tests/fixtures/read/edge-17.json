@@ -1,0 +1,136 @@
+{
+ "label": "edge: a repair event between two table approvals",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-17/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"seq\":2,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"task\",\"id\":\"t1\",\"text\":\"do work\",\"class\":\"batch_scripting\",\"grade\":\"low\",\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"codex\",\"model\":\"\",\"policy\":\"standard\",\"source\":\"default\"}\n{\"seq\":4,\"ts\":\"t\",\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":2,\"yes\":true}\n{\"seq\":5,\"ts\":\"t\",\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":2,\"yes\":true}\n{\"seq\":6,\"ts\":\"t\",\"event\":\"repair\",\"removed\":2}\n{\"seq\":7,\"ts\":\"t\",\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":5,\"yes\":true}\n{\"seq\":8,\"ts\":\"t\",\"event\":\"repair\",\"removed\":\"x\"}\n{\"seq\":9,\"ts\":\"t\",\"event\":\"repair\",\"removed\":true}\n{\"seq\":10,\"ts\":\"t\",\"event\":\"repair\",\"removed\":-3}\n{\"seq\":11,\"ts\":\"t\",\"event\":\"repair\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 9,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"do work\",\n      \"class\": \"batch_scripting\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"assigned\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 2,\n      \"yes\": true,\n      \"seq\": 4,\n      \"consumed\": false,\n      \"voided\": true\n    },\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 2,\n      \"yes\": true,\n      \"seq\": 5,\n      \"consumed\": false\n    },\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 5,\n      \"yes\": true,\n      \"seq\": 7,\n      \"consumed\": false,\n      \"voided\": true\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 9\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  t1           batch_scripting       low    codex                        assigned           \nwaiting on you: table, launch t1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 9,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"9\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 9,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"do work\",\n      \"class\": \"batch_scripting\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"assigned\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 2,\n      \"yes\": true,\n      \"seq\": 4,\n      \"consumed\": false,\n      \"voided\": true\n    },\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 2,\n      \"yes\": true,\n      \"seq\": 5,\n      \"consumed\": false\n    },\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 5,\n      \"yes\": true,\n      \"seq\": 7,\n      \"consumed\": false,\n      \"voided\": true\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 9,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"9\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"seq\":2,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"task\",\"id\":\"t1\",\"text\":\"do work\",\"class\":\"batch_scripting\",\"grade\":\"low\",\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"codex\",\"model\":\"\",\"policy\":\"standard\",\"source\":\"default\"}\n{\"seq\":4,\"ts\":\"t\",\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":2,\"yes\":true}\n{\"seq\":5,\"ts\":\"t\",\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":2,\"yes\":true}\n{\"seq\":6,\"ts\":\"t\",\"event\":\"repair\",\"removed\":2}\n{\"seq\":7,\"ts\":\"t\",\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":5,\"yes\":true}\n{\"seq\":8,\"ts\":\"t\",\"event\":\"repair\",\"removed\":\"x\"}\n{\"seq\":9,\"ts\":\"t\",\"event\":\"repair\",\"removed\":true}\n{\"seq\":10,\"ts\":\"t\",\"event\":\"repair\",\"removed\":-3}\n{\"seq\":11,\"ts\":\"t\",\"event\":\"repair\"}\n"
+   }
+  }
+ ]
+}

@@ -1,0 +1,136 @@
+{
+ "label": "edge: labels: verdicts, reviews, plans, and the ids 3 and \"3\"",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-19/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"model\":null,\"run_id\":\"p-codex\"}\n{\"event\":\"plan_proposed\",\"provider\":\"claude\",\"model\":\"opus\",\"run_id\":\"p-claude\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[\"pj1\",\"pj2\",\"pj3\"],\"chosen\":\"codex\",\"path\":\"/p/codex.md\"}\n{\"event\":\"task\",\"id\":\"applied\",\"text\":\"caf\u00e9 \u2615\",\"class\":\"docs\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"rejected\",\"text\":\"two\",\"class\":\"rust_launch_path\",\"grade\":\"high\"}\n{\"event\":\"task\",\"id\":\"fixed\",\"text\":\"three\",\"class\":\"security_review\",\"grade\":\"medium\"}\n{\"event\":\"task\",\"id\":\"unjudged\",\"text\":\"four\",\"class\":\"probe\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":3,\"text\":\"the number\",\"class\":\"docs\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"3\",\"text\":\"the string\",\"class\":\"docs\",\"grade\":\"high\"}\n{\"event\":\"run\",\"task\":\"applied\",\"attempt\":1,\"run_id\":\"r-applied\"}\n{\"event\":\"run_end\",\"task\":\"applied\",\"run_id\":\"r-applied\",\"outcome\":\"completed\"}\n{\"event\":\"review\",\"task\":\"applied\",\"judge_run_ids\":[\"j1\",\"j2\",\"j3\"],\"verdict\":\"pass\"}\n{\"event\":\"human_verdict\",\"task\":\"applied\",\"run_id\":\"r-applied\",\"result\":\"applied\",\"note\":\"\"}\n{\"event\":\"run\",\"task\":\"rejected\",\"attempt\":1,\"run_id\":\"r-rejected-1\"}\n{\"event\":\"run_end\",\"task\":\"rejected\",\"run_id\":\"r-rejected-1\",\"outcome\":\"failed\"}\n{\"event\":\"human_verdict\",\"task\":\"rejected\",\"run_id\":\"r-rejected-1\",\"result\":\"rejected\",\"note\":\"no\"}\n{\"event\":\"run\",\"task\":\"rejected\",\"attempt\":2,\"run_id\":\"r-rejected-2\"}\n{\"event\":\"run\",\"task\":\"fixed\",\"attempt\":1,\"run_id\":\"r-fixed\"}\n{\"event\":\"run_end\",\"task\":\"fixed\",\"run_id\":\"r-fixed\",\"outcome\":\"completed\"}\n{\"event\":\"review\",\"task\":\"fixed\",\"judge_run_ids\":[\"j4\"],\"verdict\":\"block\"}\n{\"event\":\"human_verdict\",\"task\":\"fixed\",\"run_id\":\"r-fixed\",\"result\":\"fixed\",\"note\":\"by hand\"}\n{\"event\":\"run\",\"task\":3,\"attempt\":1,\"run_id\":\"r-number\"}\n{\"event\":\"run\",\"task\":\"3\",\"attempt\":1,\"run_id\":\"r-string\"}\n{\"event\":\"review\",\"task\":3,\"judge_run_ids\":[\"j5\"],\"verdict\":\"pass\"}\n{\"event\":\"review\",\"task\":\"nobody\",\"judge_run_ids\":[\"j6\"],\"verdict\":\"pass\"}\n{\"event\":\"review\",\"task\":\"unjudged\",\"verdict\":\"pass\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"r-applied\", {\"task_id\": \"applied\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": \"applied\", \"text\": \"caf\\u00e9 \\u2615\"}], [\"r-rejected-2\", {\"task_id\": \"rejected\", \"class\": \"rust_launch_path\", \"grade\": \"high\", \"human_verdict\": \"rejected\", \"text\": \"two\"}], [\"r-fixed\", {\"task_id\": \"fixed\", \"class\": \"security_review\", \"grade\": \"medium\", \"human_verdict\": \"fixed\", \"text\": \"three\"}], [\"r-number\", {\"task_id\": 3, \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"the number\"}], [\"r-string\", {\"task_id\": \"3\", \"class\": \"docs\", \"grade\": \"high\", \"human_verdict\": null, \"text\": \"the string\"}], [\"p-codex\", {\"task_id\": null, \"class\": \"plan_proposer\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"p-claude\", {\"task_id\": null, \"class\": \"plan_proposer\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"pj1\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"pj2\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"pj3\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"j1\", {\"task_id\": \"applied\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"caf\\u00e9 \\u2615\"}], [\"j2\", {\"task_id\": \"applied\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"caf\\u00e9 \\u2615\"}], [\"j3\", {\"task_id\": \"applied\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"caf\\u00e9 \\u2615\"}], [\"j4\", {\"task_id\": \"fixed\", \"class\": \"security_review\", \"grade\": \"medium\", \"human_verdict\": null, \"text\": \"three\"}], [\"j5\", {\"task_id\": 3, \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"the number\"}], [\"j6\", {\"task_id\": \"nobody\", \"class\": null, \"grade\": null, \"human_verdict\": null, \"text\": \"\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 6,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"p-codex\"\n    },\n    {\n      \"provider\": \"claude\",\n      \"model\": \"opus\",\n      \"run_id\": \"p-claude\"\n    }\n  ],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [\n      \"pj1\",\n      \"pj2\",\n      \"pj3\"\n    ],\n    \"chosen\": \"codex\",\n    \"path\": \"/p/codex.md\",\n    \"degraded\": false,\n    \"substitutions\": []\n  },\n  \"human_plan\": null,\n  \"tasks\": {\n    \"applied\": {\n      \"id\": \"applied\",\n      \"text\": \"caf\\u00e9 \\u2615\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"applied\",\n      \"run_id\": \"r-applied\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"applied\"\n    },\n    \"rejected\": {\n      \"id\": \"rejected\",\n      \"text\": \"two\",\n      \"class\": \"rust_launch_path\",\n      \"grade\": \"high\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"running\",\n      \"run_id\": \"r-rejected-2\",\n      \"attempt\": 2,\n      \"outcome\": \"failed\",\n      \"human_result\": \"rejected\"\n    },\n    \"fixed\": {\n      \"id\": \"fixed\",\n      \"text\": \"three\",\n      \"class\": \"security_review\",\n      \"grade\": \"medium\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"fixed\",\n      \"run_id\": \"r-fixed\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"fixed\"\n    },\n    \"unjudged\": {\n      \"id\": \"unjudged\",\n      \"text\": \"four\",\n      \"class\": \"probe\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3\": {\n      \"id\": 3,\n      \"text\": \"the number\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"running\",\n      \"run_id\": \"r-number\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3\": {\n      \"id\": \"3\",\n      \"text\": \"the string\",\n      \"class\": \"docs\",\n      \"grade\": \"high\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"running\",\n      \"run_id\": \"r-string\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"rejected\",\n      \"attempt\": 2,\n      \"run_id\": \"r-rejected-2\"\n    },\n    {\n      \"task\": 3,\n      \"attempt\": 1,\n      \"run_id\": \"r-number\"\n    },\n    {\n      \"task\": \"3\",\n      \"attempt\": 1,\n      \"run_id\": \"r-string\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 6\n  test\nplans\n  codex         p-codex  running\n  claude        p-claude  running\nchosen  codex  judges 3\ntasks\n  id           class                 grade  agent                        status    p        run\n  applied      docs                  low    (unassigned)                 applied            r-applie  applied\n  rejected     rust_launch_path      high   (unassigned)                 running            r-reject  rejected\n  fixed        security_review       medium (unassigned)                 fixed              r-fixed  fixed\n  unjudged     probe                 low    (unassigned)                 pending              review pass\n  3            docs                  low    (unassigned)                 running            r-number  review pass\n  3            docs                  high   (unassigned)                 running            r-string\nwaiting on you: plan, table\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"plan\",\n    \"ref\": null,\n    \"revision\": 6,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--plan\",\n      \"--expect-plan\",\n      \"/p/codex.md\",\n      \"--expect-revision\",\n      \"6\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": 3,\n    \"revision\": 6,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      3,\n      \"--expect-run\",\n      \"r-number\",\n      \"--expect-revision\",\n      \"6\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"3\",\n    \"revision\": 6,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"3\",\n      \"--expect-run\",\n      \"r-string\",\n      \"--expect-revision\",\n      \"6\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 6,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"p-codex\"\n    },\n    {\n      \"provider\": \"claude\",\n      \"model\": \"opus\",\n      \"run_id\": \"p-claude\"\n    }\n  ],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [\n      \"pj1\",\n      \"pj2\",\n      \"pj3\"\n    ],\n    \"chosen\": \"codex\",\n    \"path\": \"/p/codex.md\",\n    \"degraded\": false,\n    \"substitutions\": []\n  },\n  \"human_plan\": null,\n  \"tasks\": {\n    \"applied\": {\n      \"id\": \"applied\",\n      \"text\": \"caf\\u00e9 \\u2615\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"applied\",\n      \"run_id\": \"r-applied\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"applied\"\n    },\n    \"rejected\": {\n      \"id\": \"rejected\",\n      \"text\": \"two\",\n      \"class\": \"rust_launch_path\",\n      \"grade\": \"high\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"running\",\n      \"run_id\": \"r-rejected-2\",\n      \"attempt\": 2,\n      \"outcome\": \"failed\",\n      \"human_result\": \"rejected\"\n    },\n    \"fixed\": {\n      \"id\": \"fixed\",\n      \"text\": \"three\",\n      \"class\": \"security_review\",\n      \"grade\": \"medium\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"fixed\",\n      \"run_id\": \"r-fixed\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"fixed\"\n    },\n    \"unjudged\": {\n      \"id\": \"unjudged\",\n      \"text\": \"four\",\n      \"class\": \"probe\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3\": {\n      \"id\": 3,\n      \"text\": \"the number\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"running\",\n      \"run_id\": \"r-number\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3\": {\n      \"id\": \"3\",\n      \"text\": \"the string\",\n      \"class\": \"docs\",\n      \"grade\": \"high\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"running\",\n      \"run_id\": \"r-string\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"rejected\",\n      \"attempt\": 2,\n      \"run_id\": \"r-rejected-2\"\n    },\n    {\n      \"task\": 3,\n      \"attempt\": 1,\n      \"run_id\": \"r-number\"\n    },\n    {\n      \"task\": \"3\",\n      \"attempt\": 1,\n      \"run_id\": \"r-string\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"plan\",\n    \"ref\": null,\n    \"revision\": 6,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--plan\",\n      \"--expect-plan\",\n      \"/p/codex.md\",\n      \"--expect-revision\",\n      \"6\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": 3,\n    \"revision\": 6,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      3,\n      \"--expect-run\",\n      \"r-number\",\n      \"--expect-revision\",\n      \"6\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"3\",\n    \"revision\": 6,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"3\",\n      \"--expect-run\",\n      \"r-string\",\n      \"--expect-revision\",\n      \"6\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"model\":null,\"run_id\":\"p-codex\"}\n{\"event\":\"plan_proposed\",\"provider\":\"claude\",\"model\":\"opus\",\"run_id\":\"p-claude\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[\"pj1\",\"pj2\",\"pj3\"],\"chosen\":\"codex\",\"path\":\"/p/codex.md\"}\n{\"event\":\"task\",\"id\":\"applied\",\"text\":\"caf\u00e9 \u2615\",\"class\":\"docs\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"rejected\",\"text\":\"two\",\"class\":\"rust_launch_path\",\"grade\":\"high\"}\n{\"event\":\"task\",\"id\":\"fixed\",\"text\":\"three\",\"class\":\"security_review\",\"grade\":\"medium\"}\n{\"event\":\"task\",\"id\":\"unjudged\",\"text\":\"four\",\"class\":\"probe\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":3,\"text\":\"the number\",\"class\":\"docs\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"3\",\"text\":\"the string\",\"class\":\"docs\",\"grade\":\"high\"}\n{\"event\":\"run\",\"task\":\"applied\",\"attempt\":1,\"run_id\":\"r-applied\"}\n{\"event\":\"run_end\",\"task\":\"applied\",\"run_id\":\"r-applied\",\"outcome\":\"completed\"}\n{\"event\":\"review\",\"task\":\"applied\",\"judge_run_ids\":[\"j1\",\"j2\",\"j3\"],\"verdict\":\"pass\"}\n{\"event\":\"human_verdict\",\"task\":\"applied\",\"run_id\":\"r-applied\",\"result\":\"applied\",\"note\":\"\"}\n{\"event\":\"run\",\"task\":\"rejected\",\"attempt\":1,\"run_id\":\"r-rejected-1\"}\n{\"event\":\"run_end\",\"task\":\"rejected\",\"run_id\":\"r-rejected-1\",\"outcome\":\"failed\"}\n{\"event\":\"human_verdict\",\"task\":\"rejected\",\"run_id\":\"r-rejected-1\",\"result\":\"rejected\",\"note\":\"no\"}\n{\"event\":\"run\",\"task\":\"rejected\",\"attempt\":2,\"run_id\":\"r-rejected-2\"}\n{\"event\":\"run\",\"task\":\"fixed\",\"attempt\":1,\"run_id\":\"r-fixed\"}\n{\"event\":\"run_end\",\"task\":\"fixed\",\"run_id\":\"r-fixed\",\"outcome\":\"completed\"}\n{\"event\":\"review\",\"task\":\"fixed\",\"judge_run_ids\":[\"j4\"],\"verdict\":\"block\"}\n{\"event\":\"human_verdict\",\"task\":\"fixed\",\"run_id\":\"r-fixed\",\"result\":\"fixed\",\"note\":\"by hand\"}\n{\"event\":\"run\",\"task\":3,\"attempt\":1,\"run_id\":\"r-number\"}\n{\"event\":\"run\",\"task\":\"3\",\"attempt\":1,\"run_id\":\"r-string\"}\n{\"event\":\"review\",\"task\":3,\"judge_run_ids\":[\"j5\"],\"verdict\":\"pass\"}\n{\"event\":\"review\",\"task\":\"nobody\",\"judge_run_ids\":[\"j6\"],\"verdict\":\"pass\"}\n{\"event\":\"review\",\"task\":\"unjudged\",\"verdict\":\"pass\"}\n"
+   }
+  }
+ ]
+}

@@ -19,7 +19,7 @@ use anyhow::{Context, Result, anyhow, bail};
 
 use crate::json::{self, Dict, ParseError, Value};
 
-/// Where the helper reads and writes, from the same environment `puppets.py` reads.
+/// Where the helper reads and writes, from the same environment the Python helper read.
 #[derive(Clone, Debug)]
 pub struct Home {
     /// `HYDRA_PUPPETS_HOME`, else `~/hydra/puppets`: goal logs and per-goal plan copies.

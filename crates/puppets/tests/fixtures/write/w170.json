@@ -1,0 +1,31 @@
+{
+ "label": "new inside a repo",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w170/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "new",
+    "a goal"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "bc2ef0a0-3587-4864-9470-8b3c57130d26\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/bc2ef0a0-3587-4864-9470-8b3c57130d26.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-10-01T08:35:46.046Z\",\"event\":\"goal\",\"text\":\"a goal\",\"repo\":\"/private/tmp/hp196/jobs/write/shared/repo\",\"base_sha\":\"99db963e06b678cec4aee7238da46c56672f8a98\"}\n"
+   }
+  }
+ ]
+}

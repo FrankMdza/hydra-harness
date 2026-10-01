@@ -1,0 +1,142 @@
+{
+ "label": "edge: item 5: an odd UTF-16 line, a short one and one past U+10FFFF",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-33/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n\u0000{\u0000}\u0000\n\u00001\n\u0000\u0011\u0000\u0000\u0000\u0000\u0000\n"
+   }
+  }
+ ],
+ "labels": {
+  "raises": "JSONDecodeError"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "goal log g1 is damaged at line 3, 4; wrote nothing; hydra-puppets repair g1\n"
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "goal log g1 is damaged at line 3, 4; wrote nothing; hydra-puppets repair g1\n"
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "goal log g1 is damaged at line 3, 4; wrote nothing; hydra-puppets repair g1\n"
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "goal log g1 is damaged at line 3, 4; wrote nothing; hydra-puppets repair g1\n"
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "bad line 3: \u00001\nbad line 4: \u0000\u0011\u0000\u0000\u0000\u0000\u0000\nwould move the bad lines and any unterminated tail into g1.torn-<UTC timestamp>.txt beside the log, then rewrite the log with only its good lines\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "moved the tail into g1.torn-2026-10-01T08:34:26.616Z.txt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 1817, in cmd_show\n    state = fold(args.goal)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nKeyError: 'event'\n"
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2251, in cmd_pending\n    state = fold(args.goal)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nKeyError: 'event'\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n\u0000{\u0000}\u0000\n{\"seq\":3,\"ts\":\"2026-10-01T08:34:26.617Z\",\"event\":\"repair\",\"removed\":2}\n"
+   }
+  },
+  {
+   "path": "puppets/g1.torn-2026-10-01T08:34:26.616Z.txt",
+   "bytes": {
+    "text": "\u00001\n\u0000\u0011\u0000\u0000\u0000\u0000\u0000\n"
+   }
+  }
+ ]
+}

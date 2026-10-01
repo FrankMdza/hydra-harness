@@ -1,0 +1,136 @@
+{
+ "label": "harvest 0032/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-017/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_proposed\", \"provider\": \"codex\", \"run_id\": \"plan-run-1\"}\n{\"seq\":3,\"ts\":\"2026-10-01T08:26:40.195Z\",\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"plan-run-1\",\"path\":\"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmpr2j1jh0m/puppets/g1/plans/codex.md\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"plan-run-1\", {\"task_id\": null, \"class\": \"plan_proposer\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 0,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"plan-run-1\",\n      \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmpr2j1jh0m/puppets/g1/plans/codex.md\"\n    }\n  ],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 0\n  test\nplans\n  codex         plan-run  ready\nwaiting on you: nothing\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 0,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"plan-run-1\",\n      \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmpr2j1jh0m/puppets/g1/plans/codex.md\"\n    }\n  ],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_proposed\", \"provider\": \"codex\", \"run_id\": \"plan-run-1\"}\n{\"seq\":3,\"ts\":\"2026-10-01T08:26:40.195Z\",\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"plan-run-1\",\"path\":\"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmpr2j1jh0m/puppets/g1/plans/codex.md\"}\n"
+   }
+  }
+ ]
+}

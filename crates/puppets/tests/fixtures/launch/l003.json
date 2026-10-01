@@ -1,0 +1,33 @@
+{
+ "label": "plan: a damaged log",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l003/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "plan",
+    "g1",
+    "--seat",
+    "codex"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "goal log g1 is damaged at line 2; wrote nothing; hydra-puppets repair g1\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship caf\u00e9 \u2615\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\nnot json\n"
+   }
+  }
+ ]
+}

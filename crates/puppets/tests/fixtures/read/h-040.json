@@ -1,0 +1,136 @@
+{
+ "label": "harvest 0080/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-040/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"t1\", \"text\": \"do work\", \"class\": \"batch_scripting\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"t1\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"ranking\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"t2\", \"text\": \"more\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"t2\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"ranking\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"approval\", \"kind\": \"table\", \"ref\": null, \"revision\": 4, \"yes\": true}\n{\"seq\":7,\"ts\":\"2026-10-01T08:26:43.368Z\",\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"86d09ec77f255eedd2349bd68fc07d9078025f90292b8826c35a66a1f59661bb\"}\n{\"seq\":8,\"ts\":\"2026-10-01T08:26:43.587Z\",\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"1fd2c41a-bdae-4848-80b3-e51b1f89af53\"}\n{\"seq\":9,\"ts\":\"2026-10-01T08:26:43.588Z\",\"event\":\"launch_intent\",\"task\":\"t2\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"6ed73f2440fee9cf59c3c03e74f55f80a7e999f09030af1ee6646f8e6c0ff8ea\"}\n{\"seq\":10,\"ts\":\"2026-10-01T08:26:43.617Z\",\"event\":\"run\",\"task\":\"t2\",\"attempt\":1,\"run_id\":\"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"1fd2c41a-bdae-4848-80b3-e51b1f89af53\", {\"task_id\": \"t1\", \"class\": \"batch_scripting\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"do work\"}], [\"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\", {\"task_id\": \"t2\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"more\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 4,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"do work\",\n      \"class\": \"batch_scripting\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"ranking\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"1fd2c41a-bdae-4848-80b3-e51b1f89af53\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"t2\": {\n      \"id\": \"t2\",\n      \"text\": \"more\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"ranking\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 4,\n      \"yes\": true,\n      \"seq\": 6,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"t1\",\n      \"attempt\": 1,\n      \"run_id\": \"1fd2c41a-bdae-4848-80b3-e51b1f89af53\"\n    },\n    {\n      \"task\": \"t2\",\n      \"attempt\": 1,\n      \"run_id\": \"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 4\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  t1           batch_scripting       low    cursor-agent composer-2.5    running            1fd2c41a\n  t2           docs                  low    cursor-agent composer-2.5    running            0ceb9e35\nwaiting on you: nothing\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t1\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t1\",\n      \"--expect-run\",\n      \"1fd2c41a-bdae-4848-80b3-e51b1f89af53\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t2\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t2\",\n      \"--expect-run\",\n      \"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 4,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"do work\",\n      \"class\": \"batch_scripting\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"ranking\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"1fd2c41a-bdae-4848-80b3-e51b1f89af53\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"t2\": {\n      \"id\": \"t2\",\n      \"text\": \"more\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"ranking\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 4,\n      \"yes\": true,\n      \"seq\": 6,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"t1\",\n      \"attempt\": 1,\n      \"run_id\": \"1fd2c41a-bdae-4848-80b3-e51b1f89af53\"\n    },\n    {\n      \"task\": \"t2\",\n      \"attempt\": 1,\n      \"run_id\": \"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t1\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t1\",\n      \"--expect-run\",\n      \"1fd2c41a-bdae-4848-80b3-e51b1f89af53\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t2\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t2\",\n      \"--expect-run\",\n      \"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"t1\", \"text\": \"do work\", \"class\": \"batch_scripting\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"t1\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"ranking\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"t2\", \"text\": \"more\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"t2\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"ranking\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"approval\", \"kind\": \"table\", \"ref\": null, \"revision\": 4, \"yes\": true}\n{\"seq\":7,\"ts\":\"2026-10-01T08:26:43.368Z\",\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"86d09ec77f255eedd2349bd68fc07d9078025f90292b8826c35a66a1f59661bb\"}\n{\"seq\":8,\"ts\":\"2026-10-01T08:26:43.587Z\",\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"1fd2c41a-bdae-4848-80b3-e51b1f89af53\"}\n{\"seq\":9,\"ts\":\"2026-10-01T08:26:43.588Z\",\"event\":\"launch_intent\",\"task\":\"t2\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"6ed73f2440fee9cf59c3c03e74f55f80a7e999f09030af1ee6646f8e6c0ff8ea\"}\n{\"seq\":10,\"ts\":\"2026-10-01T08:26:43.617Z\",\"event\":\"run\",\"task\":\"t2\",\"attempt\":1,\"run_id\":\"0ceb9e35-b4f5-49dc-b091-4b99f3e70f57\"}\n"
+   }
+  }
+ ]
+}

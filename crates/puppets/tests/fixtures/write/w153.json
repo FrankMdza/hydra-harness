@@ -1,0 +1,31 @@
+{
+ "label": "an approved plan bad-json.md: tasks g1",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w153/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "tasks",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2032, in cmd_tasks\n    tasks = extract_tasks_json(plan_text)\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 1055, in extract_tasks_json\n    tasks = json.loads(match.group(1))\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 352, in loads\n    return _default_decoder.decode(s)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 345, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 363, in raw_decode\n    raise JSONDecodeError(\"Expecting value\", s, err.value) from None\njson.decoder.JSONDecodeError: Expecting value: line 1 column 9 (char 8)\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[],\"chosen\":\"codex\",\"path\":\"/private/tmp/hp196/jobs/write/shared/bad-json.md\"}\n{\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":0,\"yes\":true}\n"
+   }
+  }
+ ]
+}

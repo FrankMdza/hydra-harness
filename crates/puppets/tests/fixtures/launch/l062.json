@@ -1,0 +1,26 @@
+{
+ "label": "review: no log",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l062/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "review",
+    "g1",
+    "t1",
+    "--no-open"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "task t1 has no run\n"
+   }
+  }
+ ],
+ "files": []
+}

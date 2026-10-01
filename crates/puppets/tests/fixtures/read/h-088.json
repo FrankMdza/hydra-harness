@@ -1,0 +1,142 @@
+{
+ "label": "harvest 0141/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-088/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "grader/scores.jsonl",
+   "bytes": {
+    "text": "{\"run_id\": \"run-high\", \"label\": \"verdict\", \"p\": 0.99, \"model_version\": \"baseline-verdict-zzz\", \"scored_at\": \"2026-09-01T00:00:00Z\"}\n{\"run_id\": \"run-high\", \"label\": \"verdict\", \"p\": 0.1, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n{\"run_id\": \"run-high\", \"label\": \"outcome\", \"p\": 0.01, \"model_version\": \"baseline-outcome-aaa\", \"scored_at\": \"2026-09-30T00:00:00Z\"}\n{\"run_id\": \"run-high\", \"label\": \"verdict\", \"p\": 0.91, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n{\"run_id\": \"run-mid\", \"label\": \"verdict\", \"p\": 0.4, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n{\"run_id\": \"run-mid\", \"label\": \"outcome\", \"p\": 0.99, \"model_version\": \"baseline-outcome-aaa\", \"scored_at\": \"2026-09-30T00:00:00Z\"}\n{\"run_id\": \"run-old\", \"label\": \"verdict\", \"p\": 0.95, \"model_version\": \"baseline-verdict-zzz\", \"scored_at\": \"2026-09-01T00:00:00Z\"}\n{\"run_id\": \"run-done\", \"label\": \"verdict\", \"p\": 0.99, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"high\", \"text\": \"high\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"high\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"high\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"high\", \"attempt\": 1, \"run_id\": \"run-high\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"high\", \"run_id\": \"run-high\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 7, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"mid\", \"text\": \"mid\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 8, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"mid\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 9, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"mid\", \"attempt\": 3, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 10, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"mid\", \"attempt\": 3, \"run_id\": \"run-mid\"}\n{\"seq\": 11, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"mid\", \"run_id\": \"run-mid\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 12, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"oldonly\", \"text\": \"oldonly\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 13, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"oldonly\", \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 14, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"oldonly\", \"attempt\": 1, \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 15, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"oldonly\", \"attempt\": 1, \"run_id\": \"run-old\"}\n{\"seq\": 16, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"oldonly\", \"run_id\": \"run-old\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 17, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"bare\", \"text\": \"bare\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 18, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"bare\", \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 19, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"bare\", \"attempt\": 2, \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 20, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"bare\", \"attempt\": 2, \"run_id\": \"run-bare\"}\n{\"seq\": 21, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"bare\", \"run_id\": \"run-bare\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 22, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"done\", \"text\": \"done\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 23, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"done\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 24, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"done\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 25, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"done\", \"attempt\": 1, \"run_id\": \"run-done\"}\n{\"seq\": 26, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"human_verdict\", \"task\": \"done\", \"run_id\": \"run-done\", \"result\": \"applied\", \"note\": \"\"}\n{\"seq\": 27, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"done\", \"run_id\": \"run-done\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 28, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"live\", \"text\": \"live\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 29, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"live\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 30, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"live\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 31, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"live\", \"attempt\": 1, \"run_id\": \"run-live\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"run-high\", {\"task_id\": \"high\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"high\"}], [\"run-mid\", {\"task_id\": \"mid\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"mid\"}], [\"run-old\", {\"task_id\": \"oldonly\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"oldonly\"}], [\"run-bare\", {\"task_id\": \"bare\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"bare\"}], [\"run-done\", {\"task_id\": \"done\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": \"applied\", \"text\": \"done\"}], [\"run-live\", {\"task_id\": \"live\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"live\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 12,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"high\": {\n      \"id\": \"high\",\n      \"text\": \"high\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-high\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"mid\": {\n      \"id\": \"mid\",\n      \"text\": \"mid\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-mid\",\n      \"attempt\": 3,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"oldonly\": {\n      \"id\": \"oldonly\",\n      \"text\": \"oldonly\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-old\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"bare\": {\n      \"id\": \"bare\",\n      \"text\": \"bare\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"agy\",\n        \"model\": \"gemini\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-bare\",\n      \"attempt\": 2,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"done\": {\n      \"id\": \"done\",\n      \"text\": \"done\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-done\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"applied\"\n    },\n    \"live\": {\n      \"id\": \"live\",\n      \"text\": \"live\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"run-live\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"live\",\n      \"attempt\": 1,\n      \"run_id\": \"run-live\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 12\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  high         docs                  low    cursor-agent composer-2.5    ended     0.91     run-high\n  mid          docs                  low    claude sonnet                ended     0.40     run-mid\n  oldonly      docs                  low    codex                        ended     no score run-old\n  bare         docs                  low    agy gemini                   ended     no score run-bare\n  done         docs                  low    cursor-agent composer-2.5    ended              run-done  applied\n  live         docs                  low    cursor-agent composer-2.5    running            run-live\nwaiting on you: table, diff high, diff mid, diff oldonly, diff bare, diff done\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"high\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"high\",\n      \"--expect-run\",\n      \"run-high\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"mid\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"mid\",\n      \"--expect-run\",\n      \"run-mid\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"oldonly\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"oldonly\",\n      \"--expect-run\",\n      \"run-old\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"bare\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"bare\",\n      \"--expect-run\",\n      \"run-bare\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"live\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"live\",\n      \"--expect-run\",\n      \"run-live\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict baseline-verdict-aaa  2 tasks with no score\ntask         provider       model            run                                  p        attempt\nhigh         cursor-agent   composer-2.5     run-high                             0.91     1\nmid          claude         sonnet           run-mid                              0.40     3\nbare         agy            gemini           run-bare                             no score 2\noldonly      codex                           run-old                              no score 1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 12,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"high\": {\n      \"id\": \"high\",\n      \"text\": \"high\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-high\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"mid\": {\n      \"id\": \"mid\",\n      \"text\": \"mid\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-mid\",\n      \"attempt\": 3,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"oldonly\": {\n      \"id\": \"oldonly\",\n      \"text\": \"oldonly\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-old\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"bare\": {\n      \"id\": \"bare\",\n      \"text\": \"bare\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"agy\",\n        \"model\": \"gemini\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-bare\",\n      \"attempt\": 2,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"done\": {\n      \"id\": \"done\",\n      \"text\": \"done\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-done\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"applied\"\n    },\n    \"live\": {\n      \"id\": \"live\",\n      \"text\": \"live\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"run-live\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"live\",\n      \"attempt\": 1,\n      \"run_id\": \"run-live\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"high\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"high\",\n      \"--expect-run\",\n      \"run-high\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"mid\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"mid\",\n      \"--expect-run\",\n      \"run-mid\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"oldonly\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"oldonly\",\n      \"--expect-run\",\n      \"run-old\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"bare\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"bare\",\n      \"--expect-run\",\n      \"run-bare\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"live\",\n    \"revision\": 12,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"live\",\n      \"--expect-run\",\n      \"run-live\",\n      \"--expect-revision\",\n      \"12\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"high\", \"text\": \"high\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"high\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"high\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"high\", \"attempt\": 1, \"run_id\": \"run-high\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"high\", \"run_id\": \"run-high\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 7, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"mid\", \"text\": \"mid\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 8, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"mid\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 9, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"mid\", \"attempt\": 3, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 10, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"mid\", \"attempt\": 3, \"run_id\": \"run-mid\"}\n{\"seq\": 11, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"mid\", \"run_id\": \"run-mid\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 12, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"oldonly\", \"text\": \"oldonly\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 13, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"oldonly\", \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 14, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"oldonly\", \"attempt\": 1, \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 15, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"oldonly\", \"attempt\": 1, \"run_id\": \"run-old\"}\n{\"seq\": 16, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"oldonly\", \"run_id\": \"run-old\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 17, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"bare\", \"text\": \"bare\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 18, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"bare\", \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 19, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"bare\", \"attempt\": 2, \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 20, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"bare\", \"attempt\": 2, \"run_id\": \"run-bare\"}\n{\"seq\": 21, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"bare\", \"run_id\": \"run-bare\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 22, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"done\", \"text\": \"done\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 23, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"done\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 24, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"done\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 25, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"done\", \"attempt\": 1, \"run_id\": \"run-done\"}\n{\"seq\": 26, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"human_verdict\", \"task\": \"done\", \"run_id\": \"run-done\", \"result\": \"applied\", \"note\": \"\"}\n{\"seq\": 27, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"done\", \"run_id\": \"run-done\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 28, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"live\", \"text\": \"live\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 29, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"live\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 30, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"live\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 31, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"live\", \"attempt\": 1, \"run_id\": \"run-live\"}\n"
+   }
+  }
+ ]
+}

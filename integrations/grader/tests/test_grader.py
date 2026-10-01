@@ -10,6 +10,8 @@ import time
 import unittest
 from unittest import mock
 
+import puppets_bin
+
 GRADER = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("grader", GRADER / "grader.py")
 grader = importlib.util.module_from_spec(spec)
@@ -30,6 +32,7 @@ class GraderTests(unittest.TestCase):
         self.runs.mkdir()
         self.home = self.root / "grader"
         self.puppets = self.root / "puppets"
+        self.helper = str(puppets_bin.built())
         self.puppets.mkdir()
         (self.puppets / "g1.jsonl").write_text(
             json.dumps(
@@ -145,6 +148,7 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
             HYDRA_GRADER_HOME=str(self.home),
             HYDRA_BIN=str(self.stub),
             HYDRA_PUPPETS_HOME=str(self.puppets),
+            HYDRA_PUPPETS_BIN=self.helper,
         )
 
     def collect(self, **kwargs):
@@ -185,6 +189,42 @@ print(json.dumps(json.loads((root / 'table.json').read_text())[sys.argv[2]]))
 
         cursor = records.read_json(self.home / "cursor.json")
         self.assertEqual(len(cursor), 3)
+
+    def files(self):
+        return {
+            str(path.relative_to(self.home)): path.read_bytes()
+            for path in sorted(self.home.rglob("*"))
+            if path.is_file()
+        }
+
+    def test_a_goal_the_helper_refuses_ends_the_pass_with_nothing_written(self):
+        # Map 93: a damaged goal log, a missing helper or output of another shape must not
+        # turn into rows with no labels. The pass stops before the dataset, the cursor, the
+        # show cache or the scores are touched.
+        self.record("a")
+        self.assertEqual(self.collect(jobs=1), 1)
+        before = self.files()
+        self.assertIn("dataset.jsonl", before)
+        self.record("b")
+        (self.puppets / "g3.jsonl").write_text(
+            '{"event":"goal","text":"x","repo":"/r","base_sha":"a"}\nnot json\n{"event":"note"}\n'
+        )
+        with self.assertRaisesRegex(grader.labels.LabelsError, "g3"):
+            self.collect(jobs=1)
+        self.assertEqual(self.files(), before)
+        with self.assertRaises(grader.labels.LabelsError):
+            self.collect(jobs=1, rebuild=True)
+        self.assertEqual(self.files(), before)
+        # With the log sound again the same pass collects the run it had left.
+        (self.puppets / "g3.jsonl").unlink()
+        self.assertEqual(self.collect(jobs=1), 1)
+
+    def test_a_missing_helper_ends_the_first_pass_with_an_empty_home(self):
+        self.record("a")
+        self.helper = str(self.root / "absent" / "hydra-puppets")
+        with self.assertRaisesRegex(grader.labels.LabelsError, "cannot run"):
+            self.collect(jobs=1)
+        self.assertEqual(self.files(), {})
 
     def test_second_once_writes_nothing(self):
         self.record("a")
@@ -468,6 +508,15 @@ class ReviewFindingsTests(unittest.TestCase):
                 "hydra": {"type": "run_start", "command": "run", "policy": "standard", "task": "hello"}}
         (self.runs / "r-good.jsonl").write_text(json.dumps(good) + "\n")
         (self.runs / "r-bad.jsonl").write_text('{"provider": "claude", "run_id": "r-bad", "ts": "x", "hydra": {"command": "run"}}\n{not json}\n')
+        # An empty puppets home of its own. Without it `collect` read the goal logs of whoever
+        # ran the suite, and since map 93 it would run the helper on them.
+        (self.root / "puppets").mkdir()
+        env = mock.patch.dict(os.environ, {
+            "HYDRA_PUPPETS_HOME": str(self.root / "puppets"),
+            "HYDRA_PUPPETS_BIN": str(puppets_bin.built()),
+        })
+        env.start()
+        self.addCleanup(env.stop)
 
     def tearDown(self):
         import shutil

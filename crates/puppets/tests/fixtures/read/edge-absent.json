@@ -1,0 +1,122 @@
+{
+ "label": "edge: no log for the goal",
+ "goal": "absent",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-absent/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [],
+ "labels": {
+  "pairs": "[]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "absent"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"absent\",\n  \"goal\": null,\n  \"revision\": 0,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "absent"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "unknown goal absent\n"
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "absent",
+    "--json"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "unknown goal absent\n"
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "absent"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "unknown goal absent\n"
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "absent"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log absent has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "absent",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log absent has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "absent"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"absent\",\n  \"goal\": null,\n  \"revision\": 0,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "absent",
+    "--json"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "unknown goal absent\n"
+   }
+  }
+ ],
+ "files": []
+}

@@ -1,7 +1,7 @@
 //! The commands that write a goal log and launch nothing: `new`, `set`, `approve`,
 //! `verdict`, `choose`, `tasks`, `assign` and `reconcile`. Each appends the lines
-//! `puppets.py` appends, prints what it prints, and returns its exit code or the error
-//! Python would raise.
+//! the Python helper appended, prints what it printed, and returns its exit code or the
+//! error Python would raise.
 //!
 //! `choose --judge` is the one path here that launches runs. It lives in `panel.rs`.
 

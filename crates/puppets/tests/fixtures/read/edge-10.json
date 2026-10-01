@@ -1,0 +1,136 @@
+{
+ "label": "edge: event not an object",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-10/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n[1,2]\n"
+   }
+  }
+ ],
+ "labels": {
+  "raises": "TypeError"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 1817, in cmd_show\n    state = fold(args.goal)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n"
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 1750, in cmd_board\n    state = fold(args.goal, events)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n"
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2251, in cmd_pending\n    state = fold(args.goal)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n"
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2485, in cmd_queue\n    state = fold(args.goal, events)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n"
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 1817, in cmd_show\n    state = fold(args.goal)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n"
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2251, in cmd_pending\n    state = fold(args.goal)\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 583, in fold\n    name = event[\"event\"]\n           ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n[1,2]\n"
+   }
+  }
+ ]
+}

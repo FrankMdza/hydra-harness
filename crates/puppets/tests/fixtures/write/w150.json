@@ -1,0 +1,31 @@
+{
+ "label": "an approved plan bad-grade.md: tasks g1",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w150/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "tasks",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "task a has an unknown class or grade\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[],\"chosen\":\"codex\",\"path\":\"/private/tmp/hp196/jobs/write/shared/bad-grade.md\"}\n{\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":0,\"yes\":true}\n"
+   }
+  }
+ ]
+}

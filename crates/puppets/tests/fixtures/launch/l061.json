@@ -1,0 +1,32 @@
+{
+ "label": "review: an unknown task",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l061/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "review",
+    "g1",
+    "nope"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "task nope has no run\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship\",\"repo\":\"/private/tmp/hp196/jobs/launch/shared/repo\",\"base_sha\":\"99db963e06b678cec4aee7238da46c56672f8a98\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":3,\"yes\":true}\n{\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"x\"}\n{\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"r1\"}\n{\"event\":\"run_end\",\"task\":\"t1\",\"run_id\":\"r1\",\"outcome\":\"completed\",\"total_tokens\":12}\n"
+   }
+  }
+ ]
+}

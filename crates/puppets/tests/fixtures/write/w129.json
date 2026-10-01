@@ -1,0 +1,32 @@
+{
+ "label": "a goal: choose g1 /private/tmp/hp196/jobs/write/shared/good.md",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w129/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "choose",
+    "g1",
+    "/private/tmp/hp196/jobs/write/shared/good.md"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"seq\":2,\"ts\":\"2026-10-01T08:35:43.116Z\",\"event\":\"panel_verdict\",\"judge_run_ids\":[],\"chosen\":\"good\",\"path\":\"/private/tmp/hp196/jobs/write/shared/good.md\"}\n"
+   }
+  }
+ ]
+}

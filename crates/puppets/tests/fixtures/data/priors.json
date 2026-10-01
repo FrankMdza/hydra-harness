@@ -1,0 +1,64 @@
+{
+  "default": [
+    1,
+    1
+  ],
+  "rules": [
+    {
+      "provider": "cursor-agent",
+      "model_contains": "composer-2.5",
+      "prior": [
+        4,
+        2
+      ],
+      "note": "Scripts and medium Rust; mechanism review required."
+    },
+    {
+      "provider": "claude",
+      "model_contains": "haiku",
+      "prior": [
+        3,
+        3
+      ],
+      "note": "Small tools with a pasted check, not logic."
+    },
+    {
+      "provider": "agy",
+      "model_contains": "flash",
+      "prior": [
+        1,
+        4
+      ],
+      "classes": {
+        "probe": [
+          4,
+          1
+        ]
+      },
+      "note": "One-question probes only."
+    },
+    {
+      "provider": "claude",
+      "model_contains": "sonnet",
+      "prior": [
+        5,
+        1
+      ],
+      "note": "Good Rust at 7M to 55M tokens."
+    },
+    {
+      "provider": "codex",
+      "prior": [
+        3,
+        2
+      ],
+      "classes": {
+        "security_review": [
+          5,
+          1
+        ]
+      },
+      "note": "Hardest reviewer and cheapest judge."
+    }
+  ]
+}

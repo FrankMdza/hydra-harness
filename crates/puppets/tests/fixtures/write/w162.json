@@ -1,0 +1,32 @@
+{
+ "label": "two proposals, codex down, a degraded approval with no substitute: choose --judge",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w162/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "choose",
+    "g1",
+    "--judge"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "degraded approval for codex has no substitute\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"model\":null,\"run_id\":\"p1\"}\n{\"event\":\"plan_proposed\",\"provider\":\"claude\",\"model\":\"opus\",\"run_id\":\"p2\"}\n{\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"p1\",\"path\":\"/private/tmp/hp196/jobs/write/shared/good.md\"}\n{\"event\":\"plan_ready\",\"provider\":\"claude\",\"run_id\":\"p2\",\"path\":\"/private/tmp/hp196/jobs/write/shared/crlf.md\"}\n{\"event\":\"approval\",\"kind\":\"degraded\",\"missing\":\"codex\",\"substitute\":\"\",\"revision\":0,\"yes\":true}\n"
+   }
+  }
+ ]
+}

@@ -1,0 +1,37 @@
+{
+ "label": "sheets with no verdict behind them: assign",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w164/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "assign",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "t6: cursor-agent composer-2.5 (default)\nt7: cursor-agent composer-2.5 (default)\nt8: agy gemini-3.1-pro-high (default)\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/agents/claude--sonnet.json",
+   "bytes": {
+    "text": "{\"provider\":\"claude\",\"model\":\"sonnet\",\"available\":true,\"policies\":[\"judge\",\"standard\"],\"runs\":[],\"cost\":{\"p50\":0.02,\"n\":1}}"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"claude\",\"model\":\"sonnet\",\"policy\":\"standard\",\"source\":\"default\"}\n{\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"r1\"}\n{\"event\":\"run_end\",\"task\":\"t1\",\"run_id\":\"r1\",\"outcome\":\"completed\"}\n{\"event\":\"human_verdict\",\"task\":\"t1\",\"run_id\":\"r1\",\"result\":\"applied\",\"note\":\"\"}\n{\"event\":\"task\",\"id\":\"t6\",\"text\":\"do t6\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t7\",\"text\":\"do t7\",\"class\":\"docs\",\"grade\":\"high\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t8\",\"text\":\"do t8\",\"class\":\"probe\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"seq\":10,\"ts\":\"2026-10-01T08:35:45.497Z\",\"event\":\"assignment\",\"task\":\"t6\",\"provider\":\"cursor-agent\",\"policy\":\"standard\",\"source\":\"default\",\"model\":\"composer-2.5\"}\n{\"seq\":11,\"ts\":\"2026-10-01T08:35:45.501Z\",\"event\":\"assignment\",\"task\":\"t7\",\"provider\":\"cursor-agent\",\"policy\":\"standard\",\"source\":\"default\",\"model\":\"composer-2.5\"}\n{\"seq\":12,\"ts\":\"2026-10-01T08:35:45.505Z\",\"event\":\"assignment\",\"task\":\"t8\",\"provider\":\"agy\",\"policy\":\"standard\",\"source\":\"default\",\"model\":\"gemini-3.1-pro-high\"}\n"
+   }
+  }
+ ]
+}

@@ -15,12 +15,6 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      # The differential tests compare `hydra-puppets` with `puppets.py` byte for byte, and the
-      # Rust follows CPython 3.14 where versions differ (`str.isprintable`'s Unicode 16 table,
-      # `Path.stem`, the JSON error messages), so the runner's Python is pinned to it.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
       # The runner context is not readable from a job-level env block, so the root is set here.
       - run: |
           echo "HYDRA_ROOT=$RUNNER_TEMP/hydra-ci" >> "$GITHUB_ENV"
@@ -29,8 +23,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # The workspace, so `hydra-puppets` lands beside `hydra`, where the cockpit looks for it.
       - run: cargo build --release --workspace
-      # Build ticket 196. The workspace, so the unit tests of `hydra-puppets` and its
-      # differential tests against `puppets.py` run here too.
+      # Build ticket 196. The workspace, so the unit tests of `hydra-puppets` run here too, and
+      # its differential tests. Those compare the Rust with what the Python helper printed
+      # under CPython 3.14 before the ticket deleted it, recorded in
+      # `crates/puppets/tests/fixtures/`. No test starts `python3`, so no Python is pinned.
       - run: cargo test --release --workspace --no-fail-fast -- --test-threads=1
       # Build ticket 101. The fixture walks read a synthetic corpus, one directory per provider
       # binary version, so this count is never zero on a green run.
@@ -39,11 +35,11 @@ jobs:
           cargo test --release --test record_contract every_fixture_meets_the_contract -- --nocapture 2>&1 \
             | { grep '^checked ' || echo "the fixture walk found no fixtures"; } \
             | tee -a "$GITHUB_STEP_SUMMARY"
-      # Build ticket 120, the Python suite of Master of Puppets. Build ticket 196 moved every
-      # caller to `hydra-puppets` and kept the Python, because the grader below imports
-      # `puppets.py`, `models.py` and `jev_probe.py`. While those files stay, their suite does.
-      # It runs under the standard library's runner because the macOS image ships no pytest,
-      # and the tests are plain unittest cases.
+      # What build ticket 196 left of the Python under `integrations/puppets/`: `sheet.py` and
+      # its ten tests. They run under the standard library's runner because the macOS image
+      # ships no pytest, and the tests are plain unittest cases.
       - run: python3 -m unittest discover -s integrations/puppets/tests -q
-      # The grader integration has the same shape: stdlib unittest on the macOS runner.
+      # The grader integration has the same shape: stdlib unittest on the macOS runner. Its
+      # labels come from `hydra-puppets show` (map 93), so these tests run the helper the
+      # release build above left in `target/release/`, and fail without it.
       - run: python3 -m unittest discover -s integrations/grader/tests -q

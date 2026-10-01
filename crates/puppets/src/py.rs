@@ -1,6 +1,6 @@
 //! The few Python operations the fold and the read commands apply to log values.
 //!
-//! A log line is whatever JSON a writer put there, so a field `puppets.py` expects to be a
+//! A log line is whatever JSON a writer put there, so a field the fold expects to be a
 //! string can hold anything. These follow what Python does with such a value where that is
 //! cheap to say, and return an error where Python raises, so a command stops at the same
 //! point with the same stdout before it. Every error message starts with the name of the
@@ -335,7 +335,7 @@ fn is_int_space(c: char) -> bool {
     c.is_whitespace()
 }
 
-/// `sys.get_int_max_str_digits()`, which nothing in `puppets.py` changes. `int()` counts
+/// `sys.get_int_max_str_digits()`, which the Python helper never changed. `int()` counts
 /// leading zeros towards it, and not underscores, the sign or the whitespace.
 const INT_MAX_STR_DIGITS: usize = 4300;
 

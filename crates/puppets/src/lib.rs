@@ -1,13 +1,15 @@
 //! Master of Puppets in Rust: the goal log, the fold, the read commands, the commands that
 //! write without launching, and the commands that launch.
 //!
-//! This is the port of `integrations/puppets/puppets.py` as far as build tickets 193 to
-//! 195 take it, which is every command. The log's format is the Python's, and
-//! `tests/differential.rs` runs both on the same logs and requires the same output and the
-//! same log afterwards. The launches in that test go to a stub named by `HYDRA_BIN`.
+//! This is the port of the Python helper, `integrations/puppets/puppets.py`, which build
+//! ticket 196 deleted. Build tickets 193 to 195 ported every command. The log's format is
+//! the Python's, and `tests/differential.rs` runs this on the logs the Python ran on and
+//! requires the output and the log afterwards that `tests/record.py` recorded from it. The
+//! launches in that test go to a stub named by `HYDRA_BIN`.
 //!
-//! Since build ticket 196 the cockpit, the Herdr board and `pending`'s `argv` all run this
-//! binary. The Python stays in `integrations/puppets/` because the grader imports it.
+//! Since build ticket 196 the cockpit, the Herdr board, `pending`'s `argv` and the grader
+//! all run this binary. `sheet.py` and `models.py` stay in `integrations/puppets/`: the
+//! first holds three commands nobody ported, and both wait for the grader's own port.
 
 pub mod fold;
 pub mod json;

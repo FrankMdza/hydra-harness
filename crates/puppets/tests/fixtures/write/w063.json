@@ -1,0 +1,27 @@
+{
+ "label": "no log: reconcile g1 t1 1 --abandon",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w063/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "reconcile",
+    "g1",
+    "t1",
+    "1",
+    "--abandon"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "no dangling intent for task t1 attempt 1\n"
+   }
+  }
+ ],
+ "files": []
+}

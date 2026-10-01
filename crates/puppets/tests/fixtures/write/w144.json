@@ -1,0 +1,31 @@
+{
+ "label": "an approved plan crlf.md: tasks g1",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w144/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "tasks",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[],\"chosen\":\"codex\",\"path\":\"/private/tmp/hp196/jobs/write/shared/crlf.md\"}\n{\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":0,\"yes\":true}\n{\"seq\":4,\"ts\":\"2026-10-01T08:35:44.117Z\",\"event\":\"task\",\"id\":\"a\",\"text\":\"caf\\u00e9 \\u2615 \\ud83d\\ude00\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"seq\":5,\"ts\":\"2026-10-01T08:35:44.118Z\",\"event\":\"task\",\"id\":\"b\",\"text\":\"two\",\"class\":\"rust_launch_path\",\"grade\":\"agi\",\"done\":\"cargo test\",\"deps\":[\"a\"],\"paths\":[\"src/x.rs\",\"src/y.rs\"]}\n{\"seq\":6,\"ts\":\"2026-10-01T08:35:44.118Z\",\"event\":\"task\",\"id\":3,\"text\":[\"not\",\"text\"],\"class\":\"probe\",\"grade\":\"high\",\"done\":{\"k\":[1.5,1e+16,NaN,-0.0]},\"deps\":\"a\",\"paths\":null}\n"
+   }
+  }
+ ]
+}

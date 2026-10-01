@@ -1,0 +1,136 @@
+{
+ "label": "edge: item 12: removed past i128, at a billion and one past it",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-41/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"repair\",\"removed\":680564733841876926926749214863536422912}\n{\"event\":\"repair\",\"removed\":1000000000}\n{\"event\":\"repair\",\"removed\":1000000001}\n{\"event\":\"approval\",\"kind\":\"table\",\"revision\":1000000004,\"yes\":true}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 1000000004,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 1000000004,\n      \"yes\": true,\n      \"seq\": 6,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 1000000004\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  t1           c                     low    (unassigned)                 pending            \nwaiting on you: nothing\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 1000000004,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 1000000004,\n      \"yes\": true,\n      \"seq\": 6,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"repair\",\"removed\":680564733841876926926749214863536422912}\n{\"event\":\"repair\",\"removed\":1000000000}\n{\"event\":\"repair\",\"removed\":1000000001}\n{\"event\":\"approval\",\"kind\":\"table\",\"revision\":1000000004,\"yes\":true}\n"
+   }
+  }
+ ]
+}

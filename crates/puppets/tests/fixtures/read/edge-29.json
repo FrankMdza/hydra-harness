@@ -1,0 +1,136 @@
+{
+ "label": "edge: item 5: a UTF-16BE line",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-29/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "hex": "7b22736571223a312c227473223a22323032362d30392d33305431323a30303a30302e3030305a222c226576656e74223a22676f616c222c2274657874223a2274657374222c227265706f223a222f7265706f222c22626173655f736861223a22616263227d0a007b0022006500760065006e00740022003a0022007400610073006b0022002c0022006900640022003a00220075005c00750064003800300030002000e9d83dde000022002c002200740065007800740022003a002200740022002c00220063006c0061007300730022003a002200630022002c0022006700720061006400650022003a0022006c006f00770022007d000a007b0022006500760065006e00740022003a0022006e006f007400650022007d000a"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 1,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"u\\ud800 \\u00e9\\ud83d\\ude00\": {\n      \"id\": \"u\\ud800 \\u00e9\\ud83d\\ude00\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": "goal g1  revision 1\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n"
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/read/data/puppets.py\", line 1795, in cmd_board\n    print(\n    ~~~~~^\n        f\"  {task.id:<12} {task.task_class:<21} {task.grade:<6} {agent:<28} \"\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{task.status:<9} {p_cell:<8} {run}{verdict}\"\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nUnicodeEncodeError: 'utf-8' codec can't encode character '\\ud800' in position 3: surrogates not allowed\n"
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 1,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"u\\ud800 \\u00e9\\ud83d\\ude00\": {\n      \"id\": \"u\\ud800 \\u00e9\\ud83d\\ude00\",\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "hex": "7b22736571223a312c227473223a22323032362d30392d33305431323a30303a30302e3030305a222c226576656e74223a22676f616c222c2274657874223a2274657374222c227265706f223a222f7265706f222c22626173655f736861223a22616263227d0a007b0022006500760065006e00740022003a0022007400610073006b0022002c0022006900640022003a00220075005c00750064003800300030002000e9d83dde000022002c002200740065007800740022003a002200740022002c00220063006c0061007300730022003a002200630022002c0022006700720061006400650022003a0022006c006f00770022007d000a007b0022006500760065006e00740022003a0022006e006f007400650022007d000a"
+   }
+  }
+ ]
+}

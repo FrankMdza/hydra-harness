@@ -1,0 +1,159 @@
+{
+ "label": "review --no-open: no result text, the record is the projection",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l067/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "review",
+    "g1",
+    "t1",
+    "--no-open"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "judge claude (judge) run run-1\njudge codex (standard) run run-2\njudge cursor-agent (judge) run run-3\nhunk show hydra/r1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship\",\"repo\":\"/private/tmp/hp196/jobs/launch/shared/repo\",\"base_sha\":\"99db963e06b678cec4aee7238da46c56672f8a98\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2 \u2615\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":3,\"yes\":true}\n{\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"x\"}\n{\"event\":\"run\",\"task\":\"t1\",\"attempt\":1,\"run_id\":\"r1\"}\n{\"event\":\"run_end\",\"task\":\"t1\",\"run_id\":\"r1\",\"outcome\":\"completed\",\"total_tokens\":12}\n{\"seq\":9,\"ts\":\"2026-10-01T08:34:00.995Z\",\"event\":\"review\",\"task\":\"t1\",\"judge_run_ids\":[\"run-1\",\"run-2\",\"run-3\"],\"judge_policies\":[\"judge\",\"standard\",\"judge\"],\"verdict\":\"pass\",\"reasons\":[],\"degraded\":false,\"substitutions\":[]}\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.argv",
+   "bytes": {
+    "text": "run\u0000--provider\u0000claude\u0000--model\u0000opus\u0000--policy\u0000judge\u0000--timeout\u00000\u0000--task\u0000You are one judge on a three-seat panel reviewing a task diff.\n\n## Role\n\nYour role is reviewer: decide whether the diff does what the task asked, naming what is missing if not.\n## Task\n\ndo t1 \u2615\n## Diff\n\n```diff\ndiff --git a/src/a.rs b/src/a.rs\nindex ca05282..83021ca 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1,2 @@\n fn a() {}\n+fn b() {}\ndiff --git a/tests/a_test.rs b/tests/a_test.rs\nnew file mode 100644\nindex 0000000..2e941c2\n--- /dev/null\n+++ b/tests/a_test.rs\n@@ -0,0 +1,2 @@\n+#[test]\n+fn t() {}\n```\n## Instructions\n\nReview against the checklist for your role. Answer in exactly one JSON object and nothing else:\n\n```json\n{\"verdict\": \"pass\" | \"block\", \"findings\": [{\"item\": <checklist id>, \"severity\": \"critical\" | \"major\" | \"minor\", \"note\": <string>}]}\n```\n\nChecklist items:\n\n- scope_match (critical): The diff implements what the task asked for, naming what is missing if not\n- scope_creep (advisory): Changes outside the task scope or its named paths without justification\n- tests_present (critical): A behaviour change with no test touched, naming the function and file that should have moved\n- baseline_test_provenance (critical): A weakened assertion or a test edited without comparing against the baseline\n- security_issues (critical): A credential, unsafe construct, or shell interpolation of untrusted text\n- error_handling (advisory): A recoverable error path silently swallowed or misreported\n- dead_code (advisory): Obvious dead code, unused imports, or unreachable branches introduced\n- naming_clarity (advisory): New identifiers that are unclear or fight repo conventions\n- self_consistency (critical): The diff contradicts the task text or its own structure\n- dependencies (advisory): A new dependency the task did not require\n- documentation (advisory): A user-visible change with no doc update where the task touched docs\n- code_quality (advisory): Unnecessary duplication or complexity beyond what the task needs\n\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-1.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l067/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l067/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l067/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l067/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l067/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-2.argv",
+   "bytes": {
+    "text": "run\u0000--provider\u0000codex\u0000--policy\u0000standard\u0000--timeout\u00000\u0000--task\u0000You are one judge on a three-seat panel reviewing a task diff.\n\n## Role\n\nYour role is adversary: argue the diff should be rejected; name the strongest reason.\n## Diff\n\n```diff\ndiff --git a/src/a.rs b/src/a.rs\nindex ca05282..83021ca 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1,2 @@\n fn a() {}\n+fn b() {}\ndiff --git a/tests/a_test.rs b/tests/a_test.rs\nnew file mode 100644\nindex 0000000..2e941c2\n--- /dev/null\n+++ b/tests/a_test.rs\n@@ -0,0 +1,2 @@\n+#[test]\n+fn t() {}\n```\n## Instructions\n\nReview against the checklist for your role. Answer in exactly one JSON object and nothing else:\n\n```json\n{\"verdict\": \"pass\" | \"block\", \"findings\": [{\"item\": <checklist id>, \"severity\": \"critical\" | \"major\" | \"minor\", \"note\": <string>}]}\n```\n\nChecklist items:\n\n- scope_match (critical): The diff implements what the task asked for, naming what is missing if not\n- scope_creep (advisory): Changes outside the task scope or its named paths without justification\n- tests_present (critical): A behaviour change with no test touched, naming the function and file that should have moved\n- baseline_test_provenance (critical): A weakened assertion or a test edited without comparing against the baseline\n- security_issues (critical): A credential, unsafe construct, or shell interpolation of untrusted text\n- error_handling (advisory): A recoverable error path silently swallowed or misreported\n- dead_code (advisory): Obvious dead code, unused imports, or unreachable branches introduced\n- naming_clarity (advisory): New identifiers that are unclear or fight repo conventions\n- self_consistency (critical): The diff contradicts the task text or its own structure\n- dependencies (advisory): A new dependency the task did not require\n- documentation (advisory): A user-visible change with no doc update where the task touched docs\n- code_quality (advisory): Unnecessary duplication or complexity beyond what the task needs\n\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-2.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-2.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l067/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l067/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l067/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l067/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l067/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-3.argv",
+   "bytes": {
+    "text": "run\u0000--provider\u0000cursor-agent\u0000--model\u0000composer-2.5\u0000--policy\u0000judge\u0000--timeout\u00000\u0000--task\u0000You are one judge on a three-seat panel reviewing a task diff.\n\n## Role\n\nYour role is security: apply the checklist items about secrets, paths, gates and the record.\n## Diff\n\n```diff\ndiff --git a/src/a.rs b/src/a.rs\nindex ca05282..83021ca 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1,2 @@\n fn a() {}\n+fn b() {}\ndiff --git a/tests/a_test.rs b/tests/a_test.rs\nnew file mode 100644\nindex 0000000..2e941c2\n--- /dev/null\n+++ b/tests/a_test.rs\n@@ -0,0 +1,2 @@\n+#[test]\n+fn t() {}\n```\n## Projection\n\n{\n  \"run_id\": \"shown\",\n  \"outcome\": \"completed\",\n  \"outcome_source\": \"provider\",\n  \"exit_code\": 0,\n  \"error\": null,\n  \"result_text\": \"\",\n  \"branch\": \"hydra/r1\",\n  \"usage\": {\n    \"usage_source\": \"provider\",\n    \"counts\": {\n      \"input_tokens\": 5,\n      \"output_tokens\": 7,\n      \"raw_input\": 5,\n      \"total_tokens\": 12\n    }\n  },\n  \"run_file\": \"/f.jsonl\",\n  \"repo\": \"/private/tmp/hp196/jobs/launch/shared/repo\"\n}\n## Tests in diff\n\n```diff\n+++ b/tests/a_test.rs\n@@ -0,0 +1,2 @@\n+#[test]\n+fn t() {}\n```\n## Base\n\nRepository base at `99db963e06b678cec4aee7238da46c56672f8a98`.\n## Instructions\n\nReview against the checklist for your role. Answer in exactly one JSON object and nothing else:\n\n```json\n{\"verdict\": \"pass\" | \"block\", \"findings\": [{\"item\": <checklist id>, \"severity\": \"critical\" | \"major\" | \"minor\", \"note\": <string>}]}\n```\n\nChecklist items:\n\n- scope_creep (advisory): Changes outside the task scope or its named paths without justification\n- tests_present (critical): A behaviour change with no test touched, naming the function and file that should have moved\n- baseline_test_provenance (critical): A weakened assertion or a test edited without comparing against the baseline\n- security_issues (critical): A credential, unsafe construct, or shell interpolation of untrusted text\n\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-3.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-run-3.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l067/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l067/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l067/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l067/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l067/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.argv",
+   "bytes": {
+    "text": "show\u0000r1\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l067/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l067/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l067/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l067/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l067/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-2.argv",
+   "bytes": {
+    "text": "show\u0000run-1\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-2.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-2.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l067/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l067/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l067/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l067/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l067/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-3.argv",
+   "bytes": {
+    "text": "show\u0000run-2\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-3.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-3.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l067/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l067/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l067/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l067/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l067/py/stub\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-4.argv",
+   "bytes": {
+    "text": "show\u0000run-3\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-4.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-4.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l067/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l067/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l067/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l067/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l067/py/stub\n"
+   }
+  }
+ ]
+}

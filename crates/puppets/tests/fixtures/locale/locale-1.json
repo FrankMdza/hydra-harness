@@ -1,0 +1,24 @@
+{
+ "label": "LC_ALL=en_US.UTF-8 PYTHONUTF8=None PYTHONIOENCODING=None",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/locale",
+ "home": "/private/tmp/hp196/jobs/locale/locale-1/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/locale/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": "goal g1  revision 0\n"
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/locale/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/locale/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/locale/data/puppets.py\", line 1757, in cmd_board\n    print(f\"  {state.goal['text']}\")\n    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^\nUnicodeEncodeError: 'utf-8' codec can't encode character '\\udc80' in position 2: surrogates not allowed\n"
+   }
+  }
+ ],
+ "files": []
+}

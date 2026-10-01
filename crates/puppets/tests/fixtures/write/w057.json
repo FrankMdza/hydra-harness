@@ -1,0 +1,27 @@
+{
+ "label": "no log: approve g1 --plan --expect-revision 9",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w057/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "approve",
+    "g1",
+    "--plan",
+    "--expect-revision",
+    "9"
+   ],
+   "code": 2,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "expected revision 9, current revision 0\n"
+   }
+  }
+ ],
+ "files": []
+}

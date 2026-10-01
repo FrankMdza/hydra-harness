@@ -1,0 +1,136 @@
+{
+ "label": "harvest 0014/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-010/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_proposed\", \"provider\": \"codex\", \"run_id\": \"r-codex\"}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_ready\", \"provider\": \"codex\", \"run_id\": \"r-codex\", \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_proposed\", \"provider\": \"cursor-agent\", \"run_id\": \"r-cursor\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_ready\", \"provider\": \"cursor-agent\", \"run_id\": \"r-cursor\", \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/cursor-agent.md\"}\n{\"seq\":6,\"ts\":\"2026-10-01T08:26:39.114Z\",\"event\":\"panel_verdict\",\"judge_run_ids\":[\"j-claude\",\"j-codex\",\"j-cursor\"],\"judge_policies\":[\"judge\",\"standard\",\"judge\"],\"chosen\":\"codex\",\"path\":\"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\",\"degraded\":false,\"substitutions\":[]}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"r-codex\", {\"task_id\": null, \"class\": \"plan_proposer\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"r-cursor\", {\"task_id\": null, \"class\": \"plan_proposer\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"j-claude\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"j-codex\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"j-cursor\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 0,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"r-codex\",\n      \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\"\n    },\n    {\n      \"provider\": \"cursor-agent\",\n      \"model\": null,\n      \"run_id\": \"r-cursor\",\n      \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/cursor-agent.md\"\n    }\n  ],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [\n      \"j-claude\",\n      \"j-codex\",\n      \"j-cursor\"\n    ],\n    \"chosen\": \"codex\",\n    \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\",\n    \"degraded\": false,\n    \"substitutions\": []\n  },\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 0\n  test\nplans\n  codex         r-codex  ready\n  cursor-agent  r-cursor  ready\nchosen  codex  judges 3\nwaiting on you: plan\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"plan\",\n    \"ref\": null,\n    \"revision\": 0,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--plan\",\n      \"--expect-plan\",\n      \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\",\n      \"--expect-revision\",\n      \"0\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 0,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"r-codex\",\n      \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\"\n    },\n    {\n      \"provider\": \"cursor-agent\",\n      \"model\": null,\n      \"run_id\": \"r-cursor\",\n      \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/cursor-agent.md\"\n    }\n  ],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [\n      \"j-claude\",\n      \"j-codex\",\n      \"j-cursor\"\n    ],\n    \"chosen\": \"codex\",\n    \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\",\n    \"degraded\": false,\n    \"substitutions\": []\n  },\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"plan\",\n    \"ref\": null,\n    \"revision\": 0,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--plan\",\n      \"--expect-plan\",\n      \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\",\n      \"--expect-revision\",\n      \"0\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_proposed\", \"provider\": \"codex\", \"run_id\": \"r-codex\"}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_ready\", \"provider\": \"codex\", \"run_id\": \"r-codex\", \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_proposed\", \"provider\": \"cursor-agent\", \"run_id\": \"r-cursor\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"plan_ready\", \"provider\": \"cursor-agent\", \"run_id\": \"r-cursor\", \"path\": \"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/cursor-agent.md\"}\n{\"seq\":6,\"ts\":\"2026-10-01T08:26:39.114Z\",\"event\":\"panel_verdict\",\"judge_run_ids\":[\"j-claude\",\"j-codex\",\"j-cursor\"],\"judge_policies\":[\"judge\",\"standard\",\"judge\"],\"chosen\":\"codex\",\"path\":\"/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/tmp0exz5irz/puppets/g1/plans/codex.md\",\"degraded\":false,\"substitutions\":[]}\n"
+   }
+  }
+ ]
+}

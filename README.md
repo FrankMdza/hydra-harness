@@ -281,7 +281,12 @@ first so the design map gets a ticket and the record contract does not fork with
 ## Status, in numbers
 
 Sixteen commands a human types on 2026-09-30, the command table above, and two hidden ones.
-33 Rust test files, green in CI on macOS, plus the Python suites under `integrations/`. CI never walks the live corpus under
+33 Rust test files, green in CI on macOS, plus the Python suites under `integrations/`. The
+Master of Puppets helper is Rust, `hydra-puppets`; the Python it was ported from was deleted on
+2026-10-01, after its output on every test input was recorded as the fixture the helper is now
+compared with. Still Python: the grader, which reads a goal by running `hydra-puppets show`,
+the Herdr plugin, and `integrations/puppets/sheet.py` with `models.py`, three hand-run
+commands that wait for the grader's port. CI never walks the live corpus under
 `~/hydra/runs/`; that is `hydra doctor --walk` on the machine that launched the runs. The fixture
 walks in `cargo test` run the same assertions over `tests/fixtures/records/`, twelve synthetic
 records filed by the provider version whose shapes they reproduce, and the CI job summary prints

@@ -1,0 +1,32 @@
+{
+ "label": "choose --judge: codex down, nothing approved",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l056/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "choose",
+    "g1",
+    "--judge"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "codex is unavailable; approve with: approve g1 --degraded codex=<substitute-provider[:model]>\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship caf\u00e9 \u2615\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"model\":null,\"run_id\":\"p1\"}\n{\"event\":\"plan_proposed\",\"provider\":\"claude\",\"model\":\"opus\",\"run_id\":\"p2\"}\n{\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"p1\",\"path\":\"/private/tmp/hp196/jobs/launch/shared/codex.md\"}\n{\"event\":\"plan_ready\",\"provider\":\"claude\",\"run_id\":\"p2\",\"path\":\"/private/tmp/hp196/jobs/launch/shared/claude.md\"}\n"
+   }
+  }
+ ]
+}

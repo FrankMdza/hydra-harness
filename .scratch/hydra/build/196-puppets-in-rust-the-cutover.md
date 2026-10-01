@@ -1,7 +1,7 @@
 # 196 - puppets in Rust: the cutover
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 195, 207
 
 ## What
@@ -136,3 +136,57 @@ sentence says it was deleted.
 
 - fmt and clippy over the workspace; `cargo test --workspace`; `grep -rn puppets.py` finds only
   history in `.scratch/`.
+
+## Outcome
+
+Resolved 2026-10-01, in two runs of claude opus 5.5 under `standard`: `01a0f66b` (5.5M tokens,
+the first half above) and `01a0f685` (18.7M tokens, the second half after map 93). The session
+ran the gate on the real goal log before applying the second diff, and applied it as written
+with one addition.
+
+Built in the second half: `integrations/grader/labels.py` reads a goal through `hydra-puppets
+show -- <goal>`, checks the shape it reads, and raises `LabelsError` on a missing binary, a
+non-zero exit or another shape; the binary is `HYDRA_PUPPETS_BIN`, else beside an absolute
+`HYDRA_BIN`, else `target/release/hydra-puppets` of the checkout, never `PATH`; `collect` calls
+it before any write, so a raise leaves the dataset, the cursor and the scores untouched.
+`jev_probe.py` and its test moved to `integrations/grader/`. `crates/puppets/tests/record.py`
+ran the Python once on every differential input and wrote `crates/puppets/tests/fixtures/` (446
+files, 3.3 MB); the differential tests now compare the Rust with those files and start no
+`python3`. `puppets.py`, its seven test files and `harvest.py` are deleted. `sheet.py` and
+`models.py` stay, with `sheet.py`'s suite. CI no longer pins Python and keeps the `sheet.py` and
+grader suites.
+
+The gate of map 93, measured before the deletion: 405 goal logs of the differential tests
+labelled both ways, 366 equal with 396 labels, 39 refused by `show`, none of which had a label
+under the Python fold; no label differed. The session ran the same over the real
+`~/hydra/puppets` (one goal log, 9 labels, equal) and over the goal of the first real launch (1
+label, equal). `show` took 5 ms per goal from the release build, 387 ms on the first call.
+
+Measured on master after applying: fmt and clippy clean over the workspace; `cargo test
+--workspace`, 40 test binaries, none failed (`hydra-puppets` 65 unit, 5 in the binary, 18
+differential over 1,312 read commands, 173 write, 87 launch, 9 locales); the grader suite 133
+run with one error, `test_launchd`, which cannot import `plistlib` on this machine's Python; the
+`sheet.py` suite 10; the Herdr suite 42. The session changed one word of `board` and 138 of
+1,312 fixture comparisons failed, then restored it.
+
+The session's addition: `.claude/skills/puppets/SKILL.md` still told the session to run
+`python3 integrations/puppets/puppets.py`. It names `hydra-puppets` now.
+
+What the ticket assumed that is false: the grep condition. `puppets.py` is still named in the
+fixtures (recorded usage lines and tracebacks), in the comparator's sample strings, and in
+sentences that say it was deleted. `hy.zsh` never named it.
+
+Left open, each said in `IMPLEMENTATION.md`:
+
+- The fixtures cannot be recorded again from this checkout. A case added to `differential.rs`
+  needs a checkout from before this ticket to record it.
+- The fixtures were recorded and replayed on arm64 macOS with CPython 3.14.7 only. CI has not
+  run them.
+- A damaged goal log now fails a whole grader pass, where the old reader passed over a bad last
+  line. Map 93 asked for it.
+- The grader's tests need a built `hydra-puppets` under `target/`.
+- `show` from the launchd job was not run.
+- Against the real router only `new`, `choose <path>`, `approve`, `tasks`, `set`, `launch`,
+  `wait`, `board`, `pending`, `show` and `verdict` have run; `plan`, `plans`, `choose --judge`,
+  `review`, a Herdr pane and Hunk have only met stubs.
+

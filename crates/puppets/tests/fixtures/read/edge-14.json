@@ -1,0 +1,142 @@
+{
+ "label": "edge: busy goal, seats down",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-14/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"model\":null,\"run_id\":\"11111111-aaaa\"}\n{\"event\":\"plan_proposed\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"run_id\":\"22222222-bbbb\"}\n{\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"11111111-aaaa\",\"path\":\"/p/codex.md\"}\n{\"event\":\"plan_ready\",\"provider\":\"cursor-agent\",\"run_id\":\"22222222-bbbb\",\"path\":\"/p/cursor.md\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[\"a\",\"b\"],\"chosen\":\"codex\",\"path\":\"/p/codex.md\",\"degraded\":true,\"substitutions\":[{\"missing\":\"codex\",\"substitute\":\"cursor-agent\",\"model\":\"\"}]}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"caf\u00e9 \u2615 \ud83d\ude00\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"deps\":\"ab\",\"paths\":[\"src/x.rs\"]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"two\",\"class\":\"docs\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"three\",\"class\":\"security_review\",\"grade\":\"medium\",\"deps\":[\"t1\"],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"claude\",\"model\":\"sonnet\",\"policy\":\"standard\",\"source\":\"sheet\"}\n{\"event\":\"assignment\",\"task\":\"t2\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"source\":\"default\"}\n{\"event\":\"assignment\",\"task\":\"t3\",\"provider\":\"codex\",\"model\":\"\",\"policy\":\"standard\",\"source\":\"default\"}\n{\"event\":\"assignment\",\"task\":\"t4\",\"provider\":\"agy\",\"policy\":\"judge\",\"source\":\"human\"}\n{\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":7,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"launch\",\"ref\":\"t3\",\"revision\":7.0,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":1,\"yes\":true,\"extra\":1e16}\n{\"event\":\"launch_intent\",\"task\":\"t2\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"x\"}\n{\"event\":\"run\",\"task\":\"t2\",\"attempt\":1,\"run_id\":\"33333333-cccc-dddd\"}\n{\"event\":\"run_end\",\"task\":\"t2\",\"run_id\":\"33333333-cccc-dddd\",\"outcome\":\"completed\",\"total_tokens\":1.5e-7}\n{\"event\":\"launch_intent\",\"task\":\"t3\",\"attempt\":1,\"provider\":\"codex\"}\n{\"event\":\"run\",\"task\":\"t3\",\"attempt\":1,\"run_id\":\"44444444-eeee\"}\n{\"event\":\"run_end\",\"task\":\"t3\",\"run_id\":\"44444444-eeee\",\"outcome\":\"failed\"}\n{\"event\":\"review\",\"task\":\"t3\",\"judge_run_ids\":[\"j\"],\"verdict\":\"reject\",\"degraded\":true,\"substitutions\":[{\"missing\":\"codex\",\"substitute\":\"claude\"}]}\n{\"event\":\"launch_intent\",\"task\":\"t4\",\"attempt\":2}\n{\"event\":\"human_plan\",\"accepted\":true}\n{\"event\":\"note\",\"text\":\"ignored\"}\n"
+   }
+  },
+  {
+   "path": "vendors.json",
+   "bytes": {
+    "text": "[{\"provider\":\"codex\",\"model\":null,\"available\":false},{\"provider\":\"claude\",\"model\":\"opus\",\"available\":false},{\"provider\":\"claude\",\"model\":null}]"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"33333333-cccc-dddd\", {\"task_id\": \"t2\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"two\"}], [\"44444444-eeee\", {\"task_id\": \"t3\", \"class\": \"security_review\", \"grade\": \"medium\", \"human_verdict\": null, \"text\": \"three\"}], [\"11111111-aaaa\", {\"task_id\": null, \"class\": \"plan_proposer\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"22222222-bbbb\", {\"task_id\": null, \"class\": \"plan_proposer\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"a\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"b\", {\"task_id\": null, \"class\": \"plan_judge\", \"grade\": null, \"human_verdict\": null, \"text\": \"test\"}], [\"j\", {\"task_id\": \"t3\", \"class\": \"security_review\", \"grade\": \"medium\", \"human_verdict\": null, \"text\": \"three\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 7,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"11111111-aaaa\",\n      \"path\": \"/p/codex.md\"\n    },\n    {\n      \"provider\": \"cursor-agent\",\n      \"model\": \"composer-2.5\",\n      \"run_id\": \"22222222-bbbb\",\n      \"path\": \"/p/cursor.md\"\n    }\n  ],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [\n      \"a\",\n      \"b\"\n    ],\n    \"chosen\": \"codex\",\n    \"path\": \"/p/codex.md\",\n    \"degraded\": true,\n    \"substitutions\": [\n      {\n        \"missing\": \"codex\",\n        \"substitute\": \"cursor-agent\",\n        \"model\": \"\"\n      }\n    ]\n  },\n  \"human_plan\": {\n    \"accepted\": true,\n    \"note\": null\n  },\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"caf\\u00e9 \\u2615 \\ud83d\\ude00\",\n      \"class\": \"rust_launch_path\",\n      \"grade\": \"high\",\n      \"deps\": [\n        \"a\",\n        \"b\"\n      ],\n      \"paths\": [\n        \"src/x.rs\"\n      ],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"sheet\"\n      },\n      \"status\": \"assigned\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"t2\": {\n      \"id\": \"t2\",\n      \"text\": \"two\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"33333333-cccc-dddd\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"t3\": {\n      \"id\": \"t3\",\n      \"text\": \"three\",\n      \"class\": \"security_review\",\n      \"grade\": \"medium\",\n      \"deps\": [\n        \"t1\"\n      ],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"44444444-eeee\",\n      \"attempt\": 1,\n      \"outcome\": \"failed\",\n      \"human_result\": null\n    },\n    \"t4\": {\n      \"id\": \"t4\",\n      \"text\": \"\",\n      \"class\": \"batch_scripting\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"agy\",\n        \"model\": \"\",\n        \"policy\": \"judge\",\n        \"source\": \"human\"\n      },\n      \"status\": \"assigned\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 7,\n      \"yes\": true,\n      \"seq\": 14,\n      \"consumed\": false\n    },\n    {\n      \"kind\": \"launch\",\n      \"ref\": \"t3\",\n      \"run_id\": null,\n      \"revision\": 7.0,\n      \"yes\": true,\n      \"seq\": 15,\n      \"consumed\": true\n    },\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 1,\n      \"yes\": true,\n      \"seq\": 16,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [\n    {\n      \"event\": \"launch_intent\",\n      \"task\": \"t4\",\n      \"attempt\": 2\n    }\n  ],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 7\n  test\nplans\n  codex         11111111  ready\n  cursor-agent  22222222  ready\nchosen (degraded panel)  codex  judges 2  codex->cursor-agent\ntasks\n  id           class                 grade  agent                        status    p        run\n  t1           rust_launch_path      high   claude sonnet                assigned           \n  t2           docs                  low    cursor-agent composer-2.5    ended     no score 33333333\n  t3           security_review       medium codex                        ended     no score 44444444  review reject (degraded panel)\n  t4           batch_scripting       low    agy                          assigned           \nwaiting on you: launch t1, diff t2, diff t3, reconcile t4#2\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t2\",\n    \"revision\": 7,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t2\",\n      \"--expect-run\",\n      \"33333333-cccc-dddd\",\n      \"--expect-revision\",\n      \"7\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t3\",\n    \"revision\": 7,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t3\",\n      \"--expect-run\",\n      \"44444444-eeee\",\n      \"--expect-revision\",\n      \"7\"\n    ]\n  },\n  {\n    \"kind\": \"degraded\",\n    \"ref\": \"codex\",\n    \"revision\": 7,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--degraded\",\n      \"codex=<substitute-provider[:model]>\",\n      \"--expect-revision\",\n      \"7\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  2 tasks with no score\ntask         provider       model            run                                  p        attempt\nt2           cursor-agent   composer-2.5     33333333-cccc-dddd                   no score 1\nt3           codex                           44444444-eeee                        no score 1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 7,\n  \"plans\": [\n    {\n      \"provider\": \"codex\",\n      \"model\": null,\n      \"run_id\": \"11111111-aaaa\",\n      \"path\": \"/p/codex.md\"\n    },\n    {\n      \"provider\": \"cursor-agent\",\n      \"model\": \"composer-2.5\",\n      \"run_id\": \"22222222-bbbb\",\n      \"path\": \"/p/cursor.md\"\n    }\n  ],\n  \"chosen_plan\": {\n    \"judge_run_ids\": [\n      \"a\",\n      \"b\"\n    ],\n    \"chosen\": \"codex\",\n    \"path\": \"/p/codex.md\",\n    \"degraded\": true,\n    \"substitutions\": [\n      {\n        \"missing\": \"codex\",\n        \"substitute\": \"cursor-agent\",\n        \"model\": \"\"\n      }\n    ]\n  },\n  \"human_plan\": {\n    \"accepted\": true,\n    \"note\": null\n  },\n  \"tasks\": {\n    \"t1\": {\n      \"id\": \"t1\",\n      \"text\": \"caf\\u00e9 \\u2615 \\ud83d\\ude00\",\n      \"class\": \"rust_launch_path\",\n      \"grade\": \"high\",\n      \"deps\": [\n        \"a\",\n        \"b\"\n      ],\n      \"paths\": [\n        \"src/x.rs\"\n      ],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"sheet\"\n      },\n      \"status\": \"assigned\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"t2\": {\n      \"id\": \"t2\",\n      \"text\": \"two\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"33333333-cccc-dddd\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"t3\": {\n      \"id\": \"t3\",\n      \"text\": \"three\",\n      \"class\": \"security_review\",\n      \"grade\": \"medium\",\n      \"deps\": [\n        \"t1\"\n      ],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"44444444-eeee\",\n      \"attempt\": 1,\n      \"outcome\": \"failed\",\n      \"human_result\": null\n    },\n    \"t4\": {\n      \"id\": \"t4\",\n      \"text\": \"\",\n      \"class\": \"batch_scripting\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"agy\",\n        \"model\": \"\",\n        \"policy\": \"judge\",\n        \"source\": \"human\"\n      },\n      \"status\": \"assigned\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 7,\n      \"yes\": true,\n      \"seq\": 14,\n      \"consumed\": false\n    },\n    {\n      \"kind\": \"launch\",\n      \"ref\": \"t3\",\n      \"run_id\": null,\n      \"revision\": 7.0,\n      \"yes\": true,\n      \"seq\": 15,\n      \"consumed\": true\n    },\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 1,\n      \"yes\": true,\n      \"seq\": 16,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [\n    {\n      \"event\": \"launch_intent\",\n      \"task\": \"t4\",\n      \"attempt\": 2\n    }\n  ],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t2\",\n    \"revision\": 7,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t2\",\n      \"--expect-run\",\n      \"33333333-cccc-dddd\",\n      \"--expect-revision\",\n      \"7\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"t3\",\n    \"revision\": 7,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"t3\",\n      \"--expect-run\",\n      \"44444444-eeee\",\n      \"--expect-revision\",\n      \"7\"\n    ]\n  },\n  {\n    \"kind\": \"degraded\",\n    \"ref\": \"codex\",\n    \"revision\": 7,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--degraded\",\n      \"codex=<substitute-provider[:model]>\",\n      \"--expect-revision\",\n      \"7\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"model\":null,\"run_id\":\"11111111-aaaa\"}\n{\"event\":\"plan_proposed\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"run_id\":\"22222222-bbbb\"}\n{\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"11111111-aaaa\",\"path\":\"/p/codex.md\"}\n{\"event\":\"plan_ready\",\"provider\":\"cursor-agent\",\"run_id\":\"22222222-bbbb\",\"path\":\"/p/cursor.md\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[\"a\",\"b\"],\"chosen\":\"codex\",\"path\":\"/p/codex.md\",\"degraded\":true,\"substitutions\":[{\"missing\":\"codex\",\"substitute\":\"cursor-agent\",\"model\":\"\"}]}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"caf\u00e9 \u2615 \ud83d\ude00\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"deps\":\"ab\",\"paths\":[\"src/x.rs\"]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"two\",\"class\":\"docs\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"three\",\"class\":\"security_review\",\"grade\":\"medium\",\"deps\":[\"t1\"],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"claude\",\"model\":\"sonnet\",\"policy\":\"standard\",\"source\":\"sheet\"}\n{\"event\":\"assignment\",\"task\":\"t2\",\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"source\":\"default\"}\n{\"event\":\"assignment\",\"task\":\"t3\",\"provider\":\"codex\",\"model\":\"\",\"policy\":\"standard\",\"source\":\"default\"}\n{\"event\":\"assignment\",\"task\":\"t4\",\"provider\":\"agy\",\"policy\":\"judge\",\"source\":\"human\"}\n{\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":7,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"launch\",\"ref\":\"t3\",\"revision\":7.0,\"yes\":true}\n{\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":1,\"yes\":true,\"extra\":1e16}\n{\"event\":\"launch_intent\",\"task\":\"t2\",\"attempt\":1,\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"policy\":\"standard\",\"argv_sha256\":\"x\"}\n{\"event\":\"run\",\"task\":\"t2\",\"attempt\":1,\"run_id\":\"33333333-cccc-dddd\"}\n{\"event\":\"run_end\",\"task\":\"t2\",\"run_id\":\"33333333-cccc-dddd\",\"outcome\":\"completed\",\"total_tokens\":1.5e-7}\n{\"event\":\"launch_intent\",\"task\":\"t3\",\"attempt\":1,\"provider\":\"codex\"}\n{\"event\":\"run\",\"task\":\"t3\",\"attempt\":1,\"run_id\":\"44444444-eeee\"}\n{\"event\":\"run_end\",\"task\":\"t3\",\"run_id\":\"44444444-eeee\",\"outcome\":\"failed\"}\n{\"event\":\"review\",\"task\":\"t3\",\"judge_run_ids\":[\"j\"],\"verdict\":\"reject\",\"degraded\":true,\"substitutions\":[{\"missing\":\"codex\",\"substitute\":\"claude\"}]}\n{\"event\":\"launch_intent\",\"task\":\"t4\",\"attempt\":2}\n{\"event\":\"human_plan\",\"accepted\":true}\n{\"event\":\"note\",\"text\":\"ignored\"}\n"
+   }
+  }
+ ]
+}

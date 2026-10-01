@@ -285,7 +285,7 @@ RUN_ID = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){0,3}(?:-[0-9a-f]{12})?\b")
 def jev_probe():
     """The Jev probe's ticket reader, loaded on first use so collect never imports it."""
     spec = importlib.util.spec_from_file_location(
-        "grader_jev_probe", HERE.parent / "puppets" / "jev_probe.py")
+        "grader_jev_probe", HERE / "jev_probe.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

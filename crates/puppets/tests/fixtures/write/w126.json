@@ -1,0 +1,35 @@
+{
+ "label": "two dangling intents: reconcile g1 t1 99999999999999999999999999999999999999999999999999 --run r9",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w126/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "reconcile",
+    "g1",
+    "t1",
+    "99999999999999999999999999999999999999999999999999",
+    "--run",
+    "r9"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "no dangling intent for task t1 attempt 99999999999999999999999999999999999999999999999999\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3\",\"class\":\"research\",\"grade\":\"agi\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t4\",\"text\":\"do t4\",\"class\":\"weird\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t5\",\"text\":\"do t5\",\"class\":\"security_review\",\"grade\":\"medium\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"assignment\",\"task\":\"t1\",\"provider\":\"codex\",\"policy\":\"standard\",\"source\":\"human\"}\n{\"event\":\"launch_intent\",\"task\":\"t1\",\"attempt\":1,\"provider\":\"codex\"}\n{\"event\":\"launch_intent\",\"task\":\"t2\",\"attempt\":2,\"provider\":\"claude\"}\n"
+   }
+  }
+ ]
+}

@@ -1,0 +1,24 @@
+{
+ "label": "LC_ALL=en_US.UTF-8 PYTHONUTF8=None PYTHONIOENCODING=Some(\"latin-1:replace\")",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/locale",
+ "home": "/private/tmp/hp196/jobs/locale/locale-8/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/locale/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 0\n  ?\nwaiting on you: nothing\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": []
+}

@@ -1,0 +1,55 @@
+{
+ "label": "a grade the ranking does not know: assign",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w165/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "assign",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2067, in cmd_assign\n    row = ranked_assignment(task, events)\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 1625, in ranked_assignment\n    rows = sheet.rank(sheets, task.task_class, task.grade, events, policy=\"standard\")\n  File \"/private/tmp/hp196/jobs/write/data/sheet.py\", line 324, in rank\n    threshold = {'low': .5, 'medium': .6, 'high': .7}[grade]\n                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^\nKeyError: 'weird'\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/agents/claude--Sonnet%205.json",
+   "bytes": {
+    "text": "{\"provider\":\"claude\",\"model\":\"Sonnet 5\",\"available\":true,\"policies\":[\"judge\",\"standard\"],\"runs\":[{\"run_id\":\"r1\",\"task_id\":\"r1\",\"parent_run_id\":null}],\"cost\":{\"p50\":0.01,\"n\":1}}"
+   }
+  },
+  {
+   "path": "puppets/agents/claude--sonnet.json",
+   "bytes": {
+    "text": "{\"provider\":\"claude\",\"model\":\"sonnet\",\"available\":true,\"policies\":[\"judge\",\"standard\"],\"runs\":[{\"run_id\":\"r1\",\"task_id\":\"r1\",\"parent_run_id\":null}],\"cost\":{\"p50\":0.02,\"n\":1}}"
+   }
+  },
+  {
+   "path": "puppets/agents/codex--~null.json",
+   "bytes": {
+    "text": "{\"provider\":\"codex\",\"model\":null,\"available\":false,\"policies\":[\"judge\",\"standard\"],\"runs\":[{\"run_id\":\"r1\",\"task_id\":\"r1\",\"parent_run_id\":null}],\"cost\":{\"p50\":0.001,\"n\":1}}"
+   }
+  },
+  {
+   "path": "puppets/agents/cursor-agent--composer-2.5.json",
+   "bytes": {
+    "text": "{\"provider\":\"cursor-agent\",\"model\":\"composer-2.5\",\"available\":true,\"policies\":[\"judge\",\"standard\"],\"runs\":[],\"cost\":{\"p50\":null,\"n\":1}}"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"weird\",\"done\":null,\"deps\":[],\"paths\":[]}\n"
+   }
+  }
+ ]
+}

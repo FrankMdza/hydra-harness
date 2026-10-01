@@ -1,0 +1,142 @@
+{
+ "label": "harvest 0146/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-093/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "grader/scores.jsonl",
+   "bytes": {
+    "text": "{\"run_id\": \"run-wait\", \"label\": \"verdict\", \"p\": 0.25, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n{\"run_id\": \"run-done\", \"label\": \"verdict\", \"p\": 0.99, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n{\"run_id\": \"run-wait\", \"label\": \"verdict\", \"p\": 0.8, \"model_version\": \"baseline-verdict-zzz\", \"scored_at\": \"2026-09-01T00:00:00Z\"}\n"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"wait\", \"text\": \"wait\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"wait\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"wait\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"wait\", \"attempt\": 1, \"run_id\": \"run-wait\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"wait\", \"run_id\": \"run-wait\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 7, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"bare\", \"text\": \"bare\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 8, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"bare\", \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 9, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"bare\", \"attempt\": 1, \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 10, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"bare\", \"attempt\": 1, \"run_id\": \"run-bare\"}\n{\"seq\": 11, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"bare\", \"run_id\": \"run-bare\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 12, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"done\", \"text\": \"done\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 13, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"done\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 14, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"done\", \"attempt\": 1, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 15, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"done\", \"attempt\": 1, \"run_id\": \"run-done\"}\n{\"seq\": 16, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"human_verdict\", \"task\": \"done\", \"run_id\": \"run-done\", \"result\": \"applied\", \"note\": \"\"}\n{\"seq\": 17, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"done\", \"run_id\": \"run-done\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 18, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"live\", \"text\": \"live\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 19, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"live\", \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 20, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"live\", \"attempt\": 1, \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 21, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"live\", \"attempt\": 1, \"run_id\": \"run-live\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"run-wait\", {\"task_id\": \"wait\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"wait\"}], [\"run-bare\", {\"task_id\": \"bare\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"bare\"}], [\"run-done\", {\"task_id\": \"done\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": \"applied\", \"text\": \"done\"}], [\"run-live\", {\"task_id\": \"live\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"live\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 8,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"wait\": {\n      \"id\": \"wait\",\n      \"text\": \"wait\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-wait\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"bare\": {\n      \"id\": \"bare\",\n      \"text\": \"bare\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"agy\",\n        \"model\": \"gemini\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-bare\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"done\": {\n      \"id\": \"done\",\n      \"text\": \"done\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-done\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"applied\"\n    },\n    \"live\": {\n      \"id\": \"live\",\n      \"text\": \"live\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"run-live\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"live\",\n      \"attempt\": 1,\n      \"run_id\": \"run-live\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 8\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  wait         docs                  low    cursor-agent composer-2.5    ended     0.25     run-wait\n  bare         docs                  low    agy gemini                   ended     no score run-bare\n  done         docs                  low    claude sonnet                ended              run-done  applied\n  live         docs                  low    codex                        running            run-live\nwaiting on you: table, diff wait, diff bare, diff done\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"wait\",\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"wait\",\n      \"--expect-run\",\n      \"run-wait\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"bare\",\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"bare\",\n      \"--expect-run\",\n      \"run-bare\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"live\",\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"live\",\n      \"--expect-run\",\n      \"run-live\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict baseline-verdict-aaa  1 task with no score\ntask         provider       model            run                                  p        attempt\nwait         cursor-agent   composer-2.5     run-wait                             0.25     1\nbare         agy            gemini           run-bare                             no score 1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 8,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"wait\": {\n      \"id\": \"wait\",\n      \"text\": \"wait\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"cursor-agent\",\n        \"model\": \"composer-2.5\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-wait\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"bare\": {\n      \"id\": \"bare\",\n      \"text\": \"bare\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"agy\",\n        \"model\": \"gemini\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-bare\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"done\": {\n      \"id\": \"done\",\n      \"text\": \"done\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-done\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": \"applied\"\n    },\n    \"live\": {\n      \"id\": \"live\",\n      \"text\": \"live\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"codex\",\n        \"model\": \"\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"running\",\n      \"run_id\": \"run-live\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": [\n    {\n      \"task\": \"live\",\n      \"attempt\": 1,\n      \"run_id\": \"run-live\"\n    }\n  ]\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"wait\",\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"wait\",\n      \"--expect-run\",\n      \"run-wait\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"bare\",\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"bare\",\n      \"--expect-run\",\n      \"run-bare\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"live\",\n    \"revision\": 8,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"live\",\n      \"--expect-run\",\n      \"run-live\",\n      \"--expect-revision\",\n      \"8\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"wait\", \"text\": \"wait\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"wait\", \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"wait\", \"attempt\": 1, \"provider\": \"cursor-agent\", \"model\": \"composer-2.5\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"wait\", \"attempt\": 1, \"run_id\": \"run-wait\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"wait\", \"run_id\": \"run-wait\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 7, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"bare\", \"text\": \"bare\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 8, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"bare\", \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 9, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"bare\", \"attempt\": 1, \"provider\": \"agy\", \"model\": \"gemini\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 10, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"bare\", \"attempt\": 1, \"run_id\": \"run-bare\"}\n{\"seq\": 11, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"bare\", \"run_id\": \"run-bare\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 12, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"done\", \"text\": \"done\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 13, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"done\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 14, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"done\", \"attempt\": 1, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 15, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"done\", \"attempt\": 1, \"run_id\": \"run-done\"}\n{\"seq\": 16, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"human_verdict\", \"task\": \"done\", \"run_id\": \"run-done\", \"result\": \"applied\", \"note\": \"\"}\n{\"seq\": 17, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"done\", \"run_id\": \"run-done\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 18, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"live\", \"text\": \"live\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 19, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"live\", \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 20, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"live\", \"attempt\": 1, \"provider\": \"codex\", \"model\": \"\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 21, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"live\", \"attempt\": 1, \"run_id\": \"run-live\"}\n"
+   }
+  }
+ ]
+}

@@ -1,0 +1,37 @@
+{
+ "label": "a sheet that is a list: assign",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w167/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "assign",
+    "g1"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "Traceback (most recent call last):\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2765, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2758, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 2067, in cmd_assign\n    row = ranked_assignment(task, events)\n  File \"/private/tmp/hp196/jobs/write/data/puppets.py\", line 1625, in ranked_assignment\n    rows = sheet.rank(sheets, task.task_class, task.grade, events, policy=\"standard\")\n  File \"/private/tmp/hp196/jobs/write/data/sheet.py\", line 333, in rank\n    if not agent.get('available', False) or policy not in agent.get('policies', []):\n           ^^^^^^^^^\nAttributeError: 'list' object has no attribute 'get'\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/agents/list.json",
+   "bytes": {
+    "text": "[1]"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3\",\"class\":\"research\",\"grade\":\"agi\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t4\",\"text\":\"do t4\",\"class\":\"weird\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t5\",\"text\":\"do t5\",\"class\":\"security_review\",\"grade\":\"medium\",\"done\":null,\"deps\":[],\"paths\":[]}\n"
+   }
+  }
+ ]
+}

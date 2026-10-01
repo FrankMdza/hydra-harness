@@ -4,12 +4,22 @@ The helper for the Master of Puppets mode: one append-only JSONL log per goal, s
 by folding the log, and task launches through the Hydra binary. Since build ticket 196 the helper
 is `hydra-puppets`, the Rust binary of `crates/puppets`, built by `cargo build --release
 --workspace` beside `hydra`. This directory holds what it reads, `vendors.json`, `priors.json`,
-`aliases.json` and `prompts/`, and the Python it was ported from. `puppets.py` takes the same
-commands and stays because `integrations/grader/` imports its `fold`, `models.py` and
-`jev_probe.py`; `sheet.py` stays because its `build`, `budget` and `show` were not ported.
-`crates/puppets/tests/differential.rs` holds the two to the same output. Approvals are lines appended to
-the goal log that the CLI checks before acting; anything that can run the CLI can write one, and
-the helper does not verify that a human typed it.
+`aliases.json` and `prompts/`, and two Python files. Approvals are lines appended to the goal
+log that the CLI checks before acting; anything that can run the CLI can write one, and the
+helper does not verify that a human typed it.
+
+Build ticket 196 deleted `puppets.py`, the Python the helper was ported from, with the seven
+test files that tested it. Before it went, `crates/puppets/tests/record.py` ran it on every
+input of the differential tests and wrote its output under `crates/puppets/tests/fixtures/`,
+3.3 MB, which `crates/puppets/tests/differential.rs` now compares the Rust with. What is left
+in Python here, and why (map ticket 93):
+
+- `sheet.py` has `build`, `budget` and `show`, which nobody ported and a human or the session
+  runs by hand. It holds no fold, so it waits for the grader's port. Its `rank` and `beta_lower`
+  are also in the crate, where `assign` uses them, and a fixture holds the two to the same bits.
+- `models.py`, 21 lines, because `sheet.py` and `integrations/grader/records.py` both load it.
+
+`jev_probe.py` moved to `integrations/grader/`, which is the only thing that loads it.
 
 Nothing under `src/` imports this directory. Hydra works with it stopped.
 
@@ -196,10 +206,15 @@ cargo test -p hydra-puppets
 python3 -m unittest discover -s integrations/puppets/tests
 ```
 
-The first runs the Rust's unit tests and the differential tests, which run `hydra-puppets` and
-`puppets.py` on the same inputs with stubs for `hydra`, `hunk` and `herdr`. The second is the
-Python's own suite. Its unit tests use a stub `HYDRA_BIN` script. The live test at the end runs `new` and `show`
-against the real binary without launching a provider.
+The first runs the Rust's unit tests and the differential tests. Those run `hydra-puppets` on
+each recorded input, with stubs for `hydra`, `hunk` and `herdr`, and compare its output, its
+exit code and the files it leaves with what the Python gave. No test starts `python3`. The
+second is `sheet.py`'s suite, ten tests with a stub `HYDRA_BIN` script.
+
+The fixtures cannot be recorded again from this checkout, because the Python they record is
+gone. `record.py`'s first lines say how it was run and how to run it against a checkout from
+before build ticket 196. A case added to `differential.rs` after that has no recording and
+fails until one exists, so new behaviour of the helper is tested in the crate's unit tests.
 
 ## The spec sheet and the rankings, `sheet.py`
 

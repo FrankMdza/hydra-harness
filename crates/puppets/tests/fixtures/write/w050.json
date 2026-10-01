@@ -1,0 +1,32 @@
+{
+ "label": "invalid UTF-8 inside a terminated line: choose g1 codex",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w050/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "choose",
+    "g1",
+    "codex"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "goal log g1 is damaged at line 2; wrote nothing; hydra-puppets repair g1\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "hex": "7b22736571223a312c227473223a22323032362d30392d33305431323a30303a30302e3030305a222c226576656e74223a22676f616c222c2274657874223a2274657374222c227265706f223a222f7265706f222c22626173655f736861223a22616263227d0a7b226576656e74223a226e6f7465222c2274657874223a22ff227d0a7b226576656e74223a227461736b222c226964223a227431222c2274657874223a22646f207431222c22636c617373223a22646f6373222c226772616465223a226c6f77222c22646f6e65223a6e756c6c2c2264657073223a5b5d2c227061746873223a5b5d7d0a"
+   }
+  }
+ ]
+}

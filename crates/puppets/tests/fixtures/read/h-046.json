@@ -1,0 +1,136 @@
+{
+ "label": "harvest 0086/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-046/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"x\", \"repo\": \"/r\", \"base_sha\": \"a\"}\n{\"seq\":2,\"ts\":\"2026-10-01T08:26:44.308Z\",\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":0,\"yes\":true}\n{\"seq\":3,\"ts\":\"2026-10-01T08:26:44.308Z\",\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":0,\"yes\":true}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"x\",\n    \"repo\": \"/r\",\n    \"base_sha\": \"a\"\n  },\n  \"revision\": 0,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 0,\n      \"yes\": true,\n      \"seq\": 2,\n      \"consumed\": false\n    },\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 0,\n      \"yes\": true,\n      \"seq\": 3,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 0\n  x\nwaiting on you: nothing\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"x\",\n    \"repo\": \"/r\",\n    \"base_sha\": \"a\"\n  },\n  \"revision\": 0,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {},\n  \"approvals\": [\n    {\n      \"kind\": \"plan\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 0,\n      \"yes\": true,\n      \"seq\": 2,\n      \"consumed\": false\n    },\n    {\n      \"kind\": \"table\",\n      \"ref\": null,\n      \"run_id\": null,\n      \"revision\": 0,\n      \"yes\": true,\n      \"seq\": 3,\n      \"consumed\": false\n    }\n  ],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"x\", \"repo\": \"/r\", \"base_sha\": \"a\"}\n{\"seq\":2,\"ts\":\"2026-10-01T08:26:44.308Z\",\"event\":\"approval\",\"kind\":\"plan\",\"ref\":null,\"revision\":0,\"yes\":true}\n{\"seq\":3,\"ts\":\"2026-10-01T08:26:44.308Z\",\"event\":\"approval\",\"kind\":\"table\",\"ref\":null,\"revision\":0,\"yes\":true}\n"
+   }
+  }
+ ]
+}

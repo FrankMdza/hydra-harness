@@ -1,0 +1,136 @@
+{
+ "label": "edge: item 2: two wide ids with tied scores",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-24/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":2722258935367507707706996859454145691648,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":1361129467683753853853498429727072845824,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"run\",\"task\":2722258935367507707706996859454145691648,\"attempt\":1,\"run_id\":\"r2\"}\n{\"event\":\"run_end\",\"task\":2722258935367507707706996859454145691648,\"run_id\":\"r2\"}\n{\"event\":\"run\",\"task\":1361129467683753853853498429727072845824,\"attempt\":1,\"run_id\":\"r1\"}\n{\"event\":\"run_end\",\"task\":1361129467683753853853498429727072845824,\"run_id\":\"r1\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"r2\", {\"task_id\": 2722258935367507707706996859454145691648, \"class\": \"c\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"t\"}], [\"r1\", {\"task_id\": 1361129467683753853853498429727072845824, \"class\": \"c\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"t\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 2,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"2722258935367507707706996859454145691648\": {\n      \"id\": 2722258935367507707706996859454145691648,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"r2\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"1361129467683753853853498429727072845824\": {\n      \"id\": 1361129467683753853853498429727072845824,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"r1\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 2\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  2722258935367507707706996859454145691648 c                     low    (unassigned)                 ended     no score r2\n  1361129467683753853853498429727072845824 c                     low    (unassigned)                 ended     no score r1\nwaiting on you: table, diff 2722258935367507707706996859454145691648, diff 1361129467683753853853498429727072845824\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": 2722258935367507707706996859454145691648,\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      2722258935367507707706996859454145691648,\n      \"--expect-run\",\n      \"r2\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": 1361129467683753853853498429727072845824,\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      1361129467683753853853498429727072845824,\n      \"--expect-run\",\n      \"r1\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  2 tasks with no score\ntask         provider       model            run                                  p        attempt\n1361129467683753853853498429727072845824                                 r1                                   no score 1\n2722258935367507707706996859454145691648                                 r2                                   no score 1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 2,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"2722258935367507707706996859454145691648\": {\n      \"id\": 2722258935367507707706996859454145691648,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"r2\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"1361129467683753853853498429727072845824\": {\n      \"id\": 1361129467683753853853498429727072845824,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"ended\",\n      \"run_id\": \"r1\",\n      \"attempt\": 1,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"diff\",\n    \"ref\": 2722258935367507707706996859454145691648,\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      2722258935367507707706996859454145691648,\n      \"--expect-run\",\n      \"r2\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": 1361129467683753853853498429727072845824,\n    \"revision\": 2,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      1361129467683753853853498429727072845824,\n      \"--expect-run\",\n      \"r1\",\n      \"--expect-revision\",\n      \"2\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":2722258935367507707706996859454145691648,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":1361129467683753853853498429727072845824,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"run\",\"task\":2722258935367507707706996859454145691648,\"attempt\":1,\"run_id\":\"r2\"}\n{\"event\":\"run_end\",\"task\":2722258935367507707706996859454145691648,\"run_id\":\"r2\"}\n{\"event\":\"run\",\"task\":1361129467683753853853498429727072845824,\"attempt\":1,\"run_id\":\"r1\"}\n{\"event\":\"run_end\",\"task\":1361129467683753853853498429727072845824,\"run_id\":\"r1\"}\n"
+   }
+  }
+ ]
+}

@@ -1,0 +1,34 @@
+{
+ "label": "a chosen plan, not approved: approve g1 --plan --expect-plan /elsewhere.md",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w142/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "approve",
+    "g1",
+    "--plan",
+    "--expect-plan",
+    "/elsewhere.md"
+   ],
+   "code": 2,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "expected plan /elsewhere.md, current plan /private/tmp/hp196/jobs/write/shared/good.md\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"panel_verdict\",\"judge_run_ids\":[],\"chosen\":\"codex\",\"path\":\"/private/tmp/hp196/jobs/write/shared/good.md\"}\n"
+   }
+  }
+ ]
+}

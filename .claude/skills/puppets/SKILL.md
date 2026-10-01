@@ -5,13 +5,14 @@ description: Run a goal through Master of Puppets mode, Hydra's orchestration lo
 
 # Master of Puppets
 
-The session is the orchestrator. `integrations/puppets/puppets.py` keeps the goal's log and
+The session is the orchestrator. `hydra-puppets` (the crate `crates/puppets`) keeps the goal's log and
 refuses what the human has not approved; you read the state, launch what the log allows, review
 what comes back, and ask the human at the three points the log demands. Nothing lands on master
 without the human's diff approval.
 
 Set `HYDRA_BIN=~/hydra/target/release/hydra` and run every command as
-`python3 integrations/puppets/puppets.py <command>`. `board <goal>` prints the state at a glance and
+`~/hydra/target/release/hydra-puppets <command>`, built by `cargo build --release --workspace`.
+The Python helper it replaced was deleted by build ticket 196. `board <goal>` prints the state at a glance and
 what the human still owes; `show <goal>` is the same as JSON. Read one before every step.
 
 ## The loop

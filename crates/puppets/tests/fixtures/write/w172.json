@@ -1,0 +1,31 @@
+{
+ "label": "new with empty text",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w172/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "new",
+    ""
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "3f80c74c-8090-46b3-91d8-ef45d937b50d\n"
+   },
+   "stderr": {
+    "text": "fatal: not a git repository (or any of the parent directories): .git\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/3f80c74c-8090-46b3-91d8-ef45d937b50d.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-10-01T08:35:46.208Z\",\"event\":\"goal\",\"text\":\"\",\"repo\":\"/private/tmp/hp196/jobs/write/shared\",\"base_sha\":\"\"}\n"
+   }
+  }
+ ]
+}

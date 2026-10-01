@@ -1,0 +1,24 @@
+{
+ "label": "LC_ALL=C PYTHONUTF8=None PYTHONIOENCODING=None",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/locale",
+ "home": "/private/tmp/hp196/jobs/locale/locale-0/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/locale/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "hex": "676f616c20673120207265766973696f6e20300a2020800a77616974696e67206f6e20796f753a206e6f7468696e670a"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": []
+}

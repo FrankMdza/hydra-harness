@@ -1,0 +1,142 @@
+{
+ "label": "harvest 0145/g1",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/h-092/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "grader/scores.jsonl",
+   "bytes": {
+    "text": "{\"run_id\": \"run-b\", \"label\": \"verdict\", \"p\": 0.5, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n{\"run_id\": \"run-a\", \"label\": \"verdict\", \"p\": 0.5, \"model_version\": \"baseline-verdict-aaa\", \"scored_at\": \"2026-09-29T00:00:00Z\"}\n"
+   }
+  },
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"b-task\", \"text\": \"b-task\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"b-task\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"b-task\", \"attempt\": 1, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"b-task\", \"attempt\": 1, \"run_id\": \"run-b\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"b-task\", \"run_id\": \"run-b\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 7, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"a-task\", \"text\": \"a-task\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 8, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"a-task\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 9, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"a-task\", \"attempt\": 1, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 10, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"a-task\", \"attempt\": 1, \"run_id\": \"run-a\"}\n{\"seq\": 11, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"a-task\", \"run_id\": \"run-a\", \"outcome\": \"completed\", \"total_tokens\": 1}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[[\"run-b\", {\"task_id\": \"b-task\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"b-task\"}], [\"run-a\", {\"task_id\": \"a-task\", \"class\": \"docs\", \"grade\": \"low\", \"human_verdict\": null, \"text\": \"a-task\"}]]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 4,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"b-task\": {\n      \"id\": \"b-task\",\n      \"text\": \"b-task\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-b\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"a-task\": {\n      \"id\": \"a-task\",\n      \"text\": \"a-task\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-a\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 4\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  b-task       docs                  low    claude sonnet                ended     0.50     run-b\n  a-task       docs                  low    claude sonnet                ended     0.50     run-a\nwaiting on you: table, diff b-task, diff a-task\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"b-task\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"b-task\",\n      \"--expect-run\",\n      \"run-b\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"a-task\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"a-task\",\n      \"--expect-run\",\n      \"run-a\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict baseline-verdict-aaa  0 tasks with no score\ntask         provider       model            run                                  p        attempt\na-task       claude         sonnet           run-a                                0.50     1\nb-task       claude         sonnet           run-b                                0.50     1\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 4,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"b-task\": {\n      \"id\": \"b-task\",\n      \"text\": \"b-task\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-b\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    },\n    \"a-task\": {\n      \"id\": \"a-task\",\n      \"text\": \"a-task\",\n      \"class\": \"docs\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": {\n        \"provider\": \"claude\",\n        \"model\": \"sonnet\",\n        \"policy\": \"standard\",\n        \"source\": \"default\"\n      },\n      \"status\": \"ended\",\n      \"run_id\": \"run-a\",\n      \"attempt\": 1,\n      \"outcome\": \"completed\",\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[\n  {\n    \"kind\": \"table\",\n    \"ref\": null,\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--table\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"b-task\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"b-task\",\n      \"--expect-run\",\n      \"run-b\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  },\n  {\n    \"kind\": \"diff\",\n    \"ref\": \"a-task\",\n    \"revision\": 4,\n    \"argv\": [\n      \"/opt/homebrew/opt/python@3.14/bin/python3.14\",\n      \"/private/tmp/hp196/jobs/read/data/puppets.py\",\n      \"approve\",\n      \"g1\",\n      \"--diff\",\n      \"a-task\",\n      \"--expect-run\",\n      \"run-a\",\n      \"--expect-revision\",\n      \"4\"\n    ]\n  }\n]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\": 1, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"goal\", \"text\": \"test\", \"repo\": \"/repo\", \"base_sha\": \"abc\"}\n{\"seq\": 2, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"b-task\", \"text\": \"b-task\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 3, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"b-task\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 4, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"b-task\", \"attempt\": 1, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 5, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"b-task\", \"attempt\": 1, \"run_id\": \"run-b\"}\n{\"seq\": 6, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"b-task\", \"run_id\": \"run-b\", \"outcome\": \"completed\", \"total_tokens\": 1}\n{\"seq\": 7, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"task\", \"id\": \"a-task\", \"text\": \"a-task\", \"class\": \"docs\", \"grade\": \"low\", \"deps\": [], \"paths\": []}\n{\"seq\": 8, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"assignment\", \"task\": \"a-task\", \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"source\": \"default\"}\n{\"seq\": 9, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"launch_intent\", \"task\": \"a-task\", \"attempt\": 1, \"provider\": \"claude\", \"model\": \"sonnet\", \"policy\": \"standard\", \"argv_sha256\": \"x\"}\n{\"seq\": 10, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run\", \"task\": \"a-task\", \"attempt\": 1, \"run_id\": \"run-a\"}\n{\"seq\": 11, \"ts\": \"2026-09-24T12:00:00.000Z\", \"event\": \"run_end\", \"task\": \"a-task\", \"run_id\": \"run-a\", \"outcome\": \"completed\", \"total_tokens\": 1}\n"
+   }
+  }
+ ]
+}

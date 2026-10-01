@@ -1,0 +1,136 @@
+{
+ "label": "edge: item 2: -2**127 and its exact float",
+ "goal": "g1",
+ "root": "/private/tmp/hp196/jobs/read",
+ "home": "/private/tmp/hp196/jobs/read/edge-25/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/read/data/puppets.py",
+ "seed": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":-170141183460469231731687303715884105728,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":-1.7014118346046923e38,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":680564733841876926926749214863536422912,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":6.80564733841877e38,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":1e400,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":3,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":3.5,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n"
+   }
+  }
+ ],
+ "labels": {
+  "pairs": "[]"
+ },
+ "steps": [
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 7,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"-170141183460469231731687303715884105728\": {\n      \"id\": -1.7014118346046923e+38,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"680564733841876926926749214863536422912\": {\n      \"id\": 6.80564733841877e+38,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"Infinity\": {\n      \"id\": Infinity,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3\": {\n      \"id\": 3,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3.5\": {\n      \"id\": 3.5,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "board",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal g1  revision 7\n  test\ntasks\n  id           class                 grade  agent                        status    p        run\n  -1.7014118346046923e+38 c                     low    (unassigned)                 pending            \n  6.80564733841877e+38 c                     low    (unassigned)                 pending            \n  inf          c                     low    (unassigned)                 pending            \n  3            c                     low    (unassigned)                 pending            \n  3.5          c                     low    (unassigned)                 pending            \nwaiting on you: table\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "queue",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "verdict none  0 tasks with no score\ntask         provider       model            run                                  p        attempt\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "repair",
+    "g1",
+    "--yes"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "goal log g1 has no torn tail\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "show",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "{\n  \"goal_id\": \"g1\",\n  \"goal\": {\n    \"text\": \"test\",\n    \"repo\": \"/repo\",\n    \"base_sha\": \"abc\"\n  },\n  \"revision\": 7,\n  \"plans\": [],\n  \"chosen_plan\": null,\n  \"human_plan\": null,\n  \"tasks\": {\n    \"-170141183460469231731687303715884105728\": {\n      \"id\": -1.7014118346046923e+38,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"680564733841876926926749214863536422912\": {\n      \"id\": 6.80564733841877e+38,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"Infinity\": {\n      \"id\": Infinity,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3\": {\n      \"id\": 3,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    },\n    \"3.5\": {\n      \"id\": 3.5,\n      \"text\": \"t\",\n      \"class\": \"c\",\n      \"grade\": \"low\",\n      \"deps\": [],\n      \"paths\": [],\n      \"assignment\": null,\n      \"status\": \"pending\",\n      \"run_id\": null,\n      \"attempt\": null,\n      \"outcome\": null,\n      \"human_result\": null\n    }\n  },\n  \"approvals\": [],\n  \"dangling_intents\": [],\n  \"pending_runs\": []\n}\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  },
+  {
+   "args": [
+    "pending",
+    "g1",
+    "--json"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "[]\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":-170141183460469231731687303715884105728,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":-1.7014118346046923e38,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":680564733841876926926749214863536422912,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":6.80564733841877e38,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":1e400,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":3,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n{\"event\":\"task\",\"id\":3.5,\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n"
+   }
+  }
+ ]
+}

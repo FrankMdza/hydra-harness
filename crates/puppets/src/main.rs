@@ -1,5 +1,5 @@
-//! `hydra-puppets`: the commands of `puppets.py`, with its arguments, its output and its
-//! exit codes.
+//! `hydra-puppets`: the commands of the Python helper it replaced, with its arguments, its
+//! output and its exit codes.
 
 use std::ffi::OsString;
 use std::io::Write;

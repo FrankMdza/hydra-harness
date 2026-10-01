@@ -1,11 +1,15 @@
-//! `puppets.py` and `hydra-puppets` on the same goal logs must print the same thing.
+//! `hydra-puppets` must print what `puppets.py` printed on the same goal logs.
 //!
-//! The inputs are every goal log the Python tests leave on disk (`harvest.py` copies each
-//! test's puppets home, scores file and vendors file just before its tearDown), plus the edge
-//! logs below. For each, `show`, `board`, `pending --json`, `queue`, `repair` and
-//! `repair --yes` run under both, and stdout, stderr and the exit code must be equal. After
-//! `repair --yes` each implementation's repaired copy is read back with `show` and
-//! `pending --json`, and those must be equal too.
+//! Build ticket 196 deleted `puppets.py`. Before it went, `record.py` ran it once on every
+//! input here and wrote what it gave under `tests/fixtures/`: per case, each command's exit
+//! code, stdout and stderr, and the files it left. These tests run `hydra-puppets` on the
+//! same inputs and compare with those files. No test starts `python3`.
+//!
+//! The inputs of the read commands are every goal log the Python tests left on disk (kept as
+//! the `seed` of `fixtures/read/h-*.json`), plus the edge logs below. For each, `show`,
+//! `board`, `pending --json`, `queue`, `repair` and `repair --yes` run, and stdout, stderr
+//! and the exit code must be what the Python gave. After `repair --yes` the repaired copy is
+//! read back with `show` and `pending --json`, and those must be equal too.
 //!
 //! These are normalized, and only these:
 //! - `pending --json` prints an `argv` that starts with the command that records the
@@ -15,41 +19,50 @@
 //! - `repair --yes` names the torn file with the time it ran, in stdout and on disk, and
 //!   stamps the `repair` event it appends. Only a name whose 24 characters are a time of
 //!   `utc_now()`'s shape is masked, and only the `ts` of the one line the command appended.
-//! - Where the Python dies with a traceback, the Rust must exit 1 with the same stdout, and
+//! - Where the Python died with a traceback, the Rust must exit 1 with the same stdout, and
 //!   its one-line error must start `hydra-puppets: <Class>:` with the Python's exception
 //!   class; the rest of the traceback is not compared.
 //! - A damaged log prints the same named error on stderr in both, with no traceback.
 //!
 //! The commands that write (`new`, `set`, `approve`, `verdict`, `choose`, `tasks`, `assign`,
-//! `reconcile`) each run on a copy of the same starting home per implementation, and the
-//! goal logs left behind must be equal line by line. Two more things are normalized there:
+//! `reconcile`) each run on the starting home the Python ran on, and the goal logs left
+//! behind must be equal line by line. Two more things are normalized there:
 //! - the `ts` of each line the command appended, and of no line the input already held;
 //! - the goal id `new` generates, in its stdout and in the name of the log it creates.
 //!
 //! The commands that launch (`plan`, `plans`, `launch`, `wait`, `review`, `choose --judge`)
 //! run with a stub in place of `hydra`, `hunk` and `herdr`. The stub writes down each call,
 //! and the calls must be equal too: argv, environment, working directory and stdin. One more
-//! thing is normalized there: each implementation's own scratch home, wherever it appears.
+//! thing is normalized there: the home the command ran in, wherever it appears.
+//!
+//! Recording added one normalization, and three things that make a run repeat on another
+//! machine:
+//! - The directory a group of cases lives under (its plans, its stubs, its repository) is
+//!   the recorder's in the fixture and a scratch one here. Each is replaced by `<root>`.
+//! - Every command runs with an environment built from nothing, the same variables under
+//!   both, so neither the recorder's locale nor its `PATH` is in a fixture.
+//! - The data files (`vendors.json`, `aliases.json`, `priors.json`, `prompts/`) are the
+//!   frozen copies in `fixtures/data/`, so a seat going unavailable does not change what a
+//!   case prints.
+//! - The repository `review` and `new` read is committed at a fixed time, so its commit ids
+//!   are the recorded ones.
+//!
+//! To record again, from a checkout that still has the Python, see `record.py`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+
+use hydra_puppets::json::{self, Value};
 
 const RUST: &str = env!("CARGO_BIN_EXE_hydra-puppets");
 
-fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-fn script() -> PathBuf {
-    repo().join("integrations/puppets/puppets.py")
-}
-
-/// A scratch directory under the system temp dir, removed on drop.
+/// A scratch directory under the system temp dir, removed on drop. It holds the frozen data
+/// files under `data/`, where every command here is told to find them.
 struct Scratch(PathBuf);
 
 impl Scratch {
@@ -58,7 +71,9 @@ impl Scratch {
             std::env::temp_dir().join(format!("hydra-puppets-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
-        Scratch(path.canonicalize().unwrap())
+        let path = path.canonicalize().unwrap();
+        prepare_root(&path);
+        Scratch(path)
     }
 }
 
@@ -68,65 +83,310 @@ impl Drop for Scratch {
     }
 }
 
+fn prepare_root(root: &Path) {
+    copy_dir(&fixtures().join("data"), &root.join("data"));
+}
+
 /// One goal log to compare: a case directory holding `puppets/`, maybe `grader/scores.jsonl`
 /// and `vendors.json`, and the goal id to ask about.
 #[derive(Clone)]
 struct Input {
+    name: String,
     label: String,
     dir: PathBuf,
     goal: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct Outcome {
     code: i32,
     stdout: String,
     stderr: String,
 }
 
-fn run(program: &[&str], args: &[&str], dir: &Path) -> Outcome {
-    run_in(program, args, dir, None)
+/// What one command gave, before anything is masked.
+#[derive(Clone)]
+struct Step {
+    code: i32,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
 }
 
-/// `run`, from a working directory: `new` reads the repo from it and `choose` resolves a
-/// relative plan path against it.
-fn run_in(program: &[&str], args: &[&str], dir: &Path, cwd: Option<&Path>) -> Outcome {
-    let mut cmd = Command::new(program[0]);
-    cmd.args(&program[1..]).args(args);
-    if let Some(cwd) = cwd {
-        cmd.current_dir(cwd);
-    }
-    cmd.stdin(std::process::Stdio::null());
-    for var in [
-        "HYDRA_PUPPETS_HOME",
-        "HYDRA_ROOT",
-        "HYDRA_GRADER_HOME",
-        "HYDRA_PUPPETS_VENDORS",
-        "HYDRA_BIN",
-    ] {
-        cmd.env_remove(var);
-    }
-    cmd.env("HYDRA_PUPPETS_HOME", dir.join("puppets"))
-        .env("HYDRA_ROOT", dir.join("root"))
-        .env("HYDRA_GRADER_HOME", dir.join("grader"))
-        .env("PYTHONDONTWRITEBYTECODE", "1");
-    if dir.join("vendors.json").is_file() {
-        cmd.env("HYDRA_PUPPETS_VENDORS", dir.join("vendors.json"));
-    }
-    let output = cmd.output().unwrap_or_else(|e| panic!("{program:?}: {e}"));
-    Outcome {
-        code: output.status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+impl Step {
+    /// The outcome with the home and then the root replaced.
+    fn masked(&self, home: &Path, root: &Path) -> Outcome {
+        let text = |bytes: &[u8]| {
+            String::from_utf8_lossy(&mask_root(&mask_home(bytes, home), root)).into_owned()
+        };
+        Outcome {
+            code: self.code,
+            stdout: text(&self.stdout),
+            stderr: text(&self.stderr),
+        }
     }
 }
 
-fn python_executable() -> String {
-    let out = Command::new("python3")
-        .args(["-c", "import sys; print(sys.executable)"])
-        .output()
-        .unwrap();
-    String::from_utf8(out.stdout).unwrap().trim().to_string()
+/// One case: the commands run in one home, in order, and the environment they run in.
+/// `record.py` ran the same under `puppets.py`, from the `job.json` this is written to.
+struct Job {
+    /// The fixture's file name, without `.json`.
+    name: String,
+    label: String,
+    goal: Option<String>,
+    steps: Vec<Vec<String>>,
+    /// Variables beyond the ones every job has, the later one winning.
+    env: Vec<(String, String)>,
+    cwd: Option<PathBuf>,
+    /// What to keep of the home afterwards, by path under it.
+    keep: Vec<&'static str>,
+    /// Whether the fixture keeps the starting home too, and the labels the grader read
+    /// from the Python fold of it.
+    seed: bool,
+}
+
+impl Job {
+    fn new(name: String, label: &str, steps: Vec<Vec<String>>) -> Job {
+        Job {
+            name,
+            label: label.to_string(),
+            goal: None,
+            steps,
+            env: Vec::new(),
+            cwd: None,
+            keep: vec!["puppets"],
+            seed: false,
+        }
+    }
+
+    /// Everything in the environment of a command of this job run in `home` under `root`.
+    /// Nothing is inherited.
+    fn env(&self, home: &Path, root: &Path) -> Vec<(String, String)> {
+        let path = |p: PathBuf| p.to_str().unwrap().to_string();
+        let mut env: Vec<(String, String)> = [
+            ("PATH", format!("{}:/usr/bin:/bin", path(root.join("bin")))),
+            ("HOME", path(home.to_path_buf())),
+            ("LC_ALL", "en_US.UTF-8".to_string()),
+            ("GIT_CONFIG_GLOBAL", "/dev/null".to_string()),
+            ("GIT_CONFIG_NOSYSTEM", "1".to_string()),
+            ("HYDRA_PUPPETS_HOME", path(home.join("puppets"))),
+            ("HYDRA_ROOT", path(home.join("root"))),
+            ("HYDRA_GRADER_HOME", path(home.join("grader"))),
+            ("HYDRA_PUPPETS_DATA", path(root.join("data"))),
+            ("PYTHONDONTWRITEBYTECODE", "1".to_string()),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect();
+        if home.join("vendors.json").is_file() {
+            env.push((
+                "HYDRA_PUPPETS_VENDORS".into(),
+                path(home.join("vendors.json")),
+            ));
+        }
+        for (key, value) in &self.env {
+            env.retain(|(k, _)| k != key);
+            env.push((key.clone(), value.clone()));
+        }
+        env
+    }
+
+    /// Run every step under `hydra-puppets`.
+    fn run(&self, home: &Path, root: &Path) -> Vec<Step> {
+        self.steps
+            .iter()
+            .map(|args| {
+                let mut cmd = Command::new(RUST);
+                cmd.args(args)
+                    .stdin(std::process::Stdio::null())
+                    .env_clear()
+                    .envs(self.env(home, root));
+                if let Some(cwd) = &self.cwd {
+                    cmd.current_dir(cwd);
+                }
+                let output = cmd.output().unwrap_or_else(|e| panic!("{RUST}: {e}"));
+                Step {
+                    code: output.status.code().unwrap_or(-1),
+                    stdout: output.stdout,
+                    stderr: output.stderr,
+                }
+            })
+            .collect()
+    }
+
+    /// Write `job.json` beside `home`, for `record.py`.
+    fn write(&self, home: &Path, root: &Path) {
+        let list = |items: &[String]| {
+            let cells: Vec<String> = items.iter().map(|item| json_string(item)).collect();
+            format!("[{}]", cells.join(","))
+        };
+        let steps: Vec<String> = self.steps.iter().map(|args| list(args)).collect();
+        let env: Vec<String> = self
+            .env(home, root)
+            .iter()
+            .map(|(key, value)| format!("{}:{}", json_string(key), json_string(value)))
+            .collect();
+        let keep: Vec<String> = self.keep.iter().map(|k| k.to_string()).collect();
+        let text = |p: &Path| json_string(p.to_str().unwrap());
+        let body = format!(
+            "{{\"label\":{},\"goal\":{},\"root\":{},\"home\":{},\"cwd\":{},\"env\":{{{}}},\"steps\":[{}],\"keep\":{},\"seed\":{}}}\n",
+            json_string(&self.label),
+            self.goal.as_deref().map_or("null".into(), json_string),
+            text(root),
+            text(home),
+            self.cwd.as_deref().map_or("null".into(), text),
+            env.join(","),
+            steps.join(","),
+            list(&keep),
+            self.seed
+        );
+        std::fs::write(home.parent().unwrap().join("job.json"), body).unwrap();
+    }
+}
+
+/// What `record.py` wrote for one job: what `puppets.py` gave.
+struct Recorded {
+    root: PathBuf,
+    home: PathBuf,
+    /// The interpreter and the script the Python names in an `argv`.
+    python: String,
+    script: String,
+    steps: Vec<Step>,
+    files: Vec<(String, Vec<u8>)>,
+    seed: Vec<(String, Vec<u8>)>,
+}
+
+fn member<'a>(value: &'a Value, key: &str) -> &'a Value {
+    match value {
+        Value::Dict(dict) => dict.get(key).unwrap_or(&Value::Null),
+        _ => panic!("the fixture holds no object where `{key}` is read"),
+    }
+}
+
+fn text_of(value: &Value) -> String {
+    match value {
+        Value::Str(text) => text
+            .to_utf8()
+            .expect("a fixture string with a lone surrogate"),
+        _ => panic!("the fixture holds no string where text is read"),
+    }
+}
+
+fn items(value: &Value) -> &[Value] {
+    match value {
+        Value::List(items) => items,
+        Value::Null => &[],
+        _ => panic!("the fixture holds no list where one is read"),
+    }
+}
+
+/// Bytes as `record.py` wrote them: `{"text": ...}` when they were UTF-8, else `{"hex": ...}`.
+fn blob(value: &Value) -> Vec<u8> {
+    if let Value::Str(text) = member(value, "text") {
+        return text.to_utf8().unwrap().into_bytes();
+    }
+    let hex = text_of(member(value, "hex"));
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+fn named_blobs(value: &Value) -> Vec<(String, Vec<u8>)> {
+    items(value)
+        .iter()
+        .map(|file| (text_of(member(file, "path")), blob(member(file, "bytes"))))
+        .collect()
+}
+
+fn load_fixture(path: &Path) -> (Value, Recorded) {
+    let raw = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("no fixture {}: {e}", path.display()));
+    let value = json::loads_str(&raw).unwrap_or_else(|_| panic!("{} is not JSON", path.display()));
+    let recorded = Recorded {
+        root: PathBuf::from(text_of(member(&value, "root"))),
+        home: PathBuf::from(text_of(member(&value, "home"))),
+        python: text_of(member(&value, "python")),
+        script: text_of(member(&value, "script")),
+        steps: items(member(&value, "steps"))
+            .iter()
+            .map(|step| Step {
+                code: match member(step, "code") {
+                    Value::Int(code) => i32::try_from(*code).unwrap(),
+                    _ => panic!("{}: a step has no exit code", path.display()),
+                },
+                stdout: blob(member(step, "stdout")),
+                stderr: blob(member(step, "stderr")),
+            })
+            .collect(),
+        files: named_blobs(member(&value, "files")),
+        seed: named_blobs(member(&value, "seed")),
+    };
+    (value, recorded)
+}
+
+/// The fixture of `job` in `group`. It must be the recording of this job: the same label and
+/// the same commands, so a case edited here is never compared with another's output. A
+/// label or an argument that names a file under the root names it under `<root>` in both.
+fn recorded(group: &str, job: &Job, root: &Path) -> Recorded {
+    let path = fixtures().join(group).join(format!("{}.json", job.name));
+    let (value, recorded) = load_fixture(&path);
+    let rooted =
+        |text: &str, root: &Path| String::from_utf8(mask_root(text.as_bytes(), root)).unwrap();
+    assert_eq!(
+        rooted(&text_of(member(&value, "label")), &recorded.root),
+        rooted(&job.label, root),
+        "{}",
+        path.display()
+    );
+    let theirs: Vec<Vec<String>> = items(member(&value, "steps"))
+        .iter()
+        .map(|step| {
+            let args = items(member(step, "args")).iter();
+            args.map(|arg| rooted(&text_of(arg), &recorded.root))
+                .collect()
+        })
+        .collect();
+    let ours: Vec<Vec<String>> = job
+        .steps
+        .iter()
+        .map(|args| args.iter().map(|arg| rooted(arg, root)).collect())
+        .collect();
+    assert_eq!(theirs, ours, "{}", path.display());
+    recorded
+}
+
+/// The fixtures `group` holds, by path, in name order.
+fn fixture_paths(group: &str) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(fixtures().join(group))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// Each test checks it compared as many jobs as its group has fixtures, so a case dropped
+/// here leaves no recording that nothing reads.
+fn assert_every_fixture_was_read(group: &str, compared: usize) {
+    assert_eq!(
+        fixture_paths(group).len(),
+        compared,
+        "fixtures/{group} holds a recording no case reads, or lacks one"
+    );
+}
+
+fn strings(args: &[&str]) -> Vec<String> {
+    args.iter().map(|a| a.to_string()).collect()
+}
+
+/// What a group does with each job once its home is seeded: compare it with its fixture, or
+/// write it down for `record.py`.
+type Visit<'a> = &'a mut dyn FnMut(&Job, &Path);
+
+/// `rs` for the home a test runs in, `py` for the one `record.py` will.
+fn side(recording: bool) -> &'static str {
+    if recording { "py" } else { "rs" }
 }
 
 /// JSON-escape a path the way `json.dumps` would print it inside `argv`.
@@ -281,25 +541,44 @@ fn exception_class(stderr: &str) -> Option<String> {
     Some(class.rsplit('.').next()?.to_string())
 }
 
-/// The files a case directory holds after a command, names masked, for `repair --yes`.
-/// `original` is the directory the command's copy was made from.
-fn tree(dir: &Path, original: &Path) -> Vec<(String, Vec<u8>)> {
-    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir.join("puppets"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.is_file())
-        .map(|p| {
-            let bytes = std::fs::read(&p).unwrap();
-            let bytes = if p.extension().is_some_and(|e| e == "jsonl") {
-                let before = original.join("puppets").join(p.file_name().unwrap());
-                mask_repair_ts(&std::fs::read(before).unwrap_or_default(), &bytes)
+/// The files a home holds under `keep`, by path under the home, in path order. This is
+/// what `record.py` kept of the home the Python ran in.
+fn kept(home: &Path, keep: &[&str]) -> Vec<(String, Vec<u8>)> {
+    let mut files = Vec::new();
+    for top in keep {
+        let path = home.join(top);
+        if path.is_file() {
+            files.push((top.to_string(), std::fs::read(&path).unwrap()));
+        } else {
+            files_under(&path, &format!("{top}/"), &mut files);
+        }
+    }
+    files.sort();
+    files
+}
+
+/// What a home held before a command ran: its goal logs, its scores and its vendors file.
+const SEED: [&str; 3] = ["puppets", "grader", "vendors.json"];
+
+fn bytes_of<'a>(files: &'a [(String, Vec<u8>)], name: &str) -> &'a [u8] {
+    files
+        .iter()
+        .find(|(path, _)| path == name)
+        .map_or(&[][..], |(_, bytes)| bytes)
+}
+
+/// The files a home holds after `repair --yes`, names masked, and in each goal log the
+/// stamp of the line the command appended. `before` is the home it started from.
+fn tree(files: &[(String, Vec<u8>)], before: &[(String, Vec<u8>)]) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = files
+        .iter()
+        .map(|(name, bytes)| {
+            let bytes = if name.ends_with(".jsonl") {
+                mask_repair_ts(bytes_of(before, name), bytes)
             } else {
-                bytes
+                bytes.clone()
             };
-            (
-                mask_torn_stamp(&p.file_name().unwrap().to_string_lossy()),
-                bytes,
-            )
+            (mask_torn_stamp(name), bytes)
         })
         .collect();
     files.sort();
@@ -363,118 +642,90 @@ fn judge(py: &Outcome, rs: &Outcome) -> (Option<String>, Option<String>) {
     }
 }
 
-/// Compare one command on one input; `scratch` is where `repair --yes` gets its copies.
-fn compare(
-    input: &Input,
-    args: &[&str],
-    python_exe: &str,
-    scratch: &Path,
-    n: usize,
-    report: &Mutex<Report>,
-) {
-    let script = script();
-    let script = script.to_str().unwrap();
-    let writes = args.contains(&"--yes");
-    let (py_dir, rs_dir) = if writes {
-        let py_dir = scratch.join(format!("{n}-py"));
-        let rs_dir = scratch.join(format!("{n}-rs"));
-        copy_dir(&input.dir, &py_dir);
-        copy_dir(&input.dir, &rs_dir);
-        (py_dir, rs_dir)
-    } else {
-        (input.dir.clone(), input.dir.clone())
-    };
-    let run_both = |args: &[&str]| {
-        let mut py = run(&["python3", script], args, &py_dir);
-        let rs = run(&[RUST], args, &rs_dir);
-        if args[0] == "pending" {
-            py.stdout = mask_argv0(&py.stdout, python_exe, script, &helper());
-        }
-        (py, rs)
-    };
-    let (mut py, mut rs) = run_both(args);
-    let what = format!("{} `{}`", input.label, args.join(" "));
-    let mut problems = Vec::new();
-    let mut crashes = Vec::new();
-    let mut compared = 1;
-    if writes {
-        py.stdout = mask_torn_stamp(&py.stdout);
-        rs.stdout = mask_torn_stamp(&rs.stdout);
-        if tree(&py_dir, &input.dir) != tree(&rs_dir, &input.dir) {
-            problems.push("the files left behind differ".to_string());
-        }
-    }
-    let (class, problem) = judge(&py, &rs);
-    crashes.extend(class.map(|class| format!("{what}: {class}")));
-    problems.extend(problem);
-    if writes {
-        // A repaired log folds again, which a damaged one never did: read each copy back
-        // with the implementation that repaired it.
-        for after in [&["show", args[1]][..], &["pending", args[1], "--json"]] {
-            let (py, rs) = run_both(after);
-            let (class, problem) = judge(&py, &rs);
-            let then = format!("then `{}`", after.join(" "));
-            crashes.extend(class.map(|class| format!("{what}, {then}: {class}")));
-            problems.extend(problem.map(|problem| format!("{then}: {problem}")));
-            compared += 1;
-        }
-    }
-    let mut report = report.lock().unwrap();
-    report.compared += compared;
-    report.crashes.extend(crashes);
-    if !problems.is_empty() {
-        report
-            .mismatches
-            .push(format!("{what}\n{}", problems.join("\n")));
-    }
-}
-
-const COMMANDS: [&[&str]; 6] = [
+/// What each read input is asked, the goal id going in after the command's name. The last
+/// two read the repaired copy back: a repaired log folds again, which a damaged one never
+/// did.
+const READ_STEPS: [&[&str]; 8] = [
     &["show"],
     &["board"],
     &["pending", "--json"],
     &["queue"],
     &["repair"],
     &["repair", "--yes"],
+    &["show"],
+    &["pending", "--json"],
 ];
 
-fn compare_all(inputs: &[Input], commands: &[&[&str]], scratch: &Path) -> Report {
-    let python_exe = python_executable();
-    let report = Mutex::new(Report {
-        compared: 0,
-        crashes: Vec::new(),
-        mismatches: Vec::new(),
-    });
-    let jobs: Vec<(usize, &Input, Vec<&str>)> = inputs
+/// The step of `READ_STEPS` that writes.
+const REPAIR_YES: usize = 5;
+
+fn read_job(input: &Input) -> Job {
+    let steps = READ_STEPS
         .iter()
-        .flat_map(|input| commands.iter().map(move |cmd| (input, cmd)))
-        .enumerate()
-        .map(|(n, (input, cmd))| {
-            let mut args = cmd.to_vec();
-            args.insert(1, input.goal.as_str());
-            (n, input, args)
+        .map(|cmd| {
+            let mut args = strings(cmd);
+            args.insert(1, input.goal.clone());
+            args
         })
         .collect();
-    let next = Mutex::new(0usize);
-    std::thread::scope(|s| {
-        for _ in 0..4 {
-            s.spawn(|| {
-                loop {
-                    let n = {
-                        let mut next = next.lock().unwrap();
-                        let n = *next;
-                        *next += 1;
-                        n
-                    };
-                    let Some((id, input, args)) = jobs.get(n) else {
-                        break;
-                    };
-                    compare(input, args, &python_exe, scratch, *id, &report);
-                }
-            });
+    let mut job = Job::new(input.name.clone(), &input.label, steps);
+    job.goal = Some(input.goal.clone());
+    job.seed = true;
+    job
+}
+
+/// Seed one home per input under `root` and hand each to `visit`.
+fn visit_read(root: &Path, inputs: &[Input], recording: bool, visit: Visit) {
+    for input in inputs {
+        let home = root.join(&input.name).join(side(recording));
+        copy_dir(&input.dir, &home);
+        visit(&read_job(input), &home);
+    }
+}
+
+/// Run one read job and compare every step with what the Python gave.
+fn compare_read(job: &Job, home: &Path, root: &Path, report: &mut Report) {
+    let rec = recorded("read", job, root);
+    let before = kept(home, &SEED);
+    assert_eq!(
+        rec.seed, before,
+        "{}: the fixture was recorded from another input",
+        job.label
+    );
+    let steps = job.run(home, root);
+    let script = String::from_utf8(mask_root(rec.script.as_bytes(), &rec.root)).unwrap();
+    let mut problems = Vec::new();
+    for (n, (args, (py, rs))) in job
+        .steps
+        .iter()
+        .zip(rec.steps.iter().zip(&steps))
+        .enumerate()
+    {
+        let mut py = py.masked(&rec.home, &rec.root);
+        let mut rs = rs.masked(home, root);
+        if args[0] == "pending" {
+            py.stdout = mask_argv0(&py.stdout, &rec.python, &script, &helper());
         }
-    });
-    report.into_inner().unwrap()
+        if n == REPAIR_YES {
+            py.stdout = mask_torn_stamp(&py.stdout);
+            rs.stdout = mask_torn_stamp(&rs.stdout);
+        }
+        let then = if n > REPAIR_YES { "then " } else { "" };
+        let what = format!("{} {then}`{}`", job.label, args.join(" "));
+        let (class, problem) = judge(&py, &rs);
+        report
+            .crashes
+            .extend(class.map(|class| format!("{what}: {class}")));
+        problems.extend(problem.map(|problem| format!("{what}\n{problem}")));
+        report.compared += 1;
+    }
+    if tree(&rec.files, &before) != tree(&kept(home, &["puppets"]), &before) {
+        problems.push(format!(
+            "{}: the files left behind by `repair --yes` differ",
+            job.label
+        ));
+    }
+    report.mismatches.extend(problems);
 }
 
 /// A label, the log's bytes, `scores.jsonl`, and `vendors.json`.
@@ -1039,6 +1290,43 @@ fn edge_inputs(root: &Path) -> Vec<Input> {
             None,
         ),
         (
+            "labels: verdicts, reviews, plans, and the ids 3 and \"3\"",
+            [
+                GOAL,
+                r#"{"event":"plan_proposed","provider":"codex","model":null,"run_id":"p-codex"}"#,
+                r#"{"event":"plan_proposed","provider":"claude","model":"opus","run_id":"p-claude"}"#,
+                r#"{"event":"panel_verdict","judge_run_ids":["pj1","pj2","pj3"],"chosen":"codex","path":"/p/codex.md"}"#,
+                r#"{"event":"task","id":"applied","text":"café ☕","class":"docs","grade":"low"}"#,
+                r#"{"event":"task","id":"rejected","text":"two","class":"rust_launch_path","grade":"high"}"#,
+                r#"{"event":"task","id":"fixed","text":"three","class":"security_review","grade":"medium"}"#,
+                r#"{"event":"task","id":"unjudged","text":"four","class":"probe","grade":"low"}"#,
+                r#"{"event":"task","id":3,"text":"the number","class":"docs","grade":"low"}"#,
+                r#"{"event":"task","id":"3","text":"the string","class":"docs","grade":"high"}"#,
+                r#"{"event":"run","task":"applied","attempt":1,"run_id":"r-applied"}"#,
+                r#"{"event":"run_end","task":"applied","run_id":"r-applied","outcome":"completed"}"#,
+                r#"{"event":"review","task":"applied","judge_run_ids":["j1","j2","j3"],"verdict":"pass"}"#,
+                r#"{"event":"human_verdict","task":"applied","run_id":"r-applied","result":"applied","note":""}"#,
+                r#"{"event":"run","task":"rejected","attempt":1,"run_id":"r-rejected-1"}"#,
+                r#"{"event":"run_end","task":"rejected","run_id":"r-rejected-1","outcome":"failed"}"#,
+                r#"{"event":"human_verdict","task":"rejected","run_id":"r-rejected-1","result":"rejected","note":"no"}"#,
+                r#"{"event":"run","task":"rejected","attempt":2,"run_id":"r-rejected-2"}"#,
+                r#"{"event":"run","task":"fixed","attempt":1,"run_id":"r-fixed"}"#,
+                r#"{"event":"run_end","task":"fixed","run_id":"r-fixed","outcome":"completed"}"#,
+                r#"{"event":"review","task":"fixed","judge_run_ids":["j4"],"verdict":"block"}"#,
+                r#"{"event":"human_verdict","task":"fixed","run_id":"r-fixed","result":"fixed","note":"by hand"}"#,
+                r#"{"event":"run","task":3,"attempt":1,"run_id":"r-number"}"#,
+                r#"{"event":"run","task":"3","attempt":1,"run_id":"r-string"}"#,
+                r#"{"event":"review","task":3,"judge_run_ids":["j5"],"verdict":"pass"}"#,
+                r#"{"event":"review","task":"nobody","judge_run_ids":["j6"],"verdict":"pass"}"#,
+                r#"{"event":"review","task":"unjudged","verdict":"pass"}"#,
+            ]
+            .map(line)
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
             "repair voids table approval",
             [
                 line(GOAL),
@@ -1058,7 +1346,8 @@ fn edge_inputs(root: &Path) -> Vec<Input> {
     cases.extend(review_inputs(GOAL));
     let mut inputs = Vec::new();
     for (n, (label, log, scores, vendors)) in cases.drain(..).enumerate() {
-        let dir = root.join(format!("edge-{n:02}"));
+        let name = format!("edge-{n:02}");
+        let dir = root.join("inputs").join(&name);
         std::fs::create_dir_all(dir.join("puppets")).unwrap();
         std::fs::write(dir.join("puppets/g1.jsonl"), log).unwrap();
         if let Some(scores) = scores {
@@ -1069,14 +1358,16 @@ fn edge_inputs(root: &Path) -> Vec<Input> {
             std::fs::write(dir.join("vendors.json"), vendors).unwrap();
         }
         inputs.push(Input {
+            name,
             label: format!("edge: {label}"),
             dir,
             goal: "g1".into(),
         });
     }
-    let dir = root.join("edge-absent");
+    let dir = root.join("inputs/edge-absent");
     std::fs::create_dir_all(dir.join("puppets")).unwrap();
     inputs.push(Input {
+        name: "edge-absent".into(),
         label: "edge: no log for the goal".into(),
         dir,
         goal: "absent".into(),
@@ -1084,24 +1375,44 @@ fn edge_inputs(root: &Path) -> Vec<Input> {
     inputs
 }
 
-/// Every goal log the Python tests leave on disk, one input per log, repeats dropped.
-fn harvested_inputs(root: &Path) -> Vec<Input> {
-    let out = root.join("harvest");
-    std::fs::create_dir_all(&out).unwrap();
-    let harvest = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/harvest.py");
-    let status = Command::new("python3")
-        .arg(&harvest)
-        .arg(repo().join("integrations/puppets/tests"))
-        .arg(&out)
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .unwrap();
-    assert!(status.success(), "harvest.py failed");
+/// Every goal log the Python tests left on disk, one input per log: the `seed` of each
+/// `fixtures/read/h-*.json`, written out under `root`.
+fn recorded_inputs(root: &Path) -> Vec<Input> {
+    let mut inputs = Vec::new();
+    for path in fixture_paths("read") {
+        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+        if !name.starts_with("h-") {
+            continue;
+        }
+        let (value, recorded) = load_fixture(&path);
+        let dir = root.join("inputs").join(&name);
+        std::fs::create_dir_all(dir.join("puppets")).unwrap();
+        for (file, bytes) in &recorded.seed {
+            let file = dir.join(file);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, bytes).unwrap();
+        }
+        inputs.push(Input {
+            name,
+            label: text_of(member(&value, "label")),
+            dir,
+            goal: text_of(member(&value, "goal")),
+        });
+    }
+    assert!(
+        inputs.len() > 50,
+        "the fixtures hold only {} harvested goal logs",
+        inputs.len()
+    );
+    inputs
+}
+
+/// The same inputs from the directory `record.py harvest` wrote, repeats dropped. Only the
+/// recording reads this, from a checkout that still has the Python tests.
+fn harvested_inputs(root: &Path, out: &Path) -> Vec<Input> {
     let mut seen = HashSet::new();
     let mut inputs = Vec::new();
-    let mut cases: Vec<PathBuf> = std::fs::read_dir(&out)
+    let mut cases: Vec<PathBuf> = std::fs::read_dir(out)
         .unwrap()
         .map(|e| e.unwrap().path())
         .collect();
@@ -1124,7 +1435,8 @@ fn harvested_inputs(root: &Path) -> Vec<Input> {
                 continue;
             }
             // One log per directory, so `repair --yes` and the file comparison see only it.
-            let dir = root.join(format!("h-{}", inputs.len()));
+            let name = format!("h-{:03}", inputs.len());
+            let dir = root.join("inputs").join(&name);
             std::fs::create_dir_all(dir.join("puppets")).unwrap();
             std::fs::copy(&log, dir.join("puppets").join(log.file_name().unwrap())).unwrap();
             if case.join("grader").is_dir() {
@@ -1133,19 +1445,25 @@ fn harvested_inputs(root: &Path) -> Vec<Input> {
             if case.join("vendors.json").is_file() {
                 std::fs::copy(case.join("vendors.json"), dir.join("vendors.json")).unwrap();
             }
-            let name = case.file_name().unwrap().to_string_lossy().into_owned();
+            let case = case.file_name().unwrap().to_string_lossy().into_owned();
             inputs.push(Input {
-                label: format!("harvest {name}/{goal}"),
+                name,
+                label: format!("harvest {case}/{goal}"),
                 dir,
                 goal,
             });
         }
     }
-    assert!(
-        inputs.len() > 50,
-        "harvest found only {} goal logs",
-        inputs.len()
-    );
+    inputs
+}
+
+/// The harvested logs and then the edge logs. `harvest` is set only while recording.
+fn read_inputs(root: &Path, harvest: Option<&Path>) -> Vec<Input> {
+    let mut inputs = match harvest {
+        Some(out) => harvested_inputs(root, out),
+        None => recorded_inputs(root),
+    };
+    inputs.extend(edge_inputs(root));
     inputs
 }
 
@@ -1177,11 +1495,17 @@ fn finish(report: Report, inputs: &[Input]) {
 #[test]
 fn the_read_commands_match_puppets_py_on_every_test_log_and_edge_log() {
     let scratch = Scratch::new("diff");
-    let mut inputs = harvested_inputs(&scratch.0);
-    inputs.extend(edge_inputs(&scratch.0));
-    let copies = scratch.0.join("copies");
-    std::fs::create_dir_all(&copies).unwrap();
-    let report = compare_all(&inputs, &COMMANDS, &copies);
+    let root = &scratch.0;
+    let inputs = read_inputs(root, None);
+    let mut report = Report {
+        compared: 0,
+        crashes: Vec::new(),
+        mismatches: Vec::new(),
+    };
+    visit_read(root, &inputs, false, &mut |job, home| {
+        compare_read(job, home, root, &mut report)
+    });
+    assert_every_fixture_was_read("read", inputs.len());
     finish(report, &inputs);
 }
 
@@ -1368,38 +1692,34 @@ fn sort_cases() -> Vec<Vec<Option<f64>>> {
     cases
 }
 
-/// Build ticket 199, item 3: `queue` must leave NaN scores where `sorted` leaves them, which
-/// only the same algorithm does. This runs the port and `python3` on the same lists.
-#[test]
-fn the_sort_matches_python_sorted_on_keys_that_hold_nan() {
-    let scratch = Scratch::new("sort");
-    let cases = sort_cases();
+/// One of the files under `fixtures/python/`: what the interpreter itself answered when
+/// `record.py` asked it, CPython 3.14 (`version.txt` beside them says which).
+fn python_said(name: &str) -> String {
+    let path = fixtures().join("python").join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// The lists `sort_cases` builds, one JSON list a line, as `record.py` reads them.
+fn sort_cases_text() -> String {
     let mut input = String::new();
-    for xs in &cases {
+    for xs in &sort_cases() {
         let cells: Vec<String> = xs
             .iter()
             .map(|x| x.map_or("NaN".to_string(), |x| format!("{x:?}")))
             .collect();
         input.push_str(&format!("[{}]\n", cells.join(",")));
     }
-    let path = scratch.0.join("cases.jsonl");
-    std::fs::write(&path, input).unwrap();
-    let program = "import json, sys\n\
-        for line in open(sys.argv[1]):\n\
-        \x20   xs = json.loads(line)\n\
-        \x20   print(json.dumps(sorted(range(len(xs)), key=xs.__getitem__)))\n";
-    let out = Command::new("python3")
-        .args(["-c", program])
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let stdout = String::from_utf8(out.stdout).unwrap();
-    let lines: Vec<&str> = stdout.lines().collect();
+    input
+}
+
+/// Build ticket 199, item 3: `queue` must leave NaN scores where `sorted` leaves them, which
+/// only the same algorithm does. `sorted.txt` is `sorted(range(len(xs)), key=xs.__getitem__)`
+/// for each list.
+#[test]
+fn the_sort_matches_python_sorted_on_keys_that_hold_nan() {
+    let cases = sort_cases();
+    let expected = python_said("sorted.txt");
+    let lines: Vec<&str> = expected.lines().collect();
     assert_eq!(lines.len(), cases.len());
     let mut wrong = Vec::new();
     for (n, (xs, line)) in cases.iter().zip(lines).enumerate() {
@@ -1420,32 +1740,11 @@ fn the_sort_matches_python_sorted_on_keys_that_hold_nan() {
     );
 }
 
-/// Build ticket 199, item 7: the table `repr` reads is `str.isprintable` as the `python3` on
-/// this machine has it.
+/// Build ticket 199, item 7: the table `repr` reads is `str.isprintable` as CPython 3.14
+/// has it. `isprintable.txt` is every range of code points it calls not printable.
 #[test]
 fn the_printable_table_is_python_isprintable() {
-    let program = "ranges, start = [], None\n\
-        for c in range(0x110000):\n\
-        \x20   hidden = not chr(c).isprintable()\n\
-        \x20   if hidden and start is None:\n\
-        \x20       start = c\n\
-        \x20   if not hidden and start is not None:\n\
-        \x20       ranges.append((start, c - 1))\n\
-        \x20       start = None\n\
-        ranges.append((start, 0x10FFFF))\n\
-        for low, high in ranges:\n\
-        \x20   print(low, high)\n";
-    let out = Command::new("python3")
-        .args(["-c", program])
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let python: Vec<(u32, u32)> = String::from_utf8(out.stdout)
-        .unwrap()
+    let python: Vec<(u32, u32)> = python_said("isprintable.txt")
         .lines()
         .map(|line| {
             let (low, high) = line.split_once(' ').unwrap();
@@ -1453,53 +1752,6 @@ fn the_printable_table_is_python_isprintable() {
         })
         .collect();
     assert_eq!(python, hydra_puppets::printable::NOT_PRINTABLE.to_vec());
-}
-
-/// The session runs this by hand: `cargo test -p hydra-puppets -- --ignored`. It copies the
-/// real goal logs and scores into a scratch home and runs every read command but
-/// `repair --yes`, so the real files are only read.
-#[test]
-#[ignore = "reads the real ~/hydra/puppets; run by the session"]
-fn the_read_commands_match_puppets_py_on_the_real_goal_logs() {
-    let home = std::env::home_dir().unwrap();
-    let source = std::env::var_os("HYDRA_PUPPETS_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join("hydra/puppets"));
-    let grader = std::env::var_os("HYDRA_GRADER_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join("hydra/grader"));
-    let scratch = Scratch::new("real");
-    let mut inputs = Vec::new();
-    let mut logs: Vec<PathBuf> = std::fs::read_dir(&source)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.is_file() && p.extension().is_some_and(|e| e == "jsonl"))
-        .collect();
-    logs.sort();
-    for log in logs {
-        let goal = log.file_stem().unwrap().to_string_lossy().into_owned();
-        let dir = scratch.0.join(&goal);
-        std::fs::create_dir_all(dir.join("puppets")).unwrap();
-        std::fs::copy(&log, dir.join("puppets").join(log.file_name().unwrap())).unwrap();
-        if grader.join("scores.jsonl").is_file() {
-            std::fs::create_dir_all(dir.join("grader")).unwrap();
-            std::fs::copy(grader.join("scores.jsonl"), dir.join("grader/scores.jsonl")).unwrap();
-        }
-        inputs.push(Input {
-            label: format!("real {goal}"),
-            dir,
-            goal,
-        });
-    }
-    assert!(
-        !inputs.is_empty(),
-        "no goal logs under {}",
-        source.display()
-    );
-    let copies = scratch.0.join("copies");
-    std::fs::create_dir_all(&copies).unwrap();
-    let report = compare_all(&inputs, &COMMANDS[..5], &copies);
-    finish(report, &inputs);
 }
 
 /// Mask the `ts` of each line a write command appended. `after` must begin with `before`,
@@ -1555,45 +1807,48 @@ fn is_goal_id(text: &str) -> bool {
 }
 
 /// The goal id `new` printed, when it printed one and nothing else and the log it names is
-/// in `dir`. A writer that prints one id and creates the log under another gets `None`.
-fn new_goal_id<'a>(stdout: &'a str, dir: &Path) -> Option<&'a str> {
+/// among `files`, the files of the home it ran in. A writer that prints one id and creates
+/// the log under another gets `None`.
+fn new_goal_id<'a>(stdout: &'a str, files: &[(String, Vec<u8>)]) -> Option<&'a str> {
     let id = stdout.strip_suffix('\n').filter(|id| is_goal_id(id))?;
-    dir.join("puppets")
-        .join(format!("{id}.jsonl"))
-        .is_file()
-        .then_some(id)
+    let log = format!("puppets/{id}.jsonl");
+    files.iter().any(|(name, _)| *name == log).then_some(id)
 }
 
-fn new_stdout_names_log(stdout: &str, dir: &Path) -> bool {
-    new_goal_id(stdout, dir).is_some()
+fn new_stdout_names_log(stdout: &str, files: &[(String, Vec<u8>)]) -> bool {
+    new_goal_id(stdout, files).is_some()
 }
 
 /// `new` prints the goal id it generated and nothing else: mask that one line, when it
-/// names the log `new` created in `dir`.
-fn mask_new_stdout(stdout: &str, dir: &Path) -> String {
-    match new_goal_id(stdout, dir) {
+/// names the log `new` created.
+fn mask_new_stdout(stdout: &str, files: &[(String, Vec<u8>)]) -> String {
+    match new_goal_id(stdout, files) {
         Some(_) => "<goal>\n".to_string(),
         None => stdout.to_string(),
     }
 }
 
-/// The goal logs a write command left in `dir`, each with the stamps of its appended lines
-/// masked. `seed` is the home both copies were made from. Under `new` the log named by
-/// the goal id on stdout is listed as `<goal>.jsonl`, and no other log is renamed.
-fn written(dir: &Path, seed: &Path, new_goal: Option<&str>) -> Vec<(String, Vec<u8>)> {
-    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir.join("puppets"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.is_file())
-        .map(|p| {
-            let name = p.file_name().unwrap().to_string_lossy().into_owned();
-            let before = std::fs::read(seed.join("puppets").join(&name)).unwrap_or_default();
-            let bytes = mask_appended_ts(&before, &std::fs::read(&p).unwrap());
+/// The goal logs a write command left, from the files of its home: each file directly
+/// under `puppets/`, by name, its root masked and then the stamps of its appended lines.
+/// `seed` is the home the command started from, its root already masked. Under `new` the
+/// log named by the goal id on stdout is listed as `<goal>.jsonl`, and no other log is
+/// renamed.
+fn written(
+    files: &[(String, Vec<u8>)],
+    seed: &[(String, Vec<u8>)],
+    new_goal: Option<&str>,
+    root: &Path,
+) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = files
+        .iter()
+        .filter_map(|(path, bytes)| {
+            let name = path.strip_prefix("puppets/").filter(|n| !n.contains('/'))?;
+            let bytes = mask_appended_ts(bytes_of(seed, path), &mask_root(bytes, root));
             let name = match name.strip_suffix(".jsonl") {
                 Some(stem) if new_goal == Some(stem) => "<goal>.jsonl".to_string(),
-                _ => name,
+                _ => name.to_string(),
             };
-            (name, bytes)
+            Some((name, bytes))
         })
         .collect();
     files.sort();
@@ -1625,56 +1880,72 @@ impl WriteCase {
     }
 }
 
-/// Run one case under both implementations, each on its own copy of the seed home. Returns
-/// the exception class when the Python raised, and what differed.
-fn compare_write(case: &WriteCase, root: &Path, n: usize) -> (Option<String>, Vec<String>) {
-    let base = root.join(format!("w{n:03}"));
-    let (seed, py_dir, rs_dir) = (base.join("seed"), base.join("py"), base.join("rs"));
-    std::fs::create_dir_all(seed.join("puppets")).unwrap();
-    if let Some(log) = &case.log {
-        std::fs::write(seed.join("puppets/g1.jsonl"), log).unwrap();
+/// Every file of `files` with `root` masked.
+fn rooted(files: &[(String, Vec<u8>)], root: &Path) -> Vec<(String, Vec<u8>)> {
+    files
+        .iter()
+        .map(|(name, bytes)| (name.clone(), mask_root(bytes, root)))
+        .collect()
+}
+
+/// Seed one home per write case under `root` and hand each to `visit`.
+fn visit_write(root: &Path, recording: bool, visit: Visit) {
+    let shared = root.join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    write_plans(&shared);
+    review_repo(&shared.join("repo"));
+    for (n, case) in write_cases(&shared).iter().enumerate() {
+        let name = format!("w{n:03}");
+        let home = root.join(&name).join(side(recording));
+        std::fs::create_dir_all(home.join("puppets")).unwrap();
+        if let Some(log) = &case.log {
+            std::fs::write(home.join("puppets/g1.jsonl"), log).unwrap();
+        }
+        if let Some(vendors) = case.vendors {
+            std::fs::write(home.join("vendors.json"), vendors).unwrap();
+        }
+        if !case.sheets.is_empty() {
+            std::fs::create_dir_all(home.join("puppets/agents")).unwrap();
+        }
+        for (name, body) in &case.sheets {
+            std::fs::write(home.join("puppets/agents").join(name), body).unwrap();
+        }
+        let mut job = Job::new(name, &case.label, vec![case.args.clone()]);
+        job.cwd = Some(case.cwd.clone());
+        visit(&job, &home);
     }
-    if let Some(vendors) = case.vendors {
-        std::fs::write(seed.join("vendors.json"), vendors).unwrap();
-    }
-    if !case.sheets.is_empty() {
-        std::fs::create_dir_all(seed.join("puppets/agents")).unwrap();
-    }
-    for (name, body) in &case.sheets {
-        std::fs::write(seed.join("puppets/agents").join(name), body).unwrap();
-    }
-    copy_dir(&seed, &py_dir);
-    copy_dir(&seed, &rs_dir);
-    let script = script();
-    let args: Vec<&str> = case.args.iter().map(String::as_str).collect();
-    let mut py = run_in(
-        &["python3", script.to_str().unwrap()],
-        &args,
-        &py_dir,
-        Some(&case.cwd),
-    );
-    let mut rs = run_in(&[RUST], &args, &rs_dir, Some(&case.cwd));
+}
+
+/// Run one write case and compare it with what the Python gave on the same starting home.
+/// Returns the exception class when the Python raised, and what differed.
+fn compare_write(job: &Job, home: &Path, root: &Path) -> (Option<String>, Vec<String>) {
+    let rec = recorded("write", job, root);
+    let seed = rooted(&kept(home, &["puppets"]), root);
+    let ran = job.run(home, root).remove(0);
+    let (py_left, rs_left) = (&rec.files, kept(home, &["puppets"]));
+    let mut py = rec.steps[0].masked(&rec.home, &rec.root);
+    let mut rs = ran.masked(home, root);
     let mut problems = Vec::new();
     // The id each printed is tied to the log it created before either is masked.
     let (mut py_goal, mut rs_goal) = (None, None);
-    if args[0] == "new" {
-        for (who, outcome, dir, goal) in [
-            ("python", &mut py, &py_dir, &mut py_goal),
-            ("rust", &mut rs, &rs_dir, &mut rs_goal),
+    if job.steps[0][0] == "new" {
+        for (who, outcome, left, goal) in [
+            ("python", &mut py, py_left, &mut py_goal),
+            ("rust", &mut rs, &rs_left, &mut rs_goal),
         ] {
-            *goal = new_goal_id(&outcome.stdout, dir).map(str::to_string);
+            *goal = new_goal_id(&outcome.stdout, left).map(str::to_string);
             if outcome.code == 0 && goal.is_none() {
                 problems.push(format!(
                     "{who} exited 0 and its stdout names no log it created: {:?}",
                     outcome.stdout
                 ));
             }
-            outcome.stdout = mask_new_stdout(&outcome.stdout, dir);
+            outcome.stdout = mask_new_stdout(&outcome.stdout, left);
         }
     }
     let (py_files, rs_files) = (
-        written(&py_dir, &seed, py_goal.as_deref()),
-        written(&rs_dir, &seed, rs_goal.as_deref()),
+        written(py_left, &seed, py_goal.as_deref(), &rec.root),
+        written(&rs_left, &seed, rs_goal.as_deref(), root),
     );
     if py_files != rs_files {
         let show = |files: &[(String, Vec<u8>)]| {
@@ -2230,10 +2501,11 @@ fn write_cases(shared: &Path) -> Vec<WriteCase> {
         &["assign", "g1"],
     );
 
-    // `new` reads the repo and the commit from its working directory.
+    // `new` reads the repo and the commit from its working directory. The repository is the
+    // one `review_repo` builds, so the commit it records is the same on every machine.
     for (label, cwd, text) in [
         ("new outside a repo", shared.to_path_buf(), "a goal"),
-        ("new inside this repo", repo(), "a goal"),
+        ("new inside a repo", shared.join("repo/src"), "a goal"),
         (
             "new with text that is not ASCII",
             shared.to_path_buf(),
@@ -2310,22 +2582,22 @@ fn write_plans(shared: &Path) {
 #[test]
 fn the_write_commands_match_puppets_py_and_leave_the_same_goal_log() {
     let scratch = Scratch::new("write");
-    let shared = scratch.0.join("shared");
-    std::fs::create_dir_all(&shared).unwrap();
-    write_plans(&shared);
-    let cases = write_cases(&shared);
+    let root = &scratch.0;
+    let mut labels = Vec::new();
     let mut crashes = Vec::new();
     let mut mismatches = Vec::new();
-    for (n, case) in cases.iter().enumerate() {
-        let (class, problems) = compare_write(case, &scratch.0, n);
-        crashes.extend(class.map(|class| format!("{}: {class}", case.label)));
+    visit_write(root, false, &mut |job, home| {
+        let (class, problems) = compare_write(job, home, root);
+        crashes.extend(class.map(|class| format!("{}: {class}", job.label)));
         if !problems.is_empty() {
-            mismatches.push(format!("{}\n{}", case.label, problems.join("\n")));
+            mismatches.push(format!("{}\n{}", job.label, problems.join("\n")));
         }
-    }
-    eprintln!("compared {} write command runs:", cases.len());
-    for case in &cases {
-        eprintln!("  {}", case.label);
+        labels.push(job.label.clone());
+    });
+    assert_every_fixture_was_read("write", labels.len());
+    eprintln!("compared {} write command runs:", labels.len());
+    for label in &labels {
+        eprintln!("  {label}");
     }
     eprintln!(
         "python raised, stderr compared by exception class ({}):",
@@ -2338,7 +2610,7 @@ fn the_write_commands_match_puppets_py_and_leave_the_same_goal_log() {
         mismatches.is_empty(),
         "{} of {} differ:\n\n{}",
         mismatches.len(),
-        cases.len(),
+        labels.len(),
         mismatches.join("\n\n")
     );
 }
@@ -2379,16 +2651,14 @@ fn the_comparator_masks_only_the_stamps_of_appended_lines() {
 
 #[test]
 fn the_comparator_masks_a_goal_id_only_when_it_is_a_uuid4() {
-    let scratch = Scratch::new("mask-goal-id");
-    let dir = &scratch.0;
-    std::fs::create_dir_all(dir.join("puppets")).unwrap();
     let id = "0b9f2c3e-6a1d-4c7b-9e2f-5d8a7b6c4e31";
     let seven = "0b9f2c3e-6a1d-7c7b-9e2f-5d8a7b6c4e31";
-    for name in [id, seven, "g1"] {
-        std::fs::write(dir.join("puppets").join(format!("{name}.jsonl")), b"{}\n").unwrap();
-    }
+    let files: Vec<(String, Vec<u8>)> = [id, seven, "g1"]
+        .iter()
+        .map(|name| (format!("puppets/{name}.jsonl"), b"{}\n".to_vec()))
+        .collect();
     assert!(is_goal_id(id));
-    assert_eq!(mask_new_stdout(&format!("{id}\n"), dir), "<goal>\n");
+    assert_eq!(mask_new_stdout(&format!("{id}\n"), &files), "<goal>\n");
     for odd in [
         "g1\n".to_string(),
         id.to_string(),
@@ -2398,87 +2668,100 @@ fn the_comparator_masks_a_goal_id_only_when_it_is_a_uuid4() {
         // Version 7, which `uuid.uuid4()` never prints.
         format!("{seven}\n"),
     ] {
-        assert_eq!(mask_new_stdout(&odd, dir), odd);
+        assert_eq!(mask_new_stdout(&odd, &files), odd);
+    }
+}
+
+/// `LC_ALL`, `PYTHONUTF8` and `PYTHONIOENCODING` for one `board` of a goal whose text is a
+/// lone surrogate.
+const LOCALES: [(&str, Option<&str>, Option<&str>); 9] = [
+    ("C", None, None),
+    ("en_US.UTF-8", None, None),
+    ("C", Some("0"), None),
+    ("en_US.UTF-8", Some("1"), None),
+    ("C", None, Some("utf-8")),
+    ("C", None, Some("utf-8:strict")),
+    ("en_US.UTF-8", None, Some(":surrogateescape")),
+    ("C", None, Some("ascii:backslashreplace")),
+    ("en_US.UTF-8", None, Some("latin-1:replace")),
+];
+
+fn visit_locale(root: &Path, recording: bool, visit: Visit) {
+    for (n, (locale, utf8, encoding)) in LOCALES.iter().enumerate() {
+        let name = format!("locale-{n}");
+        let home = root.join(&name).join(side(recording));
+        std::fs::create_dir_all(home.join("puppets")).unwrap();
+        std::fs::write(
+            home.join("puppets/g1.jsonl"),
+            b"{\"event\":\"goal\",\"text\":\"\\udc80\",\"repo\":\"/r\",\"base_sha\":\"a\"}\n",
+        )
+        .unwrap();
+        let label = format!("LC_ALL={locale} PYTHONUTF8={utf8:?} PYTHONIOENCODING={encoding:?}");
+        let mut job = Job::new(name, &label, vec![strings(&["board", "g1"])]);
+        job.env.push(("LC_ALL".into(), locale.to_string()));
+        for (key, value) in [("PYTHONUTF8", utf8), ("PYTHONIOENCODING", encoding)] {
+            if let Some(value) = value {
+                job.env.push((key.into(), value.to_string()));
+            }
+        }
+        job.keep = Vec::new();
+        visit(&job, &home);
     }
 }
 
 #[test]
 fn stdout_surrogate_matches_python_locales() {
     let scratch = Scratch::new("stdout-surrogate");
-    let home = scratch.0.join("puppets");
-    std::fs::create_dir(&home).unwrap();
-    std::fs::write(
-        home.join("g1.jsonl"),
-        b"{\"event\":\"goal\",\"text\":\"\\udc80\",\"repo\":\"/r\",\"base_sha\":\"a\"}\n",
-    )
-    .unwrap();
-    for (locale, utf8, encoding) in [
-        ("C", None, None),
-        ("en_US.UTF-8", None, None),
-        ("C", Some("0"), None),
-        ("en_US.UTF-8", Some("1"), None),
-        ("C", None, Some("utf-8")),
-        ("C", None, Some("utf-8:strict")),
-        ("en_US.UTF-8", None, Some(":surrogateescape")),
-        ("C", None, Some("ascii:backslashreplace")),
-        ("en_US.UTF-8", None, Some("latin-1:replace")),
-    ] {
-        let invoke = |python: bool| {
-            let mut cmd = Command::new(if python { "python3" } else { RUST });
-            if python {
-                cmd.arg(script());
-            }
-            cmd.args(["board", "g1"])
-                .env("HYDRA_PUPPETS_HOME", &home)
-                .env("HYDRA_GRADER_HOME", scratch.0.join("grader"))
-                .env("LC_ALL", locale)
-                .env_remove("PYTHONUTF8")
-                .env_remove("PYTHONIOENCODING")
-                .stdin(std::process::Stdio::null());
-            if let Some(value) = utf8 {
-                cmd.env("PYTHONUTF8", value);
-            }
-            if let Some(value) = encoding {
-                cmd.env("PYTHONIOENCODING", value);
-            }
-            cmd.output().unwrap()
-        };
-        let python = invoke(true);
-        let rust = invoke(false);
-        assert_eq!(rust.stdout, python.stdout, "{locale}");
-        assert_eq!(rust.status.code(), python.status.code(), "{locale}");
-    }
+    let root = &scratch.0;
+    let mut compared = 0;
+    visit_locale(root, false, &mut |job, home| {
+        let python = &recorded("locale", job, root).steps[0];
+        let rust = &job.run(home, root)[0];
+        assert_eq!(rust.stdout, python.stdout, "{}", job.label);
+        assert_eq!(rust.code, python.code, "{}", job.label);
+        compared += 1;
+    });
+    assert_every_fixture_was_read("locale", compared);
+}
+
+const TORN_LOG: &[u8] =
+    b"{\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/r\",\"base_sha\":\"a\"}\ntorn";
+
+/// A home whose `g1.jsonl.repair-tmp` is a symlink to the log `repair --yes` would rewrite.
+fn visit_symlink(root: &Path, recording: bool, visit: Visit) {
+    let home = root.join("symlink").join(side(recording));
+    std::fs::create_dir_all(home.join("puppets")).unwrap();
+    let path = home.join("puppets/g1.jsonl");
+    std::fs::write(&path, TORN_LOG).unwrap();
+    std::os::unix::fs::symlink(&path, home.join("puppets/g1.jsonl.repair-tmp")).unwrap();
+    let mut job = Job::new(
+        "symlink".into(),
+        "repair --yes over a temporary that is a symlink",
+        vec![strings(&["repair", "g1", "--yes"])],
+    );
+    job.keep = Vec::new();
+    visit(&job, &home);
 }
 
 #[test]
 fn repair_temporary_symlink_matches_python() {
     let scratch = Scratch::new("repair-symlink");
-    let raw = b"{\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/r\",\"base_sha\":\"a\"}\ntorn";
-    let mut outcomes = Vec::new();
-    for python in [true, false] {
-        let dir = scratch.0.join(if python { "python" } else { "rust" });
-        let home = dir.join("puppets");
-        std::fs::create_dir_all(&home).unwrap();
-        let path = home.join("g1.jsonl");
-        std::fs::write(&path, raw).unwrap();
-        let tmp = home.join("g1.jsonl.repair-tmp");
-        std::os::unix::fs::symlink(&path, &tmp).unwrap();
-        let result = if python {
-            run(
-                &["python3", script().to_str().unwrap()],
-                &["repair", "g1", "--yes"],
-                &dir,
-            )
-        } else {
-            run(&[RUST], &["repair", "g1", "--yes"], &dir)
-        };
-        assert_eq!(result.code, 1);
-        assert_eq!(std::fs::read(&path).unwrap(), raw);
+    let root = &scratch.0;
+    let mut compared = 0;
+    visit_symlink(root, false, &mut |job, home| {
+        let rec = recorded("symlink", job, root);
+        let python = rec.steps[0].masked(&rec.home, &rec.root);
+        let rust = job.run(home, root)[0].masked(home, root);
+        let puppets = home.join("puppets");
+        let tmp = puppets.join("g1.jsonl.repair-tmp");
+        assert_eq!(rust.code, 1);
+        assert_eq!(std::fs::read(puppets.join("g1.jsonl")).unwrap(), TORN_LOG);
         assert!(tmp.symlink_metadata().unwrap().file_type().is_symlink());
-        assert_eq!(std::fs::read_dir(&home).unwrap().count(), 2);
-        outcomes.push(result);
-    }
-    assert_eq!(outcomes[0], outcomes[1]);
+        assert_eq!(std::fs::read_dir(&puppets).unwrap().count(), 2);
+        assert_eq!(python, rust);
+        compared += 1;
+    });
+    assert_every_fixture_was_read("symlink", compared);
 }
 
 // The commands that launch: `plan`, `plans`, `launch`, `wait`, `review` and `choose --judge`.
@@ -2623,18 +2906,30 @@ fn shown(result_text: &str, branch: Option<&str>) -> String {
     )
 }
 
-/// Replace every occurrence of one implementation's home with `<home>`.
-fn mask_home(bytes: &[u8], dir: &Path) -> Vec<u8> {
+/// Replace every occurrence of the path `dir` with `with`.
+fn mask_path(bytes: &[u8], dir: &Path, with: &[u8]) -> Vec<u8> {
     let needle = dir.to_str().unwrap().as_bytes();
     let mut out = Vec::new();
     let mut rest = bytes;
     while let Some(at) = rest.windows(needle.len()).position(|w| w == needle) {
         out.extend_from_slice(&rest[..at]);
-        out.extend_from_slice(b"<home>");
+        out.extend_from_slice(with);
         rest = &rest[at + needle.len()..];
     }
     out.extend_from_slice(rest);
     out
+}
+
+/// Replace every occurrence of the home a command ran in with `<home>`.
+fn mask_home(bytes: &[u8], dir: &Path) -> Vec<u8> {
+    mask_path(bytes, dir, b"<home>")
+}
+
+/// Replace every occurrence of the directory a group of cases lives under with `<root>`:
+/// the recorder's in a fixture, a scratch one in a test. A home is under its root, so the
+/// home is masked first.
+fn mask_root(bytes: &[u8], dir: &Path) -> Vec<u8> {
+    mask_path(bytes, dir, b"<root>")
 }
 
 fn files_under(dir: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
@@ -2652,90 +2947,85 @@ fn files_under(dir: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
     }
 }
 
-/// What one implementation left: every file under `puppets/` and every stub call, with the
-/// stamps of appended log lines and the implementation's own home masked.
-fn launched(case: &LaunchCase, dir: &Path) -> Vec<(String, Vec<u8>)> {
-    let mut files = Vec::new();
-    files_under(&dir.join("puppets"), "puppets/", &mut files);
-    files_under(&dir.join("stub/calls"), "calls/", &mut files);
-    for (name, bytes) in &mut files {
-        if name.ends_with(".jsonl") {
-            let before = case
-                .files
-                .iter()
-                .find(|(path, _)| path == name)
-                .map_or(&[][..], |(_, body)| body);
-            *bytes = mask_appended_ts(before, bytes);
-        }
-        *bytes = mask_home(bytes, dir);
-    }
-    files.sort();
-    files
-}
-
-fn run_launch(program: &[&str], case: &LaunchCase, dir: &Path, bin: &Path, cwd: &Path) -> Outcome {
-    let mut cmd = Command::new(program[0]);
-    let path = format!(
-        "{}:{}",
-        bin.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
-    cmd.args(&program[1..])
-        .args(&case.args)
-        .current_dir(cwd)
-        .stdin(std::process::Stdio::null())
-        .env_clear()
-        .env("PATH", path)
-        .env("HOME", dir)
-        .env("LC_ALL", "en_US.UTF-8")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("HYDRA_BIN", bin.join("hydra-stub"))
-        .env("STUB_STATE", dir.join("stub"))
-        .env("HYDRA_PUPPETS_HOME", dir.join("puppets"))
-        .env("HYDRA_ROOT", dir.join("root"))
-        .env("HYDRA_GRADER_HOME", dir.join("grader"))
-        // `review` ends in `execvp`, which does not flush Python's buffer when stdout is a
-        // pipe. Unbuffered, it prints what it prints on a terminal.
-        .env("PYTHONUNBUFFERED", "1")
-        .env("PYTHONDONTWRITEBYTECODE", "1");
-    if dir.join("vendors.json").is_file() {
-        cmd.env("HYDRA_PUPPETS_VENDORS", dir.join("vendors.json"));
-    }
-    for (key, value) in &case.env {
-        cmd.env(key, value);
-    }
-    let output = cmd.output().unwrap_or_else(|e| panic!("{program:?}: {e}"));
-    let text = |bytes: &[u8]| String::from_utf8_lossy(&mask_home(bytes, dir)).into_owned();
-    Outcome {
-        code: output.status.code().unwrap_or(-1),
-        stdout: text(&output.stdout),
-        stderr: text(&output.stderr),
-    }
-}
-
-fn compare_launch(
-    case: &LaunchCase,
+/// What a launch command left: every file under `puppets/` and every stub call, with the
+/// home and the root masked, and then the stamps of appended log lines. `seed` is the home
+/// the command started from, masked the same way.
+fn launched(
+    files: &[(String, Vec<u8>)],
+    seed: &[(String, Vec<u8>)],
+    home: &Path,
     root: &Path,
-    n: usize,
-    bin: &Path,
-    cwd: &Path,
-) -> (Option<String>, Vec<String>) {
-    let base = root.join(format!("l{n:03}"));
-    let (py_dir, rs_dir) = (base.join("py"), base.join("rs"));
-    case.seed(&py_dir);
-    case.seed(&rs_dir);
-    let script = script();
-    let py = run_launch(
-        &["python3", script.to_str().unwrap()],
-        case,
-        &py_dir,
-        bin,
-        cwd,
-    );
-    let rs = run_launch(&[RUST], case, &rs_dir, bin, cwd);
+) -> Vec<(String, Vec<u8>)> {
+    files
+        .iter()
+        .map(|(name, bytes)| {
+            let bytes = mask_root(&mask_home(bytes, home), root);
+            let bytes = if name.ends_with(".jsonl") {
+                mask_appended_ts(bytes_of(seed, name), &bytes)
+            } else {
+                bytes
+            };
+            (name.clone(), bytes)
+        })
+        .collect()
+}
+
+/// Write the stubs, the plans and the repository every launch case shares under `root`,
+/// seed one home per case and hand each to `visit`.
+fn visit_launch(root: &Path, recording: bool, visit: Visit) {
+    use std::os::unix::fs::PermissionsExt;
+    let (shared, bin) = (root.join("shared"), root.join("bin"));
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    for name in ["hydra-stub", "hunk", "herdr"] {
+        std::fs::write(bin.join(name), STUB).unwrap();
+        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::fs::write(
+        shared.join("codex.md"),
+        "  Codex plan.\r\n\r\n```json\n[]\n```\n\n",
+    )
+    .unwrap();
+    std::fs::write(shared.join("claude.md"), "Claude plan, café.\n").unwrap();
+    let base_sha = review_repo(&shared.join("repo"));
+    for (n, case) in launch_cases(&shared, &base_sha).iter().enumerate() {
+        let name = format!("l{n:03}");
+        let home = root.join(&name).join(side(recording));
+        case.seed(&home);
+        let mut job = Job::new(name, &case.label, vec![case.args.clone()]);
+        job.cwd = Some(shared.clone());
+        job.keep = vec!["puppets", "stub/calls"];
+        let path = |p: PathBuf| p.to_str().unwrap().to_string();
+        job.env = vec![
+            // By name, found on `PATH`: `launch` hashes the argv it starts, and a path under
+            // the root would make that hash the recorder's.
+            ("HYDRA_BIN".into(), "hydra-stub".into()),
+            ("STUB_STATE".into(), path(home.join("stub"))),
+            // `review` ends in `execvp`, which does not flush Python's buffer when stdout is
+            // a pipe. Unbuffered, it prints what it prints on a terminal.
+            ("PYTHONUNBUFFERED".into(), "1".into()),
+        ];
+        for (key, value) in &case.env {
+            job.env.push((key.to_string(), value.to_string()));
+        }
+        visit(&job, &home);
+    }
+}
+
+/// Run one launch case and compare it, and the calls its stubs wrote down, with what the
+/// Python gave.
+fn compare_launch(job: &Job, home: &Path, root: &Path) -> (Option<String>, Vec<String>) {
+    let rec = recorded("launch", job, root);
+    let seed: Vec<(String, Vec<u8>)> = kept(home, &["puppets"])
+        .into_iter()
+        .map(|(name, bytes)| (name, mask_root(&mask_home(&bytes, home), root)))
+        .collect();
+    let ran = job.run(home, root).remove(0);
+    let py = rec.steps[0].masked(&rec.home, &rec.root);
+    let rs = ran.masked(home, root);
     let mut problems = Vec::new();
-    let (py_files, rs_files) = (launched(case, &py_dir), launched(case, &rs_dir));
+    let py_files = launched(&rec.files, &seed, &rec.home, &rec.root);
+    let rs_files = launched(&kept(home, &job.keep), &seed, home, root);
     let names = |files: &[(String, Vec<u8>)]| -> Vec<String> {
         files.iter().map(|(name, _)| name.clone()).collect()
     };
@@ -2762,7 +3052,8 @@ fn compare_launch(
 }
 
 /// A repository with a base commit on `main` and a branch `hydra/r1` one commit ahead that
-/// touches a source file and a test. Returns the base sha.
+/// touches a source file and a test. Returns the base sha, which is the same on every
+/// machine: both commits carry a fixed time.
 fn review_repo(repo: &Path) -> String {
     let git = |args: &[&str]| -> String {
         let out = Command::new("git")
@@ -2772,6 +3063,8 @@ fn review_repo(repo: &Path) -> String {
             .env("HOME", repo)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_DATE", "2026-10-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2026-10-01T00:00:00Z")
             .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
             .args(args)
             .output()
@@ -3465,35 +3758,23 @@ fn launch_cases(shared: &Path, base_sha: &str) -> Vec<LaunchCase> {
 
 #[test]
 fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
-    use std::os::unix::fs::PermissionsExt;
     let scratch = Scratch::new("launch");
-    let (shared, bin) = (scratch.0.join("shared"), scratch.0.join("bin"));
-    std::fs::create_dir_all(&shared).unwrap();
-    std::fs::create_dir_all(&bin).unwrap();
-    for name in ["hydra-stub", "hunk", "herdr"] {
-        std::fs::write(bin.join(name), STUB).unwrap();
-        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    std::fs::write(
-        shared.join("codex.md"),
-        "  Codex plan.\r\n\r\n```json\n[]\n```\n\n",
-    )
-    .unwrap();
-    std::fs::write(shared.join("claude.md"), "Claude plan, café.\n").unwrap();
-    let base_sha = review_repo(&shared.join("repo"));
-    let cases = launch_cases(&shared, &base_sha);
+    let root = &scratch.0;
+    let mut labels = Vec::new();
     let mut crashes = Vec::new();
     let mut mismatches = Vec::new();
-    for (n, case) in cases.iter().enumerate() {
-        let (class, problems) = compare_launch(case, &scratch.0, n, &bin, &shared);
-        crashes.extend(class.map(|class| format!("{}: {class}", case.label)));
+    visit_launch(root, false, &mut |job, home| {
+        let (class, problems) = compare_launch(job, home, root);
+        crashes.extend(class.map(|class| format!("{}: {class}", job.label)));
         if !problems.is_empty() {
-            mismatches.push(format!("{}\n{}", case.label, problems.join("\n")));
+            mismatches.push(format!("{}\n{}", job.label, problems.join("\n")));
         }
-    }
-    eprintln!("compared {} launch command runs:", cases.len());
-    for case in &cases {
-        eprintln!("  {}", case.label);
+        labels.push(job.label.clone());
+    });
+    assert_every_fixture_was_read("launch", labels.len());
+    eprintln!("compared {} launch command runs:", labels.len());
+    for label in &labels {
+        eprintln!("  {label}");
     }
     eprintln!(
         "python raised, stderr compared by exception class ({}):",
@@ -3506,7 +3787,7 @@ fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
         mismatches.is_empty(),
         "{} of {} differ:\n\n{}",
         mismatches.len(),
-        cases.len(),
+        labels.len(),
         mismatches.join("\n\n")
     );
 }
@@ -3545,67 +3826,30 @@ fn goal_id_requires_the_uuid4_variant() {
 /// used to pass, because stdout and the file name were masked apart.
 #[test]
 fn new_stdout_must_name_the_created_log() {
-    let scratch = Scratch::new("new-id-link");
-    let (dir, seed) = (scratch.0.join("run"), scratch.0.join("seed"));
-    std::fs::create_dir_all(dir.join("puppets")).unwrap();
-    std::fs::create_dir_all(seed.join("puppets")).unwrap();
     let printed = "0b9f2c3e-6a1d-4c7b-9e2f-5d8a7b6c4e31";
     let created = "1b9f2c3e-6a1d-4c7b-9e2f-5d8a7b6c4e31";
-    std::fs::write(
-        dir.join("puppets").join(format!("{created}.jsonl")),
-        b"{}\n",
-    )
-    .unwrap();
-    assert!(!new_stdout_names_log(&format!("{printed}\n"), &dir));
-    assert!(new_stdout_names_log(&format!("{created}\n"), &dir));
+    let files = vec![(format!("puppets/{created}.jsonl"), b"{}\n".to_vec())];
+    assert!(!new_stdout_names_log(&format!("{printed}\n"), &files));
+    assert!(new_stdout_names_log(&format!("{created}\n"), &files));
     // The id that names no log stays on stdout, and the log it did not name keeps its name.
     let stdout = format!("{printed}\n");
-    assert_eq!(mask_new_stdout(&stdout, &dir), stdout);
-    let goal = new_goal_id(&stdout, &dir);
+    assert_eq!(mask_new_stdout(&stdout, &files), stdout);
+    let goal = new_goal_id(&stdout, &files);
     let names = |goal: Option<&str>| -> Vec<String> {
-        let files = written(&dir, &seed, goal);
+        let files = written(&files, &[], goal, Path::new("/nowhere"));
         files.into_iter().map(|(name, _)| name).collect()
     };
     assert_eq!(names(goal), [format!("{created}.jsonl")]);
     assert_eq!(names(Some(created)), ["<goal>.jsonl"]);
 }
 
-fn python(code: &str) -> String {
-    let out = Command::new("python3")
-        .args(["-c", code])
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .env("PYTHONIOENCODING", "utf-8")
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap()
-}
-
-/// Build ticket 207. `int()` under the `python3` on this machine, for every code point
-/// before a `7`, after one and alone: which it strips, which are digits and of what value.
-/// It is the check on the digit table and the whitespace rule in `src/py.rs`.
+/// Build ticket 207. `int()` under CPython 3.14, for every code point before a `7`, after
+/// one and alone: which it strips, which are digits and of what value. `int.txt` holds a row
+/// for each code point where any of the five reads gave a number. It is the check on the
+/// digit table and the whitespace rule in `src/py.rs`.
 #[test]
 fn the_int_parser_matches_python_on_every_code_point() {
-    let expected = python(
-        r#"
-def read(text):
-    try:
-        return str(int(text))
-    except ValueError:
-        return '-'
-for c in range(0x110000):
-    if 0xD800 <= c < 0xE000:
-        continue
-    ch = chr(c)
-    row = [read(ch + '7'), read('7' + ch), read(ch), read(ch + '_7'), read('7_' + ch)]
-    if any(cell != '-' for cell in row):
-        print('%x' % c, ' '.join(row))
-"#,
-    );
+    let expected = python_said("int.txt");
     let read = |text: String| hydra_puppets::int_literal(&text).unwrap_or_else(|| "-".to_string());
     let mut got = String::new();
     for c in (0..0x110000).filter_map(char::from_u32) {
@@ -3630,20 +3874,14 @@ for c in range(0x110000):
     assert_eq!(got.lines().count(), expected.lines().count());
 }
 
-/// Build ticket 207. `math.lgamma` and `sheet.beta_lower` under the `python3` on this
-/// machine, bit for bit: `rank` orders agents by a quotient of the second, and a last bit
-/// swaps a near tie.
+/// Build ticket 207. `math.lgamma` and `sheet.beta_lower` under CPython 3.14, bit for bit:
+/// `rank` orders agents by a quotient of the second, and a last bit swaps a near tie.
+/// `lgamma.txt` is the first over `k`, `k / 2` and `k / 7` for `k` from 1 to 6000, and each
+/// line of `beta_lower.txt` is two arguments and the second's answer.
 #[test]
 fn the_ranking_arithmetic_matches_python() {
     let bits = |f: f64| format!("{:016x}", f.to_bits());
-    let expected = python(
-        r#"
-import math, struct
-for k in range(1, 6001):
-    for x in (float(k), k / 2, k / 7):
-        print(struct.pack('>d', math.lgamma(x)).hex())
-"#,
-    );
+    let expected = python_said("lgamma.txt");
     let mut got = String::new();
     for k in 1..=6000 {
         let k = f64::from(k);
@@ -3660,21 +3898,46 @@ for k in range(1, 6001):
     assert_eq!(wrong, 0, "lgamma differs on {wrong} of 18000 arguments");
     assert_eq!(got.len(), expected.len());
 
-    let pairs: Vec<(i128, i128)> = (0..=24)
-        .flat_map(|a| (0..=24).map(move |b| (a, b)))
-        .chain([(120, 80), (300, 10), (2, 400)])
-        .collect();
-    let list: Vec<String> = pairs.iter().map(|(a, b)| format!("({a},{b})")).collect();
-    let code = format!(
-        "import struct, sys\nsys.path.insert(0, {:?})\nimport sheet\nfor a, b in [{}]:\n    print(struct.pack('>d', sheet.beta_lower(a, b)).hex())\n",
-        script().parent().unwrap().to_str().unwrap(),
-        list.join(",")
-    );
-    let expected = python(&code);
-    let expected: Vec<&str> = expected.lines().collect();
-    assert_eq!(expected.len(), pairs.len());
-    for ((a, b), theirs) in pairs.iter().zip(expected) {
-        let ours = hydra_puppets::sheet::beta_lower(*a, *b).unwrap();
-        assert_eq!(bits(ours), theirs, "beta_lower({a}, {b})");
+    let expected = python_said("beta_lower.txt");
+    assert_eq!(expected.lines().count(), 25 * 25 + 3);
+    for line in expected.lines() {
+        let cells: Vec<&str> = line.split(' ').collect();
+        let (a, b): (i128, i128) = (cells[0].parse().unwrap(), cells[1].parse().unwrap());
+        let ours = hydra_puppets::sheet::beta_lower(a, b).unwrap();
+        assert_eq!(bits(ours), cells[2], "beta_lower({a}, {b})");
     }
+}
+
+/// Not a test of anything: it writes the jobs `record.py run` runs under `puppets.py`, one
+/// directory per case under `HYDRA_PUPPETS_JOBS`, each the home a test here seeds plus a
+/// `job.json`. `HYDRA_PUPPETS_HARVEST` names what `record.py harvest` wrote; without it the
+/// harvested logs come from the fixtures. `record.py` says when this was run and how.
+#[test]
+#[ignore = "writes the jobs record.py runs, under HYDRA_PUPPETS_JOBS"]
+fn write_the_jobs_record_py_runs() {
+    let jobs = std::env::var_os("HYDRA_PUPPETS_JOBS").expect("HYDRA_PUPPETS_JOBS is not set");
+    std::fs::create_dir_all(&jobs).unwrap();
+    let jobs = Path::new(&jobs).canonicalize().unwrap();
+    let harvest = std::env::var_os("HYDRA_PUPPETS_HARVEST").map(PathBuf::from);
+    let group = |name: &str| {
+        let root = jobs.join(name);
+        std::fs::create_dir_all(&root).unwrap();
+        prepare_root(&root);
+        root
+    };
+    let root = group("read");
+    let inputs = read_inputs(&root, harvest.as_deref());
+    visit_read(&root, &inputs, true, &mut |job, home| {
+        job.write(home, &root)
+    });
+    let root = group("write");
+    visit_write(&root, true, &mut |job, home| job.write(home, &root));
+    let root = group("launch");
+    visit_launch(&root, true, &mut |job, home| job.write(home, &root));
+    let root = group("locale");
+    visit_locale(&root, true, &mut |job, home| job.write(home, &root));
+    let root = group("symlink");
+    visit_symlink(&root, true, &mut |job, home| job.write(home, &root));
+    std::fs::create_dir_all(jobs.join("python")).unwrap();
+    std::fs::write(jobs.join("python/sort-cases.jsonl"), sort_cases_text()).unwrap();
 }

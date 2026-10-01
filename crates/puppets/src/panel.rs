@@ -1,8 +1,8 @@
 //! The review panel: three seats that judge the proposals for `choose --judge` and a task's
 //! diff for `review`, and what `review` does with their findings. Each seat is one
 //! `hydra run`, waited for before the next starts. The prompts, the parsing of an answer and
-//! the verdict are `puppets.py`'s, and so is every argv handed to `hydra`, `git`, `hunk`
-//! and `herdr`.
+//! the verdict are the Python helper's, and so is every argv handed to `hydra`, `git`,
+//! `hunk` and `herdr`.
 
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};

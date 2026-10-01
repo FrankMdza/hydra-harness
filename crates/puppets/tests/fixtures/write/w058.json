@@ -1,0 +1,26 @@
+{
+ "label": "no log: verdict g1 t1 rejected",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w058/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "verdict",
+    "g1",
+    "t1",
+    "rejected"
+   ],
+   "code": 1,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "task t1 has no run\n"
+   }
+  }
+ ],
+ "files": []
+}

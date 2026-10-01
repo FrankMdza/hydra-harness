@@ -1,0 +1,24 @@
+{
+ "label": "wait: no log",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l034/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "wait",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "no pending runs\n"
+   },
+   "stderr": {
+    "text": ""
+   }
+  }
+ ],
+ "files": []
+}

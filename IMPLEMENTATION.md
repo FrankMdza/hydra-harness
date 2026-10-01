@@ -3184,9 +3184,11 @@ firing, since its record is thin until the harvest (map ticket 76, decision G). 
 
 Map ticket 75's panel and ticket 76's answers gave the mode its shape: an orchestrator outside
 every run, a log per goal, approvals bound to a plan revision, and a ranking of agents from the
-corpus. `integrations/puppets/` is that, in Python, and nothing under `src/` imports it.
+corpus. `integrations/puppets/` was that, in Python, and nothing under `src/` imports it. Since
+build tickets 193 to 196 the helper is `crates/puppets`, below, and this paragraph describes
+both.
 
-`puppets.py` keeps one append-only JSONL per goal under `~/hydra/puppets/` and derives state by
+The helper keeps one append-only JSONL per goal under `~/hydra/puppets/` and derives state by
 folding it, the way an outcome is derived from a record and never stored. Its events are the
 fourteen the README lists; `revision` is the count of `task` and `assignment` events, and an
 approval carries the revision it was given at. A table approval covers every launch at its
@@ -3208,7 +3210,7 @@ and resumed runs grouped under their root. `vendors.json` holds the hand-kept fa
 someone dates them, and cost is window share: the `seven_day` delta on `claude`, tokens over a
 vendor budget elsewhere, null when the budget is null. `rank` orders agents by cost over the
 10th percentile of a beta posterior on first-pass acceptance, seeded from `priors.json` and
-moved only by `human_verdict` events. `puppets.py assign` takes the ranking only when it rests on
+moved only by `human_verdict` events. `assign` takes the ranking only when it rests on
 at least one verdict, and falls back to a default table, recorded as `source: default`, until
 then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
 (`sonnet`, `Sonnet 5`, `claude-sonnet-5`), which the sheet keeps apart on purpose.
@@ -3252,11 +3254,13 @@ the reader, the lock-held update, `repair`), the fold (`fold.rs`) and the read c
 reader and writer (`json.rs`), because `show` prints log values verbatim in Python's key order,
 float spelling and `\u` escapes. `serde_json`'s `preserve_order` would give the order, but in a
 workspace build that feature would reach `hydra` too. Until build ticket 196 `pending`'s `argv`
-named `python3 integrations/puppets/puppets.py approve`; it now names `hydra-puppets approve`.
+named `python3` and the Python script's `approve`; it now names `hydra-puppets approve`.
 
-`crates/puppets/tests/differential.rs` runs both implementations on the same inputs and requires
-the same stdout, stderr and exit code. The inputs are every goal log the Python tests leave on
-disk (`harvest.py` copies each test's home before its tearDown, 102 distinct logs) and 17 edge
+`crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
+the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a
+recording of it, described where that ticket is, below. The inputs are every goal log the Python
+tests left on disk (a harvest copied each test's home before its tearDown, 102 distinct logs
+then and 116 when they were recorded) and 17 edge
 logs: an unterminated tail, a CR tail, bad and blank interior lines, a bad last line, an empty
 file, a missing file, CRLF lines, a BOM, a missing key, a non-object event, torn tails in bad
 UTF-8 and past 300 characters, and one goal that reaches every board and pending branch.
@@ -3267,8 +3271,9 @@ stdout and name the same exception class. A newline-terminated blank or non-JSON
 damage in both: readers and writers refuse with `DamagedLog`, `repair` moves the bad lines and
 any torn tail aside and may append a `repair` event whose fold adds `removed + 1` to the
 revision. An unterminated tail is not damage.
-The second test, `#[ignore]`d, runs the read commands over copies of the real
-`~/hydra/puppets/*.jsonl` and never `repair --yes`.
+A second test, `#[ignore]`d, ran the read commands over copies of the real
+`~/hydra/puppets/*.jsonl` and never `repair --yes`. Build ticket 196 removed it with the Python
+it compared against.
 
 Known divergence, since build ticket 199: nesting depth. Python's decoder raises
 `RecursionError` where its C stack runs out, which was 116,221 levels inside a goal log line on
@@ -3335,7 +3340,7 @@ a writer that prints one id and creates the log under another fails.
 
 Build ticket 195 added the commands that launch: `plan`, `plans`, `launch` and `wait` in
 `launch.rs`, and `review`, `review --no-open` and `choose --judge` in `panel.rs`. The binary now
-has all eighteen of `puppets.py`'s commands. Every launch is the argv the Python builds,
+has all eighteen of the Python helper's commands. Every launch is the argv the Python built,
 `hydra run --provider P [--model M] --policy Q --timeout 0 --task T`, through the program
 `HYDRA_BIN` names, and `launch` writes its `launch_intent` with that argv's SHA-256 before it
 starts the run. `json.rs` now gives a `JSONDecodeError` the message and position CPython 3.14's
@@ -3380,8 +3385,8 @@ Not ported, and where the Rust differs:
   since Python 3.12. One part depends on how CPython was compiled: on arm64 clang fuses
   `a * b + c` inside `m_lgamma` into one rounding, and `sheet.rs` does the same on `aarch64` and
   not elsewhere. `the_ranking_arithmetic_matches_python` compares 18,000 `lgamma` arguments and
-  628 `beta_lower` pairs bit for bit with the `python3` on the machine, and has run on arm64
-  macOS only. A zero `a` is a value in both, where the Rust used to raise.
+  628 `beta_lower` pairs bit for bit with what CPython 3.14.7 gave on arm64 macOS, a fixture
+  since build ticket 196, and has run on arm64 macOS only. A zero `a` is a value in both, where the Rust used to raise.
 - `ranked_assignment` does not return early when `sheet.py` is missing. `priors.json` is read
   from the data directory build ticket 196 gave the helper, below.
 - A usage error exits 2 in both, with clap's text in place of argparse's. The write test
@@ -3389,14 +3394,16 @@ Not ported, and where the Rust differs:
 - Since build ticket 207 `--expect-revision` and `reconcile`'s attempt are read as `int()` reads
   them and held at any width: the whitespace `int()` strips, which leaves out U+001C to U+001F,
   the decimal digits of every script in Unicode 16.0, single underscores, and the 4300-digit
-  limit. `the_int_parser_matches_python_on_every_code_point` checks the table against `python3`.
+  limit. `the_int_parser_matches_python_on_every_code_point` checks the table against what
+  CPython 3.14.7 answered, a fixture since build ticket 196.
 - A prefix of a long option resolves as argparse resolves it, on every command. A probe of all
   232 prefixes of two characters or more found no flag the two treat differently.
 - A goal id that is not UTF-8 is a usage error in the Rust.
 - `choose <file>` names the plan by `Path.stem` as Python 3.14 computes it, where a trailing dot
   is a suffix. Python 3.13 and earlier keep the dot.
 
-Build ticket 196 moved every caller to `hydra-puppets` and deleted no Python. The cockpit
+Build ticket 196 moved every caller to `hydra-puppets`, and its second half, after map ticket
+93, deleted `puppets.py` and the seven Python test files that tested it. The cockpit
 runs the `hydra-puppets` beside its own binary and, when none is there, the bare name, which the
 spawn looks up on `PATH` (`cockpit::helper_beside`). `cargo build` at the root builds `hydra`
 alone, so the README's build line is now `cargo build --release --workspace`. `pending --json`
@@ -3406,20 +3413,68 @@ gone. `log::data_dir()` finds `vendors.json`, `priors.json`, `aliases.json` and 
 the helper runs: `HYDRA_PUPPETS_DATA`, else `integrations/puppets` under `HYDRA_HOME`, else the
 first directory above the binary that holds `integrations/puppets/prompts`. A binary copied out
 of its checkout with neither variable set finds no data, and its error names the path beside it.
-The damaged-log hint says `hydra-puppets repair <goal>` in both implementations and in the
+The damaged-log hint says `hydra-puppets repair <goal>` in the helper and in the
 cockpit. `integrations/herdr/bin/hydra-board` runs `hydra-puppets board`: `HYDRA_PUPPETS_BIN`,
 else the one beside `HYDRA_BIN`, else `PATH`. CI runs fmt, clippy, the build and the tests over
-the workspace.
+the workspace, and no longer pins a Python.
 
-- **The Python is still there.** `integrations/grader/labels.py` imports `puppets.py` for
-  `fold`, `records.py` imports `models.py`, and `baseline.py` imports `jev_probe.py`, which was
-  never ported. `sheet.py`'s `build`, `budget` and `show` were not ported either; a human or the
-  session runs them from the command line, and `<puppets home>/agents/` is still written by
-  `sheet.py build`. Deleting `puppets.py` needs the grader to read the fold from somewhere else,
-  which is a change to `integrations/grader/` and was outside this ticket. So the Python suite
-  stays in CI and the differential tests still run both implementations. One thing is
-  normalized that was not before: the Python's `argv` starts with `sys.executable` and its
-  script, and that pair is replaced by the Rust's one element.
+**The grader reads a goal through the helper (map ticket 93).** `integrations/grader/labels.py`
+imported the Python for its `fold`. It now runs `hydra-puppets show -- <goal>` per goal log and
+reads `goal.text`, each task's `id`, `class`, `grade`, `text`, `run_id` and `human_result`, and
+each plan's `run_id`, checking that shape. The binary is an absolute path and `PATH` is never
+searched: `HYDRA_PUPPETS_BIN`, else `hydra-puppets` beside `HYDRA_BIN` when that is absolute,
+which is what the launchd template gives, else `target/release/hydra-puppets` of the checkout.
+The first of those that is configured is the answer, so a missing binary there is an error and
+not a reason to try the next. A missing binary, a non-zero exit or output of another shape
+raises `LabelsError`, and `grader.collect` calls `labels.collect` before it writes anything, so
+that pass leaves the dataset, the cursor, the show cache and the scores as they were
+(`test_a_goal_the_helper_refuses_ends_the_pass_with_nothing_written`). `labels.py` still walks
+the raw events for `judge_run_ids`, after `show` succeeded and by the helper's line rule. Two
+things changed for a caller. A last line that is terminated and is not JSON used to be passed
+over and is now a failed pass, because the helper calls it damage. And the tasks `3` and `"3"`,
+which `show` prints under one key, are both read: the Python's `json` would keep one.
+
+**What gated the deletion.** With both alive, `crates/puppets/tests/record.py labels` computed
+the labels through `puppets.fold` and through the shell-out over every goal log of the
+differential tests: 405 logs, 366 of them equal with 396 labels between them, and 39 that
+`show` refuses, none of which had a label under the Python fold. No label differed. The
+slowest `show` took 12 ms.
+The comparison found one bug in the new reader before it found none: a line in UTF-16 has to
+reach the parser with its newline. It has not been run over the real `~/hydra/puppets`; a run
+launched by Hydra cannot read that directory.
+
+**The differential tests compare with a recording.** `record.py` ran the Python once on every
+input and wrote `crates/puppets/tests/fixtures/`, 434 cases and 3.3 MB: per case each command's
+exit code, stdout and stderr and the files left behind, and for the read inputs the starting
+log and the labels the Python fold gave. `differential.rs` runs the Rust on the same inputs and
+compares, with the comparator's normalizations unchanged and one added, the directory a group
+of cases lives under. It compared 1,312 read commands over 164 inputs (116 harvested logs and
+48 edge logs), 173 write commands, 87 launch commands, nine locales and the symlink case on
+2026-10-01. Three things had to be fixed for a recording to repeat on another machine: every
+command starts from an empty environment, the data files are frozen copies under
+`fixtures/data/` so a seat marked unavailable in `vendors.json` does not change a case, and the
+repository `review` and `new` read is committed at a fixed time. `sorted`, `str.isprintable`,
+`int()`, `math.lgamma` and `sheet.beta_lower` are recorded too, as CPython 3.14.7 answered, so
+no test starts `python3`. Each test fails when its group holds a fixture no case reads.
+`integrations/grader/tests/test_labels_recorded.py` is the gate above kept as a test: 147 logs
+equal with 291 labels, ten with a human verdict, and 17 that both refuse.
+
+- **What is left in Python, and why.** `integrations/puppets/sheet.py` keeps `build`, `budget`
+  and `show`, which were never ported and are run by hand; it holds no fold, and map ticket 93
+  left it for the grader's own port. `models.py` stays beside it because `sheet.py` and
+  `integrations/grader/records.py` both load it. `jev_probe.py` and its tests moved to
+  `integrations/grader/`, the only thing that loads it. `<puppets home>/agents/` is still
+  written by `sheet.py build`.
+- **The recording cannot be made again from this checkout.** The Python it records is gone, so
+  a case added to `differential.rs` has no fixture and fails until someone records it from a
+  checkout before build ticket 196. A change to the helper's behaviour is now checked by its
+  unit tests and by nothing that knows what the Python did. The ignored test over the real
+  goal logs went with the Python for the same reason.
+- The fixtures were recorded on arm64 macOS. `the_launch_commands_match` compares what a stub
+  prints from `env`, and `stdout_surrogate_matches_python_locales` depends on the `C` and
+  `en_US.UTF-8` locales; neither has been run on Linux.
+- One thing is normalized that was not before the first half: the Python's `argv` starts with
+  `sys.executable` and its script, and that pair is replaced by the Rust's one element.
 - `run_file_has_end` reads the run record as bytes, a line at a time, and answers at the first
   `run_end`. A line that is not UTF-8 is passed over like one that is not JSON. The Python
   raises `UnicodeDecodeError` when its decoder reaches a bad byte before a `run_end`; the Rust
@@ -3558,9 +3613,9 @@ helper that prints a fixed `pending` and records its argv, and the listing of th
 the same after `y` as before. An approval does not move the goal's revision, so the
 reader's list, up to 10 seconds old, would offer a step just approved again, and `--expect-revision`
 would not stop a second approval. The cockpit keeps each step it approved out of the lane until a
-`pending` read newer than the approval. No real helper, `puppets.py` before build ticket 196 or
+`pending` read newer than the approval. No real helper, the Python one before build ticket 196 or
 `hydra-puppets` since, has been run from the cockpit.
-Since build ticket 187 the cockpit also handles what build 185 added to `puppets.py`. A diff
+Since build ticket 187 the cockpit also handles what build 185 added to the helper. A diff
 step's argv carries `--expect-run <id>` and a plan's `--expect-plan <path>` before
 `--expect-revision N`. `parse_steps` needed no change for that, because it checks only that the
 argv ends in `--expect-revision` and the item's own revision; `tests/cockpit.rs` now checks both

@@ -1,7 +1,8 @@
 //! JSON the way Python's `json` module reads and writes it.
 //!
-//! The goal log is written by `puppets.py` and read back by both implementations, and the
-//! read commands print parts of it verbatim, so key order, number spelling and string
+//! The Python helper wrote goal logs this one still reads, the grader's Python parses what
+//! `show` prints, and the read commands print parts of a log verbatim, so key order, number
+//! spelling and string
 //! escaping have to match `json.loads` and `json.dumps` exactly. `serde_json` keeps keys
 //! sorted unless its `preserve_order` feature is on, and turning that on here would turn it
 //! on for the `hydra` package too whenever the workspace builds together.
@@ -190,7 +191,7 @@ impl ParseError {
 }
 
 /// Python refuses to turn a decimal string of more digits than this into an int: the default
-/// of `sys.set_int_max_str_digits`, which `puppets.py` leaves alone.
+/// of `sys.set_int_max_str_digits`, which the Python helper left alone.
 pub const MAX_INT_DIGITS: usize = 4300;
 
 /// How deep lists and objects may nest. Python has no such number: its decoder raises

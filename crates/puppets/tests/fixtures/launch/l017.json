@@ -1,0 +1,55 @@
+{
+ "label": "plans: a symlink is passed over and a hard link skipped by name",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/launch",
+ "home": "/private/tmp/hp196/jobs/launch/l017/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/launch/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "plans",
+    "g1"
+   ],
+   "code": 0,
+   "stdout": {
+    "text": "plan codex -> /private/tmp/hp196/jobs/launch/l017/py/puppets/g1/plans/codex.md\n"
+   },
+   "stderr": {
+    "text": "skipping /private/tmp/hp196/jobs/launch/l017/py/root/worktrees/p1/docs/proposals/b.md: /private/tmp/hp196/jobs/launch/l017/py/root/worktrees/p1/docs/proposals/b.md has 2 links\nclaude run p2 has not ended\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"ship caf\u00e9 \u2615\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"plan_proposed\",\"provider\":\"codex\",\"run_id\":\"p1\"}\n{\"event\":\"plan_proposed\",\"provider\":\"claude\",\"model\":\"opus\",\"run_id\":\"p2\"}\n{\"seq\":4,\"ts\":\"2026-10-01T08:33:56.253Z\",\"event\":\"plan_ready\",\"provider\":\"codex\",\"run_id\":\"p1\",\"path\":\"/private/tmp/hp196/jobs/launch/l017/py/puppets/g1/plans/codex.md\"}\n"
+   }
+  },
+  {
+   "path": "puppets/g1/plans/codex.md",
+   "bytes": {
+    "text": "from the run"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.argv",
+   "bytes": {
+    "text": "show\u0000p1\u0000"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.cwd",
+   "bytes": {
+    "text": "/private/tmp/hp196/jobs/launch/shared\n"
+   }
+  },
+  {
+   "path": "stub/calls/hydra-show-1.env",
+   "bytes": {
+    "text": "__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0\n_=/usr/bin/env\nGIT_CONFIG_GLOBAL=/dev/null\nGIT_CONFIG_NOSYSTEM=1\nHOME=/private/tmp/hp196/jobs/launch/l017/py\nHYDRA_BIN=hydra-stub\nHYDRA_GRADER_HOME=/private/tmp/hp196/jobs/launch/l017/py/grader\nHYDRA_PUPPETS_DATA=/private/tmp/hp196/jobs/launch/data\nHYDRA_PUPPETS_HOME=/private/tmp/hp196/jobs/launch/l017/py/puppets\nHYDRA_ROOT=/private/tmp/hp196/jobs/launch/l017/py/root\nLC_ALL=en_US.UTF-8\nPATH=/private/tmp/hp196/jobs/launch/bin:/usr/bin:/bin\nPWD=/private/tmp/hp196/jobs/launch/shared\nPYTHONDONTWRITEBYTECODE=1\nPYTHONUNBUFFERED=1\nSHLVL=1\nSTUB_STATE=/private/tmp/hp196/jobs/launch/l017/py/stub\n"
+   }
+  }
+ ]
+}

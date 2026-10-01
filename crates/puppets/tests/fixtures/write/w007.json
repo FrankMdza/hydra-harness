@@ -1,0 +1,34 @@
+{
+ "label": "Python int revision \"5_\"",
+ "goal": null,
+ "root": "/private/tmp/hp196/jobs/write",
+ "home": "/private/tmp/hp196/jobs/write/w007/py",
+ "python": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+ "script": "/private/tmp/hp196/jobs/write/data/puppets.py",
+ "steps": [
+  {
+   "args": [
+    "approve",
+    "g1",
+    "--plan",
+    "--expect-revision",
+    "5_"
+   ],
+   "code": 2,
+   "stdout": {
+    "text": ""
+   },
+   "stderr": {
+    "text": "usage: puppets.py approve [-h] [--plan] [--table] [--launch TASK]\n                          [--diff TASK] [--degraded MISSING=SUBSTITUTE]\n                          [--expect-revision EXPECT_REVISION]\n                          [--expect-run EXPECT_RUN]\n                          [--expect-plan EXPECT_PLAN]\n                          goal\npuppets.py approve: error: argument --expect-revision: invalid int value: '5_'\n"
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "puppets/g1.jsonl",
+   "bytes": {
+    "text": "{\"seq\":1,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/repo\",\"base_sha\":\"abc\"}\n{\"event\":\"task\",\"id\":\"t1\",\"text\":\"do t1\",\"class\":\"docs\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t2\",\"text\":\"do t2\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t3\",\"text\":\"do t3\",\"class\":\"research\",\"grade\":\"agi\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t4\",\"text\":\"do t4\",\"class\":\"weird\",\"grade\":\"low\",\"done\":null,\"deps\":[],\"paths\":[]}\n{\"event\":\"task\",\"id\":\"t5\",\"text\":\"do t5\",\"class\":\"security_review\",\"grade\":\"medium\",\"done\":null,\"deps\":[],\"paths\":[]}\n"
+   }
+  }
+ ]
+}
