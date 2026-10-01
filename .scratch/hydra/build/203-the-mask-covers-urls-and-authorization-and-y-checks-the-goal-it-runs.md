@@ -1,7 +1,7 @@
 # 203 - The mask covers URLs and `Authorization`, and `y` checks the goal it runs
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -50,3 +50,26 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
 
 - Each test failed before the change; fmt, clippy over the workspace, `cargo test --lib` and
   `cargo test --test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f610` (codex gpt-6.1-sol, `standard`, 1.6M tokens), diff read whole
+by the session and applied to master as written.
+
+Built: the password of `scheme://user:password@` is masked; the whole value of `Authorization`
+and `Proxy-Authorization`, scheme word included; a one-dash flag with a secret name takes a value
+after a space; a backslash escapes the next character in a bare value; a secret name inside a
+quoted word masks to that closing quote; after a flag and a space, a word that starts with `-` is
+left alone; `Host::draw_status` returns on an empty area. For item 6 the run chose to drop an open
+step or review confirmation when the shown goal changes, with a message, so `y` can only ever act
+on the goal on screen; build 201's check at `y` covers the same goal turning damaged.
+
+Measured on master: fmt and clippy clean over the workspace, `cargo test --test cockpit` 101
+passed, `cargo test --lib` 224 passed. The session reverted `snapshot.rs`, `app.rs` and `host.rs`
+and saw all nine new tests fail, then restored them.
+
+Left open: a secret name inside a quoted word hides the rest of that word, so `bash -c
+"TOKEN=abc ./deploy"` shows `TOKEN=***"` and not `./deploy`. `-k value` still shows its value.
+`enclosing_quote` scans from the start of the row for every match, which is quadratic on a row
+with many matches.
+

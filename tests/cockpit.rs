@@ -4063,3 +4063,125 @@ fn ticket201_nonfinite_does_not_hide_malformed_json() {
     assert_eq!(folded.text.as_deref(), Some("NaN Infinity"));
     assert_eq!(folded.skipped, 0);
 }
+
+fn ticket203_input(name: &str, command: &str) -> String {
+    let layout = scratch(name);
+    let run = "01a0f203-0000-7000-8000-000000000203";
+    write_live_frames(
+        &layout,
+        run,
+        "claude",
+        Some("opus"),
+        noon(),
+        &[claude_bash("toolu_01", command)],
+    );
+    calls_in(&layout, run)[0].input.clone()
+}
+
+#[test]
+fn ticket203_url_password() {
+    assert_eq!(
+        ticket203_input("url-password", "https://user:s3cret@host"),
+        "https://user:***@host"
+    );
+}
+
+#[test]
+fn ticket203_authorization_headers() {
+    for header in [
+        "Authorization: Bearer abc",
+        "Authorization: Basic dXNlcjpwYXNz",
+        "Proxy-Authorization: abc",
+    ] {
+        assert_eq!(
+            ticket203_input("authorization", &format!("curl --header \"{header}\"")),
+            format!(
+                "curl --header \"{}: ***\"",
+                header.split(':').next().unwrap()
+            )
+        );
+    }
+}
+
+#[test]
+fn ticket203_one_dash_secret_flags() {
+    for flag in ["-api-key", "-password", "-key"] {
+        assert_eq!(
+            ticket203_input("one-dash", &format!("{flag} s3cret")),
+            format!("{flag} ***")
+        );
+    }
+    assert_eq!(ticket203_input("short-flag", "-k s3cret"), "-k s3cret");
+}
+
+#[test]
+fn ticket203_bare_backslash() {
+    assert_eq!(
+        ticket203_input("bare-backslash", r"TOKEN=\s3cret"),
+        "TOKEN=***"
+    );
+    assert_eq!(
+        ticket203_input("escaped-space", r"TOKEN=s3cret\ more"),
+        "TOKEN=***"
+    );
+}
+
+#[test]
+fn ticket203_quoted_header_space() {
+    assert_eq!(
+        ticket203_input("header-space", "curl -H 'x-api-key: s3cret more'"),
+        "curl -H 'x-api-key: ***'"
+    );
+}
+
+#[test]
+fn ticket203_flag_is_not_a_value() {
+    assert_eq!(
+        ticket203_input("flag-value", "log --pass-through --oneline"),
+        "log --pass-through --oneline"
+    );
+    for command in ["--key-file path", "--keyboard us", "key: enabled"] {
+        assert!(ticket203_input("broad-mask", command).ends_with("***"));
+    }
+}
+
+#[test]
+fn ticket203_host_small_draw_with_session() {
+    let layout = scratch("host-small");
+    let mut host = stub(&layout, "exit 0", WATCHED, WIDE);
+    for height in 1..=5 {
+        for width in 1..=20 {
+            let area = Rect::new(0, 0, width, height);
+            host.draw(area, &mut Buffer::empty(area));
+        }
+    }
+}
+
+#[test]
+fn ticket203_goal_switch_cancels_approval() {
+    let (layout, stub, mut reader) = steps_reader("switch-approval", "", "echo approved");
+    let mut app = steps_app(&layout, &stub, &mut reader, false);
+    app.handle(&key(KeyCode::Char('a')));
+    assert!(app.confirming_step.is_some());
+    std::fs::write(layout.root().join("puppets/g2.jsonl"), b"\n").unwrap();
+    let mut snapshot = reader.read(None);
+    snapshot.goal = Some(goal::fold("other", ENDED_LOG.as_bytes()));
+    app.set_snapshot(snapshot);
+    assert!(app.confirming_step.is_none());
+    app.handle(&key(KeyCode::Char('y')));
+    assert!(calls(&layout, "approve-calls").is_empty());
+}
+
+#[test]
+fn ticket203_goal_switch_cancels_review() {
+    let (_layout, log, mut app) = review_app("switch-review", "#!/bin/sh\nexit 0\n");
+    app.focus = Focus::Table;
+    app.handle(&key(KeyCode::Char('v')));
+    assert!(app.confirming_review.is_some());
+    std::fs::write(log, b"\n").unwrap();
+    let mut snapshot = fixed_snapshot();
+    snapshot.goal = Some(goal::fold("other", ENDED_LOG.as_bytes()));
+    app.set_snapshot(snapshot);
+    assert!(app.confirming_review.is_none());
+    app.handle(&key(KeyCode::Char('y')));
+}

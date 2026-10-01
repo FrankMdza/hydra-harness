@@ -253,6 +253,9 @@ impl Host {
     }
 
     fn draw_status(&self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() {
+            return;
+        }
         if self.asking {
             let ask = "the chat is still running: y hangs it up and quits once its record is \
                        read, any other key keeps it";

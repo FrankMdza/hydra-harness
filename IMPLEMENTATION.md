@@ -3325,7 +3325,9 @@ takes the log that changed last and says so on the status line. A newline-termin
 blank or is not JSON makes the goal damaged: the table shows `damaged at line <n>: run
 puppets.py repair <id>` and no rows, and `v` and `a` on a Master of Puppets step refuse until
 `repair` has run. The confirmation checks damage again at `y` and closes with the repair
-message if a newer snapshot is damaged; `a` on a seat request and `m` still work, since neither touches the goal log. A line
+message if a newer snapshot is damaged. Changing the shown goal cancels an open step or
+review confirmation, so `y` cannot run a command for a goal no longer on screen; `a` on a seat
+request and `m` still work, since neither touches the goal log. A line
 that is JSON but lacks a field `fold` needs is counted and skipped. Python JSON lines with
 unquoted `NaN`, `Infinity` or `-Infinity` are validated with those constants replaced by null
 and counted as skipped, so they do not request a repair the helper cannot perform; a last line with no newline
@@ -3373,9 +3375,13 @@ and the value of a `NAME=value` or `"NAME": "value"` whose name holds `TOKEN`, `
 name with hyphens, such as `api-key` or `access-token`, is masked too. Quoted assignment
 values consume backslash escapes, so an escaped quote does not end the mask early. Dots
 in names are recognized too. Secret flag values separated by whitespace and header values
-after a colon are hidden, as are whole backtick and `$(...)` assignment values. The broad
-name rule also hides ordinary `--key-file`, `--keyboard` and `--pass-through` values.
-These corrections are covered by build ticket 200. A call on a
+after a colon are hidden, as are whole backtick and `$(...)` assignment values. One-dash secret
+flags take values too, and a following word starting with `-` is left alone.
+Bare values consume backslash escapes. A header inside a quoted word is hidden through its
+closing quote. URL userinfo passwords are hidden, while usernames and hosts remain visible.
+Authorization and Proxy-Authorization headers hide the whole value, including Bearer or Basic.
+The broad name rule also hides ordinary `--key-file`, `--keyboard` and `key: enabled` values.
+These corrections are covered by build tickets 200, 201 and 203. A call on a
 line whose envelope carries a `secret_flag` reads `input hidden: secret_flag`. The row is cut by
 display width through `unicode-width`, `~` inside it, never splitting a wide character. The raw
 view behind `r` masks nothing: it shows each of the last twenty lines verbatim up to 400

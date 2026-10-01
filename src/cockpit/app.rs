@@ -321,6 +321,26 @@ impl App {
     /// policy pane up it reloads the set too, so a file changed outside the
     /// cockpit shows at the next refresh rather than at the next `e`.
     pub fn set_snapshot(&mut self, snapshot: Snapshot) {
+        if self.snapshot.goal.as_ref().map(|goal| &goal.id)
+            != snapshot.goal.as_ref().map(|goal| &goal.id)
+            && (self.confirming_step.is_some() || self.confirming_review.is_some())
+        {
+            self.confirming_step = None;
+            self.confirming_review = None;
+            self.message = Some(
+                snapshot
+                    .goal
+                    .as_ref()
+                    .and_then(|goal| {
+                        goal.damaged_at.map(|line| {
+                            format!("damaged at line {line}: run puppets.py repair {}", goal.id)
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        "the shown goal changed; confirmation cancelled".to_string()
+                    }),
+            );
+        }
         if self.policy_pane {
             self.reload_policies();
         }

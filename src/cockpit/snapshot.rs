@@ -873,6 +873,25 @@ fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
         SECRET_NAMES.iter().any(|part| name.contains(part))
     };
     let starts_token = i == 0 || !chars[i - 1].is_alphanumeric();
+    if starts_token && chars[i].is_ascii_alphabetic() {
+        let scheme_end = (i..chars.len())
+            .find(|&j| !chars[j].is_ascii_alphanumeric() && !matches!(chars[j], '+' | '-' | '.'))
+            .unwrap_or(chars.len());
+        if chars.get(scheme_end..scheme_end + 3) == Some(&[':', '/', '/']) {
+            let start = scheme_end + 3;
+            let end = (start..chars.len())
+                .find(|&j| {
+                    chars[j].is_whitespace() || matches!(chars[j], '/' | '?' | '#' | '\'' | '"')
+                })
+                .unwrap_or(chars.len());
+            if let Some(at) = (start..end).rfind(|&j| chars[j] == '@')
+                && let Some(colon) = (start..at).find(|&j| chars[j] == ':')
+            {
+                return Some((colon + 1, at));
+            }
+        }
+    }
+
     if chars[i] == '"' {
         // `"NAME": "value"`, spaces around the colon optional.
         let name_end = (i + 1..chars.len()).find(|&j| !is_name(chars[j]))?;
@@ -903,9 +922,12 @@ fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
         let name_end = (i..chars.len())
             .find(|&j| !is_name(chars[j]))
             .unwrap_or(chars.len());
-        if secret_name(&chars[i..name_end]) {
+        let name: String = chars[i..name_end].iter().collect();
+        let authorization = name.eq_ignore_ascii_case("Authorization")
+            || name.eq_ignore_ascii_case("Proxy-Authorization");
+        if secret_name(&chars[i..name_end]) || authorization {
             let separator = chars.get(name_end).copied();
-            let flag = chars[i..name_end].starts_with(&['-', '-']);
+            let flag = chars[i] == '-';
             if matches!(separator, Some('=' | ':'))
                 || (flag && separator.is_some_and(char::is_whitespace))
             {
@@ -913,7 +935,19 @@ fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
                 while chars.get(start).is_some_and(|c| c.is_whitespace()) {
                     start += 1;
                 }
-                return Some((start, secret_value_end(chars, start)));
+                if separator.is_some_and(char::is_whitespace) && chars.get(start) == Some(&'-') {
+                    return None;
+                }
+                let end = if let Some(quote) = enclosing_quote(chars, i) {
+                    quoted_end(chars, start, quote)
+                } else if authorization {
+                    (start..chars.len())
+                        .find(|&j| matches!(chars[j], '\r' | '\n' | '\'' | '"'))
+                        .unwrap_or(chars.len())
+                } else {
+                    secret_value_end(chars, start)
+                };
+                return Some((start, end));
             }
         }
     }
@@ -969,15 +1003,50 @@ fn secret_value_end(chars: &[char], start: usize) -> usize {
 /// Where a bare value that starts at `from` ends: at whitespace, a quote or
 /// the punctuation that closes a shell word or a JSON value.
 fn token_end(chars: &[char], from: usize) -> usize {
-    (from..chars.len())
-        .find(|&j| {
-            chars[j].is_whitespace()
-                || matches!(
-                    chars[j],
-                    '"' | '\'' | ',' | ';' | '&' | '|' | '}' | ']' | ')' | '\\'
-                )
-        })
-        .unwrap_or(chars.len())
+    let mut j = from;
+    while j < chars.len() {
+        if chars[j] == '\\' {
+            j = (j + 2).min(chars.len());
+        } else if chars[j].is_whitespace()
+            || matches!(
+                chars[j],
+                '"' | '\'' | ',' | ';' | '&' | '|' | '}' | ']' | ')'
+            )
+        {
+            break;
+        } else {
+            j += 1;
+        }
+    }
+    j
+}
+
+fn enclosing_quote(chars: &[char], end: usize) -> Option<char> {
+    let mut quote = None;
+    let mut j = 0;
+    while j < end {
+        if chars[j] == '\\' {
+            j += 2;
+            continue;
+        }
+        if let Some(open) = quote {
+            if chars[j] == open {
+                quote = None;
+            }
+        } else if matches!(chars[j], '\'' | '"' | '`') {
+            quote = Some(chars[j]);
+        }
+        j += 1;
+    }
+    quote
+}
+
+fn quoted_end(chars: &[char], start: usize, quote: char) -> usize {
+    let mut j = start;
+    while j < chars.len() && chars[j] != quote {
+        j += if chars[j] == '\\' { 2 } else { 1 };
+    }
+    j.min(chars.len())
 }
 
 /// A record's first line, or `None` when there is none to read.
