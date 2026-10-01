@@ -3,14 +3,20 @@
 //! The inputs are every goal log the Python tests leave on disk (`harvest.py` copies each
 //! test's puppets home, scores file and vendors file just before its tearDown), plus the edge
 //! logs below. For each, `show`, `board`, `pending --json`, `queue`, `repair` and
-//! `repair --yes` run under both, and stdout, stderr and the exit code must be equal.
+//! `repair --yes` run under both, and stdout, stderr and the exit code must be equal. After
+//! `repair --yes` each implementation's repaired copy is read back with `show` and
+//! `pending --json`, and those must be equal too.
 //!
-//! Three things are normalized, and only those:
+//! These are normalized, and only these:
 //! - `pending --json` prints an `argv` whose first element is the Python's `sys.executable`;
-//!   the Rust prints `python3`. The script path after it is the same canonical path in both.
-//! - `repair --yes` names the torn file with the time it ran, in stdout and on disk.
+//!   the Rust prints `python3`. Only that element is replaced. The script path after it is
+//!   the same canonical path in both.
+//! - `repair --yes` names the torn file with the time it ran, in stdout and on disk, and
+//!   stamps the `repair` event it appends. Only a name whose 24 characters are a time of
+//!   `utc_now()`'s shape is masked, and only the `ts` of the one line the command appended.
 //! - Where the Python dies with a traceback, the Rust must exit 1 with the same stdout, and
-//!   its one-line error must name the Python's exception class; the traceback is not compared.
+//!   its one-line error must start `hydra-puppets: <Class>:` with the Python's exception
+//!   class; the rest of the traceback is not compared.
 //! - A damaged log prints the same named error on stderr in both, with no traceback.
 
 use std::collections::HashSet;
@@ -121,37 +127,100 @@ fn json_string(text: &str) -> String {
     out
 }
 
-/// Replace the `ts` on a `repair` event line so two runs at different times compare equal.
-fn mask_repair_ts(content: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    for line in content.split_inclusive(|b| *b == b'\n') {
-        const REPAIR: &[u8] = b"\"event\":\"repair\"";
-        if line.windows(REPAIR.len()).any(|w| w == REPAIR) {
-            let text = String::from_utf8_lossy(line);
-            if let Some(start) = text.find("\"ts\":\"") {
-                let rest = &text[start + 6..];
-                if let Some(end) = rest.find('"') {
-                    let mut masked = text[..start].to_string();
-                    masked.push_str("\"ts\":\"<ts>\"");
-                    masked.push_str(&rest[end + 1..]);
-                    out.extend_from_slice(masked.as_bytes());
-                    continue;
-                }
-            }
+/// Mask the `ts` of the `repair` event `repair --yes` appended, so two runs at different
+/// times compare equal. Only that line: the log's last, when the input did not hold it and
+/// it has exactly the shape the command writes. A `repair` event that was already in the
+/// input keeps its `ts`, and so does one nested in another event.
+fn mask_repair_ts(before: &[u8], after: &[u8]) -> Vec<u8> {
+    let Some(last) = after.split_inclusive(|b| *b == b'\n').next_back() else {
+        return after.to_vec();
+    };
+    if before
+        .split_inclusive(|b| *b == b'\n')
+        .any(|line| line == last)
+    {
+        return after.to_vec();
+    }
+    let Some((head, tail)) = appended_repair_line(last) else {
+        return after.to_vec();
+    };
+    let mut out = after[..after.len() - last.len()].to_vec();
+    out.extend_from_slice(head.as_bytes());
+    out.extend_from_slice(b"<ts>");
+    out.extend_from_slice(tail.as_bytes());
+    out
+}
+
+/// Split `{"seq":N,"ts":"<stamp>","event":"repair","removed":N}` and its newline around the
+/// stamp, when the line is exactly that and the stamp has `utc_now()`'s shape.
+fn appended_repair_line(line: &[u8]) -> Option<(&str, &str)> {
+    let line = std::str::from_utf8(line).ok()?;
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
+    let (seq, rest) = line.strip_prefix("{\"seq\":")?.split_once(",\"ts\":\"")?;
+    let stamp = rest.get(..24)?;
+    let removed = rest
+        .get(24..)?
+        .strip_prefix("\",\"event\":\"repair\",\"removed\":")?
+        .strip_suffix("}\n")?;
+    if !digits(seq) || !digits(removed) || !is_utc_stamp(stamp) {
+        return None;
+    }
+    let stamp_at = line.len() - rest.len();
+    Some((&line[..stamp_at], &line[stamp_at + 24..]))
+}
+
+/// `pending --json` prints Python's `sys.executable` first in each `argv`; make it `python3`.
+/// Only that element: the line after an item's `"argv": [`. A task named like the executable
+/// keeps its name everywhere else. A JSON string cannot hold a raw newline, so a line that
+/// is exactly an item's `argv` key at that indent is one.
+fn mask_argv0(stdout: &str, python_exe: &str) -> String {
+    let argv0 = format!("      {},", json_string(python_exe));
+    let mut out = String::new();
+    let mut after_argv = false;
+    for line in stdout.split_inclusive('\n') {
+        let body = line.strip_suffix('\n').unwrap_or(line);
+        if after_argv && body == argv0 {
+            out.push_str("      \"python3\",");
+            out.push_str(&line[body.len()..]);
+        } else {
+            out.push_str(line);
         }
-        out.extend_from_slice(line);
+        after_argv = body == "    \"argv\": [";
     }
     out
 }
 
-/// Replace the time in `<goal>.torn-<time>.txt` with `<ts>`.
+/// Whether the Rust's stderr starts by naming the exception class the Python raised:
+/// `hydra-puppets: <Class>: ...`. A class named further into the message does not count.
+fn names_class(rust_stderr: &str, class: &str) -> bool {
+    rust_stderr
+        .strip_prefix("hydra-puppets: ")
+        .and_then(|rest| rest.split_once(':'))
+        .is_some_and(|(named, _)| named == class)
+}
+
+/// Whether `text` has the shape `utc_now()` writes: `2026-10-01T09:08:07.123Z`.
+fn is_utc_stamp(text: &str) -> bool {
+    const SHAPE: &[u8; 24] = b"dddd-dd-ddTdd:dd:dd.dddZ";
+    text.len() == SHAPE.len()
+        && text.bytes().zip(SHAPE).all(|(got, want)| match want {
+            b'd' => got.is_ascii_digit(),
+            other => got == *other,
+        })
+}
+
+/// Replace the time in `<goal>.torn-<time>.txt` with `<ts>`, where it is a time.
 fn mask_torn_stamp(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(at) = rest.find(".torn-") {
         let (head, tail) = rest.split_at(at + ".torn-".len());
         out.push_str(head);
-        if tail.len() >= 24 + 4 && tail.is_char_boundary(24) && tail[24..].starts_with(".txt") {
+        if tail.len() >= 24 + 4
+            && tail.is_char_boundary(24)
+            && is_utc_stamp(&tail[..24])
+            && tail[24..].starts_with(".txt")
+        {
             out.push_str("<ts>");
             rest = &tail[24..];
         } else {
@@ -173,7 +242,8 @@ fn exception_class(stderr: &str) -> Option<String> {
 }
 
 /// The files a case directory holds after a command, names masked, for `repair --yes`.
-fn tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
+/// `original` is the directory the command's copy was made from.
+fn tree(dir: &Path, original: &Path) -> Vec<(String, Vec<u8>)> {
     let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir.join("puppets"))
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -181,7 +251,8 @@ fn tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
         .map(|p| {
             let bytes = std::fs::read(&p).unwrap();
             let bytes = if p.extension().is_some_and(|e| e == "jsonl") {
-                mask_repair_ts(&bytes)
+                let before = original.join("puppets").join(p.file_name().unwrap());
+                mask_repair_ts(&std::fs::read(before).unwrap_or_default(), &bytes)
             } else {
                 bytes
             };
@@ -214,6 +285,28 @@ struct Report {
     mismatches: Vec<String>,
 }
 
+/// What differs between the two outcomes of one command, and the exception class when the
+/// Python died with a traceback. A traceback is compared by exit code, stdout and class.
+fn judge(py: &Outcome, rs: &Outcome) -> (Option<String>, Option<String>) {
+    match exception_class(&py.stderr) {
+        Some(class) => {
+            let same =
+                py.code == rs.code && py.stdout == rs.stdout && names_class(&rs.stderr, &class);
+            let problem = (!same).then(|| {
+                format!(
+                    "python raised {class}; rust gave {rs:?}; python stdout {:?}",
+                    py.stdout
+                )
+            });
+            (Some(class), problem)
+        }
+        None => (
+            None,
+            (py != rs).then(|| format!("python {py:#?}\nrust {rs:#?}")),
+        ),
+    }
+}
+
 /// Compare one command on one input; `scratch` is where `repair --yes` gets its copies.
 fn compare(
     input: &Input,
@@ -235,38 +328,44 @@ fn compare(
     } else {
         (input.dir.clone(), input.dir.clone())
     };
-    let mut py = run(&["python3", script], args, &py_dir);
-    let mut rs = run(&[RUST], args, &rs_dir);
+    let run_both = |args: &[&str]| {
+        let mut py = run(&["python3", script], args, &py_dir);
+        let rs = run(&[RUST], args, &rs_dir);
+        if args[0] == "pending" {
+            py.stdout = mask_argv0(&py.stdout, python_exe);
+        }
+        (py, rs)
+    };
+    let (mut py, mut rs) = run_both(args);
     let what = format!("{} `{}`", input.label, args.join(" "));
     let mut problems = Vec::new();
-    if args[0] == "pending" {
-        py.stdout = py.stdout.replace(&json_string(python_exe), "\"python3\"");
-    }
+    let mut crashes = Vec::new();
+    let mut compared = 1;
     if writes {
         py.stdout = mask_torn_stamp(&py.stdout);
         rs.stdout = mask_torn_stamp(&rs.stdout);
-        if tree(&py_dir) != tree(&rs_dir) {
+        if tree(&py_dir, &input.dir) != tree(&rs_dir, &input.dir) {
             problems.push("the files left behind differ".to_string());
         }
     }
-    let mut report = report.lock().unwrap();
-    report.compared += 1;
-    match exception_class(&py.stderr) {
-        Some(class) => {
-            report.crashes.push(format!("{what}: {class}"));
-            if py.code != rs.code || py.stdout != rs.stdout || !rs.stderr.contains(&class) {
-                problems.push(format!(
-                    "python raised {class}; rust gave {rs:?}; python stdout {:?}",
-                    py.stdout
-                ));
-            }
-        }
-        None => {
-            if py != rs {
-                problems.push(format!("python {py:#?}\nrust {rs:#?}"));
-            }
+    let (class, problem) = judge(&py, &rs);
+    crashes.extend(class.map(|class| format!("{what}: {class}")));
+    problems.extend(problem);
+    if writes {
+        // A repaired log folds again, which a damaged one never did: read each copy back
+        // with the implementation that repaired it.
+        for after in [&["show", args[1]][..], &["pending", args[1], "--json"]] {
+            let (py, rs) = run_both(after);
+            let (class, problem) = judge(&py, &rs);
+            let then = format!("then `{}`", after.join(" "));
+            crashes.extend(class.map(|class| format!("{what}, {then}: {class}")));
+            problems.extend(problem.map(|problem| format!("{then}: {problem}")));
+            compared += 1;
         }
     }
+    let mut report = report.lock().unwrap();
+    report.compared += compared;
+    report.crashes.extend(crashes);
     if !problems.is_empty() {
         report
             .mismatches
@@ -324,6 +423,376 @@ fn compare_all(inputs: &[Input], commands: &[&[&str]], scratch: &Path) -> Report
 
 /// A label, the log's bytes, `scores.jsonl`, and `vendors.json`.
 type EdgeCase<'a> = (&'a str, Vec<u8>, Option<String>, Option<&'a str>);
+
+/// The inputs of build ticket 199: each is a log the two implementations read differently
+/// before that ticket.
+fn review_inputs(goal: &str) -> Vec<EdgeCase<'static>> {
+    let line = |s: &str| format!("{s}\n");
+    let task = |id: &str| {
+        line(&format!(
+            r#"{{"event":"task","id":{id},"text":"t","class":"c","grade":"low"}}"#
+        ))
+    };
+    // A run that has ended and waits for a review, which is what `queue` sorts.
+    let ended = |id: &str, run: &str| {
+        [
+            line(&format!(
+                r#"{{"event":"run","task":{id},"attempt":1,"run_id":"{run}"}}"#
+            )),
+            line(&format!(
+                r#"{{"event":"run_end","task":{id},"run_id":"{run}"}}"#
+            )),
+        ]
+        .concat()
+    };
+    let score = |run: &str, p: &str| {
+        line(&format!(
+            r#"{{"label":"verdict","model_version":"v","run_id":"{run}","p":{p}}}"#
+        ))
+    };
+    let utf16be = |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(u16::to_be_bytes).collect() };
+    let utf16le = |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(u16::to_le_bytes).collect() };
+    let utf32be =
+        |s: &str| -> Vec<u8> { s.chars().flat_map(|c| (c as u32).to_be_bytes()).collect() };
+    let wide = "1393796574908163946345982392040522594123776"; // 2**140
+    let two_131 = "2722258935367507707706996859454145691648";
+    let two_130 = "1361129467683753853853498429727072845824";
+    let min_i128 = "-170141183460469231731687303715884105728"; // -2**127
+    let past_i128 = "680564733841876926926749214863536422912"; // 2**129
+    // Enough tasks to leave the insertion sort and reach the merges, a third of them NaN.
+    let mut many = line(goal);
+    let mut many_scores = String::new();
+    let mut seed: u64 = 199;
+    for n in 0..150 {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let id = format!("\"t{n:03}\"");
+        let run = format!("r{n:03}");
+        many.push_str(&task(&id));
+        many.push_str(&ended(&id, &run));
+        match (seed >> 33) % 6 {
+            0 | 1 => many_scores.push_str(&score(&run, "NaN")),
+            2 => {}
+            _ => many_scores.push_str(&score(&run, &format!("0.{}", (seed >> 40) % 50))),
+        }
+    }
+    vec![
+        (
+            "item 1: a lone surrogate in the goal text and in a task",
+            [
+                line(&goal.replace("\"test\"", r#""\ud800""#)),
+                line(r#"{"event":"task","id":"t1","text":"\udc00 x \ud83d\ude00","class":"c","grade":"low"}"#),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 1: a lone surrogate as a task id and a dict key",
+            [
+                line(goal),
+                task(r#""\udfff""#),
+                line(r#"{"event":"note","\ud800":{"\ud800\ud800":1}}"#),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 2: one task id as a wide int and as its float",
+            [line(goal), task(wide), task("1.393796574908164e42")]
+                .concat()
+                .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 2: two wide ids with tied scores",
+            [
+                line(goal),
+                task(two_131),
+                task(two_130),
+                ended(two_131, "r2"),
+                ended(two_130, "r1"),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 2: -2**127 and its exact float",
+            [
+                line(goal),
+                task(min_i128),
+                task("-1.7014118346046923e38"),
+                task(past_i128),
+                task("6.80564733841877e38"),
+                task("1e400"),
+                task("3"),
+                task("3.5"),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 2: wide and narrow ids, ints and floats, tied",
+            [
+                line(goal),
+                task(two_131),
+                task("1.5"),
+                task(&format!("-{two_130}")),
+                task("7"),
+                task("-1e300"),
+                ended(two_131, "a"),
+                ended("1.5", "b"),
+                ended(&format!("-{two_130}"), "c"),
+                ended("7", "d"),
+                ended("-1e300", "e"),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 3: a NaN score ahead of a real one",
+            [
+                line(goal),
+                task("\"z\""),
+                task("\"a\""),
+                ended("\"z\"", "rz"),
+                ended("\"a\"", "ra"),
+            ]
+            .concat()
+            .into_bytes(),
+            Some([score("rz", "NaN"), score("ra", "0.5")].concat()),
+            None,
+        ),
+        ("item 3: 150 tasks, a third with NaN scores", many.into_bytes(), Some(many_scores), None),
+        (
+            "item 5: a UTF-16BE line",
+            [
+                line(goal).into_bytes(),
+                utf16be(&task("\"u\\ud800 é😀\"")),
+                utf16be(&line(r#"{"event":"note"}"#)),
+            ]
+            .concat(),
+            None,
+            None,
+        ),
+        (
+            "item 5: UTF-16 and UTF-32 lines with a BOM, and UTF-32BE without",
+            [
+                [b"\xfe\xff".to_vec(), utf16be(&line(goal))].concat(),
+                [b"\x00\x00\xfe\xff".to_vec(), utf32be(&task("\"a\""))].concat(),
+                utf32be(&task("\"b😀\"")),
+            ]
+            .concat(),
+            None,
+            None,
+        ),
+        (
+            "control for item 5: a UTF-16LE line is damage in both",
+            [line(goal).into_bytes(), utf16le(&task("\"u\""))].concat(),
+            None,
+            None,
+        ),
+        (
+            "item 5: a surrogate as raw UTF-8 bytes",
+            [
+                line(goal).into_bytes(),
+                b"{\"event\":\"task\",\"id\":\"\xed\xa0\x80\",\"text\":\"t\",\"class\":\"c\",\"grade\":\"low\"}\n".to_vec(),
+            ]
+            .concat(),
+            None,
+            None,
+        ),
+        (
+            "item 5: an odd UTF-16 line, a short one and one past U+10FFFF",
+            [
+                line(goal).into_bytes(),
+                b"\x00{\x00}\x00\n".to_vec(),
+                b"\x001\n".to_vec(),
+                b"\x00\x11\x00\x00\x00\x00\x00\n".to_vec(),
+            ]
+            .concat(),
+            None,
+            None,
+        ),
+        (
+            "item 6: run_end for an unknown task with no run_id",
+            [line(goal), line(r#"{"event":"run_end","task":"missing"}"#)]
+                .concat()
+                .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "control for item 6: run_end with no run_id while a run is pending",
+            [
+                line(goal),
+                line(r#"{"event":"run","task":"t9","attempt":1,"run_id":"r"}"#),
+                line(r#"{"event":"run_end","task":"missing"}"#),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 7: repr of strings Python does not print raw",
+            line(&goal.replace(
+                "\"test\"",
+                r#"["\u2028","\u200b","\u00ad","\ud800","\ue000","\u0378","a'b","\u00a0","\u3000","\ud83d\ude00","\udb40\udc01","é","\u007f","a'b\"c"]"#,
+            ))
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 8: an empty model version",
+            line(goal).into_bytes(),
+            Some(line(
+                r#"{"label":"verdict","model_version":"","run_id":"r","p":0.5}"#,
+            )),
+            None,
+        ),
+        (
+            "item 9: an integer of 4,301 digits",
+            [
+                line(goal),
+                line(&format!(r#"{{"event":"note","n":{}}}"#, "1".repeat(4301))),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "control for item 9: integers of 4,300 digits and a float of 5,000",
+            [
+                line(goal),
+                task(&"7".repeat(4300)),
+                task(&format!("-{}", "7".repeat(4300))),
+                task(&format!("{}.5", "7".repeat(5000))),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 12: two repairs that claim i64::MAX bad lines, around two approvals",
+            [
+                line(goal),
+                task("\"t1\""),
+                line(r#"{"event":"repair","removed":9223372036854775807}"#),
+                line(r#"{"event":"approval","kind":"table","revision":2,"yes":true}"#),
+                line(r#"{"event":"approval","kind":"table","revision":9223372036854775807,"yes":true}"#),
+                line(r#"{"event":"repair","removed":9223372036854775807}"#),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 12: removed past i128, at a billion and one past it",
+            [
+                line(goal),
+                task("\"t1\""),
+                line(&format!(r#"{{"event":"repair","removed":{past_i128}}}"#)),
+                line(r#"{"event":"repair","removed":1000000000}"#),
+                line(r#"{"event":"repair","removed":1000000001}"#),
+                line(r#"{"event":"approval","kind":"table","revision":1000000004,"yes":true}"#),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 13: a lone carriage return inside the file",
+            [
+                line(goal).as_str(),
+                "BAD\r",
+                task("\"t1\"").as_str(),
+                task("\"t2\"").as_str(),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 13: a good line that ends in a lone carriage return, and a CR tail",
+            [
+                line(goal).as_str(),
+                "{\"event\":\"note\"}\r",
+                task("\"t1\"").as_str(),
+                task("\"t2\"").as_str(),
+                "{\"event\":\"note\"}\r",
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        // Two more the ticket did not list, found while probing its items.
+        (
+            "found: NaN task ids and attempts are one dict key",
+            [
+                line(goal),
+                task("NaN"),
+                line(r#"{"event":"assignment","task":NaN,"provider":"codex","model":"","policy":"p","source":"s"}"#),
+                line(r#"{"event":"launch_intent","task":NaN,"attempt":NaN}"#),
+                line(r#"{"event":"run","task":NaN,"attempt":NaN,"run_id":"r"}"#),
+                line(r#"{"event":"run_end","task":NaN,"run_id":"r"}"#),
+                line(r#"{"event":"approval","kind":"diff","ref":NaN,"run_id":"r","revision":2,"yes":true}"#),
+                line(r#"{"event":"approval","kind":"diff","ref":[NaN],"run_id":"r","revision":2,"yes":true}"#),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "found: an event nested 3,000 deep",
+            [
+                line(goal),
+                line(&format!(
+                    r#"{{"event":"note","x":{}{}}}"#,
+                    "[".repeat(3000),
+                    "]".repeat(3000)
+                )),
+                line(&format!(
+                    r#"{{"event":"note","x":{}1{}}}"#,
+                    r#"{"a":"#.repeat(3000),
+                    "}".repeat(3000)
+                )),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "item 9: 4,301 digits in the scores file",
+            line(goal).into_bytes(),
+            Some(line(&format!(
+                r#"{{"label":"outcome","n":{}}}"#,
+                "1".repeat(4301)
+            ))),
+            None,
+        ),
+    ]
+}
 
 /// Goal logs and home files the Python tests do not build.
 fn edge_inputs(root: &Path) -> Vec<Input> {
@@ -530,6 +999,7 @@ fn edge_inputs(root: &Path) -> Vec<Input> {
             None,
         ),
     ];
+    cases.extend(review_inputs(GOAL));
     let mut inputs = Vec::new();
     for (n, (label, log, scores, vendors)) in cases.drain(..).enumerate() {
         let dir = root.join(format!("edge-{n:02}"));
@@ -657,6 +1127,256 @@ fn the_read_commands_match_puppets_py_on_every_test_log_and_edge_log() {
     std::fs::create_dir_all(&copies).unwrap();
     let report = compare_all(&inputs, &COMMANDS, &copies);
     finish(report, &inputs);
+}
+
+#[test]
+fn the_comparator_masks_only_the_repair_line_the_command_appended() {
+    let goal = "{\"seq\":1,\"event\":\"goal\"}\n";
+    let nested = "{\"seq\":2,\"ts\":\"2026-01-01T00:00:00.000Z\",\"event\":\"note\",\"x\":{\"event\":\"repair\",\"ts\":\"then\"}}\n";
+    let earlier =
+        "{\"seq\":3,\"ts\":\"2026-09-30T12:00:00.000Z\",\"event\":\"repair\",\"removed\":1}\n";
+    let appended =
+        "{\"seq\":4,\"ts\":\"2026-10-01T09:08:07.123Z\",\"event\":\"repair\",\"removed\":1}\n";
+    let masked = "{\"seq\":4,\"ts\":\"<ts>\",\"event\":\"repair\",\"removed\":1}\n";
+    let before = [goal, nested, earlier, "not json\n"].concat();
+    let after = [goal, nested, earlier, appended].concat();
+    assert_eq!(
+        String::from_utf8(mask_repair_ts(before.as_bytes(), after.as_bytes())).unwrap(),
+        [goal, nested, earlier, masked].concat()
+    );
+    // A torn tail and no bad line: nothing was appended, so the last line is the input's.
+    let before = [goal, nested, earlier, "{\"event\":"].concat();
+    let after = [goal, nested, earlier].concat();
+    assert_eq!(
+        String::from_utf8(mask_repair_ts(before.as_bytes(), after.as_bytes())).unwrap(),
+        after
+    );
+    // A last line of another shape is not the command's.
+    let odd = "{\"seq\":4,\"ts\":\"2026-10-01T09:08:07.123Z\",\"event\":\"repair\",\"removed\":1,\"x\":1}\n";
+    let after = [goal, odd].concat();
+    assert_eq!(
+        String::from_utf8(mask_repair_ts(goal.as_bytes(), after.as_bytes())).unwrap(),
+        after
+    );
+}
+
+#[test]
+fn the_comparator_masks_only_argv0() {
+    let exe = "/opt/py/bin/python3";
+    let python = [
+        "[",
+        "  {",
+        "    \"kind\": \"launch\",",
+        "    \"ref\": \"/opt/py/bin/python3\",",
+        "    \"revision\": 2,",
+        "    \"argv\": [",
+        "      \"/opt/py/bin/python3\",",
+        "      \"/repo/puppets.py\",",
+        "      \"approve\",",
+        "      \"g1\",",
+        "      \"--launch\",",
+        "      \"/opt/py/bin/python3\",",
+        "      \"--expect-revision\",",
+        "      \"2\"",
+        "    ]",
+        "  }",
+        "]",
+        "",
+    ]
+    .join("\n");
+    let masked = mask_argv0(&python, exe);
+    assert_eq!(masked.matches("\"python3\"").count(), 1, "{masked}");
+    assert_eq!(masked.matches("\"/opt/py/bin/python3\"").count(), 2);
+    assert!(masked.contains("    \"argv\": [\n      \"python3\",\n"));
+}
+
+#[test]
+fn the_comparator_masks_a_torn_stamp_only_when_it_is_a_timestamp() {
+    assert_eq!(
+        mask_torn_stamp("moved the tail into g1.torn-2026-10-01T09:08:07.123Z.txt\n"),
+        "moved the tail into g1.torn-<ts>.txt\n"
+    );
+    // Twenty-four characters that are not a time are a different file name.
+    for other in [
+        "g1.torn-aaaaaaaaaaaaaaaaaaaaaaaa.txt",
+        "g1.torn-2026-10-01T09:08:07.123+.txt",
+        "g1.torn-2026-10-01 09:08:07.123Z.txt",
+        "g1.torn-2026-10-01T09:08:07,123Z.txt",
+        "g1.torn-<UTC timestamp>.txt beside the log",
+    ] {
+        assert_eq!(mask_torn_stamp(other), other);
+    }
+    assert_eq!(
+        mask_torn_stamp("a.torn-x.torn-2026-10-01T09:08:07.123Z.txt"),
+        "a.torn-x.torn-<ts>.txt"
+    );
+}
+
+#[test]
+fn the_comparator_reads_the_class_the_rust_names_first() {
+    assert!(names_class(
+        "hydra-puppets: KeyError: 'run_id'\n",
+        "KeyError"
+    ));
+    // The class named later in the message is not the one raised.
+    assert!(!names_class(
+        "hydra-puppets: TypeError: expected a KeyError here\n",
+        "KeyError"
+    ));
+    assert!(!names_class(
+        "hydra-puppets: UnicodeDecodeError: x\n",
+        "UnicodeError"
+    ));
+    assert!(!names_class(
+        "hydra-puppets: goal log line is not JSON\n",
+        "JSON"
+    ));
+    assert!(!names_class("KeyError: 'run_id'\n", "KeyError"));
+    assert_eq!(
+        exception_class(
+            "Traceback (most recent call last):\n  File \"x\"\njson.decoder.JSONDecodeError: Expecting value: line 1\n"
+        ),
+        Some("JSONDecodeError".to_string())
+    );
+}
+
+/// Lists of floats for the sort: random with ties, runs up and down, sorted blocks end to end
+/// so the merges gallop, and NaN through all of them. `None` is NaN.
+fn sort_cases() -> Vec<Vec<Option<f64>>> {
+    let mut seed: u64 = 0x199;
+    let mut next = move |below: u64| {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 33) % below
+    };
+    let sizes = [
+        0, 1, 2, 3, 4, 5, 7, 8, 13, 31, 32, 33, 63, 64, 65, 66, 100, 127, 128, 129, 150, 200, 257,
+        500, 1000, 2500,
+    ];
+    let mut cases = Vec::new();
+    for size in sizes {
+        for mode in 0..6 {
+            for nan_one_in in [2, 5, 40, 0] {
+                let mut xs: Vec<Option<f64>> = Vec::with_capacity(size);
+                let mut block_left = 0;
+                let mut value = 0.0;
+                for i in 0..size {
+                    let x = match mode {
+                        0 => next(10) as f64,
+                        1 => i as f64,
+                        2 => (size - i) as f64 / 3.0,
+                        3 => ((size - i) / 4) as f64,
+                        // Sorted blocks of uneven length, each starting below the last.
+                        4 => {
+                            if block_left == 0 {
+                                block_left = 1 + next(120);
+                                value = next(50) as f64;
+                            }
+                            block_left -= 1;
+                            value += next(3) as f64;
+                            value
+                        }
+                        _ => (next(1000) as f64).sqrt().floor(),
+                    };
+                    if nan_one_in > 0 && next(nan_one_in) == 0 {
+                        xs.push(None);
+                    } else {
+                        xs.push(Some(x));
+                    }
+                }
+                cases.push(xs);
+            }
+        }
+    }
+    cases
+}
+
+/// Build ticket 199, item 3: `queue` must leave NaN scores where `sorted` leaves them, which
+/// only the same algorithm does. This runs the port and `python3` on the same lists.
+#[test]
+fn the_sort_matches_python_sorted_on_keys_that_hold_nan() {
+    let scratch = Scratch::new("sort");
+    let cases = sort_cases();
+    let mut input = String::new();
+    for xs in &cases {
+        let cells: Vec<String> = xs
+            .iter()
+            .map(|x| x.map_or("NaN".to_string(), |x| format!("{x:?}")))
+            .collect();
+        input.push_str(&format!("[{}]\n", cells.join(",")));
+    }
+    let path = scratch.0.join("cases.jsonl");
+    std::fs::write(&path, input).unwrap();
+    let program = "import json, sys\n\
+        for line in open(sys.argv[1]):\n\
+        \x20   xs = json.loads(line)\n\
+        \x20   print(json.dumps(sorted(range(len(xs)), key=xs.__getitem__)))\n";
+    let out = Command::new("python3")
+        .args(["-c", program])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), cases.len());
+    let mut wrong = Vec::new();
+    for (n, (xs, line)) in cases.iter().zip(lines).enumerate() {
+        let keys: Vec<f64> = xs.iter().map(|x| x.unwrap_or(f64::NAN)).collect();
+        let got =
+            hydra_puppets::pysort::sorted(keys.len(), |i, j| Ok::<bool, ()>(keys[i] < keys[j]))
+                .unwrap();
+        let got = format!("{got:?}");
+        if got != line {
+            wrong.push(format!("case {n}, {} keys", keys.len()));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} of {} lists sort differently: {wrong:?}",
+        wrong.len(),
+        cases.len()
+    );
+}
+
+/// Build ticket 199, item 7: the table `repr` reads is `str.isprintable` as the `python3` on
+/// this machine has it.
+#[test]
+fn the_printable_table_is_python_isprintable() {
+    let program = "ranges, start = [], None\n\
+        for c in range(0x110000):\n\
+        \x20   hidden = not chr(c).isprintable()\n\
+        \x20   if hidden and start is None:\n\
+        \x20       start = c\n\
+        \x20   if not hidden and start is not None:\n\
+        \x20       ranges.append((start, c - 1))\n\
+        \x20       start = None\n\
+        ranges.append((start, 0x10FFFF))\n\
+        for low, high in ranges:\n\
+        \x20   print(low, high)\n";
+    let out = Command::new("python3")
+        .args(["-c", program])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let python: Vec<(u32, u32)> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let (low, high) = line.split_once(' ').unwrap();
+            (low.parse().unwrap(), high.parse().unwrap())
+        })
+        .collect();
+    assert_eq!(python, hydra_puppets::printable::NOT_PRINTABLE.to_vec());
 }
 
 /// The session runs this by hand: `cargo test -p hydra-puppets -- --ignored`. It copies the

@@ -4,10 +4,13 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
+import textwrap
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -208,3 +211,124 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(len(torn), 1)
         self.assertEqual(torn[0].read_bytes(), tail)
         self.assertEqual(self.log_bytes() + torn[0].read_bytes(), raw)
+
+    # Build 199, item 11: `repair --yes` replaces the log in one step.
+
+    def damaged(self) -> bytes:
+        return self.goal_line() + b"not json\n" + b'{"event":"note"}\n'
+
+    def test_repair_yes_replaces_the_log_by_rename(self):
+        self.plant(self.damaged())
+        before = self.log_path().stat()
+        os.chmod(self.log_path(), 0o640)
+        code, _out, err = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 0, err)
+        after = self.log_path().stat()
+        self.assertNotEqual(before.st_ino, after.st_ino)
+        self.assertEqual(after.st_mode & 0o777, 0o640)
+        events = puppets.read_log("g1")
+        self.assertEqual([event["event"] for event in events], ["goal", "note", "repair"])
+        self.assertEqual(events[-1]["seq"], 3)
+        self.assertEqual(events[-1]["removed"], 1)
+        names = sorted(p.name for p in self.puppets_home.iterdir())
+        self.assertEqual(len(names), 2, names)
+
+    def test_a_repair_killed_before_the_rename_leaves_the_log_as_it_was(self):
+        raw = self.damaged()
+        self.plant(raw)
+        with mock.patch.object(puppets.os, "replace", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                puppets.main(["repair", "g1", "--yes"])
+        # No half state: not the good lines without the event, not a log cut short.
+        self.assertEqual(self.log_bytes(), raw)
+        with self.assertRaises(puppets.DamagedLog):
+            puppets.read_log("g1")
+        leftovers = [p.name for p in self.puppets_home.iterdir() if ".torn-" not in p.name]
+        self.assertEqual(leftovers, ["g1.jsonl"])
+        code, _out, err = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(
+            [event["event"] for event in puppets.read_log("g1")], ["goal", "note", "repair"]
+        )
+
+    def waiter(self, action: str) -> subprocess.Popen:
+        """A second process that opens the goal log, says so, and takes the lock only when
+        told to, so a repair can run in between."""
+        program = textwrap.dedent(
+            """
+            import fcntl, io, sys
+            from contextlib import redirect_stdout
+            sys.path.insert(0, sys.argv[1])
+            import puppets
+            real = fcntl.flock
+            first = [True]
+            def flock(fd, op):
+                if op == fcntl.LOCK_EX and first[0]:
+                    first[0] = False
+                    # Not `print`: the repair below runs with stdout redirected.
+                    sys.__stdout__.write("opened\\n")
+                    sys.__stdout__.flush()
+                    sys.stdin.readline()
+                return real(fd, op)
+            fcntl.flock = flock
+            if sys.argv[2] == "append":
+                puppets.append_event("g1", {"event": "note", "text": "late"})
+                print("appended", flush=True)
+            else:
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    puppets.main(["repair", "g1", "--yes"])
+                print(out.getvalue().strip(), flush=True)
+            """
+        )
+        child = subprocess.Popen(
+            [sys.executable, "-c", program, str(ROOT), action],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        # A child that never answers is killed, so a broken test fails and does not hang.
+        watchdog = threading.Timer(30, child.kill)
+        watchdog.start()
+        self.addCleanup(watchdog.cancel)
+        self.addCleanup(child.kill)
+        self.addCleanup(child.stdout.close)
+        self.addCleanup(child.stderr.close)
+        self.addCleanup(child.stdin.close)
+        said = child.stdout.readline().strip()
+        if said != "opened":
+            self.fail(f"the child said {said!r} before opening the log: {child.stderr.read()}")
+        return child
+
+    def release(self, child: subprocess.Popen) -> str:
+        child.stdin.write("\n")
+        child.stdin.flush()
+        said = child.stdout.readline().strip()
+        code = child.wait(timeout=10)
+        if code != 0:
+            self.fail(f"the child exited {code}: {child.stderr.read()}")
+        return said
+
+    def test_a_writer_holding_the_old_file_appends_to_the_repaired_log(self):
+        self.plant(self.damaged())
+        child = self.waiter("append")
+        code, _out, err = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.release(child), "appended")
+        events = puppets.read_log("g1")
+        self.assertEqual(
+            [event["event"] for event in events], ["goal", "note", "repair", "note"]
+        )
+        self.assertEqual(events[-1]["text"], "late")
+        self.assertEqual(events[-1]["seq"], 4)
+
+    def test_a_repair_holding_the_old_file_sees_the_repaired_log(self):
+        self.plant(self.damaged())
+        child = self.waiter("repair")
+        code, _out, err = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 0, err)
+        repaired = self.log_bytes()
+        self.assertEqual(self.release(child), "goal log g1 has no torn tail")
+        self.assertEqual(self.log_bytes(), repaired)
+        self.assertEqual(len(self.torn_files()), 1)

@@ -15,10 +15,11 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator, Literal, NamedTuple
+from typing import Any, BinaryIO, Callable, Iterator, Literal, NamedTuple
 
 TASK_CLASSES = frozenset(
     {
@@ -292,10 +293,24 @@ def goal_dir(goal_id: str) -> Path:
     return puppets_home() / goal_id
 
 
+def _log_lines(raw: bytes) -> list[bytes]:
+    """The goal log's lines, each with its newline; the last has none when the file does
+    not end on one. Only `\\n` ends a line. `bytes.splitlines` also breaks on a lone `\\r`,
+    which made `BAD\\r` in the middle of the file read as an unterminated tail and hid
+    every line after it (build 199). A CRLF line still parses, since `\\r` is JSON
+    whitespace."""
+    lines = raw.split(b"\n")
+    tail = lines.pop()
+    out = [line + b"\n" for line in lines]
+    if tail:
+        out.append(tail)
+    return out
+
+
 def damaged_line_numbers(raw: bytes) -> list[int]:
     """1-based line numbers of newline-terminated lines that are blank or not JSON."""
     bad: list[int] = []
-    for index, line in enumerate(raw.splitlines(keepends=True)):
+    for index, line in enumerate(_log_lines(raw)):
         if not line.endswith(b"\n"):
             break
         if _bad_line(line):
@@ -304,19 +319,22 @@ def damaged_line_numbers(raw: bytes) -> list[int]:
 
 
 def _bad_line(line: bytes) -> bool:
-    """Blank, not UTF-8, or not JSON. `json.loads` on bytes drops a BOM, as `read_log` always has."""
+    """Blank, not decodable, or not JSON. `json.loads` on bytes drops a BOM, as `read_log`
+    always has. `ValueError` covers `JSONDecodeError` and `UnicodeDecodeError`, its
+    subclasses, and the plain `ValueError` an integer past 4,300 digits raises
+    (`sys.set_int_max_str_digits`), which used to escape as a traceback (build 199)."""
     if not line.strip():
         return True
     try:
         json.loads(line)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except ValueError:
         return True
     return False
 
 
 def _newline_terminated_events(raw: bytes) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    for line in raw.splitlines(keepends=True):
+    for line in _log_lines(raw):
         if not line.endswith(b"\n"):
             break
         events.append(json.loads(line))
@@ -332,6 +350,10 @@ def read_log(goal_id: str) -> list[dict[str, Any]]:
     if bad:
         raise DamagedLog(goal_id, bad)
     return _newline_terminated_events(raw)
+
+
+# The most bad lines one `repair` event is believed about.
+MAX_REPAIR_REMOVED = 1_000_000_000
 
 
 class DamagedLog(Exception):
@@ -370,7 +392,7 @@ def _partition_log(raw: bytes) -> tuple[list[bytes], list[tuple[int, bytes]], by
     good: list[bytes] = []
     bad: list[tuple[int, bytes]] = []
     tail: bytes | None = None
-    for index, line in enumerate(raw.splitlines(keepends=True)):
+    for index, line in enumerate(_log_lines(raw)):
         if not line.endswith(b"\n"):
             tail = line
             break
@@ -379,6 +401,65 @@ def _partition_log(raw: bytes) -> tuple[list[bytes], list[tuple[int, bytes]], by
         else:
             good.append(line)
     return good, bad, tail
+
+
+@contextmanager
+def _locked_log(path: Path, mode: str) -> Iterator[BinaryIO]:
+    """Open the goal log and hold its lock, on the file the path names.
+
+    `repair --yes` replaces the log by rename. A process that opened the log before
+    that and waited for the lock would otherwise read, and append to, a file no path
+    names any more. So after taking the lock this compares the inode of its descriptor
+    with the path's and opens again when they differ."""
+    while True:
+        handle = path.open(mode)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            held = os.fstat(handle.fileno())
+            try:
+                named = os.stat(path)
+            except FileNotFoundError:
+                named = None
+            current = named is not None and (named.st_dev, named.st_ino) == (
+                held.st_dev,
+                held.st_ino,
+            )
+        except BaseException:
+            handle.close()
+            raise
+        if current:
+            break
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+    try:
+        yield handle
+    finally:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def _replace_log(path: Path, content: bytes, mode: int) -> None:
+    """Put `content` where the goal log is, in one step: write it to a temporary file
+    beside the log, fsync, and rename it over the log. The caller holds the log's lock.
+
+    The rename leaves the old file to whoever still has it open, so every locker checks,
+    once it holds the lock, that the path still names the file it locked."""
+    tmp = path.with_name(path.name + ".repair-tmp")
+    try:
+        with tmp.open("wb") as out:
+            os.fchmod(out.fileno(), stat.S_IMODE(mode))
+            out.write(content)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    parent = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(parent)
+    finally:
+        os.close(parent)
 
 
 def _locked_update(
@@ -395,30 +476,26 @@ def _locked_update(
     """
     path = goal_log_path(goal_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # newline="" keeps a lone `\r` as it is, so a tail ending in CR without LF reads as
+    # Bytes, so a lone `\r` stays as it is and a tail ending in CR without LF reads as
     # unterminated rather than being turned into a newline (codex review of 190).
-    with path.open("a+b") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            handle.seek(0)
-            raw = handle.read()
-            bad = damaged_line_numbers(raw)
-            if bad:
-                raise DamagedLog(goal_id, bad)
-            events = _newline_terminated_events(raw)
-            unterminated = bool(_torn_tail(raw))
-            body = decide(events)
-            if unterminated:
-                raise UnterminatedLog(goal_id)
-            if body is None:
-                return None
-            record = {"seq": len(events) + 1, "ts": utc_now(), **body}
-            line = json.dumps(record, separators=(",", ":")) + "\n"
-            handle.write(line.encode("utf-8"))
-            handle.flush()
-            return record
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    with _locked_log(path, "a+b") as handle:
+        handle.seek(0)
+        raw = handle.read()
+        bad = damaged_line_numbers(raw)
+        if bad:
+            raise DamagedLog(goal_id, bad)
+        events = _newline_terminated_events(raw)
+        unterminated = bool(_torn_tail(raw))
+        body = decide(events)
+        if unterminated:
+            raise UnterminatedLog(goal_id)
+        if body is None:
+            return None
+        record = {"seq": len(events) + 1, "ts": utc_now(), **body}
+        line = json.dumps(record, separators=(",", ":")) + "\n"
+        handle.write(line.encode("utf-8"))
+        handle.flush()
+        return record
 
 
 def append_event(goal_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -626,9 +703,12 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
                 task.review_substitutions = list(event.get("substitutions") or [])
         elif name == "repair":
             # Past every revision an approval before the repair could name. A `removed`
-            # that is not a positive int still bumps by one.
+            # that is not an int from 1 to MAX_REPAIR_REMOVED counts as zero, so the event
+            # still bumps by one. The cap is the Rust reader's too: with it no log that
+            # fits in memory reaches a revision either side cannot hold (build 199).
             removed = event.get("removed", 0)
-            revision += (removed if type(removed) is int and removed > 0 else 0) + 1
+            counted = type(removed) is int and 1 <= removed <= MAX_REPAIR_REMOVED
+            revision += (removed if counted else 0) + 1
 
     state.revision = revision
     for key, intent in intents.items():
@@ -2410,67 +2490,58 @@ def cmd_repair(args: argparse.Namespace) -> int:
 
     Without `--yes` nothing is written. With `--yes` bad newline-terminated lines and
     any unterminated tail are written, under the log's lock, to
-    `<goal>.torn-<UTC timestamp>.txt` beside the log, the log is rewritten with only
-    its good lines, and when one or more bad lines were removed a `repair` event is
-    appended. A log with neither damage nor a torn tail is left as it is and exits 0.
+    `<goal>.torn-<UTC timestamp>.txt` beside the log. The new log, its good lines and
+    a `repair` event when one or more bad lines were removed, is then written whole to
+    a temporary file beside the log and renamed over it. A repair killed at any point
+    leaves the old log or the new one, never the good lines without the event. A log
+    with neither damage nor a torn tail is left as it is and exits 0.
     """
     goal_id = args.goal
     path = goal_log_path(goal_id)
     if not path.is_file():
         print(f"goal log {goal_id} has no torn tail")
         return 0
-    with path.open("r+b") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            raw = handle.read()
-            good, bad, tail = _partition_log(raw)
-            if not bad and tail is None:
-                print(f"goal log {goal_id} has no torn tail")
-                return 0
-            if not args.yes:
-                for line_no, line in bad:
-                    preview = line.decode("utf-8", errors="replace").strip("\r\n")[:300]
-                    print(f"bad line {line_no}: {preview}")
-                if tail is not None:
-                    preview = tail.decode("utf-8", errors="replace")[:300]
-                    print(f"unterminated tail: {preview}")
-                print(
-                    "would move the bad lines and any unterminated tail into "
-                    f"{goal_id}.torn-<UTC timestamp>.txt beside the log, "
-                    "then rewrite the log with only its good lines"
-                )
-                return 0
-            dest = path.parent / f"{goal_id}.torn-{utc_now()}.txt"
-            with dest.open("xb") as torn:
-                for _line_no, line in bad:
-                    torn.write(line)
-                if tail is not None:
-                    torn.write(tail)
-                torn.flush()
-                os.fsync(torn.fileno())
-            new_raw = b"".join(good)
-            handle.seek(0)
-            handle.write(new_raw)
-            handle.truncate()
-            handle.flush()
-            os.fsync(handle.fileno())
-            removed = len(bad)
-            if removed:
-                events = _newline_terminated_events(new_raw)
-                record = {
-                    "seq": len(events) + 1,
-                    "ts": utc_now(),
-                    "event": "repair",
-                    "removed": removed,
-                }
-                line = json.dumps(record, separators=(",", ":")) + "\n"
-                handle.write(line.encode("utf-8"))
-                handle.flush()
-                os.fsync(handle.fileno())
-            print(f"moved the tail into {dest.name}")
+    with _locked_log(path, "rb") as handle:
+        raw = handle.read()
+        good, bad, tail = _partition_log(raw)
+        if not bad and tail is None:
+            print(f"goal log {goal_id} has no torn tail")
             return 0
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        if not args.yes:
+            for line_no, line in bad:
+                preview = line.decode("utf-8", errors="replace").strip("\r\n")[:300]
+                print(f"bad line {line_no}: {preview}")
+            if tail is not None:
+                preview = tail.decode("utf-8", errors="replace")[:300]
+                print(f"unterminated tail: {preview}")
+            print(
+                "would move the bad lines and any unterminated tail into "
+                f"{goal_id}.torn-<UTC timestamp>.txt beside the log, "
+                "then rewrite the log with only its good lines"
+            )
+            return 0
+        dest = path.parent / f"{goal_id}.torn-{utc_now()}.txt"
+        with dest.open("xb") as torn:
+            for _line_no, line in bad:
+                torn.write(line)
+            if tail is not None:
+                torn.write(tail)
+            torn.flush()
+            os.fsync(torn.fileno())
+        new_raw = b"".join(good)
+        removed = len(bad)
+        if removed:
+            record = {
+                "seq": len(good) + 1,
+                "ts": utc_now(),
+                "event": "repair",
+                "removed": removed,
+            }
+            line = json.dumps(record, separators=(",", ":")) + "\n"
+            new_raw += line.encode("utf-8")
+        _replace_log(path, new_raw, os.fstat(handle.fileno()).st_mode)
+        print(f"moved the tail into {dest.name}")
+        return 0
 
 
 def cmd_verdict(args: argparse.Namespace) -> int:

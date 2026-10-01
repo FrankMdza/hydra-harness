@@ -1,7 +1,7 @@
 # 199 - The read side matches Python where the review found it does not
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 197
 
 ## What
@@ -100,3 +100,45 @@ finish the rest.
   green.
 - `IMPLEMENTATION.md`: the "Known divergence" sentence of the `crates/puppets` passage says what
   is left, or goes.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f5ea` (claude opus 5.5, `standard`, 19.9M tokens, 45 minutes), the
+lock and `repair` read line by line by the session, the rest by its tests, applied to master as
+written.
+
+Built, by item: (1) strings are `PyStr`, a list of code points, so a lone surrogate is read and
+written back, and `ParseError::Unsupported` is gone; (2) ints and floats compare exactly at any
+width; (3) `queue` sorts with `pysort.rs`, a port of CPython's `list.sort`, checked against
+`python3` 3.14.7 on 624 lists with NaN; (4) the comparator replaces only `argv[0]`, masks only a
+stamp of `utc_now()`'s shape, and compares the exception class at the start of the Rust message;
+(5) bytes decode by `json.detect_encoding`; (6) `run_end` reads `run_id` only where Python does;
+(7) `repr` follows `str.isprintable` from a generated table, `printable.rs`, 737 ranges of
+Unicode 16; (8) an empty model version prints `none`; (9) an integer past 4,300 digits is a bad
+line in both; (11) `repair --yes` writes the whole new log, the `repair` event included, to
+`<goal>.jsonl.repair-tmp`, fsyncs and renames it over the log, and every locker compares its
+descriptor's inode with the path's after taking the lock and reopens when they differ; (12)
+`removed` counts from 1 to 1,000,000,000 and the Rust revision is `i128`; (13) lines split on
+`\n` only, everywhere; (14) `show` and `pending` run on each repaired copy; (15) only the line
+`repair --yes` appended has its `ts` masked.
+
+Measured on master: fmt and clippy clean over the workspace; the puppets Python suite 204
+passed; `cargo test -p hydra-puppets` 31 unit tests and 7 differential tests, 1,304 command runs
+over 163 inputs; the ignored real-log test passed, on the one goal log there is; `cargo test
+--lib` 224 passed.
+
+What the ticket assumed that is false: item 10. Since build 197 `_locked_update` reads bytes, so
+on a good line and an unterminated `0xff` both run `decide` and raise `UnterminatedLog`. No code
+changed for it.
+
+Found and fixed outside the ticket: a NaN task id (Python finds a NaN dict key by identity, the
+Rust never matched it); a line nested 40,000 deep, which aborted the Rust with a signal while
+Python read it, closed by a 1 GiB stack for the command thread and a cap of 100,000 levels.
+
+Left open: the nesting cap is the run's number, and a line between 100,000 levels and Python's
+own limit reads in Python and stops the Rust. `pysort.rs` was written from memory of
+`listobject.c` and is checked against one Python version. The two Rust waiter tests depend on a
+300 ms sleep. A repair killed before the rename leaves a torn file that copies lines still in
+the log. No test kills a real `repair --yes`. `src/cockpit/goal.rs` still uses the old `removed`
+rule: build 202.
+

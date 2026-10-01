@@ -3,31 +3,45 @@
 //! A log line is whatever JSON a writer put there, so a field `puppets.py` expects to be a
 //! string can hold anything. These follow what Python does with such a value where that is
 //! cheap to say, and return an error where Python raises, so a command stops at the same
-//! point with the same stdout before it.
+//! point with the same stdout before it. Every error message starts with the name of the
+//! exception class Python raises, which is what the differential test compares.
+
+use std::cmp::Ordering;
 
 use anyhow::{Result, bail};
 
-use crate::json::{Value, float_repr};
+use crate::json::{PyStr, Value, float_repr};
+use crate::printable::is_printable;
 
-/// `a == b`: `True == 1 == 1.0`, dicts equal regardless of key order.
+/// `a == b`: `True == 1 == 1.0`, dicts equal regardless of key order. Inside a list or a
+/// dict Python compares items with `same_key`'s rule, not this one.
 pub fn eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Null, Value::Null) => true,
         (Value::Str(x), Value::Str(y)) => x == y,
         (Value::List(x), Value::List(y)) => {
-            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| eq(p, q))
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_key(p, q))
         }
         (Value::Dict(x), Value::Dict(y)) => {
-            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| eq(v, w)))
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(k, v)| y.get_key(k).is_some_and(|w| same_key(v, w)))
         }
-        (Value::BigInt(x), Value::BigInt(y)) => x == y,
         _ => match (number(a), number(b)) {
-            (Some(Number::Int(x)), Some(Number::Int(y))) => x == y,
-            (Some(Number::Float(x)), Some(Number::Float(y))) => x == y,
-            (Some(Number::Int(n)), Some(Number::Float(f)))
-            | (Some(Number::Float(f)), Some(Number::Int(n))) => int_eq_float(n, f),
+            (Some(x), Some(y)) => cmp_numbers(&x, &y) == Some(Ordering::Equal),
             _ => false,
         },
+    }
+}
+
+/// `a is b or a == b`, which is how a dict finds a key, a set a member and a list an item.
+/// The one value it treats differently from `eq` is NaN: `json.loads` hands out a single NaN
+/// object for every `NaN` it reads, so two NaN task ids from the log are the same dict key,
+/// while `nan == nan` is false.
+pub fn same_key(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Float(x), Value::Float(y)) if x.is_nan() && y.is_nan() => true,
+        _ => eq(a, b),
     }
 }
 
@@ -35,23 +49,67 @@ pub fn eq_str(a: &Value, s: &str) -> bool {
     matches!(a, Value::Str(x) if x == s)
 }
 
+/// A Python number: an int of any width, as its decimal digits, or a float.
 enum Number {
-    Int(i128),
+    Int(String),
     Float(f64),
 }
 
 fn number(v: &Value) -> Option<Number> {
     match v {
-        Value::Bool(b) => Some(Number::Int(i128::from(*b))),
-        Value::Int(n) => Some(Number::Int(*n)),
+        Value::Bool(b) => Some(Number::Int(u8::from(*b).to_string())),
+        Value::Int(n) => Some(Number::Int(n.to_string())),
+        Value::BigInt(digits) => Some(Number::Int(digits.clone())),
         Value::Float(f) => Some(Number::Float(*f)),
         _ => None,
     }
 }
 
-fn int_eq_float(n: i128, f: f64) -> bool {
-    // Exact, as Python compares: a float equals an int only when it is that integer.
-    f.is_finite() && f.fract() == 0.0 && f.abs() < 1.7e38 && f as i128 == n
+/// Order two integers written in decimal, each with a leading `-` when negative and no
+/// leading zeros.
+fn cmp_decimal(a: &str, b: &str) -> Ordering {
+    let magnitude = |x: &str, y: &str| x.len().cmp(&y.len()).then_with(|| x.cmp(y));
+    match (a.strip_prefix('-'), b.strip_prefix('-')) {
+        (None, None) => magnitude(a, b),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(x), Some(y)) => magnitude(y, x),
+    }
+}
+
+/// An int against a float, exactly, as Python compares them: the float is not rounded to
+/// the int's width nor the int to the float's. `None` for NaN, which orders with nothing.
+fn cmp_int_float(n: &str, f: f64) -> Option<Ordering> {
+    if f.is_nan() {
+        return None;
+    }
+    if f.is_infinite() {
+        return Some(if f > 0.0 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        });
+    }
+    // `{:.0}` prints every digit of a float that is an integer, however wide.
+    let floor = f.floor();
+    let mut digits = format!("{floor:.0}");
+    if digits == "-0" {
+        digits = "0".into();
+    }
+    Some(cmp_decimal(n, &digits).then(if f > floor {
+        Ordering::Less
+    } else {
+        Ordering::Equal
+    }))
+}
+
+fn cmp_numbers(a: &Number, b: &Number) -> Option<Ordering> {
+    match (a, b) {
+        (Number::Int(x), Number::Int(y)) => Some(cmp_decimal(x, y)),
+        (Number::Float(x), Number::Float(y)) => x.partial_cmp(y),
+        (Number::Int(n), Number::Float(f)) => cmp_int_float(n, *f),
+        (Number::Float(f), Number::Int(n)) => cmp_int_float(n, *f).map(Ordering::reverse),
+    }
 }
 
 /// `bool(v)`.
@@ -90,14 +148,14 @@ fn type_name(v: &Value) -> &'static str {
 }
 
 /// `str(v)`, which is also what an f-string without a format spec prints.
-pub fn str(v: &Value) -> String {
+pub fn str(v: &Value) -> PyStr {
     match v {
         Value::Str(s) => s.clone(),
-        other => repr(other),
+        other => PyStr::from(repr(other)),
     }
 }
 
-/// `repr(v)`.
+/// `repr(v)`. Always printable text: `repr` escapes what is not, a lone surrogate included.
 pub fn repr(v: &Value) -> String {
     match v {
         Value::Null => "None".into(),
@@ -121,30 +179,31 @@ pub fn repr(v: &Value) -> String {
     }
 }
 
-/// `repr(str)`. Printable is approximated as "not a C0 or C1 control, DEL or NBSP", which
-/// covers what a goal log holds; Python's own table is the Unicode database.
-fn repr_str(s: &str) -> String {
-    let quote = if s.contains('\'') && !s.contains('"') {
+/// `repr(str)`: the quote the text does not hold, and an escape for every code point
+/// `str.isprintable` rejects.
+fn repr_str(s: &PyStr) -> String {
+    let codes = s.code_points();
+    let quote = if codes.contains(&0x27) && !codes.contains(&0x22) {
         '"'
     } else {
         '\''
     };
     let mut out = String::new();
     out.push(quote);
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c == quote => {
+    for &code in codes {
+        match char::from_u32(code) {
+            Some('\\') => out.push_str("\\\\"),
+            Some('\n') => out.push_str("\\n"),
+            Some('\r') => out.push_str("\\r"),
+            Some('\t') => out.push_str("\\t"),
+            Some(c) if c == quote => {
                 out.push('\\');
                 out.push(c);
             }
-            c if (c as u32) < 0x20 || (0x7f..=0xa0).contains(&(c as u32)) => {
-                out.push_str(&format!("\\x{:02x}", c as u32));
-            }
-            c => out.push(c),
+            Some(c) if is_printable(code) => out.push(c),
+            _ if code < 0x100 => out.push_str(&format!("\\x{code:02x}")),
+            _ if code < 0x10000 => out.push_str(&format!("\\u{code:04x}")),
+            _ => out.push_str(&format!("\\U{code:08x}")),
         }
     }
     out.push(quote);
@@ -152,12 +211,12 @@ fn repr_str(s: &str) -> String {
 }
 
 /// `format(v, "<width")`: left-aligned, padded with spaces to `width` characters.
-pub fn ljust(v: &Value, width: usize) -> Result<String> {
+pub fn ljust(v: &Value, width: usize) -> Result<PyStr> {
     let text = match v {
         Value::Str(s) => s.clone(),
         // bool formats through int once a spec is given.
-        Value::Bool(b) => i32::from(*b).to_string(),
-        Value::Int(_) | Value::BigInt(_) | Value::Float(_) => repr(v),
+        Value::Bool(b) => PyStr::from(i32::from(*b).to_string()),
+        Value::Int(_) | Value::BigInt(_) | Value::Float(_) => PyStr::from(repr(v)),
         other => bail!(
             "TypeError: unsupported format string passed to {}.__format__",
             type_name(other)
@@ -166,14 +225,19 @@ pub fn ljust(v: &Value, width: usize) -> Result<String> {
     Ok(pad(&text, width))
 }
 
-pub fn pad(text: &str, width: usize) -> String {
-    format!("{text:<width$}")
+/// `format(text, "<width")` on a string: Python counts code points.
+pub fn pad(text: &PyStr, width: usize) -> PyStr {
+    let mut out = text.clone();
+    for _ in text.len()..width {
+        out.push_code(0x20);
+    }
+    out
 }
 
 /// `len(v)`.
 pub fn len(v: &Value) -> Result<usize> {
     match v {
-        Value::Str(s) => Ok(s.chars().count()),
+        Value::Str(s) => Ok(s.len()),
         Value::List(items) => Ok(items.len()),
         Value::Dict(dict) => Ok(dict.len()),
         other => bail!(
@@ -186,8 +250,10 @@ pub fn len(v: &Value) -> Result<usize> {
 /// `v[:n]`.
 pub fn head(v: &Value, n: usize) -> Result<Value> {
     match v {
-        Value::Str(s) => Ok(Value::Str(s.chars().take(n).collect())),
+        Value::Str(s) => Ok(Value::Str(s.head(n))),
         Value::List(items) => Ok(Value::List(items.iter().take(n).cloned().collect())),
+        // Slicing a dict raises KeyError in Python 3.12 and later, TypeError before.
+        Value::Dict(_) => bail!("KeyError: slice(None, {n}, None)"),
         other => bail!(
             "TypeError: '{}' object is not subscriptable",
             type_name(other)
@@ -199,7 +265,15 @@ pub fn head(v: &Value, n: usize) -> Result<Value> {
 pub fn list(v: &Value) -> Result<Vec<Value>> {
     match v {
         Value::List(items) => Ok(items.clone()),
-        Value::Str(s) => Ok(s.chars().map(|c| Value::Str(c.to_string())).collect()),
+        Value::Str(s) => Ok(s
+            .code_points()
+            .iter()
+            .map(|code| {
+                let mut one = PyStr::new();
+                one.push_code(*code);
+                Value::Str(one)
+            })
+            .collect()),
         Value::Dict(dict) => Ok(dict.iter().map(|(k, _)| Value::Str(k.clone())).collect()),
         other => bail!("TypeError: '{}' object is not iterable", type_name(other)),
     }
@@ -210,9 +284,25 @@ pub fn is_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
 }
 
-/// `str.strip()`.
-pub fn strip(s: &str) -> &str {
+/// `str.strip()` on Rust text.
+pub fn strip_str(s: &str) -> &str {
     s.trim_matches(is_space)
+}
+
+/// `str.strip()`.
+pub fn strip(s: &PyStr) -> PyStr {
+    let space = |code: &u32| char::from_u32(*code).is_some_and(is_space);
+    let codes = s.code_points();
+    let start = codes.iter().position(|c| !space(c)).unwrap_or(codes.len());
+    let end = codes
+        .iter()
+        .rposition(|c| !space(c))
+        .map_or(start, |i| i + 1);
+    let mut out = PyStr::new();
+    for code in &codes[start..end] {
+        out.push_code(*code);
+    }
+    out
 }
 
 /// `d[key]` on a value that must be a dict holding `key`.
@@ -245,15 +335,151 @@ pub fn less(a: &Value, b: &Value) -> Result<bool> {
     match (a, b) {
         (Value::Str(x), Value::Str(y)) => Ok(x < y),
         _ => match (number(a), number(b)) {
-            (Some(Number::Int(x)), Some(Number::Int(y))) => Ok(x < y),
-            (Some(Number::Float(x)), Some(Number::Float(y))) => Ok(x < y),
-            (Some(Number::Int(x)), Some(Number::Float(y))) => Ok((x as f64) < y),
-            (Some(Number::Float(x)), Some(Number::Int(y))) => Ok(x < y as f64),
+            (Some(x), Some(y)) => Ok(cmp_numbers(&x, &y) == Some(Ordering::Less)),
             _ => bail!(
                 "TypeError: '<' not supported between instances of '{}' and '{}'",
                 type_name(a),
                 type_name(b)
             ),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json::loads_str;
+
+    fn v(text: &str) -> Value {
+        loads_str(text).unwrap()
+    }
+
+    /// Each row is `(a, b, a == b, a < b, b < a)` as Python 3.14 answers it.
+    #[test]
+    fn ints_and_floats_compare_exactly_at_any_width() {
+        let two_140 = "1393796574908163946345982392040522594123776";
+        let min_i128 = "-170141183460469231731687303715884105728";
+        let rows = [
+            (two_140, "1.393796574908164e42", true, false, false),
+            (
+                "1393796574908163946345982392040522594123777",
+                "1.393796574908164e42",
+                false,
+                false,
+                true,
+            ),
+            (
+                "1393796574908163946345982392040522594123775",
+                "1.393796574908164e42",
+                false,
+                true,
+                false,
+            ),
+            (min_i128, "-1.7014118346046923e38", true, false, false),
+            (
+                "-170141183460469231731687303715884105729",
+                "-1.7014118346046923e38",
+                false,
+                true,
+                false,
+            ),
+            (
+                "680564733841876926926749214863536422912",
+                "6.80564733841877e38",
+                true,
+                false,
+                false,
+            ),
+            (
+                "2722258935367507707706996859454145691648",
+                "1361129467683753853853498429727072845824",
+                false,
+                false,
+                true,
+            ),
+            (
+                "-2722258935367507707706996859454145691648",
+                "-1361129467683753853853498429727072845824",
+                false,
+                true,
+                false,
+            ),
+            (
+                "-2722258935367507707706996859454145691648",
+                "7",
+                false,
+                true,
+                false,
+            ),
+            (two_140, "Infinity", false, true, false),
+            (two_140, "-Infinity", false, false, true),
+            (two_140, "NaN", false, false, false),
+            ("NaN", "NaN", false, false, false),
+            ("3", "3.5", false, true, false),
+            ("4", "3.5", false, false, true),
+            ("-3", "-3.5", false, false, true),
+            ("-4", "-3.5", false, true, false),
+            ("0", "-0.0", true, false, false),
+            ("true", "1.0", true, false, false),
+            ("false", "0.5", false, true, false),
+            ("9007199254740993", "9007199254740992.0", false, false, true),
+            ("1e400", two_140, false, false, true),
+        ];
+        for (a, b, equal, a_less, b_less) in rows {
+            let (x, y) = (v(a), v(b));
+            assert_eq!(eq(&x, &y), equal, "{a} == {b}");
+            assert_eq!(eq(&y, &x), equal, "{b} == {a}");
+            assert_eq!(less(&x, &y).unwrap(), a_less, "{a} < {b}");
+            assert_eq!(less(&y, &x).unwrap(), b_less, "{b} < {a}");
+        }
+    }
+
+    /// Each expectation is `repr(json.loads(text))` under Python 3.14.
+    #[test]
+    fn repr_escapes_what_isprintable_rejects() {
+        for (text, want) in [
+            (r#""\u2028""#, r#"'\u2028'"#),
+            (r#""\u200b""#, r#"'\u200b'"#),
+            (r#""\u00ad""#, r#"'\xad'"#),
+            (r#""\u00a0""#, r#"'\xa0'"#),
+            (r#""\u3000""#, r#"'\u3000'"#),
+            (r#""\ud800""#, r#"'\ud800'"#),
+            (r#""\ue000""#, r#"'\ue000'"#),
+            (r#""\u0378""#, r#"'\u0378'"#),
+            (r#""\udb40\udc01""#, r#"'\U000e0001'"#),
+            (r#""\u007f\u0000\t\n\r\\""#, r"'\x7f\x00\t\n\r\\'"),
+            (r#""a'b""#, r#""a'b""#),
+            (r#""a'b\"c""#, r#"'a\'b"c'"#),
+            (r#""é ☃ 😀""#, "'é ☃ 😀'"),
+            (
+                r#"{"\u2028":["\ud800",1.0,null,true]}"#,
+                r#"{'\u2028': ['\ud800', 1.0, None, True]}"#,
+            ),
+        ] {
+            assert_eq!(repr(&v(text)), want, "{text}");
+        }
+    }
+
+    /// As Python answers `a == b` and `a in [b]` on values from one `json.loads`.
+    #[test]
+    fn nan_is_a_key_that_finds_itself_and_a_value_equal_to_nothing() {
+        let nan = v("NaN");
+        assert!(!eq(&nan, &nan));
+        assert!(same_key(&nan, &nan));
+        assert!(eq(&v("[NaN]"), &v("[NaN]")));
+        assert!(eq(&v(r#"{"a":NaN}"#), &v(r#"{"a":NaN}"#)));
+        assert!(!same_key(&nan, &v("1.0")));
+        assert!(same_key(&v("1"), &v("1.0")));
+    }
+
+    #[test]
+    fn strings_pad_and_strip_by_code_point() {
+        let Value::Str(lone) = v(r#""\ud800\u00e9""#) else {
+            panic!("not a string");
+        };
+        assert_eq!(pad(&lone, 4).len(), 4);
+        assert_eq!(pad(&lone, 1), lone);
+        assert_eq!(strip(&PyStr::from(" \u{1f}a b\u{3000}\n")), "a b");
+        assert_eq!(strip(&PyStr::from(" \t")), "");
     }
 }

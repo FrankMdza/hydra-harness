@@ -3269,8 +3269,46 @@ damage in both: readers and writers refuse with `DamagedLog`, `repair` moves the
 any torn tail aside and may append a `repair` event whose fold adds `removed + 1` to the
 revision. An unterminated tail is not damage.
 The second test, `#[ignore]`d, runs the read commands over copies of the real
-`~/hydra/puppets/*.jsonl` and never `repair --yes`. Known divergence: a string holding a lone
-UTF-16 surrogate, which Python reads and this reader refuses with exit 1.
+`~/hydra/puppets/*.jsonl` and never `repair --yes`.
+
+Known divergence, since build ticket 199: nesting depth. Python's decoder raises
+`RecursionError` where its C stack runs out, which was 116,221 levels inside a goal log line on
+the machine that measured it. The Rust raises it past 100,000 (`json::MAX_NESTING`). A line
+nested between those two numbers reads in Python and stops the Rust with exit 1. Both agree
+below the lower number and above the higher one. The lone surrogate that this sentence used to
+name is read and written back.
+
+Build ticket 199 closed fifteen findings from two `codex` reviews, of 193 and of 197. A string is
+a `PyStr`, a list of code points, so it holds a lone surrogate, `show` writes its escape back, and
+`board` and `queue` raise `UnicodeEncodeError` on the line Python's `print` raises on. An int and
+a float compare exactly at any width. `queue` sorts with a port of CPython's `list.sort`
+(`pysort.rs`), because a NaN score makes the comparison no order at all and only the same
+algorithm leaves the rows where `sorted` leaves them. A line decodes the way `json.loads(bytes)`
+decodes it, by `json.detect_encoding` with `surrogatepass`, so a UTF-16 or UTF-32 line reads.
+`repr` of a string escapes what `str.isprintable` rejects, from a table in `printable.rs`
+generated from `python3` under Unicode 16. `run_end` reads `run_id` only where Python does. An
+empty model version prints as `none`. An integer past 4,300 digits is a bad line in both, since
+`_bad_line` now catches `ValueError`. A NaN task id is one dict key, as it is in Python, where
+`json.loads` hands out a single NaN object.
+
+Three of the fifteen changed both implementations. `repair --yes` builds the whole new log, good
+lines and the `repair` event together, writes it to `<goal>.jsonl.repair-tmp`, fsyncs and renames
+it over the log, so a repair killed at any point leaves the old log or the new one. Every locker
+(`_locked_log` in the Python, `open_locked` in the Rust) compares its descriptor's inode with the
+path's once it holds the lock and opens again when they differ, so a writer that waited on the
+old file does not append to it. A `repair` event's `removed` counts when it is an int from 1 to
+1,000,000,000 and is zero otherwise, and the Rust revision is an `i128`. Only `\n` ends a line.
+`bytes.splitlines` broke on a lone `\r`, which made `BAD\r` in the middle of a log read as an
+unterminated tail and hid every line after it.
+
+The comparator got stricter with them. It replaces only `argv[0]` of each pending item, masks a
+torn file's name only when its 24 characters are a time, masks the `ts` of only the one line
+`repair --yes` appended, and requires the Rust's error to start `hydra-puppets: <Class>:` with
+the class Python raised. After `repair --yes` it reads each repaired copy back with `show` and
+`pending --json`. It ran 1,304 commands over 163 inputs on 2026-10-01, 116 harvested and 47 edge
+logs. Two more tests in the same file compare the sort with `python3` on 624 lists that hold NaN
+and the printable table with `str.isprintable`. `src/cockpit/goal.rs` is a third reader and still
+adds any positive `removed`, which is the rule this ticket replaced.
 
 ## `hydra cockpit`, since build ticket 150
 

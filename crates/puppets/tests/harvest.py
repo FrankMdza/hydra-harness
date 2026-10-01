@@ -20,6 +20,7 @@ MODULES = [
     "test_queue",
     "test_repair",
     "test_goal_log_tail",
+    "test_damaged_log",
 ]
 
 

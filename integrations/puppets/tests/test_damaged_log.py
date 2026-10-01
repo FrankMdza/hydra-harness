@@ -175,3 +175,98 @@ class DamagedLogTests(unittest.TestCase):
         ]
         state = puppets.fold("g1", events)
         self.assertTrue(any(a.get("voided") for a in state.approvals if a["kind"] == "table"))
+
+    def test_an_integer_past_the_digit_limit_is_a_bad_line(self):
+        # Build 199, item 9: `json.loads` raises a plain ValueError past 4,300 digits.
+        wide = b'{"event":"note","n":' + b"1" * 4301 + b"}\n"
+        self.plant(self.goal_line() + wide + self.task_line())
+        with self.assertRaises(puppets.DamagedLog) as raised:
+            puppets.read_log("g1")
+        self.assertEqual(str(raised.exception), self.damaged_message(2))
+        code, _out, err = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 0, err)
+        events = puppets.read_log("g1")
+        self.assertEqual([event["event"] for event in events], ["goal", "task", "repair"])
+        self.assertEqual(self.torn_files()[0].read_bytes(), wide)
+
+    def test_an_integer_at_the_digit_limit_is_a_good_line(self):
+        at = b'{"event":"note","n":-' + b"1" * 4300 + b"}\n"
+        self.plant(self.goal_line() + at)
+        self.assertEqual(len(puppets.read_log("g1")), 2)
+
+    def revision_after_repair(self, removed) -> int:
+        events = [
+            json.loads(self.goal_line().decode()),
+            {"seq": 2, "ts": "t", "event": "repair", "removed": removed},
+        ]
+        return puppets.fold("g1", events).revision
+
+    def test_a_repair_counts_removed_only_from_one_to_a_billion(self):
+        # Build 199, item 12: one rule in the Python and the Rust.
+        self.assertEqual(self.revision_after_repair(1), 2)
+        self.assertEqual(self.revision_after_repair(7), 8)
+        self.assertEqual(self.revision_after_repair(1_000_000_000), 1_000_000_001)
+        for ignored in (
+            1_000_000_001,
+            9223372036854775807,
+            2**200,
+            0,
+            -3,
+            True,
+            2.0,
+            "2",
+            None,
+            [2],
+        ):
+            self.assertEqual(self.revision_after_repair(ignored), 1, repr(ignored))
+
+    def test_an_approval_between_two_wide_repairs_is_void(self):
+        wide = 9223372036854775807
+        events = [
+            json.loads(self.goal_line().decode()),
+            json.loads(self.task_line().decode()),
+            {"seq": 3, "ts": "t", "event": "repair", "removed": wide},
+            {"seq": 4, "ts": "t", "event": "approval", "kind": "table", "revision": 2, "yes": True},
+            {"seq": 5, "ts": "t", "event": "repair", "removed": wide},
+        ]
+        state = puppets.fold("g1", events)
+        self.assertEqual(state.revision, 3)
+        self.assertTrue(state.approvals[0].get("voided"))
+        self.assertIsNone(puppets.approval_available(state, "table"))
+
+    def test_a_lone_carriage_return_inside_the_file_does_not_end_a_line(self):
+        # Build 199, item 13: `bytes.splitlines` breaks on a lone CR, so `BAD\r` read as an
+        # unterminated tail and hid every line after it.
+        second_task = self.task_line().replace(b'"t1"', b'"t2"')
+        raw = self.goal_line() + b"BAD\r" + self.task_line() + second_task
+        self.plant(raw)
+        with self.assertRaises(puppets.DamagedLog) as raised:
+            puppets.read_log("g1")
+        self.assertEqual(str(raised.exception), self.damaged_message(2))
+        with self.assertRaises(puppets.DamagedLog):
+            puppets._locked_update("g1", lambda _events: {"event": "note"})
+        self.assertEqual(self.log_bytes(), raw)
+        code, out, err = self.invoke(["repair", "g1"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("bad line 2: BAD\r", out)
+        self.assertNotIn("unterminated tail:", out)
+        code, _out, err = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 0, err)
+        # The bad line runs to the next newline, so it takes the first task with it and
+        # nothing after it.
+        self.assertEqual(self.torn_files()[0].read_bytes(), b"BAD\r" + self.task_line())
+        events = puppets.read_log("g1")
+        self.assertEqual([event["event"] for event in events], ["goal", "task", "repair"])
+        self.assertEqual(events[1]["id"], "t2")
+
+    def test_a_crlf_line_parses_and_a_carriage_return_tail_is_unterminated(self):
+        crlf = self.goal_line()[:-1] + b"\r\n" + self.task_line()[:-1] + b"\r\n"
+        self.plant(crlf)
+        self.assertEqual([e["event"] for e in puppets.read_log("g1")], ["goal", "task"])
+        self.assertEqual(puppets.damaged_line_numbers(crlf), [])
+        self.plant(crlf + b'{"event":"note"}\r')
+        self.assertEqual([e["event"] for e in puppets.read_log("g1")], ["goal", "task"])
+        with self.assertRaises(puppets.UnterminatedLog):
+            puppets.append_event("g1", {"event": "note"})
+        good, bad, tail = puppets._partition_log(crlf + b'{"event":"note"}\r')
+        self.assertEqual((len(good), bad, tail), (2, [], b'{"event":"note"}\r'))

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 
-use crate::json::{self, Dict, ParseError, Value};
+use crate::json::{self, Dict, ParseError, PyStr, Value};
 use crate::py;
 
 /// One task as the fold leaves it. Fields hold whatever the log held, `Null` for Python's None.
@@ -70,7 +70,9 @@ impl TaskState {
 pub struct GoalState {
     pub goal_id: String,
     pub goal: Option<Dict>,
-    pub revision: i64,
+    /// Wide enough that no log that fits in memory saturates it: a `repair` adds at most
+    /// 1,000,000,001.
+    pub revision: i128,
     pub plans: Vec<Dict>,
     pub chosen_plan: Option<Dict>,
     pub human_plan: Option<Dict>,
@@ -85,18 +87,21 @@ impl GoalState {
     /// `state.tasks.get(id)`.
     pub fn task(&self, id: &Value) -> Result<Option<&TaskState>> {
         py::hashable(id)?;
-        Ok(self.tasks.iter().find(|t| py::eq(&t.key, id)))
+        Ok(self.tasks.iter().find(|t| py::same_key(&t.key, id)))
     }
 
     fn task_index(&self, id: &Value) -> Result<Option<usize>> {
         py::hashable(id)?;
-        Ok(self.tasks.iter().position(|t| py::eq(&t.key, id)))
+        Ok(self.tasks.iter().position(|t| py::same_key(&t.key, id)))
     }
 }
 
 fn s(text: &str) -> Value {
-    Value::Str(text.into())
+    Value::text(text)
 }
+
+/// The most bad lines one `repair` event is believed about. `puppets.py` has the same number.
+pub const MAX_REPAIR_REMOVED: i128 = 1_000_000_000;
 
 fn dict(pairs: Vec<(&str, Value)>) -> Dict {
     let mut out = Dict::new();
@@ -106,7 +111,7 @@ fn dict(pairs: Vec<(&str, Value)>) -> Dict {
     out
 }
 
-/// A Python set or dict keyed by log values, compared with `py::eq`.
+/// A Python set or dict keyed by log values, found the way a dict finds a key.
 struct Keyed<T>(Vec<(Vec<Value>, T)>);
 
 impl<T> Keyed<T> {
@@ -115,7 +120,7 @@ impl<T> Keyed<T> {
             py::hashable(part)?;
         }
         Ok(self.0.iter().position(|(k, _)| {
-            k.len() == key.len() && k.iter().zip(key).all(|(a, b)| py::eq(a, b))
+            k.len() == key.len() && k.iter().zip(key).all(|(a, b)| py::same_key(a, b))
         }))
     }
 
@@ -153,7 +158,7 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
         dangling_intents: Vec::new(),
         pending_runs: Vec::new(),
     };
-    let mut revision: i64 = 0;
+    let mut revision: i128 = 0;
     let mut consumed: Keyed<()> = Keyed(Vec::new());
     let mut intents: Keyed<Value> = Keyed(Vec::new());
     let mut runs_by_attempt: Keyed<Value> = Keyed(Vec::new());
@@ -161,7 +166,9 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
     for (index, event) in events.iter().enumerate() {
         let name = py::item(event, "event")?;
         let seq = py::get(event, "seq", Value::Int(index as i128 + 1))?;
+        // An event name is ASCII, so a name that is not a string or not UTF-8 matches none.
         let Value::Str(name) = name else { continue };
+        let Some(name) = name.to_utf8() else { continue };
         match name.as_str() {
             "goal" => {
                 state.goal = Some(dict(vec![
@@ -304,7 +311,7 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
                     for approval in &state.approvals {
                         if field_eq_str(approval, "kind", "launch")
                             && py::eq(&field(approval, "ref"), &task_id)
-                            && py::eq(&field(approval, "revision"), &Value::Int(revision.into()))
+                            && py::eq(&field(approval, "revision"), &Value::Int(revision))
                             && py::truthy(&field(approval, "yes"))
                             && !consumed.contains(&[field(approval, "seq")])?
                         {
@@ -315,18 +322,23 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
                 }
             }
             "run_end" => {
+                // Python reads `run_id` only where it compares it: for a task it knows, and
+                // once per pending run. With neither, an event without one is not an error.
                 let task_id = py::item(event, "task")?.clone();
-                let run_id = py::item(event, "run_id")?.clone();
                 if let Some(at) = state.task_index(&task_id)? {
+                    let run_id = py::item(event, "run_id")?;
                     let task = &mut state.tasks[at];
-                    if py::eq(&task.run_id, &run_id) {
+                    if py::eq(&task.run_id, run_id) {
                         task.status = s("ended");
                         task.outcome = py::get(event, "outcome", Value::Null)?;
                     }
                 }
-                state
-                    .pending_runs
-                    .retain(|pending| !py::eq(&field(pending, "run_id"), &run_id));
+                if !state.pending_runs.is_empty() {
+                    let run_id = py::item(event, "run_id")?;
+                    state
+                        .pending_runs
+                        .retain(|pending| !py::eq(&field(pending, "run_id"), run_id));
+                }
             }
             "human_verdict" => {
                 let task_id = py::item(event, "task")?.clone();
@@ -341,7 +353,7 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
                     if field_eq_str(approval, "kind", "diff")
                         && py::eq(&field(approval, "ref"), py::item(event, "task")?)
                         && py::eq(&field(approval, "run_id"), &run_id)
-                        && py::eq(&field(approval, "revision"), &Value::Int(revision.into()))
+                        && py::eq(&field(approval, "revision"), &Value::Int(revision))
                         && py::truthy(&field(approval, "yes"))
                         && !consumed.contains(&[field(approval, "seq")])?
                     {
@@ -374,12 +386,13 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
             }
             "repair" => {
                 // Past every revision an approval before the repair could name. A `removed`
-                // that is not a positive int still bumps by one.
+                // that is not an int from 1 to MAX_REPAIR_REMOVED counts as zero, so the
+                // event still bumps by one. A bool is not an int here, as in the Python.
                 let removed = match py::get(event, "removed", Value::Int(0))? {
-                    Value::Int(n) if n > 0 => i64::try_from(n).unwrap_or(i64::MAX),
+                    Value::Int(n) if (1..=MAX_REPAIR_REMOVED).contains(&n) => n,
                     _ => 0,
                 };
-                revision = revision.saturating_add(removed).saturating_add(1);
+                revision += removed + 1;
             }
             _ => {}
         }
@@ -395,7 +408,7 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
         if consumed.contains(&[field(approval, "seq")])? {
             approval.set("consumed", Value::Bool(true));
         } else if !field_eq_str(approval, "kind", "plan")
-            && !py::eq(&field(approval, "revision"), &Value::Int(revision.into()))
+            && !py::eq(&field(approval, "revision"), &Value::Int(revision))
         {
             approval.set("voided", Value::Bool(true));
         }
@@ -420,7 +433,7 @@ pub fn approval_available<'a>(
     reference: &Value,
     run_id: &Value,
 ) -> Option<&'a Dict> {
-    let revision = Value::Int(state.revision.into());
+    let revision = Value::Int(state.revision);
     state.approvals.iter().find(|approval| {
         if py::truthy(&field(approval, "consumed"))
             || py::truthy(&field(approval, "voided"))
@@ -463,18 +476,19 @@ pub fn needs_launch_approval(task: &TaskState) -> bool {
         && (py::eq_str(&task.grade, "high") || py::eq_str(&task.grade, "agi"))
 }
 
-/// Why `launch` would refuse this task, from the fold alone.
+/// Why `launch` would refuse this task, from the fold alone. Only the start of the text is
+/// read here, so a lone surrogate in a task id is spelled U+FFFD in it.
 pub fn launch_refusal(state: &GoalState, task_id: &Value) -> Result<Option<String>> {
     if let Some(first) = state.dangling_intents.first() {
-        let attempt = py::str(py::item(first, "attempt")?);
+        let attempt = py::str(py::item(first, "attempt")?).lossy();
         return Ok(Some(format!(
             "ambiguous launch intent attempt {attempt}; reconcile with hydra status before launching again"
         )));
     }
     let Some(task) = state.task(task_id)? else {
-        return Ok(Some(format!("unknown task {}", py::str(task_id))));
+        return Ok(Some(format!("unknown task {}", py::str(task_id).lossy())));
     };
-    let id = py::str(task_id);
+    let id = py::str(task_id).lossy();
     if task.assignment.is_none() {
         return Ok(Some(format!("task {id} has no assignment")));
     }
@@ -515,14 +529,18 @@ pub fn provider_available(vendors: &Path, provider: &str) -> Result<bool> {
     };
     let text =
         std::str::from_utf8(&raw).map_err(|err| anyhow::anyhow!("UnicodeDecodeError: {err}"))?;
-    let rows = match json::loads(text) {
+    let rows = match json::loads_str(text) {
         Ok(Value::List(rows)) => rows,
-        // Iterating an empty dict or string finds no rows; any other shape raises.
+        // Iterating an empty dict or string finds no rows. A dict's keys and a string's
+        // characters are strings, which have no `get`; nothing else iterates.
         Ok(Value::Dict(d)) if d.is_empty() => return Ok(true),
         Ok(Value::Str(t)) if t.is_empty() => return Ok(true),
-        Ok(_) => bail!("vendors.json is not a list of rows"),
+        Ok(Value::Dict(_) | Value::Str(_)) => {
+            bail!("AttributeError: 'str' object has no attribute 'get'")
+        }
+        Ok(_) => bail!("TypeError: vendors.json is not iterable"),
         Err(ParseError::Decode) => return Ok(true),
-        Err(ParseError::Unsupported) => bail!("vendors.json holds a lone surrogate"),
+        Err(err) => bail!("{}: vendors.json", err.class()),
     };
     let mut matching = Vec::new();
     for row in &rows {
@@ -583,7 +601,7 @@ pub fn approve_argv(
     python: &str,
     script: &str,
     goal_id: &str,
-    revision: i64,
+    revision: i128,
     args: &[Value],
 ) -> Value {
     let mut argv = vec![s(python), s(script), s("approve"), s(goal_id)];
@@ -604,7 +622,7 @@ pub fn pending_approvals(
         Value::Dict(dict(vec![
             ("kind", s(kind)),
             ("ref", reference),
-            ("revision", Value::Int(state.revision.into())),
+            ("revision", Value::Int(state.revision)),
             (
                 "argv",
                 approve_argv(python, script, &state.goal_id, state.revision, &args),
@@ -694,7 +712,7 @@ pub fn state_to_value(state: &GoalState) -> Value {
     Value::Dict(dict(vec![
         ("goal_id", s(&state.goal_id)),
         ("goal", opt(&state.goal)),
-        ("revision", Value::Int(state.revision.into())),
+        ("revision", Value::Int(state.revision)),
         (
             "plans",
             Value::List(state.plans.iter().cloned().map(Value::Dict).collect()),
@@ -725,12 +743,93 @@ pub fn state_to_value(state: &GoalState) -> Value {
 }
 
 /// How `json.dumps` spells a non-string dict key.
-fn json_key(key: &Value) -> String {
+fn json_key(key: &Value) -> PyStr {
     match key {
         Value::Str(text) => text.clone(),
         Value::Null => "null".into(),
         Value::Bool(true) => "true".into(),
         Value::Bool(false) => "false".into(),
-        other => json::dumps(other, None),
+        other => json::dumps(other, None).into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GOAL: &str = r#"{"event":"goal","text":"x","repo":"/r","base_sha":"a"}"#;
+    const TASK: &str = r#"{"event":"task","id":"t1","text":"t","class":"c","grade":"low"}"#;
+
+    fn folded(lines: &[&str]) -> Result<GoalState> {
+        let events: Vec<Value> = lines
+            .iter()
+            .map(|line| json::loads_str(line).unwrap())
+            .collect();
+        fold("g1", &events)
+    }
+
+    /// Build 199, item 12, the rule `puppets.py` has too: `removed` counts when it is an int
+    /// from 1 to a billion.
+    #[test]
+    fn a_repair_counts_removed_only_from_one_to_a_billion() {
+        let revision = |removed: &str| {
+            let repair = format!(r#"{{"event":"repair","removed":{removed}}}"#);
+            folded(&[GOAL, &repair]).unwrap().revision
+        };
+        assert_eq!(revision("1"), 2);
+        assert_eq!(revision("7"), 8);
+        assert_eq!(revision("1000000000"), 1_000_000_001);
+        for ignored in [
+            "1000000001",
+            "9223372036854775807",
+            "1606938044258990275541962092341162602522202993782792835301376",
+            "0",
+            "-3",
+            "true",
+            "2.0",
+            "\"2\"",
+            "null",
+            "[2]",
+        ] {
+            assert_eq!(revision(ignored), 1, "{ignored}");
+        }
+        assert_eq!(
+            folded(&[GOAL, r#"{"event":"repair"}"#]).unwrap().revision,
+            1
+        );
+    }
+
+    /// Two repairs that claim `i64::MAX` bad lines used to pin the revision at that value,
+    /// so an approval recorded between them at that revision stayed live.
+    #[test]
+    fn an_approval_between_two_wide_repairs_is_void() {
+        let wide = r#"{"event":"repair","removed":9223372036854775807}"#;
+        for at in ["2", "9223372036854775807"] {
+            let approval =
+                format!(r#"{{"event":"approval","kind":"table","revision":{at},"yes":true}}"#);
+            let state = folded(&[GOAL, TASK, wide, &approval, wide]).unwrap();
+            assert_eq!(state.revision, 3);
+            assert!(
+                state.approvals[0].get("voided").is_some_and(py::truthy),
+                "{at}"
+            );
+            assert!(approval_available(&state, "table", &Value::Null, &Value::Null).is_none());
+        }
+    }
+
+    /// Build 199, item 6: Python reads `run_id` for a task it knows and once per pending
+    /// run, so an event without one is an error only where one of those exists.
+    #[test]
+    fn run_end_reads_run_id_only_where_python_does() {
+        let run_end = r#"{"event":"run_end","task":"missing"}"#;
+        assert!(folded(&[GOAL, run_end]).is_ok());
+        let pending = r#"{"event":"run","task":"t9","attempt":1,"run_id":"r"}"#;
+        let err = folded(&[GOAL, pending, run_end]).unwrap_err();
+        assert_eq!(err.to_string(), "KeyError: 'run_id'");
+        let known = r#"{"event":"run_end","task":"t1"}"#;
+        let err = folded(&[GOAL, TASK, known]).unwrap_err();
+        assert_eq!(err.to_string(), "KeyError: 'run_id'");
+        let err = folded(&[GOAL, r#"{"event":"run_end"}"#]).unwrap_err();
+        assert_eq!(err.to_string(), "KeyError: 'task'");
     }
 }

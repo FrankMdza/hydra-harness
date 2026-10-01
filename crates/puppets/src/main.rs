@@ -68,8 +68,29 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
     }
 }
 
+/// The reader recurses once per level of nesting in a log value, to parse it, copy it, print
+/// it and drop it, and a goal log line may nest as deep as `json::MAX_NESTING`. The main
+/// thread's 8 MiB does not hold that, so the command runs on a thread with room for it. The
+/// stack is address space, not memory, until a line that deep is read.
+const STACK_BYTES: usize = 1 << 30;
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    std::thread::Builder::new()
+        .stack_size(STACK_BYTES)
+        .spawn(move || command(cli))
+        .and_then(|thread| {
+            thread
+                .join()
+                .map_err(|_| std::io::Error::other("the command panicked"))
+        })
+        .unwrap_or_else(|err| {
+            eprintln!("hydra-puppets: {err}");
+            ExitCode::from(1)
+        })
+}
+
+fn command(cli: Cli) -> ExitCode {
     let mut out = std::io::stdout().lock();
     let mut err = std::io::stderr().lock();
     let code = match run(cli, &mut out, &mut err) {

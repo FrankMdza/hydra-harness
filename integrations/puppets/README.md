@@ -89,15 +89,24 @@ check runs again while the goal log's lock is held, on a fold of the lines read 
 and a mismatch still writes nothing. When the log's last line has no newline, both readers ignore
 that tail, and every writer under the lock leaves the file unchanged and exits 1. A
 newline-terminated line that is blank or is not JSON makes the log damaged: every reader and
-writer refuses with one line on stderr and exit 1, and nothing is written.
+writer refuses with one line on stderr and exit 1, and nothing is written. Only `\n` ends a
+line. A lone `\r` inside the file is part of the line it sits in, so `BAD\r` followed by good
+lines is one bad line that runs to the next newline. A CRLF line still parses. An integer of
+more than 4,300 digits is not JSON here, because Python refuses to read one.
 
 `repair <goal-id>` lists each bad newline-terminated line, then any unterminated tail, cut to
 300 characters, and the move `--yes` would make, and writes nothing. `repair <goal-id> --yes`
-holds the log's lock, writes the bad lines and any unterminated tail to
-`<goal-id>.torn-<UTC timestamp>.txt` beside the log, rewrites the log with only its good lines,
-and when it removed one or more bad lines appends a `repair` event that bumps the revision so
-earlier table, launch, diff and degraded approvals void. A log with neither damage nor a torn
-tail says so and exits 0 either way.
+holds the log's lock and writes the bad lines and any unterminated tail to
+`<goal-id>.torn-<UTC timestamp>.txt` beside the log. It then builds the new log, the good lines
+and, when it removed one or more bad lines, a `repair` event, writes that to
+`<goal-id>.jsonl.repair-tmp`, fsyncs it and renames it over the log. A repair killed before the
+rename leaves the old log and a torn file that copies part of it. One killed after leaves the
+new log. There is no state in between. The `repair` event bumps the revision by the number of
+lines removed plus one, so earlier table, launch, diff and degraded approvals void. A `removed`
+that is not an int from 1 to 1,000,000,000 counts as zero. Because the rename puts a new file at
+the path, every command that locks the log checks, once it holds the lock, that the path still
+names the file it opened, and opens the log again when it does not. A log with neither damage
+nor a torn tail says so and exits 0 either way.
 
 A second approval of the same kind, ref and run already in the log at the current revision prints
 `already approved <kind> at revision <n>`, writes nothing, and exits 3. For a degraded approval

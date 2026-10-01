@@ -7,5 +7,7 @@
 pub mod fold;
 pub mod json;
 pub mod log;
+pub mod printable;
 mod py;
+pub mod pysort;
 pub mod read;
