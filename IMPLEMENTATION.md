@@ -3307,8 +3307,8 @@ torn file's name only when its 24 characters are a time, masks the `ts` of only 
 the class Python raised. After `repair --yes` it reads each repaired copy back with `show` and
 `pending --json`. It ran 1,304 commands over 163 inputs on 2026-10-01, 116 harvested and 47 edge
 logs. Two more tests in the same file compare the sort with `python3` on 624 lists that hold NaN
-and the printable table with `str.isprintable`. `src/cockpit/goal.rs` is a third reader and still
-adds any positive `removed`, which is the rule this ticket replaced.
+and the printable table with `str.isprintable`. `src/cockpit/goal.rs` is a third reader and
+uses the same `removed` band and `\n`-only line split as the helper.
 
 ## `hydra cockpit`, since build ticket 150
 

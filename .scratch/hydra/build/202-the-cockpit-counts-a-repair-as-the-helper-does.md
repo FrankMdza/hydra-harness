@@ -1,7 +1,7 @@
 # 202 - The cockpit counts a repair as the helper does
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 199
 
 ## What
@@ -27,3 +27,17 @@ otherwise.
 ## Done when
 
 - fmt, clippy over the workspace, `cargo test --lib` and `cargo test --test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f61c` (cursor-agent composer-2.5, `standard`, 1.0M tokens), diff
+read whole by the session and applied to master as written.
+
+Built: `repair_removed_count` in `src/cockpit/goal.rs` counts `removed` only when it is a JSON
+integer from 1 to 1,000,000,000, the helper's rule since build 199, and a test with the same
+cases as `crates/puppets/src/fold.rs`, which failed before on `1000000001`. The lone `\r` test
+passed before the change, as the ticket said it would: the cockpit already split on `\n` only.
+
+Measured on master: fmt and clippy clean over the workspace, `cargo test --test cockpit` 103
+passed, `cargo test --lib` 224 passed.
+

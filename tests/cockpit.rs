@@ -233,6 +233,43 @@ fn apply_handles_a_repair_event_like_the_helper_fold() {
 }
 
 #[test]
+fn a_repair_counts_removed_only_from_one_to_a_billion() {
+    let goal_line = r#"{"event": "goal", "text": "g", "repo": "/r", "base_sha": "a"}"#;
+    let revision = |removed: &str| {
+        let repair = format!(r#"{{"event":"repair","removed":{removed}}}"#);
+        let log = format!("{goal_line}\n{repair}\n");
+        goal::fold("g-repair-bounds", log.as_bytes()).revision
+    };
+    assert_eq!(revision("1"), 2);
+    assert_eq!(revision("7"), 8);
+    assert_eq!(revision("1000000000"), 1_000_000_001);
+    for ignored in [
+        "1000000001",
+        "9223372036854775807",
+        "9223372036854775808",
+        "1606938044258990275541962092341162602522202993782792835301376",
+        "0",
+        "-3",
+        "true",
+        "2.0",
+        "\"2\"",
+        "null",
+        "[2]",
+    ] {
+        assert_eq!(revision(ignored), 1, "{ignored}");
+    }
+    let log = format!("{goal_line}\n{}\n", r#"{"event":"repair"}"#);
+    assert_eq!(goal::fold("g-repair-bare", log.as_bytes()).revision, 1);
+}
+
+#[test]
+fn a_lone_carriage_return_mid_line_is_one_bad_line_not_a_line_break() {
+    let goal_line = r#"{"event": "goal", "text": "g", "repo": "/r", "base_sha": "a"}"#;
+    let log = format!("{goal_line}\nBAD\rjunk\n");
+    assert_eq!(goal::fold("g-cr-mid", log.as_bytes()).damaged_at, Some(2));
+}
+
+#[test]
 fn a_damaged_goal_shows_repair_and_refuses_a_and_v() {
     let log = r#"{"event": "goal", "text": "ship", "repo": "/r", "base_sha": "a"}
 {"event": "task", "id": "t1", "text": "one", "class": "c", "grade": "low", "deps": [], "paths": []}

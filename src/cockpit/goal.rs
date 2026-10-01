@@ -209,11 +209,7 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
             }
         }
         "repair" => {
-            let removed = event
-                .get("removed")
-                .and_then(|v| v.as_i64())
-                .filter(|&n| n > 0)
-                .unwrap_or(0);
+            let removed = repair_removed_count(event.get("removed"));
             goal.revision = goal.revision.saturating_add(removed).saturating_add(1);
         }
         _ => {}
@@ -240,6 +236,28 @@ fn row_or_default<'a>(goal: &'a mut Goal, task: &str) -> &'a mut TaskRow {
         }
     };
     &mut goal.rows[index]
+}
+
+/// The most bad lines one `repair` event is believed about. `puppets.py` has the same number.
+const MAX_REPAIR_REMOVED: i64 = 1_000_000_000;
+
+/// A `removed` that is not an int from 1 to [`MAX_REPAIR_REMOVED`] counts as zero.
+fn repair_removed_count(value: Option<&Value>) -> i64 {
+    let Some(value) = value else {
+        return 0;
+    };
+    let Some(n) = (match value {
+        Value::Number(num) if num.is_i64() => num.as_i64(),
+        Value::Number(num) if num.is_u64() => num.as_u64().and_then(|u| i64::try_from(u).ok()),
+        _ => None,
+    }) else {
+        return 0;
+    };
+    if (1..=MAX_REPAIR_REMOVED).contains(&n) {
+        n
+    } else {
+        0
+    }
 }
 
 /// Python accepts these constants. Validate the rest of the line before
