@@ -3846,7 +3846,7 @@ fn new_stdout_must_name_the_created_log() {
 /// Build ticket 207. `int()` under CPython 3.14, for every code point before a `7`, after
 /// one and alone: which it strips, which are digits and of what value. `int.txt` holds a row
 /// for each code point where any of the five reads gave a number. It is the check on the
-/// digit table and the whitespace rule in `src/py.rs`.
+/// digit table and the whitespace rule in `crates/pyjson/src/py.rs`.
 #[test]
 fn the_int_parser_matches_python_on_every_code_point() {
     let expected = python_said("int.txt");

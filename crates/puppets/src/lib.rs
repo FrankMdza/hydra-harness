@@ -11,16 +11,14 @@
 //! all run this binary. `sheet.py` and `models.py` stay in `integrations/puppets/`: the
 //! first holds three commands nobody ported, and both wait for the grader's own port.
 
+pub use hydra_pyjson::{json, models, printable, pysort};
+
 pub mod fold;
-pub mod json;
 pub mod launch;
 pub mod log;
-pub mod models;
 pub mod panel;
-pub mod printable;
-mod py;
+use hydra_pyjson::py;
 pub use py::{int_literal, int_value};
-pub mod pysort;
 pub mod read;
 pub mod sheet;
 pub mod write;

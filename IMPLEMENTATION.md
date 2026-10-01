@@ -3256,6 +3256,19 @@ float spelling and `\u` escapes. `serde_json`'s `preserve_order` would give the 
 workspace build that feature would reach `hydra` too. Until build ticket 196 `pending`'s `argv`
 named `python3` and the Python script's `approve`; it now names `hydra-puppets approve`.
 
+Since build ticket 210 the workspace has a third member, `crates/pyjson` (package `hydra-pyjson`,
+a library with `anyhow` as its only dependency). Map ticket 94 ports the grader next, and the
+grader needs the same Python-exact code, so `json.rs`, `py.rs`, `pysort.rs`, `printable.rs` and
+`models.rs` moved there from `crates/puppets`, and wherever this file names one of those five it
+now lives in `crates/pyjson/src/`. `Path.read_text` and the exception class of a failed read moved
+with them into `file.rs`, because `models.rs` reads `aliases.json` through them; `crates/puppets`
+imports both back and keeps no copy. `hydra-puppets` exports what it exported before: `json`,
+`models`, `printable` and `pysort` as re-exports, plus `int_literal` and `int_value`. `py` is a
+public module of `hydra-pyjson` and still private in `hydra-puppets`. The 21 unit tests of the
+five files moved too, which leaves 44 in `hydra-puppets`. The check that `hydra-pyjson` matches
+Python is still `crates/puppets/tests/differential.rs`: printing `True` for `true` in `dumps`
+fails 3 of its 18 tests.
+
 `crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
 the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a
 recording of it, described where that ticket is, below. The inputs are every goal log the Python

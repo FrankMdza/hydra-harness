@@ -1,7 +1,7 @@
 # 211 - `exp`, `log` and `log1p` match CPython to the bit, or they do not
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 210
 
 ## What

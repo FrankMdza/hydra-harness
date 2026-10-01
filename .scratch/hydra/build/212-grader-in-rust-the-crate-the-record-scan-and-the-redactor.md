@@ -1,7 +1,7 @@
 # 212 - grader in Rust: the crate, the record scan and the redactor
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 210
 
 ## What

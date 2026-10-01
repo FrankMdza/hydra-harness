@@ -2,15 +2,15 @@
 //! `aliases.json` as it is.
 //!
 //! Only the half of `sheet.py` that builds sheets calls this, and that half is not ported
-//! yet, so nothing in this crate reaches it but its test.
+//! yet, so nothing reaches it but its test.
 
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
 
+use crate::file::read_text;
 use crate::json::{self, Value};
 use crate::py;
-use crate::write::read_text;
 
 /// A provider and a model; the model is `Null` for a provider's own default.
 pub type Pair = (Value, Value);
@@ -60,11 +60,11 @@ pub fn canonical(provider: &Value, model: &Value, aliases: &[(Pair, Pair)]) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log;
 
     #[test]
     fn the_repo_aliases_map_a_recorded_spelling_to_its_canonical_pair() {
-        let aliases = load_aliases(&log::checkout_data_dir().join("aliases.json")).unwrap();
+        let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let aliases = load_aliases(&checkout.join("integrations/puppets/aliases.json")).unwrap();
         let pair = |provider: &str, model: Option<&str>| {
             let model = model.map_or(Value::Null, Value::text);
             let (provider, model) = canonical(&Value::text(provider), &model, &aliases).unwrap();
