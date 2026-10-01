@@ -1,7 +1,7 @@
 # 218 - grader in Rust: the local judge labels and agrees
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 212, 214
 
 ## What

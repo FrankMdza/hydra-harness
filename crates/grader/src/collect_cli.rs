@@ -1,0 +1,427 @@
+//! `hydra-grader once`, `watch`, `rebuild` and `backfill`: the arguments of `grader.py` and
+//! its four commands (build ticket 214).
+//!
+//! The arguments follow `argparse` where a caller can tell, by the reading
+//! `baseline_cli.rs` gives it: an option may be cut short to any prefix that names one
+//! option and takes its value after a space or an `=`; a surplus argument is "unrecognized"
+//! and reported after everything else parsed. A wrong command line exits 2 with a usage
+//! line and then `PROG: error: MESSAGE`, and the message is the Python's. The usage line
+//! and the help are this binary's own, since its name is not `grader.py`.
+//!
+//! A pass that fails ends `once`, `rebuild` and `backfill` with exit code 1 and one line on
+//! stderr that starts with the class of the exception the Python ends on. `watch` reports
+//! it as `grader: pass failed: ...` and tries again after the interval.
+
+use std::io::Write;
+use std::path::PathBuf;
+
+use anyhow::{Result, bail};
+use hydra_pyjson::json::Value;
+use hydra_pyjson::models::{self, Pair};
+use hydra_pyjson::py;
+
+use crate::collect::{self, Pass};
+use crate::labels::{Env, LabelsError};
+use crate::records;
+
+const PROG: &str = "hydra-grader";
+/// The commands `grader.py` has, which is what its error for an unknown one lists.
+pub const COMMANDS: [&str; 4] = ["once", "watch", "rebuild", "backfill"];
+const USAGE: &str = "usage: hydra-grader [-h] {once,watch,rebuild,backfill,baseline} ...";
+
+/// Where `aliases.json` is read from, by the rule `baseline_cli.rs` follows:
+/// `HYDRA_PUPPETS_DATA` when set, else `integrations/puppets` under `HYDRA_HOME`, else the
+/// first directory above this binary that holds one.
+fn aliases_path(env: &Env) -> PathBuf {
+    const FILE: &str = "integrations/puppets/aliases.json";
+    if let Some(dir) = env.named("HYDRA_PUPPETS_DATA") {
+        return PathBuf::from(dir).join("aliases.json");
+    }
+    if let Some(home) = env.named("HYDRA_HOME") {
+        return PathBuf::from(home).join(FILE);
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.ancestors()
+                .map(|dir| dir.join(FILE))
+                .find(|file| file.is_file())
+        })
+        .unwrap_or_else(|| PathBuf::from(FILE))
+}
+
+/// `repr(text)`, which is how `argparse` quotes a value it refuses.
+fn repr(text: &str) -> String {
+    py::repr(&Value::text(text))
+}
+
+/// What `argparse` takes for a negative number, which is an argument and not an option.
+fn negative_number(arg: &str) -> bool {
+    let rest = arg.strip_prefix('-').unwrap_or("x");
+    let rest = rest.strip_prefix('.').unwrap_or(rest);
+    rest.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// What one argument is to a parser whose long options are `longs`.
+enum Kind {
+    Positional,
+    Help,
+    /// An option and the value written after its `=`, if any.
+    Option(&'static str, Option<String>),
+    /// The message after `error: `.
+    Wrong(String),
+    /// It looks like an option and the parser has none by that name.
+    Unknown,
+}
+
+fn kind(arg: &str, longs: &[&'static str]) -> Kind {
+    if !arg.starts_with('-') || arg.len() == 1 {
+        return Kind::Positional;
+    }
+    if !arg.starts_with("--") {
+        if arg.starts_with("-h") {
+            return Kind::Help;
+        }
+    } else {
+        let (head, explicit) = match arg.split_once('=') {
+            Some((head, value)) => (head, Some(value.to_string())),
+            None => (arg, None),
+        };
+        let matches: Vec<&'static str> = match longs.iter().find(|long| **long == head) {
+            Some(exact) => vec![exact],
+            None => longs
+                .iter()
+                .copied()
+                .filter(|long| long.starts_with(head))
+                .collect(),
+        };
+        match matches.as_slice() {
+            [] => {}
+            ["--help"] => {
+                return match explicit {
+                    Some(value) => Kind::Wrong(format!(
+                        "argument -h/--help: ignored explicit argument {}",
+                        repr(&value)
+                    )),
+                    None => Kind::Help,
+                };
+            }
+            [long] => return Kind::Option(long, explicit),
+            several => {
+                return Kind::Wrong(format!(
+                    "ambiguous option: {arg} could match {}",
+                    several.join(", ")
+                ));
+            }
+        }
+    }
+    if negative_number(arg) || arg.contains(' ') {
+        Kind::Positional
+    } else {
+        Kind::Unknown
+    }
+}
+
+/// The arguments of one command, read.
+enum Parsed {
+    Help,
+    /// The message after `error: `.
+    Wrong(String),
+    /// What no option took, in the order it was given. No command here has a positional.
+    Extras(Vec<String>),
+}
+
+/// Read `args` for a command with `valued` options, each taking one whole number, which
+/// `take` is handed.
+fn parse(
+    args: &[String],
+    valued: &[&'static str],
+    take: &mut dyn FnMut(&'static str, Value),
+) -> Parsed {
+    let mut longs: Vec<&'static str> = vec!["--help"];
+    longs.extend(valued);
+    let mut extras = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        i += 1;
+        if arg == "--" {
+            // No command here has a positional to take what follows, so the `--` and
+            // everything after it is left over, the `--` included.
+            extras.extend(args[i - 1..].iter().cloned());
+            break;
+        }
+        match kind(arg, &longs) {
+            Kind::Positional | Kind::Unknown => extras.push(arg.to_string()),
+            Kind::Help => return Parsed::Help,
+            Kind::Wrong(message) => return Parsed::Wrong(message),
+            Kind::Option(long, explicit) => {
+                let value = match explicit {
+                    Some(value) => value,
+                    None => match args.get(i) {
+                        Some(next)
+                            if next != "--" && matches!(kind(next, &longs), Kind::Positional) =>
+                        {
+                            i += 1;
+                            next.clone()
+                        }
+                        _ => {
+                            return Parsed::Wrong(format!(
+                                "argument {long}: expected one argument"
+                            ));
+                        }
+                    },
+                };
+                match py::int_value(&value) {
+                    Some(number) => take(long, number),
+                    None => {
+                        return Parsed::Wrong(format!(
+                            "argument {long}: invalid int value: {}",
+                            repr(&value)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Parsed::Extras(extras)
+}
+
+/// A wrong command line: the usage, the error, and exit code 2.
+fn wrong(stderr: &mut dyn Write, usage: &str, prog: &str, message: &str) -> u8 {
+    let _ = writeln!(stderr, "{usage}\n{prog}: error: {message}");
+    2
+}
+
+/// `max(1, jobs)` for a whole number of any width.
+fn workers(jobs: &Value) -> usize {
+    match jobs {
+        Value::Int(n) => usize::try_from((*n).max(1)).unwrap_or(usize::MAX),
+        Value::BigInt(digits) if !digits.starts_with('-') => usize::MAX,
+        _ => 1,
+    }
+}
+
+/// `time.sleep(interval)`: the wait, or the error Python raises for a length it cannot
+/// sleep.
+fn sleep_length(interval: &Value) -> Result<std::time::Duration> {
+    // Past this many seconds the length does not fit the nanoseconds Python counts in.
+    const LONGEST: i128 = i64::MAX as i128 / 1_000_000_000;
+    // The length is counted before its sign is looked at, so one too long is an overflow in
+    // either direction.
+    match interval {
+        Value::Int(n) if (0..=LONGEST).contains(n) => Ok(std::time::Duration::from_secs(*n as u64)),
+        Value::Int(n) if (-LONGEST..0).contains(n) => {
+            bail!("ValueError: sleep length must be non-negative")
+        }
+        _ => bail!("OverflowError: timestamp out of range for C PyTime_t"),
+    }
+}
+
+/// What a failure says of itself: `str(err)` where the Python's sentence is known, which is
+/// the text after the class.
+fn said(err: &anyhow::Error) -> String {
+    if let Some(labels) = err.downcast_ref::<LabelsError>() {
+        return labels.0.clone();
+    }
+    let text = err.to_string();
+    match text.split_once(": ") {
+        Some((_, message)) => message.to_string(),
+        None => text,
+    }
+}
+
+/// The last line of a pass that failed: the class of the exception, then what it says.
+fn raised(err: &anyhow::Error) -> String {
+    match err.downcast_ref::<LabelsError>() {
+        Some(labels) => format!("LabelsError: {}", labels.0),
+        None => err.to_string(),
+    }
+}
+
+/// `grader.py`'s `main` on `args`, in the environment `env`. Returns the exit code.
+pub fn main(args: &[String], env: &Env, stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
+    // The top parser: `-h`, then the command. An option it does not know waits until the
+    // command has parsed and is then unrecognized.
+    let mut top_extras = Vec::new();
+    let mut rest = args;
+    let command = loop {
+        let Some((first, after)) = rest.split_first() else {
+            return wrong(
+                stderr,
+                USAGE,
+                PROG,
+                "the following arguments are required: command",
+            );
+        };
+        rest = after;
+        if first == "--" {
+            continue;
+        }
+        match kind(first, &["--help"]) {
+            Kind::Positional => {}
+            Kind::Help => {
+                let _ = writeln!(stdout, "{USAGE}");
+                return 0;
+            }
+            Kind::Wrong(message) => return wrong(stderr, USAGE, PROG, &message),
+            Kind::Option(..) | Kind::Unknown => {
+                top_extras.push(first.clone());
+                continue;
+            }
+        }
+        break first.as_str();
+    };
+    if !COMMANDS.contains(&command) {
+        let names: Vec<String> = COMMANDS.iter().map(|name| format!("'{name}'")).collect();
+        let message = format!(
+            "argument command: invalid choice: {} (choose from {})",
+            repr(command),
+            names.join(", ")
+        );
+        return wrong(stderr, USAGE, PROG, &message);
+    }
+
+    let prog = format!("{PROG} {command}");
+    let (valued, usage): (&[&'static str], String) = match command {
+        "watch" => (
+            &["--interval", "--jobs"],
+            format!("usage: {prog} [-h] --interval INTERVAL [--jobs JOBS]"),
+        ),
+        "backfill" => (&[], format!("usage: {prog} [-h]")),
+        _ => (&["--jobs"], format!("usage: {prog} [-h] [--jobs JOBS]")),
+    };
+    let mut jobs = Value::Int(4);
+    let mut interval = None;
+    let mut take = |option: &'static str, value: Value| {
+        if option == "--jobs" {
+            jobs = value;
+        } else {
+            interval = Some(value);
+        }
+    };
+    let extras = match parse(rest, valued, &mut take) {
+        Parsed::Help => {
+            let _ = writeln!(stdout, "{usage}");
+            return 0;
+        }
+        Parsed::Wrong(message) => return wrong(stderr, &usage, &prog, &message),
+        Parsed::Extras(extras) => extras,
+    };
+    if command == "watch" && interval.is_none() {
+        return wrong(
+            stderr,
+            &usage,
+            &prog,
+            "the following arguments are required: --interval",
+        );
+    }
+    top_extras.extend(extras);
+    if !top_extras.is_empty() {
+        let message = format!("unrecognized arguments: {}", top_extras.join(" "));
+        return wrong(stderr, USAGE, PROG, &message);
+    }
+
+    let aliases = || -> Result<Vec<(Pair, Pair)>> { models::load_aliases(&aliases_path(env)) };
+    let pass = Pass {
+        jobs: workers(&jobs),
+        rebuild: command == "rebuild",
+        ..Pass::default()
+    };
+    let finish = |done: Result<usize>, stdout: &mut dyn Write, stderr: &mut dyn Write| -> u8 {
+        match done {
+            Ok(count) => {
+                let _ = writeln!(stdout, "{count}");
+                0
+            }
+            Err(err) => {
+                let _ = writeln!(stderr, "{}", raised(&err));
+                1
+            }
+        }
+    };
+
+    match command {
+        "backfill" => {
+            let done = (|| {
+                let home = records::grader_home_in(&|name| env.get(name))?;
+                let rows = records::read_jsonl(&home.join("dataset.jsonl"))?;
+                collect::score_rows(&home, &rows, &collect::utc_now())
+            })();
+            finish(done, stdout, stderr)
+        }
+        "once" | "rebuild" => {
+            let done = collect::collect(&pass, env, &aliases, stderr);
+            finish(done, stdout, stderr)
+        }
+        _ => {
+            let interval = interval.expect("checked above");
+            // A pass that fails (a `hydra show` that errors, a record mid-write) must not
+            // end the watch: report it on stderr and try again after the interval.
+            loop {
+                match collect::collect(&pass, env, &aliases, stderr) {
+                    Ok(count) => {
+                        let _ = writeln!(stdout, "{count}");
+                        let _ = stdout.flush();
+                    }
+                    Err(err) => {
+                        let _ = writeln!(stderr, "grader: pass failed: {}", said(&err));
+                        let _ = stderr.flush();
+                    }
+                }
+                match sleep_length(&interval) {
+                    Ok(length) => std::thread::sleep(length),
+                    Err(err) => {
+                        let _ = writeln!(stderr, "{err}");
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jobs_are_at_least_one_at_any_width() {
+        assert_eq!(workers(&Value::Int(-3)), 1);
+        assert_eq!(workers(&Value::Int(0)), 1);
+        assert_eq!(workers(&Value::Int(6)), 6);
+        assert_eq!(workers(&Value::BigInt("-9".repeat(50))), 1);
+        assert_eq!(workers(&Value::BigInt("9".repeat(50))), usize::MAX);
+    }
+
+    #[test]
+    fn a_sleep_python_refuses_is_refused() {
+        let class = |interval: Value| {
+            let err = sleep_length(&interval).unwrap_err().to_string();
+            err.split(':').next().unwrap().to_string()
+        };
+        assert_eq!(class(Value::Int(-1)), "ValueError");
+        assert_eq!(class(Value::Int(-9_223_372_037)), "OverflowError");
+        assert_eq!(
+            class(Value::BigInt(format!("-{}", "9".repeat(50)))),
+            "OverflowError"
+        );
+        assert_eq!(class(Value::Int(9_223_372_037)), "OverflowError");
+        assert_eq!(class(Value::BigInt("9".repeat(50))), "OverflowError");
+        assert_eq!(
+            sleep_length(&Value::Int(9_223_372_036)).unwrap().as_secs(),
+            9_223_372_036
+        );
+        assert_eq!(sleep_length(&Value::Int(0)).unwrap().as_secs(), 0);
+    }
+
+    #[test]
+    fn a_failure_says_what_the_python_exception_says() {
+        let labels: anyhow::Error = LabelsError("cannot run /x: gone".into()).into();
+        assert_eq!(said(&labels), "cannot run /x: gone");
+        assert_eq!(raised(&labels), "LabelsError: cannot run /x: gone");
+        let other = anyhow::anyhow!("KeyError: 'run_id'");
+        assert_eq!(said(&other), "'run_id'");
+        assert_eq!(raised(&other), "KeyError: 'run_id'");
+    }
+}

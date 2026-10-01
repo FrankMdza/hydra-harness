@@ -957,6 +957,9 @@ def main() -> int:
     load_module("record_monitor", HERE / "record_monitor.py").record(out, REPO, scan_inputs())
 
     load_module("record_triage", HERE / "record_triage.py").record(out, REPO, scan_inputs())
+    # Build ticket 214: `labels.py` and `grader.py`, in the file beside this one.
+    labels = load_module("recorded_labels", GRADER / "labels.py")
+    load_module("record_collect", HERE / "record_collect.py").record(out, REPO, labels)
 
     digest = hashlib.sha256()
     for path in sorted(p for p in out.rglob("*") if p.is_file()):

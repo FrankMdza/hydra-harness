@@ -17,14 +17,20 @@
 //! Build ticket 215 ported `monitor.py` whole (`monitor.rs`) and its three commands
 //! (`monitor_cli.rs`), which the binary runs as `hydra-grader monitor features`, `train`
 //! and `score`.
+//! Build ticket 214 ported `labels.py` (`labels.rs`), `grader.py` and
+//! `records.refresh_show_answer` (`collect.rs`), and the four commands of `grader.py`
+//! (`collect_cli.rs`): `hydra-grader once`, `watch`, `rebuild` and `backfill`.
 //!
 //! There is no `serde_json` here, for the reason `hydra-pyjson` gives.
 
 pub mod baseline;
 pub mod baseline_cli;
+pub mod collect;
+pub mod collect_cli;
 pub mod isotime;
 pub mod jev;
 pub mod jev_cli;
+pub mod labels;
 pub mod monitor;
 pub mod monitor_cli;
 pub mod queue;

@@ -54,6 +54,9 @@ mod baseline;
 // Build ticket 215: `monitor.py`'s `features`, `train` and `score`, command by command.
 #[path = "differential/monitor.rs"]
 mod monitor;
+// Build ticket 214: `labels.py` and `grader.py`, function by function and command by command.
+#[path = "differential/collect.rs"]
+mod collect;
 
 fn fixtures() -> PathBuf {
     match std::env::var_os("HYDRA_GRADER_FIXTURES") {
@@ -546,18 +549,6 @@ fn the_preamble_and_the_homes_are_what_the_python_gave() {
         );
     }
     tally.finish();
-}
-
-#[test]
-fn the_binary_has_no_command_yet_and_says_so() {
-    let ran = Command::new(RUST).arg("once").output().unwrap();
-    assert_eq!(ran.status.code(), Some(2));
-    assert!(ran.stdout.is_empty());
-    let stderr = String::from_utf8(ran.stderr).unwrap();
-    assert!(
-        stderr.starts_with("hydra-grader: no command is ported yet"),
-        "{stderr}"
-    );
 }
 
 #[path = "differential/jev.rs"]

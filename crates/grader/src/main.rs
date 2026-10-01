@@ -2,9 +2,10 @@
 //!
 //! Build ticket 213 ported `baseline.py`'s `train` and `score`, which run as
 //! `hydra-grader baseline train` and `hydra-grader baseline score`. Build ticket 215 ported
-//! `monitor.py`, which runs as `hydra-grader monitor features`, `train` and `score`. The
-//! commands of `grader.py` itself are not ported yet: anything else says so and exits 2, which is what
-//! `argparse` exits with for a command it does not know.
+//! `monitor.py`, which runs as `hydra-grader monitor features`, `train` and `score`. Build
+//! ticket 214 ported the commands of `grader.py` itself: `once`, `watch`, `rebuild` and
+//! `backfill`. Anything else exits 2 with the error `argparse` gives a command it does not
+//! know.
 
 use std::process::ExitCode;
 
@@ -45,8 +46,28 @@ fn main() -> ExitCode {
             &mut std::io::stderr().lock(),
         ));
     }
-    eprintln!(
-        "hydra-grader: no command is ported yet; run integrations/grader/grader.py (build ticket 212 ported the record scan and the redactor as a library)"
-    );
-    ExitCode::from(2)
+    // Build ticket 214: the four commands of `grader.py` itself, and its errors for the rest.
+    // A record line or a goal log line may nest as deep as `json::MAX_NESTING`, and reading
+    // one recurses once per level, so the command runs on a thread with room for it, as
+    // `hydra-puppets` does. The stack is address space, not memory, until a line that deep
+    // is read.
+    std::thread::Builder::new()
+        .stack_size(hydra_grader::collect::STACK_BYTES)
+        .spawn(move || {
+            let (mut stdout, mut stderr) = (std::io::stdout().lock(), std::io::stderr().lock());
+            let env = hydra_grader::labels::Env::process();
+            hydra_grader::collect_cli::main(&args, &env, &mut stdout, &mut stderr)
+        })
+        .and_then(|thread| {
+            thread
+                .join()
+                .map_err(|_| std::io::Error::other("the command panicked"))
+        })
+        .map_or_else(
+            |err| {
+                eprintln!("hydra-grader: {err}");
+                ExitCode::from(1)
+            },
+            ExitCode::from,
+        )
 }

@@ -252,6 +252,25 @@ pub fn loads_bytes_explained(raw: &[u8]) -> Result<Value, (ParseError, String)> 
     loads_explained(&text)
 }
 
+/// `json.loads(bytes, object_pairs_hook=...)` as far as the pairs go: every object keeps
+/// each pair it was written with, in order, so a key written twice is there twice and
+/// `Dict::get` finds the first. `Dict::set_key` over the pairs in order gives the dict
+/// Python builds from them. The errors are those of `loads_bytes_explained`.
+pub fn loads_bytes_pairs_explained(raw: &[u8]) -> Result<Value, (ParseError, String)> {
+    let text = decode(raw).map_err(|message| (ParseError::Unicode, message))?;
+    let mut parser = Parser::new(&text);
+    parser.pairs = true;
+    parser.ws();
+    let parsed = parser.value().and_then(|value| {
+        parser.ws();
+        if parser.i != parser.s.len() {
+            return parser.bad("Extra data", parser.i);
+        }
+        Ok(value)
+    });
+    parsed.map_err(|err| (err, parser.explain()))
+}
+
 /// What `json.detect_encoding` chooses between.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Encoding {
@@ -454,6 +473,9 @@ struct Parser<'a> {
     depth: usize,
     /// The message and position of the `JSONDecodeError`, once one is raised.
     fail: Option<(&'static str, usize)>,
+    /// Keep every pair of an object, a repeated key included, as `object_pairs_hook` is
+    /// handed them.
+    pairs: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -463,6 +485,7 @@ impl<'a> Parser<'a> {
             i: 0,
             depth: 0,
             fail: None,
+            pairs: false,
         }
     }
 
@@ -707,7 +730,11 @@ impl<'a> Parser<'a> {
             self.i += 1;
             self.ws();
             let value = self.value()?;
-            dict.set_key(key, value);
+            if self.pairs {
+                dict.push(key, value);
+            } else {
+                dict.set_key(key, value);
+            }
             self.ws();
             match self.peek() {
                 Some(',') => {
@@ -966,6 +993,21 @@ fn write_str_impl(out: &mut String, s: &PyStr, ascii: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pairs_of_an_object_keep_a_key_written_twice() {
+        let raw = br#"{"3": {"a": 1, "a": 2}, "3": [{"b": 1, "b": 2}]}"#;
+        let kept = loads_bytes_pairs_explained(raw).unwrap();
+        assert_eq!(
+            dumps_default(&kept),
+            r#"{"3": {"a": 1, "a": 2}, "3": [{"b": 1, "b": 2}]}"#
+        );
+        let plain = loads_bytes_explained(raw).unwrap();
+        assert_eq!(dumps_default(&plain), r#"{"3": [{"b": 2}]}"#);
+        let (err, message) = loads_bytes_pairs_explained(b"{} x").unwrap_err();
+        assert_eq!(err, ParseError::Decode);
+        assert_eq!(message, "Extra data: line 1 column 4 (char 3)");
+    }
 
     #[test]
     fn floats_print_as_python_repr_prints_them() {

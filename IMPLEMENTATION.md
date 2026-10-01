@@ -3758,6 +3758,89 @@ the build ticket numbers. Its `Prefix` is the private Rust `Walk`, and Python's
 zero-positional subcommands preserve `--` in unrecognized-argument errors, unlike the
 shared parser's usual treatment of the separator. No dependency was added and nothing
 ran against the real grader home or run records.
+#### Collect, since build ticket 214
+
+`labels.rs` is `labels.py` whole, `collect.rs` is `grader.py`'s `collect`, `score_rows` and
+`dataset_row` with `records.refresh_show_answer`, and `collect_cli.rs` is `grader.py`'s `main`. The
+binary runs them as `hydra-grader once [--jobs N]`, `watch --interval S [--jobs N]`,
+`rebuild [--jobs N]` and `backfill`, with the Python's stdout and exit codes. It runs a command on
+a thread with a 1 GiB stack, as `hydra-puppets` does, because a record line or a goal log line
+nested thousands deep is read by recursion. `records.iter_records` has no caller in the grader and
+is not ported.
+
+Two programs are still started. `hydra show <id> --events` is `HYDRA_BIN` or `hydra`, with
+`HYDRA_ROOT` set to the directory above the runs. `hydra-puppets show -- <goal>` keeps the rule of
+builds 196 and 221: an absolute path and never `PATH`, from `HYDRA_PUPPETS_BIN`, else beside an
+absolute `HYDRA_BIN`, else `target/release/hydra-puppets` of the checkout. The Python took the
+checkout its own file was in. The Rust takes the first directory above the binary that holds
+`integrations/puppets`, and with none it is a `LabelsError` that asks for `HYDRA_PUPPETS_BIN`.
+
+`hydra-pyjson` gained `json::loads_bytes_pairs_explained`, the parse that keeps a key written
+twice, which is what `object_pairs_hook` hands `labels.py`. No dependency was added.
+
+`crates/grader/tests/record_collect.py`, which `record.py` loads, wrote
+`fixtures/collect/labels.json` and `fixtures/collect/scenarios.json`, and
+`tests/differential/collect.rs` replays both. `hydra` and `hydra-puppets` are stubs the fixtures
+carry: shell scripts that write down their arguments and environment and print a planted answer.
+
+- `labels.json`, 552 comparisons: `show_goal`, `committed_events` and `labels_for_goal` on 239
+  goals, the 164 logs of `crates/puppets/tests/fixtures/read/` with what `puppets.py show`
+  printed for each and 75 answers written by hand, one for every refusal; `collect` on 9 homes;
+  `collect_llm` on 11 sets of class files; the helper's path and the puppets home under 18
+  environments. The labels are compared as the text of every pair in order, a `LabelsError` by
+  its whole sentence. The recorder also checks the 147 logs the helper shows against the labels
+  build 196 recorded from the Python fold.
+- `scenarios.json`, 2,201 comparisons over 356 commands in 114 scenarios: the exit code, stdout,
+  stderr and every file the command left, which is `dataset.jsonl`, `cursor.json`,
+  `show-cache.json`, `scores.jsonl`, a `.tmp` file a refused write left, and what each stub was
+  called with. One scenario runs `once` twice, changes a record, adds and reorders a class file,
+  adds ticket verdicts, rebuilds, backfills twice and scores a new run, 20 commands on one home.
+  The rest are passes that fail, records and grader files of the wrong shape, 19 answers of
+  `hydra show`, and 62 command lines.
+
+What is normalized, and nothing else:
+
+- `collected_at` and `scored_at`. The recorder froze the Python's clock at a made-up second of
+  2001, a different one per command. The test requires each new stamp to lie between the start
+  and the end of the command that wrote it, then rewrites it in the scratch file to the
+  recorder's second, so the next command reads the bytes the Python read and a row says which
+  command wrote it.
+- The scratch directory is `<root>` where it is printed or passed, and the directory `hydra` is
+  handed when the runs directory is not named `runs` is `<tmp>`. No command can name such a
+  directory, since the runs are always `runs` under the root, so that scenario calls
+  `collect::collect` in the test process.
+- A traceback is compared by the exception class on its last line, a wrong command line by its
+  last line with `grader.py` read as `hydra-grader`, and the help by a usage line.
+- The stubs leave out `PWD`, `SHLVL` and `_`, which the shell adds, and `LC_CTYPE=C.UTF-8` and
+  `__CF_USER_TEXT_ENCODING`, which CPython adds to its own environment when it starts with no
+  locale. So the Python hands those two to `hydra` and the Rust does not.
+
+Things the Python does that a reader would not guess, all kept:
+
+- A pass writes in a fixed order: the cache, then the dataset, the cursor, the scores. A row that
+  cannot be built leaves the cache alone on disk, and a model that cannot score leaves the
+  dataset and the cursor written and an empty `scores.jsonl`.
+- `once` does not score when nothing is stale, so a model added later scores nothing until
+  `backfill`.
+- A run id that is not text ends the pass with a `TypeError`, at `hydra show`'s argv for a
+  number and at the first dict lookup for a list.
+- An empty `HYDRA_BIN` is a `PermissionError` when any directory of `PATH` exists and a
+  `FileNotFoundError` otherwise.
+- `ticket-verdicts.json` holding a list or a string is read with `in`, so it raises only when it
+  names a stale run.
+- A `--` after a command is itself an unrecognized argument.
+- `watch` with a negative interval runs one pass and ends on `ValueError`, which is how a
+  `watch` was recorded at all.
+
+Not compared, and why. With `--jobs` above one the Python's cache fills in the order the answers
+arrive, so every recorded command has one worker or one stale record; the Rust fills it in the
+order of the records. `watch` past its first pass was not recorded. The text after the class of
+a traceback is not compared, except where `watch` prints it as `grader: pass failed:`, and there
+it was recorded for a `LabelsError`, a `hydra show` that exits non-zero, one killed by a signal
+and one that is missing. `aliases.json`'s lookup, `str(Path)` and the reading of `argparse` are
+copied from `baseline_cli.rs` into `collect_cli.rs` and `labels.rs` rather than shared, because
+two other tickets were adding commands to the crate at the same time. Nothing ran on the real
+grader home, and the launchd job still runs the Python.
 
 ## `hydra cockpit`, since build ticket 150
 

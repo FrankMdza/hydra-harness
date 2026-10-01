@@ -1,7 +1,7 @@
 # 219 - grader in Rust: the sheet of rankings
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 212, 214
 
 ## What
