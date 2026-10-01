@@ -5,6 +5,9 @@
 //! 195 take it, which is every command. The log's format is the Python's, and
 //! `tests/differential.rs` runs both on the same logs and requires the same output and the
 //! same log afterwards. The launches in that test go to a stub named by `HYDRA_BIN`.
+//!
+//! Since build ticket 196 the cockpit, the Herdr board and `pending`'s `argv` all run this
+//! binary. The Python stays in `integrations/puppets/` because the grader imports it.
 
 pub mod fold;
 pub mod json;

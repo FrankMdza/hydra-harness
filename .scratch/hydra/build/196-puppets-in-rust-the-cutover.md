@@ -2,7 +2,7 @@
 
 Type: build
 Status: claimed
-Blocked by: 195, 207
+Blocked by: 195, 207, map 93
 
 ## What
 
@@ -66,6 +66,34 @@ cursor-agent composer-2.5, 22,342 tokens, `completed`), `wait`, which read the r
 and appended `run_end`, `board`, `pending --json`, and `verdict rejected`. `show` from the Rust
 and from `puppets.py` on the resulting log were byte-identical before and after `wait`. Not
 exercised against the real thing: `plan`, `plans`, `choose --judge`, `review`, a Herdr pane, Hunk.
+
+## First half, 2026-10-01
+
+Run `01a0f66b` (claude opus 5.5, `standard`, 5.5M tokens) did item 0, the rewiring and the
+documents, and stopped at a green tree with the Python present. The session applied it to master.
+
+Done: `run_file_has_end` reads the run record as bytes, a line at a time, and returns at the
+first `run_end`; a pusher that cannot start is reported and `review` still prints the Hunk
+command or becomes Hunk. The cockpit runs the `hydra-puppets` beside the running binary, else the
+one on `PATH`; `integrations/herdr/bin/hydra-board` does the same. `pending --json` prints an
+`argv` that starts with the answering `hydra-puppets`. `log::python_dir()` is gone:
+`log::data_dir()` finds `prompts/` and the JSON files at run time from `HYDRA_PUPPETS_DATA`, else
+`integrations/puppets` under `HYDRA_HOME`, else the first directory above the binary that holds
+`integrations/puppets/prompts`. The damaged-log hint says `hydra-puppets repair <goal>`, in the
+Python too, so the differential tests still compare stderr byte for byte. CI builds and tests
+the workspace, and the session pinned its Python to 3.14, which the differential tests follow.
+
+Measured on master: fmt and clippy clean over the workspace; `cargo test -p hydra-puppets` 65
+unit, 5 in the binary, 18 differential, and the ignored real-log test; `cargo test --test
+cockpit` 110; `cargo test --lib` 224; the puppets Python suite and the Herdr suite pass.
+
+Not done, and why: no Python was deleted. `integrations/grader/labels.py` imports `puppets.py`
+for `fold`, `records.py` imports `models.py`, and `baseline.py` imports `jev_probe.py`; the
+ticket assumed only the cockpit, CI, the README and `hy.zsh` depended on the Python. `sheet.py`'s
+`build`, `budget` and `show` are run by hand from the README. `docs/reviews/` names `puppets.py`
+in five files, so the grep condition below cannot hold without editing `docs/`. How the grader
+gets a goal's fold once `puppets.py` goes is map ticket 93. The second half of this ticket waits
+on it.
 
 ## Done when
 

@@ -3,7 +3,7 @@ name = "hydra-puppets"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Master of Puppets: the goal log, the fold and the read commands of puppets.py, in Rust"
+description = "Master of Puppets: the goal log, the fold and every command of the helper"
 license = "Apache-2.0"
 publish = false
 

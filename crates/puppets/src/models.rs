@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn the_repo_aliases_map_a_recorded_spelling_to_its_canonical_pair() {
-        let aliases = load_aliases(&log::python_dir().join("aliases.json")).unwrap();
+        let aliases = load_aliases(&log::checkout_data_dir().join("aliases.json")).unwrap();
         let pair = |provider: &str, model: Option<&str>| {
             let model = model.map_or(Value::Null, Value::text);
             let (provider, model) = canonical(&Value::text(provider), &model, &aliases).unwrap();

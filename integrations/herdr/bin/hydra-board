@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""hydra-board: refresh `puppets.py board` in a Herdr pane (map 85, build 148)."""
+"""hydra-board: refresh `hydra-puppets board` in a Herdr pane (map 85, build 148)."""
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -18,9 +19,18 @@ def puppets_home() -> Path:
     return Path.home() / "hydra" / "puppets"
 
 
-def puppets_script() -> Path:
-    here = Path(__file__).resolve().parent
-    return here.parent.parent / "puppets" / "puppets.py"
+def puppets_helper() -> str | None:
+    """`HYDRA_PUPPETS_BIN` when set, else the `hydra-puppets` beside `HYDRA_BIN`, which `hy`
+    hands this pane, else the one on `PATH`. None when there is none."""
+    named = os.environ.get("HYDRA_PUPPETS_BIN")
+    if named:
+        return named
+    hydra = os.environ.get("HYDRA_BIN")
+    if hydra:
+        beside = Path(hydra).parent / "hydra-puppets"
+        if beside.is_file():
+            return str(beside)
+    return shutil.which("hydra-puppets")
 
 
 def newest_goal_id(home: Path) -> str | None:
@@ -39,9 +49,9 @@ def newest_goal_id(home: Path) -> str | None:
     return best_id
 
 
-def run_board(puppets_py: Path, goal_id: str) -> tuple[int, str, str]:
+def run_board(helper: str, goal_id: str) -> tuple[int, str, str]:
     proc = subprocess.run(
-        [sys.executable, str(puppets_py), "board", goal_id],
+        [helper, "board", goal_id],
         capture_output=True,
         text=True,
     )
@@ -50,7 +60,7 @@ def run_board(puppets_py: Path, goal_id: str) -> tuple[int, str, str]:
 
 def render_once(
     home: Path,
-    puppets_py: Path,
+    helper: str,
     goal_arg: str | None,
     *,
     clear: bool = True,
@@ -70,7 +80,7 @@ def render_once(
         return "".join(chunks)
     if show_pick:
         chunks.append(f"hydra-board: goal {goal_id}\n")
-    code, out, err = run_board(puppets_py, goal_id)
+    code, out, err = run_board(helper, goal_id)
     if code != 0:
         if err:
             chunks.append(err if err.endswith("\n") else err + "\n")
@@ -83,9 +93,9 @@ def render_once(
     return "".join(chunks)
 
 
-def refresh_loop(home: Path, puppets_py: Path, goal_arg: str | None, interval: float) -> None:
+def refresh_loop(home: Path, helper: str, goal_arg: str | None, interval: float) -> None:
     while True:
-        sys.stdout.write(render_once(home, puppets_py, goal_arg))
+        sys.stdout.write(render_once(home, helper, goal_arg))
         sys.stdout.flush()
         time.sleep(interval)
 
@@ -104,12 +114,16 @@ def main() -> int:
         print("hydra-board: --interval must be positive", file=sys.stderr)
         return 1
     home = puppets_home()
-    puppets_py = puppets_script()
-    if not puppets_py.is_file():
-        print(f"hydra-board: puppets.py not found at {puppets_py}", file=sys.stderr)
+    helper = puppets_helper()
+    if helper is None:
+        print(
+            "hydra-board: no hydra-puppets beside HYDRA_BIN or on PATH; "
+            "build it with `cargo build --release --workspace`",
+            file=sys.stderr,
+        )
         return 1
     try:
-        refresh_loop(home, puppets_py, args.goal, args.interval)
+        refresh_loop(home, helper, args.goal, args.interval)
     except KeyboardInterrupt:
         return 0
     return 0

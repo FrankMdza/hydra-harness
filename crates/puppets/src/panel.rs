@@ -7,7 +7,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -1045,12 +1045,39 @@ pub fn push_comments(repo: &OsStr) -> Result<i32> {
 /// while this one goes on to print the command or become Hunk. The Python forks; this
 /// starts its own binary again as `push-hunk-comments`, with this process's stdout and
 /// stderr, and does not wait for it.
-fn start_comment_pusher(repo: &Path, payload: Option<&str>) -> Result<()> {
+fn start_comment_pusher(repo: &Path, payload: Option<&str>, err: &mut dyn Write) -> Result<()> {
+    offer_comments(std::env::current_exe(), repo, payload, err)
+}
+
+/// Start the pusher from `exe`. The `review` event is in the log by now, so a binary that
+/// has been moved or rebuilt away is said on stderr and the review goes on to print the
+/// command or open Hunk; failing here would make a retry sit the panel a second time.
+fn offer_comments(
+    exe: std::io::Result<PathBuf>,
+    repo: &Path,
+    payload: Option<&str>,
+    err: &mut dyn Write,
+) -> Result<()> {
     let Some(payload) = payload else {
         return Ok(());
     };
-    let exe = std::env::current_exe().map_err(|err| anyhow!("OSError: {err}"))?;
-    let mut child = Command::new(&exe)
+    let started = match exe {
+        Ok(exe) => pusher_from(&exe, repo, payload),
+        Err(failed) => Err(anyhow!("OSError: {failed}")),
+    };
+    if let Err(failed) = started {
+        writeln!(
+            err,
+            "hydra-puppets: the findings were not offered to Hunk: {failed}; \
+             the review is recorded"
+        )?;
+    }
+    Ok(())
+}
+
+/// Start `exe push-hunk-comments <repo>` and hand it the payload, without waiting for it.
+fn pusher_from(exe: &Path, repo: &Path, payload: &str) -> Result<()> {
+    let mut child = Command::new(exe)
         .arg("push-hunk-comments")
         .arg(repo)
         .stdin(Stdio::piped())
@@ -1202,7 +1229,7 @@ pub fn review(
     let branch = string(&branch, "branch")?;
     let hunk = text!("hunk show ", branch.clone());
     if no_open {
-        start_comment_pusher(&repo, payload.as_deref())?;
+        start_comment_pusher(&repo, payload.as_deref(), err)?;
         print(out, &hunk)?;
         return Ok(0);
     }
@@ -1253,7 +1280,7 @@ pub fn review(
         print(out, &text!(task_run, " in ", new_pane, " (", verdict, ")"))?;
         return Ok(0);
     }
-    start_comment_pusher(&repo, payload.as_deref())?;
+    start_comment_pusher(&repo, payload.as_deref(), err)?;
     out.flush()?;
     let failed = Command::new("hunk")
         .arg("show")
@@ -1269,6 +1296,31 @@ mod tests {
 
     fn s(text: &str) -> PyStr {
         PyStr::from(text)
+    }
+
+    /// Build 196, item 0. The `review` event is in the log by the time the pusher starts,
+    /// so a binary that has gone from under the process must not fail the command.
+    #[test]
+    fn a_pusher_that_cannot_start_is_reported_and_does_not_fail_the_review() {
+        let gone = Path::new("/nonexistent/hydra-puppets-gone");
+        let mut err = Vec::new();
+        offer_comments(Ok(gone.to_path_buf()), Path::new("."), Some("{}"), &mut err).unwrap();
+        let said = String::from_utf8(err).unwrap();
+        assert!(
+            said.contains("the findings were not offered to Hunk")
+                && said.contains("/nonexistent/hydra-puppets-gone"),
+            "{said}"
+        );
+
+        let mut err = Vec::new();
+        let no_exe = Err(std::io::Error::other("no path"));
+        offer_comments(no_exe, Path::new("."), Some("{}"), &mut err).unwrap();
+        assert!(String::from_utf8(err).unwrap().contains("no path"));
+
+        // Nothing to push starts nothing and says nothing.
+        let mut err = Vec::new();
+        offer_comments(Ok(gone.to_path_buf()), Path::new("."), None, &mut err).unwrap();
+        assert!(err.is_empty());
     }
 
     #[test]

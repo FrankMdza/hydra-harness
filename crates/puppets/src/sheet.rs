@@ -461,8 +461,8 @@ pub fn rank(
 /// the caller falls back to the default table, which is the human's own memory of each
 /// agent and wins until this goal has taught the sheet something.
 ///
-/// The Python also returns `None` when `sheet.py` is missing. That file goes at the
-/// cutover, so its absence is not consulted here.
+/// The Python also returns `None` when `sheet.py` is missing. This crate does not need
+/// that file, so its absence is not consulted here.
 pub fn ranked_assignment(
     home: &Home,
     task: &TaskState,
@@ -499,7 +499,7 @@ pub fn ranked_assignment(
         &task.grade,
         events,
         "standard",
-        &log::python_dir().join("priors.json"),
+        &log::data_dir().join("priors.json"),
     )?;
     let Some(best) = rows.first() else {
         return Ok(None);
@@ -580,7 +580,7 @@ mod tests {
 
     #[test]
     fn rank_orders_by_cost_per_accepted_diff_and_puts_an_unknown_cost_last() {
-        let priors = log::python_dir().join("priors.json");
+        let priors = log::checkout_data_dir().join("priors.json");
         let r1 = r#"[{"run_id":"r1","task_id":"r1"}]"#;
         let sheets = [
             sheet("claude", "sonnet", "0.02", r1),
@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn an_applied_verdict_on_a_resumed_run_counts_against() {
-        let priors = log::python_dir().join("priors.json");
+        let priors = log::checkout_data_dir().join("priors.json");
         let verdicts =
             events(&[r#"{"event":"human_verdict","task":"t1","run_id":"r2","result":"applied"}"#]);
         let rows = |runs: &str| {

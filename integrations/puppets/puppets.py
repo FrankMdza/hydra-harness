@@ -365,7 +365,7 @@ class DamagedLog(Exception):
         nums = ", ".join(str(n) for n in line_numbers)
         super().__init__(
             f"goal log {goal_id} is damaged at line {nums}; wrote nothing; "
-            f"puppets.py repair {goal_id}"
+            f"hydra-puppets repair {goal_id}"
         )
 
 
@@ -376,7 +376,7 @@ class UnterminatedLog(Exception):
         self.goal_id = goal_id
         super().__init__(
             f"goal log {goal_id} ends without a newline; wrote nothing; "
-            f"puppets.py repair {goal_id}"
+            f"hydra-puppets repair {goal_id}"
         )
 
 

@@ -9,9 +9,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPO = ROOT.parents[1]
 BOARD = ROOT / "bin" / "hydra-board"
-PUPPETS = REPO / "integrations" / "puppets" / "puppets.py"
+
+# What `hydra-puppets board` is to this wrapper: a command that prints a table for a goal.
+STUB = """#!/bin/sh
+[ "$1" = board ] || exit 2
+echo "goal $2"
+"""
 
 MINIMAL_GOAL = (
     '{"seq":1,"ts":"2026-09-24T12:00:00.000Z","event":"goal",'
@@ -35,13 +39,17 @@ class TestHydraBoard(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.home = Path(self.tmp) / "puppets"
         self.home.mkdir()
+        self.helper = Path(self.tmp) / "bin" / "hydra-puppets"
+        self.helper.parent.mkdir()
+        self.helper.write_text(STUB, encoding="utf-8")
+        self.helper.chmod(0o755)
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
 
     def test_waiting_line_when_no_logs(self):
         mod = load_board_module()
-        text = mod.render_once(self.home, PUPPETS, None, clear=False)
+        text = mod.render_once(self.home, str(self.helper), None, clear=False)
         self.assertIn(mod.WAITING_LINE, text)
 
     def test_picks_most_recently_changed_goal(self):
@@ -54,15 +62,45 @@ class TestHydraBoard(unittest.TestCase):
         os.utime(new, (now, now))
         mod = load_board_module()
         self.assertEqual(mod.newest_goal_id(self.home), "goal-new")
-        text = mod.render_once(self.home, PUPPETS, None, clear=False)
+        text = mod.render_once(self.home, str(self.helper), None, clear=False)
         self.assertIn("hydra-board: goal goal-new", text)
         self.assertIn("goal goal-new", text)
+
+    def test_helper_is_named_then_beside_hydra_then_on_path(self):
+        mod = load_board_module()
+        from unittest import mock
+
+        empty = Path(self.tmp) / "empty"
+        empty.mkdir()
+        beside = str(self.helper.parent / "hydra")
+        with mock.patch.dict(os.environ, {"PATH": str(empty)}, clear=True):
+            self.assertIsNone(mod.puppets_helper())
+            os.environ["HYDRA_BIN"] = str(empty / "hydra")
+            self.assertIsNone(mod.puppets_helper())
+            os.environ["PATH"] = str(self.helper.parent)
+            self.assertEqual(mod.puppets_helper(), str(self.helper))
+            os.environ["PATH"] = str(empty)
+            os.environ["HYDRA_BIN"] = beside
+            self.assertEqual(mod.puppets_helper(), str(self.helper))
+            os.environ["HYDRA_PUPPETS_BIN"] = "/named/hydra-puppets"
+            self.assertEqual(mod.puppets_helper(), "/named/hydra-puppets")
+
+    def test_missing_helper_is_said_and_exits_1(self):
+        empty = Path(self.tmp) / "empty"
+        empty.mkdir()
+        env = {"PATH": str(empty), "HYDRA_PUPPETS_HOME": str(self.home)}
+        proc = subprocess.run(
+            [sys.executable, str(BOARD)], env=env, capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("no hydra-puppets", proc.stderr)
 
     def test_subprocess_one_frame_before_sleep(self):
         old = self.home / "g1.jsonl"
         old.write_text(MINIMAL_GOAL, encoding="utf-8")
         env = os.environ.copy()
         env["HYDRA_PUPPETS_HOME"] = str(self.home)
+        env["HYDRA_PUPPETS_BIN"] = str(self.helper)
         try:
             subprocess.run(
                 [sys.executable, str(BOARD), "--interval", "30"],

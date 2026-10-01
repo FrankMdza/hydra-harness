@@ -3251,9 +3251,8 @@ the reader, the lock-held update, `repair`), the fold (`fold.rs`) and the read c
 `repair [--yes]`, with the Python's arguments, environment and output. It carries its own JSON
 reader and writer (`json.rs`), because `show` prints log values verbatim in Python's key order,
 float spelling and `\u` escapes. `serde_json`'s `preserve_order` would give the order, but in a
-workspace build that feature would reach `hydra` too. `pending`'s `argv` still names
-`python3 integrations/puppets/puppets.py approve`, which ticket 196 changes. Nothing in
-`integrations/puppets/` changed.
+workspace build that feature would reach `hydra` too. Until build ticket 196 `pending`'s `argv`
+named `python3 integrations/puppets/puppets.py approve`; it now names `hydra-puppets approve`.
 
 `crates/puppets/tests/differential.rs` runs both implementations on the same inputs and requires
 the same stdout, stderr and exit code. The inputs are every goal log the Python tests leave on
@@ -3383,8 +3382,8 @@ Not ported, and where the Rust differs:
   not elsewhere. `the_ranking_arithmetic_matches_python` compares 18,000 `lgamma` arguments and
   628 `beta_lower` pairs bit for bit with the `python3` on the machine, and has run on arm64
   macOS only. A zero `a` is a value in both, where the Rust used to raise.
-- `ranked_assignment` does not return early when `sheet.py` is missing, since ticket 196 deletes
-  that file. `priors.json` is still read from `integrations/puppets/`.
+- `ranked_assignment` does not return early when `sheet.py` is missing. `priors.json` is read
+  from the data directory build ticket 196 gave the helper, below.
 - A usage error exits 2 in both, with clap's text in place of argparse's. The write test
   compares one by exit code and stdout.
 - Since build ticket 207 `--expect-revision` and `reconcile`'s attempt are read as `int()` reads
@@ -3397,6 +3396,38 @@ Not ported, and where the Rust differs:
 - `choose <file>` names the plan by `Path.stem` as Python 3.14 computes it, where a trailing dot
   is a suffix. Python 3.13 and earlier keep the dot.
 
+Build ticket 196 moved every caller to `hydra-puppets` and deleted no Python. The cockpit
+runs the `hydra-puppets` beside its own binary and, when none is there, the bare name, which the
+spawn looks up on `PATH` (`cockpit::helper_beside`). `cargo build` at the root builds `hydra`
+alone, so the README's build line is now `cargo build --release --workspace`. `pending --json`
+prints an `argv` that starts with the canonical path of the `hydra-puppets` that answered, then
+`approve`. `log::python_dir()`, which compiled the build checkout's path into the binary, is
+gone. `log::data_dir()` finds `vendors.json`, `priors.json`, `aliases.json` and `prompts/` when
+the helper runs: `HYDRA_PUPPETS_DATA`, else `integrations/puppets` under `HYDRA_HOME`, else the
+first directory above the binary that holds `integrations/puppets/prompts`. A binary copied out
+of its checkout with neither variable set finds no data, and its error names the path beside it.
+The damaged-log hint says `hydra-puppets repair <goal>` in both implementations and in the
+cockpit. `integrations/herdr/bin/hydra-board` runs `hydra-puppets board`: `HYDRA_PUPPETS_BIN`,
+else the one beside `HYDRA_BIN`, else `PATH`. CI runs fmt, clippy, the build and the tests over
+the workspace.
+
+- **The Python is still there.** `integrations/grader/labels.py` imports `puppets.py` for
+  `fold`, `records.py` imports `models.py`, and `baseline.py` imports `jev_probe.py`, which was
+  never ported. `sheet.py`'s `build`, `budget` and `show` were not ported either; a human or the
+  session runs them from the command line, and `<puppets home>/agents/` is still written by
+  `sheet.py build`. Deleting `puppets.py` needs the grader to read the fold from somewhere else,
+  which is a change to `integrations/grader/` and was outside this ticket. So the Python suite
+  stays in CI and the differential tests still run both implementations. One thing is
+  normalized that was not before: the Python's `argv` starts with `sys.executable` and its
+  script, and that pair is replaced by the Rust's one element.
+- `run_file_has_end` reads the run record as bytes, a line at a time, and answers at the first
+  `run_end`. A line that is not UTF-8 is passed over like one that is not JSON. The Python
+  raises `UnicodeDecodeError` when its decoder reaches a bad byte before a `run_end`; the Rust
+  does not, so one bad byte in a provider's frame cannot stop `wait` or a panel.
+- When `review` cannot start its `push-hunk-comments` child, it says so on stderr and still
+  prints `hunk show <branch>` or becomes Hunk. The `review` event is in the log by then, and
+  exiting 1 made a retry sit the panel again.
+
 ## `hydra cockpit`, since build ticket 150
 
 Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen
@@ -3406,11 +3437,11 @@ Ratatui view a human runs in a terminal of their own, beside an orchestrating se
 `status::is_abandoned_interactive_claude`.
 
 **What it reads.** The left column is one goal's task table, folded in Rust from the goal log
-under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `puppets.py`'s `fold` rules for the events
+under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `hydra-puppets`'s `fold` rules for the events
 that change a row: `task`, `assignment`, `run`, `run_end`, `human_verdict`. Without `--goal` it
 takes the log that changed last and says so on the status line. A newline-terminated line that is
 blank or is not JSON makes the goal damaged: the table shows `damaged at line <n>: run
-puppets.py repair <id>` and no rows, and `v` and `a` on a Master of Puppets step refuse until
+hydra-puppets repair <id>` and no rows, and `v` and `a` on a Master of Puppets step refuse until
 `repair` has run. The confirmation checks damage again at `y` and closes with the repair
 message if a newer snapshot is damaged. Changing the shown goal cancels an open step or
 review confirmation, so `y` cannot run a command for a goal no longer on screen; `a` on a seat
@@ -3513,7 +3544,7 @@ that `n` writes nothing.
 
 **It never writes a goal log, build ticket 182.** The waiting lane also lists what a goal waits
 on in Master of Puppets, labeled by goal, kind and ref, below the seat requests. The reader runs
-`puppets.py pending <goal> --json` on the goal the table shows, at most once per 10 seconds and
+`hydra-puppets pending <goal> --json` on the goal the table shows, at most once per 10 seconds and
 again when that goal changes, with a 2 second budget; a helper that has not answered by then is
 killed with its process group and the error shows on the status line. An item whose argv does not
 end in `--expect-revision` and its own revision is refused rather than shown. `a` on a step opens
@@ -3522,12 +3553,13 @@ puppets home, waits at most 5 seconds, and shows the helper's last line. Exit 2 
 moved on; nothing approved`. A helper still running at 5 seconds is left to finish rather than
 killed halfway through a log line, and the next read shows what it did. `d` on a step denies
 nothing: leaving it is the no. Inside a seatbelt `a` refuses before the confirmation, as for
-seats. `puppets.py` is the only writer of its log. `tests/cockpit.rs` drives all of it on a stub
+seats. `hydra-puppets` is the only writer of its log. `tests/cockpit.rs` drives all of it on a stub
 helper that prints a fixed `pending` and records its argv, and the listing of the puppets home is
 the same after `y` as before. An approval does not move the goal's revision, so the
 reader's list, up to 10 seconds old, would offer a step just approved again, and `--expect-revision`
 would not stop a second approval. The cockpit keeps each step it approved out of the lane until a
-`pending` read newer than the approval. No real `puppets.py` has been run from the cockpit.
+`pending` read newer than the approval. No real helper, `puppets.py` before build ticket 196 or
+`hydra-puppets` since, has been run from the cockpit.
 Since build ticket 187 the cockpit also handles what build 185 added to `puppets.py`. A diff
 step's argv carries `--expect-run <id>` and a plan's `--expect-plan <path>` before
 `--expect-revision N`. `parse_steps` needed no change for that, because it checks only that the
@@ -3590,7 +3622,7 @@ ten such runs at 80x30 to the last with the keys and the wheel.
 
 **A review from the cockpit, build ticket 183.** `v` on a task row whose task has a run opens a
 confirmation, `review <task>: three judge runs, each counts against quota. y starts it`, and `y`
-starts `$HYDRA_HOME/integrations/puppets/puppets.py review <goal> <task>` with `HYDRA_ROOT` and
+starts `hydra-puppets review <goal> <task>`, the helper beside its own binary, with `HYDRA_ROOT` and
 the cockpit's puppets home in its environment. The helper gets a process group of its own, stdin
 closed, and stdout and stderr both in `$HYDRA_ROOT/cockpit/review-<task>.log`, truncated at each
 start. It is the one process the cockpit starts without `--session`, and it spends quota: the

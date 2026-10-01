@@ -8,9 +8,10 @@
 //! `pending --json`, and those must be equal too.
 //!
 //! These are normalized, and only these:
-//! - `pending --json` prints an `argv` whose first element is the Python's `sys.executable`;
-//!   the Rust prints `python3`. Only that element is replaced. The script path after it is
-//!   the same canonical path in both.
+//! - `pending --json` prints an `argv` that starts with the command that records the
+//!   approval. For the Python that is two elements, its `sys.executable` and its own path;
+//!   since build 196 the Rust prints one, its own path. Only that pair is replaced, by the
+//!   Rust's one.
 //! - `repair --yes` names the torn file with the time it ran, in stdout and on disk, and
 //!   stamps the `repair` event it appends. Only a name whose 24 characters are a time of
 //!   `utc_now()`'s shape is masked, and only the `ts` of the one line the command appended.
@@ -190,18 +191,25 @@ fn appended_repair_line(line: &[u8]) -> Option<(&str, &str)> {
     Some((&line[..stamp_at], &line[stamp_at + 24..]))
 }
 
-/// `pending --json` prints Python's `sys.executable` first in each `argv`; make it `python3`.
-/// Only that element: the line after an item's `"argv": [`. A task named like the executable
-/// keeps its name everywhere else. A JSON string cannot hold a raw newline, so a line that
+/// `pending --json` under the Python starts each `argv` with `sys.executable` and the
+/// script; make that pair the one element the Rust prints, `helper`. Only that pair: the
+/// two lines after an item's `"argv": [`. A task named like the executable keeps its name
+/// everywhere else. A JSON string cannot hold a raw newline, so a line that
 /// is exactly an item's `argv` key at that indent is one.
-fn mask_argv0(stdout: &str, python_exe: &str) -> String {
+fn mask_argv0(stdout: &str, python_exe: &str, script: &str, helper: &str) -> String {
     let argv0 = format!("      {},", json_string(python_exe));
+    let argv1 = format!("      {},", json_string(script));
     let mut out = String::new();
+    let mut lines = stdout.split_inclusive('\n').peekable();
     let mut after_argv = false;
-    for line in stdout.split_inclusive('\n') {
+    while let Some(line) = lines.next() {
         let body = line.strip_suffix('\n').unwrap_or(line);
-        if after_argv && body == argv0 {
-            out.push_str("      \"python3\",");
+        let next = lines
+            .peek()
+            .map(|next| next.strip_suffix('\n').unwrap_or(next));
+        if after_argv && body == argv0 && next == Some(argv1.as_str()) {
+            lines.next();
+            out.push_str(&format!("      {},", json_string(helper)));
             out.push_str(&line[body.len()..]);
         } else {
             out.push_str(line);
@@ -209,6 +217,12 @@ fn mask_argv0(stdout: &str, python_exe: &str) -> String {
         after_argv = body == "    \"argv\": [";
     }
     out
+}
+
+/// The Rust helper as its own `pending --json` names it: its canonical path.
+fn helper() -> String {
+    let path = Path::new(RUST).canonicalize().unwrap();
+    path.to_str().unwrap().to_string()
 }
 
 /// Whether the Rust's stderr starts by naming the exception class the Python raised:
@@ -374,7 +388,7 @@ fn compare(
         let mut py = run(&["python3", script], args, &py_dir);
         let rs = run(&[RUST], args, &rs_dir);
         if args[0] == "pending" {
-            py.stdout = mask_argv0(&py.stdout, python_exe);
+            py.stdout = mask_argv0(&py.stdout, python_exe, script, &helper());
         }
         (py, rs)
     };
@@ -1226,10 +1240,22 @@ fn the_comparator_masks_only_argv0() {
         "",
     ]
     .join("\n");
-    let masked = mask_argv0(&python, exe);
-    assert_eq!(masked.matches("\"python3\"").count(), 1, "{masked}");
+    let masked = mask_argv0(&python, exe, "/repo/puppets.py", "/bin/hydra-puppets");
+    assert_eq!(
+        masked.matches("\"/bin/hydra-puppets\"").count(),
+        1,
+        "{masked}"
+    );
     assert_eq!(masked.matches("\"/opt/py/bin/python3\"").count(), 2);
-    assert!(masked.contains("    \"argv\": [\n      \"python3\",\n"));
+    assert_eq!(masked.matches("puppets.py").count(), 0);
+    assert!(
+        masked.contains("    \"argv\": [\n      \"/bin/hydra-puppets\",\n      \"approve\",\n")
+    );
+    // Another script after the same interpreter is not the helper, and is left alone.
+    assert_eq!(
+        mask_argv0(&python, exe, "/other/puppets.py", "/bin/hydra-puppets"),
+        python
+    );
 }
 
 #[test]

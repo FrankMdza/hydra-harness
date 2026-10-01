@@ -159,13 +159,12 @@ pub fn show(home: &Home, goal_id: &str, out: &mut dyn Write) -> Result<i32> {
     Ok(0)
 }
 
-/// `pending --json`. `python` and `script` begin each `argv`, the command that records the
-/// approval, which is the Python helper's until `approve` moves to this crate.
+/// `pending --json`. `helper` begins each `argv`, the command that records the approval:
+/// the path of the `hydra-puppets` that is answering.
 pub fn pending(
     home: &Home,
     goal_id: &str,
-    python: &str,
-    script: &str,
+    helper: &str,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<i32> {
@@ -174,7 +173,7 @@ pub fn pending(
         writeln!(err, "unknown goal {goal_id}")?;
         return Ok(1);
     }
-    let items = fold::pending_approvals(&state, &home.vendors, python, script)?;
+    let items = fold::pending_approvals(&state, &home.vendors, helper)?;
     writeln!(out, "{}", json::dumps(&Value::List(items), Some(2)))?;
     Ok(0)
 }

@@ -41,7 +41,7 @@ pub const DETAIL_CALLS: usize = 15;
 const TAIL_WINDOW: u64 = 256 * 1024;
 /// How far back the header's tokens per minute look.
 pub const RATE_WINDOW_MINUTES: i64 = 5;
-/// How often the reader asks `puppets.py pending`, and how long it waits.
+/// How often the reader asks `hydra-puppets pending`, and how long it waits.
 /// Build ticket 182.
 pub const PENDING_EVERY: chrono::TimeDelta = chrono::TimeDelta::seconds(10);
 pub const PENDING_BUDGET: Duration = Duration::from_secs(2);
@@ -131,7 +131,7 @@ pub struct Snapshot {
     pub cards: Vec<Card>,
     /// What `hydra approve` with no id lists.
     pub requests: Vec<Pending>,
-    /// What `puppets.py pending <goal> --json` last listed for the goal the
+    /// What `hydra-puppets pending <goal> --json` last listed for the goal the
     /// table shows. Build ticket 182.
     pub steps: Vec<Step>,
     /// When the reader last asked `pending` for them, which may be before
@@ -150,7 +150,7 @@ pub struct Snapshot {
     pub spend: Vec<Spend>,
 }
 
-/// One approval a goal waits on, as `puppets.py pending --json` lists it.
+/// One approval a goal waits on, as `hydra-puppets pending --json` lists it.
 /// Build ticket 182.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Step {
@@ -299,7 +299,7 @@ pub struct Reader {
     calls: Option<OpenCalls>,
     /// Where `vendors.json` and `aliases.json` are, or `None` for no budgets.
     vendors: Option<PathBuf>,
-    /// `puppets.py`, asked what the shown goal waits on, or `None` to ask
+    /// `hydra-puppets`, asked what the shown goal waits on, or `None` to ask
     /// nothing. Build ticket 182.
     puppets: Option<PathBuf>,
     pending: Option<PendingRead>,
@@ -464,11 +464,11 @@ impl Reader {
             .env("HYDRA_ROOT", self.layout.root())
             .env("HYDRA_PUPPETS_HOME", &self.puppets_home);
         match super::bounded(command, PENDING_BUDGET)
-            .with_context(|| format!("puppets.py pending {goal}"))?
+            .with_context(|| format!("hydra-puppets pending {goal}"))?
         {
             (super::Bounded::Exited(status, _), out) if status.success() => parse_steps(goal, &out),
             (super::Bounded::Exited(status, line), _) => {
-                anyhow::bail!("puppets.py pending {goal} exited with {status}: {line}")
+                anyhow::bail!("hydra-puppets pending {goal} exited with {status}: {line}")
             }
             (super::Bounded::Late(mut child), _) => {
                 // The helper leads its own group, so this reaches whatever it started.
@@ -478,7 +478,7 @@ impl Reader {
                 }
                 let _ = child.wait();
                 anyhow::bail!(
-                    "puppets.py pending {goal} did not answer in {}s",
+                    "hydra-puppets pending {goal} did not answer in {}s",
                     PENDING_BUDGET.as_secs()
                 )
             }

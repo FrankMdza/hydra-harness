@@ -99,7 +99,7 @@ class GoalLogTailTests(unittest.TestCase):
             ["approve", "g1", "--table", "--expect-revision", "0"]
         )
         self.assertEqual(code, 1)
-        self.assertEqual(err, "goal log g1 ends without a newline; wrote nothing; puppets.py repair g1\n")
+        self.assertEqual(err, "goal log g1 ends without a newline; wrote nothing; hydra-puppets repair g1\n")
         self.assertNotIn("current revision", err)
         self.assertEqual(self.log_bytes(), before)
 
@@ -108,7 +108,7 @@ class GoalLogTailTests(unittest.TestCase):
         before = self.log_bytes()
         code, _out, err = self.invoke(["approve", "g1", "--table"])
         self.assertEqual(code, 1)
-        self.assertEqual(err, "goal log g1 ends without a newline; wrote nothing; puppets.py repair g1\n")
+        self.assertEqual(err, "goal log g1 ends without a newline; wrote nothing; hydra-puppets repair g1\n")
         self.assertEqual(self.log_bytes(), before)
         code, _out, err = self.invoke(["approve", "g1", "--table"])
         self.assertEqual(code, 1)
@@ -132,13 +132,13 @@ class GoalLogTailTests(unittest.TestCase):
                 "g1",
                 {"event": "assignment", "task": "t1", "provider": "codex", "policy": "judge"},
             )
-        self.assertEqual(str(raised.exception), "goal log g1 ends without a newline; wrote nothing; puppets.py repair g1")
+        self.assertEqual(str(raised.exception), "goal log g1 ends without a newline; wrote nothing; hydra-puppets repair g1")
         self.assertEqual(self.log_bytes(), before)
         code, _out, err = self.invoke(
             ["set", "g1", "t1", "--provider", "codex", "--policy", "judge"]
         )
         self.assertEqual(code, 1)
-        self.assertEqual(err, "goal log g1 ends without a newline; wrote nothing; puppets.py repair g1\n")
+        self.assertEqual(err, "goal log g1 ends without a newline; wrote nothing; hydra-puppets repair g1\n")
         self.assertEqual(self.log_bytes(), before)
         events = puppets.read_log("g1")
         self.assertEqual([event["event"] for event in events], ["goal"])

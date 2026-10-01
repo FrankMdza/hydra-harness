@@ -8,7 +8,7 @@
 //! `text=True` does under a UTF-8 locale.
 
 use std::ffi::{OsStr, OsString};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -332,7 +332,7 @@ fn replace(text: &PyStr, marker: &str, with: &PyStr) -> PyStr {
 }
 
 fn prompts_dir() -> PathBuf {
-    log::python_dir().join("prompts")
+    log::data_dir().join("prompts")
 }
 
 /// `state.goal["text"]` and friends.
@@ -475,6 +475,12 @@ pub(crate) fn pathlib(path: &Path) -> PathBuf {
 /// `run_file_has_end`: whether the run's record under `<root>/runs/` holds a `run_end`
 /// line. A line that is not JSON is passed over; the type is read from the line's `hydra`
 /// object when it has one, and from the line itself otherwise.
+///
+/// The file is read as bytes, a line at a time, and the answer is given at the first
+/// `run_end`, which is where the Python stops reading. A line that is not UTF-8 is passed
+/// over like one that is not JSON: a provider's frame can hold any byte, and one of them
+/// must not stop `wait` or a panel that already sat a seat (build 196). The Python raises
+/// `UnicodeDecodeError` when its decoder reaches such a byte before a `run_end`.
 pub(crate) fn run_file_has_end(home: &Home, run_id: &PyStr) -> Result<bool> {
     let mut name = fs_path(run_id)?.into_os_string();
     name.push(".jsonl");
@@ -482,20 +488,31 @@ pub(crate) fn run_file_has_end(home: &Home, run_id: &PyStr) -> Result<bool> {
     if !path.is_file() {
         return Ok(false);
     }
-    let text = write::read_text(&path)?;
-    for line in text.split_inclusive(['\n', '\r']) {
-        let record = match json::loads_str(line) {
-            Ok(record) => record,
-            Err(ParseError::Decode) => continue,
-            Err(err) => bail!("{}: a line of the run record", err.class()),
-        };
-        let nested = py::get(&record, "hydra", Value::Null)?;
-        let body = if py::truthy(&nested) { nested } else { record };
-        if py::eq_str(&py::get(&body, "type", Value::Null)?, "run_end") {
-            return Ok(true);
+    let failed = |err: std::io::Error| anyhow!("{}: {}", os_error(&err), path.display());
+    let mut lines = BufReader::new(std::fs::File::open(&path).map_err(failed)?);
+    let mut raw = Vec::new();
+    loop {
+        raw.clear();
+        if lines.read_until(b'\n', &mut raw).map_err(failed)? == 0 {
+            return Ok(false);
+        }
+        // A lone `\r` ends a line too, as it does for Python's text mode.
+        for line in raw.split(|byte| *byte == b'\r') {
+            let Ok(line) = std::str::from_utf8(line) else {
+                continue;
+            };
+            let record = match json::loads_str(line) {
+                Ok(record) => record,
+                Err(ParseError::Decode) => continue,
+                Err(err) => bail!("{}: a line of the run record", err.class()),
+            };
+            let nested = py::get(&record, "hydra", Value::Null)?;
+            let body = if py::truthy(&nested) { nested } else { record };
+            if py::eq_str(&py::get(&body, "type", Value::Null)?, "run_end") {
+                return Ok(true);
+            }
         }
     }
-    Ok(false)
 }
 
 /// `hydra show <run>` as the Python runs it.
@@ -850,6 +867,39 @@ mod tests {
 
     fn s(text: &str) -> PyStr {
         PyStr::from(text)
+    }
+
+    /// Build 196, item 0. A provider's frame can hold any byte, and the Python stops
+    /// reading at the first `run_end`, so a bad byte after it never reached its decoder.
+    #[test]
+    fn a_run_record_is_read_line_by_line_as_bytes() {
+        let dir = std::env::temp_dir().join(format!("hydra-puppets-runend-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let home = Home::at(&dir);
+        let runs = home.root.join("runs");
+        std::fs::create_dir_all(&runs).unwrap();
+        let write = |name: &str, body: &[u8]| std::fs::write(runs.join(name), body).unwrap();
+
+        let mut ended = b"{\"hydra\": {\"type\": \"run_end\"}}\n".to_vec();
+        ended.extend(std::iter::repeat_n(b'x', 12_000));
+        ended.extend(b"\n{\"frame\": \"\xff\"}\n");
+        write("ended.jsonl", &ended);
+        assert!(run_file_has_end(&home, &s("ended")).unwrap());
+
+        // The bad byte first: that line is passed over like any line that is not JSON.
+        write(
+            "late.jsonl",
+            b"{\"frame\": \"\xff\"}\n{\"type\": \"run_end\"}\n",
+        );
+        assert!(run_file_has_end(&home, &s("late")).unwrap());
+
+        write(
+            "open.jsonl",
+            b"{\"frame\": \"\xff\"}\r{\"type\": \"run_start\"}\n",
+        );
+        assert!(!run_file_has_end(&home, &s("open")).unwrap());
+        assert!(!run_file_has_end(&home, &s("absent")).unwrap());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -65,7 +65,7 @@ enum InHand {
     Step(Step),
 }
 
-/// How long `y` on a step waits for `puppets.py approve`. Build ticket 182.
+/// How long `y` on a step waits for `hydra-puppets approve`. Build ticket 182.
 pub const APPROVE_BUDGET: Duration = Duration::from_secs(5);
 
 /// What the loop around [`App::handle`] has to do next.
@@ -99,7 +99,7 @@ pub struct Hits {
     pub policy_last: usize,
 }
 
-/// A review this cockpit started, build ticket 183: `puppets.py review <goal>
+/// A review this cockpit started, build ticket 183: `hydra-puppets review <goal>
 /// <task>` in its own process group, both streams in `log`.
 struct ReviewRun {
     goal: String,
@@ -191,7 +191,7 @@ pub struct App {
     policy_selected: usize,
     /// The first live run the pane shows, build ticket 174.
     policy_offset: usize,
-    /// `puppets.py` and the goal log home it is handed, build ticket 183.
+    /// `hydra-puppets` and the goal log home it is handed, build ticket 183.
     reviewer: Option<(PathBuf, PathBuf)>,
     /// The goal, task and run the review confirmation asks about, while it is up.
     pub confirming_review: Option<(String, String, String)>,
@@ -349,7 +349,10 @@ impl App {
                     .as_ref()
                     .and_then(|goal| {
                         goal.damaged_at.map(|line| {
-                            format!("damaged at line {line}: run puppets.py repair {}", goal.id)
+                            format!(
+                                "damaged at line {line}: run hydra-puppets repair {}",
+                                goal.id
+                            )
                         })
                     })
                     .unwrap_or_else(|| {
@@ -1079,7 +1082,7 @@ impl App {
         let goal = self.snapshot.goal.as_ref()?;
         let line = goal.damaged_at?;
         Some(format!(
-            "damaged at line {line}: run puppets.py repair {}",
+            "damaged at line {line}: run hydra-puppets repair {}",
             goal.id
         ))
     }
@@ -1150,7 +1153,7 @@ impl App {
     }
 
     /// `y` on a step's confirmation: runs the argv `pending` listed, as a
-    /// child, and waits at most [`APPROVE_BUDGET`]. `puppets.py` writes the
+    /// child, and waits at most [`APPROVE_BUDGET`]. `hydra-puppets` writes the
     /// goal log; the cockpit never does.
     fn approve_step(&mut self) -> Effect {
         let Some(step) = self.confirming_step.take() else {
@@ -1491,7 +1494,7 @@ impl App {
         Effect::None
     }
 
-    /// `puppets.py review <goal> <task> --no-open` in a process group of its
+    /// `hydra-puppets review <goal> <task> --no-open` in a process group of its
     /// own, so a `Ctrl-C` in the cockpit's terminal does not reach it, with
     /// stdin closed and both streams in `$HYDRA_ROOT/cockpit/review-<task>.log`.
     ///
@@ -1939,7 +1942,10 @@ impl App {
             return;
         }
         if let Some(line) = goal.damaged_at {
-            let heading = format!("damaged at line {line}: run puppets.py repair {}", goal.id);
+            let heading = format!(
+                "damaged at line {line}: run hydra-puppets repair {}",
+                goal.id
+            );
             buf.set_line(
                 inner.x,
                 inner.y,
@@ -2746,7 +2752,7 @@ fn short_sha(sha: &str) -> &str {
     sha.get(..12).unwrap_or(sha)
 }
 
-/// The first eight characters of an id, which is what `puppets.py board` shows.
+/// The first eight characters of an id, which is what `hydra-puppets board` shows.
 fn short(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
 }

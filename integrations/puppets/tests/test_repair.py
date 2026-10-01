@@ -191,11 +191,11 @@ class RepairTests(unittest.TestCase):
                 "g1",
                 {"event": "assignment", "task": "t1", "provider": "codex", "policy": "judge"},
             )
-        self.assertIn("puppets.py repair g1", str(raised.exception))
+        self.assertIn("hydra-puppets repair g1", str(raised.exception))
         self.assertEqual(self.log_bytes(), before)
         code, _out, err = self.invoke(["set", "g1", "t1", "--provider", "codex", "--policy", "judge"])
         self.assertEqual(code, 1)
-        self.assertIn("puppets.py repair g1", err)
+        self.assertIn("hydra-puppets repair g1", err)
         self.assertEqual(self.log_bytes(), before)
 
     def test_repair_yes_waits_for_the_log_lock(self):

@@ -1,7 +1,13 @@
 # Master of Puppets
 
-A Python helper for the Master of Puppets mode: one append-only JSONL log per goal, state derived
-by folding the log, and task launches through the Hydra binary. Approvals are lines appended to
+The helper for the Master of Puppets mode: one append-only JSONL log per goal, state derived
+by folding the log, and task launches through the Hydra binary. Since build ticket 196 the helper
+is `hydra-puppets`, the Rust binary of `crates/puppets`, built by `cargo build --release
+--workspace` beside `hydra`. This directory holds what it reads, `vendors.json`, `priors.json`,
+`aliases.json` and `prompts/`, and the Python it was ported from. `puppets.py` takes the same
+commands and stays because `integrations/grader/` imports its `fold`, `models.py` and
+`jev_probe.py`; `sheet.py` stays because its `build`, `budget` and `show` were not ported.
+`crates/puppets/tests/differential.rs` holds the two to the same output. Approvals are lines appended to
 the goal log that the CLI checks before acting; anything that can run the CLI can write one, and
 the helper does not verify that a human typed it.
 
@@ -14,34 +20,36 @@ Nothing under `src/` imports this directory. Hydra works with it stopped.
 | `HYDRA_BIN` | `hydra` on `PATH` | Hydra binary, same as the Herdr scripts |
 | `HYDRA_PUPPETS_HOME` | `~/hydra/puppets` | Goal logs and per-goal plan copies |
 | `HYDRA_ROOT` | `~/hydra` | Run files polled by `wait` |
+| `HYDRA_PUPPETS_DATA` | `integrations/puppets` under `HYDRA_HOME`, else under the checkout the binary was built in | Where `hydra-puppets` reads `vendors.json`, `priors.json`, `aliases.json` and `prompts/` |
+| `HYDRA_PUPPETS_VENDORS` | `vendors.json` in the data directory | The vendors file alone |
 
 ## Run
 
 ```
-python3 integrations/puppets/puppets.py new "goal text"
-python3 integrations/puppets/puppets.py show <goal-id>     # the state as JSON
-python3 integrations/puppets/puppets.py board <goal-id>    # the state at a glance, and what the human still owes
-python3 integrations/puppets/puppets.py plan <goal-id> --seat codex --seat cursor-agent:composer-2.5
-python3 integrations/puppets/puppets.py plans <goal-id>
-python3 integrations/puppets/puppets.py choose <goal-id> <provider|path>
-python3 integrations/puppets/puppets.py choose <goal-id> --judge
-python3 integrations/puppets/puppets.py tasks <goal-id>
-python3 integrations/puppets/puppets.py assign <goal-id>
-python3 integrations/puppets/puppets.py set <goal-id> <task> --provider P --model M --policy POL
-python3 integrations/puppets/puppets.py approve <goal-id> --table
-python3 integrations/puppets/puppets.py approve <goal-id> --table --expect-revision <n>
-python3 integrations/puppets/puppets.py approve <goal-id> --plan --expect-plan <path> --expect-revision <n>
-python3 integrations/puppets/puppets.py approve <goal-id> --diff <task> --expect-run <run-id> --expect-revision <n>
-python3 integrations/puppets/puppets.py approve <goal-id> --degraded codex=cursor-agent:composer-2.5
-python3 integrations/puppets/puppets.py approve <goal-id> --launch <task>
-python3 integrations/puppets/puppets.py pending <goal-id> --json
-python3 integrations/puppets/puppets.py launch <goal-id> <task>
-python3 integrations/puppets/puppets.py wait <goal-id>
-python3 integrations/puppets/puppets.py review <goal-id> <task>
-python3 integrations/puppets/puppets.py review <goal-id> <task> --no-open
-python3 integrations/puppets/puppets.py queue <goal-id>
-python3 integrations/puppets/puppets.py reconcile <goal-id> <task> <attempt> --run-id <id> | --abandon
-python3 integrations/puppets/puppets.py verdict <goal-id> <task> applied|fixed|rejected
+hydra-puppets new "goal text"
+hydra-puppets show <goal-id>     # the state as JSON
+hydra-puppets board <goal-id>    # the state at a glance, and what the human still owes
+hydra-puppets plan <goal-id> --seat codex --seat cursor-agent:composer-2.5
+hydra-puppets plans <goal-id>
+hydra-puppets choose <goal-id> <provider|path>
+hydra-puppets choose <goal-id> --judge
+hydra-puppets tasks <goal-id>
+hydra-puppets assign <goal-id>
+hydra-puppets set <goal-id> <task> --provider P --model M --policy POL
+hydra-puppets approve <goal-id> --table
+hydra-puppets approve <goal-id> --table --expect-revision <n>
+hydra-puppets approve <goal-id> --plan --expect-plan <path> --expect-revision <n>
+hydra-puppets approve <goal-id> --diff <task> --expect-run <run-id> --expect-revision <n>
+hydra-puppets approve <goal-id> --degraded codex=cursor-agent:composer-2.5
+hydra-puppets approve <goal-id> --launch <task>
+hydra-puppets pending <goal-id> --json
+hydra-puppets launch <goal-id> <task>
+hydra-puppets wait <goal-id>
+hydra-puppets review <goal-id> <task>
+hydra-puppets review <goal-id> <task> --no-open
+hydra-puppets queue <goal-id>
+hydra-puppets reconcile <goal-id> <task> <attempt> --run-id <id> | --abandon
+hydra-puppets verdict <goal-id> <task> applied|fixed|rejected
 ```
 
 ## Log events
@@ -184,10 +192,13 @@ which would not return until the run ended.
 ## Test
 
 ```
+cargo test -p hydra-puppets
 python3 -m unittest discover -s integrations/puppets/tests
 ```
 
-The unit tests use a stub `HYDRA_BIN` script. The live test at the end runs `new` and `show`
+The first runs the Rust's unit tests and the differential tests, which run `hydra-puppets` and
+`puppets.py` on the same inputs with stubs for `hydra`, `hunk` and `herdr`. The second is the
+Python's own suite. Its unit tests use a stub `HYDRA_BIN` script. The live test at the end runs `new` and `show`
 against the real binary without launching a provider.
 
 ## The spec sheet and the rankings, `sheet.py`

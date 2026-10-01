@@ -26,16 +26,66 @@ pub struct Home {
     pub puppets: PathBuf,
     /// `HYDRA_GRADER_HOME`, else `$HYDRA_ROOT/grader`: `scores.jsonl` for `queue` and `board`.
     pub grader: PathBuf,
-    /// `HYDRA_PUPPETS_VENDORS`, else the `vendors.json` beside `puppets.py`.
+    /// `HYDRA_PUPPETS_VENDORS`, else `vendors.json` in [`data_dir`].
     pub vendors: PathBuf,
     /// `HYDRA_ROOT`, else `~/hydra`: `runs/` and `worktrees/`, which the launch commands read.
     pub root: PathBuf,
 }
 
-/// `integrations/puppets/`, where `puppets.py` and its data files live until the cutover.
-pub fn python_dir() -> PathBuf {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/puppets");
-    dir.canonicalize().unwrap_or(dir)
+/// Where a checkout keeps the helper's data files: `vendors.json`, `priors.json`,
+/// `aliases.json` and `prompts/`.
+const DATA_DIR: &str = "integrations/puppets";
+
+/// The directory the data files are read from, found when the helper runs and never
+/// compiled in (build 196): `HYDRA_PUPPETS_DATA` when set, else `integrations/puppets`
+/// under `HYDRA_HOME`, the variable `hydra` finds its own checkout by, else the first
+/// directory above this binary that holds `integrations/puppets/prompts`, which is the
+/// checkout for a binary under its `target/`. With none of those the path is the one
+/// beside the binary, so the error that follows names where the files were looked for.
+pub fn data_dir() -> PathBuf {
+    data_dir_from(
+        named("HYDRA_PUPPETS_DATA"),
+        named("HYDRA_HOME"),
+        std::env::current_exe().ok().as_deref(),
+    )
+}
+
+fn data_dir_from(
+    data: Option<PathBuf>,
+    hydra_home: Option<PathBuf>,
+    exe: Option<&Path>,
+) -> PathBuf {
+    if let Some(data) = data {
+        return data;
+    }
+    if let Some(home) = hydra_home {
+        return home.join(DATA_DIR);
+    }
+    let exe = exe.map(|exe| exe.canonicalize().unwrap_or_else(|_| exe.to_path_buf()));
+    let above = exe
+        .as_deref()
+        .map(Path::ancestors)
+        .into_iter()
+        .flatten()
+        .skip(1);
+    for dir in above {
+        let found = dir.join(DATA_DIR);
+        if found.join("prompts").is_dir() {
+            return found;
+        }
+    }
+    match exe.as_deref().and_then(Path::parent) {
+        Some(beside) => beside.join(DATA_DIR),
+        None => PathBuf::from(DATA_DIR),
+    }
+}
+
+/// The data files of the checkout the tests were built from.
+#[cfg(test)]
+pub(crate) fn checkout_data_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(DATA_DIR)
 }
 
 fn named(var: &str) -> Option<PathBuf> {
@@ -60,7 +110,7 @@ impl Home {
         };
         let grader = named("HYDRA_GRADER_HOME").unwrap_or_else(|| root.join("grader"));
         let vendors =
-            named("HYDRA_PUPPETS_VENDORS").unwrap_or_else(|| python_dir().join("vendors.json"));
+            named("HYDRA_PUPPETS_VENDORS").unwrap_or_else(|| data_dir().join("vendors.json"));
         Ok(Home {
             puppets,
             grader,
@@ -170,7 +220,7 @@ impl std::fmt::Display for DamagedLog {
         let goal = &self.goal_id;
         write!(
             f,
-            "goal log {goal} is damaged at line {nums}; wrote nothing; puppets.py repair {goal}"
+            "goal log {goal} is damaged at line {nums}; wrote nothing; hydra-puppets repair {goal}"
         )
     }
 }
@@ -188,7 +238,7 @@ impl std::fmt::Display for UnterminatedLog {
         let goal = &self.goal_id;
         write!(
             f,
-            "goal log {goal} ends without a newline; wrote nothing; puppets.py repair {goal}"
+            "goal log {goal} ends without a newline; wrote nothing; hydra-puppets repair {goal}"
         )
     }
 }
@@ -733,6 +783,47 @@ mod tests {
         );
     }
 
+    /// Build 196: nothing about the checkout the binary was built in is compiled in.
+    #[test]
+    fn the_data_files_are_found_when_the_helper_runs() {
+        let dir = std::env::temp_dir().join(format!("hydra-puppets-data-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let checkout = dir.join("checkout");
+        std::fs::create_dir_all(checkout.join("integrations/puppets/prompts")).unwrap();
+        std::fs::create_dir_all(checkout.join("target/debug")).unwrap();
+        std::fs::create_dir_all(dir.join("elsewhere/bin")).unwrap();
+        let checkout = checkout.canonicalize().unwrap();
+        let built = checkout.join("target/debug/hydra-puppets");
+        let moved = dir
+            .canonicalize()
+            .unwrap()
+            .join("elsewhere/bin/hydra-puppets");
+        let (data, home) = (PathBuf::from("/d"), PathBuf::from("/h"));
+
+        assert_eq!(
+            data_dir_from(Some(data), Some(home.clone()), Some(&built)),
+            PathBuf::from("/d")
+        );
+        assert_eq!(
+            data_dir_from(None, Some(home), Some(&built)),
+            PathBuf::from("/h/integrations/puppets")
+        );
+        assert_eq!(
+            data_dir_from(None, None, Some(&built)),
+            checkout.join("integrations/puppets")
+        );
+        // No checkout above the binary: the path beside it, which the error will name.
+        assert_eq!(
+            data_dir_from(None, None, Some(&moved)),
+            moved.parent().unwrap().join("integrations/puppets")
+        );
+        assert_eq!(
+            data_dir_from(None, None, None),
+            PathBuf::from("integrations/puppets")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn damaged_log_message_matches_python() {
         let err = DamagedLog {
@@ -741,7 +832,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "goal log g1 is damaged at line 2, 4; wrote nothing; puppets.py repair g1"
+            "goal log g1 is damaged at line 2, 4; wrote nothing; hydra-puppets repair g1"
         );
     }
 
@@ -768,7 +859,7 @@ mod tests {
             let err = err.downcast::<UnterminatedLog>().unwrap();
             assert_eq!(
                 err.to_string(),
-                "goal log g1 ends without a newline; wrote nothing; puppets.py repair g1"
+                "goal log g1 ends without a newline; wrote nothing; hydra-puppets repair g1"
             );
             assert_eq!(std::fs::read(&path).unwrap(), before);
         }

@@ -73,7 +73,7 @@ still forbid.
 
 ```
 git clone https://github.com/FrankMdza/hydra-harness ~/hydra && cd ~/hydra
-cargo build --release   # needs Rust 1.88 or newer, edition 2024
+cargo build --release --workspace   # Rust 1.88 or newer; --workspace also builds hydra-puppets
 mkdir -p ~/.local/bin && ln -sf ~/hydra/target/release/hydra ~/.local/bin/hydra
 hydra doctor            # its "hydra on PATH" line should say "this binary"
 ```
@@ -157,17 +157,18 @@ two seconds and launches no provider.
 | `Enter`, `Esc` | open the selected run, request or step; close it |
 | `k` | swap the four lanes by state for one lane per agent, the waiting approvals last; with `--session`, only the session and its seats |
 | `r` | swap the detail between tool calls and the raw last twenty record lines |
-| `a`, `y` | approve the selected seat request, or run the argv `puppets.py pending` listed for a step |
+| `a`, `y` | approve the selected seat request, or run the argv `hydra-puppets pending` listed for a step |
 | `d`, `y` | deny the selected seat request; a step has no deny |
-| `v`, `y` | start `puppets.py review` on the selected task: three judge runs, which count against quota |
+| `v`, `y` | start `hydra-puppets review` on the selected task: three judge runs, which count against quota |
 | `m`, `y` | stop the selected live seat, the same stop as `hydra stop`; with `--session`, leave an unsent note about it in the chat |
 | `p` | policy pane: the set's sha and the live runs' shas; `e` opens the selected file in `$EDITOR` |
 | `q` | quit |
 
 Each write waits for a `y`: a seat approval or denial, which is what `hydra approve <id>` or
-`hydra deny <id>` writes; a Master of Puppets approval, through the `puppets.py` helper; a stop.
-`puppets.py` is the only writer of a goal log, and the cockpit writes no policy file, since the
-editor is the human's. Approvals, denials and stops refuse inside a seatbelt. The mouse clicks,
+`hydra deny <id>` writes; a Master of Puppets approval, through the `hydra-puppets` helper; a stop.
+The cockpit runs the `hydra-puppets` beside its own binary, else the one on `PATH`. That helper
+is the only writer of a goal log, and the cockpit writes no policy file, since the editor is the
+human's. Approvals, denials and stops refuse inside a seatbelt. The mouse clicks,
 selects and scrolls.
 
 ```

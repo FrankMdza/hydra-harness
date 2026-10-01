@@ -6,7 +6,7 @@
 //! files and draws. Without `--session` it launches no provider itself; it
 //! edits no policy and no config, and needs nothing running to exist (D10).
 //!
-//! **`v` then `y` starts `puppets.py review`**, build ticket 183, which
+//! **`v` then `y` starts `hydra-puppets review`**, build ticket 183, which
 //! launches three judge runs. The confirmation says they count against quota.
 //!
 //! **Its one write is the approval of a waiting seat request**, typed by the
@@ -15,9 +15,9 @@
 //! and says so on screen.
 //!
 //! **It never writes a goal log.** Since build ticket 182 the waiting lane also
-//! lists what `puppets.py pending <goal> --json` says the shown goal waits on,
+//! lists what `hydra-puppets pending <goal> --json` says the shown goal waits on,
 //! and `a` then `y` runs the argv that listed, `--expect-revision` included, as
-//! a child. `puppets.py` stays the only writer of its log. Inside a seatbelt
+//! a child. `hydra-puppets` stays the only writer of its log. Inside a seatbelt
 //! `a` refuses these too.
 //!
 //! **With `--session` the chat is inside**, map ticket 86's cut two and build
@@ -84,7 +84,25 @@ pub struct Session {
     pub policy: Option<String>,
 }
 
-/// Where the goal logs live: `HYDRA_PUPPETS_HOME` when set, as `puppets.py`
+/// The Master of Puppets helper's file name.
+pub const PUPPETS_HELPER: &str = "hydra-puppets";
+
+/// The helper the cockpit runs for `pending`, `approve` and `review`, build ticket 196.
+pub fn puppets_helper() -> PathBuf {
+    helper_beside(std::env::current_exe().ok().as_deref())
+}
+
+/// `hydra-puppets` in the directory that holds `exe`, which is where one `cargo build
+/// --workspace` puts both binaries, and the bare name otherwise, which the spawn looks
+/// up on `PATH`.
+pub fn helper_beside(exe: Option<&Path>) -> PathBuf {
+    exe.and_then(Path::parent)
+        .map(|dir| dir.join(PUPPETS_HELPER))
+        .filter(|helper| helper.is_file())
+        .unwrap_or_else(|| PathBuf::from(PUPPETS_HELPER))
+}
+
+/// Where the goal logs live: `HYDRA_PUPPETS_HOME` when set, as `hydra-puppets`
 /// reads it, and `puppets/` under the root otherwise.
 pub fn puppets_home(layout: &Layout) -> PathBuf {
     match std::env::var_os("HYDRA_PUPPETS_HOME") {
@@ -132,7 +150,7 @@ pub fn run(
         goal,
     )
     .with_vendors(crate::paths::hydra_home().join("integrations/puppets"))
-    .with_puppets(crate::paths::hydra_home().join("integrations/puppets/puppets.py"));
+    .with_puppets(puppets_helper());
     let (asks, asked) = mpsc::channel::<Option<String>>();
     let (snapshots, snapshot) = mpsc::channel();
     std::thread::Builder::new()
@@ -148,10 +166,7 @@ pub fn run(
 
     app.set_policies(crate::paths::hydra_home().join("policies"));
     app.set_preamble(crate::preamble::load().ok());
-    app.set_reviewer(
-        crate::paths::hydra_home().join("integrations/puppets/puppets.py"),
-        puppets_home(layout),
-    );
+    app.set_reviewer(puppets_helper(), puppets_home(layout));
 
     if with_mascot {
         match mascot::Frames::load(&mascot::default_dir()) {

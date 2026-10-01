@@ -287,7 +287,7 @@ fn a_damaged_goal_shows_repair_and_refuses_a_and_v() {
         reference: None,
         revision: 1,
         argv: vec![
-            "puppets.py".into(),
+            "hydra-puppets".into(),
             "approve".into(),
             "g-damaged".into(),
             "--plan".into(),
@@ -305,7 +305,7 @@ fn a_damaged_goal_shows_repair_and_refuses_a_and_v() {
     app.focus = Focus::Table;
     let text = drawn_app(&mut app);
     assert!(
-        text.contains("damaged at line 3: run puppets.py repair g-damaged"),
+        text.contains("damaged at line 3: run hydra-puppets repair g-damaged"),
         "{text}"
     );
     assert!(
@@ -2910,7 +2910,7 @@ fn review_app(name: &str, script: &str) -> (Layout, PathBuf, App) {
     std::fs::create_dir_all(&home).unwrap();
     let log = home.join("g2.jsonl");
     std::fs::write(&log, ENDED_LOG.replace("LONG-DONE", "short")).unwrap();
-    let helper = layout.root().join("puppets.py");
+    let helper = layout.root().join("hydra-puppets");
     std::fs::write(&helper, script).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -3027,7 +3027,7 @@ fn v_asks_before_a_review_and_y_starts_the_helper_detached() {
 #[test]
 fn the_row_follows_the_child_and_then_shows_the_verdict_it_recorded() {
     // The stub holds until the test lets it go, then appends the event
-    // `puppets.py review` appends and exits 0.
+    // `hydra-puppets review` appends and exits 0.
     let (layout, log, mut app) = review_app(
         "review-verdict",
         "#!/bin/sh\n\
@@ -3275,12 +3275,12 @@ fn with_a_chat_m_asks_only_about_that_sessions_seats() {
 
 // --- Master of Puppets steps, build ticket 182 -------------------------------
 
-/// A stub `puppets.py` under `layout`: `pending` records its argv and prints
+/// A stub `hydra-puppets` under `layout`: `pending` records its argv and prints
 /// two steps of goal `g2` at revision 3 whose argv names the stub itself;
 /// `approve` records its argv and the puppets home it was handed, then runs
 /// `approve`, a line of shell.
 fn steps_stub(layout: &Layout, pending: &str, approve: &str) -> PathBuf {
-    let path = layout.root().join("puppets.py");
+    let path = layout.root().join("hydra-puppets");
     let me = path.display().to_string();
     let script = format!(
         "#!/bin/sh\n\
@@ -3438,7 +3438,7 @@ fn a_on_a_step_shows_its_argv_and_y_runs_it() {
     argv.extend(["approve", "g2", "--launch", "a", "--expect-revision", "3"].map(String::from));
     assert_eq!(shown.argv, argv);
     // The argv may wrap in the box; its two ends are on screen.
-    assert!(screen.contains("puppets.py"), "{screen}");
+    assert!(screen.contains("hydra-puppets"), "{screen}");
     assert!(
         screen.contains("--launch a --expect-revision 3"),
         "{screen}"
@@ -3500,9 +3500,29 @@ fn exit_three_says_already_approved_and_hides_the_step() {
     assert_eq!(labels, ["g2 plan"]);
 }
 
+/// Build ticket 196: the helper is the `hydra-puppets` beside the `hydra` that is running,
+/// and the bare name, for `PATH`, when none is there.
+#[test]
+fn the_helper_is_the_one_beside_the_binary_and_the_path_otherwise() {
+    use hydra::cockpit::helper_beside;
+    let layout = scratch("helper-beside");
+    let bin = layout.root().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let hydra = bin.join("hydra");
+    let bare = PathBuf::from("hydra-puppets");
+    assert_eq!(helper_beside(Some(&hydra)), bare);
+    assert_eq!(helper_beside(None), bare);
+    // A directory of that name is not a helper.
+    std::fs::create_dir(bin.join("hydra-puppets")).unwrap();
+    assert_eq!(helper_beside(Some(&hydra)), bare);
+    std::fs::remove_dir(bin.join("hydra-puppets")).unwrap();
+    std::fs::write(bin.join("hydra-puppets"), "").unwrap();
+    assert_eq!(helper_beside(Some(&hydra)), bin.join("hydra-puppets"));
+}
+
 /// `pending --json`'s output for one step of goal `g2` whose argv ends in `tail`.
 fn one_step(kind: &str, reference: Option<&str>, revision: u64, tail: &[&str]) -> Vec<u8> {
-    let mut argv = vec!["puppets.py", "approve", "g2"];
+    let mut argv = vec!["hydra-puppets", "approve", "g2"];
     argv.extend_from_slice(tail);
     serde_json::to_vec(&json!([
         {"kind": kind, "ref": reference, "revision": revision, "argv": argv}

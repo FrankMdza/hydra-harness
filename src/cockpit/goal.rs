@@ -1,6 +1,6 @@
 //! The task table of one goal, folded from its Master of Puppets log.
 //!
-//! **This is `puppets.py`'s `fold` narrowed to the table `board` prints**, and
+//! **This is `hydra-puppets`'s `fold` narrowed to the table `board` prints**, and
 //! it reads the JSONL itself rather than shelling out to Python. The events and
 //! their fields are the ones `integrations/puppets/README.md` documents; the
 //! rules below are `fold`'s, event by event, and only the ones that change a
@@ -55,7 +55,7 @@ pub struct Goal {
     /// In the order `fold` keeps them: a task is where it first appeared, even
     /// after a later `task` event replaces it.
     pub rows: Vec<TaskRow>,
-    /// The `review` events `puppets.py review` appended, in log order, for
+    /// The `review` events `hydra-puppets review` appended, in log order, for
     /// tasks the table has. Build ticket 183 reads the last one per task.
     pub reviews: Vec<Review>,
     /// JSON lines that lacked a field `fold` needs. Map 91: a blank or
@@ -238,7 +238,7 @@ fn row_or_default<'a>(goal: &'a mut Goal, task: &str) -> &'a mut TaskRow {
     &mut goal.rows[index]
 }
 
-/// The most bad lines one `repair` event is believed about. `puppets.py` has the same number.
+/// The most bad lines one `repair` event is believed about. `hydra-puppets` has the same number.
 const MAX_REPAIR_REMOVED: i64 = 1_000_000_000;
 
 /// A `removed` that is not an int from 1 to [`MAX_REPAIR_REMOVED`] counts as zero.

@@ -596,15 +596,9 @@ pub fn panel_gate_reachable(state: &GoalState) -> bool {
 }
 
 /// `approve_argv`: the command that records one approval at the revision it was drawn from.
-/// Until the cutover that command is the Python helper's.
-pub fn approve_argv(
-    python: &str,
-    script: &str,
-    goal_id: &str,
-    revision: i128,
-    args: &[Value],
-) -> Value {
-    let mut argv = vec![s(python), s(script), s("approve"), s(goal_id)];
+/// `helper` is the `hydra-puppets` that listed it (build 196).
+pub fn approve_argv(helper: &str, goal_id: &str, revision: i128, args: &[Value]) -> Value {
+    let mut argv = vec![s(helper), s("approve"), s(goal_id)];
     argv.extend(args.iter().cloned());
     argv.push(s("--expect-revision"));
     argv.push(s(&revision.to_string()));
@@ -612,12 +606,7 @@ pub fn approve_argv(
 }
 
 /// `pending_approvals`: what the helper is waiting on, in the order `puppets.py` lists it.
-pub fn pending_approvals(
-    state: &GoalState,
-    vendors: &Path,
-    python: &str,
-    script: &str,
-) -> Result<Vec<Value>> {
+pub fn pending_approvals(state: &GoalState, vendors: &Path, helper: &str) -> Result<Vec<Value>> {
     let item = |kind: &str, reference: Value, args: Vec<Value>| {
         Value::Dict(dict(vec![
             ("kind", s(kind)),
@@ -625,7 +614,7 @@ pub fn pending_approvals(
             ("revision", Value::Int(state.revision)),
             (
                 "argv",
-                approve_argv(python, script, &state.goal_id, state.revision, &args),
+                approve_argv(helper, &state.goal_id, state.revision, &args),
             ),
         ]))
     };

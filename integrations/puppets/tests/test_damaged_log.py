@@ -81,7 +81,7 @@ class DamagedLogTests(unittest.TestCase):
         nums = ", ".join(str(n) for n in lines)
         return (
             f"goal log g1 is damaged at line {nums}; wrote nothing; "
-            "puppets.py repair g1"
+            "hydra-puppets repair g1"
         )
 
     def test_read_log_raises_on_interior_and_last_bad_lines(self):

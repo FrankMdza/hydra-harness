@@ -21,15 +21,16 @@ stopped. If Herdr changes its API, this directory is the only thing that breaks.
   measured list; `hy [model] [policy]` still launches `claude` directly for muscle memory. It
   opens three panes to the right of the current one: `hydra-mascot --watch` on top, the gated
   session below, and `hydra-board` to the right of the session pane. The board pane loops
-  `puppets.py board` every few seconds. Pass `--goal <id>` on the `hydra-board` command in the
+  `hydra-puppets board` every few seconds. Pass `--goal <id>` on the `hydra-board` command in the
   pane if you want a specific goal; otherwise it follows whichever goal log under
   `HYDRA_PUPPETS_HOME` changed most recently. Only providers in `interactive-gate-providers.txt`
   are offered, those whose interactive gate has been measured in their own TUI (`claude` today).
   Policy choices are the `*.json` files in the repo's `policies/` directory except `floor.json`
   (the pattern floor, not a policy). Defaults are `sonnet` and `standard`.
 - `bin/hydra-board`, a refresher for the puppets task table in a pane. Stdlib only; it shells out
-  to `puppets.py board` rather than importing it, so the loop stays a thin wrapper and failures
-  stay in the subprocess stderr the pane already shows.
+  to `hydra-puppets board`, so the loop stays a thin wrapper and failures stay in the
+  subprocess stderr the pane already shows. It runs `HYDRA_PUPPETS_BIN` when that is set, else
+  the `hydra-puppets` beside `HYDRA_BIN`, else the one on `PATH`.
 - `bin/hydra-bridge`, a poller. Every two seconds it lists the panes carrying a `run_id` token,
   reads `hydra status` for each, and reports on change. The state table at the top of the file
   is the whole policy. Resolved 2026-09-07, map ticket 49. A live session with a seat request

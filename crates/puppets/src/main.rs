@@ -209,15 +209,23 @@ fn py_int(text: &str) -> Result<Value, String> {
     hydra_puppets::int_value(text).ok_or_else(|| format!("invalid int value: '{text}'"))
 }
 
+/// This binary, as the `argv` of `pending --json` names it: its canonical path, so the
+/// command runs from any directory, or the bare name for `PATH` when the path is unknown.
+fn helper_path() -> String {
+    std::env::current_exe()
+        .and_then(|exe| exe.canonicalize())
+        .map_or_else(
+            |_| "hydra-puppets".into(),
+            |exe| exe.to_string_lossy().into_owned(),
+        )
+}
+
 fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32> {
     let home = Home::from_env()?;
     match cli.command {
         Command::Board { goal } => read::board(&home, &goal, out, err),
         Command::Show { goal } => read::show(&home, &goal, out),
-        Command::Pending { goal, json: _ } => {
-            let script = log::python_dir().join("puppets.py");
-            read::pending(&home, &goal, "python3", &script.to_string_lossy(), out, err)
-        }
+        Command::Pending { goal, json: _ } => read::pending(&home, &goal, &helper_path(), out, err),
         Command::Queue { goal } => read::queue(&home, &goal, out, err),
         Command::Repair { goal, yes } => log::repair(&home, &goal, yes, out),
         Command::New { goal_text } => write::new(&home, &arg(&goal_text), out),
