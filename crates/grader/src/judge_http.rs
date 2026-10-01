@@ -64,9 +64,19 @@ pub fn local_target(url: &str) -> Result<Target, Failure> {
     if authority.contains('@') {
         return refuse(format!("{url:?} carries a user name"));
     }
+    // The authority is sent back as the `Host` header, so a line end in it would be a
+    // header of the caller's choosing.
+    if authority.bytes().any(|b| b <= b' ' || b == 0x7f) {
+        return refuse(format!("{url:?} holds a space or a control character"));
+    }
     let (host, port) = match authority.strip_prefix('[') {
         Some(bracketed) => match bracketed.split_once(']') {
-            Some((host, after)) => (host, after.strip_prefix(':')),
+            Some((host, "")) => (host, None),
+            Some((host, after)) => match after.strip_prefix(':') {
+                Some(port) => (host, Some(port)),
+                // Anything after the bracket but a port is not part of a host.
+                None => return refuse(format!("{url:?} has a host that does not read")),
+            },
             None => return refuse(format!("{url:?} has a host that does not read")),
         },
         None => match authority.split_once(':') {
@@ -141,13 +151,18 @@ fn trimmed(line: &[u8]) -> &[u8] {
 /// The header lines up to the blank one, as lowercased name and value.
 fn headers(reader: &mut impl BufRead) -> Result<Vec<(String, String)>, Failure> {
     let mut found = Vec::new();
+    // `http.client` counts the lines it reads, a continuation or a line with no colon
+    // included, and the blank one that ends them: 99 header lines are read and the 100th
+    // raises (probed on CPython 3.14.7).
+    let mut lines = 0;
     loop {
         let raw = line(reader)?;
         let text = trimmed(&raw);
         if text.is_empty() {
             return Ok(found);
         }
-        if found.len() == MAX_HEADERS {
+        lines += 1;
+        if lines == MAX_HEADERS {
             return Err(raised("HTTPException", "got more than 100 headers"));
         }
         let text = String::from_utf8_lossy(text);
@@ -343,8 +358,34 @@ mod tests {
             "http://127.0.0.1:+80/",
             "http://127.0.0.1/a b",
             "http:///api/generate",
+            // Text after the bracket that is not a port went into the `Host` header.
+            "http://[::1]evil/",
+            "http://[::1]\r\nX-Injected: yes/",
+            "http://127.0.0.1\r\nX-Injected: yes/",
+            "http://localhost\t/",
+            "http://127.0.0.1:80\n/",
         ] {
-            assert!(refused(url), "{url}");
+            assert!(refused(url), "{url:?}");
+        }
+    }
+
+    #[test]
+    fn every_header_line_counts_toward_the_limit() {
+        // `http.client` reads 99 header lines and raises on the 100th, whether or not a
+        // line has a colon.
+        let reply = |lines: usize, line: &[u8]| {
+            let mut reply = b"HTTP/1.1 200 OK\r\n".to_vec();
+            for _ in 0..lines {
+                reply.extend_from_slice(line);
+            }
+            reply.extend_from_slice(b"\r\nbody");
+            reply
+        };
+        for line in [&b"X: a\r\n"[..], b" continuation\r\n"] {
+            let ok = reply(99, line);
+            assert_eq!(head(&mut BufReader::new(&ok[..])).unwrap().0, 200);
+            let over = reply(100, line);
+            assert!(head(&mut BufReader::new(&over[..])).is_err());
         }
     }
 
