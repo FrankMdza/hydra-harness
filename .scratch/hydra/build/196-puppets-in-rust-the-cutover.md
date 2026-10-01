@@ -19,7 +19,12 @@ and `hy.zsh` name `puppets.py`.
 3. Delete `integrations/puppets/puppets.py`, `sheet.py`, `models.py`, `jev_probe.py` only if
    ported (else say so and keep it) and the Python tests the Rust ones replace; keep the JSON data
    files where the crate reads them.
-4. CI: `cargo test --workspace`, and drop the puppets Python suite step. README, `hy.zsh`, the
+4. `pending --json` prints an `argv` that starts `python3 <repo>/integrations/puppets/puppets.py
+   approve` (`crates/puppets/src/main.rs`, `fold::approve_argv`, kept by build 193 because
+   `approve` was still Python). Point it at `hydra-puppets approve`, and drop
+   `log::python_dir()`, which bakes the build checkout's path into the binary; the JSON data
+   files need a home that does not.
+5. CI: `cargo test --workspace`, and drop the puppets Python suite step. README, `hy.zsh`, the
    Herdr plugin and `IMPLEMENTATION.md` name `hydra-puppets`.
 
 ## Done when

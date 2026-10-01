@@ -1,0 +1,21 @@
+[package]
+name = "hydra-puppets"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Master of Puppets: the goal log, the fold and the read commands of puppets.py, in Rust"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "hydra-puppets"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+clap = { version = "4.6.6", features = ["derive"] }
+libc = "0.2.189"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"

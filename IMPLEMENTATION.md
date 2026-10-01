@@ -3241,6 +3241,34 @@ session chose the plan and reviewed the diffs and said so each time.
 Not built: any automatic execution, which map ticket 76 makes wait for bounded retries and crash
 recovery.
 
+**The workspace and `crates/puppets`, since build ticket 193.** Map ticket 90 moves the
+integrations to Rust, `puppets` first. The root `Cargo.toml` now has `[workspace]` with
+`members = ["crates/*"]`. The `hydra` package stays at the root and depends on no member, so it is
+the only default member: `cargo test` at the root builds and tests `hydra` alone, and
+`cargo test --workspace` adds `hydra-puppets`. The crate's library holds the goal log (`log.rs`:
+the reader, the lock-held update, `repair`), the fold (`fold.rs`) and the read commands
+(`read.rs`). Its binary, `hydra-puppets`, has `show`, `board`, `pending --json`, `queue` and
+`repair [--yes]`, with the Python's arguments, environment and output. It carries its own JSON
+reader and writer (`json.rs`), because `show` prints log values verbatim in Python's key order,
+float spelling and `\u` escapes. `serde_json`'s `preserve_order` would give the order, but in a
+workspace build that feature would reach `hydra` too. `pending`'s `argv` still names
+`python3 integrations/puppets/puppets.py approve`, since `approve` is ticket 194's. Nothing in
+`integrations/puppets/` changed.
+
+`crates/puppets/tests/differential.rs` runs both implementations on the same inputs and requires
+the same stdout, stderr and exit code. The inputs are every goal log the Python tests leave on
+disk (`harvest.py` copies each test's home before its tearDown, 102 distinct logs) and 17 edge
+logs: an unterminated tail, a CR tail, bad and blank interior lines, a bad last line, an empty
+file, a missing file, CRLF lines, a BOM, a missing key, a non-object event, torn tails in bad
+UTF-8 and past 300 characters, and one goal that reaches every board and pending branch.
+Normalized are `pending`'s first `argv` element (Python's `sys.executable` against `python3`),
+the timestamp `repair --yes` puts in the torn file's name, and a Python traceback. For a
+traceback the Rust must exit 1 with the same stdout and name the same exception class. A bad
+interior line is such a crash in both: `read_log` raises on it and skips only a bad last line.
+The second test, `#[ignore]`d, runs the read commands over copies of the real
+`~/hydra/puppets/*.jsonl` and never `repair --yes`. Known divergence: a string holding a lone
+UTF-16 surrogate, which Python reads and this reader refuses with exit 1.
+
 ## `hydra cockpit`, since build ticket 150
 
 Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen
