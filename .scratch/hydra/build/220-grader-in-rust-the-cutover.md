@@ -1,7 +1,7 @@
 # 220 - grader in Rust: the cutover
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 213, 214, 215, 216, 217, 218, 219
 
 ## What
