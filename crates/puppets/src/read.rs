@@ -173,7 +173,13 @@ pub fn pending(
         writeln!(err, "unknown goal {goal_id}")?;
         return Ok(1);
     }
-    let items = fold::pending_approvals(&state, &home.vendors_file()?, helper)?;
+    let items = if fold::panel_gate_reachable(&state) {
+        fold::pending_approvals(&state, &home.vendors_file()?, helper)?
+    } else {
+        // `pending_approvals` reads `vendors` only when the degraded branch runs, which needs
+        // `panel_gate_reachable`.
+        fold::pending_approvals(&state, Path::new(""), helper)?
+    };
     writeln!(out, "{}", json::dumps(&Value::List(items), Some(2)))?;
     Ok(0)
 }

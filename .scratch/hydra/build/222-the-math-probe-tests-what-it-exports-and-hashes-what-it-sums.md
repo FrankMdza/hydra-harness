@@ -1,7 +1,7 @@
 # 222 - The math probe tests what it exports and hashes what it sums
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 213
 
 ## What
@@ -40,3 +40,24 @@ Tests first, each shown failing before the change.
 
 - fmt and clippy clean over the workspace; `cargo test -p hydra-pyjson`, `-p hydra-puppets` and
   `-p hydra-grader` pass with no fixture of `crates/puppets` changed.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f702` (cursor-agent composer-2.5, `standard`, 3.0M tokens), diff
+read whole by the session and applied to master as written.
+
+Built: the probe's generator moved to `crates/pyjson/tests/support/math_probe.rs`, and `math` is
+the only public module the probe work added. `unary_log` and `unary_log1p` keep the domain rule
+and call the exported `math::log` and `math::log1p`. Each block of 10,000 lists is hashed by every
+list's length, its inputs' bits in order, and its result; `sum_hashes.txt` is one line where it
+was 10,000. The list length is taken with `u64`. `pending` resolves the vendors file only when
+`panel_gate_reachable` is true.
+
+Measured on master: fmt and clippy clean over the workspace; `hydra-pyjson` 22 and 3 probes;
+`hydra-puppets` 45, 5 and 18 with no fixture changed; `hydra-grader` 11 and 11. The session broke
+`math::log` and the probe failed on block 0, which it did not before this ticket; and ran a
+helper copied outside the checkout, with no data directory, on a goal with no plans: `pending`
+prints `[]` and exits 0.
+
+Left open: item 3 has no test of its own; the run checked it by reading and the session by hand.
+

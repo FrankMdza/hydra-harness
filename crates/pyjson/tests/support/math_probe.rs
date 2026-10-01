@@ -1,6 +1,9 @@
 //! Inputs for ticket 211: the same sequence `tests/record_math.py` writes hashes for.
 //! Keep the two generators in lockstep.
 
+use hydra_pyjson::math::{log, log1p};
+
+/// Fixed seed for the unary and sum probes.
 const SEED: u64 = 21_100_943_147;
 const UNARY_COUNT: usize = 1_000_000;
 const BLOCK_SIZE: usize = 10_000;
@@ -13,9 +16,6 @@ const COUNT_SEED: u64 = SEED + 213;
 const COUNT_DENSE: u64 = 200_000;
 const COUNT_SPARSE: usize = 100_000;
 const COUNT_MAX: u64 = 100_000_000;
-
-/// Fixed seed for the unary and sum probes.
-pub const PROBE_SEED: u64 = SEED;
 
 pub const PROBE_UNARY_COUNT: usize = UNARY_COUNT;
 pub const PROBE_BLOCK_SIZE: usize = BLOCK_SIZE;
@@ -81,16 +81,16 @@ fn unary_input(i: usize, rng: &mut SplitMix64) -> f64 {
 
 /// `log` on the probe input: CPython's domain rule as a quiet NaN bit pattern when `x <= 0`.
 pub fn unary_log(x: f64) -> f64 {
-    if x > 0.0 { x.ln() } else { f64::NAN }
+    if x > 0.0 { log(x) } else { f64::NAN }
 }
 
 /// `log1p` on the probe input: quiet NaN when `x <= -1`.
 pub fn unary_log1p(x: f64) -> f64 {
-    if x > -1.0 { x.ln_1p() } else { f64::NAN }
+    if x > -1.0 { log1p(x) } else { f64::NAN }
 }
 
 fn sum_list(_i: usize, rng: &mut SplitMix64) -> Vec<f64> {
-    let n = 2 + (rng.next_u64() as usize % 199);
+    let n = 2 + (rng.next_u64() % 199) as usize;
     (0..n)
         .map(|j| {
             let base = (rng.next_u64() % 2000) as f64 / 100.0 - 10.0;
@@ -105,7 +105,7 @@ fn advance_unary_rng(i: usize, rng: &mut SplitMix64) {
     }
 }
 
-/// All unary inputs in order, using `PROBE_SEED`.
+/// All unary inputs in order, using `SEED`.
 pub fn all_unary_inputs() -> Vec<f64> {
     let mut rng = SplitMix64::new(SEED);
     (0..UNARY_COUNT).map(|i| unary_input(i, &mut rng)).collect()

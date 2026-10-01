@@ -6,7 +6,7 @@ pub fn exp(x: f64) -> f64 {
     x.exp()
 }
 
-/// `math.log` on positive `x`; callers that mirror the probe use `math_probe::unary_log`.
+/// `math.log` on positive `x`; the probe applies CPython's domain rule before calling this.
 #[must_use]
 pub fn log(x: f64) -> f64 {
     x.ln()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record SHA-256 of CPython 3.14's math answers for ticket 211. Keep in sync with `math_probe.rs`."""
+"""Record SHA-256 of CPython 3.14's math answers for ticket 211. Keep in sync with `support/math_probe.rs`."""
 from __future__ import annotations
 
 import hashlib
@@ -104,6 +104,20 @@ def unary_block_hashes(xs: list[float], transform) -> list[str]:
     return blocks
 
 
+def sum_block_hashes(lists: list[list[float]]) -> list[str]:
+    blocks = []
+    for start in range(0, len(lists), BLOCK_SIZE):
+        chunk = lists[start : start + BLOCK_SIZE]
+        hasher = hashlib.sha256()
+        for values in chunk:
+            hasher.update(struct.pack(">Q", len(values)))
+            for x in values:
+                hasher.update(pack_f64(x))
+            hasher.update(pack_f64(sum(values)))
+        blocks.append(hasher.hexdigest())
+    return blocks
+
+
 def main() -> int:
     rng = SplitMix64(SEED)
     xs = [unary_input(i, rng) for i in range(UNARY_COUNT)]
@@ -130,12 +144,8 @@ def main() -> int:
     rng = SplitMix64(SEED)
     for i in range(UNARY_COUNT):
         unary_input(i, rng)
-    sum_hashes = []
-    for i in range(SUM_LISTS):
-        values = sum_list(i, rng)
-        total = sum(values)
-        sum_hashes.append(hashlib.sha256(pack_f64(total)).hexdigest())
-    write_lines("sum_hashes.txt", sum_hashes)
+    lists = [sum_list(i, rng) for i in range(SUM_LISTS)]
+    write_lines("sum_hashes.txt", sum_block_hashes(lists))
     print(f"wrote {OUT}")
     return 0
 
