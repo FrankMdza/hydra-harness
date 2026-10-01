@@ -1,7 +1,7 @@
 # 204 - `repair` makes its own temporary file
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 194
 
 ## What
@@ -44,3 +44,32 @@ test, each shown failing before the change.
 - Each test failed before the change. The puppets Python suite passes; fmt and clippy clean over
   the workspace; `cargo test --lib` and `cargo test -p hydra-puppets` pass with the differential
   test green.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f62d` (codex gpt-6.1-sol, `standard`, 3.7M tokens), diff read whole
+by the session and applied to master with one change.
+
+Built: `replace_log` and `_replace_log` create `<goal>.jsonl.repair-tmp` with `O_CREAT | O_EXCL |
+O_NOFOLLOW`; a regular file left there is removed and the create tried once more; a symlink, a
+directory or anything else is refused as `UnsafeRepairTemporary` with exit 1, and `repair --yes`
+checks it before it writes the torn file, so nothing is written. `print` in `read.rs` follows
+Python's stdout rule from `PYTHONIOENCODING`, `PYTHONUTF8`, `LC_ALL`, `LC_CTYPE` and `LANG`, with
+`surrogateescape` where Python uses it, for UTF-8, ASCII and Latin-1.
+
+The session's change: the Rust created the temporary file with the default mode before setting
+the log's; it now creates it `0600`, as the Python does.
+
+Measured on master: the puppets Python suite 205 passed; `cargo test -p hydra-puppets` 44 unit
+tests and 12 differential tests, the ignored real-log test too; fmt and clippy clean.
+
+Nested `show`, measured and left as it is (the cap is the human's question): 1,000 levels print
+2.0 MB, 3,000 print 18 MB, 10,000 print 200 MB, the same bytes in both; Python 0.08, 0.09 and
+0.48 seconds, Rust 0.02, 0.03 and 0.26.
+
+What the ticket assumed that is false: "strict otherwise". `PYTHONUTF8=1` selects
+`surrogateescape` under `en_US.UTF-8` too.
+
+Left open: a `PYTHONIOENCODING` codec other than those three stops the Rust with `LookupError`.
+No test kills a real repair.
+

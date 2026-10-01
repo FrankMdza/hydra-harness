@@ -2246,3 +2246,82 @@ fn the_comparator_masks_a_goal_id_only_when_it_is_a_uuid4() {
         assert_eq!(mask_new_stdout(&odd), odd);
     }
 }
+
+#[test]
+fn stdout_surrogate_matches_python_locales() {
+    let scratch = Scratch::new("stdout-surrogate");
+    let home = scratch.0.join("puppets");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::write(
+        home.join("g1.jsonl"),
+        b"{\"event\":\"goal\",\"text\":\"\\udc80\",\"repo\":\"/r\",\"base_sha\":\"a\"}\n",
+    )
+    .unwrap();
+    for (locale, utf8, encoding) in [
+        ("C", None, None),
+        ("en_US.UTF-8", None, None),
+        ("C", Some("0"), None),
+        ("en_US.UTF-8", Some("1"), None),
+        ("C", None, Some("utf-8")),
+        ("C", None, Some("utf-8:strict")),
+        ("en_US.UTF-8", None, Some(":surrogateescape")),
+        ("C", None, Some("ascii:backslashreplace")),
+        ("en_US.UTF-8", None, Some("latin-1:replace")),
+    ] {
+        let invoke = |python: bool| {
+            let mut cmd = Command::new(if python { "python3" } else { RUST });
+            if python {
+                cmd.arg(script());
+            }
+            cmd.args(["board", "g1"])
+                .env("HYDRA_PUPPETS_HOME", &home)
+                .env("HYDRA_GRADER_HOME", scratch.0.join("grader"))
+                .env("LC_ALL", locale)
+                .env_remove("PYTHONUTF8")
+                .env_remove("PYTHONIOENCODING")
+                .stdin(std::process::Stdio::null());
+            if let Some(value) = utf8 {
+                cmd.env("PYTHONUTF8", value);
+            }
+            if let Some(value) = encoding {
+                cmd.env("PYTHONIOENCODING", value);
+            }
+            cmd.output().unwrap()
+        };
+        let python = invoke(true);
+        let rust = invoke(false);
+        assert_eq!(rust.stdout, python.stdout, "{locale}");
+        assert_eq!(rust.status.code(), python.status.code(), "{locale}");
+    }
+}
+
+#[test]
+fn repair_temporary_symlink_matches_python() {
+    let scratch = Scratch::new("repair-symlink");
+    let raw = b"{\"event\":\"goal\",\"text\":\"test\",\"repo\":\"/r\",\"base_sha\":\"a\"}\ntorn";
+    let mut outcomes = Vec::new();
+    for python in [true, false] {
+        let dir = scratch.0.join(if python { "python" } else { "rust" });
+        let home = dir.join("puppets");
+        std::fs::create_dir_all(&home).unwrap();
+        let path = home.join("g1.jsonl");
+        std::fs::write(&path, raw).unwrap();
+        let tmp = home.join("g1.jsonl.repair-tmp");
+        std::os::unix::fs::symlink(&path, &tmp).unwrap();
+        let result = if python {
+            run(
+                &["python3", script().to_str().unwrap()],
+                &["repair", "g1", "--yes"],
+                &dir,
+            )
+        } else {
+            run(&[RUST], &["repair", "g1", "--yes"], &dir)
+        };
+        assert_eq!(result.code, 1);
+        assert_eq!(std::fs::read(&path).unwrap(), raw);
+        assert!(tmp.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_dir(&home).unwrap().count(), 2);
+        outcomes.push(result);
+    }
+    assert_eq!(outcomes[0], outcomes[1]);
+}

@@ -12,7 +12,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -239,12 +239,49 @@ fn open_locked(path: &Path, options: &OpenOptions) -> std::io::Result<Locked> {
 /// Put `content` where the goal log is, in one step: write it to a temporary file beside the
 /// log, fsync, and rename it over the log. The caller holds the log's lock. `mode` is the
 /// old log's, which the new one keeps.
+#[derive(Debug)]
+pub struct UnsafeRepairTemporary;
+impl std::fmt::Display for UnsafeRepairTemporary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "UnsafeRepairTemporary: repair temporary path is not a regular file; wrote nothing"
+        )
+    }
+}
+impl std::error::Error for UnsafeRepairTemporary {}
+
+fn check_temporary(tmp: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(tmp) {
+        Ok(meta) if meta.file_type().is_file() => Ok(()),
+        Ok(_) => Err(UnsafeRepairTemporary.into()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.into()),
+    }
+}
+
 fn replace_log(path: &Path, content: &[u8], mode: u32) -> Result<()> {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".repair-tmp");
     let tmp = path.with_file_name(name);
+    let create = || {
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&tmp)
+    };
+    let mut out = match create() {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            check_temporary(&tmp)?;
+            std::fs::remove_file(&tmp)?;
+            create()?
+        }
+        Err(err) => return Err(err.into()),
+    };
     let written = (|| -> std::io::Result<()> {
-        let mut out = File::create(&tmp)?;
         out.set_permissions(std::fs::Permissions::from_mode(mode & 0o7777))?;
         out.write_all(content)?;
         out.sync_all()?;
@@ -396,6 +433,7 @@ pub fn repair(home: &Home, goal_id: &str, yes: bool, out: &mut dyn Write) -> Res
         )?;
         return Ok(0);
     }
+    check_temporary(&path.with_file_name(format!("{goal_id}.jsonl.repair-tmp")))?;
     let dest = path
         .parent()
         .unwrap_or(Path::new("."))
@@ -482,6 +520,30 @@ mod tests {
         let mut body = Dict::new();
         body.set("event", Value::text(event));
         body
+    }
+
+    #[test]
+    fn repair_refuses_temporary_symlink_without_writing() {
+        let (_dir, home) = scratch();
+        let path = home.goal_log_path("g1");
+        let before = [GOAL, b"torn"].concat();
+        std::fs::write(&path, &before).unwrap();
+        let tmp = path.with_file_name("g1.jsonl.repair-tmp");
+        std::os::unix::fs::symlink(&path, &tmp).unwrap();
+        let err = repair(&home, "g1", true, &mut Vec::new()).unwrap_err();
+        assert!(err.to_string().contains("UnsafeRepairTemporary"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(tmp.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_dir(&home.puppets).unwrap().count(), 2);
+        std::fs::remove_file(&tmp).unwrap();
+        std::fs::create_dir(&tmp).unwrap();
+        assert!(repair(&home, "g1", true, &mut Vec::new()).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_dir(&tmp).unwrap();
+        std::fs::write(&tmp, b"stale partial repair").unwrap();
+        repair(&home, "g1", true, &mut Vec::new()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), GOAL);
+        assert!(!tmp.exists());
     }
 
     #[test]

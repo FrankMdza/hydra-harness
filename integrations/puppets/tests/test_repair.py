@@ -56,6 +56,36 @@ class RepairTests(unittest.TestCase):
                 code = exc.code if isinstance(exc.code, int) else 1
         return code, stdout.getvalue(), stderr.getvalue()
 
+    def test_repair_refuses_temporary_symlink_without_writing(self):
+        raw = self.goal_line() + b"torn"
+        self.plant(raw)
+        tmp = self.log_path().with_name("g1.jsonl.repair-tmp")
+        for target in [self.log_path(), self.puppets_home / "other"]:
+            if target != self.log_path():
+                target.write_bytes(b"untouched")
+            tmp.symlink_to(target)
+            code, _, error = self.invoke(["repair", "g1", "--yes"])
+            self.assertEqual(code, 1)
+            self.assertIn("UnsafeRepairTemporary", error)
+            self.assertEqual(self.log_bytes(), raw)
+            self.assertTrue(tmp.is_symlink())
+            self.assertEqual(self.torn_files(), [])
+            if target != self.log_path():
+                self.assertEqual(target.read_bytes(), b"untouched")
+            tmp.unlink()
+        tmp.mkdir()
+        code, _, error = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertIn("UnsafeRepairTemporary", error)
+        self.assertEqual(self.log_bytes(), raw)
+        self.assertEqual(self.torn_files(), [])
+        tmp.rmdir()
+        tmp.write_bytes(b"stale partial repair")
+        code, _, _ = self.invoke(["repair", "g1", "--yes"])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.log_bytes(), self.goal_line())
+        self.assertFalse(tmp.exists())
+
     def goal_line(self) -> bytes:
         record = {
             "seq": 1,

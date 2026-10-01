@@ -438,6 +438,20 @@ def _locked_log(path: Path, mode: str) -> Iterator[BinaryIO]:
         handle.close()
 
 
+class UnsafeRepairTemporary(Exception):
+    def __str__(self):
+        return "UnsafeRepairTemporary: repair temporary path is not a regular file; wrote nothing"
+
+
+def _check_temporary(tmp: Path) -> None:
+    try:
+        mode = tmp.lstat().st_mode
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(mode):
+        raise UnsafeRepairTemporary()
+
+
 def _replace_log(path: Path, content: bytes, mode: int) -> None:
     """Put `content` where the goal log is, in one step: write it to a temporary file
     beside the log, fsync, and rename it over the log. The caller holds the log's lock.
@@ -445,8 +459,15 @@ def _replace_log(path: Path, content: bytes, mode: int) -> None:
     The rename leaves the old file to whoever still has it open, so every locker checks,
     once it holds the lock, that the path still names the file it locked."""
     tmp = path.with_name(path.name + ".repair-tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     try:
-        with tmp.open("wb") as out:
+        fd = os.open(tmp, flags, 0o600)
+    except FileExistsError:
+        _check_temporary(tmp)
+        tmp.unlink()
+        fd = os.open(tmp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as out:
             os.fchmod(out.fileno(), stat.S_IMODE(mode))
             out.write(content)
             out.flush()
@@ -2520,6 +2541,7 @@ def cmd_repair(args: argparse.Namespace) -> int:
                 "then rewrite the log with only its good lines"
             )
             return 0
+        _check_temporary(path.with_name(path.name + ".repair-tmp"))
         dest = path.parent / f"{goal_id}.torn-{utc_now()}.txt"
         with dest.open("xb") as torn:
             for _line_no, line in bad:
@@ -2734,7 +2756,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (UnterminatedLog, DamagedLog) as err:
+    except (UnterminatedLog, DamagedLog, UnsafeRepairTemporary) as err:
         print(err, file=sys.stderr)
         return 1
 

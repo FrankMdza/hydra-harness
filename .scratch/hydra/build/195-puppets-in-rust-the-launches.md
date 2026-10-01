@@ -1,7 +1,7 @@
 # 195 - puppets in Rust: the commands that launch
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 194
 
 ## What

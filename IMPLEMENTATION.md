@@ -3292,8 +3292,12 @@ empty model version prints as `none`. An integer past 4,300 digits is a bad line
 `json.loads` hands out a single NaN object.
 
 Three of the fifteen changed both implementations. `repair --yes` builds the whole new log, good
-lines and the `repair` event together, writes it to `<goal>.jsonl.repair-tmp`, fsyncs and renames
-it over the log, so a repair killed at any point leaves the old log or the new one. Every locker
+lines and the `repair` event together, writes it to `<goal>.jsonl.repair-tmp`, created with
+`O_CREAT | O_EXCL | O_NOFOLLOW`, fsyncs and renames
+it over the log, so a repair killed at any point leaves the old log or the new one.
+An existing regular temporary file is removed and creation retried once. A symlink or
+another file type is refused with `UnsafeRepairTemporary` and exit 1 before writing anything.
+Every locker
 (`_locked_log` in the Python, `open_locked` in the Rust) compares its descriptor's inode with the
 path's once it holds the lock and opens again when they differ, so a writer that waited on the
 old file does not append to it. A `repair` event's `removed` counts when it is an int from 1 to

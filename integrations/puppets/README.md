@@ -99,7 +99,10 @@ more than 4,300 digits is not JSON here, because Python refuses to read one.
 holds the log's lock and writes the bad lines and any unterminated tail to
 `<goal-id>.torn-<UTC timestamp>.txt` beside the log. It then builds the new log, the good lines
 and, when it removed one or more bad lines, a `repair` event, writes that to
-`<goal-id>.jsonl.repair-tmp`, fsyncs it and renames it over the log. A repair killed before the
+`<goal-id>.jsonl.repair-tmp`, created exclusively without following links, fsyncs it and
+renames it over the log. An existing regular temporary file is removed and creation is
+retried once. A symlink or any other file type is refused with `UnsafeRepairTemporary`,
+exit 1, before writing anything. A repair killed before the
 rename leaves the old log and a torn file that copies part of it. One killed after leaves the
 new log. There is no state in between. The `repair` event bumps the revision by the number of
 lines removed plus one, so earlier table, launch, diff and degraded approvals void. A `removed`

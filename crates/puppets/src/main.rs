@@ -285,7 +285,9 @@ fn command(cli: Cli) -> ExitCode {
         Ok(code) => code,
         Err(e) => {
             let _ = out.flush();
-            if let Some(damaged) = e.downcast_ref::<log::DamagedLog>() {
+            if let Some(unsafe_tmp) = e.downcast_ref::<log::UnsafeRepairTemporary>() {
+                let _ = writeln!(err, "{unsafe_tmp}");
+            } else if let Some(damaged) = e.downcast_ref::<log::DamagedLog>() {
                 let _ = writeln!(err, "{damaged}");
             } else if let Some(unterminated) = e.downcast_ref::<log::UnterminatedLog>() {
                 let _ = writeln!(err, "{unterminated}");

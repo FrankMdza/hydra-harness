@@ -46,13 +46,93 @@ macro_rules! text {
 }
 pub(crate) use text;
 
-/// `print(line)`. Python encodes the whole line before it writes any of it, and a lone
-/// surrogate does not encode, so such a line prints nothing and raises.
-pub(crate) fn print(out: &mut dyn Write, line: &PyStr) -> Result<()> {
-    let Some(line) = line.to_utf8() else {
-        bail!("UnicodeEncodeError: 'utf-8' codec can't encode a surrogate");
+/// Python's stdout defaults, before an explicit PYTHONIOENCODING override.
+fn stdout_settings() -> (String, String) {
+    let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .find(|value| !value.is_empty())
+        .unwrap_or_else(|| "C".into());
+    let c_locale = matches!(locale.as_str(), "C" | "POSIX");
+    let utf8 = match std::env::var("PYTHONUTF8").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => c_locale,
     };
-    writeln!(out, "{line}")?;
+    let coerced = locale == "C"
+        && std::env::var("LC_ALL").unwrap_or_default().is_empty()
+        && std::env::var("PYTHONCOERCECLOCALE").as_deref() != Ok("0");
+    let mut encoding = if c_locale && !utf8 && !coerced {
+        "ascii"
+    } else {
+        "utf-8"
+    }
+    .to_string();
+    let mut errors = if c_locale || utf8 {
+        "surrogateescape"
+    } else {
+        "strict"
+    }
+    .to_string();
+    if let Ok(setting) = std::env::var("PYTHONIOENCODING") {
+        let (codec, handler) = setting.split_once(':').unwrap_or((&setting, ""));
+        if !codec.is_empty() {
+            encoding = codec.to_lowercase().replace('_', "-");
+            errors = "strict".into();
+        }
+        if !handler.is_empty() {
+            errors = handler.into();
+        }
+    }
+    (encoding, errors)
+}
+
+/// Encode the entire line before writing, as Python's TextIOWrapper does.
+pub(crate) fn print(out: &mut dyn Write, line: &PyStr) -> Result<()> {
+    let (encoding, errors) = stdout_settings();
+    let limit = match encoding.as_str() {
+        "utf-8" | "utf8" => 0x10ffff,
+        "ascii" | "us-ascii" => 0x7f,
+        "latin-1" | "latin1" | "iso8859-1" | "iso-8859-1" => 0xff,
+        _ => bail!("LookupError: unsupported stdout encoding {encoding}"),
+    };
+    let mut bytes = Vec::new();
+    for &code in line.code_points() {
+        if errors == "surrogateescape" && (0xdc80..=0xdcff).contains(&code) {
+            bytes.push((code - 0xdc00) as u8);
+        } else if let Some(ch) = char::from_u32(code).filter(|_| code <= limit) {
+            if limit < 0x100 {
+                bytes.push(code as u8);
+            } else {
+                bytes.extend_from_slice(ch.encode_utf8(&mut [0; 4]).as_bytes());
+            }
+        } else {
+            match errors.as_str() {
+                "ignore" => {}
+                "replace" => bytes.push(b'?'),
+                "backslashreplace" => bytes.extend_from_slice(
+                    if code <= 0xff {
+                        format!("\\x{code:02x}")
+                    } else if code <= 0xffff {
+                        format!("\\u{code:04x}")
+                    } else {
+                        format!("\\U{code:08x}")
+                    }
+                    .as_bytes(),
+                ),
+                "surrogatepass" if limit == 0x10ffff && (0xd800..=0xdfff).contains(&code) => {
+                    bytes.extend_from_slice(&[
+                        (0xe0 | (code >> 12)) as u8,
+                        (0x80 | ((code >> 6) & 0x3f)) as u8,
+                        (0x80 | (code & 0x3f)) as u8,
+                    ]);
+                }
+                _ => bail!("UnicodeEncodeError: '{encoding}' codec can't encode character"),
+            }
+        }
+    }
+    bytes.push(b'\n');
+    out.write_all(&bytes)?;
     Ok(())
 }
 
