@@ -1,7 +1,7 @@
 # 95 - The pieces left: what is ported, what is dropped, and where shared code lives
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-01, by the session, from a read-only plan of the ports that are left
 (`.scratch/hydra/research/95-the-plan-for-the-pieces-left.md`). `puppets` and `grader` are in
@@ -52,3 +52,36 @@ because the gate runs as a hook inside each provider. Map 90 called `src/` all R
 - E2. A map ticket of its own later.
 
 ## Answer
+
+Resolved 2026-10-01 by a panel of three under the human's delegation, codex, cursor-agent
+grok-4.7-high and agy gemini-3.1-pro-high, on four of the five questions. The first is left to
+the human. Answers in his decision log, `decisiones/2026-10-01/answer-95-*.md`. The plan is
+`.scratch/hydra/research/95-the-plan-for-the-pieces-left.md`.
+
+- **A, the mascot: not settled here.** Two seats chose to port the compact pet only and drop the
+  HD dragon (cursor 0.66, agy 0.90); codex chose to keep `hydrapet.py` as a frame generator
+  (0.66). Both cursor and codex name the same thing that reverses dropping it: the human using
+  the HD skin in the watch pane. It is that pane's default skin, so the condition very likely
+  holds, and what the mascot looks like is his to say. The mascot's tickets wait on him. The
+  option the seats pointed at without its being on the list: generate the HD frames once, commit
+  them as the eleven cockpit frames are, show those, and then delete the renderer and numpy.
+- **B, the shell: stays shell** (codex 0.83, cursor 0.61; agy chose to port it at 0.85).
+  `hy.zsh` and the two launchers keep their logic, and their three `python3` snippets become a
+  call to `hydra-herdr`. The live smoke test has to pass after.
+- **C, shared code: a shared crate first, and the loopback rule for every client** (unanimous:
+  0.89, 0.78, 0.95). The record reader, the redactor, the date parser and the HTTP client move
+  out of `crates/grader` in one ticket. The apprentice and `local-llm` refuse any host but this
+  machine's loopback, as the judge does, and say so: they send tasks, diffs and results from
+  the human's records. Reversed by one remote model he means to reach; the default is
+  `127.0.0.1`.
+- **D, not ported** (unanimous: 0.80, 0.84, 0.90): `bitnet_serve.py` is dropped, its binary
+  does not work; `frontier.py` becomes a subcommand; the one-off scripts under `docs/` that
+  nothing calls are deleted, by the human or with his word, since `docs/` is his; the fixture
+  server stays.
+- **E, the gate: out of scope** (unanimous: 0.94, 0.58, 0.75). `src/policy/gate.py` stays
+  Python: it runs as a hook inside each provider's process, and a Python hook is what all four
+  can run. `IMPLEMENTATION.md` and the README say so in one sentence, because map 90's brief
+  called `src/` all Rust. Reversed by all four providers taking a native binary as a hook.
+
+Carried by builds 224 to 239. The mascot's tickets are not written.
+
