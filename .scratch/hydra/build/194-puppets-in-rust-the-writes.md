@@ -1,7 +1,7 @@
 # 194 - puppets in Rust: the commands that write without launching
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 197, 199
 
 ## What
