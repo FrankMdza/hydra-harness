@@ -1,7 +1,7 @@
 # 202 - The cockpit counts a repair as the helper does
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 199
 
 ## What
