@@ -20,8 +20,12 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 
+use super::call_head::call_inputs;
 use super::goal::{self, Goal};
 use super::window;
+
+pub use super::call_head::REVEAL_SECONDS;
+pub use super::call_head::shell_head;
 use crate::approve::Pending;
 use crate::live::State;
 use crate::normalize::Counts;
@@ -221,8 +225,10 @@ struct PendingRead {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CallLine {
     pub name: String,
-    /// The one argument that says what the call touched, on one line.
+    /// The head of what the call touched, on one line.
     pub input: String,
+    /// The whole input from the record, for the reveal key.
+    pub full_input: String,
     /// What the call's result says of it: `allowed`, `refused <code>`,
     /// `error` or `unclassified`. `None` while it has no result.
     pub decision: Option<String>,
@@ -752,14 +758,18 @@ pub fn calls_of(text: &str) -> Vec<CallLine> {
                 if !call.call_id.is_empty() {
                     open.entry(call.call_id).or_default().push(calls.len());
                 }
-                let input = if flagged.contains(&call.seq) {
-                    "input hidden: secret_flag".to_string()
+                let (input, full_input) = if flagged.contains(&call.seq) {
+                    (
+                        "input hidden: secret_flag".to_string(),
+                        "input hidden: secret_flag".to_string(),
+                    )
                 } else {
-                    input_of(&call.arguments)
+                    call_inputs(&call.name, &call.arguments)
                 };
                 calls.push(CallLine {
                     name: call.name,
                     input,
+                    full_input,
                     decision: None,
                 });
             }
@@ -792,256 +802,6 @@ fn flagged_seqs(text: &str) -> HashSet<u64> {
         .filter(|envelope| !envelope["secret_flag"].is_null())
         .filter_map(|envelope| envelope["seq"].as_u64())
         .collect()
-}
-
-/// The argument keys that say what a call touched, first match wins. The
-/// four providers spell them differently, and a call with none of them shows
-/// its arguments whole.
-const INPUT_KEYS: &[&str] = &[
-    "command",
-    "cmd",
-    "file_path",
-    "path",
-    "notebook_path",
-    "pattern",
-    "query",
-    "searchTerm",
-    "url",
-    "description",
-    "prompt",
-];
-
-/// A call's arguments as one line: the first of [`INPUT_KEYS`] it carries,
-/// or the whole object. The pane cuts it to its width.
-fn input_of(arguments: &serde_json::Value) -> String {
-    let named = INPUT_KEYS.iter().find_map(|key| match &arguments[*key] {
-        serde_json::Value::String(text) => Some(text.clone()),
-        serde_json::Value::Array(parts) if !parts.is_empty() => Some(
-            parts
-                .iter()
-                .map(|part| {
-                    part.as_str()
-                        .map_or_else(|| part.to_string(), str::to_string)
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
-        ),
-        _ => None,
-    });
-    let text = named.unwrap_or_else(|| match arguments {
-        serde_json::Value::Null => String::new(),
-        other => other.to_string(),
-    });
-    masked(&text.split_whitespace().collect::<Vec<_>>().join(" "))
-}
-
-/// Parts of a name that make its value a secret, matched case-insensitively.
-/// `PASS` covers `PASSWORD`; the ticket names both.
-const SECRET_NAMES: &[&str] = &["TOKEN", "KEY", "SECRET", "PASSWORD", "PASS"];
-
-/// `text` with every secret it shows turned into `***`: a token starting with
-/// one of [`crate::record::secrets::prefixes`], and the value of a
-/// `NAME=value` or `"NAME": "value"` whose name holds one of
-/// [`SECRET_NAMES`]. A name like `MONKEY` is masked too; hiding too much is
-/// the cheap mistake here.
-fn masked(text: &str) -> String {
-    let chars: Vec<char> = text.chars().take(TAIL_LINE_CHARS).collect();
-    let mut out = String::with_capacity(chars.len());
-    let mut quote = None;
-    let mut escaped = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let from = i;
-        match secret_at(&chars, i, quote) {
-            Some((keep, end)) => {
-                out.extend(&chars[i..keep]);
-                out.push_str("***");
-                i = end;
-            }
-            None => {
-                out.push(chars[i]);
-                i += 1;
-            }
-        }
-        // Advance through kept and hidden characters alike, once.
-        for &c in &chars[from..i] {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if quote == Some(c) {
-                quote = None;
-            } else if quote.is_none() && matches!(c, '\'' | '"' | '`') {
-                quote = Some(c);
-            }
-        }
-    }
-    out.chars().take(TAIL_LINE_CHARS).collect()
-}
-
-/// A secret starting at `i`: the end of what is kept as is, then the end of
-/// the value that becomes `***`.
-fn secret_at(chars: &[char], i: usize, quote: Option<char>) -> Option<(usize, usize)> {
-    let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.';
-    let secret_name = |name: &[char]| {
-        let name: String = name.iter().collect::<String>().to_ascii_uppercase();
-        SECRET_NAMES.iter().any(|part| name.contains(part))
-    };
-    let starts_token = i == 0 || !chars[i - 1].is_alphanumeric();
-    if starts_token && chars[i].is_ascii_alphabetic() {
-        let scheme_end = (i..chars.len())
-            .find(|&j| !chars[j].is_ascii_alphanumeric() && !matches!(chars[j], '+' | '-' | '.'))
-            .unwrap_or(chars.len());
-        if chars.get(scheme_end..scheme_end + 3) == Some(&[':', '/', '/']) {
-            let start = scheme_end + 3;
-            let end = (start..chars.len())
-                .find(|&j| {
-                    chars[j].is_whitespace() || matches!(chars[j], '/' | '?' | '#' | '\'' | '"')
-                })
-                .unwrap_or(chars.len());
-            if let Some(at) = (start..end).rfind(|&j| chars[j] == '@')
-                && let Some(colon) = (start..at).find(|&j| chars[j] == ':')
-            {
-                return Some((colon + 1, at));
-            }
-        }
-    }
-
-    if chars[i] == '"' {
-        // `"NAME": "value"`, spaces around the colon optional.
-        let name_end = (i + 1..chars.len()).find(|&j| !is_name(chars[j]))?;
-        if name_end > i + 1 && chars[name_end] == '"' && secret_name(&chars[i + 1..name_end]) {
-            let mut j = name_end + 1;
-            while chars.get(j).is_some_and(|c| c.is_whitespace()) {
-                j += 1;
-            }
-            if chars.get(j) == Some(&':') {
-                j += 1;
-                while chars.get(j).is_some_and(|c| c.is_whitespace()) {
-                    j += 1;
-                }
-                if chars.get(j) == Some(&'"') {
-                    let open = j + 1;
-                    let mut close = open;
-                    while close < chars.len() && chars[close] != '"' {
-                        close += if chars[close] == '\\' { 2 } else { 1 };
-                    }
-                    return Some((open, close.min(chars.len())));
-                }
-            }
-        }
-        return None;
-    }
-    if is_name(chars[i]) && (i == 0 || !is_name(chars[i - 1])) {
-        // `NAME=value`, the value quoted or up to the next separator.
-        let name_end = (i..chars.len())
-            .find(|&j| !is_name(chars[j]))
-            .unwrap_or(chars.len());
-        let name: String = chars[i..name_end].iter().collect();
-        let authorization = name.eq_ignore_ascii_case("Authorization")
-            || name.eq_ignore_ascii_case("Proxy-Authorization");
-        if secret_name(&chars[i..name_end]) || authorization {
-            let separator = chars.get(name_end).copied();
-            let flag = chars[i] == '-';
-            if matches!(separator, Some('=' | ':'))
-                || (flag && separator.is_some_and(char::is_whitespace))
-            {
-                let mut start = name_end + usize::from(matches!(separator, Some('=' | ':')));
-                while chars.get(start).is_some_and(|c| c.is_whitespace()) {
-                    start += 1;
-                }
-                if separator.is_some_and(char::is_whitespace) && chars.get(start) == Some(&'-') {
-                    return None;
-                }
-                let end = if let Some(quote) = quote {
-                    quoted_end(chars, start, quote)
-                } else if authorization {
-                    (start..chars.len())
-                        .find(|&j| matches!(chars[j], '\r' | '\n' | '\'' | '"'))
-                        .unwrap_or(chars.len())
-                } else {
-                    secret_value_end(chars, start)
-                };
-                return Some((start, end));
-            }
-        }
-    }
-    if starts_token {
-        let rest: String = chars[i..].iter().take(16).collect();
-        if crate::record::secrets::prefixes().any(|prefix| rest.starts_with(prefix)) {
-            return Some((i, token_end(chars, i)));
-        }
-    }
-    None
-}
-
-/// Consume quoted words and command substitutions as one secret value.
-fn secret_value_end(chars: &[char], start: usize) -> usize {
-    match chars.get(start) {
-        Some(&quote @ ('"' | '\'' | '`')) => {
-            let mut close = start + 1;
-            while close < chars.len() && chars[close] != quote {
-                close += if chars[close] == '\\' { 2 } else { 1 };
-            }
-            (close + 1).min(chars.len())
-        }
-        Some('$') if chars.get(start + 1) == Some(&'(') => {
-            let mut depth = 1;
-            let mut j = start + 2;
-            while j < chars.len() {
-                match chars[j] {
-                    '(' => depth += 1,
-                    ')' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            return j + 1;
-                        }
-                    }
-                    '\\' => {
-                        j += 2;
-                        continue;
-                    }
-                    '"' | '\'' | '`' => {
-                        j = secret_value_end(chars, j);
-                        continue;
-                    }
-                    _ => {}
-                }
-                j += 1;
-            }
-            chars.len()
-        }
-        _ => token_end(chars, start),
-    }
-}
-
-/// Where a bare value that starts at `from` ends: at whitespace, a quote or
-/// the punctuation that closes a shell word or a JSON value.
-fn token_end(chars: &[char], from: usize) -> usize {
-    let mut j = from;
-    while j < chars.len() {
-        if chars[j] == '\\' {
-            j = (j + 2).min(chars.len());
-        } else if chars[j].is_whitespace()
-            || matches!(
-                chars[j],
-                '"' | '\'' | ',' | ';' | '&' | '|' | '}' | ']' | ')'
-            )
-        {
-            break;
-        } else {
-            j += 1;
-        }
-    }
-    j
-}
-
-fn quoted_end(chars: &[char], start: usize, quote: char) -> usize {
-    let mut j = start;
-    while j < chars.len() && chars[j] != quote {
-        j += if chars[j] == '\\' { 2 } else { 1 };
-    }
-    j.min(chars.len())
 }
 
 /// A record's first line, or `None` when there is none to read.
@@ -1114,15 +874,12 @@ pub fn tail(path: &Path, n: usize) -> Result<Vec<String>> {
     Ok(lines[from..]
         .iter()
         .map(|line| {
-            // The raw view hides what the tool calls hide (build 180 left it out):
-            // a line the write-path sweep flagged, and every masked value.
             if line.contains("\"secret_flag\":[") {
                 return "[line hidden: secret_flag]".to_string();
             }
             let truncated = line.chars().nth(TAIL_LINE_CHARS).is_some();
-            let line = masked(line);
             let mut cut: String = line.chars().take(TAIL_LINE_CHARS).collect();
-            if cut.len() < line.len() || truncated {
+            if truncated {
                 cut.push_str(" [cut]");
             }
             cut

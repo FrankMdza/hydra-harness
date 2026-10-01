@@ -3409,24 +3409,22 @@ shows no usage while live.
 **What build ticket 180 changed in it.** A result answers the latest earlier call of its id that
 has no result yet, walking events in file order, because `codex` reuses ids; a result with no
 such call is dropped, so a `claude` result ahead of a later call of its id no longer lands on it.
-The input is masked before it is shown, in the one-argument summary and the whole-arguments
-fallback alike: a token starting with one of `record::secrets::prefixes`, the sweep's own list,
-and the value of a `NAME=value` or `"NAME": "value"` whose name holds `TOKEN`, `KEY`, `SECRET`,
-`PASSWORD` or `PASS` in any case, become `***`. That masks `MONKEY=1` too, on purpose. A secret
-name with hyphens, such as `api-key` or `access-token`, is masked too. Quoted assignment
-values consume backslash escapes, so an escaped quote does not end the mask early. Dots
-in names are recognized too. Secret flag values separated by whitespace and header values
-after a colon are hidden, as are whole backtick and `$(...)` assignment values. One-dash secret
-flags take values too, and a following word starting with `-` is left alone.
-Bare values consume backslash escapes. A header inside a quoted word is hidden through its
-closing quote. URL userinfo passwords are hidden, while usernames and hosts remain visible.
-Authorization and Proxy-Authorization headers hide the whole value, including Bearer or Basic.
-The broad name rule also hides ordinary `--key-file`, `--keyboard` and `key: enabled` values.
-These corrections are covered by build tickets 200, 201 and 203. A call on a
-line whose envelope carries a `secret_flag` reads `input hidden: secret_flag`. The row is cut by
-display width through `unicode-width`, `~` inside it, never splitting a wide character. The raw
-view behind `r` hides lines carrying `secret_flag` and applies the same secret masking
-to the first 400 characters of each of the last twenty lines, with a cut marker for longer lines.
+Build ticket 206 replaced the pattern mask (builds 180, 200, 201 and 203) with a head and a
+reveal key. By default a shell row shows the program's base name, with `env ...` when leading
+assignments or `sudo`, `env` or `time` were skipped, and ` ...` when anything was left out,
+including the rest of a pipeline or `&&` list. A second word shows only where it cannot be an
+argument: a bare subcommand after one of a fixed list of programs (`git`, `cargo`, `docker`,
+`npm`, `kubectl`, `aws`, `gh`, `hydra` and the like, `SUBCOMMAND_PROGRAMS` in
+`src/cockpit/call_head.rs`), or `-c` and `-lc` after a shell. So `echo hunter2` is `echo ...`.
+A call that carries `command` or `cmd` is read as a shell call whatever its tool is named. Other
+tools show the tool name and a `file_path`, `path`, `notebook_path` or `pattern`; a URL, a query,
+a prompt or a description stays behind the key, and the row reads `<tool> ...`. `i` on the selected call or raw line shows the whole input
+unmasked and wrapped; the next key closes it, and it closes after ten seconds
+([`REVEAL_SECONDS`](src/cockpit/call_head.rs)). A new snapshot does not close or extend it. A call
+on a line whose envelope carries a `secret_flag` still reads `input hidden: secret_flag`, and `i`
+says so. The row is still cut by display width through `unicode-width`, `~` inside it, never
+splitting a wide character. The raw view behind `r` still hides `secret_flag` lines and shows each
+line's tool input as its head for the first 400 characters, with a cut marker for longer lines.
 
 **Done and the run's end, build ticket 166.** A row carries the `done` of its task event, and a
 later `task` event for the same id replaces it, `None` included, as `fold` does. The table's

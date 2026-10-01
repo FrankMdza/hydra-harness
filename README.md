@@ -145,7 +145,8 @@ class, dropped from the right as the pane narrows; once a task's run ends, statu
 run's outcome). The middle one sorts every run into `live`, `waiting approval`, `ended ok` and
 `ended not ok`, with the seat requests and Puppets steps that wait on a human in the second. The
 right one shows what you open: a run's outcome, tokens and final text, then its last fifteen tool
-calls, with a secret-flagged call's input hidden and secret-looking values masked as `***`. The
+calls, with a secret-flagged call's input hidden and other calls shown as a short head until `i`
+reveals the whole input. The
 header's dragon counts the live seats of the watched session (every live run without one), and
 lists each live provider's tokens per minute and share of its window. It rereads the disk every
 two seconds and launches no provider.

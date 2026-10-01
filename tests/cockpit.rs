@@ -2519,6 +2519,7 @@ fn call_line(name: &str, input: &str, decision: Option<&str>) -> CallLine {
     CallLine {
         name: name.to_string(),
         input: input.to_string(),
+        full_input: input.to_string(),
         decision: decision.map(str::to_string),
     }
 }
@@ -2550,20 +2551,25 @@ fn the_detail_reads_tool_calls_and_their_decisions_without_the_policies() {
     };
 
     assert_eq!(
-        calls_of(&mut reader, 2),
-        vec![
-            call_line(
-                "Bash",
-                "echo x >> /fixture/hydra/runs/r.jsonl",
-                Some("refused protected-path"),
+        calls_of(&mut reader, 2)
+            .into_iter()
+            .map(|c| (c.full_input, c.decision))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "echo x >> /fixture/hydra/runs/r.jsonl".to_string(),
+                Some("refused protected-path".to_string())
             ),
-            call_line("Bash", "echo ok > probe.txt", Some("allowed")),
+            (
+                "echo ok > probe.txt".to_string(),
+                Some("allowed".to_string())
+            ),
         ]
     );
     let codex = calls_of(&mut reader, 11);
     assert_eq!(
         codex.iter().map(|c| c.input.as_str()).collect::<Vec<_>>(),
-        ["ls", "head README"]
+        ["ls", "head ..."]
     );
     assert!(
         codex
@@ -2572,7 +2578,7 @@ fn the_detail_reads_tool_calls_and_their_decisions_without_the_policies() {
     );
     let cursor = calls_of(&mut reader, 12);
     assert_eq!(cursor.len(), 1, "{cursor:?}");
-    assert_eq!(cursor[0].input, "rust async runtime comparison");
+    assert_eq!(cursor[0].input, "WebSearch ...");
     assert_eq!(cursor[0].decision.as_deref(), Some("allowed"));
 }
 
@@ -2599,10 +2605,12 @@ fn the_detail_keeps_the_last_fifteen_calls_newest_last() {
     let (_, calls) = snapshot.calls.expect("the open run's calls");
     assert_eq!(calls.len(), DETAIL_CALLS);
     assert_eq!(DETAIL_CALLS, 15);
-    assert_eq!(calls[0].input, "echo 6");
-    assert_eq!(calls[13].input, "echo 19");
+    assert_eq!(calls[0].full_input, "echo 6");
+    assert_eq!(calls[13].full_input, "echo 19");
     assert_eq!(calls[13].decision.as_deref(), Some("allowed"));
-    assert_eq!(calls[14], call_line("Bash", "echo 20", None));
+    assert_eq!(calls[14].full_input, "echo 20");
+    assert_eq!(calls[14].input, "echo ...");
+    assert_eq!(calls[14].decision, None);
 }
 
 #[test]
@@ -2625,7 +2633,7 @@ fn a_live_runs_calls_are_read_again_only_when_it_grew() {
     );
     let inputs = |reader: &mut Reader| {
         let (_, calls) = reader.read(Some(run)).calls.expect("calls");
-        calls.into_iter().map(|c| c.input).collect::<Vec<_>>()
+        calls.into_iter().map(|c| c.full_input).collect::<Vec<_>>()
     };
     assert_eq!(inputs(&mut reader), ["echo aa"]);
 
@@ -2731,7 +2739,7 @@ fn calls_in(layout: &Layout, run: &str) -> Vec<CallLine> {
 }
 
 #[test]
-fn the_detail_masks_secrets_in_a_calls_input() {
+fn the_detail_shows_call_heads_and_hides_secret_flagged_input() {
     let layout = scratch("calls-secrets");
     let run = "01a0f180-0000-7000-8000-000000000180";
     write_live_frames(
@@ -2754,8 +2762,6 @@ fn the_detail_masks_secrets_in_a_calls_input() {
             ),
         ],
     );
-    // A prefix class the sweep would flag, on a line the writer did not flag,
-    // so only the prefix mask stands between it and the screen.
     append_frames(
         &layout,
         run,
@@ -2766,7 +2772,6 @@ fn the_detail_masks_secrets_in_a_calls_input() {
             "echo ghp_FAKEPAT0000 x=sk-ant-FAKE",
         )],
     );
-    // A line the sweep flagged shows no input at all.
     {
         use std::io::Write;
         let line = json!({
@@ -2792,14 +2797,19 @@ fn the_detail_masks_secrets_in_a_calls_input() {
     assert_eq!(
         inputs,
         [
-            "API_TOKEN=*** curl example.test",
-            "db_password=*** psql -c select",
-            r#"curl -d '{"api_key": "***"}' example.test"#,
-            r#"{"env":{"DB_PASSWORD":"***","HOME":"/tmp"},"n":1}"#,
-            "echo *** x=***",
+            "env ... curl ...",
+            "env ... psql ...",
+            "curl ...",
+            "Probe ...",
+            "echo ...",
             "input hidden: secret_flag",
         ]
     );
+    for input in &inputs[..5] {
+        assert!(!input.contains("FAKE"), "{input}");
+        assert!(!input.contains("s3cret"), "{input}");
+        assert!(!input.contains("ghp_"), "{input}");
+    }
 }
 
 #[test]
@@ -2829,7 +2839,7 @@ fn a_result_answers_the_latest_open_call_of_its_id_before_it() {
     );
     let decisions: Vec<(String, Option<String>)> = calls_in(&layout, run)
         .into_iter()
-        .map(|c| (c.input, c.decision))
+        .map(|c| (c.full_input, c.decision))
         .collect();
     let want =
         |input: &str, decision: Option<&str>| (input.to_string(), decision.map(str::to_string));
@@ -2872,23 +2882,20 @@ fn a_wide_input_is_cut_to_the_panes_columns() {
 }
 
 #[test]
-fn the_raw_tail_masks_secrets_and_hides_a_flagged_line() {
-    // Build 180's report: the raw view behind `r` showed secrets the tool calls hid.
-    let dir = std::env::temp_dir().join(format!("cockpit-tail-mask-{}", std::process::id()));
+fn the_raw_tail_shows_call_heads_and_hides_a_flagged_line() {
+    let dir = std::env::temp_dir().join(format!("cockpit-tail-head-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("r.jsonl");
-    std::fs::write(
-        &path,
-        concat!(
-            "{\"secret_flag\":null,\"raw\":{\"command\":\"API_TOKEN=FAKE_SECRET curl x\"}}\n",
-            "{\"secret_flag\":[\"github_pat\"],\"raw\":{\"text\":\"ghp_abcdef\"}}\n",
-        ),
-    )
-    .unwrap();
+    let secret_line = concat!(
+        "{\"secret_flag\":null,\"raw\":{\"command\":\"API_TOKEN=FAKE_SECRET curl x\"}}\n",
+        "{\"secret_flag\":[\"github_pat\"],\"raw\":{\"text\":\"ghp_abcdef\"}}\n",
+    );
+    std::fs::write(&path, secret_line).unwrap();
     let lines = hydra::cockpit::snapshot::tail(&path, 20).unwrap();
+    let shown = hydra::cockpit::call_head::tail_line_shown(&lines[0], lines[0].len());
     std::fs::remove_dir_all(&dir).ok();
-    assert!(!lines[0].contains("FAKE_SECRET"), "{lines:?}");
-    assert!(lines[0].contains("***"), "{lines:?}");
+    assert!(!shown.contains("FAKE_SECRET"), "{shown}");
+    assert!(shown.contains("curl"), "{shown}");
     assert_eq!(lines[1], "[line hidden: secret_flag]");
 }
 
@@ -3876,45 +3883,6 @@ fn the_same_card_opens_stops_and_answers_from_the_agent_lanes() {
 
 // Build ticket 200 regressions.
 #[test]
-fn ticket200_hyphenated_json_names_are_masked() {
-    let layout = scratch("hyphen-secrets");
-    let run = "01a0f200-0000-7000-8000-000000000200";
-    write_live_frames(
-        &layout,
-        run,
-        "claude",
-        Some("opus"),
-        noon(),
-        &[claude_bash(
-            "toolu_01",
-            r#"{"api-key": "s3cret-value", "access-token": "s3cret-value", "x-api-key": "s3cret-value"}"#,
-        )],
-    );
-    let calls = calls_in(&layout, run);
-    assert!(
-        !calls[0].input.contains("s3cret-value"),
-        "{}",
-        calls[0].input
-    );
-    assert_eq!(calls[0].input.matches("***").count(), 3);
-}
-
-#[test]
-fn ticket200_escaped_assignment_quotes_are_masked() {
-    let layout = scratch("escaped-secrets");
-    let run = "01a0f200-0000-7000-8000-000000000201";
-    write_live_frames(
-        &layout,
-        run,
-        "claude",
-        Some("opus"),
-        noon(),
-        &[claude_bash("toolu_01", r#"API_TOKEN="two \"words\" here""#)],
-    );
-    assert_eq!(calls_in(&layout, run)[0].input, "API_TOKEN=***");
-}
-
-#[test]
 fn ticket200_policy_pages_with_the_dragon() {
     for (width, height) in [(80, 30), (100, 30), (80, 24), (80, 33)] {
         let layout = scratch("dragon-policy");
@@ -4021,34 +3989,6 @@ fn ticket201_damage_after_review_opens_blocks_y() {
 }
 
 #[test]
-fn ticket201_spaced_and_substitution_secrets() {
-    let layout = scratch("spaced-secrets");
-    for (i, command) in [
-        "curl --api-key s3cret",
-        "curl -H 'x-api-key: s3cret'",
-        "curl -H x-api-key: s3cret",
-        r#"{"api.key":"s3cret"}"#,
-        "TOKEN=`printf s3cret`",
-        "TOKEN=$(printf s3cret)",
-    ]
-    .iter()
-    .enumerate()
-    {
-        let run = format!("01a0f201-0000-7000-8000-{i:012}");
-        write_live_frames(
-            &layout,
-            &run,
-            "claude",
-            Some("opus"),
-            noon(),
-            &[claude_bash("toolu_01", command)],
-        );
-        let input = &calls_in(&layout, &run)[0].input;
-        assert!(!input.contains("s3cret"), "{command}: {input}");
-    }
-}
-
-#[test]
 fn ticket201_nonfinite_json_is_not_damage() {
     for value in ["NaN", "Infinity", "-Infinity"] {
         let log = format!(
@@ -4101,87 +4041,6 @@ fn ticket201_nonfinite_does_not_hide_malformed_json() {
     assert_eq!(folded.skipped, 0);
 }
 
-fn ticket203_input(name: &str, command: &str) -> String {
-    let layout = scratch(name);
-    let run = "01a0f203-0000-7000-8000-000000000203";
-    write_live_frames(
-        &layout,
-        run,
-        "claude",
-        Some("opus"),
-        noon(),
-        &[claude_bash("toolu_01", command)],
-    );
-    calls_in(&layout, run)[0].input.clone()
-}
-
-#[test]
-fn ticket203_url_password() {
-    assert_eq!(
-        ticket203_input("url-password", "https://user:s3cret@host"),
-        "https://user:***@host"
-    );
-}
-
-#[test]
-fn ticket203_authorization_headers() {
-    for header in [
-        "Authorization: Bearer abc",
-        "Authorization: Basic dXNlcjpwYXNz",
-        "Proxy-Authorization: abc",
-    ] {
-        assert_eq!(
-            ticket203_input("authorization", &format!("curl --header \"{header}\"")),
-            format!(
-                "curl --header \"{}: ***\"",
-                header.split(':').next().unwrap()
-            )
-        );
-    }
-}
-
-#[test]
-fn ticket203_one_dash_secret_flags() {
-    for flag in ["-api-key", "-password", "-key"] {
-        assert_eq!(
-            ticket203_input("one-dash", &format!("{flag} s3cret")),
-            format!("{flag} ***")
-        );
-    }
-    assert_eq!(ticket203_input("short-flag", "-k s3cret"), "-k s3cret");
-}
-
-#[test]
-fn ticket203_bare_backslash() {
-    assert_eq!(
-        ticket203_input("bare-backslash", r"TOKEN=\s3cret"),
-        "TOKEN=***"
-    );
-    assert_eq!(
-        ticket203_input("escaped-space", r"TOKEN=s3cret\ more"),
-        "TOKEN=***"
-    );
-}
-
-#[test]
-fn ticket203_quoted_header_space() {
-    assert_eq!(
-        ticket203_input("header-space", "curl -H 'x-api-key: s3cret more'"),
-        "curl -H 'x-api-key: ***'"
-    );
-}
-
-#[test]
-fn ticket203_flag_is_not_a_value() {
-    assert_eq!(
-        ticket203_input("flag-value", "log --pass-through --oneline"),
-        "log --pass-through --oneline"
-    );
-    for command in ["--key-file path", "--keyboard us", "key: enabled"] {
-        assert!(ticket203_input("broad-mask", command).ends_with("***"));
-    }
-}
-
 #[test]
 fn ticket203_host_small_draw_with_session() {
     let layout = scratch("host-small");
@@ -4224,31 +4083,6 @@ fn ticket203_goal_switch_cancels_review() {
 }
 
 #[test]
-fn ticket205_megabyte_mask_has_a_two_second_budget() {
-    let command = "KEY=x ".repeat(174_763);
-    let start = std::time::Instant::now();
-    let input = ticket203_input("megabyte-mask", &command);
-    assert!(
-        start.elapsed() < Duration::from_secs(2),
-        "1 MB masking exceeded two seconds: {:?}",
-        start.elapsed()
-    );
-    assert!(
-        input.len() <= 410,
-        "screen input was not bounded: {}",
-        input.len()
-    );
-    let layout = scratch("megabyte-whole-mask");
-    let run = "01a0f205-0000-7000-8000-000000000205";
-    let frame = claude_call("toolu_01", "Other", serde_json::json!({"data": command}));
-    let start = std::time::Instant::now();
-    write_live_frames(&layout, run, "claude", Some("opus"), noon(), &[frame]);
-    let input = calls_in(&layout, run)[0].input.clone();
-    assert!(start.elapsed() < Duration::from_secs(2));
-    assert!(input.len() <= 410);
-}
-
-#[test]
 fn ticket205_review_refuses_a_reassigned_run() {
     let (layout, log, mut app) = review_app("review-reassigned", "#!/bin/sh\nexit 0\n");
     app.focus = Focus::Table;
@@ -4271,4 +4105,185 @@ fn ticket205_review_refuses_a_reassigned_run() {
     app.handle(&key(KeyCode::Char('y')));
     assert!(app.message.as_deref().unwrap().contains("run changed"));
     assert!(!layout.root().join("cockpit/review-a.log").exists());
+}
+
+// --- build ticket 206: call heads and reveal --------------------------------
+
+use hydra::cockpit::call_head::shell_head;
+use hydra::cockpit::snapshot::REVEAL_SECONDS;
+
+#[test]
+fn shell_heads_match_the_ticket_examples() {
+    let cases = [
+        ("curl", "curl"),
+        ("git push origin main", "git push ..."),
+        ("cargo test --lib", "cargo test ..."),
+        ("bash", "bash"),
+        ("python3 -m pip install x", "python3 ..."),
+        ("aws configure set x y", "aws configure ..."),
+        ("docker run -it ubuntu", "docker run ..."),
+        ("sudo env time curl -s https://x", "env ... curl ..."),
+        ("git push && git pull", "git push ..."),
+        ("echo a | grep b", "echo ..."),
+        ("echo hunter2", "echo ..."),
+        ("login s3cret", "login ..."),
+        ("psql -c select", "psql ..."),
+        ("bash -c \"TOKEN=abc ./deploy --prod\"", "bash -c ..."),
+    ];
+    for (command, want) in cases {
+        assert_eq!(shell_head(command), want, "command: {command}");
+    }
+}
+
+#[test]
+fn release_review_commands_show_heads_without_secrets() {
+    let forbidden = [
+        "s3cret",
+        "Bearer s3cret",
+        "user:s3cret",
+        "sid=s3cret",
+        "aws_secret_access_key s3cret",
+        "password s3cret",
+    ];
+    let commands = [
+        "curl -u user:s3cret",
+        "mysql -ps3cret",
+        "sshpass -p x",
+        "curl -H 'Cookie: sid=s3cret'",
+        r#"curl -H Authorization:"Bearer s3cret""#,
+        r#"curl -d '{"Authorization":"Bearer s3cret"}'"#,
+        "aws configure set aws_secret_access_key s3cret",
+        "curl -k s3cret",
+        "https://user:s3cret@host",
+        "TOKEN=abc ./deploy --prod",
+        r#"bash -c "TOKEN=abc ./deploy --prod""#,
+        "machine host login user password s3cret",
+        "--key-file /path/to/key",
+        "key: enabled",
+    ];
+    for command in commands {
+        let head = shell_head(command);
+        for secret in forbidden {
+            assert!(
+                !head.contains(secret),
+                "command `{command}` head `{head}` still shows `{secret}`"
+            );
+        }
+        assert!(
+            !head.is_empty() && head != "...",
+            "command `{command}` head `{head}` does not name the program"
+        );
+    }
+}
+
+#[test]
+fn non_shell_tools_show_name_and_path_or_pattern() {
+    let layout = scratch("tool-heads");
+    let run = "01a0f206-0000-7000-8000-000000000206";
+    write_live_frames(
+        &layout,
+        run,
+        "claude",
+        Some("opus"),
+        noon(),
+        &[
+            claude_call("toolu_01", "Read", json!({"file_path": "src/x.rs"})),
+            claude_call("toolu_02", "Grep", json!({"pattern": "foo"})),
+            claude_call("toolu_03", "mcp_unknown", json!({"weird": "payload"})),
+        ],
+    );
+    let inputs = calls_in(&layout, run)
+        .into_iter()
+        .map(|c| c.input)
+        .collect::<Vec<_>>();
+    assert_eq!(inputs, ["Read src/x.rs", "Grep foo", "mcp_unknown ..."]);
+}
+
+#[test]
+fn i_reveals_the_selected_call_and_any_key_closes_it() {
+    let run = "01a0e002-0000-7000-8000-000000000002";
+    let secret = "curl -u user:s3cret@host";
+    let mut snapshot = fixed_snapshot();
+    snapshot.calls = Some((
+        run.to_string(),
+        vec![call_line("Bash", "curl ...", Some("allowed"))],
+    ));
+    snapshot.calls.as_mut().unwrap().1[0].full_input = secret.to_string();
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    app.opened = Some(Opened::Run(run.to_string()));
+    app.focus = Focus::Detail;
+    let draw = |app: &mut App| {
+        let mut buf = Buffer::empty(AREA);
+        app.draw(AREA, &mut buf);
+        buf
+    };
+    let buf = draw(&mut app);
+    assert!(line_with(&buf, "curl ...").contains("curl"), "head shown");
+    assert!(
+        !screen_text(&buf).contains("s3cret"),
+        "secret hidden by default"
+    );
+
+    app.handle(&key(KeyCode::Char('i')));
+    let text = screen_text(&draw(&mut app));
+    assert!(text.contains("s3cret"), "reveal shows secret: {text}");
+
+    app.handle(&key(KeyCode::Char('j')));
+    let text = screen_text(&draw(&mut app));
+    assert!(!text.contains("s3cret"), "next key closed reveal: {text}");
+}
+
+#[test]
+fn i_on_secret_flag_says_so_and_does_not_reveal() {
+    let run = "01a0f206-0000-7000-8000-000000000207";
+    let mut snapshot = fixed_snapshot();
+    snapshot.calls = Some((
+        run.to_string(),
+        vec![CallLine {
+            name: "Bash".into(),
+            input: "input hidden: secret_flag".into(),
+            full_input: "input hidden: secret_flag".into(),
+            decision: Some("allowed".into()),
+        }],
+    ));
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    app.opened = Some(Opened::Run(run.to_string()));
+    app.focus = Focus::Detail;
+    app.handle(&key(KeyCode::Char('i')));
+    assert_eq!(app.message.as_deref(), Some("input hidden: secret_flag"));
+}
+
+#[test]
+fn reveal_closes_after_reveal_seconds() {
+    assert_eq!(REVEAL_SECONDS, 10);
+    let run = "01a0e002-0000-7000-8000-000000000002";
+    let mut snapshot = fixed_snapshot();
+    snapshot.calls = Some((
+        run.to_string(),
+        vec![call_line("Bash", "curl ...", Some("allowed"))],
+    ));
+    snapshot.calls.as_mut().unwrap().1[0].full_input = "curl -u s3cret".into();
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    app.opened = Some(Opened::Run(run.to_string()));
+    app.focus = Focus::Detail;
+    app.handle(&key(KeyCode::Char('i')));
+    app.expire_reveal();
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    assert!(!screen_text(&buf).contains("s3cret"));
 }

@@ -10,7 +10,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 
@@ -22,9 +22,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use super::call_head;
 use super::goal::{Goal, TaskRow};
 use super::mascot::Mascot;
-use super::snapshot::{CallLine, Card, Lane, Snapshot, Step, spend_text};
+use super::snapshot::{CallLine, Card, Lane, REVEAL_SECONDS, Snapshot, Step, spend_text};
 use crate::approve::Pending;
 use crate::live::State;
 use crate::paths::Layout;
@@ -148,6 +149,10 @@ pub struct App {
     agent_selected: HashMap<String, usize>,
     agent_offset: HashMap<String, usize>,
     detail_scroll: u16,
+    /// Which tool call or raw tail line the detail has selected, build 206.
+    detail_call: usize,
+    /// While set, the selected call or line shows its whole input, build 206.
+    reveal_until: Option<Instant>,
     /// Whether the detail shows the raw record lines rather than the tool
     /// calls. `r` flips it, build ticket 178.
     raw_tail: bool,
@@ -225,6 +230,8 @@ impl App {
             agent_selected: HashMap::new(),
             agent_offset: HashMap::new(),
             detail_scroll: 0,
+            detail_call: 0,
+            reveal_until: None,
             raw_tail: false,
             opened: None,
             confirming: None,
@@ -320,6 +327,11 @@ impl App {
     /// Takes a fresh read and keeps every selection inside it. With the
     /// policy pane up it reloads the set too, so a file changed outside the
     /// cockpit shows at the next refresh rather than at the next `e`.
+    /// Lets the suite expire an open reveal without waiting, build ticket 206.
+    pub fn expire_reveal(&mut self) {
+        self.reveal_until = Some(Instant::now() - Duration::from_secs(1));
+    }
+
     pub fn set_snapshot(&mut self, snapshot: Snapshot) {
         if self.snapshot.goal.as_ref().map(|goal| &goal.id)
             != snapshot.goal.as_ref().map(|goal| &goal.id)
@@ -362,6 +374,12 @@ impl App {
             .collect();
         self.stop_outcomes = kept;
         self.hide_approved_steps();
+        let call_len = self.detail_call_len();
+        if call_len > 0 {
+            self.detail_call = self.detail_call.min(call_len - 1);
+        } else {
+            self.detail_call = 0;
+        }
         self.table_selected = self.table_selected.min(self.table_len().saturating_sub(1));
         for lane in Lane::ALL {
             let i = lane.index();
@@ -658,6 +676,10 @@ impl App {
     }
 
     fn key(&mut self, key: &KeyEvent) -> Effect {
+        if self.reveal_until.is_some() {
+            self.reveal_until = None;
+            return Effect::None;
+        }
         if self.confirming_step.is_some() {
             return match key.code {
                 KeyCode::Char('y') => self.approve_step(),
@@ -739,10 +761,79 @@ impl App {
             KeyCode::Char('k') => self.toggle_lanes(),
             KeyCode::Char('r') => {
                 self.raw_tail = !self.raw_tail;
+                self.detail_call = 0;
                 Effect::None
             }
+            KeyCode::Char('i') => self.toggle_reveal(),
             _ => Effect::None,
         }
+    }
+
+    fn toggle_reveal(&mut self) -> Effect {
+        if self.focus != Focus::Detail || !matches!(&self.opened, Some(Opened::Run(_))) {
+            return Effect::None;
+        }
+        if self.call_or_tail_hidden() {
+            self.message = Some("input hidden: secret_flag".to_string());
+            return Effect::None;
+        }
+        self.reveal_until = Some(Instant::now() + Duration::from_secs(REVEAL_SECONDS));
+        Effect::None
+    }
+
+    fn call_or_tail_hidden(&self) -> bool {
+        let id = match &self.opened {
+            Some(Opened::Run(id)) => id,
+            _ => return false,
+        };
+        if self.raw_tail {
+            return self.snapshot.tail.as_ref().is_some_and(|(tail_id, lines)| {
+                tail_id == id
+                    && lines
+                        .get(self.detail_call)
+                        .is_some_and(|line| line.starts_with("[line hidden:"))
+            });
+        }
+        self.snapshot
+            .calls
+            .as_ref()
+            .is_some_and(|(calls_id, calls)| {
+                calls_id == id
+                    && calls
+                        .get(self.detail_call)
+                        .is_some_and(|call| call.input.starts_with("input hidden:"))
+            })
+    }
+
+    fn poll_reveal(&mut self) {
+        if self
+            .reveal_until
+            .is_some_and(|until| Instant::now() >= until)
+        {
+            self.reveal_until = None;
+        }
+    }
+
+    fn detail_call_len(&self) -> usize {
+        let id = match &self.opened {
+            Some(Opened::Run(id)) => id,
+            _ => return 0,
+        };
+        if self.raw_tail {
+            return self
+                .snapshot
+                .tail
+                .as_ref()
+                .filter(|(tail_id, _)| tail_id == id)
+                .map(|(_, lines)| lines.len())
+                .unwrap_or(0);
+        }
+        self.snapshot
+            .calls
+            .as_ref()
+            .filter(|(calls_id, _)| calls_id == id)
+            .map(|(_, calls)| calls.len())
+            .unwrap_or(0)
     }
 
     /// Keys while the policy pane is up. It reads; `e` is the one key that
@@ -820,11 +911,16 @@ impl App {
                 self.set_offset(focus, offset);
             }
             Focus::Detail => {
-                self.detail_scroll = if down {
-                    self.detail_scroll.saturating_add(1)
+                let len = self.detail_call_len();
+                if len > 0 {
+                    self.detail_call = step(self.detail_call, len);
                 } else {
-                    self.detail_scroll.saturating_sub(1)
-                };
+                    self.detail_scroll = if down {
+                        self.detail_scroll.saturating_add(1)
+                    } else {
+                        self.detail_scroll.saturating_sub(1)
+                    };
+                }
             }
         }
         Effect::None
@@ -854,6 +950,8 @@ impl App {
     fn open(&mut self, opened: Opened) -> Effect {
         self.opened = Some(opened);
         self.detail_scroll = 0;
+        self.detail_call = 0;
+        self.reveal_until = None;
         Effect::Refresh
     }
 
@@ -1504,6 +1602,7 @@ impl App {
     pub fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         self.poll_reviews();
         self.poll_stops();
+        self.poll_reveal();
         self.hits = Hits::default();
         let area = self.draw_header(area, buf);
         let [main, status] =
@@ -2116,19 +2215,29 @@ impl App {
                 lines.push(Line::raw(""));
                 if self.raw_tail {
                     lines.push(Line::styled(
-                        "last record lines (r shows tool calls)",
+                        "last record lines (r shows tool calls, i reveals)",
                         Style::default().add_modifier(Modifier::BOLD),
                     ));
                     match &self.snapshot.tail {
                         Some((tail_id, tail)) if tail_id == id => {
-                            lines.extend(tail.iter().map(|l| Line::raw(l.clone())));
+                            for (index, line) in tail.iter().enumerate() {
+                                let reveal =
+                                    self.reveal_until.is_some() && index == self.detail_call;
+                                let text = if reveal {
+                                    line.clone()
+                                } else {
+                                    call_head::tail_line_shown(line, 400)
+                                };
+                                let style = self.detail_call_style(index);
+                                lines.push(Line::styled(text, style));
+                            }
                         }
                         _ => lines.push(Line::raw("reading")),
                     }
                     return lines;
                 }
                 lines.push(Line::styled(
-                    "tool calls (r shows the raw record lines)",
+                    "tool calls (r shows the raw record lines, i reveals)",
                     Style::default().add_modifier(Modifier::BOLD),
                 ));
                 match &self.snapshot.calls {
@@ -2136,13 +2245,42 @@ impl App {
                         if calls.is_empty() {
                             lines.push(Line::raw("none yet"));
                         }
-                        lines.extend(calls.iter().map(|call| call_line(call, width)));
+                        for (index, call) in calls.iter().enumerate() {
+                            let reveal = self.reveal_until.is_some() && index == self.detail_call;
+                            lines.extend(self.call_rows(call, width, reveal, index));
+                        }
                     }
                     _ => lines.push(Line::raw("reading")),
                 }
                 lines
             }
         }
+    }
+
+    fn detail_call_style(&self, index: usize) -> Style {
+        if self.focus == Focus::Detail && index == self.detail_call {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        }
+    }
+
+    fn call_rows(
+        &self,
+        call: &CallLine,
+        width: usize,
+        reveal: bool,
+        index: usize,
+    ) -> Vec<Line<'static>> {
+        if reveal {
+            return wrap_call_reveal(call, width);
+        }
+        vec![call_line(
+            call,
+            &call.input,
+            width,
+            self.detail_call_style(index),
+        )]
     }
 
     fn draw_status(&self, area: Rect, buf: &mut Buffer) {
@@ -2165,8 +2303,8 @@ impl App {
             "k lanes by agent"
         };
         let keys = format!(
-            "arrows/Tab move, Enter opens, {lanes}, Esc closes, r raw lines, a approves, \
-             d denies, v reviews a task, m stops a seat, p policies, q quits"
+            "arrows/Tab move, Enter opens, {lanes}, Esc closes, r raw lines, i reveals input, \
+             a approves, d denies, v reviews a task, m stops a seat, p policies, q quits"
         );
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",
@@ -2198,21 +2336,102 @@ fn draw_mode(by_agent: bool, area: Rect, buf: &mut Buffer) {
 
 /// One tool call on one row: name, what the result said, then the input, which
 /// is what gets cut when the row is wider than the pane.
-fn call_line(call: &CallLine, width: usize) -> Line<'static> {
+fn call_line(call: &CallLine, input: &str, width: usize, row_style: Style) -> Line<'static> {
     let decision = call.decision.as_deref().unwrap_or("-");
-    let style = if decision.starts_with("refused") {
+    let decision_style = if decision.starts_with("refused") {
         Style::default().fg(Color::Red)
     } else {
         Style::default().add_modifier(Modifier::DIM)
     };
     let head = format!("{} {decision} ", call.name);
     let room = width.saturating_sub(head.width());
-    let input = cut_to_columns(&call.input, room);
+    let shown = cut_to_columns(input, room);
     Line::from(vec![
-        Span::raw(format!("{} ", call.name)),
-        Span::styled(format!("{decision} "), style),
-        Span::raw(input),
+        Span::styled(format!("{} ", call.name), row_style),
+        Span::styled(format!("{decision} "), decision_style),
+        Span::styled(shown, row_style),
     ])
+}
+
+fn wrap_call_reveal(call: &CallLine, width: usize) -> Vec<Line<'static>> {
+    let decision = call.decision.as_deref().unwrap_or("-");
+    let decision_style = if decision.starts_with("refused") {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default().add_modifier(Modifier::DIM)
+    };
+    let prefix = format!("{} {decision} ", call.name);
+    let room = width.saturating_sub(prefix.width()).max(1);
+    let mut lines = Vec::new();
+    let wrapped = wrap_plain(&call.full_input, room);
+    for (i, chunk) in wrapped.into_iter().enumerate() {
+        if i == 0 {
+            lines.push(Line::from(vec![
+                Span::raw(format!("{} ", call.name)),
+                Span::styled(format!("{decision} "), decision_style),
+                Span::raw(chunk),
+            ]));
+        } else {
+            lines.push(Line::raw(chunk));
+        }
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(vec![
+            Span::raw(format!("{} ", call.name)),
+            Span::styled(format!("{decision} "), decision_style),
+        ]));
+    }
+    lines
+}
+
+fn wrap_plain(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut used = 0usize;
+    for word in text.split_whitespace() {
+        let w = word.width();
+        let gap = usize::from(!current.is_empty());
+        if used + gap + w <= width {
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            current.push_str(word);
+            used += gap + w;
+        } else if w <= width {
+            if !current.is_empty() {
+                lines.push(current.clone());
+            }
+            current = word.to_string();
+            used = w;
+        } else {
+            if !current.is_empty() {
+                lines.push(current.clone());
+                current.clear();
+                used = 0;
+            }
+            let mut chunk = String::new();
+            let mut chunk_used = 0;
+            for c in word.chars() {
+                let cw = c.width().unwrap_or(0);
+                if chunk_used + cw > width && !chunk.is_empty() {
+                    lines.push(chunk.clone());
+                    chunk.clear();
+                    chunk_used = 0;
+                }
+                chunk.push(c);
+                chunk_used += cw;
+            }
+            if !chunk.is_empty() {
+                current = chunk;
+                used = chunk_used;
+            }
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
 }
 
 /// `text` in at most `room` terminal columns. Text that does not fit ends in

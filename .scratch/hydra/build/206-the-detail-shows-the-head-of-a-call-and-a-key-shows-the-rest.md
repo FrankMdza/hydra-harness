@@ -1,7 +1,7 @@
 # 206 - The detail shows the head of a call, and a key shows the rest
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 205
 
 ## What
@@ -50,3 +50,34 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
 - Each test failed before the change; fmt, clippy over the workspace, `cargo test --lib` and
   `cargo test --test cockpit` pass. The report lists, for twenty real commands of your choosing,
   the head the row shows.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f636` (cursor-agent composer-2.5, `standard`, 4.6M tokens), diff
+read by the session, applied to master and tightened there.
+
+Built: `src/cockpit/call_head.rs` with `shell_head`, `call_inputs` and `tail_line_shown`; the
+pattern mask and its helpers deleted from `snapshot.rs`; `i` on the selected call or raw line
+shows the whole input, the next key closes it, and it closes after `REVEAL_SECONDS` (10); a
+`secret_flag` line stays hidden and `i` says so; the raw view shows each line's tool input as its
+head.
+
+Three corrections by the session, each a leak the panel's conditions rule out:
+
+- A second word showed after any program, so `echo hunter2` and `login s3cret` showed it. A
+  subcommand now shows only after a fixed list of programs (`SUBCOMMAND_PROGRAMS`).
+- A tool not named `Bash` or `Shell` whose input carries `command` or `cmd` showed the whole
+  command. Any call with those keys now goes through `shell_head`.
+- `url`, `query`, `searchTerm`, `prompt` and `description` showed whole (`WebFetch
+  https://user:pass@host`). Only a path or a pattern shows; the rest reads `<tool> ...`.
+- `-c` showed after any program (`psql -c`); now only after a shell.
+
+Measured on master: fmt and clippy clean over the workspace, `cargo test --test cockpit` 101
+passed, `cargo test --lib` 224 passed. Seven older tests that told calls apart by their row
+(`echo 1`, `echo 2`) now compare the full input.
+
+Left open: the raw view behind `r` shortens a tool's input and shows a tool's result as it is, up
+to 400 characters, so the output of `cat .env` is on screen there. The pattern mask used to
+cover results in part. The run did not see its tests fail before the change. `shell_segments`
+walks bytes as characters, so a program name with non-ASCII letters is garbled, never unsafe.
+
