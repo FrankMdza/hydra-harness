@@ -1,7 +1,7 @@
 # 198 - The cockpit shows a damaged goal
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 197
 
 ## What
