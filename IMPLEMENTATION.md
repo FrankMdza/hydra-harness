@@ -3700,6 +3700,49 @@ the join without looking for its file, where the Python asks the file system for
 encodes with `surrogateescape`. No case reaches it. Nothing ran on the real `~/hydra/runs` or
 the real monitor models.
 
+#### Triage, since build ticket 216
+
+`triage.rs` and `triage_cli.rs` port `triage.py` as `hydra-grader triage run`,
+`hydra-grader triage table` and `hydra-grader triage sample [--n N] [--seed SEED]`.
+The Python stays as the reference. The first matching rule wins: collision, quota, gate,
+never_started, provider_crash, stall, then unknown. Completed and live dataset rows are
+left out. Triage uses the prefix walker in `monitor.rs`, exposed within the crate with
+the three counts it needs, rather than implementing refusal detection again. A successful
+result after a refusal clears the last-refusal flag even without opening another call.
+Record reads and the atomic `triage.jsonl` rewrite use `records.rs`.
+
+`triaged_at` uses UTC, microseconds and `+00:00`, as `datetime.isoformat()` does, with
+the fraction omitted only at an exact second. Sampling uses FNV-1a over the seed's UTF-8
+bytes to initialize SplitMix64, then partial Fisher-Yates with rejection sampling for
+an unbiased bounded draw. It repeats for the same seed and input rows. Samples drawn
+before this ticket cannot be redrawn from their seed with this implementation, because
+Python used its own string seeding, Mersenne Twister and sample algorithm.
+
+`record_triage.py`, loaded by `record.py`, recorded 93 cases with CPython 3.14.7. Every
+reference command runs with an empty environment except the explicitly named scratch
+homes and `PYTHONDONTWRITEBYTECODE`. Inputs include every shape harvested from
+`test_triage.py`, all twelve fixture records with hand-made dataset rows, precedence,
+missing and torn records, malformed rows, timestamp boundaries and timezone errors,
+numeric tuple-key equality, missing datasets, and argparse cases. `run`, `table` and
+`sample` are replayed without starting Python. Seeds `s` and `x` cover sizes 0, 1, 5,
+100 and -1; further cases cover defaults and arbitrarily large integers.
+
+The replay compares 912 values, including exit status, stdout, stderr, file names and
+file bytes. Only the value of `triaged_at` is masked in newly written rows, after its
+format is checked; every other byte is retained. CLI help and usage use the binary's
+name, while argparse error sentences match. Python tracebacks are compared by their
+exception class, ignoring module qualification and stack frames. Sample selections and
+order may differ by the ticket's exception: each printed block must match a population
+row to the byte, with equal size, no duplicates and an identical repeat for the seed.
+
+Before dispatch existed, the first 64 cases failed 165 of 661 comparisons. Replacing
+the final cause word `unknown` with `broken` failed 18 of 819 comparisons before file
+name checks were added; the correct word was restored. Map 94's plan numbers precede
+the build ticket numbers. Its `Prefix` is the private Rust `Walk`, and Python's
+zero-positional subcommands preserve `--` in unrecognized-argument errors, unlike the
+shared parser's usual treatment of the separator. No dependency was added and nothing
+ran against the real grader home or run records.
+
 ## `hydra cockpit`, since build ticket 150
 
 Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen

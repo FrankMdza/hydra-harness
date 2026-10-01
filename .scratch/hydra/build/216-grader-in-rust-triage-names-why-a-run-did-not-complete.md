@@ -1,7 +1,7 @@
 # 216 - grader in Rust: triage names why a run did not complete
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 215
 
 ## What
@@ -35,3 +35,29 @@ redrawn from their seed.
 - The report lists each command and input compared, what was normalized and why, and what the
   plan assumed that turned out false. fmt and clippy clean over the workspace; `cargo test --lib`
   and `cargo test -p hydra-grader` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f70c` (codex gpt-6.1-sol, `standard`, 7.1M tokens). The session
+took the port on its tests and a live comparison of its own, and applied it to master as
+written.
+
+Built: `crates/grader/src/triage.rs` (the cause rules, the evidence, the timestamps, the table,
+the sample) and `triage_cli.rs`, `hydra-grader triage run|table|sample`. It reads a record's
+prefix through `monitor.rs`, whose walker became visible inside the crate. No dependency added.
+`sample` seeds with FNV-1a, draws with SplitMix64 and a partial Fisher-Yates; samples drawn by
+the Python before this ticket cannot be redrawn from their seed, as map 94 accepted.
+
+Measured on master: fmt and clippy clean over the workspace; `cargo test -p hydra-grader` 15 unit
+and 13 differential tests; the triage test makes 912 comparisons over 93 recorded cases. Before
+the implementation 165 of 661 failed; with `unknown` renamed 18 of 819 did.
+
+The session ran `triage run` and `triage table` with the real `triage.py` and with the Rust over
+the real runs directory and a copy of the real dataset: 78 rows, identical but for `triaged_at`,
+and the table byte-identical.
+
+Normalized: `triaged_at`; help and usage; a traceback by its exception class. The sample is
+checked by its output blocks, its size, uniqueness and that it repeats for a seed.
+
+Left open: nothing else.
+

@@ -30,3 +30,5 @@ pub mod monitor_cli;
 pub mod queue;
 pub mod records;
 pub mod redact;
+pub mod triage;
+pub mod triage_cli;

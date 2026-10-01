@@ -564,3 +564,6 @@ fn the_binary_has_no_command_yet_and_says_so() {
 mod jev;
 #[path = "differential/queue.rs"]
 mod queue;
+
+#[path = "differential/triage.rs"]
+mod triage;

@@ -956,6 +956,8 @@ def main() -> int:
     # Build ticket 215: `monitor.py`'s `features`, `train` and `score`, in its own file too.
     load_module("record_monitor", HERE / "record_monitor.py").record(out, REPO, scan_inputs())
 
+    load_module("record_triage", HERE / "record_triage.py").record(out, REPO, scan_inputs())
+
     digest = hashlib.sha256()
     for path in sorted(p for p in out.rglob("*") if p.is_file()):
         digest.update(path.read_bytes())

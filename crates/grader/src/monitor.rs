@@ -430,7 +430,7 @@ fn claude_results(raw: &Dict) -> Result<Vec<(Option<PyStr>, bool)>> {
 
 /// `Prefix`: what the walk over a record's first lines has counted so far.
 #[derive(Default)]
-struct Walk {
+pub(crate) struct Walk {
     tool_calls: usize,
     refusals: usize,
     /// Null until a refusal names a tool.
@@ -454,6 +454,14 @@ struct Walk {
 }
 
 impl Walk {
+    /// Counts triage compares before and after observing a frame.
+    pub(crate) fn triage_counts(&self) -> (usize, usize, usize) {
+        (
+            self.refusals,
+            self.tool_calls,
+            self.pending.len() + self.anon.len(),
+        )
+    }
     fn call(&mut self, name: &Value, call_id: Option<&PyStr>, args: &Value) -> Result<()> {
         self.tool_calls += 1;
         py::hashable(name)?;
@@ -539,7 +547,7 @@ impl Walk {
         }
     }
 
-    fn observe(&mut self, line: &Dict) -> Result<()> {
+    pub(crate) fn observe(&mut self, line: &Dict) -> Result<()> {
         if as_dict(at(line, "hydra"))
             .is_some_and(|hydra| py::eq_str(at(hydra, "type"), "seat_request"))
         {
