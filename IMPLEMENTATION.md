@@ -3353,7 +3353,8 @@ a writer that prints one id and creates the log under another fails.
 
 Build ticket 195 added the commands that launch: `plan`, `plans`, `launch` and `wait` in
 `launch.rs`, and `review`, `review --no-open` and `choose --judge` in `panel.rs`. The binary now
-has all eighteen of the Python helper's commands. Every launch is the argv the Python built,
+has all nineteen of the Python helper's commands, including `frontier` for the map and build
+trackers. Every launch is the argv the Python built,
 `hydra run --provider P [--model M] --policy Q --timeout 0 --task T`, through the program
 `HYDRA_BIN` names, and `launch` writes its `launch_intent` with that argv's SHA-256 before it
 starts the run. `json.rs` now gives a `JSONDecodeError` the message and position CPython 3.14's

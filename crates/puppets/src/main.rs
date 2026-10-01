@@ -6,6 +6,7 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use hydra_puppets::frontier;
 use hydra_puppets::json::Value;
 use hydra_puppets::launch;
 use hydra_puppets::log::{self, Home};
@@ -179,6 +180,14 @@ enum Command {
         /// the repository the session is on
         repo: OsString,
     },
+    /// which map or build tickets are takeable now
+    Frontier {
+        /// tracker directory under `.scratch/hydra` (default: `issues`)
+        tracker: Option<String>,
+        /// read tickets from another directory
+        #[arg(long, value_name = "DIR")]
+        dir: Option<std::path::PathBuf>,
+    },
     /// settle a launch intent that has no run
     #[command(args_override_self = true)]
     Reconcile {
@@ -293,6 +302,9 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
         Command::PushHunkComments { repo } => panel::push_comments(&repo),
         Command::Tasks { goal } => write::tasks(&home, &goal, err),
         Command::Assign { goal } => write::assign(&home, &goal, out, err),
+        Command::Frontier { tracker, dir } => {
+            frontier::run(tracker.as_deref(), dir.as_deref(), out)
+        }
         Command::Reconcile {
             goal,
             task,

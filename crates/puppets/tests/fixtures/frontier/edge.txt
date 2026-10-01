@@ -1,0 +1,14 @@
+FRONTIER (2 takeable now)
+  2  décision  Unicode title
+  13  ?         Default
+
+CLAIMED (1 in flight, do not take)
+  11  build     Claimed
+
+BLOCKED (2)
+  10  Waiting
+      waiting on human approval, 99
+  14  Space
+      waiting on 
+
+1 of 7 resolved
