@@ -867,7 +867,7 @@ fn masked(text: &str) -> String {
 /// A secret starting at `i`: the end of what is kept as is, then the end of
 /// the value that becomes `***`.
 fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
-    let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let is_name = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let secret_name = |name: &[char]| {
         let name: String = name.iter().collect::<String>().to_ascii_uppercase();
         SECRET_NAMES.iter().any(|part| name.contains(part))
@@ -906,9 +906,13 @@ fn secret_at(chars: &[char], i: usize) -> Option<(usize, usize)> {
         if chars.get(name_end) == Some(&'=') && secret_name(&chars[i..name_end]) {
             let start = name_end + 1;
             let end = match chars.get(start) {
-                Some(&quote @ ('"' | '\'')) => (start + 1..chars.len())
-                    .find(|&j| chars[j] == quote)
-                    .map_or(chars.len(), |j| j + 1),
+                Some(&quote @ ('"' | '\'')) => {
+                    let mut close = start + 1;
+                    while close < chars.len() && chars[close] != quote {
+                        close += if chars[close] == '\\' { 2 } else { 1 };
+                    }
+                    (close + 1).min(chars.len())
+                }
                 _ => token_end(chars, start),
             };
             return Some((start, end));

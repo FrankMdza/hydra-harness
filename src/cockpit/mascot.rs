@@ -359,7 +359,14 @@ impl Mascot {
                     (Lane::EndedNotOk, _) => Pose::Meme,
                     _ => continue,
                 };
-                if flash.is_none() || pose == Pose::Refused {
+                let priority = |pose| match pose {
+                    Pose::Refused => 0,
+                    Pose::Hurt0 => 1,
+                    Pose::Hurt1 => 2,
+                    Pose::Hurt2 => 3,
+                    _ => 4,
+                };
+                if flash.is_none_or(|chosen| priority(pose) < priority(chosen)) {
                     flash = Some(pose);
                     ended = Some(card);
                 }

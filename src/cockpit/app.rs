@@ -1567,7 +1567,7 @@ impl App {
             "live runs and the set each launched under",
             bold,
         ));
-        let footer = [
+        let mut footer = vec![
             Line::raw(""),
             Line::styled(
                 "Up/Down select, e opens $EDITOR, PageUp/PageDown scroll runs, p or Esc closes. \
@@ -1578,8 +1578,7 @@ impl App {
         let inner = rect.width.saturating_sub(2).max(1) as usize;
         let rows_of =
             |lines: &[Line]| -> usize { lines.iter().map(|line| wrapped_rows(line, inner)).sum() };
-        let room = (rect.height.saturating_sub(2) as usize)
-            .saturating_sub(rows_of(&lines) + rows_of(&footer));
+        let available = rect.height.saturating_sub(2) as usize;
         // The field rather than `cards_in`, which would borrow all of `self`.
         let live: Vec<&Card> = self
             .snapshot
@@ -1617,6 +1616,20 @@ impl App {
         // A run's line wraps in a narrow pane, so the page is counted in
         // rows, and a cut list keeps one row for the line that says so.
         let heights: Vec<usize> = runs.iter().map(|line| wrapped_rows(line, inner)).collect();
+        // Make room for a full run and the cut-list indicator. Drop help first,
+        // then the file list and directory, then excess headings.
+        let needed = heights.iter().copied().max().unwrap_or(0) + usize::from(runs.len() > 1);
+        if rows_of(&lines) + rows_of(&footer) + needed > available {
+            footer.clear();
+        }
+        if rows_of(&lines) + needed > available {
+            lines.truncate(lines.len().saturating_sub(crate::policy::NAMES.len() + 4));
+            lines.push(Line::styled("live runs", bold));
+        }
+        while rows_of(&lines) + needed > available && !lines.is_empty() {
+            lines.pop();
+        }
+        let room = available.saturating_sub(rows_of(&lines) + rows_of(&footer));
         let budget = if heights.iter().sum::<usize>() <= room {
             room
         } else {
@@ -2406,7 +2419,7 @@ fn follow(selected: usize, offset: usize, rows: usize) -> usize {
 
 /// The rows `line` takes wrapped at `width`, breaking between words as the
 /// pane's `Wrap` does and cutting a word wider than a row.
-fn wrapped_rows(line: &Line, width: usize) -> usize {
+pub fn wrapped_rows(line: &Line, width: usize) -> usize {
     let text: String = line
         .spans
         .iter()

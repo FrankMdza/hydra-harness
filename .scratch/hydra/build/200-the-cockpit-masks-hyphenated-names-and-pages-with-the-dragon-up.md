@@ -1,7 +1,7 @@
 # 200 - The cockpit masks hyphenated names and pages with the dragon up
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -48,3 +48,27 @@ nothing else.
 
 - Each test failed before the change; fmt, clippy over the workspace, `cargo test --lib` and
   `cargo test --test cockpit` pass.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f5e5` (codex gpt-6.1-sol, `standard`, 2.3M tokens), diff read whole
+by the session and applied to master as written.
+
+Built: a secret name may hold `-`, so `"api-key"`, `"access-token"`, `"x-api-key"` and a flag
+like `--api-key=value` are masked; the quoted `NAME=value` scan reads `\` as an escape; the policy
+pane makes room for one whole run and the `N more` line by dropping the help line first, then the
+policy names and directory, then headings; of several seats that fail in one read the pose shows
+`refused` first and then the lowest hurt head, and a seat past the third head no longer hides one.
+
+Measured on master: fmt and clippy clean over the workspace, `cargo test --test cockpit` 86
+passed, `cargo test --lib` 224 passed. The session reverted `snapshot.rs` alone and saw the two
+masking tests fail, then restored it.
+
+What the ticket assumed that is false: item 5. This ratatui draws five `界` at width 5 in two
+rows, not three, and `wrapped_rows` already returns two. The run kept the count and added a test
+that pins the count to what the paragraph draws, so an upgrade that changes the wrap fails it.
+
+Left open: a pose with two hurt heads needs combined frames or heads drawn one by one. Inside
+single quotes a shell does not read `\` as an escape, so `TOKEN='a\' rest` masks past the closing
+quote, which errs on the safe side.
+

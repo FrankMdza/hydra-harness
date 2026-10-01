@@ -3328,7 +3328,10 @@ such call is dropped, so a `claude` result ahead of a later call of its id no lo
 The input is masked before it is shown, in the one-argument summary and the whole-arguments
 fallback alike: a token starting with one of `record::secrets::prefixes`, the sweep's own list,
 and the value of a `NAME=value` or `"NAME": "value"` whose name holds `TOKEN`, `KEY`, `SECRET`,
-`PASSWORD` or `PASS` in any case, become `***`. That masks `MONKEY=1` too, on purpose. A call on a
+`PASSWORD` or `PASS` in any case, become `***`. That masks `MONKEY=1` too, on purpose. A secret
+name with hyphens, such as `api-key` or `access-token`, is masked too. Quoted assignment
+values consume backslash escapes, so an escaped quote does not end the mask early.
+These corrections are covered by build ticket 200. A call on a
 line whose envelope carries a `secret_flag` reads `input hidden: secret_flag`. The row is cut by
 display width through `unicode-width`, `~` inside it, never splitting a wide character. The raw
 view behind `r` masks nothing: it shows each of the last twenty lines verbatim up to 400
@@ -3421,7 +3424,11 @@ loop takes while the pane is up reloads the five files too, so the pane is at mo
 behind. And the run list scrolls: the pane counts the rows its headings, the five files and the
 help line take, shows as many live runs as fit, and when some are cut adds a line
 `N more, A above and B below`. PageUp and PageDown move it a page, the wheel over the pane moves
-it one run, and it stops at the last page. At 120x24 with the header's counts row and no dragon
+it one run, and it stops at the last page. Since build ticket 200, when the dragon leaves
+too few rows, the pane drops help first, then the policy names and directory, then excess
+headings until a full run and the cut-list indicator fit. Tests page to the last run with
+the dragon installed at 80x30, 100x30, 80x24 and 80x33.
+At 120x24 with the header's counts row and no dragon
 that is five runs a page. `tests/cockpit.rs` rewrites `standard.json` between two snapshots and
 reads `differs`, then breaks it and reads the loader's error, and pages ten live runs at 120x24
 down to the last with the keys and again with the wheel.

@@ -3836,3 +3836,119 @@ fn the_same_card_opens_stops_and_answers_from_the_agent_lanes() {
         ))
     );
 }
+
+// Build ticket 200 regressions.
+#[test]
+fn ticket200_hyphenated_json_names_are_masked() {
+    let layout = scratch("hyphen-secrets");
+    let run = "01a0f200-0000-7000-8000-000000000200";
+    write_live_frames(
+        &layout,
+        run,
+        "claude",
+        Some("opus"),
+        noon(),
+        &[claude_bash(
+            "toolu_01",
+            r#"{"api-key": "s3cret-value", "access-token": "s3cret-value", "x-api-key": "s3cret-value"}"#,
+        )],
+    );
+    let calls = calls_in(&layout, run);
+    assert!(
+        !calls[0].input.contains("s3cret-value"),
+        "{}",
+        calls[0].input
+    );
+    assert_eq!(calls[0].input.matches("***").count(), 3);
+}
+
+#[test]
+fn ticket200_escaped_assignment_quotes_are_masked() {
+    let layout = scratch("escaped-secrets");
+    let run = "01a0f200-0000-7000-8000-000000000201";
+    write_live_frames(
+        &layout,
+        run,
+        "claude",
+        Some("opus"),
+        noon(),
+        &[claude_bash("toolu_01", r#"API_TOKEN="two \"words\" here""#)],
+    );
+    assert_eq!(calls_in(&layout, run)[0].input, "API_TOKEN=***");
+}
+
+#[test]
+fn ticket200_policy_pages_with_the_dragon() {
+    for (width, height) in [(80, 30), (100, 30), (80, 24), (80, 33)] {
+        let layout = scratch("dragon-policy");
+        let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+        app.set_policies(scratch_policies(&layout));
+        app.set_mascot(Some(Mascot::new(committed_frames())));
+        let cards = (0..10)
+            .map(|i| {
+                let mut c = card(&format!("{i:08}-live"), "claude", State::Live, None);
+                c.policy_sha = Some("f1".repeat(32));
+                c
+            })
+            .collect();
+        app.set_snapshot(snapshot_of(cards, vec![]));
+        app.handle(&key(KeyCode::Char('p')));
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        app.draw(area, &mut buf);
+        assert!(
+            screen_text(&buf).contains("00000000"),
+            "{width}x{height}: {}",
+            screen_text(&buf)
+        );
+        for _ in 0..10 {
+            app.handle(&key(KeyCode::PageDown));
+            app.draw(area, &mut buf);
+        }
+        assert!(
+            screen_text(&buf).contains("00000009"),
+            "{width}x{height}: {}",
+            screen_text(&buf)
+        );
+    }
+}
+
+#[test]
+fn ticket200_simultaneous_failures_show_the_lowest_hurt_head() {
+    for other in [1, 3] {
+        let mut mascot = Mascot::new(committed_frames());
+        let cards: Vec<_> = (0..4)
+            .rev()
+            .map(|i| card(&format!("{i:08}-seat"), "claude", State::Live, None))
+            .collect();
+        mascot.observe(&snapshot_of(cards.clone(), vec![]));
+        let mut ended = cards;
+        for c in &mut ended {
+            if c.run_id == "00000000-seat" || c.run_id == format!("{other:08}-seat") {
+                c.state = State::Ended;
+                c.outcome = Some("crashed".into());
+            }
+        }
+        mascot.observe(&snapshot_of(ended, vec![]));
+        assert_eq!(mascot.pose(), Pose::Hurt0, "other seat {other}");
+    }
+}
+
+#[test]
+fn ticket200_wide_glyphs_wrap_at_an_odd_width() {
+    use ratatui::widgets::{Paragraph, Widget, Wrap};
+    let area = Rect::new(0, 0, 5, 10);
+    let mut buf = Buffer::empty(area);
+    Paragraph::new("界界界界界")
+        .wrap(Wrap { trim: false })
+        .render(area, &mut buf);
+    let drawn_rows = (0..area.height)
+        .filter(|&y| (0..area.width).any(|x| buf[(x, y)].symbol() == "界"))
+        .count();
+    // Ticket 200 expected three rows, but this ratatui version draws two.
+    assert_eq!(drawn_rows, 2, "{}", screen_text(&buf));
+    assert_eq!(
+        hydra::cockpit::app::wrapped_rows(&ratatui::text::Line::raw("界界界界界"), 5),
+        drawn_rows
+    );
+}
