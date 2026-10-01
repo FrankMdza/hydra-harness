@@ -3252,7 +3252,7 @@ the reader, the lock-held update, `repair`), the fold (`fold.rs`) and the read c
 reader and writer (`json.rs`), because `show` prints log values verbatim in Python's key order,
 float spelling and `\u` escapes. `serde_json`'s `preserve_order` would give the order, but in a
 workspace build that feature would reach `hydra` too. `pending`'s `argv` still names
-`python3 integrations/puppets/puppets.py approve`, since `approve` is ticket 194's. Nothing in
+`python3 integrations/puppets/puppets.py approve`, which ticket 196 changes. Nothing in
 `integrations/puppets/` changed.
 
 `crates/puppets/tests/differential.rs` runs both implementations on the same inputs and requires
@@ -3309,6 +3309,43 @@ the class Python raised. After `repair --yes` it reads each repaired copy back w
 logs. Two more tests in the same file compare the sort with `python3` on 624 lists that hold NaN
 and the printable table with `str.isprintable`. `src/cockpit/goal.rs` is a third reader and
 uses the same `removed` band and `\n`-only line split as the helper.
+
+Build ticket 194 added the commands that write and launch nothing: `new`, `set`, `approve`,
+`verdict`, `choose`, `tasks`, `assign` and `reconcile`, in `write.rs`, with the Python's arguments,
+log lines and exit codes. `approve` folds once to refuse early, then runs every `--expect-*`
+check again on the lines `locked_update` read under the lock and records that fold's revision
+and run; exit 2 is a mismatch and 3 a duplicate, as before. `sheet.rs` is `sheet.py`'s `rank` and
+`beta_lower`, which is all `assign` reaches, and `models.rs` is `models.py`. A command-line
+argument that is not UTF-8 is carried as Python's `surrogateescape` carries it, so the log line
+is the same `\udcXX`. The Python stays, and nothing in `integrations/puppets/` changed.
+
+A third test in `differential.rs` runs each of those commands under both implementations, each
+on its own copy of one starting home, and requires the same stdout, stderr and exit code and the
+same goal logs afterwards. It ran 150 commands on 2026-10-01. Every writer that names a goal
+runs on a damaged log, an unterminated one, an invalid UTF-8 tail, invalid UTF-8 inside a
+terminated line, and no log. Two things are normalized beyond the read side's: the `ts` of each
+line the command appended, only when the log still begins with its input and the line starts
+`{"seq":N,"ts":"<time>","event":"`, and the goal id `new` generates, only when it is a version 4
+UUID alone on stdout or as the log's name.
+
+Not ported, and where the Rust differs:
+
+- `choose --judge` launches the panel in the Python (`run_judge_panel`, one `spawn_judge_run`
+  per seat). The Rust prints the same three refusals that come before that launch, then stops
+  with exit 1 and a line that names `puppets.py choose <goal> --judge`. Ticket 195 has the launch.
+- `sheet.py`'s `build`, `budget` and `corpus_records` are not ported. They call `hydra show` once
+  per run and no command of 194 reaches them, so the sheets under `<puppets home>/agents/` are
+  still written by `sheet.py build`. `models.rs` has no caller until they are.
+- `beta_lower` sums the same binomial terms with `ln(k!)` as a sum of logs, where Python calls
+  `math.lgamma`. The two agree to rounding, not to the last bit. `rank` only compares the bound
+  with a threshold and sorts by it, and `assign` records the first row's provider and model.
+- `ranked_assignment` does not return early when `sheet.py` is missing, since ticket 196 deletes
+  that file. `priors.json` is still read from `integrations/puppets/`.
+- A usage error exits 2 in both, with clap's text in place of argparse's.
+- `--expect-revision` and `reconcile`'s attempt are `i128`; Python's `int` has no width.
+- A goal id that is not UTF-8 is a usage error in the Rust.
+- `choose <file>` names the plan by `Path.stem` as Python 3.14 computes it, where a trailing dot
+  is a suffix. Python 3.13 and earlier keep the dot.
 
 ## `hydra cockpit`, since build ticket 150
 

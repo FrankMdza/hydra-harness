@@ -18,6 +18,12 @@
 //!   its one-line error must start `hydra-puppets: <Class>:` with the Python's exception
 //!   class; the rest of the traceback is not compared.
 //! - A damaged log prints the same named error on stderr in both, with no traceback.
+//!
+//! The commands that write (`new`, `set`, `approve`, `verdict`, `choose`, `tasks`, `assign`,
+//! `reconcile`) each run on a copy of the same starting home per implementation, and the
+//! goal logs left behind must be equal line by line. Two more things are normalized there:
+//! - the `ts` of each line the command appended, and of no line the input already held;
+//! - the goal id `new` generates, in its stdout and in the name of the log it creates.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -73,8 +79,18 @@ struct Outcome {
 }
 
 fn run(program: &[&str], args: &[&str], dir: &Path) -> Outcome {
+    run_in(program, args, dir, None)
+}
+
+/// `run`, from a working directory: `new` reads the repo from it and `choose` resolves a
+/// relative plan path against it.
+fn run_in(program: &[&str], args: &[&str], dir: &Path, cwd: Option<&Path>) -> Outcome {
     let mut cmd = Command::new(program[0]);
     cmd.args(&program[1..]).args(args);
+    if let Some(cwd) = cwd {
+        cmd.current_dir(cwd);
+    }
+    cmd.stdin(std::process::Stdio::null());
     for var in [
         "HYDRA_PUPPETS_HOME",
         "HYDRA_ROOT",
@@ -1424,4 +1440,809 @@ fn the_read_commands_match_puppets_py_on_the_real_goal_logs() {
     std::fs::create_dir_all(&copies).unwrap();
     let report = compare_all(&inputs, &COMMANDS[..5], &copies);
     finish(report, &inputs);
+}
+
+/// Mask the `ts` of each line a write command appended. `after` must begin with `before`,
+/// byte for byte, or nothing is masked: a writer only appends. A line is masked only when
+/// it starts `{"seq":N,"ts":"<stamp>","event":"` with a stamp of `utc_now()`'s shape, so a
+/// `ts` the input held, or one nested further into an event, stays as it is.
+fn mask_appended_ts(before: &[u8], after: &[u8]) -> Vec<u8> {
+    let Some(appended) = after.strip_prefix(before) else {
+        return after.to_vec();
+    };
+    let mut out = before.to_vec();
+    for line in appended.split_inclusive(|b| *b == b'\n') {
+        match appended_line(line) {
+            Some((head, tail)) => {
+                out.extend_from_slice(head);
+                out.extend_from_slice(b"<ts>");
+                out.extend_from_slice(tail);
+            }
+            None => out.extend_from_slice(line),
+        }
+    }
+    out
+}
+
+/// Split an appended line around its stamp, when it has the shape `_locked_update` writes.
+fn appended_line(line: &[u8]) -> Option<(&[u8], &[u8])> {
+    let text = std::str::from_utf8(line).ok()?;
+    let (seq, rest) = text.strip_prefix("{\"seq\":")?.split_once(",\"ts\":\"")?;
+    let stamp = rest.get(..24)?;
+    let tail = rest.get(24..)?;
+    let digits = !seq.is_empty() && seq.bytes().all(|b| b.is_ascii_digit());
+    if !digits
+        || !is_utc_stamp(stamp)
+        || !tail.starts_with("\",\"event\":\"")
+        || !tail.ends_with("}\n")
+    {
+        return None;
+    }
+    let at = text.len() - rest.len();
+    Some((&line[..at], &line[at + 24..]))
+}
+
+/// Whether `text` has the shape `str(uuid.uuid4())` prints.
+fn is_goal_id(text: &str) -> bool {
+    text.len() == 36
+        && text.bytes().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            14 => b == b'4',
+            _ => b.is_ascii_digit() || (b'a'..=b'f').contains(&b),
+        })
+}
+
+/// `new` prints the goal id it generated and nothing else: mask that one line.
+fn mask_new_stdout(stdout: &str) -> String {
+    match stdout.strip_suffix('\n') {
+        Some(id) if is_goal_id(id) => "<goal>\n".to_string(),
+        _ => stdout.to_string(),
+    }
+}
+
+/// The goal logs a write command left in `dir`, each with the stamps of its appended lines
+/// masked. `seed` is the home both copies were made from. Under `new` the log named by a
+/// generated goal id is listed as `<goal>.jsonl`.
+fn written(dir: &Path, seed: &Path, new_goal: bool) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir.join("puppets"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.is_file())
+        .map(|p| {
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            let before = std::fs::read(seed.join("puppets").join(&name)).unwrap_or_default();
+            let bytes = mask_appended_ts(&before, &std::fs::read(&p).unwrap());
+            let name = match name.strip_suffix(".jsonl") {
+                Some(stem) if new_goal && is_goal_id(stem) => "<goal>.jsonl".to_string(),
+                _ => name,
+            };
+            (name, bytes)
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// One write command on one starting home.
+struct WriteCase {
+    label: String,
+    /// `puppets/g1.jsonl`, or no log at all.
+    log: Option<Vec<u8>>,
+    vendors: Option<&'static str>,
+    /// Files under `puppets/agents/`, which `assign` ranks from.
+    sheets: Vec<(&'static str, String)>,
+    args: Vec<String>,
+    cwd: PathBuf,
+}
+
+impl WriteCase {
+    fn new(label: &str, log: Option<&[u8]>, args: &[&str], cwd: &Path) -> WriteCase {
+        WriteCase {
+            label: label.to_string(),
+            log: log.map(<[u8]>::to_vec),
+            vendors: None,
+            sheets: Vec::new(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            cwd: cwd.to_path_buf(),
+        }
+    }
+}
+
+/// Run one case under both implementations, each on its own copy of the seed home. Returns
+/// the exception class when the Python raised, and what differed.
+fn compare_write(case: &WriteCase, root: &Path, n: usize) -> (Option<String>, Vec<String>) {
+    let base = root.join(format!("w{n:03}"));
+    let (seed, py_dir, rs_dir) = (base.join("seed"), base.join("py"), base.join("rs"));
+    std::fs::create_dir_all(seed.join("puppets")).unwrap();
+    if let Some(log) = &case.log {
+        std::fs::write(seed.join("puppets/g1.jsonl"), log).unwrap();
+    }
+    if let Some(vendors) = case.vendors {
+        std::fs::write(seed.join("vendors.json"), vendors).unwrap();
+    }
+    if !case.sheets.is_empty() {
+        std::fs::create_dir_all(seed.join("puppets/agents")).unwrap();
+    }
+    for (name, body) in &case.sheets {
+        std::fs::write(seed.join("puppets/agents").join(name), body).unwrap();
+    }
+    copy_dir(&seed, &py_dir);
+    copy_dir(&seed, &rs_dir);
+    let script = script();
+    let args: Vec<&str> = case.args.iter().map(String::as_str).collect();
+    let mut py = run_in(
+        &["python3", script.to_str().unwrap()],
+        &args,
+        &py_dir,
+        Some(&case.cwd),
+    );
+    let mut rs = run_in(&[RUST], &args, &rs_dir, Some(&case.cwd));
+    let new_goal = args[0] == "new";
+    if new_goal {
+        py.stdout = mask_new_stdout(&py.stdout);
+        rs.stdout = mask_new_stdout(&rs.stdout);
+    }
+    let mut problems = Vec::new();
+    let (py_files, rs_files) = (
+        written(&py_dir, &seed, new_goal),
+        written(&rs_dir, &seed, new_goal),
+    );
+    if py_files != rs_files {
+        let show = |files: &[(String, Vec<u8>)]| {
+            files
+                .iter()
+                .map(|(name, bytes)| format!("{name}:\n{}", String::from_utf8_lossy(bytes)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        problems.push(format!(
+            "the goal logs differ\npython left\n{}\nrust left\n{}",
+            show(&py_files),
+            show(&rs_files)
+        ));
+    }
+    let (class, problem) = judge(&py, &rs);
+    problems.extend(problem);
+    (class, problems)
+}
+
+/// The starting homes and the commands run on each.
+fn write_cases(shared: &Path) -> Vec<WriteCase> {
+    const GOAL: &str = r#"{"seq":1,"ts":"2026-09-30T12:00:00.000Z","event":"goal","text":"test","repo":"/repo","base_sha":"abc"}"#;
+    let line = |s: &str| format!("{s}\n");
+    let task = |id: &str, class: &str, grade: &str| {
+        line(&format!(
+            r#"{{"event":"task","id":"{id}","text":"do {id}","class":"{class}","grade":"{grade}","done":null,"deps":[],"paths":[]}}"#
+        ))
+    };
+    let approval = |kind: &str, rest: &str, revision: u32| {
+        line(&format!(
+            r#"{{"event":"approval","kind":"{kind}",{rest}"revision":{revision},"yes":true}}"#
+        ))
+    };
+    let plan = |name: &str| shared.join(name).to_str().unwrap().to_string();
+
+    // Five tasks, revision 5: a default for each of t1, t2 and t5, an `agi` grade, and a
+    // class the default table does not hold.
+    let tasks = [
+        line(GOAL),
+        task("t1", "docs", "low"),
+        task("t2", "rust_launch_path", "high"),
+        task("t3", "research", "agi"),
+        task("t4", "weird", "low"),
+        task("t5", "security_review", "medium"),
+    ]
+    .concat();
+    let assigned = [
+        tasks.clone(),
+        line(r#"{"event":"assignment","task":"t1","provider":"codex","policy":"standard","source":"human"}"#),
+    ]
+    .concat();
+    let running = [
+        assigned.clone(),
+        approval("table", r#""ref":null,"#, 6),
+        approval("launch", r#""ref":"t1","#, 6),
+        line(r#"{"event":"launch_intent","task":"t1","attempt":1,"provider":"codex"}"#),
+        line(r#"{"event":"run","task":"t1","attempt":1,"run_id":"r1"}"#),
+    ]
+    .concat();
+    let ended = [
+        running.clone(),
+        line(r#"{"event":"run_end","task":"t1","run_id":"r1","outcome":"completed","total_tokens":7}"#),
+    ]
+    .concat();
+    let diff_approved = [
+        ended.clone(),
+        approval("diff", r#""ref":"t1","run_id":"r1","#, 6),
+    ]
+    .concat();
+    let dangling = [
+        assigned.clone(),
+        line(r#"{"event":"launch_intent","task":"t1","attempt":1,"provider":"codex"}"#),
+        line(r#"{"event":"launch_intent","task":"t2","attempt":2,"provider":"claude"}"#),
+    ]
+    .concat();
+    let degraded = [
+        tasks.clone(),
+        line(r#"{"event":"approval","kind":"degraded","missing":"codex","substitute":"claude","revision":5,"yes":true}"#),
+    ]
+    .concat();
+    let proposals = [
+        line(GOAL),
+        line(r#"{"event":"plan_proposed","provider":"codex","model":null,"run_id":"p1"}"#),
+        line(r#"{"event":"plan_proposed","provider":"claude","model":"opus","run_id":"p2"}"#),
+        line(&format!(
+            r#"{{"event":"plan_ready","provider":"codex","run_id":"p1","path":"{}"}}"#,
+            plan("good.md")
+        )),
+        line(&format!(
+            r#"{{"event":"plan_ready","provider":"claude","run_id":"p2","path":"{}"}}"#,
+            plan("crlf.md")
+        )),
+    ]
+    .concat();
+    let no_substitute = [
+        proposals.clone(),
+        line(r#"{"event":"approval","kind":"degraded","missing":"codex","substitute":"","revision":0,"yes":true}"#),
+    ]
+    .concat();
+    let chosen = |path_json: &str| {
+        [
+            line(GOAL),
+            line(&format!(
+                r#"{{"event":"panel_verdict","judge_run_ids":[],"chosen":"codex","path":{path_json}}}"#
+            )),
+        ]
+        .concat()
+    };
+    let chosen_file = |name: &str| chosen(&format!("\"{}\"", plan(name)));
+    let plan_approved = |log: String| [log, approval("plan", r#""ref":null,"#, 0)].concat();
+    // What `assign` ranks from: a verdict on r1, which both sonnet sheets hold.
+    let ranked = [
+        line(GOAL),
+        task("t1", "docs", "low"),
+        line(r#"{"event":"assignment","task":"t1","provider":"claude","model":"sonnet","policy":"standard","source":"default"}"#),
+        line(r#"{"event":"run","task":"t1","attempt":1,"run_id":"r1"}"#),
+        line(r#"{"event":"run_end","task":"t1","run_id":"r1","outcome":"completed"}"#),
+        line(r#"{"event":"human_verdict","task":"t1","run_id":"r1","result":"applied","note":""}"#),
+        task("t6", "docs", "low"),
+        task("t7", "docs", "high"),
+        task("t8", "probe", "low"),
+    ]
+    .concat();
+    let sheet = |provider: &str, model: &str, available: bool, runs: &str, p50: &str| {
+        format!(
+            r#"{{"provider":"{provider}","model":{model},"available":{available},"policies":["judge","standard"],"runs":{runs},"cost":{{"p50":{p50},"n":1}}}}"#
+        )
+    };
+    let r1 = r#"[{"run_id":"r1","task_id":"r1","parent_run_id":null}]"#;
+    let sheets = vec![
+        (
+            "claude--sonnet.json",
+            sheet("claude", "\"sonnet\"", true, r1, "0.02"),
+        ),
+        (
+            "claude--Sonnet%205.json",
+            sheet("claude", "\"Sonnet 5\"", true, r1, "0.01"),
+        ),
+        (
+            "cursor-agent--composer-2.5.json",
+            sheet("cursor-agent", "\"composer-2.5\"", true, "[]", "null"),
+        ),
+        (
+            "codex--~null.json",
+            sheet("codex", "null", false, r1, "0.001"),
+        ),
+    ];
+    let untaught = vec![(
+        "claude--sonnet.json",
+        sheet("claude", "\"sonnet\"", true, "[]", "0.02"),
+    )];
+    let codex_down = r#"[{"provider":"codex","model":null,"available":false}]"#;
+
+    let mut cases = Vec::new();
+
+    // Every writer that names a goal, on the logs a writer must refuse and on no log at all.
+    let damaged = [line(GOAL), line("not json"), task("t1", "docs", "low")].concat();
+    let unterminated = [tasks.clone(), r#"{"event":"task","id":"t9""#.to_string()].concat();
+    let bad_tail = [tasks.clone().into_bytes(), b"{\"event\":\xff\xfe".to_vec()].concat();
+    let bad_line = [
+        line(GOAL).into_bytes(),
+        b"{\"event\":\"note\",\"text\":\"\xff\"}\n".to_vec(),
+        task("t1", "docs", "low").into_bytes(),
+    ]
+    .concat();
+    let hostile: [(&str, Option<&[u8]>); 5] = [
+        ("a damaged log", Some(damaged.as_bytes())),
+        ("an unterminated log", Some(unterminated.as_bytes())),
+        ("an invalid UTF-8 tail", Some(&bad_tail)),
+        ("invalid UTF-8 inside a terminated line", Some(&bad_line)),
+        ("no log", None),
+    ];
+    let writers: [&[&str]; 9] = [
+        &[
+            "set",
+            "g1",
+            "t1",
+            "--provider",
+            "codex",
+            "--policy",
+            "standard",
+        ],
+        &["approve", "g1", "--table"],
+        &["approve", "g1", "--plan", "--expect-revision", "9"],
+        &["verdict", "g1", "t1", "rejected"],
+        &["choose", "g1", "codex"],
+        &["choose", "g1", "--judge"],
+        &["tasks", "g1"],
+        &["assign", "g1"],
+        &["reconcile", "g1", "t1", "1", "--abandon"],
+    ];
+    for (name, log) in hostile {
+        for args in writers {
+            cases.push(WriteCase::new(
+                &format!("{name}: {}", args.join(" ")),
+                log,
+                args,
+                shared,
+            ));
+        }
+    }
+
+    let mut each = |name: &str, log: &str, commands: &[&[&str]]| {
+        for args in commands {
+            cases.push(WriteCase::new(
+                &format!("{name}: {}", args.join(" ")),
+                Some(log.as_bytes()),
+                args,
+                shared,
+            ));
+        }
+    };
+    each(
+        "five tasks",
+        &tasks,
+        &[
+            &[
+                "set",
+                "g1",
+                "t1",
+                "--provider",
+                "codex",
+                "--policy",
+                "standard",
+            ],
+            &[
+                "set",
+                "g1",
+                "t1",
+                "--provider",
+                "claude",
+                "--model",
+                "opus",
+                "--policy",
+                "judge",
+            ],
+            &[
+                "set",
+                "g1",
+                "t1",
+                "--provider",
+                "claude",
+                "--model",
+                "",
+                "--policy",
+                "judge",
+            ],
+            &[
+                "set",
+                "g1",
+                "nobody",
+                "--provider",
+                "ñandú ☕",
+                "--policy",
+                "standard",
+            ],
+            &["approve", "g1"],
+            &["approve", "g1", "--plan"],
+            &["approve", "g1", "--table"],
+            &["approve", "g1", "--launch", "t1"],
+            &["approve", "g1", "--launch", "nobody"],
+            &["approve", "g1", "--launch", ""],
+            &["approve", "g1", "--diff", "t1"],
+            &["approve", "g1", "--diff", "nobody"],
+            &["approve", "g1", "--plan", "--expect-revision", "5"],
+            &["approve", "g1", "--plan", "--expect-revision", "4"],
+            &["approve", "g1", "--table", "--expect-revision", "-1"],
+            &["approve", "g1", "--table", "--expect-run", "r1"],
+            &["approve", "g1", "--table", "--expect-plan", "/p"],
+            &["approve", "g1", "--plan", "--expect-plan", "/p"],
+            &["approve", "g1", "--diff", "nobody", "--expect-run", "r1"],
+            &["approve", "g1", "--degraded", "codex=claude"],
+            &["approve", "g1", "--degraded", "codex=claude:opus"],
+            &["approve", "g1", "--degraded", " codex = claude : opus "],
+            &["approve", "g1", "--degraded", "codex=claude:"],
+            &[
+                "approve",
+                "g1",
+                "--degraded",
+                "codex=<substitute-provider[:model]>",
+            ],
+            &["approve", "g1", "--degraded", "codex"],
+            &["approve", "g1", "--degraded", "=claude"],
+            &["approve", "g1", "--degraded", "codex="],
+            &["approve", "g1", "--degraded", "codex=claude", "--plan"],
+            &[
+                "approve",
+                "g1",
+                "--degraded",
+                "codex=claude",
+                "--expect-revision",
+                "3",
+            ],
+            &["verdict", "g1", "t1", "applied"],
+            &["verdict", "g1", "nobody", "rejected"],
+            &["choose", "g1"],
+            &["tasks", "g1"],
+            &["assign", "g1"],
+            &["reconcile", "g1", "t1", "1", "--abandon"],
+        ],
+    );
+    each(
+        "a degraded approval",
+        &degraded,
+        &[
+            &["approve", "g1", "--degraded", "codex=agy"],
+            &["approve", "g1", "--degraded", "claude=agy"],
+        ],
+    );
+    each(
+        "a running task",
+        &running,
+        &[
+            &["approve", "g1", "--diff", "t1"],
+            &["approve", "g1", "--diff", "t1", "--expect-run", "r1"],
+            &["approve", "g1", "--diff", "t1", "--expect-run", "r2"],
+            &[
+                "approve",
+                "g1",
+                "--diff",
+                "t1",
+                "--expect-run",
+                "r1",
+                "--expect-revision",
+                "6",
+            ],
+            &["approve", "g1", "--table"],
+            &["approve", "g1", "--launch", "t1"],
+            &["verdict", "g1", "t1", "rejected"],
+            &["assign", "g1"],
+        ],
+    );
+    each(
+        "an ended run",
+        &ended,
+        &[
+            &["verdict", "g1", "t1", "applied"],
+            &["verdict", "g1", "t1", "fixed"],
+            &["verdict", "g1", "t1", "rejected", "--note", "no good"],
+            &["verdict", "g1", "t2", "rejected"],
+        ],
+    );
+    each(
+        "an approved diff",
+        &diff_approved,
+        &[
+            &["verdict", "g1", "t1", "applied"],
+            &["verdict", "g1", "t1", "fixed", "--note", "café ☕ 😀"],
+            &["verdict", "g1", "t1", "rejected"],
+            &["approve", "g1", "--diff", "t1"],
+            &["approve", "g1", "--diff", "t1", "--expect-run", "r1"],
+        ],
+    );
+    each(
+        "two dangling intents",
+        &dangling,
+        &[
+            &["reconcile", "g1", "t1", "1", "--run-id", "r9"],
+            &["reconcile", "g1", "t1", "1", "--abandon"],
+            &["reconcile", "g1", "t1", "1", "--run-id", ""],
+            &["reconcile", "g1", "t1", "2", "--abandon"],
+            &["reconcile", "g1", "t2", "2", "--run-id", "r9"],
+            &["reconcile", "g1", "nobody", "1", "--abandon"],
+        ],
+    );
+    let good = plan("good.md");
+    each(
+        "a goal",
+        &line(GOAL),
+        &[
+            &["choose", "g1", "codex"],
+            &["choose", "g1", &good],
+            &["choose", "g1", "good.md"],
+            &["choose", "g1", "./sub/../a.b.md"],
+            &["choose", "g1", ".hidden"],
+            &["choose", "g1", "sub"],
+            &["choose", "g1", "sub/trailing."],
+            &["choose", "g1", "absent.md"],
+            &["choose", "g1", "--judge"],
+            &["choose", "g1", "codex", "--judge"],
+            &["tasks", "g1"],
+            &["assign", "g1"],
+        ],
+    );
+    each(
+        "a chosen plan, not approved",
+        &chosen_file("good.md"),
+        &[
+            &["tasks", "g1"],
+            &["approve", "g1", "--plan", "--expect-plan", &good],
+            &["approve", "g1", "--plan", "--expect-plan", "/elsewhere.md"],
+        ],
+    );
+    for name in [
+        "good.md",
+        "crlf.md",
+        "bare-fence.md",
+        "two-fences.md",
+        "missing-key.md",
+        "no-id.md",
+        "bad-class.md",
+        "bad-grade.md",
+        "list-class.md",
+        "no-fence.md",
+        "bad-json.md",
+        "number-task.md",
+        "string-task.md",
+        "list-task.md",
+        "empty.md",
+        "absent.md",
+    ] {
+        each(
+            &format!("an approved plan {name}"),
+            &plan_approved(chosen_file(name)),
+            &[&["tasks", "g1"]],
+        );
+    }
+    each(
+        "an approved plan whose path is a number",
+        &plan_approved(chosen("5")),
+        &[&["tasks", "g1"]],
+    );
+    each(
+        "an approved plan with no path",
+        &plan_approved(chosen("null")),
+        &[&["tasks", "g1"]],
+    );
+
+    let mut with = |label: &str,
+                    log: &str,
+                    vendors: Option<&'static str>,
+                    sheets: &[(&'static str, String)],
+                    args: &[&str]| {
+        let mut case = WriteCase::new(label, Some(log.as_bytes()), args, shared);
+        case.vendors = vendors;
+        case.sheets = sheets.to_vec();
+        cases.push(case);
+    };
+    with(
+        "two proposals, codex down: choose --judge",
+        &proposals,
+        Some(codex_down),
+        &[],
+        &["choose", "g1", "--judge"],
+    );
+    with(
+        "two proposals, codex down, a degraded approval with no substitute: choose --judge",
+        &no_substitute,
+        Some(codex_down),
+        &[],
+        &["choose", "g1", "--judge"],
+    );
+    with(
+        "a ranking: assign",
+        &ranked,
+        None,
+        &sheets,
+        &["assign", "g1"],
+    );
+    with(
+        "sheets with no verdict behind them: assign",
+        &ranked,
+        None,
+        &untaught,
+        &["assign", "g1"],
+    );
+    with(
+        "a grade the ranking does not know: assign",
+        &[line(GOAL), task("t1", "docs", "weird")].concat(),
+        None,
+        &sheets,
+        &["assign", "g1"],
+    );
+    with(
+        "a sheet that is not JSON: assign",
+        &tasks,
+        None,
+        &[("broken.json", "{".to_string())],
+        &["assign", "g1"],
+    );
+    with(
+        "a sheet that is a list: assign",
+        &tasks,
+        None,
+        &[("list.json", "[1]".to_string())],
+        &["assign", "g1"],
+    );
+    with(
+        "an agents directory with no sheet: assign",
+        &tasks,
+        None,
+        &[("notes.txt", "x".to_string())],
+        &["assign", "g1"],
+    );
+
+    // `new` reads the repo and the commit from its working directory.
+    for (label, cwd, text) in [
+        ("new outside a repo", shared.to_path_buf(), "a goal"),
+        ("new inside this repo", repo(), "a goal"),
+        (
+            "new with text that is not ASCII",
+            shared.to_path_buf(),
+            "café ☕ 😀",
+        ),
+        ("new with empty text", shared.to_path_buf(), ""),
+    ] {
+        cases.push(WriteCase::new(label, None, &["new", text], &cwd));
+    }
+    cases
+}
+
+/// The plan files the `tasks` and `choose` cases name, in one directory both read.
+fn write_plans(shared: &Path) {
+    let fenced = |body: &str| format!("# Plan\n\nSome prose.\n\n```json\n{body}\n```\n\nMore.\n");
+    let good = r#"[
+  {"id": "a", "text": "café ☕ 😀", "class": "docs", "grade": "low"},
+  {"id": "b", "text": "two", "class": "rust_launch_path", "grade": "agi",
+   "done": "cargo test", "deps": ["a"], "paths": ["src/x.rs", "src/y.rs"], "extra": 1},
+  {"id": 3, "text": ["not", "text"], "class": "probe", "grade": "high",
+   "done": {"k": [1.5, 1e16, NaN, -0.0]}, "deps": "a", "paths": null}
+]"#;
+    let files: [(&str, String); 15] = [
+        ("good.md", fenced(good)),
+        ("crlf.md", fenced(good).replace('\n', "\r\n")),
+        (
+            "bare-fence.md",
+            "```\n[{\"id\":\"a\",\"text\":\"t\",\"class\":\"docs\",\"grade\":\"low\"}]```".into(),
+        ),
+        (
+            "two-fences.md",
+            format!(
+                "```rust\nlet x = [1];\n```\n{}{}",
+                fenced(r#"[{"id":"first","text":"t","class":"docs","grade":"low"}]"#),
+                fenced(r#"[{"id":"second","text":"t","class":"docs","grade":"low"}]"#)
+            ),
+        ),
+        (
+            "missing-key.md",
+            fenced(r#"[{"id":"a","text":"t","class":"docs","grade":"low"},{"id":"b","text":"t"}]"#),
+        ),
+        ("no-id.md", fenced(r#"[{"text":"t","class":"docs"}]"#)),
+        (
+            "bad-class.md",
+            fenced(r#"[{"id":"a","text":"t","class":"poetry","grade":"low"}]"#),
+        ),
+        (
+            "bad-grade.md",
+            fenced(r#"[{"id":"a","text":"t","class":"docs","grade":1}]"#),
+        ),
+        (
+            "list-class.md",
+            fenced(r#"[{"id":"a","text":"t","class":["docs"],"grade":"low"}]"#),
+        ),
+        (
+            "no-fence.md",
+            "No tasks here, [1, 2] is not fenced.\n".into(),
+        ),
+        ("bad-json.md", fenced("[{\"id\": }]")),
+        ("number-task.md", fenced("[1]")),
+        ("string-task.md", fenced(r#"["id text class grade"]"#)),
+        ("list-task.md", fenced(r#"[["id", "text"]]"#)),
+        ("empty.md", fenced("[]")),
+    ];
+    for (name, body) in files {
+        std::fs::write(shared.join(name), body).unwrap();
+    }
+    std::fs::create_dir_all(shared.join("sub")).unwrap();
+    for name in ["a.b.md", ".hidden", "sub/trailing."] {
+        std::fs::write(shared.join(name), "x").unwrap();
+    }
+}
+
+#[test]
+fn the_write_commands_match_puppets_py_and_leave_the_same_goal_log() {
+    let scratch = Scratch::new("write");
+    let shared = scratch.0.join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    write_plans(&shared);
+    let cases = write_cases(&shared);
+    let mut crashes = Vec::new();
+    let mut mismatches = Vec::new();
+    for (n, case) in cases.iter().enumerate() {
+        let (class, problems) = compare_write(case, &scratch.0, n);
+        crashes.extend(class.map(|class| format!("{}: {class}", case.label)));
+        if !problems.is_empty() {
+            mismatches.push(format!("{}\n{}", case.label, problems.join("\n")));
+        }
+    }
+    eprintln!("compared {} write command runs:", cases.len());
+    for case in &cases {
+        eprintln!("  {}", case.label);
+    }
+    eprintln!(
+        "python raised, stderr compared by exception class ({}):",
+        crashes.len()
+    );
+    for crash in &crashes {
+        eprintln!("  {crash}");
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} differ:\n\n{}",
+        mismatches.len(),
+        cases.len(),
+        mismatches.join("\n\n")
+    );
+}
+
+#[test]
+fn the_comparator_masks_only_the_stamps_of_appended_lines() {
+    let before = "{\"seq\":1,\"ts\":\"2026-10-01T09:08:07.123Z\",\"event\":\"goal\"}\n";
+    let appended =
+        "{\"seq\":2,\"ts\":\"2026-10-01T09:08:07.456Z\",\"event\":\"task\",\"id\":\"t\"}\n";
+    let masked = "{\"seq\":2,\"ts\":\"<ts>\",\"event\":\"task\",\"id\":\"t\"}\n";
+    let mask = |before: &str, after: &str| {
+        String::from_utf8(mask_appended_ts(before.as_bytes(), after.as_bytes())).unwrap()
+    };
+    // The appended line loses its stamp and the line the input held keeps its own.
+    assert_eq!(
+        mask(before, &[before, appended].concat()),
+        [before, masked].concat()
+    );
+    assert_eq!(
+        mask(before, &[before, appended, appended].concat()),
+        [before, masked, masked].concat()
+    );
+    // A log that does not begin with the input was rewritten, not appended to: left alone.
+    let rewritten = [appended, appended].concat();
+    assert_eq!(mask(before, &rewritten), rewritten);
+    // A `ts` that is not a time, a `ts` further into the event, and a line with no newline.
+    for odd in [
+        "{\"seq\":2,\"ts\":\"yesterday\",\"event\":\"task\"}\n".to_string(),
+        "{\"seq\":2,\"event\":\"task\",\"ts\":\"2026-10-01T09:08:07.456Z\"}\n".to_string(),
+        "{\"seq\":2,\"ts\":\"2026-10-01T09:08:07.456Z\",\"other\":1}\n".to_string(),
+        "{\"seq\":x,\"ts\":\"2026-10-01T09:08:07.456Z\",\"event\":\"task\"}\n".to_string(),
+        appended.trim_end().to_string(),
+    ] {
+        let after = [before, odd.as_str()].concat();
+        assert_eq!(mask(before, &after), after);
+    }
+}
+
+#[test]
+fn the_comparator_masks_a_goal_id_only_when_it_is_a_uuid4() {
+    let id = "0b9f2c3e-6a1d-4c7b-9e2f-5d8a7b6c4e31";
+    assert!(is_goal_id(id));
+    assert_eq!(mask_new_stdout(&format!("{id}\n")), "<goal>\n");
+    for odd in [
+        "g1\n".to_string(),
+        id.to_string(),
+        format!("{id}\n{id}\n"),
+        format!("goal {id}\n"),
+        format!("{}\n", id.to_uppercase()),
+        // Version 7, which `uuid.uuid4()` never prints.
+        "0b9f2c3e-6a1d-7c7b-9e2f-5d8a7b6c4e31\n".to_string(),
+    ] {
+        assert_eq!(mask_new_stdout(&odd), odd);
+    }
 }

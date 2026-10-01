@@ -135,7 +135,8 @@ pub fn hashable(v: &Value) -> Result<()> {
     }
 }
 
-fn type_name(v: &Value) -> &'static str {
+/// `type(v).__name__`.
+pub fn type_name(v: &Value) -> &'static str {
     match v {
         Value::Null => "NoneType",
         Value::Bool(_) => "bool",

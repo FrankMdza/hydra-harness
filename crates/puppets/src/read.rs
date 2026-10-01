@@ -13,7 +13,7 @@ use crate::log::{self, Home};
 use crate::{py, pysort};
 
 /// Something an f-string would interpolate into a line.
-trait Piece {
+pub(crate) trait Piece {
     fn put(&self, line: &mut PyStr);
 }
 
@@ -44,10 +44,11 @@ macro_rules! text {
         line
     }};
 }
+pub(crate) use text;
 
 /// `print(line)`. Python encodes the whole line before it writes any of it, and a lone
 /// surrogate does not encode, so such a line prints nothing and raises.
-fn print(out: &mut dyn Write, line: &PyStr) -> Result<()> {
+pub(crate) fn print(out: &mut dyn Write, line: &PyStr) -> Result<()> {
     let Some(line) = line.to_utf8() else {
         bail!("UnicodeEncodeError: 'utf-8' codec can't encode a surrogate");
     };
