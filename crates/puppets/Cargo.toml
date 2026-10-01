@@ -21,3 +21,6 @@ sha2 = "0.10"
 
 [lints.clippy]
 undocumented_unsafe_blocks = "warn"
+
+[dev-dependencies]
+hydra-grader = { path = "../grader" }

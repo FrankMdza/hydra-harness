@@ -4,20 +4,18 @@ The helper for the Master of Puppets mode: one append-only JSONL log per goal, s
 by folding the log, and task launches through the Hydra binary. Since build ticket 196 the helper
 is `hydra-puppets`, the Rust binary of `crates/puppets`, built by `cargo build --release
 --workspace` beside `hydra`. This directory holds what it reads, `vendors.json`, `priors.json`,
-`aliases.json` and `prompts/`, and two Python files. Approvals are lines appended to the goal
-log that the CLI checks before acting; anything that can run the CLI can write one, and the
+`aliases.json` and `prompts/`, and the shared Python model alias loader. Approvals are lines
+appended to the goal log that the CLI checks before acting; anything that can run the CLI can write one, and the
 helper does not verify that a human typed it.
 
 Build ticket 196 deleted `puppets.py`, the Python the helper was ported from, with the seven
 test files that tested it. Before it went, `crates/puppets/tests/record.py` ran it on every
 input of the differential tests and wrote its output under `crates/puppets/tests/fixtures/`,
-3.3 MB, which `crates/puppets/tests/differential.rs` now compares the Rust with. What is left
-in Python here, and why (map ticket 93):
+3.3 MB, which `crates/puppets/tests/differential.rs` now compares the Rust with.
 
-- `sheet.py` has `build`, `budget` and `show`, which nobody ported and a human or the session
-  runs by hand. It holds no fold, so it waits for the grader's port. Its `rank` and `beta_lower`
-  are also in the crate, where `assign` uses them, and a fixture holds the two to the same bits.
-- `models.py`, 21 lines, because `sheet.py` and `integrations/grader/records.py` both load it.
+Build ticket 219 ports the sheet builder to `hydra-grader sheet build|budget|show`.
+`rank` and `beta_lower` remain in `crates/puppets/src/sheet.rs`, where `assign` uses them.
+`models.py` stays because `integrations/grader/records.py` still loads it.
 
 `jev_probe.py` moved to `integrations/grader/`, which is the only thing that loads it.
 
@@ -172,7 +170,7 @@ attempt or abandoning it. Nothing is relaunched by the helper.
 `plans` takes a proposer's plan from its run's `result_text` (the brief asks for the plan as the
 answer), or copies one regular file from the run's worktree `docs/proposals/` when one exists.
 The copy does not follow links, refuses non-regular files, and is size-capped. `assign` asks
-`sheet.py`'s ranking when sheets have been built under the puppets home, and falls back to a
+the sheet ranking in `hydra-puppets` when sheets have been built under the puppets home, and falls back to a
 default table (recorded as `source: default`) when none exist or nobody qualifies.
 
 `choose --judge` launches the review panel (`claude` opus and `cursor-agent` composer-2.5 under
@@ -205,7 +203,7 @@ highest first. The top line names the newest verdict `model_version` in the file
 only by an older version, or not scored at all, sorts last and is marked `no score`. `board`
 prints that same `p` in a short column beside a task that is waiting for a review, so the cockpit
 and `hydra-board` show it without another command. The order is a suggestion and the human still
-reviews every task. Nothing here writes `scores.jsonl`, and `sheet.py rank` does not read it.
+reviews every task. Nothing here writes `scores.jsonl`, and the sheet ranking does not read it.
 
 Inside Herdr, `launch` runs the binary directly and then opens a pane below the current one
 tailing the run with the bridge's tokens on it. The launch never goes through `hydra-in-pane`,
@@ -215,41 +213,40 @@ which would not return until the run ended.
 
 ```
 cargo test -p hydra-puppets
-python3 -m unittest discover -s integrations/puppets/tests
+cargo test -p hydra-grader
 ```
 
 The first runs the Rust's unit tests and the differential tests. Those run `hydra-puppets` on
 each recorded input, with stubs for `hydra`, `hunk` and `herdr`, and compare its output, its
 exit code and the files it leaves with what the Python gave. No test starts `python3`. The
-second is `sheet.py`'s suite, ten tests with a stub `HYDRA_BIN` script.
+second checks the grader port, including recorded sheet commands with a shell `HYDRA_BIN` stub.
+`sheet_build.rs` also checks that assignment uses freshly built Rust sheets and matches the
+recorded Python ranking.
 
 The fixtures cannot be recorded again from this checkout, because the Python they record is
 gone. `record.py`'s first lines say how it was run and how to run it against a checkout from
 before build ticket 196. A case added to `differential.rs` after that has no recording and
 fails until one exists, so new behaviour of the helper is tested in the crate's unit tests.
 
-## The spec sheet and the rankings, `sheet.py`
+## The spec sheet and the rankings
 
-`sheet.py` builds corpus measurements and merges `vendors.json`, using only Python's
-standard library. It calls `hydra show <id> --events` once per new or changed record,
+`hydra-grader sheet build` builds corpus measurements and merges `vendors.json`. It calls
+`hydra show <id> --events` once per new or changed record,
 with the supplied corpus as Hydra's root. It never infers success from exit status.
 Unchanged records reuse `sheet-cache.json`. Partial final lines wait for the next build.
 
 ```sh
-python3 integrations/puppets/sheet.py build --runs /path/to/runs --home /path/to/puppets
-python3 integrations/puppets/sheet.py budget <run-id> --runs /path/to/runs
-python3 integrations/puppets/sheet.py show claude sonnet --home /path/to/puppets
-python3 integrations/puppets/sheet.py rank --class rust_launch_path --grade medium --home /path/to/puppets
-python3 integrations/puppets/sheet.py rank --class security_review --grade low --provider codex --home /path/to/puppets
-python3 -m unittest discover -s integrations/puppets/tests -v
+hydra-grader sheet build --runs /path/to/runs --home /path/to/puppets
+hydra-grader sheet budget <run-id> --runs /path/to/runs
+hydra-grader sheet show claude sonnet --home /path/to/puppets
 ```
 
 Defaults use `HYDRA_ROOT` (otherwise `~/hydra`) for the corpus and its `puppets`
 subdirectory for output. `HYDRA_PUPPETS_HOME` overrides output; `HYDRA_BIN` selects
 the executable. `agents/<provider>--<model>.json` contains each sheet. Unknown models
 use `~null` in filenames and JSON null in the sheet, forming a provider-only bucket.
-Model names are preserved as recorded; aliases have separate sheets. Filename parts
-are URL encoded. The vendor inventory includes historical names, not a claim that
+Recorded model spellings are retained in `recorded_models`; aliases share a canonical sheet.
+Filename parts are URL encoded. The vendor inventory includes historical names, not a claim that
 those models remain offered. Undocumented vendor facts remain null.
 
 Each sheet contains individual runs, task lineage, policy, subscription, version,
@@ -267,7 +264,7 @@ A missing pair or a decreasing counter produces null. Other providers use
 The weight defaults to 1 because the ticket supplies no measured discount; set
 `build --cache-read-weight` to change it. Missing usage or budget produces null.
 These are per-run measurements, not isolated causal estimates of subscription spend.
-When a run ends `rate_limited`, the session calls `sheet.py budget <run-id>` to set
+When a run ends `rate_limited`, the session calls `hydra-grader sheet budget <run-id>` to set
 `window_budget_tokens` in `vendors.json` to the summed token spend of every Hydra run
 for that provider in the window that just closed. The window's length is the row's
 `windows` (`"5h"`, `"7d"`), or `--since <ISO time>` for the start; with neither the command
@@ -278,13 +275,9 @@ could have shared the window). The command prints one line for the human; relay 
 To undo one revision, remove the last `budget_history` entry on that vendor row and
 set `window_budget_tokens` back to that entry's `previous` value.
 
-Import `rank(sheets, task_class, grade, verdicts=None, policy=None)` to obtain ordered
-rows with provider, model, bound, cost, score, verdict sample size and cost sample size.
-A single sheet also works. Pass all sheets for a task-class ranking or filter by provider
-for a provider ranking, as the CLI's `--provider` does. `--verdicts goal.jsonl` accepts
-the goal log's `event: task` definitions and `event: human_verdict` events. A bare list
-of `{task, run_id, result}` must already be scoped to the requested class; optional
-`task_class` fields can supply that scope. Outcome completion never supplies acceptance.
+`hydra-puppets` uses its Rust `sheet::rank` function when assigning tasks. It reads
+these sheets and the goal log's `event: task` definitions and `event: human_verdict`
+events. There is no separate ranking CLI. Outcome completion never supplies acceptance.
 The first verdict per task is counted once, and an applied resumed run counts as fixed.
 
 Priors live in `priors.json`. The bound is the beta posterior's 10th percentile, a

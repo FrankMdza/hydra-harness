@@ -3497,12 +3497,19 @@ no test starts `python3`. Each test fails when its group holds a fixture no case
 `integrations/grader/tests/test_labels_recorded.py` is the gate above kept as a test: 147 logs
 equal with 291 labels, ten with a human verdict, and 17 that both refuse.
 
-- **What is left in Python, and why.** `integrations/puppets/sheet.py` keeps `build`, `budget`
-  and `show`, which were never ported and are run by hand; it holds no fold, and map ticket 93
-  left it for the grader's own port. `models.py` stays beside it because `sheet.py` and
-  `integrations/grader/records.py` both load it. `jev_probe.py` and its tests moved to
-  `integrations/grader/`, the only thing that loads it. `<puppets home>/agents/` is still
-  written by `sheet.py build`.
+- **What is left in Python, and why.** Build ticket 219 ports the sheet's `build`, `budget`
+  and `show` to `hydra-grader sheet build|budget|show`, in `crates/grader/src/sheet.rs` and
+  `sheet_cli.rs`. The existing committed-line reader and `hydra show` subprocess are reused;
+  the sheet cache retains the full answer and hashes the complete record, including a torn
+  tail, as the Python did. Ranking and `beta_lower` stay in `crates/puppets/src/sheet.rs`.
+  `sheet.py` and its tests are deleted. `models.py` stays because
+  `integrations/grader/records.py` still loads it. The sheet fixtures were recorded from
+  Python 3.14.7 with frozen data and a shell stub, and compare file bytes, output, exit codes
+  and stub calls. Only scratch paths, budget history dates, help/usage and traceback details
+  are normalized. `sheet_build.rs` builds fresh sheets and checks Python's recorded ranking
+  and `hydra-puppets assign`. Its internal grader dependency is test-only; the grader adds no
+  dependency. Recording the sheet again needs a checkout before build 219, passed to
+  `python3 crates/grader/tests/record_sheet.py <checkout>`.
 - **The recording cannot be made again from this checkout.** The Python it records is gone, so
   a case added to `differential.rs` has no fixture and fails until someone records it from a
   checkout before build ticket 196. A change to the helper's behaviour is now checked by its

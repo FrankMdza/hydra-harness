@@ -43,3 +43,6 @@ pub mod records;
 pub mod redact;
 pub mod triage;
 pub mod triage_cli;
+
+pub mod sheet;
+pub mod sheet_cli;

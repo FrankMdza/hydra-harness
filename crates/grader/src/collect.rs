@@ -191,6 +191,28 @@ fn no_program(env: &Env) -> anyhow::Error {
 /// `hydra` is told where the records are through `HYDRA_ROOT`: the directory above `runs`,
 /// or, when `runs` has another name, a scratch directory holding a link called `runs`.
 pub fn refresh_show_answer(run_id: &Value, runs: &Path, hydra: &str, env: &Env) -> Result<Value> {
+    let full = refresh_full_show_answer(run_id, runs, hydra, env)?;
+    let projection = or_empty(get(&full, "projection")?);
+    let outcome = get(&projection, "outcome")?;
+    let usage = or_empty(get(&projection, "usage")?);
+    let counts = or_empty(get(&usage, "counts")?);
+    let mut kept_usage = Dict::new();
+    kept_usage.set("counts", counts);
+    let mut kept = Dict::new();
+    kept.set("outcome", outcome);
+    kept.set("usage", Value::Dict(kept_usage));
+    let mut answer = Dict::new();
+    answer.set("projection", Value::Dict(kept));
+    Ok(Value::Dict(answer))
+}
+
+/// The complete show answer, shared by collect and the sheet cache.
+pub fn refresh_full_show_answer(
+    run_id: &Value,
+    runs: &Path,
+    hydra: &str,
+    env: &Env,
+) -> Result<Value> {
     let resolved = std::fs::canonicalize(runs).map_err(|err| io_error(&err, runs))?;
     let mut root = resolved.parent().unwrap_or(Path::new("/")).to_path_buf();
     let mut scratch = None;
@@ -260,19 +282,7 @@ pub fn refresh_show_answer(run_id: &Value, runs: &Path, hydra: &str, env: &Env) 
         Ok(full) => full,
         Err((err, message)) => bail!("{}: {message}", err.class()),
     };
-    let projection = or_empty(get(&full, "projection")?);
-    let outcome = get(&projection, "outcome")?;
-    let usage = or_empty(get(&projection, "usage")?);
-    let counts = or_empty(get(&usage, "counts")?);
-    // Only what a dataset row reads.
-    let mut kept_usage = Dict::new();
-    kept_usage.set("counts", counts);
-    let mut kept = Dict::new();
-    kept.set("outcome", outcome);
-    kept.set("usage", Value::Dict(kept_usage));
-    let mut answer = Dict::new();
-    answer.set("projection", Value::Dict(kept));
-    Ok(Value::Dict(answer))
+    Ok(full)
 }
 
 /// `dataset_row`: one line of the dataset. Puppets names the run: it wins. Otherwise a class

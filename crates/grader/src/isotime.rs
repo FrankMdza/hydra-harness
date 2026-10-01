@@ -347,6 +347,17 @@ const EPOCH: i128 = 719_162 * DAY;
 const END: i128 = 3_652_059 * DAY;
 
 impl DateTime {
+    /// Today's date in this datetime's fixed offset, for sheet budget history.
+    pub fn today_in_zone(&self) -> String {
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let now = Self::from_unix_millis(millis).expect("current date is in range");
+        let local = now.local + self.offset.unwrap_or(0);
+        let (year, month, day) = from_ordinal(local.div_euclid(DAY) + 1);
+        format!("{year:04}-{month:02}-{day:02}")
+    }
+
     /// `datetime.fromtimestamp(millis / 1000, timezone.utc)`, `None` where it raises
     /// `ValueError` for a year past 9999. The division is a float's, so the microseconds are
     /// what the float holds once rounded half to even, which past the year 2255 is no longer

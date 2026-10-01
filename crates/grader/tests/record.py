@@ -963,6 +963,8 @@ def main() -> int:
     # Build ticket 218: `judge.py`'s `label` and `agree`, in the file beside this one.
     load_module("record_judge", HERE / "record_judge.py").record(out, REPO)
 
+    load_module("record_sheet", HERE / "record_sheet.py").record(out, REPO)
+
     digest = hashlib.sha256()
     for path in sorted(p for p in out.rglob("*") if p.is_file()):
         digest.update(path.read_bytes())

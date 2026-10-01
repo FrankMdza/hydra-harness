@@ -35,10 +35,6 @@ jobs:
           cargo test --release --test record_contract every_fixture_meets_the_contract -- --nocapture 2>&1 \
             | { grep '^checked ' || echo "the fixture walk found no fixtures"; } \
             | tee -a "$GITHUB_STEP_SUMMARY"
-      # What build ticket 196 left of the Python under `integrations/puppets/`: `sheet.py` and
-      # its ten tests. They run under the standard library's runner because the macOS image
-      # ships no pytest, and the tests are plain unittest cases.
-      - run: python3 -m unittest discover -s integrations/puppets/tests -q
       # The grader integration has the same shape: stdlib unittest on the macOS runner. Its
       # labels come from `hydra-puppets show` (map 93), so these tests run the helper the
       # release build above left in `target/release/`, and fail without it.

@@ -573,6 +573,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "hydra-grader",
  "hydra-pyjson",
  "libc",
  "sha2",

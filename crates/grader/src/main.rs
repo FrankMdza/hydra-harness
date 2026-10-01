@@ -14,6 +14,13 @@ fn main() -> ExitCode {
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
+    if args.first().is_some_and(|first| first == "sheet") {
+        return ExitCode::from(hydra_grader::sheet_cli::main(
+            &args[1..],
+            &mut std::io::stdout().lock(),
+            &mut std::io::stderr().lock(),
+        ));
+    }
     // Build ticket 213: `baseline.py`'s `train` and `score`.
     if args.first().is_some_and(|first| first == "baseline") {
         let (mut stdout, mut stderr) = (std::io::stdout().lock(), std::io::stderr().lock());
