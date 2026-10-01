@@ -2,7 +2,7 @@
 
 Type: build
 Status: open
-Blocked by: 195
+Blocked by: 195, 207
 
 ## What
 
@@ -26,6 +26,20 @@ and `hy.zsh` name `puppets.py`.
    files need a home that does not.
 5. CI: `cargo test --workspace`, and drop the puppets Python suite step. README, `hy.zsh`, the
    Herdr plugin and `IMPLEMENTATION.md` name `hydra-puppets`.
+
+## Notes from 195
+
+- Wait for the review of 195 and for build 207 before this ticket: once the Python is deleted
+  nothing checks the Rust against it.
+- `sheet.py`'s `build`, `budget` and `corpus_records`, and `models.py` beyond `load_aliases` and
+  `canonical`, have no caller in the helper's commands and were not ported. Find who runs them
+  (`grep -rn 'sheet.py\|sheet build\|models.py' --include='*' .` outside `.scratch/`), and
+  either port them or keep those two files and say so.
+- The differential tests need the Python. Decide per test: turn its inputs and the Python's
+  recorded outputs into fixtures the Rust is checked against, or delete it. Do not leave a test
+  that silently skips.
+- The first real launch: run `hydra-puppets` once against the real `hydra` on a throwaway goal
+  (the session does this, with the human's quota in mind) before the Python goes.
 
 ## Done when
 

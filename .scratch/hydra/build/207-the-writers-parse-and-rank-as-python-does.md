@@ -1,7 +1,7 @@
 # 207 - The writers parse and rank as Python does
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 195
 
 ## What

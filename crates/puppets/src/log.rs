@@ -28,6 +28,8 @@ pub struct Home {
     pub grader: PathBuf,
     /// `HYDRA_PUPPETS_VENDORS`, else the `vendors.json` beside `puppets.py`.
     pub vendors: PathBuf,
+    /// `HYDRA_ROOT`, else `~/hydra`: `runs/` and `worktrees/`, which the launch commands read.
+    pub root: PathBuf,
 }
 
 /// `integrations/puppets/`, where `puppets.py` and its data files live until the cutover.
@@ -52,28 +54,29 @@ impl Home {
             Some(path) => path,
             None => user_home()?.join("hydra").join("puppets"),
         };
-        let grader = match named("HYDRA_GRADER_HOME") {
+        let root = match named("HYDRA_ROOT") {
             Some(path) => path,
-            None => match named("HYDRA_ROOT") {
-                Some(root) => root.join("grader"),
-                None => user_home()?.join("hydra").join("grader"),
-            },
+            None => user_home()?.join("hydra"),
         };
+        let grader = named("HYDRA_GRADER_HOME").unwrap_or_else(|| root.join("grader"));
         let vendors =
             named("HYDRA_PUPPETS_VENDORS").unwrap_or_else(|| python_dir().join("vendors.json"));
         Ok(Home {
             puppets,
             grader,
             vendors,
+            root,
         })
     }
 
-    /// A home rooted in one directory, for tests: `puppets/`, `grader/` and `vendors.json`.
+    /// A home rooted in one directory, for tests: `puppets/`, `grader/`, `vendors.json` and
+    /// `root/`.
     pub fn at(dir: &Path) -> Home {
         Home {
             puppets: dir.join("puppets"),
             grader: dir.join("grader"),
             vendors: dir.join("vendors.json"),
+            root: dir.join("root"),
         }
     }
 

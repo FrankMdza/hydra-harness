@@ -201,18 +201,34 @@ pub const MAX_NESTING: usize = 100_000;
 
 /// Parse a document as `json.loads(str)` does.
 pub fn loads(text: &PyStr) -> Result<Value, ParseError> {
-    let mut parser = Parser {
-        s: text.code_points(),
-        i: 0,
-        depth: 0,
-    };
+    loads_explained(text).map_err(|(err, _)| err)
+}
+
+/// `json.loads(str)`, and for a `JSONDecodeError` what `str(err)` says: the message and
+/// where, as `Expecting value: line 1 column 1 (char 0)`. The messages and positions are
+/// those of CPython 3.14's C scanner.
+pub fn loads_explained(text: &PyStr) -> Result<Value, (ParseError, String)> {
+    let mut parser = Parser::new(text);
     parser.ws();
-    let value = parser.value()?;
-    parser.ws();
-    if parser.i != parser.s.len() {
-        return Err(ParseError::Decode);
+    let parsed = parser.value().and_then(|value| {
+        parser.ws();
+        if parser.i != parser.s.len() {
+            return parser.bad("Extra data", parser.i);
+        }
+        Ok(value)
+    });
+    parsed.map_err(|err| (err, parser.explain()))
+}
+
+/// `json.JSONDecoder().raw_decode(str)`: one value from the first character, with no
+/// whitespace skipped before it and anything at all allowed after it. Returns the value and
+/// where it ended, or the error as `loads_explained` gives it.
+pub fn raw_decode(text: &PyStr) -> Result<(Value, usize), (ParseError, String)> {
+    let mut parser = Parser::new(text);
+    match parser.value() {
+        Ok(value) => Ok((value, parser.i)),
+        Err(err) => Err((err, parser.explain())),
     }
-    Ok(value)
 }
 
 /// `json.loads(str)` on text that is already a Rust string.
@@ -388,9 +404,40 @@ struct Parser<'a> {
     s: &'a [u32],
     i: usize,
     depth: usize,
+    /// The message and position of the `JSONDecodeError`, once one is raised.
+    fail: Option<(&'static str, usize)>,
 }
 
-impl Parser<'_> {
+impl<'a> Parser<'a> {
+    fn new(text: &'a PyStr) -> Parser<'a> {
+        Parser {
+            s: text.code_points(),
+            i: 0,
+            depth: 0,
+            fail: None,
+        }
+    }
+
+    /// Raise `JSONDecodeError(message, doc, at)`.
+    fn bad<T>(&mut self, message: &'static str, at: usize) -> Result<T, ParseError> {
+        self.fail = Some((message, at));
+        Err(ParseError::Decode)
+    }
+
+    /// `str(err)` for the `JSONDecodeError` raised, empty when the failure was another class.
+    fn explain(&self) -> String {
+        let Some((message, at)) = self.fail else {
+            return String::new();
+        };
+        let before = &self.s[..at.min(self.s.len())];
+        let line = before.iter().filter(|code| **code == 0xa).count() + 1;
+        let column = match before.iter().rposition(|code| *code == 0xa) {
+            Some(newline) => at - newline,
+            None => at + 1,
+        };
+        format!("{message}: line {line} column {column} (char {at})")
+    }
+
     fn peek(&self) -> Option<char> {
         // A surrogate is no character the grammar names, so U+FFFD stands for it here; inside
         // a string the code point itself is copied, not this.
@@ -435,7 +482,7 @@ impl Parser<'_> {
             Some('I') if self.eat("Infinity") => Ok(Value::Float(f64::INFINITY)),
             Some('-') if self.eat("-Infinity") => Ok(Value::Float(f64::NEG_INFINITY)),
             Some('-' | '0'..='9') => self.number(),
-            _ => Err(ParseError::Decode),
+            _ => self.bad("Expecting value", self.i),
         }
     }
 
@@ -471,7 +518,7 @@ impl Parser<'_> {
                 1
             }
             Some('1'..='9') => self.digits(),
-            _ => return Err(ParseError::Decode),
+            _ => return self.bad("Expecting value", start),
         };
         let mut is_float = false;
         if self.peek() == Some('.')
@@ -501,10 +548,10 @@ impl Parser<'_> {
             .filter_map(|code| char::from_u32(*code))
             .collect();
         if is_float {
-            return text
-                .parse::<f64>()
-                .map(Value::Float)
-                .map_err(|_| ParseError::Decode);
+            return match text.parse::<f64>() {
+                Ok(float) => Ok(Value::Float(float)),
+                Err(_) => self.bad("Expecting value", start),
+            };
         }
         if int_digits > MAX_INT_DIGITS {
             return Err(ParseError::IntDigits);
@@ -515,29 +562,41 @@ impl Parser<'_> {
         })
     }
 
+    /// The four hex digits of a `\u` escape whose `u` is at `self.i - 1`. An escape the end
+    /// of the document cuts short is this error, not an unterminated string.
     fn hex4(&mut self) -> Result<u32, ParseError> {
-        let chunk = self.s.get(self.i..self.i + 4).ok_or(ParseError::Decode)?;
+        const MESSAGE: &str = "Invalid \\uXXXX escape";
+        let escape = self.i - 1;
+        if self.i + 4 > self.s.len() {
+            return self.bad(MESSAGE, escape);
+        }
         let mut unit = 0;
-        for code in chunk {
-            let digit = char::from_u32(*code)
-                .and_then(|c| c.to_digit(16))
-                .ok_or(ParseError::Decode)?;
-            unit = unit * 16 + digit;
+        for at in self.i..self.i + 4 {
+            let Some(hex) = char::from_u32(self.s[at]).and_then(|c| c.to_digit(16)) else {
+                return self.bad(MESSAGE, escape);
+            };
+            unit = unit * 16 + hex;
         }
         self.i += 4;
         Ok(unit)
     }
 
     fn string(&mut self) -> Result<PyStr, ParseError> {
+        const UNTERMINATED: &str = "Unterminated string starting at";
+        let begin = self.i;
         self.i += 1;
         let mut out = PyStr::new();
         loop {
-            let code = *self.s.get(self.i).ok_or(ParseError::Decode)?;
+            let Some(&code) = self.s.get(self.i) else {
+                return self.bad(UNTERMINATED, begin);
+            };
             self.i += 1;
             match code {
                 0x22 => return Ok(out),
                 0x5c => {
-                    let escape = self.peek().ok_or(ParseError::Decode)?;
+                    let Some(escape) = self.peek() else {
+                        return self.bad(UNTERMINATED, begin);
+                    };
                     self.i += 1;
                     match escape {
                         '"' => out.push_code(0x22),
@@ -550,9 +609,13 @@ impl Parser<'_> {
                         't' => out.push_code(0x9),
                         'u' => {
                             let unit = self.hex4()?;
-                            // A high surrogate joins a low one that follows as an escape;
-                            // anything else leaves it standing alone, as Python does.
-                            if (0xd800..0xdc00).contains(&unit) && self.starts_with("\\u") {
+                            // A high surrogate joins a low one that follows as an escape,
+                            // when a character follows that escape too; anything else
+                            // leaves it standing alone, as Python does.
+                            if (0xd800..0xdc00).contains(&unit)
+                                && self.i + 6 < self.s.len()
+                                && self.starts_with("\\u")
+                            {
                                 let mark = self.i;
                                 self.i += 2;
                                 let low = self.hex4()?;
@@ -566,11 +629,11 @@ impl Parser<'_> {
                             }
                             out.push_code(unit);
                         }
-                        _ => return Err(ParseError::Decode),
+                        _ => return self.bad("Invalid \\escape", self.i - 2),
                     }
                 }
                 // A raw control character.
-                0..0x20 => return Err(ParseError::Decode),
+                0..0x20 => return self.bad("Invalid control character at", self.i - 1),
                 other => out.push_code(other),
             }
         }
@@ -586,12 +649,12 @@ impl Parser<'_> {
         }
         loop {
             if self.peek() != Some('"') {
-                return Err(ParseError::Decode);
+                return self.bad("Expecting property name enclosed in double quotes", self.i);
             }
             let key = self.string()?;
             self.ws();
             if self.peek() != Some(':') {
-                return Err(ParseError::Decode);
+                return self.bad("Expecting ':' delimiter", self.i);
             }
             self.i += 1;
             self.ws();
@@ -600,14 +663,18 @@ impl Parser<'_> {
             self.ws();
             match self.peek() {
                 Some(',') => {
+                    let comma = self.i;
                     self.i += 1;
                     self.ws();
+                    if self.peek() == Some('}') {
+                        return self.bad("Illegal trailing comma before end of object", comma);
+                    }
                 }
                 Some('}') => {
                     self.i += 1;
                     return Ok(Value::Dict(dict));
                 }
-                _ => return Err(ParseError::Decode),
+                _ => return self.bad("Expecting ',' delimiter", self.i),
             }
         }
     }
@@ -625,14 +692,18 @@ impl Parser<'_> {
             self.ws();
             match self.peek() {
                 Some(',') => {
+                    let comma = self.i;
                     self.i += 1;
                     self.ws();
+                    if self.peek() == Some(']') {
+                        return self.bad("Illegal trailing comma before end of array", comma);
+                    }
                 }
                 Some(']') => {
                     self.i += 1;
                     return Ok(Value::List(items));
                 }
-                _ => return Err(ParseError::Decode),
+                _ => return self.bad("Expecting ',' delimiter", self.i),
             }
         }
     }
@@ -683,16 +754,40 @@ pub fn float_repr(x: f64) -> String {
     }
 }
 
+/// How `json.dumps` separates what it writes.
+#[derive(Clone, Copy)]
+enum Style {
+    /// `separators=(",", ":")`, one line.
+    Compact,
+    /// The default separators, `", "` and `": "`, one line.
+    Spaced,
+    /// `indent=n`.
+    Indent(usize),
+}
+
 /// `json.dumps` with `ensure_ascii=True`: `indent` of `Some(n)` is the pretty form,
 /// `None` is `separators=(",", ":")`. The output is ASCII, so it is a Rust string whatever
 /// the value holds.
 pub fn dumps(value: &Value, indent: Option<usize>) -> String {
     let mut out = String::new();
-    write_value(&mut out, value, indent, 0);
+    write_value(
+        &mut out,
+        value,
+        indent.map_or(Style::Compact, Style::Indent),
+        0,
+    );
     out
 }
 
-fn write_value(out: &mut String, value: &Value, indent: Option<usize>, depth: usize) {
+/// `json.dumps(value)` with no arguments: one line, `", "` between items and `": "` after
+/// a key.
+pub fn dumps_default(value: &Value) -> String {
+    let mut out = String::new();
+    write_value(&mut out, value, Style::Spaced, 0);
+    out
+}
+
+fn write_value(out: &mut String, value: &Value, style: Style, depth: usize) {
     match value {
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
@@ -711,39 +806,47 @@ fn write_value(out: &mut String, value: &Value, indent: Option<usize>, depth: us
         Value::List(items) => {
             out.push('[');
             for (n, item) in items.iter().enumerate() {
-                separate(out, n, indent, depth + 1);
-                write_value(out, item, indent, depth + 1);
+                separate(out, n, style, depth + 1);
+                write_value(out, item, style, depth + 1);
             }
-            close(out, indent, depth);
+            close(out, style, depth);
             out.push(']');
         }
         Value::Dict(dict) if dict.is_empty() => out.push_str("{}"),
         Value::Dict(dict) => {
             out.push('{');
             for (n, (key, item)) in dict.iter().enumerate() {
-                separate(out, n, indent, depth + 1);
+                separate(out, n, style, depth + 1);
                 write_str(out, key);
-                out.push_str(if indent.is_some() { ": " } else { ":" });
-                write_value(out, item, indent, depth + 1);
+                out.push_str(if matches!(style, Style::Compact) {
+                    ":"
+                } else {
+                    ": "
+                });
+                write_value(out, item, style, depth + 1);
             }
-            close(out, indent, depth);
+            close(out, style, depth);
             out.push('}');
         }
     }
 }
 
-fn separate(out: &mut String, n: usize, indent: Option<usize>, depth: usize) {
+fn separate(out: &mut String, n: usize, style: Style, depth: usize) {
     if n > 0 {
-        out.push(',');
+        out.push_str(if matches!(style, Style::Spaced) {
+            ", "
+        } else {
+            ","
+        });
     }
-    if let Some(width) = indent {
+    if let Style::Indent(width) = style {
         out.push('\n');
         out.push_str(&" ".repeat(width * depth));
     }
 }
 
-fn close(out: &mut String, indent: Option<usize>, depth: usize) {
-    if let Some(width) = indent {
+fn close(out: &mut String, style: Style, depth: usize) {
+    if let Style::Indent(width) = style {
         out.push('\n');
         out.push_str(&" ".repeat(width * depth));
     }
@@ -800,6 +903,84 @@ mod tests {
         for (x, want) in cases {
             assert_eq!(float_repr(x), want, "{x}");
         }
+    }
+
+    /// Each message is `str(err)` from `json.loads(text)` under Python 3.14.
+    #[test]
+    fn a_decode_error_says_what_python_says_and_where() {
+        for (text, want) in [
+            ("", "Expecting value: line 1 column 1 (char 0)"),
+            ("nul", "Expecting value: line 1 column 1 (char 0)"),
+            ("-", "Expecting value: line 1 column 1 (char 0)"),
+            ("[", "Expecting value: line 1 column 2 (char 1)"),
+            (
+                "{",
+                "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+            ),
+            (
+                "{\"a\"",
+                "Expecting ':' delimiter: line 1 column 5 (char 4)",
+            ),
+            ("[1 2]", "Expecting ',' delimiter: line 1 column 4 (char 3)"),
+            (
+                "[1,]",
+                "Illegal trailing comma before end of array: line 1 column 3 (char 2)",
+            ),
+            (
+                "{\"a\":1,}",
+                "Illegal trailing comma before end of object: line 1 column 7 (char 6)",
+            ),
+            ("{} x", "Extra data: line 1 column 4 (char 3)"),
+            (
+                "\"abc",
+                "Unterminated string starting at: line 1 column 1 (char 0)",
+            ),
+            (
+                "\"\\u1234",
+                "Unterminated string starting at: line 1 column 1 (char 0)",
+            ),
+            ("\"a\\qb\"", "Invalid \\escape: line 1 column 3 (char 2)"),
+            (
+                "\"a\\u12\"",
+                "Invalid \\uXXXX escape: line 1 column 4 (char 3)",
+            ),
+            (
+                "\"\\ud800\\u12",
+                "Invalid \\uXXXX escape: line 1 column 9 (char 8)",
+            ),
+            (
+                "\"a\u{1}b\"",
+                "Invalid control character at: line 1 column 3 (char 2)",
+            ),
+            (
+                "{\"a\":1,\n \"b\"}",
+                "Expecting ':' delimiter: line 2 column 5 (char 12)",
+            ),
+        ] {
+            let (class, message) = loads_explained(&PyStr::from(text)).unwrap_err();
+            assert_eq!(
+                (class, message.as_str()),
+                (ParseError::Decode, want),
+                "{text:?}"
+            );
+        }
+        // `raw_decode` starts at the first character and stops after one value.
+        let (value, end) = raw_decode(&PyStr::from("{\"a\": 1} and more")).unwrap();
+        assert_eq!((dumps(&value, None).as_str(), end), ("{\"a\":1}", 8));
+        let (_, message) = raw_decode(&PyStr::from(" {}")).unwrap_err();
+        assert_eq!(message, "Expecting value: line 1 column 1 (char 0)");
+        // An error of another class has no such message.
+        let (class, message) = loads_explained(&PyStr::from("9".repeat(5000))).unwrap_err();
+        assert_eq!((class, message.as_str()), (ParseError::IntDigits, ""));
+    }
+
+    #[test]
+    fn the_default_separators_put_a_space_after_each_comma_and_colon() {
+        let value = loads_str(r#"{"a":[1,"é",{}],"b":{"c":null}}"#).unwrap();
+        assert_eq!(
+            dumps_default(&value),
+            "{\"a\": [1, \"\\u00e9\", {}], \"b\": {\"c\": null}}"
+        );
     }
 
     #[test]

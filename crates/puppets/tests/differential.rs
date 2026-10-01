@@ -24,6 +24,11 @@
 //! goal logs left behind must be equal line by line. Two more things are normalized there:
 //! - the `ts` of each line the command appended, and of no line the input already held;
 //! - the goal id `new` generates, in its stdout and in the name of the log it creates.
+//!
+//! The commands that launch (`plan`, `plans`, `launch`, `wait`, `review`, `choose --judge`)
+//! run with a stub in place of `hydra`, `hunk` and `herdr`. The stub writes down each call,
+//! and the calls must be equal too: argv, environment, working directory and stdin. One more
+//! thing is normalized there: each implementation's own scratch home, wherever it appears.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -247,13 +252,18 @@ fn mask_torn_stamp(text: &str) -> String {
     out
 }
 
-/// The exception class on a traceback's last line, without its module.
+/// The exception class a traceback ends on, without its module. The line that names it is
+/// the last one that is not indented and follows a frame's indented line, so a message that
+/// runs over several lines is not read as a class.
 fn exception_class(stderr: &str) -> Option<String> {
     if !stderr.starts_with("Traceback (most recent call last):") {
         return None;
     }
-    let last = stderr.trim_end().lines().last()?;
-    let class = last.split(':').next()?;
+    let lines: Vec<&str> = stderr.trim_end().lines().collect();
+    let raised = lines
+        .windows(2)
+        .rfind(|pair| pair[0].starts_with(' ') && !pair[1].starts_with(' '))?;
+    let class = raised[1].split(':').next()?;
     Some(class.rsplit('.').next()?.to_string())
 }
 
@@ -1253,6 +1263,14 @@ fn the_comparator_reads_the_class_the_rust_names_first() {
             "Traceback (most recent call last):\n  File \"x\"\njson.decoder.JSONDecodeError: Expecting value: line 1\n"
         ),
         Some("JSONDecodeError".to_string())
+    );
+    // A message that goes on for more lines does not hide the class, and a line of it
+    // that looks like one is not it.
+    assert_eq!(
+        exception_class(
+            "Traceback (most recent call last):\n  File \"x\"\n    raise RuntimeError(m)\nRuntimeError: stderr was:\nhydra: refused\nKeyError: 1\n"
+        ),
+        Some("RuntimeError".to_string())
     );
 }
 
@@ -2324,4 +2342,1045 @@ fn repair_temporary_symlink_matches_python() {
         outcomes.push(result);
     }
     assert_eq!(outcomes[0], outcomes[1]);
+}
+
+// The commands that launch: `plan`, `plans`, `launch`, `wait`, `review` and `choose --judge`.
+//
+// Neither implementation starts a provider here. `HYDRA_BIN` names a stub, and stubs named
+// `hunk` and `herdr` come first on `PATH`. Each stub call writes its argv, its environment,
+// its working directory and, for `hunk session`, its stdin under `stub/calls/`. Both
+// implementations run from an environment built from nothing, so what a stub records is
+// what the command handed it.
+
+/// One script under three names. The name and the first argument pick what it does. A
+/// `hydra run` is numbered per case, so the run ids are the same under both
+/// implementations, and `stub/answers/<n>` is what `hydra show` prints for the nth run.
+const STUB: &str = r#"#!/bin/bash
+state="$STUB_STATE"
+prog=$(basename "$0")
+case "$prog" in hydra*) prog=hydra ;; esac
+key="$prog-${1:-none}"
+mkdir -p "$state/calls" "$state/show"
+n=$(( $(cat "$state/count-$key" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$state/count-$key"
+call="$state/calls/$key-$n"
+printf '%s\0' "$@" > "$call.argv"
+env | sort > "$call.env"
+pwd > "$call.cwd"
+case "$key" in
+  hydra-run)
+    if [ -f "$state/run-stderr" ]; then
+      cat "$state/run-stderr" >&2
+      exit 3
+    fi
+    id="run-$n"
+    mkdir -p "$HYDRA_ROOT/runs"
+    printf '%s\n' \
+      '{"hydra":{"type":"run_start"},"run_id":"'"$id"'","seq":0}' \
+      '{"hydra":{"type":"run_end"},"run_id":"'"$id"'","seq":1}' \
+      > "$HYDRA_ROOT/runs/$id.jsonl"
+    if [ -f "$state/answers/$n" ]; then cp "$state/answers/$n" "$state/show/$id"; fi
+    echo "hydra: run $id" >&2
+    ;;
+  hydra-show)
+    if [ -f "$state/show/$2" ]; then
+      cat "$state/show/$2"
+      exit 0
+    fi
+    echo "hydra: no run record for $2" >&2
+    exit 1
+    ;;
+  hunk-session)
+    cat > "$call.stdin"
+    ;;
+  hunk-show)
+    echo "hunk shows $2"
+    ;;
+  herdr-pane)
+    if [ "$2" = split ]; then
+      if [ -f "$state/herdr-split" ]; then
+        cat "$state/herdr-split"
+      else
+        echo '{"result":{"pane":{"pane_id":"pane-9"}}}'
+      fi
+    fi
+    ;;
+esac
+"#;
+
+/// One launch command on one starting home.
+struct LaunchCase {
+    label: String,
+    args: Vec<String>,
+    /// Files under the case home by relative path: `puppets/g1.jsonl`, `vendors.json`,
+    /// `root/runs/<id>.jsonl`, `root/worktrees/...`, `stub/answers/<n>`, `stub/show/<id>`.
+    files: Vec<(String, Vec<u8>)>,
+    /// A link and what it points at, both relative to the case home; `true` for a hard link.
+    links: Vec<(String, String, bool)>,
+    env: Vec<(&'static str, &'static str)>,
+}
+
+impl LaunchCase {
+    fn new(label: &str, log: Option<&str>, args: &[&str]) -> LaunchCase {
+        let mut case = LaunchCase {
+            label: label.to_string(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            files: Vec::new(),
+            links: Vec::new(),
+            env: Vec::new(),
+        };
+        if let Some(log) = log {
+            case = case.file("puppets/g1.jsonl", log);
+        }
+        case
+    }
+
+    fn file(mut self, path: &str, body: &str) -> LaunchCase {
+        self.files
+            .push((path.to_string(), body.as_bytes().to_vec()));
+        self
+    }
+
+    /// What `hydra show` prints for the nth run the command launches.
+    fn answers(mut self, answers: &[&str]) -> LaunchCase {
+        for (n, answer) in answers.iter().enumerate() {
+            self = self.file(&format!("stub/answers/{}", n + 1), &shown(answer, None));
+        }
+        self
+    }
+
+    fn herdr(mut self) -> LaunchCase {
+        self.env.push(("HERDR_ENV", "1"));
+        self.env.push(("HERDR_PANE_ID", "pane-1"));
+        self
+    }
+
+    fn seed(&self, dir: &Path) {
+        for sub in ["puppets", "root/runs", "stub", "grader"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        for (path, body) in &self.files {
+            let path = dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        for (link, target, hard) in &self.links {
+            let (link, target) = (dir.join(link), dir.join(target));
+            std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+            if *hard {
+                std::fs::hard_link(target, link).unwrap();
+            } else {
+                std::os::unix::fs::symlink(target, link).unwrap();
+            }
+        }
+    }
+}
+
+/// What the real `hydra show` prints for an ended run, `src/outcome.rs`'s `RunResult`, with
+/// this `result_text` and, for a run that left one, this branch.
+fn shown(result_text: &str, branch: Option<&str>) -> String {
+    let branch = branch.map_or(String::new(), |b| format!("\"branch\":{},", json_string(b)));
+    format!(
+        r#"{{"run_id":"shown","outcome":"completed","outcome_source":"provider","exit_code":0,"error":null,"result_text":{},{branch}"usage":{{"usage_source":"provider","counts":{{"input_tokens":5,"output_tokens":7,"raw_input":5,"total_tokens":12}}}},"run_file":"/f.jsonl"}}"#,
+        json_string(result_text)
+    )
+}
+
+/// Replace every occurrence of one implementation's home with `<home>`.
+fn mask_home(bytes: &[u8], dir: &Path) -> Vec<u8> {
+    let needle = dir.to_str().unwrap().as_bytes();
+    let mut out = Vec::new();
+    let mut rest = bytes;
+    while let Some(at) = rest.windows(needle.len()).position(|w| w == needle) {
+        out.extend_from_slice(&rest[..at]);
+        out.extend_from_slice(b"<home>");
+        rest = &rest[at + needle.len()..];
+    }
+    out.extend_from_slice(rest);
+    out
+}
+
+fn files_under(dir: &Path, prefix: &str, out: &mut Vec<(String, Vec<u8>)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries {
+        let path = entry.unwrap().path();
+        let name = format!("{prefix}{}", path.file_name().unwrap().to_string_lossy());
+        if path.is_dir() {
+            files_under(&path, &format!("{name}/"), out);
+        } else {
+            out.push((name, std::fs::read(&path).unwrap()));
+        }
+    }
+}
+
+/// What one implementation left: every file under `puppets/` and every stub call, with the
+/// stamps of appended log lines and the implementation's own home masked.
+fn launched(case: &LaunchCase, dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut files = Vec::new();
+    files_under(&dir.join("puppets"), "puppets/", &mut files);
+    files_under(&dir.join("stub/calls"), "calls/", &mut files);
+    for (name, bytes) in &mut files {
+        if name.ends_with(".jsonl") {
+            let before = case
+                .files
+                .iter()
+                .find(|(path, _)| path == name)
+                .map_or(&[][..], |(_, body)| body);
+            *bytes = mask_appended_ts(before, bytes);
+        }
+        *bytes = mask_home(bytes, dir);
+    }
+    files.sort();
+    files
+}
+
+fn run_launch(program: &[&str], case: &LaunchCase, dir: &Path, bin: &Path, cwd: &Path) -> Outcome {
+    let mut cmd = Command::new(program[0]);
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    cmd.args(&program[1..])
+        .args(&case.args)
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .env_clear()
+        .env("PATH", path)
+        .env("HOME", dir)
+        .env("LC_ALL", "en_US.UTF-8")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HYDRA_BIN", bin.join("hydra-stub"))
+        .env("STUB_STATE", dir.join("stub"))
+        .env("HYDRA_PUPPETS_HOME", dir.join("puppets"))
+        .env("HYDRA_ROOT", dir.join("root"))
+        .env("HYDRA_GRADER_HOME", dir.join("grader"))
+        // `review` ends in `execvp`, which does not flush Python's buffer when stdout is a
+        // pipe. Unbuffered, it prints what it prints on a terminal.
+        .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONDONTWRITEBYTECODE", "1");
+    if dir.join("vendors.json").is_file() {
+        cmd.env("HYDRA_PUPPETS_VENDORS", dir.join("vendors.json"));
+    }
+    for (key, value) in &case.env {
+        cmd.env(key, value);
+    }
+    let output = cmd.output().unwrap_or_else(|e| panic!("{program:?}: {e}"));
+    let text = |bytes: &[u8]| String::from_utf8_lossy(&mask_home(bytes, dir)).into_owned();
+    Outcome {
+        code: output.status.code().unwrap_or(-1),
+        stdout: text(&output.stdout),
+        stderr: text(&output.stderr),
+    }
+}
+
+fn compare_launch(
+    case: &LaunchCase,
+    root: &Path,
+    n: usize,
+    bin: &Path,
+    cwd: &Path,
+) -> (Option<String>, Vec<String>) {
+    let base = root.join(format!("l{n:03}"));
+    let (py_dir, rs_dir) = (base.join("py"), base.join("rs"));
+    case.seed(&py_dir);
+    case.seed(&rs_dir);
+    let script = script();
+    let py = run_launch(
+        &["python3", script.to_str().unwrap()],
+        case,
+        &py_dir,
+        bin,
+        cwd,
+    );
+    let rs = run_launch(&[RUST], case, &rs_dir, bin, cwd);
+    let mut problems = Vec::new();
+    let (py_files, rs_files) = (launched(case, &py_dir), launched(case, &rs_dir));
+    let names = |files: &[(String, Vec<u8>)]| -> Vec<String> {
+        files.iter().map(|(name, _)| name.clone()).collect()
+    };
+    if names(&py_files) != names(&rs_files) {
+        problems.push(format!(
+            "the files differ\npython left {:?}\nrust left {:?}",
+            names(&py_files),
+            names(&rs_files)
+        ));
+    } else {
+        for ((name, py_bytes), (_, rs_bytes)) in py_files.iter().zip(&rs_files) {
+            if py_bytes != rs_bytes {
+                problems.push(format!(
+                    "{name} differs\npython:\n{}\nrust:\n{}",
+                    String::from_utf8_lossy(py_bytes),
+                    String::from_utf8_lossy(rs_bytes)
+                ));
+            }
+        }
+    }
+    let (class, problem) = judge(&py, &rs);
+    problems.extend(problem);
+    (class, problems)
+}
+
+/// A repository with a base commit on `main` and a branch `hydra/r1` one commit ahead that
+/// touches a source file and a test. Returns the base sha.
+fn review_repo(repo: &Path) -> String {
+    let git = |args: &[&str]| -> String {
+        let out = Command::new("git")
+            .current_dir(repo)
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    };
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::create_dir_all(repo.join("tests")).unwrap();
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("src/a.rs"), "fn a() {}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "base"]);
+    let base = git(&["rev-parse", "HEAD"]);
+    git(&["checkout", "-q", "-b", "hydra/r1"]);
+    std::fs::write(repo.join("src/a.rs"), "fn a() {}\nfn b() {}\n").unwrap();
+    std::fs::write(repo.join("tests/a_test.rs"), "#[test]\nfn t() {}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "work"]);
+    git(&["checkout", "-q", "main"]);
+    base
+}
+
+/// Answers a judge might give that are not the JSON asked for, one per message
+/// `json.JSONDecodeError` has, and the shapes `parse_judge_answer` refuses by name.
+const BAD_ANSWERS: [&str; 36] = [
+    "I think the diff is fine.",
+    "",
+    "{",
+    "{\"verdict\"",
+    "{\"verdict\":}",
+    "{\"verdict\":\"pass\",}",
+    "[1,]",
+    "[1 2]",
+    "{\"a\":\"b\" \"c\"}",
+    "\"abc",
+    "\"a\\qb\"",
+    "\"a\\u12\"",
+    "\"\\ud800\\u12",
+    "\"\\ud800\\udc0",
+    "\"\\u1234",
+    "{\"verdict\":\"pass\",\"findings\":[]} trailing",
+    "\"a\u{1}b\"",
+    "-",
+    "[",
+    "{\"a\":1,\n \"b\"}",
+    "nul",
+    "{1:2}",
+    "[1e]",
+    "\n\n  {\"verdict\": \"pass\",\n  \"findings\": [}",
+    "[]",
+    "{\"verdict\":\"maybe\",\"findings\":[]}",
+    "{\"verdict\":\"pass\"}",
+    "{\"verdict\":\"pass\",\"findings\":[1]}",
+    "{\"verdict\":\"pass\",\"findings\":[{\"item\":1,\"severity\":\"minor\",\"note\":\"n\"}]}",
+    "{\"verdict\":\"pass\",\"findings\":[{\"item\":\"it's \\\"new\\\"\",\"severity\":\"minor\",\"note\":\"n\"}]}",
+    "{\"verdict\":\"pass\",\"findings\":[{\"item\":\"dead_code\",\"severity\":\"fatal\",\"note\":\"n\"}]}",
+    "{\"verdict\":[\"pass\"],\"findings\":[]}",
+    "```json\n{\"verdict\":\"pass\",\"findings\":[]}\n```",
+    "```\n{\"verdict\":\"block\",\"findings\":[]}\n```\n",
+    "```rust\n{\"verdict\":\"pass\",\"findings\":[]}\n```",
+    "```json\n{\"verdict\":\"pass\",\"findings\":[]}\n``` and ``` more ```",
+];
+
+fn launch_cases(shared: &Path, base_sha: &str) -> Vec<LaunchCase> {
+    let line = |s: &str| format!("{s}\n");
+    let shared_path = |name: &str| shared.join(name).to_str().unwrap().to_string();
+    let repo = shared_path("repo");
+    const GOAL: &str = r#"{"seq":1,"ts":"2026-09-30T12:00:00.000Z","event":"goal","text":"ship café ☕","repo":"/repo","base_sha":"abc"}"#;
+    let goal = line(GOAL);
+    let damaged = [goal.clone(), line("not json")].concat();
+    let torn = [goal.clone(), "{\"event\":\"ta".to_string()].concat();
+    let mut cases = Vec::new();
+
+    // plan
+    for (label, log, args) in [
+        (
+            "plan: two seats",
+            Some(goal.as_str()),
+            &["plan", "g1", "--seat", "codex", "--seat", "claude:opus"][..],
+        ),
+        (
+            "plan: seats with an empty model and two colons",
+            Some(goal.as_str()),
+            &["plan", "g1", "--seat", "claude:", "--seat", "a:b:c"][..],
+        ),
+        ("plan: no log", None, &["plan", "g1", "--seat", "codex"][..]),
+        (
+            "plan: a damaged log",
+            Some(damaged.as_str()),
+            &["plan", "g1", "--seat", "codex"][..],
+        ),
+        (
+            "plan: an unterminated log",
+            Some(torn.as_str()),
+            &["plan", "g1", "--seat", "codex", "--seat", "claude"][..],
+        ),
+    ] {
+        cases.push(LaunchCase::new(label, log, args));
+    }
+    let plan = ["plan", "g1", "--seat", "codex:gpt"];
+    for (label, stderr) in [
+        ("plan: hydra prints no run id", "hydra: could not start\n"),
+        ("plan: hydra prints nothing", ""),
+        (
+            "plan: the run id line is not the first and ends in CRLF",
+            "warming up\r\nhydra: run abc-1 and more\r\nhydra: run second\n",
+        ),
+        ("plan: the run id line is indented", " hydra: run abc\n"),
+    ] {
+        cases.push(LaunchCase::new(label, Some(&goal), &plan).file("stub/run-stderr", stderr));
+    }
+    cases.push(LaunchCase::new("plan: inside Herdr", Some(&goal), &plan).herdr());
+    for (label, split) in [
+        ("plan: Herdr answers with no JSON", "no"),
+        ("plan: Herdr answers without a pane", "{\"result\":{}}"),
+    ] {
+        cases.push(
+            LaunchCase::new(label, Some(&goal), &plan)
+                .herdr()
+                .file("stub/herdr-split", split),
+        );
+    }
+
+    // plans
+    let proposed = [
+        goal.clone(),
+        line(r#"{"event":"plan_proposed","provider":"codex","run_id":"p1"}"#),
+        line(r#"{"event":"plan_proposed","provider":"claude","model":"opus","run_id":"p2"}"#),
+    ]
+    .concat();
+    let ended =
+        "{\"hydra\":{\"type\":\"run_start\"}}\n\nnot json\n{\"hydra\":{\"type\":\"run_end\"}}\n";
+    let plans = ["plans", "g1"];
+    cases.push(
+        LaunchCase::new(
+            "plans: one from the worktree, one from the run's text",
+            Some(&proposed),
+            &plans,
+        )
+        .file("root/worktrees/p1/docs/proposals/b.md", "second\n")
+        .file("root/worktrees/p1/docs/proposals/a.md", "first café\r\n")
+        .file("root/runs/p2.jsonl", ended)
+        .file("stub/show/p2", &shown("the plan\n```json\n[]\n```\n", None)),
+    );
+    cases.push(
+        LaunchCase::new("plans: neither run has ended", Some(&proposed), &plans).file(
+            "root/runs/p1.jsonl",
+            "{\"hydra\":{\"type\":\"run_start\"}}\n",
+        ),
+    );
+    cases.push(
+        LaunchCase::new(
+            "plans: a bare run_end line, blank text, and a show that fails",
+            Some(&proposed),
+            &plans,
+        )
+        .file("root/runs/p1.jsonl", "{\"type\":\"run_end\"}\n")
+        .file("root/runs/p2.jsonl", ended)
+        .file("stub/show/p1", &shown(" \n", None)),
+    );
+    cases.push(
+        LaunchCase::new("plans: show prints null", Some(&proposed), &plans)
+            .file("root/runs/p1.jsonl", ended)
+            .file("stub/show/p1", "null\n"),
+    );
+    cases.push(
+        LaunchCase::new("plans: show prints no JSON", Some(&proposed), &plans)
+            .file("root/runs/p1.jsonl", ended)
+            .file("stub/show/p1", "oops"),
+    );
+    let mut linked = LaunchCase::new(
+        "plans: a symlink is passed over and a hard link skipped by name",
+        Some(&proposed),
+        &plans,
+    )
+    .file("root/outside.md", "outside\n")
+    .file("root/runs/p1.jsonl", ended)
+    .file("stub/show/p1", &shown("from the run", None));
+    linked.links = vec![
+        (
+            "root/worktrees/p1/docs/proposals/a.md".into(),
+            "root/outside.md".into(),
+            false,
+        ),
+        (
+            "root/worktrees/p1/docs/proposals/b.md".into(),
+            "root/outside.md".into(),
+            true,
+        ),
+    ];
+    cases.push(linked);
+    cases.push(
+        LaunchCase::new(
+            "plans: a directory among the proposals",
+            Some(&proposed),
+            &plans,
+        )
+        .file("root/worktrees/p1/docs/proposals/a.md/inner", "x")
+        .file("root/worktrees/p1/docs/proposals/z.md", "z\n"),
+    );
+    let ready = [
+        proposed.clone(),
+        line(
+            r#"{"event":"plan_ready","provider":"codex","run_id":"p1","path":"/somewhere/codex.md"}"#,
+        ),
+        line(
+            r#"{"event":"plan_ready","provider":"claude","run_id":"p2","path":"/somewhere/claude.md"}"#,
+        ),
+    ]
+    .concat();
+    cases.push(LaunchCase::new(
+        "plans: every plan already has a path",
+        Some(&ready),
+        &plans,
+    ));
+    cases.push(LaunchCase::new("plans: no log", None, &plans));
+    cases.push(LaunchCase::new(
+        "plans: a damaged log",
+        Some(&damaged),
+        &plans,
+    ));
+
+    // launch
+    let task = |id: &str, grade: &str, done: &str| {
+        line(&format!(
+            r#"{{"event":"task","id":"{id}","text":"do {id} ☕","class":"docs","grade":"{grade}","done":{done},"deps":[],"paths":[]}}"#
+        ))
+    };
+    let assignment = |id: &str, provider: &str, model: &str| {
+        line(&format!(
+            r#"{{"event":"assignment","task":"{id}","provider":"{provider}",{model}"policy":"standard","source":"human"}}"#
+        ))
+    };
+    let approval = |kind: &str, reference: &str, revision: u32| {
+        line(&format!(
+            r#"{{"event":"approval","kind":"{kind}","ref":{reference},"revision":{revision},"yes":true}}"#
+        ))
+    };
+    let assigned = [
+        goal.clone(),
+        task("t1", "low", "null"),
+        task("t2", "high", "\"cargo test passes\""),
+        task("t3", "low", "null"),
+        assignment("t1", "cursor-agent", "\"model\":\"composer-2.5\","),
+        assignment("t2", "codex", ""),
+    ]
+    .concat();
+    let approved = [
+        assigned.clone(),
+        approval("table", "null", 5),
+        approval("launch", "\"t2\"", 5),
+    ]
+    .concat();
+    let ran = [
+        approved.clone(),
+        line(r#"{"event":"launch_intent","task":"t1","attempt":1,"provider":"cursor-agent","model":"composer-2.5","policy":"standard","argv_sha256":"x"}"#),
+        line(r#"{"event":"run","task":"t1","attempt":1,"run_id":"r1"}"#),
+    ]
+    .concat();
+    let run_ended = [
+        ran.clone(),
+        line(r#"{"event":"run_end","task":"t1","run_id":"r1","outcome":"completed","total_tokens":12}"#),
+    ]
+    .concat();
+    let dangling = [
+        approved.clone(),
+        line(r#"{"event":"launch_intent","task":"t1","attempt":4,"provider":"cursor-agent","model":"composer-2.5","policy":"standard","argv_sha256":"x"}"#),
+    ]
+    .concat();
+    for (label, log, args) in [
+        (
+            "launch: no table approval",
+            &assigned,
+            &["launch", "g1", "t1"][..],
+        ),
+        (
+            "launch: a task with a model",
+            &approved,
+            &["launch", "g1", "t1"][..],
+        ),
+        (
+            "launch: codex, no model, a done line, a launch approval",
+            &approved,
+            &["launch", "g1", "t2"][..],
+        ),
+        (
+            "launch: no assignment",
+            &approved,
+            &["launch", "g1", "t3"][..],
+        ),
+        (
+            "launch: an unknown task",
+            &approved,
+            &["launch", "g1", "nope"][..],
+        ),
+        (
+            "launch: a second attempt",
+            &run_ended,
+            &["launch", "g1", "t1"][..],
+        ),
+        (
+            "launch: a dangling intent",
+            &dangling,
+            &["launch", "g1", "t1"][..],
+        ),
+        (
+            "launch: a damaged log",
+            &damaged,
+            &["launch", "g1", "t1"][..],
+        ),
+    ] {
+        cases.push(LaunchCase::new(label, Some(log), args));
+    }
+    cases.push(LaunchCase::new(
+        "launch: no log",
+        None,
+        &["launch", "g1", "t1"],
+    ));
+    cases.push(
+        LaunchCase::new(
+            "launch: hydra prints no run id",
+            Some(&approved),
+            &["launch", "g1", "t1"],
+        )
+        .file("stub/run-stderr", "hydra: refused\n"),
+    );
+    cases.push(
+        LaunchCase::new(
+            "launch: inside Herdr",
+            Some(&approved),
+            &["launch", "g1", "t1"],
+        )
+        .herdr(),
+    );
+
+    // wait
+    let wait = ["wait", "g1"];
+    let two_pending = [
+        ran.clone(),
+        line(r#"{"event":"launch_intent","task":"t2","attempt":1,"provider":"codex","model":"","policy":"standard","argv_sha256":"x"}"#),
+        line(r#"{"event":"run","task":"t2","attempt":1,"run_id":"r2"}"#),
+    ]
+    .concat();
+    cases.push(LaunchCase::new(
+        "wait: nothing pending",
+        Some(&approved),
+        &wait,
+    ));
+    cases.push(LaunchCase::new("wait: no log", None, &wait));
+    cases.push(LaunchCase::new(
+        "wait: a damaged log",
+        Some(&damaged),
+        &wait,
+    ));
+    cases.push(LaunchCase::new(
+        "wait: a pending run with no record",
+        Some(&ran),
+        &wait,
+    ));
+    cases.push(
+        LaunchCase::new(
+            "wait: one ended, one still running",
+            Some(&two_pending),
+            &wait,
+        )
+        .file(
+            "root/runs/r1.jsonl",
+            "{\"hydra\":{\"type\":\"run_start\"}}\n",
+        )
+        .file("root/runs/r2.jsonl", ended)
+        .file("stub/show/r2", &shown("done", None)),
+    );
+    cases.push(
+        LaunchCase::new(
+            "wait: both ended, the second has no outcome or counts",
+            Some(&two_pending),
+            &wait,
+        )
+        .file("root/runs/r1.jsonl", "{\"type\":\"run_end\"}\r\n")
+        .file("root/runs/r2.jsonl", ended)
+        .file("stub/show/r1", &shown("done", None))
+        .file(
+            "stub/show/r2",
+            "{\"outcome\":null,\"usage\":{\"usage_source\":\"unavailable\"}}",
+        ),
+    );
+    for (label, show) in [
+        (
+            "wait: total_tokens is a float",
+            "{\"outcome\":\"failed\",\"usage\":{\"counts\":{\"total_tokens\":7.9}}}",
+        ),
+        (
+            "wait: total_tokens is a string",
+            "{\"outcome\":\"failed\",\"usage\":{\"counts\":{\"total_tokens\":\" 1_0 \"}}}",
+        ),
+        (
+            "wait: total_tokens is not a number",
+            "{\"outcome\":\"failed\",\"usage\":{\"counts\":{\"total_tokens\":\"many\"}}}",
+        ),
+        (
+            "wait: total_tokens is a list",
+            "{\"outcome\":\"failed\",\"usage\":{\"counts\":{\"total_tokens\":[1]}}}",
+        ),
+        ("wait: show prints null", "null"),
+        ("wait: show prints no JSON", "oops"),
+    ] {
+        cases.push(
+            LaunchCase::new(label, Some(&ran), &wait)
+                .file("root/runs/r1.jsonl", ended)
+                .file("stub/show/r1", show),
+        );
+    }
+    cases.push(
+        LaunchCase::new("wait: the run ended and show fails", Some(&ran), &wait)
+            .file("root/runs/r1.jsonl", ended),
+    );
+    cases.push(
+        LaunchCase::new("wait: a run record that is a list", Some(&ran), &wait)
+            .file("root/runs/r1.jsonl", "[1]\n"),
+    );
+
+    // choose --judge
+    let codex_down = r#"[{"provider":"codex","model":null,"available":false}]"#;
+    let two_down = r#"[{"provider":"codex","model":null,"available":false},{"provider":"cursor-agent","available":false}]"#;
+    let proposals = [
+        goal.clone(),
+        line(r#"{"event":"plan_proposed","provider":"codex","model":null,"run_id":"p1"}"#),
+        line(r#"{"event":"plan_proposed","provider":"claude","model":"opus","run_id":"p2"}"#),
+        line(&format!(
+            r#"{{"event":"plan_ready","provider":"codex","run_id":"p1","path":"{}"}}"#,
+            shared_path("codex.md")
+        )),
+        line(&format!(
+            r#"{{"event":"plan_ready","provider":"claude","run_id":"p2","path":"{}"}}"#,
+            shared_path("claude.md")
+        )),
+    ]
+    .concat();
+    let degraded = |approvals: &[&str]| {
+        let mut log = proposals.clone();
+        for approval in approvals {
+            log.push_str(&line(approval));
+        }
+        log
+    };
+    let judge = ["choose", "g1", "--judge"];
+    let pick = |name: &str| format!("{{\"chosen\": \"{name}\", \"findings\": []}}");
+    let (codex, claude, agy) = (pick("codex"), pick("claude"), pick("agy"));
+    let composed = "{\"chosen\": \"composed\"}\n\n```json\n[{\"id\": \"a\", \"text\": \"café\", \"n\": [1.5, null]}]\n```\n";
+    let only_composed = "{\"chosen\":\"composed\"}";
+    let fenced = format!("```json\n{codex}\n```");
+    let with_finding = "{\"chosen\":\"codex\",\"findings\":[{\"item\":\"anything\",\"severity\":\"major\",\"note\":\"n\"}]} and prose after";
+    for (label, answers) in [
+        (
+            "choose --judge: three seats agree",
+            [codex.as_str(), &codex, &codex],
+        ),
+        (
+            "choose --judge: a fenced answer and trailing prose",
+            [fenced.as_str(), with_finding, &codex],
+        ),
+        (
+            "choose --judge: the seats disagree",
+            [codex.as_str(), &claude, &codex],
+        ),
+        (
+            "choose --judge: a provider with no plan",
+            [agy.as_str(), &agy, &agy],
+        ),
+        (
+            "choose --judge: composed with a task block",
+            [composed, only_composed, composed],
+        ),
+        (
+            "choose --judge: composed with no task block",
+            [only_composed, only_composed, only_composed],
+        ),
+        (
+            "choose --judge: answers that are not JSON",
+            ["prose", "", " {\"chosen\": "],
+        ),
+        (
+            "choose --judge: answers of the wrong shape",
+            [
+                "[1]",
+                "{\"chosen\":\" \"}",
+                "{\"chosen\":\"codex\",\"findings\":{}}",
+            ],
+        ),
+        (
+            "choose --judge: findings of the wrong shape",
+            [
+                "{\"chosen\":\"codex\",\"findings\":[1]}",
+                "{\"chosen\":\"codex\",\"findings\":[{\"item\":\"i\",\"note\":2}]}",
+                "{\"chosen\":\"codex\",\"findings\":[{\"item\":\"i\",\"note\":\"n\",\"severity\":\"bad\"}]}",
+            ],
+        ),
+    ] {
+        cases.push(LaunchCase::new(label, Some(&proposals), &judge).answers(&answers));
+    }
+    cases.push(
+        LaunchCase::new(
+            "choose --judge: codex down, nothing approved",
+            Some(&proposals),
+            &judge,
+        )
+        .file("vendors.json", codex_down),
+    );
+    cases.push(
+        LaunchCase::new(
+            "choose --judge: codex down, claude with a model sits in",
+            Some(&degraded(&[
+                r#"{"event":"approval","kind":"degraded","missing":"codex","substitute":"claude","model":"sonnet","revision":0,"yes":true}"#,
+            ])),
+            &judge,
+        )
+        .file("vendors.json", codex_down)
+        .answers(&[&codex, &codex, &codex]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "choose --judge: two seats down, a seat provider and an outsider sit in",
+            Some(&degraded(&[
+                r#"{"event":"approval","kind":"degraded","missing":"codex","substitute":"agy","revision":0,"yes":true}"#,
+                r#"{"event":"approval","kind":"degraded","missing":"cursor-agent","substitute":"codex","revision":0,"yes":true}"#,
+            ])),
+            &judge,
+        )
+        .file("vendors.json", two_down)
+        .answers(&[&claude, &claude, &claude]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "choose --judge: hydra prints no run id",
+            Some(&proposals),
+            &judge,
+        )
+        .file("stub/run-stderr", "nope\n"),
+    );
+
+    // review
+    let reviewed = [
+        line(&format!(
+            r#"{{"seq":1,"ts":"2026-09-30T12:00:00.000Z","event":"goal","text":"ship","repo":"{repo}","base_sha":"{base_sha}"}}"#
+        )),
+        task("t1", "low", "null"),
+        task("t2", "low", "null"),
+        assignment("t1", "cursor-agent", "\"model\":\"composer-2.5\","),
+        approval("table", "null", 3),
+        line(r#"{"event":"launch_intent","task":"t1","attempt":1,"provider":"cursor-agent","model":"composer-2.5","policy":"standard","argv_sha256":"x"}"#),
+        line(r#"{"event":"run","task":"t1","attempt":1,"run_id":"r1"}"#),
+        line(r#"{"event":"run_end","task":"t1","run_id":"r1","outcome":"completed","total_tokens":12}"#),
+    ]
+    .concat();
+    let no_open = ["review", "g1", "t1", "--no-open"];
+    let branch = Some("hydra/r1");
+    let pass = "{\"verdict\":\"pass\",\"findings\":[]}";
+    let findings = r#"{"verdict":"pass","findings":[
+        {"item":"dead_code","severity":"critical","note":"clamped to minor"},
+        {"item":"scope_match","severity":"major","note":"café ☕ \"quoted\""},
+        {"item":"security_issues","severity":"critical","note":"a key"}]}"#;
+    let blocks = "{\"verdict\":\"block\",\"findings\":[{\"item\":\"tests_present\",\"severity\":\"minor\",\"note\":\"none\"}]}";
+    cases.push(LaunchCase::new(
+        "review: a task with no run",
+        Some(&reviewed),
+        &["review", "g1", "t2", "--no-open"],
+    ));
+    cases.push(LaunchCase::new(
+        "review: an unknown task",
+        Some(&reviewed),
+        &["review", "g1", "nope"],
+    ));
+    cases.push(LaunchCase::new("review: no log", None, &no_open));
+    cases.push(LaunchCase::new(
+        "review: show fails",
+        Some(&reviewed),
+        &no_open,
+    ));
+    cases.push(
+        LaunchCase::new("review: the run has no branch", Some(&reviewed), &no_open)
+            .file("stub/show/r1", &shown("text", None)),
+    );
+    cases.push(
+        LaunchCase::new("review: show prints a list", Some(&reviewed), &no_open)
+            .file("stub/show/r1", "[1]"),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review --no-open: three passes, the run's text is the projection",
+            Some(&reviewed),
+            &no_open,
+        )
+        .file("stub/show/r1", &shown("what the run said\n", branch))
+        .answers(&[pass, pass, pass]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review --no-open: no result text, the record is the projection",
+            Some(&reviewed),
+            &no_open,
+        )
+        .file("stub/show/r1", &shown("", branch))
+        .answers(&[pass, pass, pass]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review --no-open: findings go to Hunk and a critical one blocks",
+            Some(&reviewed),
+            &no_open,
+        )
+        .file("stub/show/r1", &shown("text", branch))
+        .answers(&[findings, blocks, pass]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review --no-open: a branch that does not exist",
+            Some(&reviewed),
+            &no_open,
+        )
+        .file("stub/show/r1", &shown("text", Some("hydra/absent")))
+        .answers(&[findings, pass, pass]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review --no-open: codex down, nothing approved",
+            Some(&reviewed),
+            &no_open,
+        )
+        .file("stub/show/r1", &shown("text", branch))
+        .file("vendors.json", codex_down),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review --no-open: codex down, claude sits in",
+            Some(
+                &[
+                    reviewed.clone(),
+                    line(r#"{"event":"approval","kind":"degraded","missing":"codex","substitute":"claude","revision":3,"yes":true}"#),
+                ]
+                .concat(),
+            ),
+            &no_open,
+        )
+        .file("stub/show/r1", &shown("text", branch))
+        .file("vendors.json", codex_down)
+        .answers(&[pass, blocks, pass]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review: Hunk is opened in place of the command",
+            Some(&reviewed),
+            &["review", "g1", "t1"],
+        )
+        .file("stub/show/r1", &shown("text", branch))
+        .answers(&[pass, findings, pass]),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review: inside Herdr the diff goes to a new pane",
+            Some(&reviewed),
+            &["review", "g1", "t1"],
+        )
+        .file("stub/show/r1", &shown("text", branch))
+        .answers(&[findings, pass, pass])
+        .herdr(),
+    );
+    cases.push(
+        LaunchCase::new(
+            "review --no-open: inside Herdr no pane is opened",
+            Some(&reviewed),
+            &no_open,
+        )
+        .file("stub/show/r1", &shown("text", branch))
+        .answers(&[pass, pass, pass])
+        .herdr(),
+    );
+    for (n, answers) in BAD_ANSWERS.chunks(3).enumerate() {
+        cases.push(
+            LaunchCase::new(
+                &format!("review --no-open: answers that do not parse, set {n}"),
+                Some(&reviewed),
+                &no_open,
+            )
+            .file("stub/show/r1", &shown("text", branch))
+            .answers(answers),
+        );
+    }
+    cases
+}
+
+#[test]
+fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("launch");
+    let (shared, bin) = (scratch.0.join("shared"), scratch.0.join("bin"));
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    for name in ["hydra-stub", "hunk", "herdr"] {
+        std::fs::write(bin.join(name), STUB).unwrap();
+        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::fs::write(
+        shared.join("codex.md"),
+        "  Codex plan.\r\n\r\n```json\n[]\n```\n\n",
+    )
+    .unwrap();
+    std::fs::write(shared.join("claude.md"), "Claude plan, café.\n").unwrap();
+    let base_sha = review_repo(&shared.join("repo"));
+    let cases = launch_cases(&shared, &base_sha);
+    let mut crashes = Vec::new();
+    let mut mismatches = Vec::new();
+    for (n, case) in cases.iter().enumerate() {
+        let (class, problems) = compare_launch(case, &scratch.0, n, &bin, &shared);
+        crashes.extend(class.map(|class| format!("{}: {class}", case.label)));
+        if !problems.is_empty() {
+            mismatches.push(format!("{}\n{}", case.label, problems.join("\n")));
+        }
+    }
+    eprintln!("compared {} launch command runs:", cases.len());
+    for case in &cases {
+        eprintln!("  {}", case.label);
+    }
+    eprintln!(
+        "python raised, stderr compared by exception class ({}):",
+        crashes.len()
+    );
+    for crash in &crashes {
+        eprintln!("  {crash}");
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} differ:\n\n{}",
+        mismatches.len(),
+        cases.len(),
+        mismatches.join("\n\n")
+    );
+}
+
+#[test]
+fn the_comparator_masks_an_implementation_home_and_nothing_else() {
+    let dir = Path::new("/tmp/case/py");
+    assert_eq!(
+        mask_home(b"a /tmp/case/py/puppets b /tmp/case/rs /tmp/case/py", dir),
+        b"a <home>/puppets b /tmp/case/rs <home>"
+    );
+    assert_eq!(mask_home(b"/tmp/case/p", dir), b"/tmp/case/p");
+    assert_eq!(mask_home(b"", dir), b"");
 }

@@ -3332,14 +3332,47 @@ line the command appended, only when the log still begins with its input and the
 `{"seq":N,"ts":"<time>","event":"`, and the goal id `new` generates, only when it is a version 4
 UUID alone on stdout or as the log's name.
 
+Build ticket 195 added the commands that launch: `plan`, `plans`, `launch` and `wait` in
+`launch.rs`, and `review`, `review --no-open` and `choose --judge` in `panel.rs`. The binary now
+has all eighteen of `puppets.py`'s commands. Every launch is the argv the Python builds,
+`hydra run --provider P [--model M] --policy Q --timeout 0 --task T`, through the program
+`HYDRA_BIN` names, and `launch` writes its `launch_intent` with that argv's SHA-256 before it
+starts the run. `json.rs` now gives a `JSONDecodeError` the message and position CPython 3.14's
+scanner gives it, because a judge's answer that does not parse puts that text in the `review`
+event's `reasons`.
+
+A fourth test in `differential.rs` runs those commands under both implementations with one stub
+script in place of `hydra`, `hunk` and `herdr`. Each stub call writes its argv, its environment,
+its working directory and, for `hunk session comment apply`, its stdin, and the two sets of calls
+must be equal file by file, along with stdout, stderr, the exit code, the goal log and the plan
+files under `<goal>/plans/`. It ran 87 commands on 2026-10-01. Both implementations start from an
+empty environment, with `PYTHONUNBUFFERED=1` so the Python prints before `execvp` what it prints
+on a terminal. One more thing is normalized: each implementation's own scratch home, wherever it
+appears. Changing `--timeout 0` to `--timeout 1` in the Rust made 47 of the 87 fail. **No
+provider and no real `hydra` was started, so the Rust has never launched a real run.**
+
 Not ported, and where the Rust differs:
 
-- `choose --judge` launches the panel in the Python (`run_judge_panel`, one `spawn_judge_run`
-  per seat). The Rust prints the same three refusals that come before that launch, then stops
-  with exit 1 and a line that names `puppets.py choose <goal> --judge`. Ticket 195 has the launch.
 - `sheet.py`'s `build`, `budget` and `corpus_records` are not ported. They call `hydra show` once
-  per run and no command of 194 reaches them, so the sheets under `<puppets home>/agents/` are
-  still written by `sheet.py build`. `models.rs` has no caller until they are.
+  per run and no command reaches them, the launch commands included, so the sheets under
+  `<puppets home>/agents/` are still written by `sheet.py build`. `models.rs` has no caller until
+  they are.
+- `review` leaves a second process behind to hand the findings to Hunk. The Python forks. The
+  Rust starts its own binary again as the hidden `push-hunk-comments <repo>` command with the
+  payload on stdin. Like the fork, it keeps the caller's stdout and stderr open until a Hunk
+  session takes the payload or thirty tries a second apart have failed.
+- Inside Herdr, with no finding worse than minor, the Python sleeps through those thirty tries
+  with nothing to push before it prints. The Rust prints at once.
+- A child's output is read as UTF-8 whatever the locale. Python's `text=True` uses the locale's
+  encoding.
+- A run record that is not UTF-8 raises before any line is read. The Python decodes as it goes
+  and can find a `run_end` first.
+- `launch`'s refusals spell a lone surrogate in a task id as U+FFFD.
+- The JSON error messages are those of Python 3.14.7, the version the test ran against. Another
+  version may word them differently.
+- Not compared, because each takes thirty seconds or never ends: a `review` whose findings no
+  Hunk session takes, a `review` outside Herdr with no `hunk` on `PATH`, and a panel run whose
+  record never gets a `run_end`. Both implementations wait on that last one without a limit.
 - `beta_lower` sums the same binomial terms with `ln(k!)` as a sum of logs, where Python calls
   `math.lgamma`. The two agree to rounding, not to the last bit. `rank` only compares the bound
   with a threshold and sorts by it, and `assign` records the first row's provider and model.

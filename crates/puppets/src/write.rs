@@ -3,8 +3,7 @@
 //! `puppets.py` appends, prints what it prints, and returns its exit code or the error
 //! Python would raise.
 //!
-//! `choose --judge` is the one path here that launches runs in the Python. It is ported as
-//! far as its refusals and stops before the panel, see `choose`.
+//! `choose --judge` is the one path here that launches runs. It lives in `panel.rs`.
 
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
@@ -60,7 +59,7 @@ pub fn arg(raw: &OsStr) -> PyStr {
 
 /// `os.fsencode(text)`: the bytes `arg` read, or `UnicodeEncodeError` on a surrogate that
 /// did not come from one.
-fn fs_path(text: &PyStr) -> Result<PathBuf> {
+pub(crate) fn fs_path(text: &PyStr) -> Result<PathBuf> {
     let mut bytes = Vec::new();
     for &code in text.code_points() {
         match char::from_u32(code) {
@@ -74,7 +73,7 @@ fn fs_path(text: &PyStr) -> Result<PathBuf> {
 
 /// `print(line, file=sys.stderr)`. Python's stderr never raises on a surrogate: it writes
 /// `\udXXX` (`backslashreplace`).
-fn eprint(err: &mut dyn Write, line: &PyStr) -> Result<()> {
+pub(crate) fn eprint(err: &mut dyn Write, line: &PyStr) -> Result<()> {
     let mut out = String::new();
     for &code in line.code_points() {
         match char::from_u32(code) {
@@ -86,7 +85,7 @@ fn eprint(err: &mut dyn Write, line: &PyStr) -> Result<()> {
     Ok(())
 }
 
-fn body(pairs: Vec<(&str, Value)>) -> Dict {
+pub(crate) fn body(pairs: Vec<(&str, Value)>) -> Dict {
     let mut out = Dict::new();
     for (key, value) in pairs {
         out.set(key, value);
@@ -95,16 +94,16 @@ fn body(pairs: Vec<(&str, Value)>) -> Dict {
 }
 
 /// `append_event`: one line, under the log's lock.
-fn append_event(home: &Home, goal_id: &str, body: Dict) -> Result<()> {
+pub(crate) fn append_event(home: &Home, goal_id: &str, body: Dict) -> Result<()> {
     log::locked_update(home, goal_id, |_events| Ok(Some(body)))?;
     Ok(())
 }
 
-fn folded(home: &Home, goal_id: &str) -> Result<GoalState> {
+pub(crate) fn folded(home: &Home, goal_id: &str) -> Result<GoalState> {
     fold::fold(goal_id, &log::read_log(home, goal_id)?)
 }
 
-fn field(d: &Dict, key: &str) -> Value {
+pub(crate) fn field(d: &Dict, key: &str) -> Value {
     d.get(key).cloned().unwrap_or(Value::Null)
 }
 
@@ -232,7 +231,7 @@ fn given(option: &Option<PyStr>) -> Option<&PyStr> {
     option.as_ref().filter(|text| !text.is_empty())
 }
 
-fn slice(codes: &[u32]) -> PyStr {
+pub(crate) fn slice(codes: &[u32]) -> PyStr {
     let mut out = PyStr::new();
     for code in codes {
         out.push_code(*code);
@@ -566,69 +565,20 @@ fn stem(path: &[u8]) -> &[u8] {
     &name[..dot]
 }
 
-/// The refusals of `resolve_panel_seats`: a seat whose provider is down needs a live
-/// degraded approval that names a substitute.
-fn panel_refusal(home: &Home, state: &GoalState) -> Result<Option<String>> {
-    for provider in fold::PANEL_PROVIDERS {
-        if fold::provider_available(&home.vendors, provider)? {
-            continue;
-        }
-        let missing = Value::text(provider);
-        let Some(approval) = approval_available(state, "degraded", &missing, &Value::Null) else {
-            return Ok(Some(format!(
-                "{provider} is unavailable; approve with: approve {} --degraded {provider}={}",
-                state.goal_id,
-                fold::DEGRADED_SUBSTITUTE_PLACEHOLDER
-            )));
-        };
-        if !py::truthy(&field(approval, "substitute")) {
-            return Ok(Some(format!(
-                "degraded approval for {provider} has no substitute"
-            )));
-        }
-    }
-    Ok(None)
-}
-
 /// `choose`: record which plan was chosen. A choice that names a file is recorded by its
 /// absolute path, with the file's stem as the name; anything else is a provider's name.
 ///
-/// With `judge` the Python launches the panel (`run_judge_panel`, which calls
-/// `spawn_judge_run` once per seat) and records what it answers. Launching is build 195's.
-/// This checks what the Python checks before that launch, prints the same refusals, and
-/// then stops with exit 1 and writes nothing.
+/// With `judge` the panel is launched and its answer recorded, and a `choice` is not read.
 pub fn choose(
     home: &Home,
     goal_id: &str,
     choice: Option<&OsStr>,
     judge: bool,
+    out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<i32> {
     if judge {
-        let state = folded(home, goal_id)?;
-        if state.goal.is_none() {
-            writeln!(err, "unknown goal {goal_id}")?;
-            return Ok(1);
-        }
-        let ready = state
-            .plans
-            .iter()
-            .filter(|plan| py::truthy(&field(plan, "path")))
-            .count();
-        if ready < 2 {
-            writeln!(err, "need at least two finished proposals before judging")?;
-            return Ok(1);
-        }
-        if let Some(refusal) = panel_refusal(home, &state)? {
-            writeln!(err, "{refusal}")?;
-            return Ok(1);
-        }
-        writeln!(
-            err,
-            "hydra-puppets does not launch the panel yet (build 195); \
-             run puppets.py choose {goal_id} --judge"
-        )?;
-        return Ok(1);
+        return crate::panel::choose_judge(home, goal_id, out, err);
     }
     let Some(choice) = choice.filter(|choice| !choice.is_empty()) else {
         writeln!(err, "specify a provider, a plan path, or --judge")?;
@@ -659,7 +609,7 @@ pub fn choose(
 /// The match of `` ```(?:json)?\s*(\[[\s\S]*?\])\s*``` ``: the first fence, from the left,
 /// that opens on a `[`, and the shortest run from that `[` to a `]` with the closing fence
 /// after it.
-fn fenced_array(chars: &[char]) -> Option<&[char]> {
+pub(crate) fn fenced_array(chars: &[char]) -> Option<std::ops::RangeInclusive<usize>> {
     const FENCE: [char; 3] = ['`'; 3];
     let spaces = |mut at: usize| {
         while chars.get(at).is_some_and(|c| py::is_space(*c)) {
@@ -681,7 +631,7 @@ fn fenced_array(chars: &[char]) -> Option<&[char]> {
         }
         for close in open + 1..chars.len() {
             if chars[close] == ']' && chars[spaces(close + 1)..].starts_with(&FENCE) {
-                return Some(&chars[open..=close]);
+                return Some(open..=close);
             }
         }
     }
@@ -694,7 +644,7 @@ fn extract_tasks_json(plan: &str) -> Result<Vec<Value>> {
     let Some(found) = fenced_array(&chars) else {
         bail!("ValueError: no fenced JSON task array found in plan");
     };
-    let found: String = found.iter().collect();
+    let found: String = chars[found].iter().collect();
     match json::loads_str(&found) {
         Ok(Value::List(tasks)) => Ok(tasks),
         Ok(_) => bail!("ValueError: plan JSON block is not an array"),
@@ -703,9 +653,10 @@ fn extract_tasks_json(plan: &str) -> Result<Vec<Value>> {
 }
 
 /// The Python exception class an I/O error on a file is raised as.
-fn os_error(err: &std::io::Error) -> &'static str {
+pub(crate) fn os_error(err: &std::io::Error) -> &'static str {
     match err.kind() {
         std::io::ErrorKind::NotFound => "FileNotFoundError",
+        std::io::ErrorKind::AlreadyExists => "FileExistsError",
         std::io::ErrorKind::IsADirectory => "IsADirectoryError",
         std::io::ErrorKind::NotADirectory => "NotADirectoryError",
         std::io::ErrorKind::PermissionDenied => "PermissionError",
@@ -974,7 +925,7 @@ mod tests {
     fn the_fence_match_is_the_first_that_opens_on_a_bracket_and_the_shortest() {
         let found = |text: &str| -> Option<String> {
             let chars: Vec<char> = text.chars().collect();
-            fenced_array(&chars).map(|found| found.iter().collect())
+            fenced_array(&chars).map(|found| chars[found].iter().collect())
         };
         assert_eq!(found("```json\n[1]\n```").as_deref(), Some("[1]"));
         assert_eq!(found("```[1]```").as_deref(), Some("[1]"));

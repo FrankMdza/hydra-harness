@@ -565,6 +565,7 @@ dependencies = [
  "chrono",
  "clap",
  "libc",
+ "sha2",
 ]
 
 [[package]]

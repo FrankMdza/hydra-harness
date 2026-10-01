@@ -306,6 +306,29 @@ pub fn strip(s: &PyStr) -> PyStr {
     out
 }
 
+/// The integer `int(text)` reads, as decimal digits with a `-` when negative: whitespace
+/// around the number, a sign, and single underscores between digits. `None` where Python
+/// raises `ValueError`.
+pub fn int_literal(text: &str) -> Option<String> {
+    let body = strip_str(text);
+    let (negative, number) = match body.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, body.strip_prefix('+').unwrap_or(body)),
+    };
+    let well_formed = number
+        .split('_')
+        .all(|run| !run.is_empty() && run.bytes().all(|b| b.is_ascii_digit()));
+    if !well_formed {
+        return None;
+    }
+    let digits = number.replace('_', "");
+    let digits = match digits.trim_start_matches('0') {
+        "" => "0",
+        digits => digits,
+    };
+    Some(format!("{}{digits}", if negative { "-" } else { "" }))
+}
+
 /// `d[key]` on a value that must be a dict holding `key`.
 pub fn item<'a>(v: &'a Value, key: &str) -> Result<&'a Value> {
     match v {

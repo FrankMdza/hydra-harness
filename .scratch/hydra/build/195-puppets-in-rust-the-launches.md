@@ -1,7 +1,7 @@
 # 195 - puppets in Rust: the commands that launch
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 194
 
 ## What
@@ -35,3 +35,40 @@ and compare what the Python and the Rust hand them, and the resulting logs. The 
 ## Done when
 
 - fmt and clippy over the workspace; `cargo test -p hydra-puppets`; every command compared.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f638` (claude opus 5.5, `standard`, 12.9M tokens, 27 minutes). The
+session read `launch` line by line against `cmd_launch` and took the rest on its tests; applied
+to master as written.
+
+Built: `crates/puppets/src/launch.rs` with `plan`, `plans`, `launch`, `wait` and what every
+launch shares (the `hydra run` argv, its SHA-256, the run id read off stderr, the Herdr pane,
+`hydra show`); `panel.rs` with `choose --judge` and `review`, the seat table, degraded
+substitution, both prompts, answer parsing and both verdicts, and the Hunk comment pusher.
+`launch` refuses on `launch_refusal`, appends `launch_intent` before it spawns and `run` after,
+as the Python does. A `JSONDecodeError` now carries Python's message and position, because a
+judge's unparseable answer lands in the `review` event's `reasons`.
+
+Measured on master: fmt and clippy clean over the workspace; `cargo test -p hydra-puppets` 60
+unit tests and 14 differential tests; the launch test runs 87 commands and compares stdout,
+stderr, the exit code, the goal log, the plan files, and each stub call's argv, environment,
+working directory and stdin; with `--timeout 0` changed to `--timeout 1`, 47 of 87 fail; the
+ignored real-log test passed; `cargo test --lib` 224 passed; the puppets Python suite 205 passed.
+
+Departures from the Python, both deliberate: where the Python forks to push Hunk comments, the
+Rust starts its own binary again as a hidden `push-hunk-comments <repo>` command with the payload
+on stdin; inside Herdr with no finding worse than minor, the Python sleeps through thirty
+one-second tries with nothing to push and the Rust prints at once.
+
+What the ticket assumed that is false: no launch command reaches `sheet.py`'s `build`, `budget`
+or `corpus_records`, so they are still not ported, and `models.rs` still has no caller. Build 196
+has to say what happens to them when the Python goes.
+
+Left open: no real `hydra run`, Hunk session or Herdr pane was ever started by the Rust; the
+stub's `hydra show` shape was copied from `src/outcome.rs` and the fixtures, not compared with
+the real command; three paths were not compared because each takes thirty seconds or never ends
+(a `review` whose findings no Hunk session takes, a `review` outside Herdr with no `hunk`, a
+panel run with no `run_end`); the Python loses output before `execvp` when stdout is a pipe, so
+the test sets `PYTHONUNBUFFERED=1`.
+

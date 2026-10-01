@@ -1,12 +1,14 @@
-//! `hydra-puppets`: the commands of `puppets.py` that read a goal log or write one without
-//! launching, with its arguments, its output and its exit codes.
+//! `hydra-puppets`: the commands of `puppets.py`, with its arguments, its output and its
+//! exit codes.
 
 use std::ffi::OsString;
 use std::io::Write;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use hydra_puppets::launch;
 use hydra_puppets::log::{self, Home};
+use hydra_puppets::panel;
 use hydra_puppets::read;
 use hydra_puppets::write::{self, Approve, arg};
 
@@ -134,6 +136,48 @@ enum Command {
         /// goal id
         goal: String,
     },
+    /// launch plan proposers
+    Plan {
+        /// goal id
+        goal: String,
+        /// provider or provider:model
+        #[arg(long, required = true, allow_negative_numbers = true)]
+        seat: Vec<OsString>,
+    },
+    /// copy finished proposals from worktrees
+    Plans {
+        /// goal id
+        goal: String,
+    },
+    /// launch a task run
+    Launch {
+        /// goal id
+        goal: String,
+        /// task id
+        task: OsString,
+    },
+    /// poll pending runs for completion
+    Wait {
+        /// goal id
+        goal: String,
+    },
+    /// open a task's diff in Hunk
+    #[command(args_override_self = true)]
+    Review {
+        /// goal id
+        goal: String,
+        /// task id
+        task: OsString,
+        /// record the review and print the hunk command without opening it
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// offer the findings on stdin to the Hunk session on a repository; `review` starts this
+    #[command(hide = true)]
+    PushHunkComments {
+        /// the repository the session is on
+        repo: OsString,
+    },
     /// settle a launch intent that has no run
     #[command(args_override_self = true)]
     Reconcile {
@@ -162,22 +206,9 @@ enum Command {
 /// and single underscores between digits. An int past `i128` is refused here, where Python
 /// has no limit; no revision or attempt is that wide.
 fn py_int(text: &str) -> Result<i128, String> {
-    let invalid = || format!("invalid int value: '{text}'");
-    let body = text.trim_matches(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c));
-    let (negative, number) = match body.strip_prefix('-') {
-        Some(rest) => (true, rest),
-        None => (false, body.strip_prefix('+').unwrap_or(body)),
-    };
-    let well_formed = number
-        .split('_')
-        .all(|run| !run.is_empty() && run.bytes().all(|b| b.is_ascii_digit()));
-    if !well_formed {
-        return Err(invalid());
-    }
-    let sign = if negative { "-" } else { "" };
-    format!("{sign}{}", number.replace('_', ""))
-        .parse()
-        .map_err(|_| invalid())
+    hydra_puppets::int_literal(text)
+        .and_then(|digits| digits.parse().ok())
+        .ok_or_else(|| format!("invalid int value: '{text}'"))
 }
 
 fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32> {
@@ -240,7 +271,20 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
             goal,
             choice,
             judge,
-        } => write::choose(&home, &goal, choice.as_deref(), judge, err),
+        } => write::choose(&home, &goal, choice.as_deref(), judge, out, err),
+        Command::Plan { goal, seat } => {
+            let seats: Vec<_> = seat.iter().map(|seat| arg(seat)).collect();
+            launch::plan(&home, &goal, &seats, out, err)
+        }
+        Command::Plans { goal } => launch::plans(&home, &goal, out, err),
+        Command::Launch { goal, task } => launch::launch(&home, &goal, &arg(&task), out, err),
+        Command::Wait { goal } => launch::wait(&home, &goal, out),
+        Command::Review {
+            goal,
+            task,
+            no_open,
+        } => panel::review(&home, &goal, &arg(&task), no_open, out, err),
+        Command::PushHunkComments { repo } => panel::push_comments(&repo),
         Command::Tasks { goal } => write::tasks(&home, &goal, err),
         Command::Assign { goal } => write::assign(&home, &goal, out, err),
         Command::Reconcile {
