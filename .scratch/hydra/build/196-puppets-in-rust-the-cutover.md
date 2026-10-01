@@ -1,7 +1,7 @@
 # 196 - puppets in Rust: the cutover
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 195, 207
 
 ## What
@@ -12,8 +12,24 @@ and `hy.zsh` name `puppets.py`.
 
 ## Do
 
-1. The session first runs the ignored real-log differential test from 193 and every differential
-   test, and records the result in the ticket.
+0. Before anything is deleted, close the two findings of the last review that can compare the
+   two (`cursor-agent` grok-4.7-high on build 195, 2026-10-01), each with a differential input or
+   a unit test shown failing first:
+   - `run_file_has_end` (`crates/puppets/src/launch.rs` near 485, through `read_text` in
+     `write.rs` near 671; called by `wait`, `plans` and the judge panel). The Rust reads the whole
+     run file and refuses it when any byte is not UTF-8. The Python reads it as text line by line
+     and returns as soon as it has seen `run_end`, so a 12 KB record with `run_end` on line 0 and
+     a `0xFF` later is ended for Python and an error for Rust. Read the file as bytes, line by
+     line, and decide on the lines, so one bad byte in a provider's frame cannot stop `wait` or
+     a panel that already sat a seat.
+   - The Hunk pusher (`crates/puppets/src/panel.rs` near 1048 to 1064). It starts
+     `current_exe()` again as `push-hunk-comments`; when that path is gone the spawn fails after
+     the `review` event is in the log, the command exits 1, `--no-open` never prints `hunk show
+     <branch>`, and a retry sits the panel again. When the pusher cannot start, say so on stderr
+     and still print the command or exec Hunk; the review is recorded either way.
+1. The session ran every differential test and the ignored real-log test on master at `e4c9447`
+   on 2026-10-01, all green (62 unit, 5 in the binary, 18 differential, the real-log test), and
+   one real launch, recorded below. Run them once more yourself before you delete anything.
 2. The cockpit runs `hydra-puppets` (found beside the `hydra` binary, then on `PATH`) wherever it
    ran `puppets.py`; its stubs in `tests/cockpit.rs` follow.
 3. Delete `integrations/puppets/puppets.py`, `sheet.py`, `models.py`, `jev_probe.py` only if
