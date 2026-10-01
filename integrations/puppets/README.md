@@ -87,12 +87,17 @@ way, exit 2 and nothing written, when that task's current run is different. `--e
 with `--plan` refuses the same way when the chosen plan's path is different. Each `--expect-*`
 check runs again while the goal log's lock is held, on a fold of the lines read under that lock,
 and a mismatch still writes nothing. When the log's last line has no newline, both readers ignore
-that tail, and every writer under the lock leaves the file unchanged and exits 1.
+that tail, and every writer under the lock leaves the file unchanged and exits 1. A
+newline-terminated line that is blank or is not JSON makes the log damaged: every reader and
+writer refuses with one line on stderr and exit 1, and nothing is written.
 
-`repair <goal-id>` prints that unterminated tail, cut to 300 characters, and the move it would
-make, and writes nothing. `repair <goal-id> --yes` holds the log's lock, writes the tail to
-`<goal-id>.torn-<UTC timestamp>.txt` beside the log, then truncates the log to its last newline.
-A log with no torn tail says so and exits 0 either way.
+`repair <goal-id>` lists each bad newline-terminated line, then any unterminated tail, cut to
+300 characters, and the move `--yes` would make, and writes nothing. `repair <goal-id> --yes`
+holds the log's lock, writes the bad lines and any unterminated tail to
+`<goal-id>.torn-<UTC timestamp>.txt` beside the log, rewrites the log with only its good lines,
+and when it removed one or more bad lines appends a `repair` event that bumps the revision so
+earlier table, launch, diff and degraded approvals void. A log with neither damage nor a torn
+tail says so and exits 0 either way.
 
 A second approval of the same kind, ref and run already in the log at the current revision prints
 `already approved <kind> at revision <n>`, writes nothing, and exits 3. For a degraded approval

@@ -11,6 +11,7 @@
 //! - `repair --yes` names the torn file with the time it ran, in stdout and on disk.
 //! - Where the Python dies with a traceback, the Rust must exit 1 with the same stdout, and
 //!   its one-line error must name the Python's exception class; the traceback is not compared.
+//! - A damaged log prints the same named error on stderr in both, with no traceback.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -120,6 +121,29 @@ fn json_string(text: &str) -> String {
     out
 }
 
+/// Replace the `ts` on a `repair` event line so two runs at different times compare equal.
+fn mask_repair_ts(content: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for line in content.split_inclusive(|b| *b == b'\n') {
+        const REPAIR: &[u8] = b"\"event\":\"repair\"";
+        if line.windows(REPAIR.len()).any(|w| w == REPAIR) {
+            let text = String::from_utf8_lossy(line);
+            if let Some(start) = text.find("\"ts\":\"") {
+                let rest = &text[start + 6..];
+                if let Some(end) = rest.find('"') {
+                    let mut masked = text[..start].to_string();
+                    masked.push_str("\"ts\":\"<ts>\"");
+                    masked.push_str(&rest[end + 1..]);
+                    out.extend_from_slice(masked.as_bytes());
+                    continue;
+                }
+            }
+        }
+        out.extend_from_slice(line);
+    }
+    out
+}
+
 /// Replace the time in `<goal>.torn-<time>.txt` with `<ts>`.
 fn mask_torn_stamp(text: &str) -> String {
     let mut out = String::new();
@@ -155,9 +179,15 @@ fn tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
         .map(|e| e.unwrap().path())
         .filter(|p| p.is_file())
         .map(|p| {
+            let bytes = std::fs::read(&p).unwrap();
+            let bytes = if p.extension().is_some_and(|e| e == "jsonl") {
+                mask_repair_ts(&bytes)
+            } else {
+                bytes
+            };
             (
                 mask_torn_stamp(&p.file_name().unwrap().to_string_lossy()),
-                std::fs::read(&p).unwrap(),
+                bytes,
             )
         })
         .collect();
@@ -437,6 +467,67 @@ fn edge_inputs(root: &Path) -> Vec<Input> {
             [busy.clone(), GOAL.into()].concat().into_bytes(),
             Some(scores),
             Some(unavailable),
+        ),
+        (
+            "two bad lines and torn tail",
+            [
+                line(GOAL),
+                line("bad1"),
+                "\n".into(),
+                line(TASK),
+                "{\"event\":\"x\"".into(),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "a repair event between two table approvals",
+            [
+                line(GOAL),
+                line(TASK),
+                line(r#"{"event":"assignment","task":"t1","provider":"codex","model":"","policy":"standard","source":"default"}"#),
+                line(r#"{"seq":4,"ts":"t","event":"approval","kind":"table","ref":null,"revision":2,"yes":true}"#),
+                line(r#"{"seq":5,"ts":"t","event":"approval","kind":"plan","ref":null,"revision":2,"yes":true}"#),
+                line(r#"{"seq":6,"ts":"t","event":"repair","removed":2}"#),
+                line(r#"{"seq":7,"ts":"t","event":"approval","kind":"table","ref":null,"revision":5,"yes":true}"#),
+                line(r#"{"seq":8,"ts":"t","event":"repair","removed":"x"}"#),
+                line(r#"{"seq":9,"ts":"t","event":"repair","removed":true}"#),
+                line(r#"{"seq":10,"ts":"t","event":"repair","removed":-3}"#),
+                line(r#"{"seq":11,"ts":"t","event":"repair"}"#),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
+        ),
+        (
+            "invalid utf-8 inside a terminated line",
+            [
+                line(GOAL).into_bytes(),
+                b"{\"event\":\"note\",\"text\":\"\xff\"}\n".to_vec(),
+                line(TASK).into_bytes(),
+            ]
+            .concat(),
+            None,
+            None,
+        ),
+        (
+            "repair voids table approval",
+            [
+                line(GOAL),
+                line(TASK),
+                line(
+                    r#"{"seq":3,"ts":"t","event":"approval","kind":"table","revision":1,"yes":true}"#,
+                ),
+                line(r#"{"seq":4,"ts":"t","event":"repair","removed":1}"#),
+                line("not json"),
+            ]
+            .concat()
+            .into_bytes(),
+            None,
+            None,
         ),
     ];
     let mut inputs = Vec::new();

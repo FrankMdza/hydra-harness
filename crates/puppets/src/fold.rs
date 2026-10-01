@@ -372,6 +372,15 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
                     };
                 }
             }
+            "repair" => {
+                // Past every revision an approval before the repair could name. A `removed`
+                // that is not a positive int still bumps by one.
+                let removed = match py::get(event, "removed", Value::Int(0))? {
+                    Value::Int(n) if n > 0 => i64::try_from(n).unwrap_or(i64::MAX),
+                    _ => 0,
+                };
+                revision = revision.saturating_add(removed).saturating_add(1);
+            }
             _ => {}
         }
     }

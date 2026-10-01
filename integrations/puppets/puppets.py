@@ -292,23 +292,59 @@ def goal_dir(goal_id: str) -> Path:
     return puppets_home() / goal_id
 
 
+def damaged_line_numbers(raw: bytes) -> list[int]:
+    """1-based line numbers of newline-terminated lines that are blank or not JSON."""
+    bad: list[int] = []
+    for index, line in enumerate(raw.splitlines(keepends=True)):
+        if not line.endswith(b"\n"):
+            break
+        if _bad_line(line):
+            bad.append(index + 1)
+    return bad
+
+
+def _bad_line(line: bytes) -> bool:
+    """Blank, not UTF-8, or not JSON. `json.loads` on bytes drops a BOM, as `read_log` always has."""
+    if not line.strip():
+        return True
+    try:
+        json.loads(line)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return True
+    return False
+
+
+def _newline_terminated_events(raw: bytes) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for line in raw.splitlines(keepends=True):
+        if not line.endswith(b"\n"):
+            break
+        events.append(json.loads(line))
+    return events
+
+
 def read_log(goal_id: str) -> list[dict[str, Any]]:
     path = goal_log_path(goal_id)
     if not path.is_file():
         return []
-    events: list[dict[str, Any]] = []
     raw = path.read_bytes()
-    lines = raw.splitlines(keepends=True)
-    for index, line in enumerate(lines):
-        if not line.endswith(b"\n"):
-            break
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            if index == len(lines) - 1:
-                break
-            raise
-    return events
+    bad = damaged_line_numbers(raw)
+    if bad:
+        raise DamagedLog(goal_id, bad)
+    return _newline_terminated_events(raw)
+
+
+class DamagedLog(Exception):
+    """A newline-terminated line is blank or is not JSON."""
+
+    def __init__(self, goal_id: str, line_numbers: list[int]) -> None:
+        self.goal_id = goal_id
+        self.line_numbers = line_numbers
+        nums = ", ".join(str(n) for n in line_numbers)
+        super().__init__(
+            f"goal log {goal_id} is damaged at line {nums}; wrote nothing; "
+            f"puppets.py repair {goal_id}"
+        )
 
 
 class UnterminatedLog(Exception):
@@ -329,6 +365,22 @@ def _torn_tail(raw: bytes) -> bytes | None:
     return raw[raw.rfind(b"\n") + 1 :]
 
 
+def _partition_log(raw: bytes) -> tuple[list[bytes], list[tuple[int, bytes]], bytes | None]:
+    """Good lines, bad (line number, bytes), and an unterminated tail if any."""
+    good: list[bytes] = []
+    bad: list[tuple[int, bytes]] = []
+    tail: bytes | None = None
+    for index, line in enumerate(raw.splitlines(keepends=True)):
+        if not line.endswith(b"\n"):
+            tail = line
+            break
+        if _bad_line(line):
+            bad.append((index + 1, line))
+        else:
+            good.append(line)
+    return good, bad, tail
+
+
 def _locked_update(
     goal_id: str, decide: Callable[[list[dict[str, Any]]], dict[str, Any] | None]
 ) -> dict[str, Any] | None:
@@ -345,30 +397,24 @@ def _locked_update(
     path.parent.mkdir(parents=True, exist_ok=True)
     # newline="" keeps a lone `\r` as it is, so a tail ending in CR without LF reads as
     # unterminated rather than being turned into a newline (codex review of 190).
-    with path.open("a+", encoding="utf-8", newline="") as handle:
+    with path.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             handle.seek(0)
-            events: list[dict[str, Any]] = []
-            unterminated = False
-            for line in handle:
-                if not line.endswith("\n"):
-                    unterminated = True
-                    break
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    events.append(json.loads(stripped))
-                except json.JSONDecodeError:
-                    continue
+            raw = handle.read()
+            bad = damaged_line_numbers(raw)
+            if bad:
+                raise DamagedLog(goal_id, bad)
+            events = _newline_terminated_events(raw)
+            unterminated = bool(_torn_tail(raw))
             body = decide(events)
             if unterminated:
                 raise UnterminatedLog(goal_id)
             if body is None:
                 return None
             record = {"seq": len(events) + 1, "ts": utc_now(), **body}
-            handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+            line = json.dumps(record, separators=(",", ":")) + "\n"
+            handle.write(line.encode("utf-8"))
             handle.flush()
             return record
         finally:
@@ -578,6 +624,11 @@ def fold(goal_id: str, events: list[dict[str, Any]] | None = None) -> GoalState:
                 task.review_verdict = event.get("verdict")
                 task.review_degraded = event.get("degraded", False)
                 task.review_substitutions = list(event.get("substitutions") or [])
+        elif name == "repair":
+            # Past every revision an approval before the repair could name. A `removed`
+            # that is not a positive int still bumps by one.
+            removed = event.get("removed", 0)
+            revision += (removed if type(removed) is int and removed > 0 else 0) + 1
 
     state.revision = revision
     for key, intent in intents.items():
@@ -2355,12 +2406,13 @@ def cmd_queue(args: argparse.Namespace) -> int:
 
 
 def cmd_repair(args: argparse.Namespace) -> int:
-    """Print a torn tail, or with `--yes` save it and truncate the log.
+    """Print damage and a torn tail, or with `--yes` move them aside and rewrite the log.
 
-    Without `--yes` nothing is written. With `--yes` the tail is written,
-    under the log's lock, to `<goal>.torn-<UTC timestamp>.txt` beside the
-    log, and the log is then truncated to its last newline. A log with no
-    torn tail is left as it is and the command exits 0.
+    Without `--yes` nothing is written. With `--yes` bad newline-terminated lines and
+    any unterminated tail are written, under the log's lock, to
+    `<goal>.torn-<UTC timestamp>.txt` beside the log, the log is rewritten with only
+    its good lines, and when one or more bad lines were removed a `repair` event is
+    appended. A log with neither damage nor a torn tail is left as it is and exits 0.
     """
     goal_id = args.goal
     path = goal_log_path(goal_id)
@@ -2371,29 +2423,50 @@ def cmd_repair(args: argparse.Namespace) -> int:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             raw = handle.read()
-            tail = _torn_tail(raw)
-            if tail is None:
+            good, bad, tail = _partition_log(raw)
+            if not bad and tail is None:
                 print(f"goal log {goal_id} has no torn tail")
                 return 0
             if not args.yes:
-                preview = tail.decode("utf-8", errors="replace")[:300]
-                print(f"unterminated tail: {preview}")
+                for line_no, line in bad:
+                    preview = line.decode("utf-8", errors="replace").strip("\r\n")[:300]
+                    print(f"bad line {line_no}: {preview}")
+                if tail is not None:
+                    preview = tail.decode("utf-8", errors="replace")[:300]
+                    print(f"unterminated tail: {preview}")
                 print(
-                    "would move the tail into "
+                    "would move the bad lines and any unterminated tail into "
                     f"{goal_id}.torn-<UTC timestamp>.txt beside the log, "
-                    "then truncate the log to its last newline"
+                    "then rewrite the log with only its good lines"
                 )
                 return 0
             dest = path.parent / f"{goal_id}.torn-{utc_now()}.txt"
             with dest.open("xb") as torn:
-                torn.write(tail)
+                for _line_no, line in bad:
+                    torn.write(line)
+                if tail is not None:
+                    torn.write(tail)
                 torn.flush()
                 os.fsync(torn.fileno())
-            keep = len(raw) - len(tail)
-            handle.seek(keep)
+            new_raw = b"".join(good)
+            handle.seek(0)
+            handle.write(new_raw)
             handle.truncate()
             handle.flush()
             os.fsync(handle.fileno())
+            removed = len(bad)
+            if removed:
+                events = _newline_terminated_events(new_raw)
+                record = {
+                    "seq": len(events) + 1,
+                    "ts": utc_now(),
+                    "event": "repair",
+                    "removed": removed,
+                }
+                line = json.dumps(record, separators=(",", ":")) + "\n"
+                handle.write(line.encode("utf-8"))
+                handle.flush()
+                os.fsync(handle.fileno())
             print(f"moved the tail into {dest.name}")
             return 0
         finally:
@@ -2590,7 +2663,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except UnterminatedLog as err:
+    except (UnterminatedLog, DamagedLog) as err:
         print(err, file=sys.stderr)
         return 1
 

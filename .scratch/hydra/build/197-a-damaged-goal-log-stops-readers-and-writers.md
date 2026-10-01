@@ -1,7 +1,7 @@
 # 197 - A damaged goal log stops readers and writers
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 193
 
 ## What
@@ -57,3 +57,39 @@ edge inputs of `differential.rs`.
   hydra-puppets` passes with the differential test green, `cargo test --lib` passes.
 - The report lists every Python command that reads or writes a goal log and says, for each, what
   it prints on a damaged log.
+
+## Outcome
+
+Resolved 2026-10-01. Run `01a0f5d0` (cursor-agent composer-2.5, `standard`, 2.7M tokens, six
+minutes), diff read whole by the session, applied to master and corrected there.
+
+Built as the ticket says: `DamagedLog` in the Python and the crate with one message, `read_log`
+and the locked update refusing before `decide`, `repair` listing and moving bad lines and
+appending a `repair` event, the fold's revision bump, nine Python tests in `test_damaged_log.py`,
+and the edge inputs of the differential test. Every Python command that reads or writes a goal
+log prints the one line and exits 1; `new` has no log to damage; `repair` is the way out.
+
+Five corrections by the session, each a difference between the two implementations or a way to
+lose a good line:
+
+- The run's Python chose bad lines with `decode(errors="replace")` and then parsed strictly, so
+  invalid UTF-8 in a terminated line was a traceback in Python and `DamagedLog` in Rust. A line is
+  now bad when `json.loads(line)` on its bytes raises, in both.
+- That same rule keeps a BOM on the first line readable, as it was before. The run's version
+  called it damage, and `repair --yes` would have moved the `goal` event out of the log.
+- The Rust called a line with a lone surrogate damaged, which Python reads. `repair` would have
+  removed a good line. It is no longer bad; reading it still fails by name until build 199.
+- The Rust `repair` truncated the log to zero before rewriting it. It now writes the good lines
+  over the old bytes and then cuts, as the Python does, so a crash leaves the log long and never
+  empty. The second lock type the run added went; `Flock` covers it.
+- `removed` that is not a positive int: Python raised or converted, Rust skipped the bump. Both
+  now add `removed` when it is a positive int, and always one.
+
+Measured on master: the puppets Python suite 194 passed; fmt and clippy clean over the workspace;
+`cargo test -p hydra-puppets` 11 unit tests and the differential test over 123 inputs. The
+session added two inputs: a healthy log with `repair` events between table approvals, and invalid
+UTF-8 inside a terminated line.
+
+Left open: `repair --yes` rewrites in place and is not atomic; a rename would break the `flock`
+other writers wait on. A `removed` wider than `i64` saturates in Rust and not in Python.
+

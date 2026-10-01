@@ -73,7 +73,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(err, "")
         self.assertIn(tail.decode(), out)
         self.assertIn("g1.torn-<UTC timestamp>.txt", out)
-        self.assertIn("truncate", out)
+        self.assertIn("rewrite", out)
         self.assertEqual(self.log_bytes(), raw)
         self.assertEqual(self.torn_files(), [])
 

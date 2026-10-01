@@ -76,7 +76,13 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(e) => {
             let _ = out.flush();
-            let _ = writeln!(err, "hydra-puppets: {e:#}");
+            if let Some(damaged) = e.downcast_ref::<log::DamagedLog>() {
+                let _ = writeln!(err, "{damaged}");
+            } else if let Some(unterminated) = e.downcast_ref::<log::UnterminatedLog>() {
+                let _ = writeln!(err, "{unterminated}");
+            } else {
+                let _ = writeln!(err, "hydra-puppets: {e:#}");
+            }
             1
         }
     };

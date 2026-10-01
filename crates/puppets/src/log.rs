@@ -1,9 +1,8 @@
 //! The goal log: one append-only JSONL file per goal under the puppets home.
 //!
-//! Only newline-terminated lines count. The reader stops at the first line without one and
-//! skips a bad final line, as `read_log` does; a bad line before the last is an error there,
-//! and it is one here. The writer under the lock skips any bad line, as `_locked_update` does,
-//! and appends nothing while the file ends without a newline.
+//! Only newline-terminated lines count. A newline-terminated line that is blank or is not JSON
+//! makes the log damaged: readers and writers refuse with `DamagedLog`. An unterminated tail
+//! is not damage; readers stop before it and writers raise `UnterminatedLog`.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -13,7 +12,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 
 use crate::json::{self, Dict, ParseError, Value};
-use crate::py;
 
 /// Where the helper reads and writes, from the same environment `puppets.py` reads.
 #[derive(Clone, Debug)]
@@ -119,6 +117,47 @@ fn loads_line(line: &[u8]) -> Result<Result<Value, ParseError>> {
     Ok(json::loads(decode(body)?))
 }
 
+/// Blank, not UTF-8, or not JSON: what `json.loads(line)` raises on. A line this reader
+/// cannot hold but Python can (a lone surrogate) is not bad, so `repair` never moves it.
+fn bad_line(line: &[u8]) -> bool {
+    !matches!(
+        loads_line(line),
+        Ok(Ok(_)) | Ok(Err(ParseError::Unsupported))
+    )
+}
+
+fn damaged_line_numbers(raw: &[u8]) -> Vec<usize> {
+    let mut bad = Vec::new();
+    for (index, line) in split_lines(raw).iter().enumerate() {
+        if !line.ends_with(b"\n") {
+            break;
+        }
+        if bad_line(line) {
+            bad.push(index + 1);
+        }
+    }
+    bad
+}
+
+fn newline_terminated_events(raw: &[u8]) -> Result<Vec<Value>> {
+    let mut events = Vec::new();
+    for line in split_lines(raw) {
+        if !line.ends_with(b"\n") {
+            break;
+        }
+        match loads_line(line)? {
+            Ok(event) => events.push(event),
+            Err(ParseError::Unsupported) => {
+                bail!("goal log line holds a lone surrogate");
+            }
+            Err(ParseError::Decode) => {
+                bail!("goal log line is not JSON");
+            }
+        }
+    }
+    Ok(events)
+}
+
 /// The goal log's events: newline-terminated lines up to the first that is not.
 pub fn read_log(home: &Home, goal_id: &str) -> Result<Vec<Value>> {
     let path = home.goal_log_path(goal_id);
@@ -126,31 +165,41 @@ pub fn read_log(home: &Home, goal_id: &str) -> Result<Vec<Value>> {
         return Ok(Vec::new());
     }
     let raw = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    let lines = split_lines(&raw);
-    let mut events = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        if !line.ends_with(b"\n") {
-            break;
+    let bad = damaged_line_numbers(&raw);
+    if !bad.is_empty() {
+        return Err(DamagedLog {
+            goal_id: goal_id.to_string(),
+            line_numbers: bad,
         }
-        match loads_line(line)? {
-            Ok(event) => events.push(event),
-            Err(ParseError::Decode) if index == lines.len() - 1 => break,
-            Err(ParseError::Decode) => {
-                bail!(
-                    "json.decoder.JSONDecodeError: goal log {goal_id} line {} is not JSON",
-                    index + 1
-                )
-            }
-            Err(ParseError::Unsupported) => {
-                bail!(
-                    "goal log {goal_id} line {} holds a lone surrogate",
-                    index + 1
-                )
-            }
-        }
+        .into());
     }
-    Ok(events)
+    newline_terminated_events(&raw)
 }
+
+/// A newline-terminated line is blank or is not JSON.
+#[derive(Debug)]
+pub struct DamagedLog {
+    pub goal_id: String,
+    pub line_numbers: Vec<usize>,
+}
+
+impl std::fmt::Display for DamagedLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let nums = self
+            .line_numbers
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let goal = &self.goal_id;
+        write!(
+            f,
+            "goal log {goal} is damaged at line {nums}; wrote nothing; puppets.py repair {goal}"
+        )
+    }
+}
+
+impl std::error::Error for DamagedLog {}
 
 /// A writer found the log ending without a newline and appended nothing.
 #[derive(Debug)]
@@ -198,12 +247,37 @@ impl Drop for Flock<'_> {
     }
 }
 
+struct Partitioned {
+    good: Vec<Vec<u8>>,
+    bad: Vec<(usize, Vec<u8>)>,
+    tail: Option<Vec<u8>>,
+}
+
+fn partition_log(raw: &[u8]) -> Partitioned {
+    let mut good = Vec::new();
+    let mut bad = Vec::new();
+    let mut tail = None;
+    for (index, line) in split_lines(raw).iter().enumerate() {
+        if !line.ends_with(b"\n") {
+            tail = Some(line.to_vec());
+            break;
+        }
+        if bad_line(line) {
+            bad.push((index + 1, line.to_vec()));
+        } else {
+            good.push(line.to_vec());
+        }
+    }
+    Partitioned { good, bad, tail }
+}
+
 /// Hold the goal log's lock, read it, and append what `decide` returns.
 ///
-/// `decide` sees the newline-terminated lines read under the lock, blank and bad ones
-/// skipped. When the file ends without a newline this returns `UnterminatedLog` after
-/// `decide` runs and writes nothing. `None` from `decide` writes nothing. The appended
-/// record is `{"seq": <lines read + 1>, "ts": <now>, ...body}`, compact, on one line.
+/// `decide` sees the newline-terminated good lines read under the lock. Damage is
+/// refused before `decide`. When the file ends without a newline this returns
+/// `UnterminatedLog` after `decide` runs and writes nothing. `None` from `decide` writes
+/// nothing. The appended record is `{"seq": <lines read + 1>, "ts": <now>, ...body}`,
+/// compact, on one line.
 pub fn locked_update(
     home: &Home,
     goal_id: &str,
@@ -224,23 +298,16 @@ pub fn locked_update(
     let mut raw = Vec::new();
     (&file).seek(SeekFrom::Start(0))?;
     (&file).read_to_end(&mut raw)?;
-    let mut events = Vec::new();
-    let mut unterminated = false;
-    for line in split_lines(&raw) {
-        if !line.ends_with(b"\n") {
-            unterminated = true;
-            break;
+    let bad = damaged_line_numbers(&raw);
+    if !bad.is_empty() {
+        return Err(DamagedLog {
+            goal_id: goal_id.to_string(),
+            line_numbers: bad,
         }
-        let stripped = py::strip(decode(line)?);
-        if stripped.is_empty() {
-            continue;
-        }
-        match json::loads(stripped) {
-            Ok(event) => events.push(event),
-            Err(ParseError::Decode) => continue,
-            Err(ParseError::Unsupported) => bail!("goal log {goal_id} holds a lone surrogate"),
-        }
+        .into());
     }
+    let events = newline_terminated_events(&raw)?;
+    let unterminated = torn_tail(&raw).is_some();
     let body = decide(&events)?;
     if unterminated {
         return Err(UnterminatedLog {
@@ -272,8 +339,8 @@ pub fn torn_tail(raw: &[u8]) -> Option<&[u8]> {
     Some(&raw[start..])
 }
 
-/// `repair`: print a torn tail, or with `yes` move it beside the log and truncate the log
-/// to its last newline, under the log's lock. Returns the exit code.
+/// `repair`: print damage and a torn tail, or with `yes` move them aside and rewrite the
+/// log with only its good lines, under the log's lock. Returns the exit code.
 pub fn repair(home: &Home, goal_id: &str, yes: bool, out: &mut dyn Write) -> Result<i32> {
     let path = home.goal_log_path(goal_id);
     if !path.is_file() {
@@ -288,17 +355,29 @@ pub fn repair(home: &Home, goal_id: &str, yes: bool, out: &mut dyn Write) -> Res
     let _lock = Flock::exclusive(&file)?;
     let mut raw = Vec::new();
     (&file).read_to_end(&mut raw)?;
-    let Some(tail) = torn_tail(&raw) else {
+    let parts = partition_log(&raw);
+    if parts.bad.is_empty() && parts.tail.is_none() {
         writeln!(out, "goal log {goal_id} has no torn tail")?;
         return Ok(0);
-    };
+    }
     if !yes {
-        let preview: String = String::from_utf8_lossy(tail).chars().take(300).collect();
-        writeln!(out, "unterminated tail: {preview}")?;
+        for (line_no, line) in &parts.bad {
+            let preview: String = String::from_utf8_lossy(line)
+                .trim_end_matches(['\r', '\n'])
+                .chars()
+                .take(300)
+                .collect();
+            writeln!(out, "bad line {line_no}: {preview}")?;
+        }
+        if let Some(tail) = &parts.tail {
+            let preview: String = String::from_utf8_lossy(tail).chars().take(300).collect();
+            writeln!(out, "unterminated tail: {preview}")?;
+        }
         writeln!(
             out,
-            "would move the tail into {goal_id}.torn-<UTC timestamp>.txt beside the log, \
-             then truncate the log to its last newline"
+            "would move the bad lines and any unterminated tail into \
+             {goal_id}.torn-<UTC timestamp>.txt beside the log, then rewrite the log with \
+             only its good lines"
         )?;
         return Ok(0);
     }
@@ -311,12 +390,37 @@ pub fn repair(home: &Home, goal_id: &str, yes: bool, out: &mut dyn Write) -> Res
         .create_new(true)
         .open(&dest)
         .with_context(|| format!("FileExistsError: {}", dest.display()))?;
-    torn.write_all(tail)?;
+    for (_line_no, line) in &parts.bad {
+        torn.write_all(line)?;
+    }
+    if let Some(tail) = &parts.tail {
+        torn.write_all(tail)?;
+    }
     torn.flush()?;
     torn.sync_all()?;
-    let keep = (raw.len() - tail.len()) as u64;
-    file.set_len(keep)?;
+    let new_raw: Vec<u8> = parts
+        .good
+        .iter()
+        .flat_map(|line| line.iter().copied())
+        .collect();
+    // Write the good lines over the old bytes and cut the rest, in that order, as the Python
+    // does: a crash in between leaves the log long, never empty.
+    (&file).seek(SeekFrom::Start(0))?;
+    (&file).write_all(&new_raw)?;
+    file.set_len(new_raw.len() as u64)?;
     file.sync_all()?;
+    let removed = parts.bad.len();
+    if removed > 0 {
+        let events = newline_terminated_events(&new_raw)?;
+        let mut record = Dict::new();
+        record.set("seq", Value::Int(events.len() as i128 + 1));
+        record.set("ts", Value::Str(utc_now()));
+        record.set("event", Value::Str("repair".into()));
+        record.set("removed", Value::Int(removed as i128));
+        let line = json::dumps(&Value::Dict(record), None) + "\n";
+        (&file).write_all(line.as_bytes())?;
+        file.sync_all()?;
+    }
     let name = dest
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -383,17 +487,21 @@ mod tests {
     }
 
     #[test]
-    fn the_reader_ignores_an_unterminated_tail_and_a_bad_last_line() {
+    fn the_reader_ignores_an_unterminated_tail_and_refuses_bad_lines() {
         let (_dir, home) = scratch();
         let path = home.goal_log_path("g1");
         std::fs::write(&path, [GOAL, b"{\"event\":\"task\""].concat()).unwrap();
         assert_eq!(read_log(&home, "g1").unwrap().len(), 1);
         std::fs::write(&path, [GOAL, b"not json\n"].concat()).unwrap();
-        assert_eq!(read_log(&home, "g1").unwrap().len(), 1);
+        let err = read_log(&home, "g1").unwrap_err();
+        let damaged = err.downcast_ref::<DamagedLog>().unwrap();
+        assert_eq!(damaged.line_numbers, vec![2]);
         std::fs::write(&path, [GOAL, b"not json\n", GOAL].concat()).unwrap();
         assert!(
-            read_log(&home, "g1").is_err(),
-            "a bad interior line is an error, as in read_log"
+            read_log(&home, "g1")
+                .unwrap_err()
+                .downcast_ref::<DamagedLog>()
+                .is_some()
         );
         std::fs::write(&path, [GOAL, b"{\"event\":\"x\"}\r"].concat()).unwrap();
         assert_eq!(read_log(&home, "g1").unwrap().len(), 1);
@@ -401,24 +509,28 @@ mod tests {
     }
 
     #[test]
-    fn a_locked_update_appends_the_next_seq_and_skips_bad_lines() {
+    fn a_locked_update_refuses_a_damaged_log() {
         let (_dir, home) = scratch();
         let path = home.goal_log_path("g1");
         std::fs::write(&path, [GOAL, b"not json\n", b"\n"].concat()).unwrap();
-        let record = locked_update(&home, "g1", |events| {
-            assert_eq!(events.len(), 1);
-            Ok(Some(body("note")))
-        })
-        .unwrap()
-        .unwrap();
-        assert!(matches!(record.get("seq"), Some(Value::Int(2))));
-        let raw = std::fs::read_to_string(&path).unwrap();
-        let last = raw.lines().last().unwrap();
-        assert!(last.starts_with("{\"seq\":2,\"ts\":\""), "{last}");
-        assert!(last.ends_with(",\"event\":\"note\"}"), "{last}");
-        assert!(raw.ends_with('\n'));
-        assert!(locked_update(&home, "g1", |_| Ok(None)).unwrap().is_none());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
+        let err = locked_update(&home, "g1", |_| Ok(Some(body("note")))).unwrap_err();
+        assert!(err.downcast_ref::<DamagedLog>().is_some());
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            [GOAL, b"not json\n", b"\n"].concat()
+        );
+    }
+
+    #[test]
+    fn damaged_log_message_matches_python() {
+        let err = DamagedLog {
+            goal_id: "g1".into(),
+            line_numbers: vec![2, 4],
+        };
+        assert_eq!(
+            err.to_string(),
+            "goal log g1 is damaged at line 2, 4; wrote nothing; puppets.py repair g1"
+        );
     }
 
     #[test]

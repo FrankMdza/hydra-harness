@@ -3262,9 +3262,12 @@ logs: an unterminated tail, a CR tail, bad and blank interior lines, a bad last 
 file, a missing file, CRLF lines, a BOM, a missing key, a non-object event, torn tails in bad
 UTF-8 and past 300 characters, and one goal that reaches every board and pending branch.
 Normalized are `pending`'s first `argv` element (Python's `sys.executable` against `python3`),
-the timestamp `repair --yes` puts in the torn file's name, and a Python traceback. For a
-traceback the Rust must exit 1 with the same stdout and name the same exception class. A bad
-interior line is such a crash in both: `read_log` raises on it and skips only a bad last line.
+the timestamp `repair --yes` puts in the torn file's name, the `ts` on a `repair` event the
+rewrite appends, and a Python traceback. For a traceback the Rust must exit 1 with the same
+stdout and name the same exception class. A newline-terminated blank or non-JSON line is
+damage in both: readers and writers refuse with `DamagedLog`, `repair` moves the bad lines and
+any torn tail aside and may append a `repair` event whose fold adds `removed + 1` to the
+revision. An unterminated tail is not damage.
 The second test, `#[ignore]`d, runs the read commands over copies of the real
 `~/hydra/puppets/*.jsonl` and never `repair --yes`. Known divergence: a string holding a lone
 UTF-16 surrogate, which Python reads and this reader refuses with exit 1.
