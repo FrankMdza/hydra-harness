@@ -1,7 +1,7 @@
 # 210 - A shared crate for Python's JSON, strings and sort
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 
 
 ## What
