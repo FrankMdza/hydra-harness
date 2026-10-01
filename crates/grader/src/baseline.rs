@@ -37,7 +37,7 @@ const PREAMBLE: &str = "Hydra launched this run";
 /// other outcome says nothing about the task and leaves the row out.
 const TASK_FAILURES: [&str; 3] = ["failed", "crashed", "timed_out"];
 /// Below this many rows of the rarer class in either slice, `train` refuses.
-const MIN_MINORITY: usize = 10;
+pub(crate) const MIN_MINORITY: usize = 10;
 const L2: f64 = 1.0;
 const STEPS: usize = 3000;
 const RATE: f64 = 0.5;
@@ -81,7 +81,7 @@ impl Label {
     }
 
     /// What a 1 means, as the model file says it.
-    fn positive(self) -> &'static str {
+    pub(crate) fn positive(self) -> &'static str {
         match self {
             Label::Outcome => "not completed",
             Label::Verdict => "fixed",
@@ -220,9 +220,9 @@ fn target(row: &Value, label: Label) -> Result<Option<u8>> {
 }
 
 /// `raw_features`: what a router has before a launch. Three one-hot names and two numbers.
-struct Features {
+pub(crate) struct Features {
     names: [PyStr; 3],
-    log_task_chars: f64,
+    pub(crate) log_task_chars: f64,
     preamble: f64,
 }
 
@@ -232,7 +232,7 @@ fn contains(hay: &[u32], needle: &PyStr) -> bool {
 }
 
 impl Features {
-    fn of(row: &Value) -> Result<Features> {
+    pub(crate) fn of(row: &Value) -> Result<Features> {
         let text = get(row, "task_text")?;
         let name = |key: &str| -> Result<PyStr> {
             let mut out = PyStr::from(format!("{key}=").as_str());
@@ -261,7 +261,7 @@ impl Features {
     }
 
     /// The five names, in the order the Python's dict holds them.
-    fn names(&self) -> Vec<PyStr> {
+    pub(crate) fn names(&self) -> Vec<PyStr> {
         let mut names = self.names.to_vec();
         names.push(PyStr::from("log_task_chars"));
         names.push(PyStr::from("preamble"));
@@ -269,7 +269,7 @@ impl Features {
     }
 
     /// `feats.get(name, 0.0)`.
-    fn value(&self, name: &PyStr) -> f64 {
+    pub(crate) fn value(&self, name: &PyStr) -> f64 {
         if self.names.contains(name) {
             1.0
         } else if name == "log_task_chars" {
@@ -283,7 +283,7 @@ impl Features {
 }
 
 /// A number of a model file as the float Python's arithmetic makes of it.
-fn number(value: &Value) -> Result<f64> {
+pub(crate) fn number(value: &Value) -> Result<f64> {
     match value {
         Value::Bool(b) => Ok(f64::from(u8::from(*b))),
         Value::Int(n) => Ok(*n as f64),
@@ -300,8 +300,13 @@ fn number(value: &Value) -> Result<f64> {
 }
 
 /// `vector`: one row as the model reads it, a value per name of the vocabulary, scaled
-/// where the model holds a scale for the name.
-fn vector(feats: &Features, vocab: &[Value], scale: &[(PyStr, Vec<Value>)]) -> Result<Vec<f64>> {
+/// where the model holds a scale for the name. `feats` is `feats.get(name, 0.0)`, which the
+/// monitor answers from more names than the baseline has.
+pub(crate) fn vector(
+    feats: &dyn Fn(&PyStr) -> f64,
+    vocab: &[Value],
+    scale: &[(PyStr, Vec<Value>)],
+) -> Result<Vec<f64>> {
     let mut out = Vec::with_capacity(vocab.len());
     for name in vocab {
         py::hashable(name)?;
@@ -309,7 +314,7 @@ fn vector(feats: &Features, vocab: &[Value], scale: &[(PyStr, Vec<Value>)]) -> R
             out.push(0.0);
             continue;
         };
-        let mut value = feats.value(name);
+        let mut value = feats(name);
         if let Some((_, pair)) = scale.iter().find(|(key, _)| key == name) {
             let [mean, std] = pair.as_slice() else {
                 bail!(
@@ -347,7 +352,7 @@ fn logit(weights: &[f64], bias: f64, x: &[f64], products: &mut Vec<f64>) -> f64 
 }
 
 /// `fit`: full-batch gradient descent on L2-penalised log loss. Nothing is shuffled.
-fn fit(xs: &[Vec<f64>], ys: &[u8]) -> (Vec<f64>, f64) {
+pub(crate) fn fit(xs: &[Vec<f64>], ys: &[u8]) -> (Vec<f64>, f64) {
     let n = xs.len() as f64;
     let d = xs[0].len();
     let (mut weights, mut bias) = (vec![0.0; d], 0.0);
@@ -459,13 +464,17 @@ fn reliability(ps: &[f64], ys: &[u8]) -> Value {
 
 /// The rows of a dataset that carry `label`, each with its target, split by launch time so
 /// that nothing launched later can train what launched earlier.
-struct Slices<'a> {
-    labelled: usize,
-    fit: Vec<(&'a Value, u8)>,
-    test: Vec<(&'a Value, u8)>,
+pub(crate) struct Slices<'a> {
+    pub(crate) labelled: usize,
+    pub(crate) fit: Vec<(&'a Value, u8)>,
+    pub(crate) test: Vec<(&'a Value, u8)>,
 }
 
-fn slices<'a>(rows: &'a [Value], label: Label, test_from: &DateTime) -> Result<Slices<'a>> {
+pub(crate) fn slices<'a>(
+    rows: &'a [Value],
+    label: Label,
+    test_from: &DateTime,
+) -> Result<Slices<'a>> {
     let mut labelled = Vec::new();
     for row in rows {
         if let Some(y) = target(row, label)? {
@@ -491,12 +500,12 @@ fn slices<'a>(rows: &'a [Value], label: Label, test_from: &DateTime) -> Result<S
     })
 }
 
-fn positives(part: &[(&Value, u8)]) -> usize {
+pub(crate) fn positives(part: &[(&Value, u8)]) -> usize {
     part.iter().map(|(_, y)| usize::from(*y)).sum()
 }
 
 /// `json.dumps(value, sort_keys=True)`.
-fn dumps_sorted(value: &Value) -> String {
+pub(crate) fn dumps_sorted(value: &Value) -> String {
     fn sorted(value: &Value) -> Value {
         match value {
             Value::List(items) => Value::List(items.iter().map(sorted).collect()),
@@ -515,7 +524,7 @@ fn dumps_sorted(value: &Value) -> String {
     json::dumps_default(&sorted(value))
 }
 
-fn floats(values: &[f64]) -> Value {
+pub(crate) fn floats(values: &[f64]) -> Value {
     Value::List(values.iter().map(|x| Value::Float(*x)).collect())
 }
 
@@ -564,7 +573,7 @@ pub fn train(rows: &[Value], label: Label, test_from: &DateTime) -> Result<Value
 
     let xs: Vec<Vec<f64>> = feats
         .iter()
-        .map(|f| vector(f, &vocab, &scale))
+        .map(|f| vector(&|name| f.value(name), &vocab, &scale))
         .collect::<Result<_>>()?;
     let ys: Vec<u8> = parts.fit.iter().map(|(_, y)| *y).collect();
     let (weights, bias) = fit(&xs, &ys);
@@ -604,6 +613,19 @@ pub fn train(rows: &[Value], label: Label, test_from: &DateTime) -> Result<Value
 /// `predict`: the model's probability for one row. The model is a file's JSON, read here
 /// the way the Python reads it: only as far as the row's vector reaches.
 pub fn predict(model: &Value, row: &Value) -> Result<f64> {
+    predict_with(model, || {
+        let feats = Features::of(row)?;
+        Ok(move |name: &PyStr| feats.value(name))
+    })
+}
+
+/// `predict` over whatever answers `feats.get(name, 0.0)` for the row. The row's features
+/// are asked for after the model's scale, weights, bias and vocabulary are read, which is
+/// the order the Python raises in.
+pub(crate) fn predict_with<F: Fn(&PyStr) -> f64>(
+    model: &Value,
+    feats: impl FnOnce() -> Result<F>,
+) -> Result<f64> {
     let Value::Dict(scales) = py::item(model, "scale")? else {
         bail!(
             "AttributeError: '{}' object has no attribute 'items'",
@@ -617,7 +639,7 @@ pub fn predict(model: &Value, row: &Value) -> Result<f64> {
     let weights = py::item(model, "weights")?;
     let bias = py::item(model, "bias")?;
     let vocab = py::item(model, "vocab")?;
-    let feats = Features::of(row)?;
+    let feats = feats()?;
     let x = vector(&feats, &py::list(vocab)?, &scale)?;
     let mut read = Vec::with_capacity(x.len());
     for (w, _) in py::list(weights)?.iter().zip(&x) {
@@ -720,6 +742,16 @@ fn measures(ps: &[f64], ys: &[u8]) -> Value {
 /// `report`: how a model `train` just fitted does on its test slice, beside a constant and
 /// beside the provider and model rates.
 pub fn report(model: &Value, rows: &[Value], label: Label) -> Result<Value> {
+    report_with(model, rows, label, &|row| predict(model, row))
+}
+
+/// `report` with the caller's `predict`, which is the one line `monitor.py`'s differs by.
+pub(crate) fn report_with(
+    model: &Value,
+    rows: &[Value],
+    label: Label,
+    predict: &dyn Fn(&Value) -> Result<f64>,
+) -> Result<Value> {
     let Value::Str(written) = py::item(model, "test_from")? else {
         bail!("TypeError: fromisoformat: argument must be str");
     };
@@ -734,7 +766,7 @@ pub fn report(model: &Value, rows: &[Value], label: Label) -> Result<Value> {
     let scored: Vec<f64> = parts
         .test
         .iter()
-        .map(|(row, _)| predict(model, row))
+        .map(|(row, _)| predict(row))
         .collect::<Result<_>>()?;
     let rates = Rates::of(&parts.fit)?;
     if ys.is_empty() {
@@ -785,6 +817,14 @@ pub fn row_from_record(
     let Some(item) = records::scan_record(path, stderr)? else {
         return Err(Refusal(format!("baseline: {shown} is not a run or resume record")).into());
     };
+    row_of(&item, aliases)
+}
+
+/// `row_from_record` once the record is scanned.
+pub(crate) fn row_of(
+    item: &records::Scanned,
+    aliases: &dyn Fn() -> Result<Vec<(Pair, Pair)>>,
+) -> Result<Value> {
     let first = &item.first;
     let start = get(first, "hydra")?;
     let start = if py::truthy(&start) {

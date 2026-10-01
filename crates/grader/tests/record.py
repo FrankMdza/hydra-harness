@@ -953,6 +953,8 @@ def main() -> int:
         module = load_module("record_" + name, HERE / ("record_" + name + ".py"))
         write(out, name + ".json", {"version": sys.version, "cases": module.record()})
 
+    # Build ticket 215: `monitor.py`'s `features`, `train` and `score`, in its own file too.
+    load_module("record_monitor", HERE / "record_monitor.py").record(out, REPO, scan_inputs())
 
     digest = hashlib.sha256()
     for path in sorted(p for p in out.rglob("*") if p.is_file()):

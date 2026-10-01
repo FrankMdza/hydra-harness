@@ -51,6 +51,10 @@ const RUST: &str = env!("CARGO_BIN_EXE_hydra-grader");
 #[path = "differential/baseline.rs"]
 mod baseline;
 
+// Build ticket 215: `monitor.py`'s `features`, `train` and `score`, command by command.
+#[path = "differential/monitor.rs"]
+mod monitor;
+
 fn fixtures() -> PathBuf {
     match std::env::var_os("HYDRA_GRADER_FIXTURES") {
         Some(named) => PathBuf::from(named),

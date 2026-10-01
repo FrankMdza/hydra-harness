@@ -3643,6 +3643,63 @@ Not compared, and why: `max(p, eps)` keeping a NaN where `f64::max` drops it has
 no differential case, because no command reaches the log loss with a NaN score. Nothing ran on
 the real grader home or its models.
 
+#### The prefix monitor, since build ticket 215
+
+`monitor.rs` is `monitor.py` whole: the walk over a record's first lines (`Prefix`, here `Walk`),
+`summarize`, the features, `join`, `scale_of`, `train`, `predict`, `report` and the feature view.
+`monitor_cli.rs` is its three commands, which the binary runs as
+`hydra-grader monitor features RECORD --at F`,
+`hydra-grader monitor train DATASET [MODEL] --at F [--label L] [--test-from DAY] [--records DIR]`
+and `hydra-grader monitor score MODEL RUN`. The Python stays as the reference.
+
+The split, the floor, `fit`, the measures and the report are `baseline.rs`'s, called and not
+copied. For that, `baseline.rs` gained `pub(crate)` on what the monitor calls and three seams:
+`vector` takes the lookup `feats.get(name, 0.0)` instead of the baseline's own features,
+`predict_with` and `report_with` take the caller's features and `predict`, and `row_of` is
+`row_from_record` after the scan. `baseline_cli.rs` gained `record_path` and `pub(crate)` on its
+`argparse` reader. `hydra-pyjson` did not change.
+
+What the port had to get right, each found by reading the Python or by a comparison that failed:
+
+- A call with no input is keyed on the name as the frame held it, not on its text, so tools named
+  `1`, `1.0` and `true` are one call and a streak of three. With an input the key is text:
+  `str(name)`, a colon and 16 hex digits of the SHA-256 of `json.dumps(args, sort_keys=True)`.
+- A tool's name is never asked to be a string. A number is counted, printed back by `features`
+  and becomes `first_refused=7` in a vocabulary. A list or an object is a `TypeError`.
+- `int(value)` on a float count is exact at any size: `1e40` prints as its 41 digits.
+- `is_denial` removes `hydra/allow` and looks again, so `hydrahydra/allow/x` is a denial.
+- `--at` is `float(text)`: whitespace around it, single underscores between digits and the
+  digits of any script, then one of the three fractions within 1e-9.
+- The scales use `math::pow`, as the baseline's does. The records the fixtures train on are the
+  first seed of 1,000 searched whose fit slice tells `pow` from a multiplication (seed 21635, at
+  0.5), because most cannot.
+
+`crates/grader/tests/record_monitor.py`, which `record.py` loads, records the way
+`record_baseline.py` does, and every case names `HYDRA_ROOT`. `tests/differential/monitor.rs`
+makes 1,960 comparisons over 490 cases, four per case. The cases are 167 feature views (the
+twelve records of `tests/fixtures/records/` at each fraction, the frames `test_monitor.py`
+builds, 71 records of frames a provider could leave and 29 told apart by their lines), 29 models
+trained (the dataset of build
+213 joined to 180 generated records at each label and fraction, and the corpus `test_monitor.py`
+trains on), 103 records scored, 60 refusals, 75 tracebacks, 52 wrong command lines and four
+requests for help. The fixtures are `fixtures/monitor.json` and `fixtures/monitor/`, 2.0 MB.
+
+Normalized: the three things the baseline's test normalizes, with `monitor.py` read as
+`hydra-grader monitor`. The recorder also replaces the checkout's directory in a traceback with
+`<repo>`, so a recording made in another checkout gives the same file; the test reads only the
+exception class of a traceback, so this changes nothing compared. Feature views, model files,
+reports, score lines, refusals and the `grader: skipping` lines are compared to the byte.
+
+Broken on purpose, each one word: `x * x` for `math::pow` in the scales fails 2 of 1,960
+comparisons, the model and the report of the one train whose scale it moves; the first open call
+of a tool instead of the last fails 1; `Edit` for `Write` as `editToolCall`'s name fails 1. With
+the command not dispatched, 1,218 fail.
+
+Not ported faithfully, and why: a dataset row whose run id holds a lone surrogate is left out of
+the join without looking for its file, where the Python asks the file system for a name it
+encodes with `surrogateescape`. No case reaches it. Nothing ran on the real `~/hydra/runs` or
+the real monitor models.
+
 ## `hydra cockpit`, since build ticket 150
 
 Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a full-screen

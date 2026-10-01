@@ -29,7 +29,7 @@ const TRAIN_USAGE: &str = "usage: hydra-grader baseline train [-h] [--label {out
                            [--test-from TEST_FROM] dataset [model]";
 const SCORE_USAGE: &str = "usage: hydra-grader baseline score [-h] model run";
 /// `--test-from` when none is given.
-const TEST_FROM: &str = "2026-09-23";
+pub(crate) const TEST_FROM: &str = "2026-09-23";
 
 /// Where `aliases.json` is read from, found when the command runs: `HYDRA_PUPPETS_DATA`
 /// when set, else `integrations/puppets` under `HYDRA_HOME`, else the first directory above
@@ -54,17 +54,17 @@ fn aliases_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(FILE))
 }
 
-fn load_aliases() -> Result<Vec<(Pair, Pair)>> {
+pub(crate) fn load_aliases() -> Result<Vec<(Pair, Pair)>> {
     models::load_aliases(&aliases_path())
 }
 
 /// `repr(text)`, which is how `argparse` quotes a value it refuses.
-fn repr(text: &str) -> String {
+pub(crate) fn repr(text: &str) -> String {
     py::repr(&Value::text(text))
 }
 
 /// `str(Path(text))`: no `.` component, no doubled or trailing slash, and `.` for nothing.
-fn shown(path: &Path) -> String {
+pub(crate) fn shown(path: &Path) -> String {
     let clean: PathBuf = path
         .components()
         .filter(|part| !matches!(part, std::path::Component::CurDir))
@@ -77,7 +77,7 @@ fn shown(path: &Path) -> String {
 }
 
 /// `day`: `datetime.fromisoformat(text).replace(tzinfo=timezone.utc)`.
-fn day(text: &str) -> Option<DateTime> {
+pub(crate) fn day(text: &str) -> Option<DateTime> {
     isotime::fromisoformat(&PyStr::from(text)).map(DateTime::replace_utc)
 }
 
@@ -90,7 +90,7 @@ fn negative_number(arg: &str) -> bool {
 }
 
 /// What one argument is to a parser whose long options are `longs`.
-enum Kind {
+pub(crate) enum Kind {
     Positional,
     Help,
     /// An option and the value written after its `=`, if any.
@@ -103,7 +103,7 @@ enum Kind {
 
 /// `_parse_optional`: an option may be cut short to any prefix that names one option, and
 /// what names none is a positional when it looks like a negative number or holds a space.
-fn kind(arg: &str, longs: &[&'static str]) -> Kind {
+pub(crate) fn kind(arg: &str, longs: &[&'static str]) -> Kind {
     if !arg.starts_with('-') || arg.len() == 1 {
         return Kind::Positional;
     }
@@ -238,13 +238,13 @@ pub(crate) fn required(names: &[&str], given: usize) -> Option<String> {
     })
 }
 
-fn quoted(names: &[&str]) -> String {
+pub(crate) fn quoted(names: &[&str]) -> String {
     let names: Vec<String> = names.iter().map(|name| format!("'{name}'")).collect();
     names.join(", ")
 }
 
 /// The command a run of `baseline.py` ends with: what it printed and its exit code.
-fn finish(done: Result<String>, stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
+pub(crate) fn finish(done: Result<String>, stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
     match done {
         Ok(printed) => {
             let _ = writeln!(stdout, "{printed}");
@@ -283,16 +283,19 @@ fn train(
     ))
 }
 
+/// `record_path`: a record path, or a full run id under `$HYDRA_ROOT/runs/`.
+pub(crate) fn record_path(run: &str) -> Result<PathBuf> {
+    if Path::new(run).is_file() {
+        return Ok(PathBuf::from(run));
+    }
+    Ok(records::hydra_root()?
+        .join("runs")
+        .join(format!("{run}.jsonl")))
+}
+
 fn score(model: &Path, run: &str, stderr: &mut dyn Write) -> Result<String> {
     let model = records::read_json(model)?.unwrap_or(Value::Null);
-    // A record path, or a full run id under `$HYDRA_ROOT/runs/`.
-    let path = if Path::new(run).is_file() {
-        PathBuf::from(run)
-    } else {
-        records::hydra_root()?
-            .join("runs")
-            .join(format!("{run}.jsonl"))
-    };
+    let path = record_path(run)?;
     let row = baseline::row_from_record(&path, &shown(&path), &load_aliases, stderr)?;
     baseline::score_line(&model, &row)
 }

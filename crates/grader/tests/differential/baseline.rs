@@ -26,13 +26,13 @@ use std::process::Stdio;
 
 use super::*;
 
-fn bytes_of(name: &str) -> Vec<u8> {
+pub(super) fn bytes_of(name: &str) -> Vec<u8> {
     let path = fixtures().join(name);
     std::fs::read(&path).unwrap_or_else(|err| panic!("{name}: {err}"))
 }
 
 /// The twelve records of `tests/fixtures/records/` as `scan.json` froze them.
-fn corpus() -> BTreeMap<String, Vec<u8>> {
+pub(super) fn corpus() -> BTreeMap<String, Vec<u8>> {
     items(&fixture("scan.json"))
         .iter()
         .map(|case| (string(field(case, "name")), case))
@@ -41,7 +41,7 @@ fn corpus() -> BTreeMap<String, Vec<u8>> {
         .collect()
 }
 
-fn has(value: &Value, key: &str) -> bool {
+pub(super) fn has(value: &Value, key: &str) -> bool {
     matches!(value, Value::Dict(dict) if dict.get(key).is_some())
 }
 
@@ -77,7 +77,7 @@ fn file_bytes(
 }
 
 /// Every file under `root` that is not one of `given` unchanged, as `path<TAB>text`.
-fn left_behind(root: &Path, given: &BTreeMap<String, Vec<u8>>) -> Vec<String> {
+pub(super) fn left_behind(root: &Path, given: &BTreeMap<String, Vec<u8>>) -> Vec<String> {
     fn walk(dir: &Path, root: &Path, found: &mut Vec<(String, Vec<u8>)>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
@@ -99,11 +99,11 @@ fn left_behind(root: &Path, given: &BTreeMap<String, Vec<u8>>) -> Vec<String> {
         .collect()
 }
 
-const TRACEBACK: &str = "Traceback (most recent call last):\n";
+pub(super) const TRACEBACK: &str = "Traceback (most recent call last):\n";
 
 /// What of a stderr is compared: all of it, or with a traceback what came before it and
 /// the exception class its last line names, without the module in front.
-fn told(stderr: &str, traceback: bool) -> String {
+pub(super) fn told(stderr: &str, traceback: bool) -> String {
     if !traceback {
         return stderr.to_string();
     }

@@ -1,7 +1,7 @@
 # 216 - grader in Rust: triage names why a run did not complete
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 215
 
 ## What

@@ -14,6 +14,10 @@
 //! (`baseline.rs`) and its two commands (`baseline_cli.rs`), which the binary runs as
 //! `hydra-grader baseline train` and `hydra-grader baseline score`.
 //!
+//! Build ticket 215 ported `monitor.py` whole (`monitor.rs`) and its three commands
+//! (`monitor_cli.rs`), which the binary runs as `hydra-grader monitor features`, `train`
+//! and `score`.
+//!
 //! There is no `serde_json` here, for the reason `hydra-pyjson` gives.
 
 pub mod baseline;
@@ -21,6 +25,8 @@ pub mod baseline_cli;
 pub mod isotime;
 pub mod jev;
 pub mod jev_cli;
+pub mod monitor;
+pub mod monitor_cli;
 pub mod queue;
 pub mod records;
 pub mod redact;
