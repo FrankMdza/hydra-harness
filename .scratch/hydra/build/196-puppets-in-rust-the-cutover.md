@@ -41,6 +41,16 @@ and `hy.zsh` name `puppets.py`.
 - The first real launch: run `hydra-puppets` once against the real `hydra` on a throwaway goal
   (the session does this, with the human's quota in mind) before the Python goes.
 
+## The first real launch, 2026-10-01
+
+The session drove one goal through `hydra-puppets` against the real `hydra`, in a scratch
+`HYDRA_PUPPETS_HOME`: `new`, `choose <path>`, `approve --plan`, `tasks`, `set`, a `launch` refused
+for the missing table approval (exit 1), `approve --table`, `launch` (run `01a0f666`,
+cursor-agent composer-2.5, 22,342 tokens, `completed`), `wait`, which read the real `hydra show`
+and appended `run_end`, `board`, `pending --json`, and `verdict rejected`. `show` from the Rust
+and from `puppets.py` on the resulting log were byte-identical before and after `wait`. Not
+exercised against the real thing: `plan`, `plans`, `choose --judge`, `review`, a Herdr pane, Hunk.
+
 ## Done when
 
 - fmt and clippy over the workspace; `cargo test --workspace`; `grep -rn puppets.py` finds only
