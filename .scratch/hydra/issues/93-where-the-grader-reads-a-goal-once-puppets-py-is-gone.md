@@ -1,7 +1,7 @@
 # 93 - Where the grader reads a goal once `puppets.py` is gone
 
 Type: task
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-01, by the session, from build ticket 196. The cutover run rewired every caller
 of `puppets.py` to `hydra-puppets`, then stopped before deleting anything: the grader imports
@@ -40,3 +40,41 @@ Options:
   compares with the Rust.
 
 ## Answer
+
+Resolved 2026-10-01 by a panel of three under the human's delegation. Unanimous: **B**. agy
+gemini-3.1-pro-high 0.80, claude opus 5.5 0.48, cursor-agent grok-4.7-high 0.61; all three named
+A second. `codex` was out of quota, so the Opus seat took its place. Answers in the human's
+decision log, `decisiones/2026-10-01/answer-93-*.md`.
+
+`labels.py` gets a goal's state from `hydra-puppets show <goal>`, as the cockpit gets its steps
+from the helper. `jev_probe.py` moves into `integrations/grader/`. `sheet.py` and its three
+hand-run commands stay in Python until the grader's own port: they hold no fold, and porting 423
+lines first would only delay reaching one fold. Then `puppets.py` and its tests go, and the
+differential tests become fixtures of recorded Python output.
+
+The session checked the two premises the seats marked unknown. `sheet.py` loads `models.py` and
+not `puppets.py`, so B can delete `puppets.py`; it also means `models.py` (21 lines) stays where
+it is, since `sheet.py` and the grader both load it. And `labels.py` reads from the fold only
+fields `show` prints (`goal.text`, each task's `id`, `class`, `grade`, `text`, `run_id` and
+`human_result`, each plan's `run_id`); it also walks the raw events for `judge_run_ids`, with a
+reader of its own that still skips a bad last line.
+
+Conditions the seats attached, which build 196's second half carries:
+
+- Before `puppets.py` is deleted, in the same step, the grader's labels are computed both ways,
+  through the Python fold and through the shell-out, over every goal log there is (the real ones
+  and the ones the differential tests harvest), with the router stopped. Zero differences, or
+  the deletion does not happen and the question comes back as C (all three).
+- The shell-out fails loudly (opus). A missing binary, a non-zero exit or JSON that does not have
+  the expected shape aborts the grader run with no labels written. It never falls back to empty
+  or cached labels. A damaged goal log is such a failure.
+- The binary is named by an absolute path, not found on `PATH` (opus), and the launchd job can
+  run it with Hydra stopped (agy, cursor).
+- The grader checks the shape of what it reads (agy).
+- The recorded fixtures include goal logs with human verdicts, since verdicts are what become
+  labels (opus).
+
+What reverses it: one goal on which the shell-out and the Python fold give different labels, or
+`hydra-puppets show` failing from the launchd environment (then C); more than 250 ms per goal
+from launchd (agy).
+

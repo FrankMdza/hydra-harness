@@ -328,6 +328,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [90 - The integrations in Rust](issues/90-the-integrations-in-rust.md): resolved 2026-09-30 by a panel of three under the human's delegation. A Cargo workspace, one crate per integration, `puppets` first, each proved by differential runs against the Python before the Python goes; the cockpit keeps a subprocess.
 - [91 - A bad line inside a goal log](issues/91-a-bad-line-inside-a-goal-log.md): resolved 2026-09-30 by a panel of three under the human's delegation. Nobody skips: readers fail by name, writers refuse, `repair` moves the bad lines aside and voids earlier approvals; in the Python and the Rust before build 194.
 - [92 - What the cockpit shows of a tool call's input](issues/92-what-the-cockpit-shows-of-a-tool-call.md): resolved 2026-10-01 by a panel of three under the human's delegation. The row shows the head of the call; a key shows the whole input and it leaves by itself; the pattern mask goes.
+- [93 - Where the grader reads a goal once `puppets.py` is gone](issues/93-where-the-grader-reads-a-goal-once-puppets-py-is-gone.md): resolved 2026-10-01 by a panel of three under the human's delegation. The grader runs `hydra-puppets show`; `sheet.py` stays in Python until the grader's port; `puppets.py` goes once the labels match both ways.
 
 ## Not yet specified
 

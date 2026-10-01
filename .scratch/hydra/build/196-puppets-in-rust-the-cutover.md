@@ -2,7 +2,7 @@
 
 Type: build
 Status: claimed
-Blocked by: 195, 207, map 93
+Blocked by: 195, 207
 
 ## What
 
@@ -94,6 +94,43 @@ ticket assumed only the cockpit, CI, the README and `hy.zsh` depended on the Pyt
 in five files, so the grep condition below cannot hold without editing `docs/`. How the grader
 gets a goal's fold once `puppets.py` goes is map ticket 93. The second half of this ticket waits
 on it.
+
+## Second half, after map 93
+
+Read `.scratch/hydra/issues/93-where-the-grader-reads-a-goal-once-puppets-py-is-gone.md`. In this
+order, the tree green after each step:
+
+1. `integrations/grader/labels.py` gets a goal's state from `hydra-puppets show <goal>`. The
+   binary is an absolute path: `HYDRA_PUPPETS_BIN`, else `hydra-puppets` beside `HYDRA_BIN` when
+   that is absolute, else `target/release/hydra-puppets` under the checkout the grader file is
+   in. Never `PATH`. A missing binary, a non-zero exit (a damaged log is one), or JSON without the
+   fields it reads raises, and the grader run that hit it writes no labels at all: find where
+   labels are written and make that hold, with a test. `labels.py`'s own reader of raw events
+   for `judge_run_ids` follows the helper's rule too: it runs only after `show` succeeded.
+2. **The measurement that gates the deletion.** A test that computes `labels_for_goal` both
+   ways, through `puppets.fold` and through the shell-out, over every goal log the differential
+   tests harvest plus logs with human verdicts, reviews and plans, and requires them equal. Run
+   it, and put the count of goals and of labels compared in the report. The session runs the same
+   over the real `~/hydra/puppets` before it applies your diff. If any label differs, stop
+   there, leave the Python in place, and say which.
+3. `jev_probe.py` and its tests move to `integrations/grader/` (`git mv`); `baseline.py` loads it
+   from there. `models.py` and `sheet.py` stay where they are, with `sheet.py`'s tests.
+4. Record the Python's output: for every differential input, the stdout, stderr, exit code and
+   resulting files the Python gave, written once by a script that is committed
+   (`crates/puppets/tests/record.py`) into `crates/puppets/tests/fixtures/`. The differential
+   tests then compare the Rust with those files and no longer start `python3`. Keep the
+   comparator's normalizations. Say how large the fixtures are; if they pass 5 MB, keep the
+   harvested inputs and drop the least informative, and say which.
+5. Delete `puppets.py` and the Python tests that test it. Keep the JSON data files and
+   `prompts/` where `log::data_dir()` finds them. CI drops the puppets Python suite step, keeps
+   `sheet.py`'s tests if there are any, and no longer needs its Python pinned for the
+   differential tests; say whether anything else still needs 3.14.
+6. `README.md`, `integrations/puppets/README.md`, `integrations/grader/README.md` and
+   `IMPLEMENTATION.md` say what is left in Python and why.
+
+`docs/reviews/` names `puppets.py` in five files and is history; leave `docs/` alone. The grep
+condition below reads: outside `.scratch/` and `docs/`, `puppets.py` is named only where a
+sentence says it was deleted.
 
 ## Done when
 
