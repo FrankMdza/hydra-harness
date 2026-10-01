@@ -473,7 +473,9 @@ fn command_has_list(command: &str) -> bool {
         if ch == ';' {
             return true;
         }
-        if ch == '&' && i + 1 < bytes.len() && bytes[i + 1] == b'&' {
+        // One `&` ends a command as `&&` does, and `&>` is a redirection whose target is
+        // left out: either way something after the head is not shown.
+        if ch == '&' {
             return true;
         }
         if ch == '|' && i + 1 < bytes.len() && bytes[i + 1] == b'|' {

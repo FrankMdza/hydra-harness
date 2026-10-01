@@ -4183,6 +4183,19 @@ fn ticket208_wrapper_flags_hide_the_rest() {
 }
 
 #[test]
+fn a_command_cut_at_a_single_ampersand_says_it_was_cut() {
+    for (command, head) in [
+        ("git status & rm -rf /", "git status ..."),
+        ("true & rm -rf /", "true ..."),
+        ("git push & git push --force", "git push ..."),
+        ("git status &> /tmp/out", "git status ..."),
+        ("git status", "git status"),
+    ] {
+        assert_eq!(shell_head(command), head, "{command}");
+    }
+}
+
+#[test]
 fn ticket208_agy_commandline_is_a_command() {
     let layout = scratch("208-agy");
     let run = "01a0f208-0000-7000-8000-000000000208";
