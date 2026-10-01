@@ -1,13 +1,13 @@
 # 201 - The cockpit rechecks damage at `y` and masks spaced secrets
 
 Type: build
-Status: open
-Blocked by: 199
+Status: claimed
+Blocked by:
 
 ## What
 
 A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of builds 198 (`d09d459`) and 200
-(`7c6d4e1`) found six defects in the cockpit. It found none for a BOM, CRLF, duplicate keys or
+(`7c6d4e1`) found six defects, four of them here and two in build 202 in the cockpit. It found none for a BOM, CRLF, duplicate keys or
 invalid UTF-8, and traced that `repair` brings the table back on the next snapshot.
 
 ## Do
@@ -36,13 +36,8 @@ Tests first in `tests/cockpit.rs`, each shown failing before the change.
    the room there is. Test heights 3 to 12.
    A first run of this ticket (codex, `01a0f5ee`, stopped on item 5 before 199 had landed)
    wrote that test and saw a buffer bounds panic at height 3. No terminal size may panic.
-5. **`removed` on a `repair` event** (`goal.rs` near 208). Read `fold` in `puppets.py` and
-   `crates/puppets/src/fold.rs` first: the rule since build 199 is the
-   helper's: `removed` counts when it is an int from 1 to 1,000,000,000, else zero, and the
-   revision then adds one. `as_i64()` on `9223372036854775808` gives a different answer. Use that
-   rule here.
-6. **Lines split on `\n` only.** The cockpit already does; since build 199 the helper does too,
-   so `{}\rjunk\n` is one bad line in both. Add the test that pins it, and nothing else.
+Items about `removed` on a `repair` event and the `\r` test moved to build 202, which waits on
+199 because they copy the helper's rule from it.
 
 `IMPLEMENTATION.md`: the cockpit passages on the damaged goal, the masking and the policy pane.
 
