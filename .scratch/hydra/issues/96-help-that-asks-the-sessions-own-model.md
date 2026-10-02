@@ -20,6 +20,15 @@ and later by voice.
 - A gated session reads its worktree and its skill snapshot and nothing else. A document it is
   to answer from has to be in one of the two, or in the preamble.
 
+- Usability probes of 2026-10-02, five sessions by hand: three of them asked the session for a
+  tool of the other mode. Run `01a0fe17` (gated) was told to use `mcp__hydra__delegate` and got
+  three `hydra/seatbelt-delegation` refusals. An ungated `claude` and run `01a0fe2b` (ungated
+  cockpit) were told to use `mcp__hydra__panel`, which neither has. Nothing on screen says which
+  mode a session is in or what it can launch; the only sign is `claude under standard` against
+  `claude` in the chat's title.
+- The session log of those probes is the human's, outside the repo:
+  `~/.claude/handoffs/2026-09-29-festus-plan/SESIONES-TESTERS.md`.
+
 ## Questions for the human
 
 1. Where does the document live? (a) a file in the checkout, which every worktree then carries;
@@ -35,5 +44,7 @@ and later by voice.
 4. Voice: in scope now as a constraint on the document (short spoken answers, no tables), or a
    later ticket with its own question about what leaves the machine?
 5. Does a session under `read-only` or `judge` get the same help?
+6. Should the session be told its own mode at launch (gated: panels only; ungated: `hydra run`
+   by shell), and by whom: the preamble, which an ungated session does not get, or the cockpit?
 
 ## Answer
