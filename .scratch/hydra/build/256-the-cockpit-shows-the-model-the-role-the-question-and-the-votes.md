@@ -18,6 +18,11 @@ Map 102 D7, decided by the human on 2026-10-03, the long form. He wants to see n
    it was asked. Read the role and the order from the goal log through `hydra-puppets`' own
    reader or the files it writes; do not re-derive them. Build 252 added `tie_break_*`,
    `label_map`, `seat_orders` and `verdict_source` to `panel_verdict`.
+   The goal log does not record roles today (found by run `01a103af-c365`, which stopped on it):
+   they live in `PANEL` and `TIE_BREAK` in `crates/puppets/src/panel.rs`. Add `judge_roles` and
+   `tie_break_roles` to every `panel_verdict` event `panel.rs` writes, in the same order as the
+   run ids, and read them from there. An older event without them shows no role. The question a
+   seat was asked is its run's task, `run_start.task` in its record; read it from there.
 4. **A panel**: in the Puppets view, a goal's panel shows who sat (provider and model per seat
    and per tie-break), whether the three split, each seat's vote mapped back to the provider, and
    where the verdict came from.
