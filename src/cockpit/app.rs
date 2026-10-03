@@ -1934,7 +1934,14 @@ impl App {
         let area = self.draw_header(area, buf);
         let [main, status] =
             Split::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(area);
-        let [left, middle, right] = if self.stacked {
+        let [left, middle, right] = if area.width <= 80 {
+            Split::vertical([
+                Constraint::Percentage(30),
+                Constraint::Percentage(40),
+                Constraint::Percentage(30),
+            ])
+            .areas(main)
+        } else if self.stacked {
             let [top, bottom] =
                 Split::vertical([Constraint::Percentage(40), Constraint::Percentage(60)])
                     .areas(main);
@@ -2330,6 +2337,30 @@ impl App {
             heading = format!("{heading} ({} line(s) skipped)", goal.skipped);
         }
         buf.set_line(inner.x, inner.y, &Line::styled(heading, dim), inner.width);
+        let panel_lines = self.panel_lines(&goal);
+        let panel_height = if panel_lines.is_empty() {
+            0
+        } else {
+            panel_lines
+                .iter()
+                .map(|line| wrapped_rows(line, inner.width.max(1) as usize))
+                .sum::<usize>()
+                .min(inner.height.saturating_sub(3) as usize) as u16
+        };
+        if panel_height > 0 {
+            Paragraph::new(panel_lines)
+                .wrap(Wrap { trim: false })
+                .render(
+                    Rect::new(inner.x, inner.y + 1, inner.width, panel_height),
+                    buf,
+                );
+        }
+        let inner = Rect::new(
+            inner.x,
+            inner.y + panel_height,
+            inner.width,
+            inner.height - panel_height,
+        );
         let run_width = self
             .snapshot
             .goal
@@ -2441,14 +2472,7 @@ impl App {
                 .collect(),
             _ => self
                 .cards_in(lane)
-                .map(|card| {
-                    format!(
-                        "{} {} {}",
-                        self.run_label(&card.run_id),
-                        agent_of(card),
-                        self.said(card)
-                    )
-                })
+                .map(|card| self.run_line(card, area.width.saturating_sub(2) as usize, false))
                 .collect(),
         };
         let title = format!(" {} {} ", lane.title(), self.lane_len(lane));
@@ -2485,7 +2509,7 @@ impl App {
         for (i, agent) in agents.iter().enumerate() {
             let lines: Vec<String> = self
                 .cards_of(agent)
-                .map(|card| self.agent_line(card))
+                .map(|card| self.run_line(card, rects[i].width.saturating_sub(2) as usize, true))
                 .collect();
             let title = format!(" {agent} {} ", lines.len());
             self.draw_cards(Focus::Agent(i), title, lines, rects[i], buf);
@@ -2493,25 +2517,99 @@ impl App {
         self.draw_lane(Lane::Waiting, rects[agents.len()], buf);
     }
 
-    /// A card in an agent's lane: short id, model, what [`App::said`] says,
-    /// and the task when the goal table names the run.
-    fn agent_line(&self, card: &Card) -> String {
-        let model = card.model.as_deref().unwrap_or("-");
-        let mut line = format!(
-            "{} {model} {}",
-            self.run_label(&card.run_id),
-            self.said(card)
-        );
-        let task = self.snapshot.goal.as_ref().and_then(|goal| {
+    fn run_line(&self, card: &Card, width: usize, by_agent: bool) -> String {
+        let info = self.snapshot.run_info.get(&card.run_id);
+        let model = card
+            .model
+            .as_deref()
+            .unwrap_or(if info.is_some() { "default" } else { "-" });
+        let role = info.and_then(|info| info.role.as_deref());
+        let elapsed = info
+            .and_then(|info| info.elapsed_seconds)
+            .map_or_else(|| "-".to_string(), |s| format!("{s}s"));
+        let tokens = card
+            .total_tokens
+            .map_or_else(|| "-".to_string(), |n| n.to_string());
+        let mut fields = vec![self.run_label(&card.run_id).to_string()];
+        if !by_agent {
+            fields.push(agent_of(card).to_string());
+        }
+        fields.extend([model.to_string(), self.said(card)]);
+        if let Some(task) = self.snapshot.goal.as_ref().and_then(|goal| {
             goal.rows
                 .iter()
                 .find(|row| row.run_id.as_ref() == Some(&card.run_id))
-        });
-        if let Some(task) = task {
-            line.push(' ');
-            line.push_str(&task.id);
+        }) {
+            fields.push(task.id.clone());
         }
-        line
+        if let Some(role) = role {
+            fields.push(role.to_string());
+        }
+        let identifying = fields.len();
+        fields.extend([
+            card.policy.as_deref().unwrap_or("-").to_string(),
+            format!("{tokens}tok"),
+            elapsed,
+        ]);
+        // Narrow panes drop elapsed, tokens, then policy; identifying values
+        // are clipped only after that. The detail retains every full value.
+        while fields.len() > identifying && fields.join(" ").chars().count() > width {
+            fields.pop();
+        }
+        fields.join(" ")
+    }
+
+    fn panel_lines(&self, goal: &Goal) -> Vec<Line<'static>> {
+        let mut lines = Vec::new();
+        for panel in &goal.panels {
+            lines.push(Line::raw(format!(
+                "panel verdict {} from {}",
+                panel.chosen.as_deref().unwrap_or("none"),
+                panel.source.as_deref().unwrap_or("unknown")
+            )));
+            let mut votes = Vec::new();
+            for seat in &panel.seats {
+                let card = self
+                    .snapshot
+                    .cards
+                    .iter()
+                    .find(|card| card.run_id == seat.run_id);
+                let vote = card
+                    .and_then(|card| card.result_text.as_deref())
+                    .and_then(panel_vote);
+                let vote = vote.and_then(|vote| {
+                    if panel.labels.is_empty() || vote == "composed" {
+                        Some(vote)
+                    } else {
+                        panel.labels.get(&vote).cloned()
+                    }
+                });
+                if !seat.tie_break {
+                    votes.push(vote.clone());
+                }
+                lines.push(Line::raw(format!(
+                    "{} {} {} {} vote {} order {}",
+                    if seat.tie_break { "tie-break" } else { "seat" },
+                    card.map(agent_of).unwrap_or("?"),
+                    card.and_then(|card| card.model.as_deref())
+                        .unwrap_or(if card.is_some() { "default" } else { "?" }),
+                    seat.role.as_deref().unwrap_or(""),
+                    vote.as_deref().unwrap_or("unknown"),
+                    seat.order.join(",")
+                )));
+            }
+            let split = if votes.len() == 3 && votes.iter().all(Option::is_some) {
+                if votes.windows(2).any(|pair| pair[0] != pair[1]) {
+                    "split"
+                } else {
+                    "unanimous"
+                }
+            } else {
+                "split unknown"
+            };
+            lines.push(Line::raw(split));
+        }
+        lines
     }
 
     /// A run's state or outcome on its card: a live one's stop label while
@@ -2649,7 +2747,32 @@ impl App {
                     return vec![Line::raw(format!("no record for run {id}"))];
                 };
                 let or_dash = |value: Option<&str>| value.unwrap_or("-").to_string();
-                let mut lines = vec![label("run", card.run_id.clone())];
+                let info = self.snapshot.run_info.get(id);
+                let mut lines = Vec::new();
+                if let Some(task) = info.and_then(|info| info.task.as_ref()) {
+                    lines.push(label(
+                        if info.is_some_and(|info| info.panel_seat)
+                            || self.snapshot.goal.as_ref().is_some_and(|goal| {
+                                goal.panels
+                                    .iter()
+                                    .flat_map(|panel| &panel.seats)
+                                    .any(|seat| &seat.run_id == id)
+                            })
+                        {
+                            "question"
+                        } else {
+                            "task text"
+                        },
+                        task.clone(),
+                    ));
+                }
+                lines.push(label("run", card.run_id.clone()));
+                if let Some(role) = info.and_then(|info| info.role.as_ref()) {
+                    lines.push(label("role", role.clone()));
+                }
+                if let Some(seconds) = info.and_then(|info| info.elapsed_seconds) {
+                    lines.push(label("elapsed", format!("{seconds}s")));
+                }
                 let task = self
                     .snapshot
                     .goal
@@ -2668,7 +2791,10 @@ impl App {
                 }
                 lines.extend([
                     label("provider", or_dash(card.provider.as_deref())),
-                    label("model", or_dash(card.model.as_deref())),
+                    label(
+                        "model",
+                        card.model.as_deref().unwrap_or("default").to_string(),
+                    ),
                     label("policy", or_dash(card.policy.as_deref())),
                     label("state", card.state.as_str().to_string()),
                     label("outcome", or_dash(card.outcome.as_deref())),
@@ -3189,6 +3315,25 @@ pub fn wrapped_rows(line: &Line, width: usize) -> usize {
 /// The first twelve characters of a sha, as the policy pane shows it.
 fn short_sha(sha: &str) -> &str {
     sha.get(..12).unwrap_or(sha)
+}
+
+/// A seat's answer can begin with a fenced object and have trailing prose,
+/// the same framing accepted by Puppets' plan-answer reader.
+fn panel_vote(text: &str) -> Option<String> {
+    let text = text.trim();
+    let text = if let Some(fenced) = text.strip_prefix("```") {
+        fenced.split_once('\n')?.1
+    } else {
+        text
+    };
+    let value = serde_json::Deserializer::from_str(text)
+        .into_iter::<serde_json::Value>()
+        .next()?
+        .ok()?;
+    value["chosen"]
+        .as_str()
+        .filter(|vote| !vote.is_empty())
+        .map(str::to_string)
 }
 
 /// The first eight characters of an id, which is what `hydra-puppets board` shows.

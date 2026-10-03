@@ -118,9 +118,19 @@ impl Card {
     }
 }
 
+/// Record metadata for the row and the question at the head of the detail.
+#[derive(Clone, Debug, Default)]
+pub struct RunInfo {
+    pub task: Option<String>,
+    pub role: Option<String>,
+    pub panel_seat: bool,
+    pub elapsed_seconds: Option<i64>,
+}
+
 /// Everything one tick read.
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
+    pub run_info: HashMap<String, RunInfo>,
     pub goal: Option<Goal>,
     /// Whether the goal was named with `--goal` rather than picked as the log
     /// that changed last.
@@ -291,6 +301,16 @@ struct OpenCalls {
     calls: Vec<CallLine>,
 }
 
+#[derive(Clone)]
+struct RecordInfo {
+    len: u64,
+    opening: Option<String>,
+    model: Option<String>,
+    task: Option<String>,
+    started: Option<DateTime<Utc>>,
+    ended: Option<DateTime<Utc>>,
+}
+
 /// The reader thread's state: where to look and what it has normalized.
 pub struct Reader {
     layout: Layout,
@@ -298,6 +318,7 @@ pub struct Reader {
     puppets_home: PathBuf,
     goal: Option<String>,
     ended: HashMap<String, Ended>,
+    record_info: HashMap<String, RecordInfo>,
     live: HashMap<String, Live>,
     calls: Option<OpenCalls>,
     /// Where `vendors.json` and `aliases.json` are, or `None` for no budgets.
@@ -323,6 +344,7 @@ impl Reader {
             puppets_home,
             goal,
             ended: HashMap::new(),
+            record_info: HashMap::new(),
             live: HashMap::new(),
             calls: None,
             vendors: None,
@@ -373,6 +395,7 @@ impl Reader {
         self.read_goal(&mut snapshot);
         self.read_steps(&mut snapshot, now);
         snapshot.cards = self.read_cards(&mut snapshot.errors);
+        self.read_run_info(&mut snapshot, now);
         snapshot.spend = self.spend(&snapshot.cards, now, &mut snapshot.errors);
         match crate::approve::pending(&self.layout) {
             Ok(requests) => snapshot.requests = requests,
@@ -437,6 +460,42 @@ impl Reader {
         match goal::read(&path) {
             Ok(goal) => snapshot.goal = Some(goal),
             Err(err) => snapshot.goal_note = Some(format!("{err:#}")),
+        }
+    }
+
+    fn read_run_info(&self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
+        for card in &snapshot.cards {
+            let mut info = RunInfo::default();
+            if let Some(record) = self.record_info.get(&card.run_id) {
+                info.task = record.task.clone();
+                let end = match card.state {
+                    State::Ended => record.ended,
+                    State::Live => Some(now),
+                    State::Abandoned => None,
+                };
+                info.elapsed_seconds = record
+                    .started
+                    .zip(end)
+                    .map(|(start, end)| (end - start).num_seconds().max(0));
+            }
+            snapshot.run_info.insert(card.run_id.clone(), info);
+        }
+        // Seats can belong to a goal other than the one currently shown.
+        if let Ok(entries) = std::fs::read_dir(&self.puppets_home) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                if let Ok(goal) = goal::read(&path) {
+                    for seat in goal.panels.iter().flat_map(|panel| &panel.seats) {
+                        if let Some(info) = snapshot.run_info.get_mut(&seat.run_id) {
+                            info.role = seat.role.clone();
+                            info.panel_seat = true;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -543,10 +602,51 @@ impl Reader {
             };
             let line_zero = line_zero(path);
             let (model, policy_sha, started) = opening_of(line_zero.as_deref());
+            let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+            if !self
+                .record_info
+                .get(&view.run_id)
+                .is_some_and(|info| info.len == len && info.opening == line_zero)
+            {
+                let opening = line_zero
+                    .as_deref()
+                    .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok());
+                let task = opening
+                    .as_ref()
+                    .and_then(|line| line["hydra"]["task"].as_str())
+                    .map(str::to_string);
+                let ended = tail(path, 1)
+                    .ok()
+                    .and_then(|lines| lines.into_iter().next())
+                    .and_then(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+                    .and_then(|line| {
+                        line["hydra"]["ended_at"]
+                            .as_str()
+                            .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+                            .map(|ts| ts.with_timezone(&Utc))
+                    });
+                self.record_info.insert(
+                    view.run_id.clone(),
+                    RecordInfo {
+                        len,
+                        opening: line_zero.clone(),
+                        model: model
+                            .clone()
+                            .or_else(|| provider_model(path, view.provider.as_deref())),
+                        task,
+                        started,
+                        ended,
+                    },
+                );
+            }
+
             let mut card = Card {
                 run_id: view.run_id.clone(),
                 provider: view.provider.clone(),
-                model,
+                model: self
+                    .record_info
+                    .get(&view.run_id)
+                    .and_then(|info| info.model.clone()),
                 policy: view.policy.clone(),
                 policy_sha,
                 parent_run_id: view.parent_run_id.clone(),
@@ -567,12 +667,21 @@ impl Reader {
                 State::Abandoned => {
                     card.note = Some("abandoned: no closing line and no process".to_string());
                 }
-                State::Live => self.count_live(&view.run_id, path, line_zero, started),
+                State::Live => {
+                    self.count_live(&view.run_id, path, line_zero, started);
+                    card.total_tokens = self
+                        .live
+                        .get(&view.run_id)
+                        .and_then(|live| live.counts)
+                        .map(|counts| counts.total_tokens());
+                }
             }
             cards.push(card);
         }
         let present: std::collections::HashSet<&str> =
             cards.iter().map(|card| card.run_id.as_str()).collect();
+        self.record_info
+            .retain(|run_id, _| present.contains(run_id.as_str()));
         self.ended
             .retain(|run_id, _| present.contains(run_id.as_str()));
         let live: std::collections::HashSet<&str> = cards
@@ -838,6 +947,41 @@ pub(super) fn line_zero(path: &Path) -> Option<String> {
     Some(first)
 }
 
+/// How far into a record [`provider_model`] looks: the `init` frame is among
+/// the first lines, and a live record can run to megabytes.
+const INIT_LINES: usize = 64;
+
+/// Only provider metadata frames identify the fallback model. Task/tool text does not.
+fn provider_model(path: &Path, provider: Option<&str>) -> Option<String> {
+    use std::io::BufRead;
+
+    if !matches!(provider, Some("claude" | "cursor-agent" | "agy")) {
+        return None;
+    }
+    let file = std::fs::File::open(path).ok()?;
+    std::io::BufReader::new(file)
+        .lines()
+        .take(INIT_LINES)
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+        .find_map(|line| {
+            let raw = &line["raw"];
+            let value = match provider {
+                Some("claude" | "cursor-agent")
+                    if raw["type"] == "system" && raw["subtype"] == "init" =>
+                {
+                    &raw["model"]
+                }
+                Some("agy") if raw["event"] == "init" => &raw["init"]["model"],
+                _ => return None,
+            };
+            value
+                .as_str()
+                .filter(|model| !model.is_empty())
+                .map(str::to_string)
+        })
+}
+
 /// The model on line 0's envelope, the `policy_sha` in its body and the
 /// envelope's `ts`. [`crate::live::read_view`] reads none of them.
 fn opening_of(line_zero: Option<&str>) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
@@ -847,7 +991,7 @@ fn opening_of(line_zero: Option<&str>) -> (Option<String>, Option<String>, Optio
     };
     let field = |value: &serde_json::Value| value.as_str().map(str::to_string);
     (
-        field(&envelope["model"]),
+        field(&envelope["model"]).filter(|model| !model.is_empty()),
         field(&envelope["hydra"]["policy_sha"]),
         envelope["ts"]
             .as_str()

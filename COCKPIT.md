@@ -101,7 +101,14 @@ back through pages you opened. `m` then `y` on a live card stops that seat the s
 `hydra stop` does. With `--session`, only runs launched as seats of this chat's session can be
 stopped from `m`; the cockpit leaves an unsent note in the chat when a stop succeeds. To read
 what a run did, open it and use `r` to switch between summarized tool calls and the raw tail of
-the record, and `i` to reveal a hidden input when the policy allows.
+the record, and `i` to reveal a hidden input when the policy allows. Run rows show provider,
+exact recorded model (or the provider's init model, then `default`), policy, tokens so far and
+elapsed seconds. At 80 columns the panes stack; narrower rows drop elapsed first, tokens next
+and policy last before clipping the identifying text. The run detail begins with its task,
+or its question for a panel seat. Panel seats add their logged roles when available. The
+Puppets table shows each panel and tie-break seat's provider, model, vote mapped through the
+logged proposal labels, proposal order, split or unanimity, and the recorded verdict source.
+An older panel event without roles shows none; missing votes show unknown.
 
 ## Gate refusals you meet first
 

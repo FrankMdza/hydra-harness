@@ -4912,3 +4912,193 @@ fn cockpit_policy_refuses_before_starting() {
     );
     assert_eq!(std::fs::read_dir(layout.runs()).unwrap().count(), 0);
 }
+
+// Ticket 256: record and panel evidence drawn from a scratch layout.
+fn ticket256_reader(layout: &Layout) -> Reader {
+    Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.puppets(),
+        None,
+    )
+}
+
+#[test]
+fn ticket256_row_shows_model_policy_tokens_and_elapsed_at_eighty_columns() {
+    let layout = scratch("256-row");
+    let run = "01a02560-0000-7000-8000-000000000001";
+    write_live_frames(
+        &layout,
+        run,
+        "agy",
+        Some("gemini-exact"),
+        noon() - chrono::Duration::seconds(60),
+        &[agy_step(1, 10, 300, 0)],
+    );
+    let snapshot = ticket256_reader(&layout).read_at(None, noon());
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    let area = Rect::new(0, 0, 80, 40);
+    let mut buf = Buffer::empty(area);
+    app.draw(area, &mut buf);
+    let row = line_with(&buf, "01a02560");
+    for field in ["agy", "gemini-exact", "standard", "310tok", "60s"] {
+        assert!(row.contains(field), "{field}: {row}");
+    }
+    assert_eq!(row.chars().count(), 80);
+    app.focus = Focus::Lane(Lane::Live);
+    app.handle(&key(KeyCode::Enter));
+    let mut buf = Buffer::empty(area);
+    app.draw(area, &mut buf);
+    let text = screen_text(&buf);
+    assert!(
+        text.find("task text probe").unwrap() < text.find("tool calls").unwrap(),
+        "{text}"
+    );
+}
+
+#[test]
+fn ticket256_model_uses_provider_metadata_then_launch_and_defaults() {
+    let layout = scratch("256-model");
+    for (n, model) in [(1, None), (2, Some("launch-model"))] {
+        let run = format!("01a02561-0000-7000-8000-{n:012}");
+        write_live_frames(
+            &layout,
+            &run,
+            "agy",
+            model,
+            noon(),
+            &[json!({"event":"init","init":{"model":"provider-exact"}})],
+        );
+    }
+    let codex = "01a02562-0000-7000-8000-000000000003";
+    write_live_frames(
+        &layout,
+        codex,
+        "codex",
+        None,
+        noon(),
+        &[json!({"type":"thread.started","thread_id":"stub"})],
+    );
+    let snapshot = ticket256_reader(&layout).read_at(None, noon());
+    assert_eq!(
+        snapshot
+            .cards
+            .iter()
+            .find(|c| c.run_id.ends_with("000001"))
+            .unwrap()
+            .model
+            .as_deref(),
+        Some("provider-exact")
+    );
+    assert_eq!(
+        snapshot
+            .cards
+            .iter()
+            .find(|c| c.run_id.ends_with("000002"))
+            .unwrap()
+            .model
+            .as_deref(),
+        Some("launch-model")
+    );
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    let area = Rect::new(0, 0, 80, 50);
+    let mut buf = Buffer::empty(area);
+    app.draw(area, &mut buf);
+    assert!(line_with(&buf, "01a02562").contains("default"));
+}
+
+fn ticket256_panel(layout: &Layout, roles: bool) -> Vec<String> {
+    let ids: Vec<String> = (1..=5)
+        .map(|n| format!("01a0256{n}-0000-7000-8000-{n:012}"))
+        .collect();
+    for (n, id) in ids.iter().enumerate() {
+        // Reuse a fixture's opening, init, final assistant, usage and closing
+        // envelopes. No tool calls, so no policy replay is needed.
+        let original = std::fs::read_to_string(fixture("claude@2.1.261", 1)).unwrap();
+        let mut lines: Vec<serde_json::Value> = original
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        lines.retain(|line| {
+            line["seq"] == 0 || line["seq"] == 1 || line["seq"].as_u64().unwrap() >= 5
+        });
+        for (seq, line) in lines.iter_mut().enumerate() {
+            line["run_id"] = json!(id);
+            line["seq"] = json!(seq);
+            if seq == 0 {
+                line["model"] = json!(format!("model-{n}"));
+                line["hydra"]["task"] = json!(format!("Question for seat {n}"));
+            }
+            if line["raw"]["type"] == "assistant" {
+                line["raw"]["message"]["content"][0]["text"] = json!(format!(
+                    "```json\n{{\"chosen\":\"{}\",\"findings\":[]}}\n```",
+                    if n == 0 || n == 2 { "A" } else { "B" }
+                ));
+            }
+        }
+        let text = lines
+            .iter()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>();
+        std::fs::write(layout.run_file(id), text).unwrap();
+    }
+    std::fs::create_dir_all(layout.puppets()).unwrap();
+    let mut event = json!({"event":"panel_verdict","judge_run_ids":ids[..3],"tie_break_run_ids":ids[3..],"label_map":{"A":"codex","B":"cursor-agent"},"seat_orders":[["A","B"],["B","A"],["A","B"]],"tie_break_orders":[["B","A"],["A","B"]],"chosen":"cursor-agent","verdict_source":"tie_break"});
+    if roles {
+        event["judge_roles"] = json!(["reviewer", "adversary", "security"]);
+        event["tie_break_roles"] = json!(["reviewer", "reviewer"]);
+    }
+    std::fs::write(
+        layout.puppets().join("panel.jsonl"),
+        format!("{{\"event\":\"goal\",\"text\":\"Panel evidence\"}}\n{event}\n"),
+    )
+    .unwrap();
+    ids
+}
+
+#[test]
+fn ticket256_seat_row_role_and_detail_question_come_from_log_and_record() {
+    let layout = scratch("256-role");
+    let ids = ticket256_panel(&layout, true);
+    let snapshot = ticket256_reader(&layout).read_at(Some(&ids[1]), noon());
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    let area = Rect::new(0, 0, 80, 70);
+    let mut buf = Buffer::empty(area);
+    app.draw(area, &mut buf);
+    assert!(line_with(&buf, "01a02562").contains("adversary"));
+    app.opened = Some(Opened::Run(ids[1].clone()));
+    app.draw(area, &mut buf);
+    let text = screen_text(&buf);
+    assert!(text.contains("question Question for seat 1"), "{text}");
+    assert!(text.find("question Question").unwrap() < text.find("tool calls").unwrap());
+    ticket256_panel(&layout, false);
+    let old = ticket256_reader(&layout).read_at(None, noon());
+    assert!(old.run_info.values().all(|info| info.role.is_none()));
+    assert!(old.run_info.values().all(|info| info.panel_seat));
+}
+
+#[test]
+fn ticket256_panel_shows_seats_mapped_votes_split_and_tie_break_source() {
+    let layout = scratch("256-panel");
+    ticket256_panel(&layout, true);
+    let snapshot = ticket256_reader(&layout).read_at(None, noon());
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    let buf = draw_wide(&mut app);
+    let text = screen_text(&buf);
+    for expected in [
+        "panel verdict cursor-agent from tie_break",
+        "seat claude model-0 reviewer vote codex order A,B",
+        "seat claude model-1 adversary vote cursor-agent order B,A",
+        "seat claude model-2 security vote codex",
+        "tie-break claude model-3 reviewer vote cursor-agent",
+        "tie-break claude model-4 reviewer vote cursor-agent",
+        "split",
+    ] {
+        assert!(text.contains(expected), "{expected}:\n{text}");
+    }
+}

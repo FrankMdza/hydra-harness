@@ -3998,7 +3998,18 @@ Map ticket 86's cut one. `hydra cockpit [--goal <id>] [--interval <secs>]` is a 
 Ratatui view a human runs in a terminal of their own, beside an orchestrating session's chat.
 `src/cockpit/` is all of it. Outside that directory are the subcommand in `cli.rs` and `main.rs`,
 `pub mod cockpit` in `lib.rs`, and since build ticket 151 one `pub(crate)` on
-`status::is_abandoned_interactive_claude`.
+`status::is_abandoned_interactive_claude`. Build ticket 256 adds
+cached record metadata to the snapshot: the launch model takes precedence over a provider init
+model, with `default` when both are absent, task text leads the detail, and row tokens reuse the
+existing live usage and ended normalization. Elapsed time uses opening and closing timestamps,
+or the snapshot time for live runs; abandoned runs have no elapsed end. At 80 columns the panes
+stack and run rows drop elapsed, then tokens, then policy before clipping identifying fields.
+The goal reader retains `panel_verdict` seat ids, roles, proposal orders, label maps and verdict
+source from Puppets' files; roles are written in run-id order from `PANEL` and `TIE_BREAK`, and
+older events have none. Seats in any goal log get their logged roles and their recorded tasks
+as questions. The shown goal's panel lists each seat and tie-break provider/model and maps its
+recorded answer through the logged labels, reporting a split without recomputing the verdict.
+Codex 0.154.0 fixtures carry no provider model, so a launch without one shows `default`.
 
 **What it reads.** The left column is one goal's task table, folded in Rust from the goal log
 under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `hydra-puppets`'s `fold` rules for the events

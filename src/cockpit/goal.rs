@@ -47,9 +47,77 @@ impl Goal {
     }
 }
 
+/// A panel as recorded by Puppets, never an independently computed verdict.
+#[derive(Clone, Debug, Default)]
+pub struct Panel {
+    pub seats: Vec<PanelSeat>,
+    pub chosen: Option<String>,
+    pub source: Option<String>,
+    pub labels: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PanelSeat {
+    pub run_id: String,
+    pub role: Option<String>,
+    pub order: Vec<String>,
+    pub tie_break: bool,
+}
+
+impl Panel {
+    fn from_event(event: &Value) -> Self {
+        let mut panel = Self {
+            chosen: event["chosen"].as_str().map(str::to_string),
+            source: event["verdict_source"].as_str().map(str::to_string),
+            ..Self::default()
+        };
+        if let Some(labels) = event["label_map"].as_object() {
+            panel.labels = labels
+                .iter()
+                .filter_map(|(label, provider)| {
+                    Some((label.clone(), provider.as_str()?.to_string()))
+                })
+                .collect();
+        }
+        for (ids, roles, orders, tie_break) in [
+            ("judge_run_ids", "judge_roles", "seat_orders", false),
+            (
+                "tie_break_run_ids",
+                "tie_break_roles",
+                "tie_break_orders",
+                true,
+            ),
+        ] {
+            if let Some(ids) = event[ids].as_array() {
+                for (n, id) in ids.iter().enumerate() {
+                    if let Some(run_id) = id.as_str() {
+                        panel.seats.push(PanelSeat {
+                            run_id: run_id.to_string(),
+                            role: event[roles][n].as_str().map(str::to_string),
+                            order: event[orders][n]
+                                .as_array()
+                                .map(|order| {
+                                    order
+                                        .iter()
+                                        .filter_map(|v| v.as_str().map(str::to_string))
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            tie_break,
+                        });
+                    }
+                }
+            }
+        }
+        panel
+    }
+}
+
 /// One goal, as far as the table needs it.
 #[derive(Clone, Debug, Default)]
 pub struct Goal {
+    /// Panel evidence in log order, including older events without roles.
+    pub panels: Vec<Panel>,
     pub id: String,
     pub text: Option<String>,
     /// In the order `fold` keeps them: a task is where it first appeared, even
@@ -141,6 +209,7 @@ pub fn fold(id: &str, bytes: &[u8]) -> Goal {
 fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
     let text = |key: &str| event[key].as_str().map(str::to_string);
     match event["event"].as_str()? {
+        "panel_verdict" => goal.panels.push(Panel::from_event(event)),
         "goal" => goal.text = Some(text("text")?),
         "task" => {
             goal.revision = goal.revision.saturating_add(1);

@@ -1,7 +1,7 @@
 # 256 - The cockpit shows the model, the role, the question and the votes
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -39,3 +39,24 @@ compute an outcome or usage a second way.
 - The row still fits an 80-column terminal: say what it drops first when narrow.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a103b0-ec0d` (`codex` gpt-6.1-sol, `standard`, 8.25M tokens), after a
+first run (`01a103af-c365`) stopped because the goal log carried no roles. One fix by the session.
+
+Built: a run row carries id, provider (outside the per-agent view), model, what it said, its goal
+task, its role, then policy, tokens and elapsed time; a narrow pane drops elapsed, then tokens,
+then policy. The model is the envelope's, else the `init` frame's on `claude`, `cursor-agent` and
+`agy`, else `default`. A run's detail opens with its task, labelled `question` for a panel seat,
+then role and elapsed. The Puppets view lists each panel: verdict and source, each seat and
+tie-break with provider, model, role, vote mapped through `label_map` and reading order, and
+`unanimous`, `split` or `split unknown`. `panel.rs` writes `judge_roles` and `tie_break_roles` on
+every `panel_verdict`; an older event shows no role. At 80 columns or fewer the three panes stack.
+Tests: four in `tests/cockpit.rs`, one in `panel.rs`; the agent removed each part and saw it fail.
+
+What the session changed: `provider_model` read the whole record to find the `init` frame,
+whenever the envelope had no model and the file had grown, which on a live `codex` run (no model,
+no `init` frame) meant rereading megabytes every tick for nothing. It now reads the first 64 lines
+and only for the three providers that write one.
+
+Left as is: the votes shown are parsed again from each seat's answer text by `panel_vote`, since
+the event keeps the raw answers but not the parsed choices.

@@ -668,6 +668,32 @@ fn plan_panel_verdict(
     }
 }
 
+fn role_values(seats: &[Seat], count: usize) -> Value {
+    Value::List(
+        seats
+            .iter()
+            .take(count)
+            .map(|seat| {
+                Value::text(match seat.role {
+                    Role::Reviewer => "reviewer",
+                    Role::Adversary => "adversary",
+                    Role::Security => "security",
+                })
+            })
+            .collect(),
+    )
+}
+
+fn panel_roles(runs: &PanelRuns, tie: &PanelRuns) -> Vec<(&'static str, Value)> {
+    vec![
+        ("judge_roles", role_values(&PANEL, runs.run_ids.len())),
+        (
+            "tie_break_roles",
+            role_values(&TIE_BREAK, tie.run_ids.len()),
+        ),
+    ]
+}
+
 fn tie_break_fields(runs: &PanelRuns) -> Vec<(&'static str, Value)> {
     vec![
         (
@@ -979,6 +1005,7 @@ pub fn choose_judge(
             ];
             event.extend(plan_verdict_fields(&answers, &tie_answers));
             event.extend(evidence());
+            event.extend(panel_roles(&runs, &tie_runs));
             event.extend(tie_break_fields(&tie_runs));
             append_event(home, goal_id, body(event))?;
             for reason in reasons {
@@ -1028,6 +1055,7 @@ pub fn choose_judge(
     ];
     event.extend(plan_verdict_fields(&answers, &tie_answers));
     event.extend(evidence());
+    event.extend(panel_roles(&runs, &tie_runs));
     event.extend(tie_break_fields(&tie_runs));
     append_event(home, goal_id, body(event))?;
     print(out, &text!("chosen ", chosen, " -> ", py::str(&path)))?;
@@ -1523,6 +1551,38 @@ mod tests {
 
     /// Build 196, item 0. The `review` event is in the log by the time the pusher starts,
     /// so a binary that has gone from under the process must not fail the command.
+    #[test]
+    fn panel_roles_follow_run_id_order() {
+        let runs = PanelRuns {
+            run_ids: vec!["a".into(), "b".into(), "c".into()],
+            policies: vec![],
+            texts: vec![],
+        };
+        let tie = PanelRuns {
+            run_ids: vec!["d".into(), "e".into()],
+            policies: vec![],
+            texts: vec![],
+        };
+        let event = body(panel_roles(&runs, &tie));
+        assert_eq!(
+            py::str(&field(&event, "judge_roles")).lossy(),
+            "['reviewer', 'adversary', 'security']"
+        );
+        assert_eq!(
+            py::str(&field(&event, "tie_break_roles")).lossy(),
+            "['reviewer', 'reviewer']"
+        );
+        let empty = PanelRuns {
+            run_ids: vec![],
+            policies: vec![],
+            texts: vec![],
+        };
+        assert_eq!(
+            py::str(&field(&body(panel_roles(&runs, &empty)), "tie_break_roles")).lossy(),
+            "[]"
+        );
+    }
+
     #[test]
     fn a_pusher_that_cannot_start_is_reported_and_does_not_fail_the_review() {
         let gone = Path::new("/nonexistent/hydra-puppets-gone");
