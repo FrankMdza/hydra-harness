@@ -336,6 +336,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [98 - A gated session that launches what the human approves](issues/98-a-gated-session-that-launches-what-the-human-approves.md): resolved 2026-10-03 by the same panel. More shapes only, written by the human; the 600-second refusal stays; a narrower sandbox for the gated copilot.
 - [100 - The orchestrator on any provider](issues/100-the-orchestrator-on-any-provider.md): resolved 2026-10-03 by a panel, unanimous. The ungated copilot on all four, a transcript reader per provider first, one document rendered per file name, the repository as an argument.
 - [101 - A copilot that does the work itself](issues/101-a-copilot-that-does-the-work-itself.md): resolved 2026-10-03 by the same panel, 2 to 1. Edit tools disallowed in the copilot; its token count against its agents' shown beside it.
+- [102 - The cockpit is for the one who orchestrates](issues/102-the-cockpit-is-for-the-one-who-orchestrates.md): resolved 2026-10-03, D6 by panel unanimous, D7 by the human. The gated chat leaves the cockpit; the row and the panel detail show model, role, question, judge and votes.
+- [103 - How a gated `claude` run keeps mods out](issues/103-how-a-gated-claude-run-keeps-mods-out.md): resolved 2026-10-03 by the human. A managed settings file with `allowManagedModsOnly`, and Hydra refuses a run's writes to plugin paths.
 
 ## Not yet specified
 

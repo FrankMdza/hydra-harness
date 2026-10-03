@@ -1,7 +1,7 @@
 # 103 - How a gated `claude` run keeps mods out
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-03, by the session, from build 251, which stopped at its step 5.
 
@@ -42,3 +42,7 @@ path a run could use on its own. Verifying either needs only an inert mod that l
 when it loads; no bypass has to be built.
 
 ## Answer
+
+Resolved 2026-10-03 by the human, D (A and C), as the session leaned. A is his to install, since
+it needs his admin password: `PENDIENTES-FRANK.md` has the file and the command. C is build 257.
+Build 251 then verifies both with an inert mod that only leaves a marker when it loads.

@@ -1,7 +1,7 @@
 # 102 - The cockpit is for the one who orchestrates
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-03, by the session, from the human's words: the UI only makes sense for the
 orchestrator session; a single agent makes more sense as a CLI. He also asked to see, per seat,
@@ -27,3 +27,8 @@ Answered 2026-10-03 by the same panel. Seats: `codex` adversary (`standard`, run
   question, and for a panel, who judged, whether it split, and each vote). The human asked for B
   in his own words on 2026-10-03 ("no solo codex modelo astra... cómo está el panel"). Left to
   him; the ticket stays open on D7.
+
+**D7, B, by the human on 2026-10-03** ("d7 larga"), over the panel's 2 to 1 for C: the row shows
+provider, exact model, policy, elapsed time and tokens; a panel seat also shows its role and the
+question it was asked; a panel shows who judged, whether it split, and each vote. Build 254
+carries D6, build 256 D7.
