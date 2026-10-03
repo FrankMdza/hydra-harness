@@ -1,7 +1,7 @@
 # 244 - Two runs launched in one second share the eight characters the cockpit shows
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
