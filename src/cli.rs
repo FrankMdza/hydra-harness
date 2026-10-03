@@ -83,6 +83,17 @@ pub enum Command {
         interactive: bool,
     },
 
+    /// Block until the named runs end, without launching or harvesting.
+    Wait {
+        #[arg(required = true, num_args = 1..)]
+        runs: Vec<String>,
+        /// Return when the first named run is no longer live.
+        #[arg(long)]
+        any: bool,
+        #[arg(long, value_parser = parse_duration)]
+        timeout: Option<Duration>,
+    },
+
     /// Reconcile live pids against open run files, and report abandoned worktrees.
     Status {
         /// One run, in full. Without it, everything under `~/hydra/runs/`.

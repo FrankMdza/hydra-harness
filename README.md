@@ -124,6 +124,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 |---|---|
 | `run` | launch a provider on a recorded run |
 | `status` | live pids against open records; abandoned worktrees |
+| `wait <run>... [--any] [--timeout 30m]` | block until selected runs end; exit 2 on timeout |
 | `logs` | tail a record |
 | `show` | the full record, normalized; `--events` for the stream |
 | `resume` | continue a finished run's vendor session under a fresh run id |

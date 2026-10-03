@@ -1,3 +1,5 @@
+mod wait;
+
 use anyhow::Result;
 use clap::Parser;
 
@@ -59,6 +61,14 @@ fn main() -> Result<()> {
                     Call::Ended(result) => println!("{}", serde_json::to_string_pretty(&result)?),
                     Call::Handle(handle) => println!("{}", serde_json::to_string_pretty(&handle)?),
                 }
+            }
+        }
+        Command::Wait { runs, any, timeout } => {
+            let mut out = std::io::stdout().lock();
+            let code = wait::wait(&Layout::discover()?, &runs, any, timeout, &mut out)?;
+            drop(out);
+            if code != 0 {
+                std::process::exit(code);
             }
         }
         Command::Status { run_id } => {

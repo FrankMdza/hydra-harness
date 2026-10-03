@@ -2555,6 +2555,7 @@ Ticket 05. Harness spec 9 makes every child detached and blocking a view over it
 announced. Both are built. `src/watch.rs` is the half that owns the pty and the record,
 `src/run.rs` is the half a human talks to, `src/live.rs` is contract 5.2's test, and
 `src/status.rs` and `src/logs.rs` are the two commands that read what the test says.
+`hydra wait <run>... [--any] [--timeout 30m]` resolves prefixes, polls this liveness test every two seconds without writing, and prints record-derived summaries, returning 2 with the live ids on timeout.
 
 **`hydra run` re-execs itself as `hydra watch <spec>` in a session of its own.** The
 launcher composes everything provider-specific first, writes it to
