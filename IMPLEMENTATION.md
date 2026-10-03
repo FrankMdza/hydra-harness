@@ -3261,9 +3261,15 @@ then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spelling
 **The judged steps, since build ticket 111.** `choose --judge` and `review` launch three seats,
 `claude` opus and composer-2.5 under `judge` and `codex` under `standard` (map ticket 63), each
 answering one JSON object; every checklist item carries a severity ceiling so an advisory item
-cannot block, a plan verdict needs every seat parsed and unanimous, and major or critical diff
-findings go into the human's Hunk session as comments before it opens. The panel never shrinks
-or substitutes; a missing seat is named and blocks.
+cannot block, and major or critical diff findings go into the human's Hunk session as comments
+before it opens. Since ticket 252, plan headings use neutral Proposal A, B, etc. labels that
+follow the proposal as each seat starts at its own index and wraps; plan bodies are unchanged
+and may still name their author. Labels are mapped back to providers outside prompts. A split
+runs claude-fable-5-1 on claude and gpt-6-astra on codex under `judge`, in opposite proposal
+orders; their agreement supplies the verdict, otherwise the human picks. The `panel_verdict`
+event records the label map, seat orders, tie-break orders, run ids and answers, and verdict
+source (null chosen and source when unresolved). Down vendors need a live degraded approval;
+tie-break substitutes remain under `judge`.
 
 **A local model, since build ticket 121.** `integrations/local-llm/hydra-local-llm` is a stdio
 MCP server with one tool, `ask`, over Ollama at `127.0.0.1:11434` (`gemma3:1b-it-qat` by

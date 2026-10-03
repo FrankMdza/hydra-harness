@@ -1,7 +1,7 @@
 # 252 - The plan panel judges blind, in turned order, and a split goes to two vendors
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -54,3 +54,28 @@ our hands.
   launches a provider.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a10389-ec1d` (`codex` gpt-6.1-sol, `standard`, 2.28M tokens).
+The session added one change to the agent's diff and verified one test by breaking it.
+
+Built, in `crates/puppets/src/panel.rs`: proposals go to the seats as `Proposal A`, `B`, and so
+on; seat n reads them starting at proposal n and wrapping; an answer names a label, and
+`parse_blind_answer` maps it back to the provider before `plan_panel_verdict` sees it. On a split,
+`TIE_BREAK` runs `claude` `claude-fable-5-1` and `codex` `gpt-6-astra` under `judge`, the second
+in reverse order, through `run_judge_panel`; their agreement is the verdict, otherwise there is
+none. A down vendor goes through the same degraded approval as a seat, and a substitute stays
+under `judge`. `panel_verdict` gains `verdict_source` (`panel`, `tie_break` or null), `label_map`,
+`seat_orders`, `tie_break_orders`, `tie_break_run_ids` and `tie_break_answers`. Five unit tests;
+the agent reverted each part and saw its test fail. The session repeated that for one: with the
+rotation removed, `blind_seats_read_three_rotations_with_stable_labels` fails, and restored it
+passes.
+
+What the session changed: `the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls`
+in `crates/puppets/tests/differential.rs` failed on all twelve `choose --judge` cases, since the
+prompts and the stub calls now differ from what `puppets.py` recorded. Those cases are no longer
+compared (`DIVERGED_SINCE_252`); they still run so the fixture count holds, and the test asserts
+at least one was found. Every other launch case is still compared. The agent's report said this
+needed an edit outside its permitted files, which is right.
+
+Assumed and false: three distinct orders need three proposals. With two, seat three reads seat
+one's order. Plan bodies are not rewritten, so a plan that names its author still does.

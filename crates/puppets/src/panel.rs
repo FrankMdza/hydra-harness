@@ -75,6 +75,23 @@ const PANEL: [Seat; 3] = [
     },
 ];
 
+const TIE_BREAK: [Seat; 2] = [
+    Seat {
+        provider: "claude",
+        model: Some("claude-fable-5-1"),
+        policy: "judge",
+        role: Role::Reviewer,
+        evidence: Evidence::DiffAndTask,
+    },
+    Seat {
+        provider: "codex",
+        model: Some("gpt-6-astra"),
+        policy: "judge",
+        role: Role::Reviewer,
+        evidence: Evidence::DiffAndTask,
+    },
+];
+
 impl Role {
     /// `PANEL_ROLE_BRIEF`.
     fn brief(self) -> &'static str {
@@ -223,10 +240,18 @@ fn resolve_panel_seats(
     home: &Home,
     state: &GoalState,
 ) -> Result<std::result::Result<Sitting, String>> {
+    resolve_seats(home, state, &PANEL)
+}
+
+fn resolve_seats(
+    home: &Home,
+    state: &GoalState,
+    seats: &'static [Seat],
+) -> Result<std::result::Result<Sitting, String>> {
     let mut resolved = Vec::new();
     let mut substitutions = Vec::new();
     let vendors = home.vendors_file()?;
-    for seat in &PANEL {
+    for seat in seats {
         if fold::provider_available(&vendors, seat.provider)? {
             resolved.push(Resolved {
                 seat,
@@ -643,6 +668,29 @@ fn plan_panel_verdict(
     }
 }
 
+fn tie_break_fields(runs: &PanelRuns) -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "tie_break_run_ids",
+            Value::List(runs.run_ids.iter().map(|id| Value::text(id)).collect()),
+        ),
+        ("tie_break_answers", Value::List(runs.texts.clone())),
+    ]
+}
+
+fn plan_verdict_fields(answers: &[PlanAnswer], tie: &[PlanAnswer]) -> Vec<(&'static str, Value)> {
+    let verdict = choose_panel_verdict(answers, tie);
+    let source = if verdict.is_err() {
+        Value::Null
+    } else {
+        Value::text(if tie.is_empty() { "panel" } else { "tie_break" })
+    };
+    let chosen = verdict
+        .as_ref()
+        .map_or(Value::Null, |(chosen, _)| Value::Str(chosen.clone()));
+    vec![("chosen", chosen), ("verdict_source", source)]
+}
+
 /// `build_choose_seat_prompt`: what one seat is asked about the proposals.
 fn build_choose_seat_prompt(
     seat: &Seat,
@@ -667,11 +715,11 @@ fn build_choose_seat_prompt(
     }
     prompt.push(&text!(
         "## Instructions\n\n",
-        "Pick exactly one proposer name (",
+        "Pick exactly one proposal label (",
         provider_names.clone(),
         ") or `composed` when no single proposal is best.\n\n",
         "Answer in exactly one JSON object and nothing else:\n\n",
-        "```json\n{\"chosen\": \"<provider>|composed\", \"findings\": []}\n```\n"
+        "```json\n{\"chosen\": \"<label>|composed\", \"findings\": []}\n```\n"
     ));
     prompt
 }
@@ -688,8 +736,63 @@ fn join(parts: &[PyStr], separator: &str) -> PyStr {
     out
 }
 
+fn proposal_block(n: usize, plan_text: PyStr) -> PyStr {
+    text!("### ", proposal_label(n), "\n\n", plan_text, "\n")
+}
+
+fn proposal_label(n: usize) -> PyStr {
+    let mut n = n + 1;
+    let mut letters = Vec::new();
+    while n > 0 {
+        n -= 1;
+        letters.push((b'A' + (n % 26) as u8) as char);
+        n /= 26;
+    }
+    PyStr::from(format!(
+        "Proposal {}",
+        letters.into_iter().rev().collect::<String>()
+    ))
+}
+
+fn proposal_order(count: usize, seat: usize) -> Vec<usize> {
+    (0..count).map(|n| (n + seat) % count).collect()
+}
+
+fn ordered_blocks(blocks: &[PyStr], order: &[usize]) -> PyStr {
+    join(
+        &order.iter().map(|n| blocks[*n].clone()).collect::<Vec<_>>(),
+        "\n",
+    )
+}
+
+fn parse_blind_answer(answer: &PyStr, providers: &[Value]) -> Result<PlanAnswer> {
+    let mut parsed = parse_plan_answer(answer)?;
+    if let Ok(label) = &parsed.chosen
+        && *label != "composed"
+    {
+        parsed.chosen = providers
+            .iter()
+            .enumerate()
+            .find(|(n, _)| *label == proposal_label(*n))
+            .map(|(_, provider)| py::str(provider))
+            .ok_or_else(|| text!("unknown proposal label: ", label.clone()));
+    }
+    Ok(parsed)
+}
+
+fn choose_panel_verdict(
+    answers: &[PlanAnswer],
+    tie: &[PlanAnswer],
+) -> std::result::Result<(PyStr, Option<String>), Vec<PyStr>> {
+    match plan_panel_verdict(answers) {
+        Ok(verdict) => Ok(verdict),
+        Err(reasons) if tie.len() == 2 => plan_panel_verdict(tie).map_err(|_| reasons),
+        Err(reasons) => Err(reasons),
+    }
+}
+
 /// `choose --judge`: the panel reads every finished proposal and names one, or `composed`
-/// with a task array of its own. The verdict is recorded only when all three seats agree.
+/// with a task array of its own. A split goes to two blind tie-break judges.
 pub fn choose_judge(
     home: &Home,
     goal_id: &str,
@@ -712,7 +815,7 @@ pub fn choose_judge(
     }
     let Sitting {
         seats: resolved,
-        substitutions,
+        mut substitutions,
     } = match resolve_panel_seats(home, &state)? {
         Ok(sitting) => sitting,
         Err(refusal) => {
@@ -732,34 +835,153 @@ pub fn choose_judge(
             ),
         };
         let plan_text = py::strip(&read_text(&path)?);
-        blocks.push(text!("### ", py::str(&provider), "\n\n", plan_text, "\n"));
+        blocks.push(proposal_block(blocks.len(), plan_text));
         providers.push(provider);
     }
-    let proposal_blocks = join(&blocks, "\n");
-    let names = providers
-        .iter()
-        .map(|provider| string(provider, "proposer"))
-        .collect::<Result<Vec<_>>>()?;
-    let provider_names = join(&names, ", ");
+    let labels = (0..providers.len()).map(proposal_label).collect::<Vec<_>>();
+    let provider_names = join(&labels, ", ");
+    let orders = (0..resolved.len())
+        .map(|n| proposal_order(blocks.len(), n))
+        .collect::<Vec<_>>();
     let seat_prompts = resolved
         .iter()
-        .map(|seat| {
-            let prompt =
-                build_choose_seat_prompt(seat.seat, &goal_text, &proposal_blocks, &provider_names);
-            (seat, prompt)
+        .zip(&orders)
+        .map(|(seat, order)| {
+            (
+                seat,
+                build_choose_seat_prompt(
+                    seat.seat,
+                    &goal_text,
+                    &ordered_blocks(&blocks, order),
+                    &provider_names,
+                ),
+            )
         })
         .collect();
     let runs = run_judge_panel(home, seat_prompts)?;
     let answers = runs
         .texts
         .iter()
-        .map(|answer| parse_plan_answer(answer_text(answer)?))
+        .map(|answer| parse_blind_answer(answer_text(answer)?, &providers))
         .collect::<Result<Vec<_>>>()?;
     print_judges(out, &resolved, &runs)?;
-    let (chosen, composed) = match plan_panel_verdict(&answers) {
-        Ok(verdict) => verdict,
+    let mut tie_runs = PanelRuns {
+        run_ids: Vec::new(),
+        policies: Vec::new(),
+        texts: Vec::new(),
+    };
+    let mut tie_orders = Vec::new();
+    let mut tie_answers = Vec::new();
+    if plan_panel_verdict(&answers).is_err() {
+        let Sitting {
+            mut seats,
+            substitutions: extra,
+        } = match resolve_seats(home, &state, &TIE_BREAK)? {
+            Ok(sitting) => sitting,
+            Err(refusal) => {
+                writeln!(err, "{refusal}")?;
+                return Ok(1);
+            }
+        };
+        // Tie-break substitutes always stay under judge, including a codex substitute.
+        for seat in &mut seats {
+            seat.policy = "judge";
+        }
+        substitutions.extend(extra);
+        tie_orders = vec![
+            (0..blocks.len()).collect::<Vec<_>>(),
+            (0..blocks.len()).rev().collect::<Vec<_>>(),
+        ];
+        tie_runs = run_judge_panel(
+            home,
+            seats
+                .iter()
+                .zip(&tie_orders)
+                .map(|(seat, order)| {
+                    (
+                        seat,
+                        build_choose_seat_prompt(
+                            seat.seat,
+                            &goal_text,
+                            &ordered_blocks(&blocks, order),
+                            &provider_names,
+                        ),
+                    )
+                })
+                .collect(),
+        )?;
+        print_judges(out, &seats, &tie_runs)?;
+        tie_answers = tie_runs
+            .texts
+            .iter()
+            .map(|answer| parse_blind_answer(answer_text(answer)?, &providers))
+            .collect::<Result<Vec<_>>>()?;
+    }
+    let verdict = choose_panel_verdict(&answers, &tie_answers);
+    let evidence = || {
+        vec![
+            (
+                "label_map",
+                Value::Dict({
+                    let mut map = Dict::new();
+                    for (label, provider) in labels.iter().zip(&providers) {
+                        map.set(&label.lossy(), provider.clone());
+                    }
+                    map
+                }),
+            ),
+            (
+                "seat_orders",
+                Value::List(
+                    orders
+                        .iter()
+                        .map(|order| {
+                            Value::List(
+                                order
+                                    .iter()
+                                    .map(|n| Value::Str(labels[*n].clone()))
+                                    .collect(),
+                            )
+                        })
+                        .collect(),
+                ),
+            ),
+            (
+                "tie_break_orders",
+                Value::List(
+                    tie_orders
+                        .iter()
+                        .map(|order| {
+                            Value::List(
+                                order
+                                    .iter()
+                                    .map(|n| Value::Str(labels[*n].clone()))
+                                    .collect(),
+                            )
+                        })
+                        .collect(),
+                ),
+            ),
+        ]
+    };
+    let (chosen, composed) = match &verdict {
+        Ok(verdict) => verdict.clone(),
         Err(reasons) => {
-            for reason in &reasons {
+            let [ids, policies] = runs.event_fields();
+            let mut event = vec![
+                ("event", Value::text("panel_verdict")),
+                ids,
+                policies,
+                ("chosen", Value::Null),
+                ("path", Value::Null),
+                ("degraded", Value::Bool(!substitutions.is_empty())),
+                ("substitutions", Value::List(substitutions.clone())),
+            ];
+            event.extend(plan_verdict_fields(&answers, &tie_answers));
+            event.extend(evidence());
+            event.extend(tie_break_fields(&tie_runs));
+            append_event(home, goal_id, body(event))?;
+            for reason in reasons {
                 eprint(err, reason)?;
             }
             return Ok(1);
@@ -795,19 +1017,19 @@ pub fn choose_judge(
         }
     };
     let [ids, policies] = runs.event_fields();
-    append_event(
-        home,
-        goal_id,
-        body(vec![
-            ("event", Value::text("panel_verdict")),
-            ids,
-            policies,
-            ("chosen", Value::Str(chosen.clone())),
-            ("path", path.clone()),
-            ("degraded", Value::Bool(!substitutions.is_empty())),
-            ("substitutions", Value::List(substitutions)),
-        ]),
-    )?;
+    let mut event = vec![
+        ("event", Value::text("panel_verdict")),
+        ids,
+        policies,
+        ("chosen", Value::Str(chosen.clone())),
+        ("path", path.clone()),
+        ("degraded", Value::Bool(!substitutions.is_empty())),
+        ("substitutions", Value::List(substitutions)),
+    ];
+    event.extend(plan_verdict_fields(&answers, &tie_answers));
+    event.extend(evidence());
+    event.extend(tie_break_fields(&tie_runs));
+    append_event(home, goal_id, body(event))?;
     print(out, &text!("chosen ", chosen, " -> ", py::str(&path)))?;
     Ok(0)
 }
@@ -1322,6 +1544,156 @@ mod tests {
         let mut err = Vec::new();
         offer_comments(Ok(gone.to_path_buf()), Path::new("."), None, &mut err).unwrap();
         assert!(err.is_empty());
+    }
+
+    fn blind_fixture() -> (Vec<Value>, Vec<PyStr>) {
+        let providers = ["claude", "codex", "cursor-agent"]
+            .map(Value::text)
+            .to_vec();
+        let blocks = (0..3).map(|n| proposal_block(n, s("task body"))).collect();
+        (providers, blocks)
+    }
+
+    #[test]
+    fn blind_prompts_have_no_provider_names() {
+        let (providers, blocks) = blind_fixture();
+        let names = join(&(0..3).map(proposal_label).collect::<Vec<_>>(), ", ");
+        for (n, seat) in PANEL.iter().enumerate() {
+            let prompt = build_choose_seat_prompt(
+                seat,
+                &s("goal"),
+                &ordered_blocks(&blocks, &proposal_order(3, n)),
+                &names,
+            )
+            .lossy();
+            for provider in &providers {
+                assert!(!prompt.contains(&py::str(provider).lossy()), "{prompt}");
+            }
+            assert!(prompt.contains("<label>|composed"));
+        }
+    }
+
+    #[test]
+    fn blind_seats_read_three_rotations_with_stable_labels() {
+        let (_, blocks) = blind_fixture();
+        for (n, expected) in [[0, 1, 2], [1, 2, 0], [2, 0, 1]].iter().enumerate() {
+            let order = proposal_order(3, n);
+            assert_eq!(&order, expected);
+            let prompt = build_choose_seat_prompt(
+                &PANEL[n],
+                &s("goal"),
+                &ordered_blocks(&blocks, &order),
+                &s("Proposal A, Proposal B, Proposal C"),
+            )
+            .lossy();
+            let positions = expected.map(|i| {
+                prompt
+                    .find(&format!("### {}", proposal_label(i).lossy()))
+                    .unwrap()
+            });
+            assert!(positions[0] < positions[1] && positions[1] < positions[2]);
+        }
+    }
+
+    #[test]
+    fn blind_label_answers_map_to_providers() {
+        let (providers, _) = blind_fixture();
+        for (n, provider) in providers.iter().enumerate() {
+            let answer = s(&format!("{{\"chosen\":\"{}\"}}", proposal_label(n).lossy()));
+            assert_eq!(
+                parse_blind_answer(&answer, &providers)
+                    .unwrap()
+                    .chosen
+                    .unwrap(),
+                py::str(provider)
+            );
+        }
+        assert!(
+            parse_blind_answer(&s(r#"{"chosen":"codex"}"#), &providers)
+                .unwrap()
+                .chosen
+                .is_err()
+        );
+    }
+
+    struct Layout(PathBuf);
+    impl Drop for Layout {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn recorded_split(name: &str, tie: [&str; 2]) -> Dict {
+        let layout =
+            Layout(std::env::temp_dir().join(format!("hydra-panel-{name}-{}", std::process::id())));
+        let home = Home::at(&layout.0);
+        let answers = plan_answers([
+            r#"{"chosen":"codex"}"#,
+            r#"{"chosen":"claude"}"#,
+            r#"{"chosen":"codex"}"#,
+        ]);
+        let tie_runs = PanelRuns {
+            run_ids: vec!["tie-1".into(), "tie-2".into()],
+            policies: vec!["judge", "judge"],
+            texts: tie.iter().map(|answer| Value::text(answer)).collect(),
+        };
+        let tie = tie
+            .iter()
+            .map(|answer| parse_plan_answer(&s(answer)).unwrap())
+            .collect::<Vec<_>>();
+        let mut fields = vec![
+            ("event", Value::text("panel_verdict")),
+            ("path", Value::Null),
+        ];
+        fields.extend(plan_verdict_fields(&answers, &tie));
+        fields.extend(tie_break_fields(&tie_runs));
+        append_event(&home, "goal", body(fields)).unwrap();
+        let events = crate::log::read_log(&home, "goal").unwrap();
+        match events.into_iter().last().unwrap() {
+            Value::Dict(event) => event,
+            _ => panic!("verdict event must be an object"),
+        }
+    }
+
+    #[test]
+    fn blind_split_agreed_tie_records_a_verdict() {
+        let event = recorded_split(
+            "agree",
+            [r#"{"chosen":"claude"}"#, r#"{"chosen":"claude"}"#],
+        );
+        assert!(py::eq_str(&field(&event, "chosen"), "claude"));
+        assert!(py::eq_str(&field(&event, "verdict_source"), "tie_break"));
+    }
+
+    #[test]
+    fn blind_split_disagreed_tie_records_no_verdict() {
+        let event = recorded_split(
+            "disagree",
+            [r#"{"chosen":"claude"}"#, r#"{"chosen":"codex"}"#],
+        );
+        assert!(matches!(field(&event, "chosen"), Value::Null));
+        assert!(matches!(field(&event, "verdict_source"), Value::Null));
+        assert_eq!(
+            json::dumps_default(&field(&event, "tie_break_run_ids")),
+            r#"["tie-1", "tie-2"]"#
+        );
+        let Value::List(recorded_answers) = field(&event, "tie_break_answers") else {
+            panic!("missing tie-break answers")
+        };
+        assert_eq!(recorded_answers.len(), 2);
+        assert!(py::eq_str(&recorded_answers[0], r#"{"chosen":"claude"}"#));
+        assert!(py::eq_str(&recorded_answers[1], r#"{"chosen":"codex"}"#));
+        let answers = plan_answers([
+            r#"{"chosen":"codex"}"#,
+            r#"{"chosen":"claude"}"#,
+            r#"{"chosen":"codex"}"#,
+        ]);
+        let tie = plan_answers([
+            r#"{"chosen":"claude"}"#,
+            r#"{"chosen":"codex"}"#,
+            r#"{"chosen":"codex"}"#,
+        ]);
+        assert!(choose_panel_verdict(&answers, &tie[..2]).is_err());
     }
 
     #[test]

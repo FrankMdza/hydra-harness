@@ -3756,6 +3756,12 @@ fn launch_cases(shared: &Path, base_sha: &str) -> Vec<LaunchCase> {
     cases
 }
 
+/// Build ticket 252 made `choose --judge` blind, in a different order per seat, with a
+/// tie-break on a split, so its prompts and calls no longer match what `puppets.py` recorded.
+/// Those cases still run through `visit_launch` so the fixture count holds; the new behaviour
+/// is tested in `panel.rs`.
+const DIVERGED_SINCE_252: &str = "choose --judge";
+
 #[test]
 fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
     let scratch = Scratch::new("launch");
@@ -3763,7 +3769,13 @@ fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
     let mut labels = Vec::new();
     let mut crashes = Vec::new();
     let mut mismatches = Vec::new();
+    let mut diverged = Vec::new();
     visit_launch(root, false, &mut |job, home| {
+        if job.label.starts_with(DIVERGED_SINCE_252) {
+            diverged.push(job.label.clone());
+            labels.push(job.label.clone());
+            return;
+        }
         let (class, problems) = compare_launch(job, home, root);
         crashes.extend(class.map(|class| format!("{}: {class}", job.label)));
         if !problems.is_empty() {
@@ -3776,6 +3788,14 @@ fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
     for label in &labels {
         eprintln!("  {label}");
     }
+    eprintln!(
+        "not compared, changed on purpose by build 252 ({}):",
+        diverged.len()
+    );
+    for label in &diverged {
+        eprintln!("  {label}");
+    }
+    assert!(!diverged.is_empty(), "no `choose --judge` case was found");
     eprintln!(
         "python raised, stderr compared by exception class ({}):",
         crashes.len()
