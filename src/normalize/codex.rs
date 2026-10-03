@@ -19,7 +19,7 @@
 //! which is noise and not a finding. The tool item shapes are measured on run
 //! 01a0c223-9ec2, the four-step gate probe.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -64,6 +64,9 @@ struct Walk {
     calls: HashMap<String, (u64, String, Value)>,
     unknown_tools: Vec<String>,
     unread_frames: Vec<String>,
+    /// Calls whose command ran and exited nonzero: an `error` result that is
+    /// not a refusal. Build ticket 259.
+    ran_and_failed: HashSet<String>,
 }
 
 pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
@@ -318,18 +321,25 @@ impl Walk {
             .as_str()
             .or_else(|| item["output"].as_str())
             .unwrap_or_default();
-        let exit_code = item["exit_code"].as_i64().unwrap_or_default();
-        let (status, message) = if exit_code == 0 {
-            (ResultStatus::Ok, output.to_string())
-        } else {
-            (
-                classify(output),
-                if output.is_empty() {
-                    format!("exit code {exit_code}")
-                } else {
-                    output.to_string()
-                },
-            )
+        // Build ticket 259: a nonzero exit is the command failing, so `error`.
+        // It is not a refusal, because a refused call leaves no item at all
+        // (see `stderr_line`), unless the output carries Hydra's own voice.
+        let (status, message) = match item["exit_code"].as_i64() {
+            Some(0) => (ResultStatus::Ok, output.to_string()),
+            Some(exit_code) => {
+                if hydra_voice(output).is_none() {
+                    self.ran_and_failed.insert(item_id(item, seq));
+                }
+                (
+                    ResultStatus::Error,
+                    if output.is_empty() {
+                        format!("exit code {exit_code}")
+                    } else {
+                        output.to_string()
+                    },
+                )
+            }
+            None => (classify(output), output.to_string()),
         };
         self.events.push(Event::ToolResult(ToolResult {
             seq,
@@ -472,11 +482,18 @@ impl Walk {
         let payload = &raw["payload"];
         match kind {
             "response_item" => self.response_item(seq, payload),
-            "event_msg" => {
-                if payload["type"].as_str() == Some("token_count") {
-                    self.set_counts(&payload["info"]["total_token_usage"]);
+            "event_msg" => match payload["type"].as_str() {
+                Some("token_count") => self.set_counts(&payload["info"]["total_token_usage"]),
+                // Build ticket 259: a turn the provider would not finish ends
+                // on `task_complete` with `error`, which is the session file's
+                // `turn.failed`. Kept as the result only while the latest turn
+                // ended on one, so a session that went on past an error does
+                // not read as stopped by it.
+                Some("task_complete") => {
+                    self.result = (!payload["error"].is_null()).then(|| raw.clone());
                 }
-            }
+                _ => {}
+            },
             "token_usage_record" => self.set_counts(&payload["thread_token_usage"]),
             _ => {}
         }
@@ -550,7 +567,11 @@ impl Walk {
                         .map(str::to_string)
                         .unwrap_or_else(|| seq.to_string()),
                     // The output is the script's text, with no exit status
-                    // this reader can trust.
+                    // this reader can trust. Build ticket 259 looked: the
+                    // `CommandExecution` items beside it carry `exit_code`,
+                    // but no id ties one to a call, a script runs none or
+                    // several, and its own `Script completed` or `Script
+                    // failed` disagrees with their exits on 82 of 1,440 calls.
                     status: classify(&output),
                     output,
                     truncated: false,
@@ -681,7 +702,7 @@ impl Walk {
                 let capability = codex_capability(&tool).expect("unhooked row");
                 let allowed = policy.allows_capability(capability);
                 let result = results.get(&call_id);
-                let refusal = result.and_then(|(status, output)| refusal_in(*status, output));
+                let refusal = self.refusal_of(&call_id, result);
                 if let Some(refusal) = &refusal
                     && let Some(code) = hydra_voice(&refusal.reason)
                     && code != "allow"
@@ -734,7 +755,7 @@ impl Walk {
                 }
             };
             let result = results.get(&call_id);
-            let refusal = result.and_then(|(status, output)| refusal_in(*status, output));
+            let refusal = self.refusal_of(&call_id, result);
 
             let derived = if !verdict.allowed {
                 match &refusal {
@@ -852,6 +873,19 @@ impl Walk {
         decisions
     }
 
+    /// The refusal a call's result shows, if any. A command that ran and
+    /// exited nonzero is a failure, never a refusal.
+    fn refusal_of(
+        &self,
+        call_id: &str,
+        result: Option<&(ResultStatus, String)>,
+    ) -> Option<Refusal> {
+        if self.ran_and_failed.contains(call_id) {
+            return None;
+        }
+        result.and_then(|(status, output)| refusal_in(*status, output))
+    }
+
     fn results_by_call(&self) -> HashMap<String, (ResultStatus, String)> {
         self.events
             .iter()
@@ -912,12 +946,18 @@ fn counts_of(usage: &Value) -> Option<Counts> {
         return None;
     }
     // Measured names first, the ticket-58 guesses as fallbacks.
+    let cache_read_tokens = read("cached_input_tokens")
+        .or_else(|| read("cache_read_tokens"))
+        .unwrap_or_default();
+    // Build ticket 259: `total_tokens` is `input_tokens` plus `output_tokens`,
+    // so the cache sits inside `input_tokens`, and contract 9.1 counts input
+    // net of it on every provider.
     Some(Counts {
-        input_tokens: read("input_tokens").unwrap_or_default(),
+        input_tokens: read("input_tokens")
+            .unwrap_or_default()
+            .saturating_sub(cache_read_tokens),
         output_tokens: read("output_tokens").unwrap_or_default(),
-        cache_read_tokens: read("cached_input_tokens")
-            .or_else(|| read("cache_read_tokens"))
-            .unwrap_or_default(),
+        cache_read_tokens,
         cache_write_tokens: read("cache_write_input_tokens"),
         thinking_tokens: read("reasoning_output_tokens")
             .or_else(|| read("reasoning_tokens"))
@@ -1036,7 +1076,8 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(usage.counts.as_ref().unwrap().input_tokens, 10);
+        // Net of the six cached, build ticket 259.
+        assert_eq!(usage.counts.as_ref().unwrap().input_tokens, 4);
         assert_eq!(usage.counts.as_ref().unwrap().output_tokens, 4);
         assert_eq!(usage.counts.as_ref().unwrap().thinking_tokens, Some(2));
         assert_eq!(usage.counts.as_ref().unwrap().cache_read_tokens, 6);

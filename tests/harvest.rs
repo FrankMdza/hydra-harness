@@ -998,7 +998,8 @@ fn a_codex_session_file_harvests_into_a_valid_record_with_its_last_total() {
         .expect("a harvested codex run has a usage event");
     assert_eq!(usage.source, hydra::normalize::UsageSource::Provider);
     let counts = usage.counts.expect("the session file named its totals");
-    assert_eq!(counts.input_tokens, 2500);
+    // 2500 reported, 2000 of it cached: net of the cache, build ticket 259.
+    assert_eq!(counts.input_tokens, 500);
     assert_eq!(counts.cache_read_tokens, 2000);
     assert_eq!(counts.output_tokens, 150);
     assert_eq!(counts.thinking_tokens, Some(60));

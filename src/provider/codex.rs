@@ -185,7 +185,12 @@ pub fn interactive_argv(task: Option<&str>, model: Option<&str>) -> Vec<String> 
 //   `info.total_token_usage`, the session's running total, or `info: null`
 //   when the turn never reached the model. `item_completed`, `task_started`,
 //   `task_complete`, `thread_settings_applied` and `compacted` repeat or
-//   frame what `response_item` already carries.
+//   frame what `response_item` already carries, with two exceptions measured
+//   in build ticket 259 on 140 files. A turn the provider would not finish
+//   ends on `task_complete` with `error: {message, codex_error_info}`, where
+//   `codex_error_info` was `usage_limit_exceeded` 15 times, `other` 3 and
+//   `cyber_policy` once; and `item_completed` of `item.type`
+//   `CommandExecution` carries `exit_code`, under an id no `call_id` names.
 // - `token_usage_record`, 0.159.2 and not 0.154.0: `payload.usage` for one
 //   response and `payload.thread_token_usage`, the running total again.
 // - `turn_context` and `world_state`, the settings each turn ran under.

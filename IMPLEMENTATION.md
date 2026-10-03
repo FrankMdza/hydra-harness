@@ -3120,10 +3120,18 @@ file's lines go under `raw` whole, and `normalize::codex` reads `response_item` 
 calls and results, and takes usage from the last running total (`token_count`'s
 `total_token_usage` or `token_usage_record`'s `thread_token_usage`). A session that never
 reached its first prompt writes no file, and its record closes with usage `unavailable`.
-`hydra status` harvests a dead one. Two limits: a tool result carries no exit status the
-reader trusts, so every harvested result is `unclassified`, and a session that hit its usage
-limit reads `completed`, because `outcome` reads the limit off `turn.failed`, which a session
-file does not have. Nobody has launched a real interactive `codex` through Hydra yet; the
+`hydra status` harvests a dead one. Build ticket 259 closed two of the three ways that record
+misreported. A turn the provider would not finish ends on a `task_complete` event carrying
+`error.codex_error_info`, and the reader keeps it as the result while the latest turn ended on
+one, so `usage_limit_exceeded` derives `rate_limited` the way `turn.failed` does on the stream.
+`input_tokens` is now net of `cached_input_tokens` on both paths, because `codex` counts the
+cache inside it; old records read right without a recount, since every reader derives usage
+from the raw lines, and `hydra usage recount` only tallies sources. A streamed
+`command_execution` with a nonzero `exit_code` reads `error`, not a refusal. The third limit
+stands: a harvested tool result has no exit status of its own. The `CommandExecution` items
+beside it carry `exit_code` under ids no `call_id` names, and over 140 files the script's own
+`Script completed` or `Script failed` line disagreed with its commands' exits on 82 of 1,440
+calls, so harvested results stay `unclassified`. Nobody has launched a real interactive `codex` through Hydra yet; the
 shapes come from files on this machine written by 0.154.0 and 0.159.2, and the tests drive
 synthetic ones.
 

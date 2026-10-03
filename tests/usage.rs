@@ -84,3 +84,43 @@ fn recount_one_missing_run_fails_with_the_path() {
     assert!(msg.contains("no run record at"), "{msg}");
     assert!(msg.contains(&path.display().to_string()), "{msg}");
 }
+
+/// Build ticket 259: `codex` counts the cache inside `input_tokens`, since its
+/// `total_tokens` is input plus output, and contract 9.1 counts input net of
+/// it. The same mapping reads the stream's `turn.completed` and a session
+/// file's `token_count`.
+#[test]
+fn a_codex_input_count_is_net_of_its_cache_on_both_paths() {
+    use common::Shape;
+    use serde_json::json;
+
+    let sandbox = Sandbox::new("usage-codex-cache");
+    let worktree = sandbox.worktree();
+    let usage = json!({
+        "input_tokens": 1000, "cached_input_tokens": 800,
+        "cache_write_input_tokens": 0, "output_tokens": 50,
+        "reasoning_output_tokens": 10, "total_tokens": 1050,
+    });
+    let frames = [
+        json!({"type": "turn.completed", "usage": usage}),
+        json!({"type": "event_msg", "payload": {
+            "type": "token_count", "info": {"total_token_usage": usage},
+        }}),
+    ];
+    for frame in frames {
+        let mut record = Record::shaped(Shape {
+            provider: Some("codex"),
+            policy: Some("standard"),
+            policy_sha: Some(policies().sha()),
+            worktree: Some(&worktree),
+            ..Shape::default()
+        });
+        record.raw(frame);
+        let text = record.closed();
+        let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+        let counts = run.usage().and_then(|usage| usage.counts).unwrap();
+        assert_eq!(counts.input_tokens, 200);
+        assert_eq!(counts.cache_read_tokens, 800);
+        assert_eq!(counts.output_tokens, 50);
+    }
+}

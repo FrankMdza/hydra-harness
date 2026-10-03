@@ -425,12 +425,27 @@ fn codex_turn_failed(run: &Run, frame: &Value) -> bool {
 /// **This is a text match, and it is written down as one**, for the reason
 /// [`cursor_stderr_refusal`] gives: the alternative files an exhausted quota as
 /// a task failure. A reworded sentence sends the run back to `failed`.
+///
+/// **A harvested session file says it in a field.** Its turn ends on an
+/// `event_msg` of type `task_complete` whose `error` carries the same sentence
+/// and `codex_error_info: "usage_limit_exceeded"`, measured on the one TUI
+/// session that hit its limit, 0.154.0, 2026-09-25. Build ticket 259.
 fn codex_limit_refusal(run: &Run) -> Option<Outcome> {
     let result = run.result.as_ref()?;
-    if !codex_turn_failed(run, result) {
+    let error = if codex_turn_failed(run, result) {
+        &result["error"]
+    } else if run.provider.as_deref() == Some("codex")
+        && result["type"].as_str() == Some("event_msg")
+        && result["payload"]["type"].as_str() == Some("task_complete")
+    {
+        &result["payload"]["error"]
+    } else {
         return None;
+    };
+    if error["codex_error_info"].as_str() == Some("usage_limit_exceeded") {
+        return Some(Outcome::RateLimited);
     }
-    let message = result["error"]["message"].as_str()?;
+    let message = error["message"].as_str()?;
     (message.contains("hit your usage limit")).then_some(Outcome::RateLimited)
 }
 

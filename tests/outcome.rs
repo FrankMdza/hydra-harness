@@ -1374,3 +1374,56 @@ fn an_agy_child_that_died_before_its_terminator_crashed() {
         Some((Outcome::Crashed, Source::Derived))
     );
 }
+
+/// Build ticket 259: a harvested `codex` session ends a turn it could not
+/// finish on `task_complete` with `error`, in the shape the one TUI session
+/// that hit its limit carries (0.154.0, 2026-09-25): `codex_error_info:
+/// "usage_limit_exceeded"` beside the sentence. Every line here is synthetic.
+#[test]
+fn a_harvested_codex_session_that_hit_its_limit_is_rate_limited() {
+    let sandbox = Sandbox::new("codex-session-limit");
+    let worktree = sandbox.worktree();
+    let session = |errors: &[Option<&str>]| {
+        let mut record = Record::shaped(Shape {
+            provider: Some("codex"),
+            worktree: Some(&worktree),
+            ..Shape::default()
+        });
+        record.raw(json!({"type": "session_meta", "payload": {
+            "id": "s", "source": "cli", "originator": "codex-tui",
+        }}));
+        for error in errors {
+            record.raw(json!({"type": "event_msg", "payload": {"type": "task_started"}}));
+            record.raw(json!({"type": "response_item", "payload": {
+                "type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": "look around"}],
+            }}));
+            record.raw(json!({"type": "event_msg", "payload": {
+                "type": "token_count", "info": null,
+            }}));
+            let error = match error {
+                Some(info) => json!({
+                    "message": "You've hit your usage limit. Try again later.",
+                    "codex_error_info": info,
+                }),
+                None => Value::Null,
+            };
+            record.raw(json!({"type": "event_msg", "payload": {
+                "type": "task_complete", "last_agent_message": null, "error": error,
+            }}));
+        }
+        record.closed_with(json!({"exit_code": 0, "body_source": "harvest"}))
+    };
+
+    assert_eq!(
+        outcome_of(&sandbox, &session(&[Some("usage_limit_exceeded")])),
+        Some((Outcome::RateLimited, Source::Derived))
+    );
+    // A session that went on past the limit and finished a turn was not
+    // stopped by it.
+    assert_ne!(
+        outcome_of(&sandbox, &session(&[Some("usage_limit_exceeded"), None]))
+            .map(|(outcome, _)| outcome),
+        Some(Outcome::RateLimited)
+    );
+}

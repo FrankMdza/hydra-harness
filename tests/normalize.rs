@@ -2924,3 +2924,45 @@ fn a_variable_the_gate_expands_is_read_against_the_records_cwd_and_not_the_reade
         run.findings
     );
 }
+
+/// Build ticket 259: an `exec --json` command item carries `exit_code`, the
+/// shape fixture 11 holds. A nonzero one is the command failing, which reads
+/// `error`, and a call that ran was not refused, so the decision stays the
+/// policy's allow rather than another hook's deny.
+#[test]
+fn a_codex_command_reads_its_exit_code_and_a_failure_is_not_a_refusal() {
+    let sandbox = Sandbox::new("codex-exit");
+    let worktree = sandbox.worktree();
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&worktree),
+        ..Shape::default()
+    });
+    record.raw(json!({"type": "item.completed", "item": {
+        "id": "c1", "type": "command_execution", "command": "/bin/zsh -lc ls",
+        "aggregated_output": "README\n", "exit_code": 0, "status": "completed",
+    }}));
+    record.raw(json!({"type": "item.completed", "item": {
+        "id": "c2", "type": "command_execution",
+        "command": "/bin/zsh -lc 'grep absent README'",
+        "aggregated_output": "", "exit_code": 1, "status": "failed",
+    }}));
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let status = |id: &str| {
+        run.tool_results()
+            .find(|result| result.call_id == id)
+            .map(|result| result.status)
+    };
+    assert_eq!(status("c1"), Some(ResultStatus::Ok));
+    assert_eq!(status("c2"), Some(ResultStatus::Error));
+    let failed = run
+        .permission_decisions()
+        .find(|decision| decision.call_id == "c2")
+        .unwrap();
+    assert_eq!(failed.decision, Decision::Allow, "{failed:?}");
+    assert_eq!(failed.decider, Decider::HydraPolicy, "{failed:?}");
+}
