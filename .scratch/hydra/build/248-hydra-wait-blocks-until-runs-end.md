@@ -1,7 +1,7 @@
 # 248 - `hydra wait` blocks until the runs it names have ended
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

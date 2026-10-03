@@ -1,7 +1,7 @@
 # 247 - A session is told its mode at start, and two refusals name the way out
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
