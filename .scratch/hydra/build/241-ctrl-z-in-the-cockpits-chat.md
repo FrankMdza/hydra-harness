@@ -1,7 +1,7 @@
 # 241 - Ctrl-Z in the cockpit's chat leaves a session nobody can resume
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
