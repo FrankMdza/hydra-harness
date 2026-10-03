@@ -70,3 +70,15 @@ of its agents once D6 and D7 land.
 
 Carried by build tickets 248 (`hydra wait`) and 249 (the copilot's profile: Sonnet, its own
 short document, launched outside the repository's instructions).
+
+### Measured after build 249 (2026-10-03, the human's own session)
+
+Not a comparison, because there was nothing to compare against. The copilot (run
+`01a10299-2a61`, Sonnet, started by `suprema.sh` in `~/.hydra-copilot`) ran four hours, 11:29 to
+15:33 Colombia time, on `~/another-private-repo`, and launched no `hydra run`. It did the work
+itself: SPEC-011, the tests and commit `5b24f7b` on that repository's `main`. It spent 21,208,692
+tokens, and 20,727,993 of them (97.7%) were cache reads. The opening message came from the
+session and said "trabaja en ~/another-private-repo", which may have read as permission to do the
+work directly, so this does not show the copilot refuses to delegate. It shows nothing stops it
+from skipping delegation, and that an orchestrator doing the work bills at chat prices. That
+question goes to a new map ticket, not to D5 or D6.
