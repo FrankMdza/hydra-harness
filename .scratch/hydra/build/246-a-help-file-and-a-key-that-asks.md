@@ -1,7 +1,7 @@
 # 246 - A help file for agents, and a key that types the question into the chat
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 240
 
 ## What
