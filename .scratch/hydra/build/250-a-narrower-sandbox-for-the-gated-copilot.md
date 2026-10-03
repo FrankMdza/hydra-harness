@@ -1,7 +1,7 @@
 # 250 - A narrower sandbox for the gated copilot
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
