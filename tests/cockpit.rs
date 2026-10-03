@@ -4894,3 +4894,21 @@ fn a_full_page_taller_than_the_screen_end_shows_the_last_line() {
     let screen = screen_text(&draw_app(&mut app, area));
     assert!(screen.contains("line-119"), "{screen}");
 }
+
+#[test]
+fn cockpit_policy_refuses_before_starting() {
+    let layout = scratch("cockpit-policy-refusal");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["cockpit", "--session", "claude", "--policy", "standard"])
+        .env("HYDRA_ROOT", layout.root())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: gated chat uses hydra run --interactive --provider <p> --policy <name>\n"
+    );
+    assert_eq!(std::fs::read_dir(layout.runs()).unwrap().count(), 0);
+}

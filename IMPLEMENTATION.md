@@ -4281,15 +4281,16 @@ since the ticket says idle when nothing is live. The poses are still frames, so 
 not sway. The binary ran on a pty at 160 by 40 and drew the title and truecolor half blocks;
 nobody has looked at it in a terminal emulator.
 
-**Cut two, build ticket 151: the chat inside.** `hydra cockpit --session <provider> [--model M]
-[--policy P]` spawns `hydra run --interactive --provider ...` from its own binary on a pty it owns,
-through `portable-pty` as `pty.rs` does, sized to the inside of the left panel. The child is the
-command `hy` runs, handed the cockpit's environment with `TERM=xterm-256color`, so the record,
-the gate, the seatbelt and `seats.sock` are that command's and nothing in `src/cockpit/` touches
-them. `--session codex` or any other provider reaches the child and the child refuses it, since
-`hydra run --interactive` is `claude` only; the refusal shows in the panel. Without `--session`
-the cockpit is cut one. `src/cockpit/chat.rs` owns the child and its screen, and
-`src/cockpit/host.rs` decides which side has the keys.
+**Cut two, build ticket 151: the chat inside, narrowed by build ticket 254.**
+`hydra cockpit --session <provider> [--model M]` spawns an ungated
+`hydra run --interactive --provider ...` from its own binary on a pty it owns,
+through `portable-pty`, sized to the left panel and with `TERM=xterm-256color`.
+The cockpit refuses `--policy` with exit 2 before startup and points to
+`hydra run --interactive --provider <p> --policy <name>` for gated chat.
+The cockpit launcher no longer forwards a policy. Interactive runs still support
+only `claude`; other providers are refused by the child in the panel. Without
+`--session` the cockpit is the viewer. `src/cockpit/chat.rs` owns the child and
+its screen, and `src/cockpit/host.rs` decides which side has the keys.
 
 *The crate.* `tui-term` 0.3.4, a Ratatui widget over `vt100` 0.16.2, built on `ratatui-core` 0.1
 and `ratatui-widgets` 0.3, which ratatui 0.30.2 already pulls in. It is one new dependency;

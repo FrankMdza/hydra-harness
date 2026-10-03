@@ -3,14 +3,9 @@
 This file is for a model in the chat to read and answer questions in plain language.
 Nothing loads it automatically. It is not `AGENTS.md`.
 
-## The three ways to run the cockpit
+## The two ways to run the cockpit
 
-**Gated session: `hydra cockpit --session claude --policy standard`.** The left panel is a
-`claude` chat that Hydra launched under that policy, in its own worktree, inside the macOS
-sandbox. Every tool call goes through the gate and the run is recorded. The chat cannot launch
-agents itself or with `hydra run`. It can ask for an approved panel with the `panel` tool, from
-the shapes in `config/panels.json` that its policy may ask for. It is told this in one line when
-it starts.
+For a gated chat, use `hydra run --interactive --provider <p> --policy <name>` on the command line.
 
 **Ungated copilot: `hydra cockpit --session claude` with no `--policy`.** The left panel is an
 ordinary Claude Code chat with the person's own permissions and no gate. It launches agents
@@ -23,7 +18,7 @@ disallowed so file changes go through `hydra run`. It is told this in one line w
 requests and Puppets steps on disk, and you can still approve, deny, review and stop from the
 keyboard. The `a` key of the help view is not offered, since there is no chat to type into.
 
-`F2` moves the keys between the chat and the cockpit in the first two.
+`F2` moves the keys between the chat and the cockpit with the copilot.
 
 In both modes the cockpit may start `hydra-puppets` for pending steps and reviews. That helper
 is the only writer of a goal log. The cockpit does not write policy files; `e` in the policy

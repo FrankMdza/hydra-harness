@@ -257,13 +257,9 @@ fn main() -> Result<()> {
             no_mascot,
             session,
             model,
-            policy,
+            policy: _,
         } => {
-            let session = session.map(|provider| hydra::cockpit::Session {
-                provider,
-                model,
-                policy,
-            });
+            let session = session.map(|provider| hydra::cockpit::Session { provider, model });
             hydra::cockpit::run(&Layout::discover()?, goal, interval, !no_mascot, session)?;
         }
         Command::Export { out, dry_run } => {

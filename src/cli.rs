@@ -32,6 +32,27 @@ pub struct Cli {
     pub command: Command,
 }
 
+/// Keep the removed flag recognizable so the CLI can explain the replacement
+/// before discovering a layout or starting any cockpit component.
+#[derive(Clone)]
+struct RefuseCockpitPolicy;
+
+impl clap::builder::TypedValueParser for RefuseCockpitPolicy {
+    type Value = String;
+
+    fn parse_ref(
+        &self,
+        _cmd: &clap::Command,
+        _arg: Option<&clap::Arg>,
+        _value: &std::ffi::OsStr,
+    ) -> Result<String, clap::Error> {
+        Err(clap::Error::raw(
+            clap::error::ErrorKind::InvalidValue,
+            "gated chat uses hydra run --interactive --provider <p> --policy <name>\n",
+        ))
+    }
+}
+
 #[derive(Subcommand)]
 pub enum Command {
     /// Launch a provider on a recorded run and write its run record.
@@ -300,9 +321,8 @@ pub enum Command {
         #[arg(long, requires = "session")]
         model: Option<String>,
 
-        /// The policy for `--session`. Without it the chat is ungated, as
-        /// `hydra run --interactive` is.
-        #[arg(long, requires = "session")]
+        /// Gated chats use `hydra run --interactive --provider <p> --policy <name>`.
+        #[arg(long, requires = "session", value_parser = RefuseCockpitPolicy)]
         policy: Option<String>,
     },
 

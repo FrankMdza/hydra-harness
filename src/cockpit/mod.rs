@@ -82,7 +82,6 @@ const CHAT_POLL: Duration = Duration::from_millis(15);
 pub struct Session {
     pub provider: String,
     pub model: Option<String>,
-    pub policy: Option<String>,
 }
 
 /// The Master of Puppets helper's file name.
@@ -212,17 +211,9 @@ pub fn run(
                 .size()
                 .context("reading the terminal size")?;
             let (rows, cols) = Host::chat_size(Rect::new(0, 0, area.width, area.height));
-            let launch = Launch::hydra_run(
-                layout,
-                &session.provider,
-                session.model.as_deref(),
-                session.policy.as_deref(),
-            )?;
+            let launch = Launch::hydra_run(layout, &session.provider, session.model.as_deref())?;
             let chat = Chat::spawn(launch, rows, cols)?;
-            let title = match &session.policy {
-                Some(policy) => format!("{} under {policy}", session.provider),
-                None => session.provider.clone(),
-            };
+            let title = session.provider;
             (Host::with_chat(app, title, chat), CHAT_POLL)
         }
     };

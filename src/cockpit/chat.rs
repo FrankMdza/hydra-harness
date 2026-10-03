@@ -61,12 +61,7 @@ pub struct Launch {
 impl Launch {
     /// `hydra run --interactive` for `provider`, from this binary, in this
     /// directory and with this environment, `TERM` set to what `vt100` draws.
-    pub fn hydra_run(
-        layout: &Layout,
-        provider: &str,
-        model: Option<&str>,
-        policy: Option<&str>,
-    ) -> Result<Self> {
+    pub fn hydra_run(layout: &Layout, provider: &str, model: Option<&str>) -> Result<Self> {
         let program = std::env::current_exe().context("finding this binary")?;
         let mut args = vec![
             "run".to_string(),
@@ -74,10 +69,8 @@ impl Launch {
             "--provider".to_string(),
             provider.to_string(),
         ];
-        for (flag, value) in [("--model", model), ("--policy", policy)] {
-            if let Some(value) = value {
-                args.extend([flag.to_string(), value.to_string()]);
-            }
+        if let Some(model) = model {
+            args.extend(["--model".to_string(), model.to_string()]);
         }
         let mut env: Vec<(String, String)> = std::env::vars()
             .filter(|(name, _)| name != "TERM")
