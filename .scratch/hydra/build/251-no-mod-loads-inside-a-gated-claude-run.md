@@ -73,3 +73,13 @@ tokens), no diff: no flag or variable in `claude` 2.1.288 drops mods and keeps a
 hook. What it read is in map ticket 103, which now blocks this ticket. Steps 1 to 4 still stand
 once 103 picks the mechanism, except that the live check uses an inert mod that leaves a marker
 when it loads.
+
+Map 103 A installed by the human on 2026-10-03:
+`/Library/Application Support/ClaudeCode/managed-settings.json`, root-owned, with the guard option
+`allowManagedModsOnly`. Checked by the session the same day with an inert mod (one `tool.call` hook
+that counts and calls `next`) loaded by `claude -p --plugin-dir`: the debug log reads
+`cc-plugin-sec-default@builtin seated outermost: this machine has managed settings` and
+`refused by cc-plugin-sec-default: mods are limited to your organization's by policy
+(allowManagedModsOnly); inert-mod was not loaded`. The control, the same launch without the file,
+was not run, because removing it is the human's; the guard does not load without managed settings
+on this login, per the vendor's page and run `01a10389-ec0e`. Build 257 carries map 103 C.

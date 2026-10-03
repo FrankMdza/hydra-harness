@@ -680,6 +680,7 @@ fn a_start_time_that_will_not_read_leaves_a_failure_record_naming_the_pid() {
     };
 
     let err = hydra::interactive::record_then_wait(
+        hydra::provider::Provider::Claude,
         &run_file,
         run_id,
         None,
@@ -764,6 +765,7 @@ fn a_record_that_cannot_be_written_still_waits_for_the_session() {
     let start_time = hydra::procinfo::start_time(pid);
 
     let err = hydra::interactive::record_then_wait(
+        hydra::provider::Provider::Claude,
         &run_file,
         run_id,
         None,
@@ -796,6 +798,7 @@ fn a_recorded_start_carries_the_pid_and_its_start_time() {
     let start_time = hydra::procinfo::start_time(pid);
 
     let status = hydra::interactive::record_then_wait(
+        hydra::provider::Provider::Claude,
         &run_file,
         run_id,
         None,
@@ -813,4 +816,235 @@ fn a_recorded_start_carries_the_pid_and_its_start_time() {
     assert_eq!(line["hydra"]["pid"], json!(pid));
     assert!(line["hydra"]["process_start_time"].is_string(), "{text}");
     assert_eq!(text.lines().count(), 1);
+}
+
+/// Line 0 of an ungated interactive `codex` run: no session id, because
+/// `codex` takes none, and the liveness pair of this test's own process, which
+/// started before any session file below began.
+fn open_codex_interactive_run(layout: &Layout, run_id: &str, cwd: &Path) {
+    let mut start = unfilled_start(cwd);
+    let pid = std::process::id();
+    start.pid = Some(pid);
+    start.process_start_time = hydra::procinfo::start_time(pid)
+        .unwrap()
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
+    start.provider_version = Some("codex-cli 0.159.2".into());
+    start.provider_session_id = None;
+    start.subscription = Some("openai".into());
+    let mut writer =
+        Writer::create(layout.run_file(run_id), run_id, None, Some("codex"), None).unwrap();
+    writer.hydra_line(&start).unwrap();
+}
+
+/// A session file in the shape `provider::codex` measured, every line
+/// synthetic. `source` is `cli` for the TUI and `exec` for `codex exec`.
+fn write_codex_session(
+    home: &Path,
+    cwd: &Path,
+    id: &str,
+    source: &str,
+    began: chrono::DateTime<chrono::Utc>,
+    lines: &[Value],
+) -> PathBuf {
+    let dir = hydra::provider::codex::sessions_dir(home)
+        .join(chrono::Utc::now().format("%Y/%m/%d").to_string());
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!(
+        "rollout-{}-{id}.jsonl",
+        began.format("%Y-%m-%dT%H-%M-%S")
+    ));
+    let line = |ordinal: usize, kind: &str, payload: &Value| {
+        json!({
+            "timestamp": began.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "ordinal": ordinal,
+            "type": kind,
+            "payload": payload,
+        })
+        .to_string()
+    };
+    let meta = json!({
+        "id": id,
+        "session_id": id,
+        "timestamp": began.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "cwd": cwd.display().to_string(),
+        "originator": if source == "cli" { "codex-tui" } else { "codex_exec" },
+        "cli_version": "0.159.2",
+        "source": source,
+    });
+    let mut text = vec![line(0, "session_meta", &meta)];
+    for (at, body) in lines.iter().enumerate() {
+        text.push(line(
+            at + 1,
+            body["type"].as_str().unwrap(),
+            &body["payload"],
+        ));
+    }
+    std::fs::write(&path, format!("{}\n", text.join("\n"))).unwrap();
+    path
+}
+
+fn usage_of(input: u64, cached: u64, output: u64, reasoning: u64) -> Value {
+    json!({
+        "input_tokens": input,
+        "cached_input_tokens": cached,
+        "cache_write_input_tokens": 0,
+        "output_tokens": output,
+        "reasoning_output_tokens": reasoning,
+        "total_tokens": input + output,
+    })
+}
+
+/// Build ticket 255. A TUI session that began after the run, in its cwd, is
+/// the one harvested; one that began before it and a `codex exec` in the same
+/// directory are not. The usage is the session's last running total.
+#[test]
+fn a_codex_session_file_harvests_into_a_valid_record_with_its_last_total() {
+    let (layout, home, cwd) = scratch("codex");
+    let run_id = "01a103a8-0000-7000-8000-0000000002a1";
+    open_codex_interactive_run(&layout, run_id, &cwd);
+    let now = chrono::Utc::now();
+
+    let turn = vec![
+        json!({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "t1"}}),
+        json!({"type": "response_item", "payload": {
+            "type": "message", "role": "developer",
+            "content": [{"type": "input_text", "text": "the TUI's own instructions"}],
+        }}),
+        json!({"type": "response_item", "payload": {
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": "list the files"}],
+        }}),
+        json!({"type": "turn_context", "payload": {"turn_id": "t1", "cwd": "elsewhere"}}),
+        json!({"type": "response_item", "payload": {
+            "type": "custom_tool_call", "call_id": "call_1", "name": "exec",
+            "input": "ls", "status": "completed",
+        }}),
+        json!({"type": "response_item", "payload": {
+            "type": "custom_tool_call_output", "call_id": "call_1",
+            "output": [{"type": "input_text", "text": "a.txt"}],
+        }}),
+        json!({"type": "event_msg", "payload": {"type": "token_count", "info": {
+            "total_token_usage": usage_of(1200, 1000, 80, 30),
+            "last_token_usage": usage_of(1200, 1000, 80, 30),
+        }}}),
+        json!({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "There is one file, a.txt."}],
+        }}),
+        json!({"type": "token_usage_record", "payload": {
+            "usage": usage_of(1300, 1000, 70, 30),
+            "thread_token_usage": usage_of(2500, 2000, 150, 60),
+        }}),
+        json!({"type": "event_msg", "payload": {"type": "token_count", "info": null}}),
+        json!({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "t1"}}),
+    ];
+    let mine = write_codex_session(
+        &home,
+        &cwd,
+        "01a103a8-0000-7000-8000-0000000002a2",
+        "cli",
+        now,
+        &turn,
+    );
+    let before = turn[..3].to_vec();
+    write_codex_session(
+        &home,
+        &cwd,
+        "01a103a8-0000-7000-8000-0000000002a3",
+        "cli",
+        now - chrono::Duration::days(400),
+        &before,
+    );
+    write_codex_session(
+        &home,
+        &cwd,
+        "01a103a8-0000-7000-8000-0000000002a4",
+        "exec",
+        now - chrono::Duration::milliseconds(1),
+        &before,
+    );
+    // A second TUI a human opened in the same directory while this one ran.
+    write_codex_session(
+        &home,
+        &cwd,
+        "01a103a8-0000-7000-8000-0000000002a5",
+        "cli",
+        now + chrono::Duration::seconds(5),
+        &before,
+    );
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(
+        outcome,
+        HarvestOutcome::Harvested {
+            records: 1 + turn.len()
+        },
+        "{} should have been the one harvested",
+        mine.display()
+    );
+
+    let text = std::fs::read_to_string(layout.run_file(run_id)).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(
+        error.contains("0000000002a2, the first of 2"),
+        "the later session is counted, not taken: {error}"
+    );
+    let usage = run
+        .usage()
+        .expect("a harvested codex run has a usage event");
+    assert_eq!(usage.source, hydra::normalize::UsageSource::Provider);
+    let counts = usage.counts.expect("the session file named its totals");
+    assert_eq!(counts.input_tokens, 2500);
+    assert_eq!(counts.cache_read_tokens, 2000);
+    assert_eq!(counts.output_tokens, 150);
+    assert_eq!(counts.thinking_tokens, Some(60));
+    assert_eq!(counts.cache_write_tokens, Some(0));
+
+    let said: Vec<(Role, &str)> = run.messages().map(|m| (m.role, m.text.as_str())).collect();
+    assert_eq!(
+        said,
+        [
+            (Role::User, "list the files"),
+            (Role::Assistant, "There is one file, a.txt."),
+        ]
+    );
+    assert_eq!(run.tool_calls().count(), 1);
+    assert_eq!(run.tool_results().count(), 1);
+
+    let derived = hydra::outcome::derive(&run).unwrap();
+    assert_eq!(derived.outcome, hydra::outcome::Outcome::Completed);
+}
+
+/// Build ticket 255. A `codex` session that never reached its first prompt
+/// leaves no file, and the harvest closes the record with usage unknown.
+#[test]
+fn a_codex_run_with_no_session_file_ends_with_usage_unknown() {
+    let (layout, home, cwd) = scratch("codex-none");
+    let run_id = "01a103a8-0000-7000-8000-0000000002b1";
+    open_codex_interactive_run(&layout, run_id, &cwd);
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(outcome, HarvestOutcome::Harvested { records: 0 });
+    let text = std::fs::read_to_string(layout.run_file(run_id)).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(error.contains("no codex session file"), "{error}");
+    let usage = run.usage().expect("an ended run still says what it knows");
+    assert_eq!(usage.source, hydra::normalize::UsageSource::Unavailable);
+    assert!(usage.counts.is_none());
+    assert_eq!(
+        hydra::outcome::derive(&run).unwrap().outcome,
+        hydra::outcome::Outcome::Failed
+    );
+    assert_eq!(
+        harvest_in(&layout, run_id, None, &home).unwrap(),
+        HarvestOutcome::AlreadyDone
+    );
 }

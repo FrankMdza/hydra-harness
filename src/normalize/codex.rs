@@ -225,6 +225,13 @@ impl Walk {
             // id on `thread.started` has no field in contract 7.2 yet, and
             // `turn.started` says nothing a later frame does not.
             Some("thread.started" | "turn.started" | "item.started" | "item.updated") => {}
+            // Build ticket 255: an interactive run's body is its session file.
+            // `session_meta`, `turn_context` and `world_state` name settings,
+            // and the session id on the first has no field in 7.2 yet.
+            Some(
+                kind @ ("response_item" | "event_msg" | "token_usage_record" | "session_meta"
+                | "turn_context" | "world_state"),
+            ) => self.session_line(seq, raw, kind),
             Some(other) => self.note_unread_frame(other),
             None => self.note_unread_frame("(none)"),
         }
@@ -435,29 +442,122 @@ impl Walk {
     }
 
     fn add_counts(&mut self, usage: &Value) {
-        let Some(usage) = usage.as_object() else {
+        let Some(counts) = counts_of(usage) else {
             return;
         };
-        let read = |field: &str| usage.get(field).and_then(Value::as_u64);
-        if read("input_tokens").is_none() && read("output_tokens").is_none() {
-            return;
-        }
         let running = self.counts.get_or_insert_with(Counts::default);
-        // Measured names first, the ticket-58 guesses as fallbacks.
-        running.input_tokens += read("input_tokens").unwrap_or_default();
-        running.output_tokens += read("output_tokens").unwrap_or_default();
-        running.cache_read_tokens += read("cached_input_tokens")
-            .or_else(|| read("cache_read_tokens"))
-            .unwrap_or_default();
-        if let Some(written) = read("cache_write_input_tokens") {
+        running.input_tokens += counts.input_tokens;
+        running.output_tokens += counts.output_tokens;
+        running.cache_read_tokens += counts.cache_read_tokens;
+        if let Some(written) = counts.cache_write_tokens {
             running.cache_write_tokens =
                 Some(running.cache_write_tokens.unwrap_or_default() + written);
         }
-        if let Some(thinking) = read("reasoning_output_tokens")
-            .or_else(|| read("reasoning_tokens"))
-            .or_else(|| read("thinking_tokens"))
-        {
+        if let Some(thinking) = counts.thinking_tokens {
             running.thinking_tokens = Some(running.thinking_tokens.unwrap_or_default() + thinking);
+        }
+    }
+
+    /// A session file's usage is a running total rather than one turn's, so
+    /// the latest one stands for the session instead of adding to it.
+    fn set_counts(&mut self, total: &Value) {
+        if let Some(counts) = counts_of(total) {
+            self.counts = Some(counts);
+        }
+    }
+
+    /// One line of an interactive session file, harvested whole, build
+    /// ticket 255. `provider::codex` holds the measured shapes.
+    fn session_line(&mut self, seq: u64, raw: &Value, kind: &str) {
+        let payload = &raw["payload"];
+        match kind {
+            "response_item" => self.response_item(seq, payload),
+            "event_msg" => {
+                if payload["type"].as_str() == Some("token_count") {
+                    self.set_counts(&payload["info"]["total_token_usage"]);
+                }
+            }
+            "token_usage_record" => self.set_counts(&payload["thread_token_usage"]),
+            _ => {}
+        }
+    }
+
+    fn response_item(&mut self, seq: u64, item: &Value) {
+        match item["type"].as_str() {
+            Some("message") => {
+                // `developer` is the TUI's own instructions, not a turn.
+                let role = match item["role"].as_str() {
+                    Some("user") => Role::User,
+                    Some("assistant") => Role::Assistant,
+                    _ => return,
+                };
+                let text = joined_text(&item["content"]);
+                if !text.is_empty() {
+                    self.events.push(Event::Message(Message {
+                        seq,
+                        role,
+                        text,
+                        block: seq as usize,
+                    }));
+                }
+            }
+            Some("reasoning") => {
+                let text = joined_text(&item["summary"]);
+                if !text.is_empty() {
+                    self.events.push(Event::Thinking(Thinking {
+                        seq,
+                        text,
+                        signature: None,
+                        block: seq as usize,
+                    }));
+                }
+            }
+            Some("custom_tool_call" | "function_call") => {
+                let call_id = item["call_id"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| seq.to_string());
+                let name = item["name"].as_str().unwrap_or_default().to_string();
+                let arguments = match (item.get("input"), item["arguments"].as_str()) {
+                    (Some(input), _) => json!({ "input": input }),
+                    (None, Some(text)) => {
+                        serde_json::from_str(text).unwrap_or_else(|_| json!({ "arguments": text }))
+                    }
+                    (None, None) => item["arguments"].clone(),
+                };
+                let capability = codex_capability(&name);
+                if capability.is_none() {
+                    self.note_unknown(&name);
+                }
+                self.events.push(Event::ToolCall(ToolCall {
+                    seq,
+                    call_id,
+                    name,
+                    arguments,
+                    capability,
+                }));
+            }
+            Some("custom_tool_call_output" | "function_call_output") => {
+                let output = match &item["output"] {
+                    Value::String(text) => text.clone(),
+                    list @ Value::Array(_) => joined_text(list),
+                    other => other.to_string(),
+                };
+                self.events.push(Event::ToolResult(ToolResult {
+                    seq,
+                    call_id: item["call_id"]
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| seq.to_string()),
+                    // The output is the script's text, with no exit status
+                    // this reader can trust.
+                    status: classify(&output),
+                    output,
+                    truncated: false,
+                }));
+            }
+            Some(other) => self.note_unread_frame(&format!("response_item {other}")),
+            None => {}
         }
     }
 
@@ -801,6 +901,40 @@ fn item_id(item: &Value, seq: u64) -> String {
         .or_else(|| item["tool_use_id"].as_str())
         .map(str::to_string)
         .unwrap_or_else(|| seq.to_string())
+}
+
+/// The usage object both `codex` shapes name, mapped to section 9's counts.
+/// `None` when it names neither input nor output, which is `info: null`.
+fn counts_of(usage: &Value) -> Option<Counts> {
+    let usage = usage.as_object()?;
+    let read = |field: &str| usage.get(field).and_then(Value::as_u64);
+    if read("input_tokens").is_none() && read("output_tokens").is_none() {
+        return None;
+    }
+    // Measured names first, the ticket-58 guesses as fallbacks.
+    Some(Counts {
+        input_tokens: read("input_tokens").unwrap_or_default(),
+        output_tokens: read("output_tokens").unwrap_or_default(),
+        cache_read_tokens: read("cached_input_tokens")
+            .or_else(|| read("cache_read_tokens"))
+            .unwrap_or_default(),
+        cache_write_tokens: read("cache_write_input_tokens"),
+        thinking_tokens: read("reasoning_output_tokens")
+            .or_else(|| read("reasoning_tokens"))
+            .or_else(|| read("thinking_tokens")),
+    })
+}
+
+/// The `text` of every part in a session file's content or summary list.
+fn joined_text(parts: &Value) -> String {
+    parts
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part["text"].as_str())
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn classify(message: &str) -> ResultStatus {

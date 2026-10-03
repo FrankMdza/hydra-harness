@@ -97,12 +97,22 @@ pub(crate) fn is_abandoned_interactive_claude(view: &RunView) -> bool {
         && view.launch_mode.as_deref() == Some("interactive")
 }
 
-/// Harvests every dead interactive `claude` run this scan found. Returns
-/// whether anything changed, so the caller rescans only when it has to.
+/// Whether a view is a dead interactive run this build knows how to harvest:
+/// [`is_abandoned_interactive_claude`], or the same on a `codex` envelope,
+/// build ticket 255.
+pub(crate) fn is_abandoned_interactive(view: &RunView) -> bool {
+    is_abandoned_interactive_claude(view)
+        || (view.state == State::Abandoned
+            && view.provider.as_deref() == Some("codex")
+            && view.launch_mode.as_deref() == Some("interactive"))
+}
+
+/// Harvests every dead interactive run this scan found. Returns whether
+/// anything changed, so the caller rescans only when it has to.
 fn harvest_abandoned_interactive(layout: &Layout, views: &[RunView], home: &Path) -> bool {
     let mut any = false;
     for view in views {
-        if !is_abandoned_interactive_claude(view) {
+        if !is_abandoned_interactive(view) {
             continue;
         }
         match crate::interactive::harvest_in(layout, &view.run_id, None, home) {
@@ -146,7 +156,7 @@ fn build(layout: &Layout, run_id: &str, home: &Path) -> Result<Report> {
         bail!("no run record at {}", path.display());
     }
     let mut view = crate::live::read_view(&path)?;
-    if is_abandoned_interactive_claude(&view) {
+    if is_abandoned_interactive(&view) {
         match crate::interactive::harvest_in(layout, run_id, None, home) {
             Ok(_) => view = crate::live::read_view(&path)?,
             Err(err) => eprintln!("hydra: could not harvest {run_id}: {err:#}"),

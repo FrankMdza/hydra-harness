@@ -22,13 +22,8 @@ fn main() -> Result<()> {
             interactive,
         } => {
             if interactive {
-                let provider = provider.parse::<Provider>()?;
-                anyhow::ensure!(
-                    provider == Provider::Claude,
-                    "hydra run --interactive supports claude only; cursor-agent and agy are \
-                     not launched interactively yet"
-                );
                 let result = hydra::interactive::run(hydra::interactive::Request {
+                    provider: provider.parse::<Provider>()?,
                     task,
                     model,
                     policy,

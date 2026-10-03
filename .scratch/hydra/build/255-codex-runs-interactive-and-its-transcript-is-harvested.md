@@ -1,7 +1,7 @@
 # 255 - `codex` runs interactive, and its transcript is harvested
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -44,3 +44,28 @@ ticket to measure from files already on this machine, not to guess.
   you cannot from inside a run.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a103a8-4b5c` (`claude` opus 5.5, `standard`, 7.08M tokens). Applied
+with two stale sentences fixed by the session; no real interactive `codex` has run through Hydra
+yet, and that check is the human's, in a terminal.
+
+Built: `hydra run --interactive --provider codex [--model m] [--task t]` execs the `codex` TUI
+ungated in the caller's cwd; with `--policy` it is refused, since the gated mode compiles a
+`claude` gate. `codex` takes no session id, so `run_start.provider_session_id` is null and the
+harvest finds the session file afterwards: the earliest `session_meta` with `source: cli`, the
+run's cwd, and a start at or after the process start, under `~/.codex/sessions/YYYY/MM/DD/`.
+`run_end.error` names the session when later ones also matched. `normalize/codex.rs` reads session
+lines (messages, reasoning summaries, tool calls and results) and takes the last running total as
+usage. `hydra status` harvests a dead interactive `codex` like a `claude` one. The measured file
+shapes are a comment block in `src/provider/codex.rs`. Tests: two in `tests/harvest.rs`, two unit
+tests; the agent reverted each part and saw them fail.
+
+What the session changed: the `--interactive` help in `src/cli.rs` and one sentence of the
+cockpit section of `IMPLEMENTATION.md` still said `claude` only.
+
+Found by the agent, not fixed: every harvested `codex` tool result reads `unclassified`, so a
+`completed` outcome derives as unknown; a session that hits its usage limit reads `completed`
+because `outcome.rs` reads the limit only off `turn.failed`; `codex` `input_tokens` includes the
+cache, against contract 9.1, as the streamed path already does; and two Hydra `codex` sessions
+started in the same cwd at once would both harvest the earlier file. The TUI filter rests on one
+TUI file measured, written by 0.154.0.

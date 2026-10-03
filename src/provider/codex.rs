@@ -134,6 +134,179 @@ pub fn resume_args(session_id: &str, hook_file: &Path) -> Vec<String> {
     argv
 }
 
+/// The interactive argv, harness spec 3's second mode, build ticket 255.
+///
+/// `codex` with no subcommand is the TUI, and `codex --help` on 0.159.2 says
+/// options with no subcommand go to it. No `-C`: the launch sets the child's
+/// cwd to the caller's. No sandbox or approval flags either, because an
+/// ungated interactive run is the human's own session and keeps whatever the
+/// human's `~/.codex/config.toml` says. The task, when there is one, is the
+/// positional prompt the TUI opens with.
+pub fn interactive_argv(task: Option<&str>, model: Option<&str>) -> Vec<String> {
+    let mut argv = Vec::new();
+    if let Some(model) = model {
+        argv.push("-m".to_string());
+        argv.push(model.to_string());
+    }
+    if let Some(task) = task {
+        argv.push(task.to_string());
+    }
+    argv
+}
+
+// What an interactive `codex` leaves on disk, measured 2026-10-03 on files
+// under `~/.codex/sessions/` written by 0.154.0 and 0.159.2. Build ticket 255.
+//
+// The path is `~/.codex/sessions/YYYY/MM/DD/rollout-<local time>-<id>.jsonl`.
+// The date directories and the time in the name are local time; the `<id>` is
+// the session's own UUIDv7. `codex` takes no flag that names a session id up
+// front (`codex --help` on 0.159.2 has none), so Hydra cannot predict the path
+// the way it does `claude`'s, and the file is not created when the TUI starts:
+// on the one interactive file measured, the first line was written 42 seconds
+// after the session's own timestamp, at the first prompt.
+//
+// Every line is `{"timestamp", "ordinal", "type", "payload"}`. The types:
+//
+// - `session_meta`, line 0 and only there. `payload.id` and
+//   `payload.session_id` are the session id, `payload.cwd` the directory it ran
+//   in, `payload.timestamp` (UTC) when the session began. `payload.originator`
+//   is `codex-tui` with `payload.source` `cli` for the TUI, and `codex_exec`
+//   with `exec` for a recorded run's `codex exec`.
+// - `response_item`, the conversation. `payload.type` is `message` with
+//   `role` `user`, `assistant` or `developer` and `content` a list of
+//   `{type: input_text | output_text, text}`; `reasoning` with a `summary`
+//   list (empty on every file measured) and `encrypted_content`;
+//   `custom_tool_call` with `call_id`, `name` (always `exec` on 0.159.2) and
+//   `input`; `custom_tool_call_output` with `call_id` and `output`, a string
+//   or a list of `{type: input_text, text}`; and once `function_call` and
+//   `function_call_output`, the same pair with `arguments` in place of
+//   `input`.
+// - `event_msg`, the TUI's own events. `payload.type` `token_count` carries
+//   `info.total_token_usage`, the session's running total, or `info: null`
+//   when the turn never reached the model. `item_completed`, `task_started`,
+//   `task_complete`, `thread_settings_applied` and `compacted` repeat or
+//   frame what `response_item` already carries.
+// - `token_usage_record`, 0.159.2 and not 0.154.0: `payload.usage` for one
+//   response and `payload.thread_token_usage`, the running total again.
+// - `turn_context` and `world_state`, the settings each turn ran under.
+//
+// Every usage object names `input_tokens`, `cached_input_tokens`,
+// `cache_write_input_tokens`, `output_tokens`, `reasoning_output_tokens` and
+// `total_tokens`, the names the `exec --json` stream's `turn.completed` uses.
+
+/// Where `codex` keeps its session files under `home`.
+pub fn sessions_dir(home: &Path) -> PathBuf {
+    home.join(".codex/sessions")
+}
+
+/// The session file an interactive run wrote, and how sure the match is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundSession {
+    pub path: PathBuf,
+    pub session_id: String,
+    /// TUI sessions in the same directory that began after the run and later
+    /// than this one, which a human may have opened in another pane.
+    pub later: usize,
+}
+
+/// The TUI session file `codex` wrote for a run that started at `since` in
+/// `cwd`, build ticket 255.
+///
+/// **By the session's own start, not by id**, because `codex` takes no id to
+/// predict one with. The candidates are the TUI sessions (`source: cli`) whose
+/// `cwd` is the run's and whose `session_meta.payload.timestamp` is at or after
+/// `since`, the process's start time: the TUI mints its session after its
+/// process starts. Of those this takes the **earliest**, not the newest,
+/// because the newest is the one most likely to be a second `codex` a human
+/// opened in the same directory while this one ran, and a run's own session is
+/// the first to begin after it did. `later` counts the rest so the record can
+/// say the match was not the only one.
+///
+/// Only the date directories from the day before `since` to the day after now
+/// are read, because the directories are named in local time and the run
+/// knows only UTC.
+pub fn find_interactive_session(
+    home: &Path,
+    cwd: &Path,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<FoundSession>> {
+    let root = sessions_dir(home);
+    let last = (chrono::Utc::now() + chrono::Duration::days(1)).date_naive();
+    let mut day = (since - chrono::Duration::days(1)).date_naive();
+    let mut found: Vec<(chrono::DateTime<chrono::Utc>, String, PathBuf)> = Vec::new();
+    while day <= last {
+        let dir = root.join(day.format("%Y/%m/%d").to_string());
+        day = day.succ_opt().context("ran off the end of the calendar")?;
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err).with_context(|| format!("reading {}", dir.display())),
+        };
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Some((began, id)) = tui_session_in(&path, cwd)? else {
+                continue;
+            };
+            if began >= since {
+                found.push((began, id, path));
+            }
+        }
+    }
+    found.sort();
+    let later = found.len().saturating_sub(1);
+    Ok(found
+        .into_iter()
+        .next()
+        .map(|(_, session_id, path)| FoundSession {
+            path,
+            session_id,
+            later,
+        }))
+}
+
+/// When the TUI session in `path` began and its id, when line 0 says it is a
+/// TUI session that ran in `cwd`. A file whose first line does not parse is
+/// skipped rather than fatal: it is someone else's, mid-write.
+fn tui_session_in(
+    path: &Path,
+    cwd: &Path,
+) -> Result<Option<(chrono::DateTime<chrono::Utc>, String)>> {
+    use std::io::BufRead;
+
+    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut first = String::new();
+    std::io::BufReader::new(file)
+        .read_line(&mut first)
+        .with_context(|| format!("reading {}", path.display()))?;
+    let Ok(line) = serde_json::from_str::<serde_json::Value>(&first) else {
+        return Ok(None);
+    };
+    let meta = &line["payload"];
+    if line["type"].as_str() != Some("session_meta") || meta["source"].as_str() != Some("cli") {
+        return Ok(None);
+    }
+    let Some(ran_in) = meta["cwd"].as_str().map(Path::new) else {
+        return Ok(None);
+    };
+    let same_dir = ran_in == cwd
+        || matches!(
+            (ran_in.canonicalize(), cwd.canonicalize()),
+            (Ok(a), Ok(b)) if a == b
+        );
+    if !same_dir {
+        return Ok(None);
+    }
+    let began = meta["timestamp"]
+        .as_str()
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .map(|t| t.with_timezone(&chrono::Utc));
+    let id = meta["id"].as_str().or_else(|| meta["session_id"].as_str());
+    Ok(began.zip(id).map(|(began, id)| (began, id.to_string())))
+}
+
 const HOOKS: &str = ".codex/hooks.json";
 const MCP: &str = ".codex/config.toml";
 
@@ -382,6 +555,17 @@ pub fn observe(raw: &str) -> Observed {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build ticket 255: the TUI is `codex` with no subcommand, so no `exec`,
+    /// no `--json` and none of a recorded run's belt flags.
+    #[test]
+    fn the_interactive_argv_is_the_tui_with_a_model_and_a_prompt() {
+        assert!(interactive_argv(None, None).is_empty());
+        assert_eq!(
+            interactive_argv(Some("look around"), Some("gpt-6-sol")),
+            ["-m", "gpt-6-sol", "look around"]
+        );
+    }
 
     #[test]
     fn the_login_probe_gets_the_allowlist_and_nothing_the_launcher_carries() {

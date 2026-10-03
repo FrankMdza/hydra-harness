@@ -98,8 +98,8 @@ pub enum Command {
         /// `--policy` there is no gate, no skill injection and no preamble.
         /// With `--policy` on `claude` the launch compiles a gate, seeds a
         /// worktree and links the snapshot the way a recorded run does.
-        /// `--parent` and `--allow-floor-escape` are ignored. `claude` only
-        /// today.
+        /// `--parent` and `--allow-floor-escape` are ignored. `claude` gated or
+        /// not, `codex` ungated only, since build ticket 255.
         #[arg(long)]
         interactive: bool,
     },

@@ -3105,6 +3105,29 @@ record ended at 24 lines with outcome `completed`. `cursor-agent` and `agy` are 
 interactively; the launch refuses them by name. An interactive run may take a policy since map
 ticket 50, which is build ticket 28.
 
+**`codex` runs interactive too, ungated, since build ticket 255** (map 100).
+`hydra run --interactive --provider codex [--task ...] [--model ...]` starts the `codex` TUI,
+the binary with no subcommand, as `codex [-m M] [task]` in the caller's cwd with stdio
+inherited, and writes the same `run_start` with `provider_session_id` null: `codex` mints its
+own id and has no flag that takes one. No MCP file is written, because 6.5 puts a `codex` run's
+config inside a checkout Hydra made and this launch makes none. With `--policy` the launch
+refuses and says the gated interactive mode is `claude` only. The harvest cannot predict the
+path, so `codex::find_interactive_session` reads line 0 of the session files under
+`~/.codex/sessions/YYYY/MM/DD/` and takes the earliest TUI session (`source: cli`) that ran in
+the run's cwd and began at or after the process's start time. It takes the earliest rather than
+the newest because the newest is likelier to be a second `codex` opened in the same directory,
+and when there are later ones `run_end.error` names the session it took and how many began. The
+file's lines go under `raw` whole, and `normalize::codex` reads `response_item` messages, tool
+calls and results, and takes usage from the last running total (`token_count`'s
+`total_token_usage` or `token_usage_record`'s `thread_token_usage`). A session that never
+reached its first prompt writes no file, and its record closes with usage `unavailable`.
+`hydra status` harvests a dead one. Two limits: a tool result carries no exit status the
+reader trusts, so every harvested result is `unclassified`, and a session that hit its usage
+limit reads `completed`, because `outcome` reads the limit off `turn.failed`, which a session
+file does not have. Nobody has launched a real interactive `codex` through Hydra yet; the
+shapes come from files on this machine written by 0.154.0 and 0.159.2, and the tests drive
+synthetic ones.
+
 **With `--policy <name>`, since build ticket 28, an interactive `claude` run is gated.** The
 launch reuses the recorded pre-flight: worktree seeded with `base_tree`, snapshot linked, gate
 compiled, `settings.json` handed to `claude` on `--settings`, `run_start` carrying the policy and
@@ -4350,7 +4373,8 @@ stub that would read `qa` after it. Each failed before the change,
 by not compiling, and each also fails with its one behaviour removed. `chat::tests` checks the
 key and mouse encodings and the two answered queries. The binary ran once on a Python pty at
 160 by 40 against a scratch `HYDRA_ROOT`, with `--session codex`: it drew the panel, showed the
-child's refusal and the exit line, and quit on `Ctrl-q`.
+child's refusal and the exit line, and quit on `Ctrl-q`. Since build ticket 255 `--session codex` launches `codex`
+ungated rather than showing a refusal.
 
 *Untested without a human.* The whole path with `claude` inside: whether its Ink interface draws
 correctly under `vt100`, whether it sends a query the cockpit does not answer and waits on it,
