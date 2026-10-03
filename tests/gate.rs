@@ -2493,6 +2493,58 @@ fn the_compiled_gate_carries_the_config_denials_resolved_inside_the_worktree() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// A planted plugin, build ticket 257
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_run_cannot_write_where_a_later_launch_loads_a_plugin_under_any_policy() {
+    // Map 103 C. A plugin is code the provider loads into its own process, and
+    // on `claude` it can approve what the gate refused. The reason is checked
+    // for "plugin": `.claude/skills/` was already refused as a skill root by
+    // build ticket 44, and only the reason tells the two rules apart.
+    let home = hydra::env::real_home().unwrap();
+    for provider in [
+        Provider::Claude,
+        Provider::CursorAgent,
+        Provider::Agy,
+        Provider::Codex,
+    ] {
+        for policy in MATRIX_POLICIES {
+            let gate = Gate::compile_for(provider, policy, false);
+            for target in [
+                gate.worktree.join(".claude/skills/x/SKILL.md"),
+                gate.worktree.join(".agents/plugins/p.json"),
+                gate.worktree.join("src/p/.claude-plugin/plugin.json"),
+                home.join(".claude/plugins/x/plugin.json"),
+                home.join(".claude/skills/x/SKILL.md"),
+            ] {
+                let decision = gate.write_as(provider, &target);
+                assert!(
+                    decision.denied_for("hydra/protected-path")
+                        && decision.reason.contains("plugin"),
+                    "{provider} under {policy} let a write reach {}: {}",
+                    target.display(),
+                    decision.reason
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_plugin_denial_leaves_reading_a_skill_and_an_ordinary_write_alone() {
+    let gate = Gate::new("standard");
+    for command in ["cat .claude/skills/unslop/SKILL.md", "ls .agents/plugins"] {
+        let decision = gate.shell(command);
+        assert!(decision.allowed, "{command}: {}", decision.reason);
+    }
+    for rel in ["src/plugin.rs", "docs/claude-plugin.md"] {
+        let decision = gate.write_to(&gate.worktree.join(rel));
+        assert!(decision.allowed, "{rel}: {}", decision.reason);
+    }
+}
+
 #[test]
 fn a_denied_path_inside_a_larger_token_is_still_named() {
     // Build ticket 56. The token pass sees whole tokens, so a path spelled in

@@ -184,6 +184,16 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   its worktree instead of links; on macOS the seatbelt denies writes to them, and elsewhere a run
   can `chmod` its own copy, which the watcher notes at exit. `agy` reads a skill through its file
   tool. `hydra reap` never commits an entry Hydra injected.
+- **A run cannot plant a plugin, since build ticket 257.** A plugin is code a provider loads into
+  its own process, and on `claude` one can approve a call the gate refused. Map 103 C answered
+  it in two parts. The human's half is a managed settings file that keeps users' plugins out of
+  every `claude` on the machine. Hydra's half refuses writes to `~/.claude/plugins/`,
+  `~/.claude/skills/`, and inside the worktree `.claude/skills/`, `.claude/settings.json`,
+  `.claude/settings.local.json` and `.agents/plugins/`, plus any path with a `.claude-plugin`
+  component, under every policy. The gate refuses the file tools. On macOS the seatbelt refuses
+  everything else, shell included, in headless and interactive launches alike. Off macOS a shell
+  command can still write there, because the gate does not deny shell commands that name
+  `.claude/skills/`: that is how two providers read a skill.
 - **Two shell facilities are denied under every policy, since 2026-09-15, and the cost is a feature.**
   `WriteShellStdin` on `cursor-agent` and `send_command_input` on `agy` write to the stdin of a
   command that is already running. The command was judged when it started and what is typed into it

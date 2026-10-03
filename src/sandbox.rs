@@ -247,6 +247,23 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
             escape(&skills)
         ));
     }
+    // Build ticket 257. Where a later launch loads a plugin from, after the
+    // worktree allow so the kernel refuses a shell `mkdir` there too, under
+    // every policy and in both launch modes: the copilot's block goes in
+    // before these and cannot hand them back.
+    for path in policy::plugin_write_paths(spawn.worktree) {
+        lines.push(format!(
+            r#"(deny file-write* (subpath "{}"))"#,
+            escape(&canonical(&path))
+        ));
+    }
+    // The manifest directory anywhere: the directory itself, and what is in it.
+    let component = regex_escape(policy::PLUGIN_MANIFEST_DIR);
+    for end in ["$", "/"] {
+        lines.push(format!(
+            r##"(deny file-write* (regex #"/{component}{end}"))"##
+        ));
+    }
     // Last, so no earlier allow hands the worktree back. The parent denial on
     // `worktrees/` already covers it; this names it, and covers a worktree
     // that sits anywhere else.

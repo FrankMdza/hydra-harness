@@ -1023,6 +1023,44 @@ pub fn write_denied_worktree_paths(worktree: &Path) -> Vec<PathBuf> {
     .collect()
 }
 
+/// The directory a `claude` plugin carries its manifest in. A write to any
+/// path with this component is refused under every policy, build ticket 257.
+pub const PLUGIN_MANIFEST_DIR: &str = ".claude-plugin";
+
+/// Where a later launch would load a plugin from, denied to writes under every
+/// policy by the gate and by the macOS profile. Map 103 C, build ticket 257.
+///
+/// A plugin is code a provider loads into its own process, and on `claude` one
+/// can approve a call the gate refused. `claude` 2.1.288 loads
+/// `.claude/skills/<name>/` as a plugin in the home and in a project, keeps
+/// installed plugins under `~/.claude/plugins/`, and turns one on through
+/// `enabledPlugins` in a settings file. `agy` reads `.agents/plugins/` and can
+/// import `claude`'s. Build ticket 251 read these off the binaries.
+///
+/// The worktree's skill root and settings files are already denied by
+/// [`write_denied_worktree_paths`] and [`protected_worktree_paths`]; they are
+/// named again so the kernel layer carries them, which those two do not. The
+/// home entries go missing only when `getpwuid` has no entry for this user,
+/// and a launch on such a machine fails earlier, building its environment.
+pub fn plugin_write_paths(worktree: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(home) = crate::env::real_home() {
+        paths.push(home.join(".claude/plugins"));
+        paths.push(home.join(".claude/skills"));
+    }
+    paths.extend(
+        [
+            ".claude/skills",
+            ".claude/settings.json",
+            ".claude/settings.local.json",
+            ".agents/plugins",
+        ]
+        .into_iter()
+        .map(|rel| worktree.join(rel)),
+    );
+    paths
+}
+
 /// What this one spawn may read outside the scopes the policy named.
 ///
 /// A second kind of carve-out, beside [`own_write_paths`]. The spawn directory
@@ -1155,6 +1193,14 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
             .iter()
             .map(|p| resolved(p))
             .collect::<Vec<_>>(),
+        // Where a later launch loads a plugin from, build ticket 257. Denied to
+        // the file tools here; shell is the profile's, because a command that
+        // names `.claude/skills` is how two providers read a skill.
+        "plugin_write_paths": plugin_write_paths(spawn.worktree)
+            .iter()
+            .map(|p| resolved(p))
+            .collect::<Vec<_>>(),
+        "plugin_manifest_dir": PLUGIN_MANIFEST_DIR,
         // Every spelling of a denied path the raw shell pass looks for, build
         // ticket 56. Two forms per path, because `/var/folders/...` and the
         // `/private/var/folders/...` it resolves to are both things a command

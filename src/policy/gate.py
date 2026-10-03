@@ -1049,6 +1049,25 @@ def evaluate(payload):
                         tool, shown[write_path], protected
                     )
                 )
+            # Where a later launch would load a plugin from, build ticket 257.
+            # A plugin is code the provider runs in its own process, and on
+            # `claude` it can approve what this script refused. Ahead of the
+            # skill roots below because `.claude/skills/` is both. A gate
+            # compiled before the keys existed reads them as empty.
+            marker = HYDRA_CONFIG.get("plugin_manifest_dir")
+            if marker and marker in write_path.split(os.sep):
+                return False, (
+                    "hydra/protected-path: {} writes {}, inside a {} directory, "
+                    "a plugin a later launch would load, denied under every "
+                    "policy.".format(tool, shown[write_path], marker)
+                )
+            for root in HYDRA_CONFIG.get("plugin_write_paths", []):
+                if inside(write_path, root):
+                    return False, (
+                        "hydra/protected-path: {} writes {}, under {}, where a "
+                        "later launch loads a plugin, denied under every "
+                        "policy.".format(tool, shown[write_path], root)
+                    )
             # The skill roots Hydra linked into the worktree (6.4). A write there
             # replaces a link, so the tool-level write is refused under every
             # policy. The shell floor does not read this list on purpose: three of

@@ -3164,6 +3164,22 @@ sessions had modified on 2026-10-03, and `claude --version` and `--help` wrote n
 run. Shell work that writes under home, `~/.cargo` or `~/.npm`, now fails in a gated session.
 Whether a real cockpit session still starts and answers is the human's to check.
 
+**Since build ticket 257, no gated run can write where a later launch loads a plugin.**
+`policy::plugin_write_paths` names `~/.claude/plugins`, `~/.claude/skills` and, in the worktree,
+`.claude/skills`, both `.claude` settings files and `.agents/plugins`. `policy::PLUGIN_MANIFEST_DIR`
+is `.claude-plugin`. The gate refuses a file-tool write under any of them, or with that
+component anywhere in its path, as `hydra/protected-path` under every policy. Since build 44 the
+gate already refused `.claude/skills` and the two settings files by other rules. `compose` puts
+a `subpath` deny per path and two `regex` denies for the component after the worktree allow,
+so a shell `mkdir` is refused at the kernel too, and the copilot's block cannot hand them back.
+Shell has only the kernel layer: off macOS a command can still write there. Hydra's own writes
+into the worktree, the skill links and the hook config, happen in `hydra run` or `hydra
+interactive` before the wrapped launch, and the delegate face refuses to launch from inside a
+seatbelt. `tests/sandbox_plugins.rs` checks the rule order for all four providers and the
+copilot, and its live probe skips inside a seatbelt and has not run. `claude` may write
+`.claude/settings.local.json` itself when a human picks "don't ask again" in a gated session.
+That write now fails at the kernel. Nobody has measured how `claude` takes the failure.
+
 ## `judge` is not injected, and the face is admitted
 
 **A `judge` run is linked no skills, since build ticket 25.** Map ticket 47 decided it: the
