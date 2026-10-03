@@ -2015,6 +2015,28 @@ impl App {
         Block::bordered().border_style(style).title(title)
     }
 
+    fn run_label<'a>(&'a self, id: &'a str) -> &'a str {
+        crate::resolver::unique_prefix(
+            id,
+            self.snapshot
+                .cards
+                .iter()
+                .filter(|card| {
+                    !self.by_agent
+                        || self.session.as_deref().is_none_or(|session| {
+                            card.run_id == session || card.parent_run_id.as_deref() == Some(session)
+                        })
+                })
+                .map(|card| card.run_id.as_str())
+                .chain(
+                    self.snapshot
+                        .goal
+                        .iter()
+                        .flat_map(|goal| goal.rows.iter().filter_map(|row| row.run_id.as_deref())),
+                ),
+        )
+    }
+
     fn draw_table(&mut self, area: Rect, buf: &mut Buffer) {
         self.hits.table = area;
         let title = match &self.snapshot.goal {
@@ -2060,7 +2082,16 @@ impl App {
             heading = format!("{heading} ({} line(s) skipped)", goal.skipped);
         }
         buf.set_line(inner.x, inner.y, &Line::styled(heading, dim), inner.width);
-        let columns = columns(inner.width);
+        let run_width = self
+            .snapshot
+            .goal
+            .iter()
+            .flat_map(|goal| &goal.rows)
+            .filter_map(|row| row.run_id.as_deref())
+            .map(|id| self.run_label(id).len())
+            .max()
+            .unwrap_or(8);
+        let columns = columns_with_run(inner.width, run_width);
         let header = row_text(&columns, Column::name);
         buf.set_line(
             inner.x,
@@ -2082,7 +2113,11 @@ impl App {
             .enumerate()
         {
             let row = &goal.rows[index];
-            let run = row.run_id.as_deref().map(short).unwrap_or("");
+            let run = row
+                .run_id
+                .as_deref()
+                .map(|id| self.run_label(id))
+                .unwrap_or("");
             let status = self.status_of(&goal, row);
             let text = row_text(&columns, |column| match column {
                 Column::Id => &row.id,
@@ -2161,7 +2196,7 @@ impl App {
                 .map(|card| {
                     format!(
                         "{} {} {}",
-                        short(&card.run_id),
+                        self.run_label(&card.run_id),
                         agent_of(card),
                         self.said(card)
                     )
@@ -2214,7 +2249,11 @@ impl App {
     /// and the task when the goal table names the run.
     fn agent_line(&self, card: &Card) -> String {
         let model = card.model.as_deref().unwrap_or("-");
-        let mut line = format!("{} {model} {}", short(&card.run_id), self.said(card));
+        let mut line = format!(
+            "{} {model} {}",
+            self.run_label(&card.run_id),
+            self.said(card)
+        );
         let task = self.snapshot.goal.as_ref().and_then(|goal| {
             goal.rows
                 .iter()
@@ -2911,7 +2950,7 @@ impl Column {
 /// never shows while one above it is gone. `done` is 12 at least and gets
 /// what the others leave. The status column is as wide as the longest of
 /// contract 8's outcomes, `skill_collision`.
-fn columns(width: u16) -> Vec<(Column, usize)> {
+fn columns_with_run(width: u16, run_width: usize) -> Vec<(Column, usize)> {
     const PRIORITY: [(Column, &[usize]); 8] = [
         (Column::Id, &[8]),
         (Column::Status, &[15]),
@@ -2928,6 +2967,12 @@ fn columns(width: u16) -> Vec<(Column, usize)> {
     let mut shown = Vec::new();
     for (column, widths) in PRIORITY {
         let taken = used(&shown);
+        let run_widths = [run_width.max(8)];
+        let widths = if column == Column::Run {
+            &run_widths[..]
+        } else {
+            widths
+        };
         let Some(&w) = widths.iter().find(|&&w| taken + w <= width) else {
             break;
         };
@@ -2973,6 +3018,63 @@ mod tests {
             result_text: None,
             note: None,
         }
+    }
+
+    #[test]
+    fn colliding_run_labels_are_distinct_in_each_view() {
+        let mut app = App::new(
+            Layout::at(std::env::temp_dir().join("hydra-label-test")),
+            false,
+            Duration::from_secs(2),
+        );
+        let ids = [
+            "01a0fe73-1b67-7000-8000-000000000001",
+            "01a0fe73-5a9c-7000-8000-000000000002",
+        ];
+        app.snapshot.cards = ids
+            .iter()
+            .map(|id| {
+                let mut card = stopped_seat(None);
+                card.run_id = id.to_string();
+                card
+            })
+            .collect();
+        app.snapshot.goal = Some(Goal {
+            rows: ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| TaskRow {
+                    id: format!("task{i}"),
+                    class: String::new(),
+                    grade: String::new(),
+                    provider: None,
+                    model: None,
+                    status: "running".to_string(),
+                    run_id: Some(id.to_string()),
+                    done: None,
+                })
+                .collect(),
+            ..Goal::default()
+        });
+        for mode in 0..3 {
+            let area = Rect::new(0, 0, 160, 20);
+            let mut buf = Buffer::empty(area);
+            match mode {
+                0 => app.draw_lane(Lane::Live, area, &mut buf),
+                1 => app.draw_agent_lanes(area, &mut buf),
+                _ => app.draw_table(area, &mut buf),
+            }
+            let text: String = buf.content.iter().map(|cell| cell.symbol()).collect();
+            for label in ["01a0fe73-1", "01a0fe73-5"] {
+                assert!(text.contains(label), "mode {mode}: {text}");
+            }
+        }
+        app.snapshot.goal = None;
+        app.by_agent = true;
+        app.session = Some(ids[0].to_string());
+        assert_eq!(app.run_label(ids[0]), "01a0fe73");
+        app.snapshot.cards[1].parent_run_id = Some(ids[0].to_string());
+        assert_eq!(app.run_label(ids[0]), "01a0fe73-1");
     }
 
     #[test]

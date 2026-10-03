@@ -124,3 +124,24 @@ fn a_corpus_that_does_not_exist_reports_no_match_rather_than_a_read_error() {
         .to_string();
     assert!(err.contains("no run matches"), "{err}");
 }
+
+#[test]
+fn ambiguous_same_minute_runs_offer_unique_labels_and_metadata() {
+    let ids = [
+        "01a0fe73-1b67-7000-8000-000000000001",
+        "01a0fe73-5a9c-7000-8000-000000000002",
+    ];
+    let corpus = Corpus::new("same-minute", &ids);
+    for (id, provider, policy) in [(ids[0], "codex", "standard"), (ids[1], "claude", "judge")] {
+        let record = serde_json::json!({"run_id": id, "provider": provider, "hydra": {"type": "run_start", "policy": policy}});
+        std::fs::write(corpus.layout().run_file(id), format!("{record}\n")).unwrap();
+    }
+    let err = resolve(&corpus.layout(), "01a0fe73")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("01a0fe73-1 codex standard"), "{err}");
+    assert!(err.contains("01a0fe73-5 claude judge"), "{err}");
+    for id in ids {
+        assert_eq!(resolve(&corpus.layout(), &id[..10]).unwrap(), id);
+    }
+}

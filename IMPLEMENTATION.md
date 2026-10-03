@@ -480,7 +480,7 @@ from a later same-tool window holding more than one, and only from one holding m
 because run `01a07f37-8a67` has `Read` calls refused on their input with no start at all and
 they must not take the next real call's.
 
-**`hydra show` and `hydra reap` take a run-id prefix, build ticket 39.** `src/resolver.rs`
+**`hydra show` and `hydra reap` take a run-id prefix, build ticket 39, with ambiguous matches listing distinguishing prefixes, providers and policies, while cockpit table and lane labels use the shortest unique prefix of at least eight characters among displayed runs (ticket 244).** `src/resolver.rs`
 resolves a short string against the run files: one match is that run, none or several is an
 error naming which. A full uuid is never looked up and passes through whether or not a record
 exists, because reaping a run whose record was pruned predates the ticket. `is_uuid` checks

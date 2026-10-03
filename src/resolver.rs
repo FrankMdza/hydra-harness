@@ -39,7 +39,19 @@ pub fn resolve(layout: &Layout, prefix: &str) -> Result<String> {
         n => {
             let list = matches
                 .iter()
-                .map(|id| format!("  {id}"))
+                .map(|id| {
+                    let view = crate::live::read_view(&layout.run_file(id)).ok();
+                    let provider = view
+                        .as_ref()
+                        .and_then(|v| v.provider.as_deref())
+                        .unwrap_or("?");
+                    let policy = view
+                        .as_ref()
+                        .and_then(|v| v.policy.as_deref())
+                        .unwrap_or("?");
+                    let label = unique_prefix(id, matches.iter().map(String::as_str));
+                    format!("  {label} {provider} {policy} ({id})")
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             bail!("{prefix:?} matches {n} runs:\n{list}")
@@ -79,4 +91,22 @@ fn is_uuid(s: &str) -> bool {
             8 | 13 | 18 | 23 => c == '-',
             _ => c.is_ascii_hexdigit(),
         })
+}
+
+/// The shortest distinct label in this set, with an eight-character minimum.
+/// Repeated occurrences of the same id do not lengthen its label.
+pub(crate) fn unique_prefix<'a>(id: &'a str, ids: impl Iterator<Item = &'a str>) -> &'a str {
+    let mut length = 8.min(id.len());
+    for other in ids.filter(|other| *other != id) {
+        let common = id
+            .bytes()
+            .zip(other.bytes())
+            .take_while(|(a, b)| a == b)
+            .count();
+        length = length.max((common + 1).min(id.len()));
+    }
+    while !id.is_char_boundary(length) {
+        length += 1;
+    }
+    &id[..length]
 }
