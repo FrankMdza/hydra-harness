@@ -1,7 +1,7 @@
 # 245 - Enter opens a run as a full page, and Left goes back
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 240
 
 ## What
