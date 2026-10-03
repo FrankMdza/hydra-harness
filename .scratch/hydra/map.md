@@ -334,6 +334,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [96 - Help that asks the session's own model](issues/96-help-that-asks-the-sessions-own-model.md): resolved 2026-10-03 by a panel of three under the human's delegation. A help file in the repository, a key that types the question unsent, a start line for both modes plus refusals that name the way out; voice later.
 - [97 - The orchestrator costs more than its agents](issues/97-the-orchestrator-costs-more-than-its-agents.md): resolved 2026-10-03 by the same panel. Sonnet by default, a short document of its own outside the repository's instructions, one blocking wait.
 - [98 - A gated session that launches what the human approves](issues/98-a-gated-session-that-launches-what-the-human-approves.md): resolved 2026-10-03 by the same panel. More shapes only, written by the human; the 600-second refusal stays; a narrower sandbox for the gated copilot.
+- [100 - The orchestrator on any provider](issues/100-the-orchestrator-on-any-provider.md): resolved 2026-10-03 by a panel, unanimous. The ungated copilot on all four, a transcript reader per provider first, one document rendered per file name, the repository as an argument.
+- [101 - A copilot that does the work itself](issues/101-a-copilot-that-does-the-work-itself.md): resolved 2026-10-03 by the same panel, 2 to 1. Edit tools disallowed in the copilot; its token count against its agents' shown beside it.
 
 ## Not yet specified
 

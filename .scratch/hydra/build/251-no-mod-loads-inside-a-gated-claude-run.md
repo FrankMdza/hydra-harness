@@ -1,8 +1,8 @@
 # 251 - No mod loads inside a gated `claude` run
 
 Type: build
-Status: claimed
-Blocked by:
+Status: open
+Blocked by: map 103
 
 ## What
 
@@ -67,3 +67,9 @@ agent's shell can likely write under `~/.claude/plugins`.
   and `cargo test --lib` are clean.
 
 ## Outcome
+
+Stopped 2026-10-03 at step 5 by run `01a10389-ec0e` (`claude` opus 5.5, `standard`, 1.45M
+tokens), no diff: no flag or variable in `claude` 2.1.288 drops mods and keeps a `--settings`
+hook. What it read is in map ticket 103, which now blocks this ticket. Steps 1 to 4 still stand
+once 103 picks the mechanism, except that the live check uses an inert mod that leaves a marker
+when it loads.
