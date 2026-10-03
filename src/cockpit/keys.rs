@@ -67,11 +67,29 @@ pub const HELP: &[HelpEntry] = &[
     HelpEntry {
         group: HelpGroup::Opening,
         keys: "Enter, Esc",
-        description: "open the selected run, request or step; close it",
+        description: "open the selected run as a full page, or a request or step in the detail pane; Esc closes or leaves the page",
         bindings: &[
             (KeyCode::Enter, MainKey::Open),
             (KeyCode::Esc, MainKey::CloseOpened),
         ],
+    },
+    HelpEntry {
+        group: HelpGroup::Opening,
+        keys: "Left, Backspace",
+        description: "on a full-page run, back one step; Esc returns to the cockpit",
+        bindings: &[],
+    },
+    HelpEntry {
+        group: HelpGroup::Views,
+        keys: "PageUp, PageDown, Space, b",
+        description: "scroll the detail or full-page run by a screen",
+        bindings: &[],
+    },
+    HelpEntry {
+        group: HelpGroup::Views,
+        keys: "Home, g, End, G",
+        description: "scroll the detail or full-page run to either end",
+        bindings: &[],
     },
     HelpEntry {
         group: HelpGroup::Confirm,

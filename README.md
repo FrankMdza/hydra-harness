@@ -155,7 +155,9 @@ two seconds and launches no provider.
 | Key | Does |
 |---|---|
 | arrows, `Tab`, `Shift-Tab` | move within a panel, or between panels |
-| `Enter`, `Esc` | open the selected run, request or step; close it |
+| `Enter`, `Esc` | open the selected run as a full page, or a request or step in the detail pane; `Esc` closes or leaves the page |
+| `Left`, `Backspace` | on a full-page run, back one step |
+| `PageUp`, `PageDown`, `Space`, `b`, `Home`, `g`, `End`, `G` | scroll the detail or full-page run |
 | `k` | swap the four lanes by state for one lane per agent, the waiting approvals last; with `--session`, only the session and its seats |
 | `r` | swap the detail between tool calls and the raw last twenty record lines |
 | `a`, `y` | approve the selected seat request, or run the argv `hydra-puppets pending` listed for a step |

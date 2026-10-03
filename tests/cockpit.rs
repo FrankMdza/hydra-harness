@@ -644,7 +644,7 @@ fn a_click_selects_the_row_or_opens_the_card_under_it() {
     let (x, y) = (80, 22);
     assert!(row_of(&buf, y).contains("01a0e003"), "{}", row_of(&buf, y));
     assert_eq!(app.handle(&click(x, y)), Effect::Refresh);
-    assert_eq!(app.focus, Focus::Lane(Lane::EndedOk));
+    assert_eq!(app.focus, Focus::Detail);
     assert_eq!(
         app.opened,
         Some(Opened::Run(
@@ -661,12 +661,15 @@ fn a_click_selects_the_row_or_opens_the_card_under_it() {
     assert_eq!(app.opened, None);
     app.handle(&click(1, 3));
     app.handle(&key(KeyCode::Enter));
+    assert!(app.on_run_page());
     assert_eq!(
         app.opened,
         Some(Opened::Run(
             "01a0aaaa-0000-7000-8000-000000000001".to_string()
         ))
     );
+    app.handle(&key(KeyCode::Esc));
+    assert_eq!(app.focus, Focus::Table);
     app.handle(&key(KeyCode::Tab));
     assert_eq!(app.focus, Focus::Lane(Lane::Live));
     app.handle(&key(KeyCode::BackTab));
@@ -3161,14 +3164,7 @@ fn a_review_that_exits_non_zero_says_failed_and_names_its_log() {
     let log = layout.root().join("cockpit/review-a.log");
     app.handle(&key(KeyCode::Enter));
     app.draw(AREA, &mut buf);
-    // The pane wraps the path, so its rows are joined inside the border with
-    // the spaces out.
-    let pane = app.hits.detail;
-    let detail: String = (pane.y + 1..pane.bottom() - 1)
-        .flat_map(|y| (pane.x + 1..pane.right() - 1).map(move |x| (x, y)))
-        .map(|at| buf[at].symbol().to_string())
-        .collect::<String>()
-        .replace(' ', "");
+    let detail = detail_text(&app, &buf);
     let whole = format!("reviewfailed,see{}", log.display());
     assert!(detail.contains(&whole), "{}", screen_text(&buf));
     assert!(
@@ -3186,7 +3182,11 @@ fn a_review_that_exits_non_zero_says_failed_and_names_its_log() {
 
 /// The detail pane's text with every space out, so a wrapped line reads whole.
 fn detail_text(app: &App, buf: &Buffer) -> String {
-    let pane = app.hits.detail;
+    let pane = if app.on_run_page() {
+        app.hits.run_page
+    } else {
+        app.hits.detail
+    };
     (pane.y + 1..pane.bottom() - 1)
         .flat_map(|y| (pane.x + 1..pane.right() - 1).map(move |x| (x, y)))
         .map(|at| buf[at].symbol().to_string())
@@ -3942,6 +3942,7 @@ fn the_same_card_opens_stops_and_answers_from_the_agent_lanes() {
     app.handle(&click(x, y));
     app.handle(&key(KeyCode::Esc));
     app.handle(&key(KeyCode::Char('k')));
+    app.focus = Focus::Agent(3);
     app.handle(&key(KeyCode::Enter));
     assert_eq!(
         app.opened,
@@ -3951,12 +3952,15 @@ fn the_same_card_opens_stops_and_answers_from_the_agent_lanes() {
     );
 
     // Down walks the codex lane, and m asks about the live seat in it.
+    app.handle(&key(KeyCode::Esc));
+    app.focus = Focus::Agent(3);
     app.handle(&key(KeyCode::Down));
     app.handle(&key(KeyCode::Enter));
     assert_eq!(app.opened, Some(Opened::Run(SEAT.to_string())));
-    buf = fresh_draw(&mut app);
-    let detail = screen_text(&buf);
-    assert!(detail.contains(&format!("run {SEAT}")), "{detail}");
+    app.handle(&key(KeyCode::Esc));
+    assert!(!app.on_run_page());
+    app.focus = Focus::Agent(3);
+    app.handle(&key(KeyCode::Down));
     app.handle(&key(KeyCode::Char('m')));
     let text = drawn_app(&mut app);
     assert!(text.contains("stop 01a0bbbb? y"), "{text}");
@@ -4746,4 +4750,121 @@ fn planted_inner() {
 /// Names the review helper by its bare name, as the cockpit did before build ticket 221.
 fn with_bare_reviewer(app: &mut App, home: &Path) {
     app.set_reviewer(PathBuf::from("hydra-puppets"), home.to_path_buf());
+}
+
+// --- full-page run detail, build ticket 245 --------------------------------
+
+fn draw_app(app: &mut App, area: Rect) -> Buffer {
+    let mut buf = Buffer::empty(area);
+    app.draw(area, &mut buf);
+    buf
+}
+
+#[test]
+fn enter_on_a_lane_row_opens_a_full_page_and_left_returns_with_the_same_focus() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(fixed_snapshot());
+    app.focus = Focus::Lane(Lane::EndedOk);
+    app.lane_selected[Lane::EndedOk.index()] = 1;
+    let selected = app.lane_selected[Lane::EndedOk.index()];
+    assert_eq!(app.handle(&key(KeyCode::Enter)), Effect::Refresh);
+    let buf = draw_app(&mut app, AREA);
+    let screen = screen_text(&buf);
+    assert!(
+        screen.contains("01a0e003") && screen.contains("agy") && screen.contains("standard"),
+        "{screen}"
+    );
+    assert!(screen.contains("Left/Backspace back"), "{screen}");
+    assert_eq!(app.handle(&key(KeyCode::Left)), Effect::Refresh);
+    assert_eq!(app.focus, Focus::Lane(Lane::EndedOk));
+    assert_eq!(app.lane_selected[Lane::EndedOk.index()], selected);
+    assert_eq!(app.opened, None);
+}
+
+#[test]
+fn two_full_page_runs_left_twice_returns_to_the_cockpit() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(fixed_snapshot());
+    app.focus = Focus::Lane(Lane::EndedOk);
+    app.lane_selected[Lane::EndedOk.index()] = 1;
+    draw_app(&mut app, AREA);
+    assert_eq!(app.handle(&key(KeyCode::Enter)), Effect::Refresh);
+    for _ in 0..5 {
+        app.handle(&key(KeyCode::Tab));
+    }
+    assert_eq!(app.focus, Focus::Lane(Lane::EndedNotOk));
+    assert_eq!(app.handle(&key(KeyCode::Enter)), Effect::Refresh);
+    let top = screen_text(&draw_app(&mut app, AREA));
+    assert!(top.contains("01a0e004"), "{top}");
+    assert_eq!(app.handle(&key(KeyCode::Left)), Effect::Refresh);
+    let mid = screen_text(&draw_app(&mut app, AREA));
+    assert!(mid.contains("01a0e003"), "{mid}");
+    assert_eq!(app.handle(&key(KeyCode::Left)), Effect::Refresh);
+    assert_eq!(app.opened, None);
+    assert!(!screen_text(&draw_app(&mut app, AREA)).contains("Left/Backspace back"));
+}
+
+#[test]
+fn full_page_page_down_then_home_leaves_scroll_at_zero() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    let mut snapshot = fixed_snapshot();
+    let mut card = snapshot.cards[2].clone();
+    card.result_text = Some(
+        (0..80)
+            .map(|i| format!("line-{i:03}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    snapshot.cards[2] = card;
+    app.set_snapshot(snapshot);
+    let area = Rect::new(0, 0, 80, 24);
+    app.focus = Focus::Lane(Lane::EndedOk);
+    app.lane_selected[Lane::EndedOk.index()] = 1;
+    draw_app(&mut app, area);
+    app.handle(&key(KeyCode::Enter));
+    app.handle(&key(KeyCode::PageDown));
+    app.handle(&key(KeyCode::Home));
+    let screen = screen_text(&draw_app(&mut app, area));
+    assert!(screen.contains("line-000"), "{screen}");
+    assert!(!screen.contains("line-079"), "{screen}");
+}
+
+#[test]
+fn a_full_page_taller_than_the_screen_end_shows_the_last_line() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    let mut snapshot = fixed_snapshot();
+    let mut card = snapshot.cards[2].clone();
+    card.result_text = Some(
+        (0..120)
+            .map(|i| format!("line-{i:03}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    snapshot.cards[2] = card;
+    app.set_snapshot(snapshot);
+    let area = Rect::new(0, 0, 80, 20);
+    app.focus = Focus::Lane(Lane::EndedOk);
+    app.lane_selected[Lane::EndedOk.index()] = 1;
+    draw_app(&mut app, area);
+    app.handle(&key(KeyCode::Enter));
+    draw_app(&mut app, area);
+    app.handle(&key(KeyCode::End));
+    let screen = screen_text(&draw_app(&mut app, area));
+    assert!(screen.contains("line-119"), "{screen}");
 }

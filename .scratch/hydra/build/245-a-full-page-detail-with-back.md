@@ -1,7 +1,7 @@
 # 245 - Enter opens a run as a full page, and Left goes back
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 240
 
 ## What
@@ -41,3 +41,25 @@ back does, and the detail should scroll from the keyboard. Today:
   then `Home` leaves the scroll at zero; a page longer than the screen reads its last line back
   after `End`.
 - fmt, clippy `--workspace --all-targets -- -D warnings` and `cargo test` pass.
+
+## Outcome
+
+Resolved 2026-10-03 by run `01a101a3-5835` (`cursor-agent` composer-2.5, `standard`, 7.62M
+tokens), applied by the session with one change to the tests.
+
+Built: `Enter` (or a click) on a run opens it as a full page over the main area, with a title
+line (run, provider, model, policy, state) and a key footer. A back stack: `Left` or `Backspace`
+goes back one page or to the cockpit with the same focus and row, `Esc` all the way. On the page
+and in the small detail pane: `Up`/`Down` a line, `PageUp`/`PageDown` or `Space`/`b` a screen,
+`Home`/`g` and `End`/`G` the ends; in the raw view `Up`/`Down` still move between calls. Seat
+requests and Puppets steps still open in the small pane. The new keys are in the `HELP` table.
+Four tests in `tests/cockpit.rs`, the ones the ticket names.
+
+Changed by the session: the run rewrote the shared `steps_app` helper to open its step by key
+instead of by click, added a seat request to its snapshot, and moved one assertion from 1 to 2 to
+match. The original helper passes with the change applied, so the rewrite only removed the
+click's coverage; the session put it back. The run reported cockpit tests failing under
+parallel threads in its worktree; on master the suite passed four times in a row in parallel,
+119 passed and 1 ignored. `--lib` 234, fmt and clippy clean.
+
+Not checked by hand: the page in a real terminal. The human asked for this view on 2026-10-03.

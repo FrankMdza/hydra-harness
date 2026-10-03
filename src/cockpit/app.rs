@@ -60,6 +60,27 @@ pub enum Opened {
     Step(String),
 }
 
+/// Where the keyboard was before the first full-page run opened.
+#[derive(Clone, Debug)]
+struct CockpitPlace {
+    focus: Focus,
+    table_selected: usize,
+    lane_selected: [usize; 4],
+    agent_selected: HashMap<String, usize>,
+    table_offset: usize,
+    lane_offset: [usize; 4],
+    agent_offset: HashMap<String, usize>,
+}
+
+/// A full-page run under the one on screen.
+#[derive(Clone, Debug)]
+struct PageLayer {
+    opened: Opened,
+    detail_scroll: u16,
+    detail_call: usize,
+    raw_tail: bool,
+}
+
 /// What `a` has in hand in the waiting lane.
 enum InHand {
     Request(Pending),
@@ -93,6 +114,8 @@ pub struct Hits {
     /// A drawn card, the lane it is in, and its index in that lane.
     pub cards: Vec<(Rect, Focus, usize)>,
     pub detail: Rect,
+    /// The full-page run view, when one is open.
+    pub run_page: Rect,
     /// The policy pane, while it is up, how many runs it had rows for, and
     /// the offset of its last page.
     pub policy_pane: Rect,
@@ -160,6 +183,12 @@ pub struct App {
     /// calls. `r` flips it, build ticket 178.
     raw_tail: bool,
     pub opened: Option<Opened>,
+    /// The cockpit to return to after the last `Left`, build ticket 245.
+    run_page_place: Option<CockpitPlace>,
+    /// Older full-page runs, newest at the end.
+    page_stack: Vec<PageLayer>,
+    /// The last rectangle [`draw_run_page`] used, for keys between draws.
+    run_page_area: Rect,
     /// The request the confirmation shows, while it is up.
     pub confirming: Option<Pending>,
     /// Whether that confirmation denies rather than approves, build ticket 170.
@@ -243,6 +272,9 @@ impl App {
             revealed_line: None,
             raw_tail: false,
             opened: None,
+            run_page_place: None,
+            page_stack: Vec::new(),
+            run_page_area: Rect::default(),
             confirming: None,
             denying: false,
             confirming_step: None,
@@ -767,6 +799,19 @@ impl App {
         if self.policy_pane {
             return self.policy_key(key);
         }
+        if self.on_run_page() {
+            if matches!(key.code, KeyCode::Left | KeyCode::Backspace) {
+                return self.page_back_one();
+            }
+            if self.focus == Focus::Detail && self.page_detail_key(key) {
+                return Effect::None;
+            }
+        } else if self.focus == Focus::Detail
+            && self.opened.is_some()
+            && self.detail_scroll_key(key, self.hits.detail, false)
+        {
+            return Effect::None;
+        }
         match super::keys::main_key(key.code) {
             Some(MainKey::Quit) => Effect::Quit,
             Some(MainKey::Policy) => {
@@ -787,6 +832,9 @@ impl App {
             Some(MainKey::MoveDown) => self.move_selection(true),
             Some(MainKey::Open) => self.open_selected(),
             Some(MainKey::CloseOpened) => {
+                if self.on_run_page() {
+                    return self.page_back_all();
+                }
                 if self.opened.take().is_some() {
                     self.detail_scroll = 0;
                     return Effect::Refresh;
@@ -1017,11 +1065,198 @@ impl App {
     }
 
     fn open(&mut self, opened: Opened) -> Effect {
+        if matches!(&opened, Opened::Run(_)) {
+            return self.open_run_page(opened);
+        }
         self.opened = Some(opened);
         self.detail_scroll = 0;
         self.detail_call = 0;
         self.close_reveal();
         Effect::Refresh
+    }
+
+    pub fn on_run_page(&self) -> bool {
+        self.run_page_place.is_some()
+    }
+
+    fn save_place(&self) -> CockpitPlace {
+        CockpitPlace {
+            focus: self.focus,
+            table_selected: self.table_selected,
+            lane_selected: self.lane_selected,
+            agent_selected: self.agent_selected.clone(),
+            table_offset: self.table_offset,
+            lane_offset: self.lane_offset,
+            agent_offset: self.agent_offset.clone(),
+        }
+    }
+
+    fn restore_place(&mut self, place: CockpitPlace) {
+        self.focus = place.focus;
+        self.table_selected = place.table_selected;
+        self.lane_selected = place.lane_selected;
+        self.agent_selected = place.agent_selected;
+        self.table_offset = place.table_offset;
+        self.lane_offset = place.lane_offset;
+        self.agent_offset = place.agent_offset;
+    }
+
+    fn capture_page_layer(&self) -> PageLayer {
+        PageLayer {
+            opened: self.opened.clone().expect("page without opened"),
+            detail_scroll: self.detail_scroll,
+            detail_call: self.detail_call,
+            raw_tail: self.raw_tail,
+        }
+    }
+
+    fn restore_page_layer(&mut self, layer: PageLayer) {
+        self.opened = Some(layer.opened);
+        self.detail_scroll = layer.detail_scroll;
+        self.detail_call = layer.detail_call;
+        self.raw_tail = layer.raw_tail;
+        self.close_reveal();
+    }
+
+    fn open_run_page(&mut self, opened: Opened) -> Effect {
+        if self.on_run_page() {
+            self.page_stack.push(self.capture_page_layer());
+        } else {
+            self.run_page_place = Some(self.save_place());
+        }
+        self.opened = Some(opened);
+        self.detail_scroll = 0;
+        self.detail_call = 0;
+        self.focus = Focus::Detail;
+        self.close_reveal();
+        Effect::Refresh
+    }
+
+    fn page_back_one(&mut self) -> Effect {
+        if let Some(layer) = self.page_stack.pop() {
+            self.restore_page_layer(layer);
+            return Effect::Refresh;
+        }
+        if let Some(place) = self.run_page_place.take() {
+            self.opened = None;
+            self.detail_scroll = 0;
+            self.detail_call = 0;
+            self.restore_place(place);
+            return Effect::Refresh;
+        }
+        Effect::None
+    }
+
+    fn page_back_all(&mut self) -> Effect {
+        if !self.on_run_page() {
+            return Effect::None;
+        }
+        self.page_stack.clear();
+        self.opened = None;
+        self.detail_scroll = 0;
+        self.detail_call = 0;
+        if let Some(place) = self.run_page_place.take() {
+            self.restore_place(place);
+        }
+        Effect::Refresh
+    }
+
+    fn run_page_footer() -> Line<'static> {
+        Line::styled(
+            "Up/Down scroll, PageUp/PageDown or Space/b page, Home/g End/G, Left/Backspace back, \
+             Esc to cockpit, r raw, i reveal",
+            Style::default().add_modifier(Modifier::DIM),
+        )
+    }
+
+    fn detail_scroll_lines(&self, width: usize, page_footer: bool) -> Vec<Line<'static>> {
+        let mut lines = self.detail_lines(width);
+        if page_footer {
+            lines.push(Line::raw(""));
+            lines.push(Self::run_page_footer());
+        }
+        lines
+    }
+
+    fn detail_content_metrics(&self, area: Rect, page_footer: bool) -> (usize, usize, u16) {
+        let width = area.width.saturating_sub(2).max(1) as usize;
+        let visible = area.height.saturating_sub(2).max(1) as usize;
+        let total = self
+            .detail_scroll_lines(width, page_footer)
+            .iter()
+            .map(|line| wrapped_rows(line, width))
+            .sum::<usize>();
+        let max_scroll = total.saturating_sub(visible) as u16;
+        (width, visible, max_scroll)
+    }
+
+    fn scroll_detail_lines(&mut self, area: Rect, page_footer: bool, delta: i32) {
+        let (_, _, max_scroll) = self.detail_content_metrics(area, page_footer);
+        if delta < 0 {
+            let step = (-delta) as u16;
+            self.detail_scroll = self.detail_scroll.saturating_sub(step);
+        } else {
+            self.detail_scroll = (self.detail_scroll + delta as u16).min(max_scroll);
+        }
+    }
+
+    fn detail_scroll_key(&mut self, key: &KeyEvent, area: Rect, page_footer: bool) -> bool {
+        match key.code {
+            KeyCode::Up => {
+                self.scroll_detail_lines(area, page_footer, -1);
+                true
+            }
+            KeyCode::Down => {
+                self.scroll_detail_lines(area, page_footer, 1);
+                true
+            }
+            KeyCode::PageUp | KeyCode::Char('b') => {
+                let (_, visible, _) = self.detail_content_metrics(area, page_footer);
+                self.scroll_detail_lines(area, page_footer, -(visible as i32));
+                true
+            }
+            KeyCode::PageDown | KeyCode::Char(' ') => {
+                let (_, visible, _) = self.detail_content_metrics(area, page_footer);
+                self.scroll_detail_lines(area, page_footer, visible as i32);
+                true
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.detail_scroll = 0;
+                true
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                let (_, _, max_scroll) = self.detail_content_metrics(area, page_footer);
+                self.detail_scroll = max_scroll;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn page_detail_key(&mut self, key: &KeyEvent) -> bool {
+        let area = if self.hits.run_page.is_empty() {
+            self.run_page_area
+        } else {
+            self.hits.run_page
+        };
+        if self.raw_tail {
+            let len = self.detail_call_len();
+            if len > 0 {
+                match key.code {
+                    KeyCode::Up => {
+                        self.detail_call = self.detail_call.saturating_sub(1);
+                        return true;
+                    }
+                    KeyCode::Down => {
+                        self.detail_call = (self.detail_call + 1).min(len - 1);
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+            return self.detail_scroll_key(key, area, true);
+        }
+        self.detail_scroll_key(key, area, true)
     }
 
     fn click(&mut self, at: Position) -> Effect {
@@ -1053,6 +1288,11 @@ impl App {
     }
 
     fn wheel(&mut self, at: Position, down: bool) -> Effect {
+        if self.on_run_page() && self.hits.run_page.contains(at) {
+            let step = if down { 3 } else { -3 };
+            self.scroll_detail_lines(self.hits.run_page, true, step);
+            return Effect::None;
+        }
         if self.policy_pane {
             if self.hits.policy_pane.contains(at) {
                 if down {
@@ -1735,6 +1975,9 @@ impl App {
         if let Some(card) = &self.confirming_stop {
             draw_stop_confirmation(short(&card.run_id), self.chat_inside, main, buf);
         }
+        if self.on_run_page() {
+            self.draw_run_page(main, buf);
+        }
     }
 
     /// The policy pane: the five files, the set's sha now, and each live
@@ -2316,6 +2559,38 @@ impl App {
         let block = self.block(Focus::Detail, " detail ".to_string());
         let lines = self.detail_lines(area.width.saturating_sub(2) as usize);
         Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .scroll((self.detail_scroll, 0))
+            .render(area, buf);
+    }
+
+    /// A run opened with `Enter`, over the cockpit, build ticket 245.
+    fn draw_run_page(&mut self, area: Rect, buf: &mut Buffer) {
+        self.hits.run_page = area;
+        self.run_page_area = area;
+        Clear.render(area, buf);
+        let Some(Opened::Run(id)) = &self.opened else {
+            return;
+        };
+        let Some(card) = self.snapshot.cards.iter().find(|c| &c.run_id == id) else {
+            return;
+        };
+        let dash = |value: Option<&str>| value.unwrap_or("-").to_string();
+        let title = format!(
+            "{}  {}  {}  {}  {}",
+            short(&card.run_id),
+            dash(card.provider.as_deref()),
+            dash(card.model.as_deref()),
+            dash(card.policy.as_deref()),
+            card.state.as_str(),
+        );
+        let inner_w = area.width.saturating_sub(2).max(1) as usize;
+        let body = self.detail_scroll_lines(inner_w, true);
+        let block = Block::bordered()
+            .title(title)
+            .title_style(Style::default().add_modifier(Modifier::BOLD));
+        Paragraph::new(body)
             .block(block)
             .wrap(Wrap { trim: false })
             .scroll((self.detail_scroll, 0))
