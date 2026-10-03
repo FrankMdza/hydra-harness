@@ -1,7 +1,7 @@
 # 98 - A gated session that launches what the human approves, seat by seat
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-02, by the session, from the human's words during the usability probes: one
 Hydra, a copilot like Claude Code, that can spawn and be watched at the same time. Reopens what
@@ -40,3 +40,29 @@ map tickets 64 and 82 settled, on new evidence.
    the human may be typing into it?
 
 ## Answer
+
+Resolved 2026-10-03 by a panel of three under the human's delegation: `codex` (adversary,
+`standard`), `cursor-agent` grok-4.7-high (reviewer, `judge`), `agy` gemini-3.1-pro-high
+(security, `judge`). One brief for maps 96 to 98, ten decisions, none split three ways, so no
+judge sat. Brief and answers in the human's decision log,
+`~/.claude/handoffs/2026-09-29-festus-plan/decisiones/2026-10-03/`.
+
+- **A gated copilot that launches work (D8): more shapes only**, 2 to 1 (grok 0.67, agy 0.65;
+  codex took shapes plus loose requests held for a key, 0.77). Shapes are configuration the
+  human writes, so `research` and `architect` add no new launch path; a loose request that names
+  its own policy could start a wider agent on one key press. The human writes the shapes into
+  `config/panels.json` (protected config #6); his proposal already holds them.
+- **A request no shape covers (D9): refused as denied after a timeout**, unanimous (0.64, 0.56,
+  0.60). This is already the code: since build 141 such a request holds the call open for
+  `APPROVAL_WAIT`, 600 seconds (`src/seats.rs:89`), and answers as refused after. Nothing to
+  build.
+- **When someone other than the builder types (D10): a narrower sandbox for the gated copilot**
+  that also denies writes outside the worktree and the temp directory, unanimous (0.91, 0.81,
+  0.95). Map 67 is not reopened for agents: this narrows the gated interactive session only.
+
+Reversed by: more than 3 of the next 5 people needing a launch that is not `review`, `research`
+or `architect` (D8); more than 3 in 10 timed-out requests being ones the human would have
+approved (D9); the narrower sandbox refusing ordinary work in more than 2 of 5 gated copilot
+sessions, or the provider needing to write its own state outside the worktree (D10).
+
+Carried by build ticket 250 (the narrower sandbox) and by the human's shapes.

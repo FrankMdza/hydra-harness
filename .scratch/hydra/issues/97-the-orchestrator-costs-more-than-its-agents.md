@@ -1,7 +1,7 @@
 # 97 - The orchestrator costs more than the agents it launches
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-02, by the session, from the human's words after the usability probes: "the
 orchestrator is spending more tokens than the sub agents, which is the opposite of what we
@@ -44,3 +44,29 @@ each asked one thing that launched one to three agents. `hydra show`, `usage.cou
    request?
 
 ## Answer
+
+Resolved 2026-10-03 by a panel of three under the human's delegation: `codex` (adversary,
+`standard`), `cursor-agent` grok-4.7-high (reviewer, `judge`), `agy` gemini-3.1-pro-high
+(security, `judge`). One brief for maps 96 to 98, ten decisions, none split three ways, so no
+judge sat. Brief and answers in the human's decision log,
+`~/.claude/handoffs/2026-09-29-festus-plan/decisiones/2026-10-03/`.
+
+The brief's ten decisions put five questions of this ticket as three; the other two (the
+number to watch, the acceptable ratio) were left to the criteria line, "the orchestrator costs
+less than the agents it launches on a typical request".
+
+- **Default model (D5): Sonnet**, 2 to 1 (grok 0.54, agy 0.85; codex took Sonnet with reviews
+  sent to Opus agents, 0.60). All three named this their least certain pick: the brief gave
+  tokens, not each model's weight in the usage window. Grok: if D6 and D7 cut the rereading,
+  Opus may meet the cost rule on its own.
+- **What it reads at start (D6): a short orchestrator document of its own, launched from a
+  directory without the repository's instructions file**, unanimous (0.86, 0.71, 0.90).
+- **How it waits (D7): one blocking command per wait**, unanimous (0.80, 0.63, 0.75). Agy: D5
+  without D7 still pays for every poll.
+
+Reversed by: three Sonnet copilots that fail to launch and explain agents where Opus succeeded,
+or a window that charges the two models within 10 percent (D5); the copilot still above the sum
+of its agents once D6 and D7 land.
+
+Carried by build tickets 248 (`hydra wait`) and 249 (the copilot's profile: Sonnet, its own
+short document, launched outside the repository's instructions).
