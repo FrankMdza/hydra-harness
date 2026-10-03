@@ -766,7 +766,11 @@ lift that. `cargo test` writes `target/`, so no test runs under this policy.
 **An interactive session is told its mode at start, since build ticket 247** (map ticket 96,
 D3). `claude::interactive_argv` puts one line on `--append-system-prompt` in both modes; the
 preamble is untouched. Ungated, it says the session is a copilot that launches with `hydra run`
-and has no `panel` or `delegate`. Gated, it names the policy and the shapes in
+and has no `panel` or `delegate`. **`integrations/copilot/bin/hydra-copilot` starts that
+session on Sonnet by default from `~/.hydra-copilot/`, outside the repository, where it renders
+the short `integrations/copilot/CLAUDE.md` with the repository's path; Claude Code reads every
+`CLAUDE.md` from its directory upward, so a directory inside the repository would still load the
+build instructions (build ticket 249).** Gated, it names the policy and the shapes in
 `config/panels.json` whose askers include that policy, read at launch by
 `interactive::askable_shapes`. A file that does not load names none and the launch goes on with
 a warning on stderr, because the launcher refuses every `panel` request against it anyway. Two

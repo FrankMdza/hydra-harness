@@ -1,7 +1,7 @@
 # 249 - The copilot's profile: Sonnet, its own short document, outside the repository's instructions
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 246, 248
 
 ## What
@@ -33,3 +33,30 @@ document of its own, in a directory that does not carry the repository's `CLAUDE
   `COCKPIT.md`; a test of the launcher's argv without launching. fmt, clippy and `cargo test`
   pass. The Outcome says nothing about cost that was not measured: measuring it is the human's
   next session.
+
+## Outcome
+
+Resolved 2026-10-03 by run `01a101b2-a68e` (`cursor-agent` composer-2.5, `standard`, 1.39M
+tokens), applied by the session with one change to how the chat starts.
+
+Built: `integrations/copilot/CLAUDE.md`, the copilot's own document (under 90 lines: what Hydra
+is, launching with `hydra run --timeout 0`, waiting with `hydra wait`, reading with `hydra show`,
+the policies in a line each, never applying or reaping without the person's word, two live agents
+at most, `COCKPIT.md` by pointer), and `integrations/copilot/bin/hydra-copilot [model]`, which
+starts `hydra cockpit --session claude --model ${1:-sonnet}` with no policy. Tests: two in
+`tests/copilot.rs`.
+
+Changed by the session: the run started the chat in `integrations/copilot/`, on the reading that
+Claude Code would load that directory's `CLAUDE.md` instead of the repository's. Claude Code reads
+the `CLAUDE.md` of its directory and of every directory above it, so the repository's build
+instructions would still load, which is what map 97's D6 set out to stop. The launcher now
+renders the document with the repository's absolute path into `${HYDRA_COPILOT_HOME:-
+~/.hydra-copilot}`, refuses a directory inside the repository, and starts there; the document
+names `{{REPO}}` where it had `cd ../..`. The document also said `--timeout 0` means no timeout;
+it means return at once and leave the agent running, and now says so. Tried by hand with
+`HYDRA_BIN=echo`: the rendered file carries the path five times and the argv is `cockpit
+--session claude --model sonnet`; a directory under the repository is refused with exit 1.
+
+Not measured: what a copilot costs now. The human's own global instructions still load in any
+directory; the repository's and its memory index do not. Measuring the cost is the human's next
+session.

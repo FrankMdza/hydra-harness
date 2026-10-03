@@ -256,6 +256,14 @@ did, which is the one thing Hydra was built around.
 
 ## Works with
 
+The ungated copilot is `integrations/copilot/bin/hydra-copilot`: it starts `hydra cockpit
+--session claude` on Sonnet by default from `~/.hydra-copilot/`, outside the repository, where a
+short `CLAUDE.md` replaces this repository's build instructions. It launches gated agents with `hydra run`, waits
+with `hydra wait`, and reads them with `hydra show`. Map ticket 97 measured four Opus copilot
+sessions on 2026-10-02 spending far more tokens, mostly cache read, than the agents they
+launched; Sonnet and the shorter start document are the recorded answer, and whether that closes
+the gap is not measured in this repo.
+
 - [Herdr](https://herdr.dev), an agent multiplexer that lives in your terminal, is the interactive layer: `integrations/herdr/` is a plugin that
   launches `hydra run` in a pane and labels the pane from the record, and a graph of one run in
   the terminal. Nothing under `src/` knows it exists.
