@@ -1,7 +1,7 @@
 # 243 - `diff_stat` counts 75 deletions on a run that wrote nothing
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
