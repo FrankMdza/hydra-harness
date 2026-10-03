@@ -4225,7 +4225,7 @@ not added, so the number is a floor. `tests/cockpit.rs` drives all of it on synt
 a fixed clock with a scratch `vendors.json`; no real provider has been watched through it.
 
 **Input.** Arrows and `Tab` move between panels and rows, `Enter` opens, `Esc` closes, `p`
-opens the policy pane, `v` asks to review the selected task, `?` opens a help overlay that lists every bound key, `q` quits. A click selects the table row under it or opens the card under
+opens the policy pane, `v` asks to review the selected task, `?` opens a help overlay that lists every bound key, `q` quits. `COCKPIT.md` at the repository root documents the cockpit for models; with `--session`, `a` in that overlay types its question into the chat unsent. A click selects the table row under it or opens the card under
 it, and the wheel scrolls the panel under the pointer. Every drawn row and card keeps its `Rect` from the last draw, and a click
 is `Rect::contains` over them. Mouse capture and the alternate screen are undone on drop and by a
 panic hook.

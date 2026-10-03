@@ -50,6 +50,16 @@ pub struct HelpEntry {
     pub bindings: &'static [(KeyCode, MainKey)],
 }
 
+/// The question the help overlay's `a` leaves in the chat, unsent, with the
+/// cursor at the end so the human can finish the sentence.
+pub const COCKPIT_ASK_TEMPLATE: &str = "Read COCKPIT.md in this repository and tell me how to ";
+
+/// Keys column for [`COCKPIT_ASK_TEMPLATE`]; only listed when `--session`.
+pub const COCKPIT_ASK_KEYS: &str = "a";
+
+const COCKPIT_ASK_HELP: &str =
+    "in this help view, type a question about COCKPIT.md into the chat, unsent";
+
 pub const HELP: &[HelpEntry] = &[
     HelpEntry {
         group: HelpGroup::Moving,
@@ -152,6 +162,12 @@ pub const HELP: &[HelpEntry] = &[
         bindings: &[(KeyCode::Char('?'), MainKey::ToggleHelp)],
     },
     HelpEntry {
+        group: HelpGroup::Help,
+        keys: COCKPIT_ASK_KEYS,
+        description: COCKPIT_ASK_HELP,
+        bindings: &[],
+    },
+    HelpEntry {
         group: HelpGroup::PolicyPane,
         keys: "Up, Down",
         description: "select a policy file",
@@ -215,7 +231,11 @@ pub fn main_key(code: KeyCode) -> Option<MainKey> {
 pub fn help_rows(session: bool) -> Vec<(&'static str, &'static str)> {
     let mut out: Vec<(&'static str, &'static str)> = HELP
         .iter()
-        .filter(|e| e.group != HelpGroup::PolicyPane && e.group != HelpGroup::Session)
+        .filter(|e| {
+            e.group != HelpGroup::PolicyPane
+                && e.group != HelpGroup::Session
+                && (session || e.keys != COCKPIT_ASK_KEYS)
+        })
         .map(|e| (e.keys, e.description))
         .collect();
     out.extend(
@@ -236,9 +256,14 @@ pub fn help_rows(session: bool) -> Vec<(&'static str, &'static str)> {
 /// Every `keys` label shown in the main help table, for buffer tests.
 pub fn help_key_labels() -> Vec<&'static str> {
     HELP.iter()
-        .filter(|e| e.group != HelpGroup::Session)
+        .filter(|e| e.group != HelpGroup::Session && e.keys != COCKPIT_ASK_KEYS)
         .map(|e| e.keys)
         .collect()
+}
+
+/// Every `keys` label from [`HELP`] that [`COCKPIT.md`] must mention.
+pub fn cockpit_md_key_labels() -> Vec<&'static str> {
+    HELP.iter().map(|e| e.keys).collect()
 }
 
 #[cfg(test)]
@@ -293,6 +318,21 @@ mod tests {
             for &(code, mk) in entry.bindings {
                 assert_eq!(main_key(code), Some(mk), "{code:?}");
             }
+        }
+    }
+
+    #[test]
+    fn every_help_table_key_appears_in_cockpit_md() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("COCKPIT.md");
+        let text = std::fs::read_to_string(&path).expect("COCKPIT.md at the repository root");
+        // A row of a table, not a substring: a single letter like `k` is in
+        // every paragraph, so `contains` alone would pass on an empty table.
+        for label in cockpit_md_key_labels() {
+            let row = format!("| {label} |");
+            assert!(
+                text.lines().any(|line| line.starts_with(&row)),
+                "COCKPIT.md has no table row for the keys {label:?}"
+            );
         }
     }
 }

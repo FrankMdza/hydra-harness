@@ -1802,6 +1802,32 @@ fn question_opens_help_lists_every_key_and_esc_closes_it() {
 }
 
 #[test]
+fn with_a_session_a_in_help_types_cockpit_question_into_chat_unsent() {
+    use hydra::cockpit::keys::COCKPIT_ASK_TEMPLATE;
+
+    let layout = scratch("help-ask");
+    let mut host = stub(&layout, ECHO, "", WIDE);
+    until(&mut host, WIDE, "ready", |_, text| text.contains("ready"));
+    host.handle(&key(KeyCode::F(2)));
+    assert_eq!(host.side, Side::Cockpit);
+    host.handle(&key(KeyCode::Char('?')));
+    assert!(host.app.help_pane);
+    host.handle(&key(KeyCode::Char('a')));
+    assert_eq!(host.side, Side::Chat);
+    let buf = until(&mut host, WIDE, "still waiting", |_, text| {
+        !text.contains("got <")
+    });
+    let text = chat_text(&buf, WIDE);
+    assert!(!text.contains("got <"), "{text}");
+    host.handle(&key(KeyCode::Char('x')));
+    host.handle(&key(KeyCode::Enter));
+    until(&mut host, WIDE, "the pasted line", |_, text| {
+        text.contains(&format!("got <{COCKPIT_ASK_TEMPLATE}x>"))
+    });
+    host.handle(&key(KeyCode::Enter));
+}
+
+#[test]
 fn every_main_dispatch_key_is_listed_in_the_help_table() {
     use hydra::cockpit::keys::{HELP, MainKey};
     const ALL: &[MainKey] = &[

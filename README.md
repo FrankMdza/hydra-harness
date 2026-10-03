@@ -138,7 +138,7 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `approve` | approve a seat request no shape covers; with no id, list what waits |
 | `deny` | deny one; the session hears `hydra/request-denied` and nothing launches |
 | `doctor` | the root, the binaries against the measured versions, the policy sha, which protected configs are missing |
-| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; answers seat requests, approves Puppets steps, stops seats; with `--session`, the chat in the left panel |
+| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; answers seat requests, approves Puppets steps, stops seats; with `--session`, the chat in the left panel; `COCKPIT.md` at the repo root is the help file a session can read when you ask from the overlay |
 
 `hydra cockpit` is for the terminal beside an orchestrating session's chat, with run labels using the shortest unique prefix of at least eight characters across its table and lanes; ambiguous command prefixes list distinguishing labels, providers and policies. The left column is
 the task table of a Master of Puppets goal (id, status, done, provider, model, run, grade and

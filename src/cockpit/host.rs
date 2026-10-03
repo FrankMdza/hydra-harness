@@ -147,10 +147,12 @@ impl Host {
                     self.side = Side::Chat;
                     return Effect::None;
                 }
-                match self.app.handle(event) {
+                let effect = match self.app.handle(event) {
                     Effect::Quit => self.quit(),
                     effect => effect,
-                }
+                };
+                self.settle_stops();
+                effect
             }
         }
     }

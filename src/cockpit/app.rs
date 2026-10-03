@@ -793,6 +793,11 @@ impl App {
                     self.help_pane = false;
                     Effect::None
                 }
+                KeyCode::Char('a') if self.chat_inside => {
+                    self.drafted
+                        .push(super::keys::COCKPIT_ASK_TEMPLATE.to_string());
+                    Effect::None
+                }
                 _ => Effect::None,
             };
         }
