@@ -601,7 +601,7 @@ fn y_returns_at_once_and_the_cockpit_keeps_going_while_the_seat_holds_on() {
         held < Duration::from_secs(1),
         "y held the cockpit for {held:?}"
     );
-    assert!(text.contains("01996d3c claude stopping"), "{text}");
+    assert!(text.contains("01996d3c claude stub-1 stopping"), "{text}");
 
     // A key handled while the seat holds on: a second `m` says so and asks nothing.
     host.handle(&key(KeyCode::Char('m')));
@@ -620,7 +620,7 @@ fn y_returns_at_once_and_the_cockpit_keeps_going_while_the_seat_holds_on() {
         asked_at.elapsed() >= Duration::from_secs(2),
         "the seat did not hold on, so this test proved nothing"
     );
-    assert!(text.contains("01996d3c claude stopped"), "{text}");
+    assert!(text.contains("01996d3c claude stub-1 stopped"), "{text}");
     let said = host.app.message.clone().unwrap_or_default();
     assert!(said.contains(&format!("stopped {SEAT}: stopped")), "{said}");
 }
@@ -686,7 +686,7 @@ fn a_stop_that_fails_pastes_nothing() {
     let text = reported(&mut host);
     let said = host.app.message.clone().unwrap_or_default();
     assert!(said.contains("01996d3c was not stopped"), "{said}");
-    assert!(text.contains("01996d3c claude live"), "{text}");
+    assert!(text.contains("01996d3c claude stub-1 live"), "{text}");
     assert_eq!(host.side, Side::Cockpit);
     std::thread::sleep(Duration::from_millis(300));
     host.pump();

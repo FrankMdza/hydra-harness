@@ -69,3 +69,12 @@ because `outcome.rs` reads the limit only off `turn.failed`; `codex` `input_toke
 cache, against contract 9.1, as the streamed path already does; and two Hydra `codex` sessions
 started in the same cwd at once would both harvest the earlier file. The TUI filter rests on one
 TUI file measured, written by 0.154.0.
+
+Corrected 2026-10-03 after the first real run, the human's (`01a103bd-e45e`, `codex` 0.159.2, in
+`~/another-private-repo`): it closed `failed` with "the session wrote no codex session file". The
+file was there, but 0.159.2's terminal TUI writes `source: "vscode"`, where the one 0.154.0 file
+the agent measured said `cli`. The finder now matches `originator: "codex-tui"`, which both
+versions write and `codex exec` (`codex_exec` on all 139 exec files) does not. The harvest test's
+own session now says `vscode`, and fails against the old filter. That run's record stays closed
+as it was. Also seen on that run: 0.159.2 printed "Disconnected from this task. Any running work
+continues", so the TUI process can exit while its turn goes on.

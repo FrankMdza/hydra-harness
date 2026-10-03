@@ -867,7 +867,7 @@ fn write_codex_session(
         "session_id": id,
         "timestamp": began.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         "cwd": cwd.display().to_string(),
-        "originator": if source == "cli" { "codex-tui" } else { "codex_exec" },
+        "originator": if source == "exec" { "codex_exec" } else { "codex-tui" },
         "cli_version": "0.159.2",
         "source": source,
     });
@@ -942,7 +942,8 @@ fn a_codex_session_file_harvests_into_a_valid_record_with_its_last_total() {
         &home,
         &cwd,
         "01a103a8-0000-7000-8000-0000000002a2",
-        "cli",
+        // What 0.159.2's terminal TUI writes, measured on the first real run.
+        "vscode",
         now,
         &turn,
     );

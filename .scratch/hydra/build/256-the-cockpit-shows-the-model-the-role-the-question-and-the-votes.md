@@ -60,3 +60,7 @@ and only for the three providers that write one.
 
 Left as is: the votes shown are parsed again from each seat's answer text by `panel_vote`, since
 the event keeps the raw answers but not the parsed choices.
+
+Corrected 2026-10-03: the new row put the model between provider and state, and three assertions
+in `tests/stop.rs` still looked for `01996d3c claude stopping`, `live` and `stopped`. The agent ran
+only `tests/cockpit.rs`; the session's full suite caught it. They now read `claude stub-1 ...`.

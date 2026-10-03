@@ -218,7 +218,7 @@ pub struct FoundSession {
 /// `cwd`, build ticket 255.
 ///
 /// **By the session's own start, not by id**, because `codex` takes no id to
-/// predict one with. The candidates are the TUI sessions (`source: cli`) whose
+/// predict one with. The candidates are the TUI sessions (`originator: codex-tui`) whose
 /// `cwd` is the run's and whose `session_meta.payload.timestamp` is at or after
 /// `since`, the process's start time: the TUI mints its session after its
 /// process starts. Of those this takes the **earliest**, not the newest,
@@ -290,7 +290,13 @@ fn tui_session_in(
         return Ok(None);
     };
     let meta = &line["payload"];
-    if line["type"].as_str() != Some("session_meta") || meta["source"].as_str() != Some("cli") {
+    // The TUI by its originator, not its `source`: 0.154.0 wrote `cli` and
+    // 0.159.2 writes `vscode` for the same terminal TUI, measured 2026-10-03
+    // on the first real interactive run (`01a103bd-e45e`). `codex exec` is
+    // `codex_exec` on every file seen.
+    if line["type"].as_str() != Some("session_meta")
+        || meta["originator"].as_str() != Some("codex-tui")
+    {
         return Ok(None);
     }
     let Some(ran_in) = meta["cwd"].as_str().map(Path::new) else {
