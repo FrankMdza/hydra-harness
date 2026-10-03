@@ -1131,7 +1131,7 @@ fn a_gated_interactive_launch_wraps_claude_in_the_seatbelt() {
     assert!(profile.is_file(), "profile is a real file beside the gate");
 
     let (binary, argv) =
-        hydra::interactive::gated_exec_argv(&prep, "read-only", "session-1", None, None);
+        hydra::interactive::gated_exec_argv(&prep, "read-only", "session-1", None, None, &[]);
     assert_eq!(binary, "/usr/bin/sandbox-exec");
     assert_eq!(argv.first().map(String::as_str), Some("-f"));
     assert_eq!(argv.get(1).map(|p| p.as_str()), profile.to_str());

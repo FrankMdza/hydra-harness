@@ -1000,6 +1000,44 @@ fn every_policy_but_permissive_refuses_task() {
 }
 
 #[test]
+fn a_refused_subagent_is_told_to_ask_the_human_when_no_launcher_listens() {
+    let gate = Gate::new("standard");
+    let task = gate.ask("Agent", json!({ "prompt": "go" }));
+    assert!(task.denied_for("hydra/capability"), "{}", task.reason);
+    assert!(
+        task.reason
+            .ends_with("Ask the human to launch the agent from outside this run with `hydra run`."),
+        "{}",
+        task.reason
+    );
+    assert!(!task.reason.contains("`panel`"), "{}", task.reason);
+}
+
+#[test]
+fn a_refused_subagent_is_pointed_at_panel_when_a_launcher_listens() {
+    // Build ticket 247. The launcher binds `seats.sock` beside the gate after
+    // the gate is compiled; a plain file stands in for the socket here.
+    let gate = Gate::new("standard");
+    let socket = gate.script.with_file_name("seats.sock");
+    std::fs::write(&socket, "").unwrap();
+    let task = gate.ask("Agent", json!({ "prompt": "go" }));
+    assert!(task.denied_for("hydra/capability"), "{}", task.reason);
+    assert!(
+        task.reason.ends_with(
+            "Ask this session's launcher for an approved panel with the `panel` tool instead."
+        ),
+        "{}",
+        task.reason
+    );
+    // Every other refused capability keeps its reason as it was.
+    let judge = Gate::new("judge");
+    std::fs::write(judge.script.with_file_name("seats.sock"), "").unwrap();
+    let shell = judge.shell("echo hi");
+    assert!(shell.denied_for("hydra/capability"), "{}", shell.reason);
+    assert!(shell.reason.ends_with("(Bash)."), "{}", shell.reason);
+}
+
+#[test]
 fn agent_gets_the_same_gate_answer_as_task_under_standard() {
     // Claude Code 2.1.281 renamed `Task` to `Agent`; the table keeps both.
     let gate = Gate::new("standard");

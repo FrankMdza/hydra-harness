@@ -322,6 +322,12 @@ fn delegation_from_inside_a_seatbelt_is_refused_in_hydras_words() {
         "{text}"
     );
     assert!(text.contains("64"), "{text}");
+    // Build ticket 247: the refusal ends with the way out. This run has no
+    // launcher, so the way out is the human and not the `panel` tool.
+    assert!(
+        text.ends_with("ask the human to launch the child from outside this run with `hydra run`."),
+        "{text}"
+    );
     assert_eq!(
         std::fs::read_dir(face.root.join("runs")).unwrap().count(),
         0,

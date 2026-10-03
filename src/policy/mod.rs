@@ -1176,6 +1176,14 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         "mcp_prefix": table.mcp_prefix,
         "floor": set.floor(),
         "floor_lifted": spawn.floor_lifted,
+        // Where a gated interactive session's launcher listens, beside the
+        // gate. The gate is compiled before the launcher binds it, so the
+        // `subagent_spawn` refusal looks for it at fire time, the same test
+        // the face uses to list `panel`. Build ticket 247.
+        "seats_socket": spawn
+            .gate_script
+            .parent()
+            .map(|dir| dir.join(crate::seats::SOCKET).display().to_string()),
     });
 
     let template = include_str!("gate.py");

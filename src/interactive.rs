@@ -223,6 +223,33 @@ fn finish_policy_launch(
     })
 }
 
+/// The names of the approved shapes `policy` may ask for, read from `panels`
+/// at launch for the start line, build ticket 247.
+///
+/// A file that does not load names none, and the launch goes on: the launcher
+/// refuses every `panel` request against it anyway, in its own words.
+pub fn askable_shapes(
+    panels: &Path,
+    policies: &crate::policy::PolicySet,
+    policy: &str,
+) -> Vec<String> {
+    match crate::panels::load(panels, policies) {
+        Ok(loaded) => loaded
+            .shapes
+            .into_iter()
+            .filter(|shape| shape.askers.iter().any(|asker| asker == policy))
+            .map(|shape| shape.name)
+            .collect(),
+        Err(err) => {
+            eprintln!(
+                "hydra: {} does not load, so the session is told of no shape: {err:#}",
+                panels.display()
+            );
+            Vec::new()
+        }
+    }
+}
+
 /// The binary and argv a gated interactive launch execs.
 ///
 /// Public so `tests/spawn.rs` can read the seatbelt wrap without starting a
@@ -233,6 +260,7 @@ pub fn gated_exec_argv(
     session: &str,
     task: Option<&str>,
     model: Option<&str>,
+    shapes: &[String],
 ) -> (String, Vec<String>) {
     let argv = claude::interactive_argv(&claude::InteractiveLaunch {
         session,
@@ -241,6 +269,7 @@ pub fn gated_exec_argv(
         mcp: prep.mcp_file.as_deref(),
         settings: Some(&prep.spawn.hook_config),
         policy: Some(policy),
+        shapes,
     });
     match prep.spawn.sandbox_profile.as_deref() {
         Some(profile) => {
@@ -314,12 +343,14 @@ fn run_gated(request: Request) -> Result<RunResult> {
         child_env.set(name, value.clone());
     }
 
+    let shapes = askable_shapes(&crate::panels::path(), &policies, policy);
     let (binary, argv) = gated_exec_argv(
         &prep,
         policy,
         &session,
         request.task.as_deref(),
         request.model.as_deref(),
+        &shapes,
     );
 
     // Build ticket 140, map 82 answer 1. Bound before the exec, so the socket
@@ -465,6 +496,7 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         mcp: Some(&mcp_file),
         settings: None,
         policy: None,
+        shapes: &[],
     });
 
     let mut child = std::process::Command::new(Provider::Claude.binary())
@@ -804,4 +836,60 @@ fn stop_noted(layout: &Layout, run_id: &str, error: Option<String>) -> Option<St
         Some(existing) => format!("{note}; {existing}"),
         None => note.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_gated_launch_whose_panels_name_two_shapes_names_both() {
+        let dir = std::env::temp_dir().join(format!("hydra-askable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let panels = dir.join("panels.json");
+        let seat = serde_json::json!({ "provider": "claude", "policy": "judge", "role": "r" });
+        let document = serde_json::json!({ "shapes": [
+            { "name": "review", "askers": ["standard"], "cap_per_hour": 2, "seats": [seat] },
+            { "name": "triage", "askers": ["standard", "read-only"], "cap_per_hour": 1, "seats": [seat] },
+            { "name": "elsewhere", "askers": ["permissive"], "cap_per_hour": 1, "seats": [seat] },
+        ]});
+        std::fs::write(&panels, document.to_string()).unwrap();
+        let policies =
+            crate::policy::PolicySet::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("policies"))
+                .unwrap();
+
+        let shapes = askable_shapes(&panels, &policies, "standard");
+        assert_eq!(
+            shapes,
+            ["review", "triage"],
+            "a shape this policy may not ask for is not named"
+        );
+        let argv = claude::interactive_argv(&claude::InteractiveLaunch {
+            session: "s1",
+            task: None,
+            model: None,
+            mcp: None,
+            settings: Some(Path::new("/tmp/spawn/r1/settings.json")),
+            policy: Some("standard"),
+            shapes: &shapes,
+        });
+        let at = argv
+            .iter()
+            .position(|a| a == "--append-system-prompt")
+            .unwrap();
+        assert!(
+            argv[at + 1].ends_with("the `panel` tool: review, triage."),
+            "{argv:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_panels_file_names_no_shape() {
+        let policies =
+            crate::policy::PolicySet::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("policies"))
+                .unwrap();
+        let missing = std::env::temp_dir().join("hydra-askable-none/panels.json");
+        assert!(askable_shapes(&missing, &policies, "standard").is_empty());
+    }
 }

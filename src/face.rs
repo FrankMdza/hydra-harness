@@ -54,9 +54,15 @@ const ARGUMENTS: [&str; 4] = ["provider", "task", "files", "policy"];
 
 /// Map ticket 64: delegation from inside a macOS run is not available, because the
 /// delegated child is Hydra itself and the inherited profile denies the corpus.
+///
+/// The tail names the way out, build ticket 247. [`call`] asks a listening
+/// launcher before it gets here, so a run that reaches this refusal has none,
+/// and the `panel` tool is not listed to it either: the human is the way out.
 pub const SEATBELT_DELEGATION_REFUSAL: &str = "hydra/seatbelt-delegation: delegation from inside a macOS run is not available. \
      Launch a child from the orchestrator outside this run, which is how every child \
-     in the corpus was launched. Map ticket 64 holds the decision.";
+     in the corpus was launched. Map ticket 64 holds the decision. This run has no \
+     launcher listening, so there is no `panel` tool either: ask the human to launch \
+     the child from outside this run with `hydra run`.";
 
 /// What `panel` answers on a run with no launcher to ask.
 const NO_LAUNCHER: &str = "hydra/no-launcher: a panel is asked of the launcher waiting on a gated \

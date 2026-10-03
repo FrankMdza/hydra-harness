@@ -210,6 +210,31 @@ pub struct InteractiveLaunch<'a> {
     /// The policy name when this run compiled a gate. `None` on an ungated
     /// interactive launch.
     pub policy: Option<&'a str>,
+    /// The approved panel shapes this session may ask for, read from
+    /// `config/panels.json` at launch. Named in the gated start line and
+    /// ignored on an ungated one, which has no `panel` tool.
+    pub shapes: &'a [String],
+}
+
+/// The one line a session is told about its mode, build ticket 247. Three of
+/// five sessions in the probes of 2026-10-02 asked for a tool of the other
+/// mode, and nothing had told them which mode they were in.
+fn mode_line(policy: Option<&str>, shapes: &[String]) -> String {
+    let Some(policy) = policy else {
+        return "You are an ungated Hydra copilot. Launch agents with `hydra run` from a \
+                shell in the repository; each one is gated and recorded. The `panel` and \
+                `delegate` tools are not here."
+            .to_string();
+    };
+    let asked = if shapes.is_empty() {
+        " none: config/panels.json approves no shape this policy may ask for.".to_string()
+    } else {
+        format!(" {}.", shapes.join(", "))
+    };
+    format!(
+        "You are a gated Hydra session under {policy}. You cannot launch agents yourself \
+         or with `hydra run`; you can ask for an approved panel with the `panel` tool:{asked}"
+    )
 }
 
 /// `claude` takes a positional argument as its opening prompt whether or not
@@ -237,6 +262,10 @@ pub fn interactive_argv(launch: &InteractiveLaunch<'_>) -> Vec<String> {
     // with nobody to answer it. A human is at this keyboard, so the vendor's
     // own prompt is the right answer for an allow, and a hook deny beats the
     // prompt either way, which is what the gate needs.
+    // Appended rather than in the preamble, which is protected config #2 and
+    // reaches gated launches only. This line reaches both modes.
+    argv.push("--append-system-prompt".to_string());
+    argv.push(mode_line(launch.policy, launch.shapes));
     if let Some(model) = launch.model {
         argv.push("--model".to_string());
         argv.push(model.to_string());
@@ -970,6 +999,7 @@ mod tests {
             mcp: Some(Path::new("/tmp/spawn/r1/mcp.json")),
             settings: None,
             policy: None,
+            shapes: &[],
         });
         assert_eq!(argv[0], "--session-id");
         assert_eq!(argv[1], "s1");
@@ -999,6 +1029,7 @@ mod tests {
             mcp: Some(Path::new(MCP)),
             settings: Some(Path::new("/tmp/spawn/r1/settings.json")),
             policy: Some("read-only"),
+            shapes: &[],
         });
         let at = argv.iter().position(|a| a == "--settings").unwrap();
         assert_eq!(argv[at + 1], "/tmp/spawn/r1/settings.json");
@@ -1019,8 +1050,75 @@ mod tests {
             mcp: None,
             settings: None,
             policy: None,
+            shapes: &[],
         });
-        assert_eq!(argv, vec!["--session-id".to_string(), "s1".to_string()]);
+        assert_eq!(&argv[..2], ["--session-id", "s1"]);
+        assert_eq!(argv.len(), 4, "the mode line and nothing else: {argv:?}");
+    }
+
+    fn start_line(argv: &[String]) -> &str {
+        let at = argv
+            .iter()
+            .position(|a| a == "--append-system-prompt")
+            .expect("every interactive launch is told its mode");
+        &argv[at + 1]
+    }
+
+    #[test]
+    fn an_ungated_session_is_told_it_launches_with_hydra_run() {
+        let argv = interactive_argv(&InteractiveLaunch {
+            session: "s1",
+            task: Some("go"),
+            model: None,
+            mcp: None,
+            settings: None,
+            policy: None,
+            shapes: &["review".to_string()],
+        });
+        assert_eq!(
+            start_line(&argv),
+            "You are an ungated Hydra copilot. Launch agents with `hydra run` from a shell \
+             in the repository; each one is gated and recorded. The `panel` and `delegate` \
+             tools are not here."
+        );
+        assert_eq!(argv.last().unwrap(), "go", "the task stays last");
+    }
+
+    #[test]
+    fn a_gated_session_is_told_its_policy_and_the_shapes_it_may_ask_for() {
+        let shapes = ["review".to_string(), "triage".to_string()];
+        let argv = interactive_argv(&InteractiveLaunch {
+            session: "s1",
+            task: None,
+            model: None,
+            mcp: Some(Path::new(MCP)),
+            settings: Some(Path::new("/tmp/spawn/r1/settings.json")),
+            policy: Some("standard"),
+            shapes: &shapes,
+        });
+        assert_eq!(
+            start_line(&argv),
+            "You are a gated Hydra session under standard. You cannot launch agents \
+             yourself or with `hydra run`; you can ask for an approved panel with the \
+             `panel` tool: review, triage."
+        );
+    }
+
+    #[test]
+    fn a_gated_session_with_no_askable_shape_is_told_so() {
+        let argv = interactive_argv(&InteractiveLaunch {
+            session: "s1",
+            task: None,
+            model: None,
+            mcp: None,
+            settings: Some(Path::new("/tmp/spawn/r1/settings.json")),
+            policy: Some("read-only"),
+            shapes: &[],
+        });
+        assert!(
+            start_line(&argv).ends_with("approves no shape this policy may ask for."),
+            "{argv:?}"
+        );
     }
 
     #[test]

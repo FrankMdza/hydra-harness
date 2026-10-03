@@ -763,6 +763,22 @@ test beside it has. `codex` stays refused under
 `read-only` by name at pre-flight (`src/provider/codex.rs`); the bounded shell does not
 lift that. `cargo test` writes `target/`, so no test runs under this policy.
 
+**An interactive session is told its mode at start, since build ticket 247** (map ticket 96,
+D3). `claude::interactive_argv` puts one line on `--append-system-prompt` in both modes; the
+preamble is untouched. Ungated, it says the session is a copilot that launches with `hydra run`
+and has no `panel` or `delegate`. Gated, it names the policy and the shapes in
+`config/panels.json` whose askers include that policy, read at launch by
+`interactive::askable_shapes`. A file that does not load names none and the launch goes on with
+a warning on stderr, because the launcher refuses every `panel` request against it anyway. Two
+refusals now end with the way out. `hydra/seatbelt-delegation` tells the run to ask the human
+to launch from outside, always: the face asks a listening launcher first, so a run that reaches
+this refusal has none and is not listed `panel` either. The gate's `hydra/capability` refusal
+of `subagent_spawn` names `panel` when `seats.sock` exists beside the gate, and the human
+otherwise. The gate's config does not carry the launch mode. It carries `seats_socket`, the
+path, and the gate tests it at fire time, because the gate is compiled before the launcher
+binds the socket. That is the same test the face makes before it lists `panel`. The new config
+key and the new text change `gate_sha` for every run.
+
 **A gated interactive session asks its own launcher for seats, since build ticket 140.** Map
 ticket 82 answers 1, 2 and 5, amending 64. `run_gated` binds `seats.sock` in the run's spawn
 directory before it execs `claude`, `0o600`, and `src/seats.rs` answers it on a thread of its

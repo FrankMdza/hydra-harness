@@ -945,6 +945,23 @@ def slack_violation_in_fetch(tool, tool_input):
     return check_slack(url)
 
 
+def subagent_way_out():
+    # Build ticket 247: a refused subagent is told what to do instead. A gated
+    # interactive session's launcher listens on a socket beside this script,
+    # bound after it was compiled, so the test is made here and not at compile
+    # time. It is the same test the face makes before it lists `panel`.
+    socket = HYDRA_CONFIG.get("seats_socket")
+    if socket and os.path.lexists(socket):
+        return (
+            " Ask this session's launcher for an approved panel with the `panel` "
+            "tool instead."
+        )
+    return (
+        " Ask the human to launch the agent from outside this run with "
+        "`hydra run`."
+    )
+
+
 def evaluate(payload):
     """(allowed, reason) for one tool call."""
     envelope = wrong_dialect_envelope(payload)
@@ -1108,11 +1125,12 @@ def evaluate(payload):
 
     allowed_scopes = scopes_for(capability)
     if not allowed_scopes:
-        return False, (
-            "hydra/capability: policy {} does not allow {} ({}).".format(
-                HYDRA_CONFIG["policy"], capability, tool
-            )
+        reason = "hydra/capability: policy {} does not allow {} ({}).".format(
+            HYDRA_CONFIG["policy"], capability, tool
         )
+        if capability == "subagent_spawn":
+            reason += subagent_way_out()
+        return False, reason
 
     if capability in ("file_read", "file_write"):
         if "anywhere" in allowed_scopes:
