@@ -1,7 +1,7 @@
 # 253 - The copilot takes a repository and keeps its hands off files
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -38,3 +38,23 @@ files itself.
 - `COCKPIT.md` and `IMPLEMENTATION.md`: one sentence each.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a103a7-f596` (`cursor-agent` composer-2.5, `standard`, 1.35M
+tokens). The session added one change to the agent's diff and verified one test by breaking it.
+
+Built: `hydra-copilot [model] [repo]`. A second argument must be a git work tree, and its top
+level is rendered into `{{REPO}}`; otherwise the script exits 1 with one line. The document is
+`integrations/copilot/COPILOT.md`, rendered to `CLAUDE.md` in the start directory from a list of
+source and destination pairs, one line per future file name. The ungated interactive argv carries
+`--disallowed-tools Edit,Write,NotebookEdit`; the gated one does not (`claude --help` lists the
+flag). Tests: `tests/copilot_repo_and_tools.rs` (the script against a stub `hydra`, and the argv)
+and two argv tests in `claude.rs`. The session broke the script's git check and the script test
+failed; restored, it passes.
+
+What the session changed: `tests/copilot.rs` (build 249) still read `integrations/copilot/CLAUDE.md`
+and would have failed; it now reads `COPILOT.md`. The agent named this and could not edit it.
+
+Left: `~/hydra-oficina/suprema.sh` passes `"$@"` through, so `suprema.sh sonnet ~/repo` works
+with no edit. `COPILOT.md` still names the gated cockpit mode, which build 254 removes; the session
+fixes that sentence when 254 lands. The copilot keeps its shell, so it can still write a file;
+map 101 accepted that.

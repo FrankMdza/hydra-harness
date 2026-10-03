@@ -252,6 +252,10 @@ pub fn interactive_argv(launch: &InteractiveLaunch<'_>) -> Vec<String> {
         argv.push("--mcp-config".to_string());
         argv.push(mcp.display().to_string());
     }
+    if launch.policy.is_none() {
+        argv.push("--disallowed-tools".to_string());
+        argv.push("Edit,Write,NotebookEdit".to_string());
+    }
     if let Some(settings) = launch.settings {
         argv.push("--settings".to_string());
         argv.push(settings.display().to_string());
@@ -1008,6 +1012,11 @@ mod tests {
             !argv.iter().any(|a| a == "--strict-mcp-config"),
             "the human's own servers have to survive beside this run's"
         );
+        let at = argv
+            .iter()
+            .position(|a| a == "--disallowed-tools")
+            .expect("ungated copilot disallows file-edit tools");
+        assert_eq!(argv[at + 1], "Edit,Write,NotebookEdit");
         for flag in [
             "--print",
             "--output-format",
@@ -1053,7 +1062,32 @@ mod tests {
             shapes: &[],
         });
         assert_eq!(&argv[..2], ["--session-id", "s1"]);
-        assert_eq!(argv.len(), 4, "the mode line and nothing else: {argv:?}");
+        assert!(
+            argv.iter().any(|a| a == "--disallowed-tools"),
+            "ungated copilot disallows file-edit tools even with no opening task"
+        );
+        assert_eq!(
+            argv.len(),
+            6,
+            "disallowed tools and the mode line only: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn a_gated_interactive_argv_carries_no_disallowed_tools() {
+        let argv = interactive_argv(&InteractiveLaunch {
+            session: "s1",
+            task: None,
+            model: None,
+            mcp: None,
+            settings: Some(Path::new("/tmp/spawn/r1/settings.json")),
+            policy: Some("standard"),
+            shapes: &[],
+        });
+        assert!(
+            !argv.iter().any(|a| a == "--disallowed-tools"),
+            "gated session argv unchanged by copilot tool block: {argv:?}"
+        );
     }
 
     fn start_line(argv: &[String]) -> &str {

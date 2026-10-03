@@ -9,8 +9,8 @@ fn manifest() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn copilot_claude_md() -> std::path::PathBuf {
-    manifest().join("integrations/copilot/CLAUDE.md")
+fn copilot_document() -> std::path::PathBuf {
+    manifest().join("integrations/copilot/COPILOT.md")
 }
 
 fn copilot_bin() -> std::path::PathBuf {
@@ -19,12 +19,12 @@ fn copilot_bin() -> std::path::PathBuf {
 
 #[test]
 fn the_copilot_document_is_short_and_names_wait_and_cockpit_help() {
-    let text = std::fs::read_to_string(copilot_claude_md())
-        .unwrap_or_else(|err| panic!("reading {}: {err}", copilot_claude_md().display()));
+    let text = std::fs::read_to_string(copilot_document())
+        .unwrap_or_else(|err| panic!("reading {}: {err}", copilot_document().display()));
     let lines = text.lines().count();
     assert!(
         lines < 150,
-        "integrations/copilot/CLAUDE.md is {lines} lines; ticket 249 caps it at 150"
+        "integrations/copilot/COPILOT.md is {lines} lines; ticket 249 caps it at 150"
     );
     assert!(
         text.contains("hydra wait"),

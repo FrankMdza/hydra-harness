@@ -11,8 +11,11 @@ that holds only this file.
 
 ## The repository agents work in
 
-The repository is `{{REPO}}`. `hydra run` seeds each agent's worktree from the git tree it is
-run in, so every launch starts with `cd {{REPO}} &&`. There is no flag to name another checkout.
+The repository is `{{REPO}}`. Every `hydra run` and every `hydra wait` you type starts from this
+repository and no other. `hydra run` seeds each agent's worktree from the git tree it is run in,
+so every launch starts with `cd {{REPO}} &&`.
+
+You cannot edit files in the repository yourself; route every file change through `hydra run`.
 
 ## Launch an agent
 

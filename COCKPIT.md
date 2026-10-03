@@ -16,7 +16,8 @@ it starts.
 ordinary Claude Code chat with the person's own permissions and no gate. It launches agents
 from a shell with `hydra run`, waits for them with `hydra wait`, and reads them with
 `hydra show`. Each agent it launches is gated and recorded; the copilot is not. It has no
-`panel` or `delegate` tool. It is told this in one line when it starts.
+`panel` or `delegate` tool, and Claude's `Edit`, `Write` and `NotebookEdit` tools are
+disallowed so file changes go through `hydra run`. It is told this in one line when it starts.
 
 **Viewer: `hydra cockpit` with no `--session`.** No chat. The cockpit shows runs, seat
 requests and Puppets steps on disk, and you can still approve, deny, review and stop from the
