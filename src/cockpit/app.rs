@@ -24,6 +24,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::call_head;
 use super::goal::{Goal, TaskRow};
+use super::keys::MainKey;
 use super::mascot::Mascot;
 use super::snapshot::{CallLine, Card, Lane, REVEAL_SECONDS, Snapshot, Step, spend_text};
 use crate::approve::Pending;
@@ -188,6 +189,8 @@ pub struct App {
     policy_set: Option<std::result::Result<String, String>>,
     /// Whether the policy pane of build ticket 171 is up.
     pub policy_pane: bool,
+    /// The key help overlay, build ticket 240.
+    pub help_pane: bool,
     policy_selected: usize,
     /// The first live run the pane shows, build ticket 174.
     policy_offset: usize,
@@ -252,6 +255,7 @@ impl App {
             policies_dir: None,
             policy_set: None,
             policy_pane: false,
+            help_pane: false,
             policy_selected: 0,
             policy_offset: 0,
             reviewer: None,
@@ -747,47 +751,61 @@ impl App {
                 _ => Effect::None,
             };
         }
+        if key.code == KeyCode::Char('?') {
+            self.help_pane = !self.help_pane;
+            return Effect::None;
+        }
+        if self.help_pane {
+            return match key.code {
+                KeyCode::Esc => {
+                    self.help_pane = false;
+                    Effect::None
+                }
+                _ => Effect::None,
+            };
+        }
         if self.policy_pane {
             return self.policy_key(key);
         }
-        match key.code {
-            KeyCode::Char('q') => Effect::Quit,
-            KeyCode::Char('p') => {
+        match super::keys::main_key(key.code) {
+            Some(MainKey::Quit) => Effect::Quit,
+            Some(MainKey::Policy) => {
                 self.reload_policies();
                 self.policy_pane = true;
                 self.policy_offset = 0;
                 Effect::None
             }
-            KeyCode::Tab | KeyCode::Right => {
+            Some(MainKey::FocusForward) => {
                 self.step_focus(true);
                 Effect::None
             }
-            KeyCode::BackTab | KeyCode::Left => {
+            Some(MainKey::FocusBackward) => {
                 self.step_focus(false);
                 Effect::None
             }
-            KeyCode::Up => self.move_selection(false),
-            KeyCode::Down => self.move_selection(true),
-            KeyCode::Enter => self.open_selected(),
-            KeyCode::Esc => {
+            Some(MainKey::MoveUp) => self.move_selection(false),
+            Some(MainKey::MoveDown) => self.move_selection(true),
+            Some(MainKey::Open) => self.open_selected(),
+            Some(MainKey::CloseOpened) => {
                 if self.opened.take().is_some() {
                     self.detail_scroll = 0;
                     return Effect::Refresh;
                 }
                 Effect::None
             }
-            KeyCode::Char('a') => self.ask_to_answer(false),
-            KeyCode::Char('d') => self.ask_to_answer(true),
-            KeyCode::Char('v') => self.ask_to_review(),
-            KeyCode::Char('m') => self.ask_to_stop(),
-            KeyCode::Char('k') => self.toggle_lanes(),
-            KeyCode::Char('r') => {
+            Some(MainKey::ApproveAsk) => self.ask_to_answer(false),
+            Some(MainKey::DenyAsk) => self.ask_to_answer(true),
+            Some(MainKey::ReviewAsk) => self.ask_to_review(),
+            Some(MainKey::StopAsk) => self.ask_to_stop(),
+            Some(MainKey::ToggleLanes) => self.toggle_lanes(),
+            Some(MainKey::ToggleRawTail) => {
                 self.raw_tail = !self.raw_tail;
                 self.detail_call = 0;
                 Effect::None
             }
-            KeyCode::Char('i') => self.toggle_reveal(),
-            _ => Effect::None,
+            Some(MainKey::ToggleReveal) => self.toggle_reveal(),
+            Some(MainKey::ToggleHelp) => Effect::None,
+            None => Effect::None,
         }
     }
 
@@ -1702,6 +1720,9 @@ impl App {
         if self.policy_pane {
             self.draw_policy_pane(main, buf);
         }
+        if self.help_pane {
+            self.draw_help_pane(main, buf);
+        }
         if let Some(request) = self.confirming.clone() {
             draw_confirmation(&request, self.denying, main, buf);
         }
@@ -1877,6 +1898,57 @@ impl App {
         lines.extend(footer);
         Paragraph::new(lines)
             .block(Block::bordered().title(" policies "))
+            .wrap(Wrap { trim: false })
+            .render(rect, buf);
+    }
+
+    /// The help overlay: every key from [`super::keys::HELP`], grouped like the
+    /// README table.
+    fn draw_help_pane(&self, area: Rect, buf: &mut Buffer) {
+        let width = area.width.saturating_sub(8).min(100);
+        let height = area.height.saturating_sub(2);
+        let rect = Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + (area.height - height) / 2,
+            width,
+            height,
+        };
+        Clear.render(rect, buf);
+        let bold = Style::default().add_modifier(Modifier::BOLD);
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let mut lines = vec![Line::styled("cockpit keys", bold), Line::raw("")];
+        let session = self.chat_inside;
+        let mut group = None;
+        for (keys, description) in super::keys::help_rows(session) {
+            let row_group = super::keys::HELP
+                .iter()
+                .find(|e| e.keys == keys)
+                .map(|e| e.group);
+            if row_group != group {
+                group = row_group;
+                if let Some(g) = group {
+                    let title = match g {
+                        super::keys::HelpGroup::Moving => "moving",
+                        super::keys::HelpGroup::Opening => "opening",
+                        super::keys::HelpGroup::Confirm => "confirm",
+                        super::keys::HelpGroup::Views => "views",
+                        super::keys::HelpGroup::Quit => "quit",
+                        super::keys::HelpGroup::Help => "help",
+                        super::keys::HelpGroup::PolicyPane => "policy pane",
+                        super::keys::HelpGroup::Session => "with --session",
+                    };
+                    lines.push(Line::styled(title, bold));
+                }
+            }
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {keys:<22}"), bold),
+                Span::raw(description),
+            ]));
+        }
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("Esc or ? closes", dim));
+        Paragraph::new(lines)
+            .block(Block::bordered().title(" help "))
             .wrap(Wrap { trim: false })
             .render(rect, buf);
     }
@@ -2384,7 +2456,7 @@ impl App {
         };
         let keys = format!(
             "arrows/Tab move, Enter opens, {lanes}, Esc closes, r raw lines, i reveals input, \
-             a approves, d denies, v reviews a task, m stops a seat, p policies, q quits"
+             a approves, d denies, v reviews a task, m stops a seat, p policies, ? help, q quits"
         );
         let mut text = format!(
             "{goal} | every {}s | {counts} | {keys}",

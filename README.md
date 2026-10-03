@@ -162,6 +162,7 @@ two seconds and launches no provider.
 | `v`, `y` | start `hydra-puppets review` on the selected task: three judge runs, which count against quota |
 | `m`, `y` | stop the selected live seat, the same stop as `hydra stop`; with `--session`, leave an unsent note about it in the chat |
 | `p` | policy pane: the set's sha and the live runs' shas; `e` opens the selected file in `$EDITOR` |
+| `?` | help: every key the cockpit answers; `Esc` closes |
 | `q` | quit |
 
 Each write waits for a `y`: a seat approval or denial, which is what `hydra approve <id>` or

@@ -43,6 +43,7 @@ pub mod call_head;
 pub mod chat;
 pub mod goal;
 pub mod host;
+pub mod keys;
 pub mod mascot;
 pub mod snapshot;
 pub mod window;

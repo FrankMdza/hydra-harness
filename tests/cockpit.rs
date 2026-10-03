@@ -1530,7 +1530,7 @@ fn a_key_with_the_cockpit_focused_does_not_reach_the_child() {
     assert_eq!(host.side, Side::Cockpit);
     let buf = until(&mut host, WIDE, "the status line", |_, _| true);
     let (_, _, status) = Host::areas(WIDE);
-    assert!(row_of(&buf, status.y).contains("the cockpit has the keys"));
+    assert!(row_of(&buf, status.y).contains("keys go to: cockpit"));
     for code in [KeyCode::Char('x'), KeyCode::Down, KeyCode::Enter] {
         host.handle(&key(code));
     }
@@ -1544,7 +1544,7 @@ fn a_key_with_the_cockpit_focused_does_not_reach_the_child() {
     });
     let text = chat_text(&buf, WIDE);
     assert!(text.contains("got <y>"), "{text}");
-    assert!(row_of(&buf, status.y).contains("the chat has the keys"));
+    assert!(row_of(&buf, status.y).contains("keys go to: chat"));
     host.handle(&key(KeyCode::Enter));
 }
 
@@ -1752,6 +1752,57 @@ fn the_policy_pane_lists_the_five_and_marks_a_run_on_another_sha() {
 
     assert_eq!(app.handle(&key(KeyCode::Esc)), Effect::None);
     assert!(!screen_text(&draw_wide(&mut app)).contains("policy set"));
+}
+
+#[test]
+fn question_opens_help_lists_every_key_and_esc_closes_it() {
+    let layout = scratch("help-pane");
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    let before = screen_text(&draw_wide(&mut app));
+    assert!(!before.contains("cockpit keys"));
+
+    assert_eq!(app.handle(&key(KeyCode::Char('?'))), Effect::None);
+    assert!(app.help_pane);
+    let buf = draw_wide(&mut app);
+    let text = screen_text(&buf);
+    assert!(text.contains("cockpit keys"));
+    for label in hydra::cockpit::keys::help_key_labels() {
+        assert!(text.contains(label), "help missing {label:?}:\n{text}");
+    }
+
+    assert_eq!(app.handle(&key(KeyCode::Esc)), Effect::None);
+    assert!(!app.help_pane);
+    assert!(!screen_text(&draw_wide(&mut app)).contains("cockpit keys"));
+}
+
+#[test]
+fn every_main_dispatch_key_is_listed_in_the_help_table() {
+    use hydra::cockpit::keys::{HELP, MainKey};
+    const ALL: &[MainKey] = &[
+        MainKey::Quit,
+        MainKey::Policy,
+        MainKey::FocusForward,
+        MainKey::FocusBackward,
+        MainKey::MoveUp,
+        MainKey::MoveDown,
+        MainKey::Open,
+        MainKey::CloseOpened,
+        MainKey::ApproveAsk,
+        MainKey::DenyAsk,
+        MainKey::ReviewAsk,
+        MainKey::StopAsk,
+        MainKey::ToggleLanes,
+        MainKey::ToggleRawTail,
+        MainKey::ToggleReveal,
+        MainKey::ToggleHelp,
+    ];
+    for mk in ALL {
+        assert!(
+            HELP.iter()
+                .any(|e| e.bindings.iter().any(|(_, m)| *m == *mk)),
+            "help table missing {mk:?}"
+        );
+    }
 }
 
 /// `e` in the pane, the editor run the way the loop runs it, and the reload.

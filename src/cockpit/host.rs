@@ -267,10 +267,14 @@ impl Host {
             return;
         }
         let side = match self.side {
-            Side::Chat => "the chat has the keys",
-            Side::Cockpit => "the cockpit has the keys",
+            Side::Chat => "keys go to: chat",
+            Side::Cockpit => "keys go to: cockpit",
         };
-        let mut text = format!("{side} | F2 switches | Ctrl-q quits");
+        let help = match self.side {
+            Side::Chat => "F2 then ? for help",
+            Side::Cockpit => "? help",
+        };
+        let mut text = format!("{side} | {help} | F2 switches | Ctrl-q quits");
         if let Some(message) = &self.message {
             text = format!("{message} | {text}");
         }
