@@ -1,7 +1,7 @@
 # 240 - A help key in the cockpit
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
