@@ -56,12 +56,12 @@ fn hydra_copilot_argv_matches_cli_without_launching() {
         "hydra-copilot must start the chat in a directory outside the repository"
     );
     assert!(
-        script.contains("cockpit --session claude --model"),
-        "hydra-copilot must exec ungated cockpit with a model flag"
+        script.contains("cockpit --session") && script.contains("--model"),
+        "hydra-copilot must exec ungated cockpit with session and model flags"
     );
     assert!(
-        script.contains("${1:-sonnet}"),
-        "hydra-copilot must default the model to sonnet"
+        script.contains("MODEL=sonnet"),
+        "hydra-copilot must default a claude copilot's model to sonnet"
     );
 
     for want in ["sonnet", "opus"] {

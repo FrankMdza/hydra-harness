@@ -7,12 +7,12 @@ Nothing loads it automatically. It is not `AGENTS.md`.
 
 For a gated chat, use `hydra run --interactive --provider <p> --policy <name>` on the command line.
 
-**Ungated copilot: `hydra cockpit --session claude` with no `--policy`.** The left panel is an
-ordinary Claude Code chat with the person's own permissions and no gate. It launches agents
+**Ungated copilot: `hydra cockpit --session claude` or `--session codex` with no `--policy`.**
+The left panel is an ordinary chat of that provider with the person's own permissions and no gate. It launches agents
 from a shell with `hydra run`, waits for them with `hydra wait`, and reads them with
 `hydra show`. Each agent it launches is gated and recorded; the copilot is not. It has no
-`panel` or `delegate` tool, and Claude's `Edit`, `Write` and `NotebookEdit` tools are
-disallowed so file changes go through `hydra run`. It is told this in one line when it starts.
+`panel` or `delegate` tool. On `claude` its `Edit`, `Write` and `NotebookEdit` tools are
+disallowed so file changes go through `hydra run`; `codex` has no such switch. It is told this in one line when it starts.
 
 **Viewer: `hydra cockpit` with no `--session`.** No chat. The cockpit shows runs, seat
 requests and Puppets steps on disk, and you can still approve, deny, review and stop from the

@@ -19,6 +19,7 @@ fn run_copilot(
     hydra_stub: &Path,
     model: &str,
     repo: Option<&Path>,
+    provider: Option<&str>,
 ) -> std::process::Output {
     let mut cmd = Command::new(copilot_bin());
     cmd.env("HYDRA_COPILOT_HOME", home)
@@ -26,6 +27,9 @@ fn run_copilot(
         .arg(model);
     if let Some(repo) = repo {
         cmd.arg(repo);
+    }
+    if let Some(provider) = provider {
+        cmd.arg(provider);
     }
     cmd.output().expect("running hydra-copilot")
 }
@@ -56,7 +60,7 @@ fn hydra_copilot_renders_the_repository_and_hands_off_to_cockpit() {
     std::fs::set_permissions(&stub, perms).expect("chmod stub");
 
     let default_repo = manifest().canonicalize().expect("manifest path");
-    let out = run_copilot(&home, &stub, "sonnet", None);
+    let out = run_copilot(&home, &stub, "sonnet", None, None);
     assert!(
         out.status.success(),
         "hydra-copilot failed: {}",
@@ -73,7 +77,7 @@ fn hydra_copilot_renders_the_repository_and_hands_off_to_cockpit() {
         "stub argv: {stdout}"
     );
 
-    let out = run_copilot(&home, &stub, "opus", Some(&other_repo));
+    let out = run_copilot(&home, &stub, "opus", Some(&other_repo), None);
     assert!(
         out.status.success(),
         "named repo failed: {}",
@@ -94,7 +98,7 @@ fn hydra_copilot_renders_the_repository_and_hands_off_to_cockpit() {
 
     let not_repo = scratch.join("not-git");
     std::fs::create_dir(&not_repo).expect("not a repo");
-    let out = run_copilot(&home, &stub, "sonnet", Some(&not_repo));
+    let out = run_copilot(&home, &stub, "sonnet", Some(&not_repo), None);
     assert!(!out.status.success());
     let stderr_line = String::from_utf8_lossy(&out.stderr);
     let stderr = stderr_line.trim();
@@ -137,4 +141,86 @@ fn ungated_interactive_argv_disallows_file_edit_tools_gated_does_not() {
         !gated.iter().any(|a| a == "--disallowed-tools"),
         "gated argv must not carry copilot disallows: {gated:?}"
     );
+}
+
+#[test]
+fn hydra_copilot_codex_renders_agents_md_and_passes_session_codex() {
+    let scratch =
+        std::env::temp_dir().join(format!("hydra-copilot-codex-test-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("scratch dir");
+    let home = scratch.join("copilot-home");
+    let stub = scratch.join("hydra-stub");
+    std::fs::write(&stub, "#!/usr/bin/env bash\nprintf 'argv=%s\\n' \"$*\"\n").expect("write stub");
+    let mut perms = std::fs::metadata(&stub)
+        .expect("stub metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&stub, perms).expect("chmod stub");
+
+    let default_repo = manifest().canonicalize().expect("manifest path");
+    let out = run_copilot(
+        &home,
+        &stub,
+        "gpt-5.4",
+        Some(default_repo.as_path()),
+        Some("codex"),
+    );
+    assert!(
+        out.status.success(),
+        "hydra-copilot codex failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rendered = std::fs::read_to_string(home.join("AGENTS.md")).expect("rendered AGENTS.md");
+    assert!(
+        rendered.contains(&default_repo.to_string_lossy().to_string()),
+        "codex copilot must render {{REPO}} into AGENTS.md"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("cockpit --session codex --model gpt-5.4"),
+        "stub argv: {stdout}"
+    );
+
+    // No model named: `codex` keeps its own default rather than getting Sonnet.
+    let out = run_copilot(
+        &home,
+        &stub,
+        "",
+        Some(default_repo.as_path()),
+        Some("codex"),
+    );
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.trim_end().ends_with("cockpit --session codex"),
+        "stub argv: {stdout}"
+    );
+}
+
+#[test]
+fn hydra_copilot_unknown_provider_exits_one() {
+    let scratch =
+        std::env::temp_dir().join(format!("hydra-copilot-bad-provider-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("scratch dir");
+    let home = scratch.join("copilot-home");
+    let stub = scratch.join("hydra-stub");
+    std::fs::write(&stub, "#!/usr/bin/env bash\nexit 0\n").expect("write stub");
+    let mut perms = std::fs::metadata(&stub)
+        .expect("stub metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&stub, perms).expect("chmod stub");
+
+    let default_repo = manifest().canonicalize().expect("manifest path");
+    let out = run_copilot(
+        &home,
+        &stub,
+        "sonnet",
+        Some(default_repo.as_path()),
+        Some("cursor-agent"),
+    );
+    assert!(!out.status.success());
+    let stderr_line = String::from_utf8_lossy(&out.stderr);
+    let stderr = stderr_line.trim();
+    assert_eq!(stderr, "hydra-copilot: provider must be claude or codex");
 }

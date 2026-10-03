@@ -1,7 +1,7 @@
 # 258 - The copilot starts on `codex`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -37,3 +37,22 @@ destination pairs, and pass `--disallowed-tools` to `claude`.
   clean. `COCKPIT.md`: one sentence. `IMPLEMENTATION.md`: one sentence.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a103b4-93ab` (`cursor-agent` composer-2.5, `standard`), with two
+fixes by the session.
+
+Built: `hydra-copilot [model] [repo] [provider]`, `claude` by default, `codex` the only other;
+anything else exits 1. `COPILOT.md` renders as both `CLAUDE.md` and `AGENTS.md` and no longer
+assumes `claude`. No `codex` flag was added: `--sandbox read-only` would also confine the shell
+that runs `hydra run`, which writes under `~/hydra`. Tests: two in
+`tests/copilot_repo_and_tools.rs`, each failing against the build-253 script.
+
+What the session changed: the agent kept `sonnet` as the default model for every provider, so a
+`codex` copilot would have started with `--model sonnet`. The default is now `sonnet` on `claude`
+only, and a `codex` copilot with no model passes none; a test checks it and fails with the old
+default. `COCKPIT.md` still called the codex copilot a "Claude Code chat" and named `claude`'s
+tools as everyone's; it says which provider has the switch.
+
+Not confirmed: that `codex` reads `AGENTS.md` from its start directory (the repository says so
+since build 154; `codex --help` does not), and that a real `codex` copilot launches agents through
+`hydra run` from its shell. Both need a person at the keyboard.
