@@ -1,5 +1,5 @@
-//! `.scratch/hydra/frontier.py` as a subcommand: which tickets are takeable and what blocks
-//! the rest.
+//! What `.scratch/hydra/frontier.py` was until it was deleted on 2026-10-03: which tickets
+//! are takeable and what blocks the rest.
 
 use std::collections::BTreeMap;
 use std::fs;

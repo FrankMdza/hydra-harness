@@ -51,7 +51,7 @@ the signal you have reached the edge of the map. Take a map ticket only when the
 tickets, same format as the map's, `Type: build`. Start a session like this:
 
 ```
-python3 .scratch/hydra/frontier.py build
+./target/release/hydra-puppets frontier build
 ```
 
 Take a takeable ticket, set `Status: claimed` in its file **before** doing any work, read the spec
@@ -149,8 +149,8 @@ No issue tracker is configured, so this is the local-markdown tracker. Run
 ## The frontier
 
 ```
-python3 .scratch/hydra/frontier.py          # the design map, 82 of 82 resolved on 2026-09-28
-python3 .scratch/hydra/frontier.py build    # the build
+./target/release/hydra-puppets frontier          # the design map
+./target/release/hydra-puppets frontier build    # the build
 ```
 
 Prints which tickets are takeable now and which are still blocked. Claim one by setting

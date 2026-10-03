@@ -355,7 +355,7 @@ the skill store.
 2026-09-30, with the reasoning each document compressed. `.scratch/hydra/build/plan.md`
 indexes the build, 172 tickets on the same day, and every resolved one ends in an `## Outcome`
 that says what the session changed in the agent's diff before applying it.
-`python3 .scratch/hydra/frontier.py` and `python3 .scratch/hydra/frontier.py build` print
+`hydra-puppets frontier` and `hydra-puppets frontier build` print
 today's counts. `CLAUDE.md` is what an agent reads first.
 
 Many tickets point at `~/.claude/handoffs/...`, and some at paths under `/Users/USER`. Those are
