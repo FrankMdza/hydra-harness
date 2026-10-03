@@ -1,7 +1,7 @@
 # 249 - The copilot's profile: Sonnet, its own short document, outside the repository's instructions
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 246, 248
 
 ## What
