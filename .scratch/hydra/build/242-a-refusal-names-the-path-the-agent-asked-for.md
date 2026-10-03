@@ -1,7 +1,7 @@
 # 242 - A refusal names the path the agent asked for
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
