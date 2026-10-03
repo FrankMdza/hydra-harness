@@ -78,3 +78,7 @@ versions write and `codex exec` (`codex_exec` on all 139 exec files) does not. T
 own session now says `vscode`, and fails against the old filter. That run's record stays closed
 as it was. Also seen on that run: 0.159.2 printed "Disconnected from this task. Any running work
 continues", so the TUI process can exit while its turn goes on.
+
+Verified 2026-10-03 by the human's second run after the fix (`01a103ea-de78`, `codex` 0.159.2, in
+`~/another-private-repo`): `completed`, `usage_source: provider`, 54,553 input net of 872,960 cache
+read and 14,441 output, the same numbers `codex` printed on exit.
