@@ -391,9 +391,22 @@ impl Chat {
         let _ = self.writer.flush();
     }
 
-    pub fn send_key(&mut self, key: &KeyEvent) {
+    /// Whether `key` is `Ctrl-Z`, which would suspend the chat's foreground
+    /// process with no shell behind the pty to bring it back with `fg`.
+    pub fn is_suspend_key(key: &KeyEvent) -> bool {
+        key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('z') | KeyCode::Char('Z'))
+    }
+
+    /// Writes the bytes for `key` to the pty. Returns false when the key is
+    /// withheld, as with [`is_suspend_key`].
+    pub fn send_key(&mut self, key: &KeyEvent) -> bool {
+        if Self::is_suspend_key(key) {
+            return false;
+        }
         let bytes = key_bytes(key, self.parser.screen().application_cursor());
         self.send(&bytes);
+        true
     }
 
     /// A mouse event at `column`, `row` inside the panel, sent only when the
@@ -650,6 +663,30 @@ mod tests {
         );
         assert_eq!(key_bytes(&key(KeyCode::F(5), none), false), b"\x1b[15~");
         assert_eq!(key_bytes(&key(KeyCode::Backspace, none), false), [0x7f]);
+        assert_eq!(
+            key_bytes(&key(KeyCode::Char('z'), KeyModifiers::CONTROL), false),
+            [0x1a]
+        );
+    }
+
+    #[test]
+    fn suspend_key_is_ctrl_z_alone() {
+        assert!(Chat::is_suspend_key(&key(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL
+        )));
+        assert!(Chat::is_suspend_key(&key(
+            KeyCode::Char('Z'),
+            KeyModifiers::CONTROL
+        )));
+        assert!(!Chat::is_suspend_key(&key(
+            KeyCode::Char('z'),
+            KeyModifiers::NONE
+        )));
+        assert!(!Chat::is_suspend_key(&key(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
     }
 
     #[test]

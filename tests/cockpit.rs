@@ -57,6 +57,10 @@ fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
 }
 
+fn ctrl(code: KeyCode) -> Event {
+    Event::Key(KeyEvent::new(code, KeyModifiers::CONTROL))
+}
+
 fn mouse(kind: MouseEventKind, column: u16, row: u16) -> Event {
     Event::Mouse(MouseEvent {
         kind,
@@ -1501,6 +1505,25 @@ fn the_chat_panel_shows_what_the_child_printed_with_its_colours() {
     assert_eq!(buf[(x, y)].fg, ratatui::style::Color::Indexed(1));
     assert_eq!(buf[(chat.x + 1, y)].fg, ratatui::style::Color::Reset);
     assert_eq!(host.side, Side::Chat);
+    host.handle(&key(KeyCode::Enter));
+}
+
+#[test]
+fn ctrl_z_with_the_chat_focused_does_not_suspend_the_child() {
+    let layout = scratch("chat-ctrl-z");
+    let mut host = stub(&layout, ECHO, "", WIDE);
+    until(&mut host, WIDE, "ready", |_, text| text.contains("ready"));
+    assert_eq!(host.handle(&ctrl(KeyCode::Char('z'))), Effect::None);
+    for code in [KeyCode::Char('q'), KeyCode::Char('a'), KeyCode::Enter] {
+        assert_eq!(host.handle(&key(code)), Effect::None);
+    }
+    until(&mut host, WIDE, "got <qa>", |_, text| {
+        text.contains("got <qa>")
+    });
+    let mut buf = Buffer::empty(WIDE);
+    host.draw(WIDE, &mut buf);
+    let (_, _, status) = Host::areas(WIDE);
+    assert!(row_of(&buf, status.y).contains("Ctrl-Z is not sent to the chat"));
     host.handle(&key(KeyCode::Enter));
 }
 

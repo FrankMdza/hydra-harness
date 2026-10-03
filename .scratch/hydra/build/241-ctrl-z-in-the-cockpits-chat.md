@@ -1,7 +1,7 @@
 # 241 - Ctrl-Z in the cockpit's chat leaves a session nobody can resume
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -31,3 +31,22 @@ pty, `0x1a` included.
 
 - The test passes; fmt, clippy `--workspace --all-targets -- -D warnings` and `cargo test` pass.
 - `IMPLEMENTATION.md` says what the cockpit does with `Ctrl-Z`.
+
+## Outcome
+
+Resolved 2026-10-03 by run `01a1019b-d792` (`cursor-agent` composer-2.5, `standard`, 0.95M
+tokens), applied by the session with one change: the status message.
+
+Built: the first of the ticket's two options. `Chat::send_key` withholds `Ctrl-Z` and returns
+false; the host says once on the status line `Ctrl-Z is not sent to the chat: nothing behind it
+could resume the provider`. The run's wording told the person to suspend the provider "from the
+orchestrating terminal", which does not exist; the session rewrote it. Test:
+`ctrl_z_with_the_chat_focused_does_not_suspend_the_child` in `tests/cockpit.rs`, on the stub
+echo provider.
+
+Measured by the session on master: with the early return removed the test fails; restored, it
+passes. `--test cockpit` 115 passed and 1 ignored, `--lib` 229, fmt and clippy clean.
+
+Step 2, `hydra run --interactive` outside the cockpit, was read and not run: both launches
+inherit the terminal's stdin with no pty of Hydra's, so the shell's job control applies and `fg`
+should bring the provider back. Unmeasured.

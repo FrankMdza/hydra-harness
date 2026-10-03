@@ -4261,7 +4261,12 @@ detail below it.
 *Focus.* The chat starts with the keys. `F2` toggles, and the status line says which side has
 them; only the side with the keys has a lit border. With the chat focused every key goes to the
 child as its bytes, `q`, `a`, arrows and `Enter` included, and every mouse event inside the panel
-goes to it at panel coordinates. Two choices the ticket left open, taken as the smallest ones: a
+goes to it at panel coordinates. `Ctrl-Z` is not one of them: the chat's pty has no shell behind
+it, so suspending the provider would leave a session only `kill -CONT` can resume; the cockpit
+withholds the byte and says so once on the status line. `hydra run --interactive` outside the
+cockpit keeps the orchestrating shell in front: `Ctrl-Z` there suspends the foreground process
+group and the shell's `fg` brings the provider back, so that path is unchanged. Two choices the
+ticket left open, taken as the smallest ones: a
 left click on the cockpit's side hands it the keys and is handled there, and a click on the chat
 while the cockpit has the keys hands them back. With the cockpit focused, build 150's keys apply,
 and `q` goes through the same rule as `Ctrl-q` rather than leaving a live child behind.
@@ -4288,7 +4293,8 @@ drives the `Host` with synthetic crossterm events over a `Buffer`: the panel sho
 printed, in its red; `q`, `a` and `Enter` with the chat focused reach the child as `qa`; `x`,
 `Down` and `Enter` with the cockpit focused do not; a redraw at a larger size reaches `stty size`
 in the child; the child's exit puts its run id and a fixture record's outcome on the line; and
-`Ctrl-q` asks, `n` keeps, `y` hangs up a stub that traps `HUP`. Each failed before the change,
+`Ctrl-q` asks, `n` keeps, `y` hangs up a stub that traps `HUP`, and `Ctrl-Z` does not stop a
+stub that would read `qa` after it. Each failed before the change,
 by not compiling, and each also fails with its one behaviour removed. `chat::tests` checks the
 key and mouse encodings and the two answered queries. The binary ran once on a Python pty at
 160 by 40 against a scratch `HYDRA_ROOT`, with `--session codex`: it drew the panel, showed the

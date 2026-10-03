@@ -37,6 +37,9 @@ pub struct Host {
     /// record is read.
     pub hanging_up: bool,
     message: Option<String>,
+    /// Whether [`Chat::is_suspend_key`] has already been explained on the
+    /// status line.
+    suspend_hint: bool,
     chat_area: Rect,
 }
 
@@ -50,6 +53,7 @@ impl Host {
             asking: false,
             hanging_up: false,
             message: None,
+            suspend_hint: false,
             chat_area: Rect::default(),
         }
     }
@@ -159,7 +163,16 @@ impl Host {
             return Effect::None;
         };
         match event {
-            Event::Key(key) => chat.send_key(key),
+            Event::Key(key) => {
+                if !chat.send_key(key) && !self.suspend_hint {
+                    self.message = Some(
+                        "Ctrl-Z is not sent to the chat: nothing behind it could resume the \
+                         provider"
+                            .to_string(),
+                    );
+                    self.suspend_hint = true;
+                }
+            }
             Event::Paste(text) => chat.paste(text),
             Event::Mouse(mouse) => {
                 let at = Position::new(mouse.column, mouse.row);
