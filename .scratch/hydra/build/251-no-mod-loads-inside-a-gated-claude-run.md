@@ -1,7 +1,7 @@
 # 251 - No mod loads inside a gated `claude` run
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: map 103
 
 ## What
@@ -83,3 +83,9 @@ that counts and calls `next`) loaded by `claude -p --plugin-dir`: the debug log 
 (allowManagedModsOnly); inert-mod was not loaded`. The control, the same launch without the file,
 was not run, because removing it is the human's; the guard does not load without managed settings
 on this login, per the vendor's page and run `01a10389-ec0e`. Build 257 carries map 103 C.
+
+Resolved 2026-10-03 by the session, with no code of its own: map 103 A (the managed settings file,
+checked above) keeps a user's mod out of every `claude` on the machine, gated runs included, and
+build 257 (map 103 C) keeps a gated run from writing a plugin where a later launch would load it.
+Steps 1 to 4's flag does not exist in `claude` 2.1.288. The ungated copilot is under A too, so a
+mod for it would have to be installed as the organization's, from an admin-owned directory.
