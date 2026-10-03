@@ -15,6 +15,33 @@ use crate::provider::Provider;
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
+/// The rule every profile carries third, and the line the copilot's block of
+/// build ticket 250 goes in after.
+const TIOCSTI_DENY: &str = "(deny file-ioctl (ioctl-command TIOCSTI))";
+
+/// What `claude` keeps under `~/.claude` that a gated interactive session may
+/// write, build ticket 250. Its transcripts are not here: the run's own
+/// `projects/<slug>` directory is a write carve-out of every `claude` profile,
+/// and it comes after the denials. Absent on purpose are `settings.json`,
+/// `hooks/`, `skills/`, `plugins/`, `commands/`, `agents/` and `CLAUDE.md`,
+/// which the human's next ungated session reads as instructions or runs as
+/// code. Taken from the entries running sessions had modified on 2026-10-03,
+/// not from a trace of one launch under the profile.
+const CLAUDE_STATE_DIRS: &[&str] = &[
+    "backups",
+    "debug",
+    "file-history",
+    "paste-cache",
+    "plans",
+    "session-env",
+    "sessions",
+    "shell-snapshots",
+    "statsig",
+    "tasks",
+    "telemetry",
+    "todos",
+];
+
 /// Whether recorded launches on this machine are wrapped in the seatbelt.
 pub fn wraps_launches() -> bool {
     cfg!(target_os = "macos")
@@ -80,7 +107,7 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
     // Build ticket 137. In a gated interactive launch the provider under this
     // profile holds the human's terminal, and TIOCSTI would let it type into
     // that terminal's input queue. No process in a run has a reason to.
-    lines.push("(deny file-ioctl (ioctl-command TIOCSTI))".to_string());
+    lines.push(TIOCSTI_DENY.to_string());
     for path in write_denies(set, spawn) {
         lines.push(format!(
             r#"(deny file-write* (subpath "{}"))"#,
@@ -230,6 +257,101 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
         ));
     }
     format!("{}\n", lines.join("\n"))
+}
+
+/// Narrows a gated interactive launch's profile, build ticket 250, and returns
+/// the new sha256 for `run_start.sandbox`.
+///
+/// Map ticket 98: under `(allow default)` a gated session wrote
+/// `~/prueba-fuera.txt` with a shell `printf`, because the gate does not read
+/// shell and the profile denied only Hydra's own paths. The session a human
+/// types into gets every write under the home directory denied, then handed
+/// back where it works and where `claude` keeps the state it needs to run.
+/// Headless launches keep the profile [`compose`] writes.
+pub fn narrow_for_copilot(profile: &Path, worktree: &Path) -> Result<String> {
+    let home = crate::env::real_home()?;
+    let spawn_dir = profile
+        .parent()
+        .context("a profile path with no spawn directory")?;
+    let block = copilot_block(&home, worktree, spawn_dir)?;
+    let text = std::fs::read_to_string(profile)
+        .with_context(|| format!("reading {}", profile.display()))?;
+    let text = insert_after_tiocsti(&text, &block)?;
+    std::fs::write(profile, &text).with_context(|| format!("writing {}", profile.display()))?;
+    Ok(format!("{:x}", Sha256::digest(text.as_bytes())))
+}
+
+/// The deny on the home directory and the allows after it.
+///
+/// It goes before every rule [`compose`] writes after the TIOCSTI line. SBPL
+/// takes the last matching rule, so Hydra's own denials still win over these
+/// allows: the spawn directory allowed here stays denied whole except what
+/// [`compose`] carves out of it again, and the worktree's private git files
+/// stay as they were.
+pub fn copilot_block(home: &Path, worktree: &Path, spawn_dir: &Path) -> Result<Vec<String>> {
+    let home = canonical(home);
+    if home.contains('"') {
+        anyhow::bail!("a home directory with a quote in its name: {home}");
+    }
+    let mut lines = vec![format!(
+        r#"(deny file-write* (subpath "{}"))"#,
+        escape(&home)
+    )];
+    let mut allowed = Vec::new();
+    push_unique(&mut allowed, canonical(worktree));
+    // `claude` and `git` write scratch files here. All three sit outside the
+    // home directory on a stock Mac, so these allow nothing the deny took,
+    // unless `TMPDIR` points under home.
+    push_unique(&mut allowed, canonical(&std::env::temp_dir()));
+    push_unique(&mut allowed, "/private/tmp".to_string());
+    push_unique(&mut allowed, "/private/var/folders".to_string());
+    push_unique(&mut allowed, canonical(spawn_dir));
+    for dir in CLAUDE_STATE_DIRS {
+        push_unique(&mut allowed, format!("{home}/.claude/{dir}"));
+    }
+    push_unique(
+        &mut allowed,
+        format!("{home}/Library/Caches/claude-cli-nodejs"),
+    );
+    for path in allowed {
+        lines.push(format!(
+            r#"(allow file-write* (subpath "{}"))"#,
+            escape(&path)
+        ));
+    }
+    // A prefix rather than a literal: `claude` rewrites `~/.claude.json`
+    // through a sibling it renames over it, and keeps a lock beside it.
+    // `history.jsonl` takes a lock the same way.
+    for file in [".claude.json", ".claude/history.jsonl"] {
+        lines.push(format!(
+            r##"(allow file-write* (regex #"^{}"))"##,
+            regex_escape(&format!("{home}/{file}"))
+        ));
+    }
+    Ok(lines)
+}
+
+fn insert_after_tiocsti(text: &str, block: &[String]) -> Result<String> {
+    let mut lines: Vec<&str> = text.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| *line == TIOCSTI_DENY)
+        .context("the profile has no TIOCSTI rule to put the copilot's block after")?;
+    for (offset, line) in block.iter().enumerate() {
+        lines.insert(at + 1 + offset, line);
+    }
+    Ok(format!("{}\n", lines.join("\n")))
+}
+
+fn regex_escape(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for c in path.chars() {
+        if r"\.^$|?*+()[]{}".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Whether the spawn's policy bounds its shell to a list, build ticket 139.

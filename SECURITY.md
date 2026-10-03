@@ -69,7 +69,9 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   config files.** Build ticket 74 added `hydra_home()` whole, with the run's own worktree and a
   `curate` pass's checkout carved back out. Under `standard` a shell command still reads and writes
   the rest of the machine: `~/.ssh`, your own `~/.claude` hooks and settings, and any directory on
-  `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from. The gate allows
+  `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from, except in a gated
+  interactive session since build 250, which writes nothing under your home directory outside its
+  worktree and `claude`'s session state. The gate allows
   one read outside the worktree on `claude`: the run's own `~/.claude/projects/<slug>/`
   directory, for tool output Claude Code wrote there; every other path under `~/.claude` stays
   refused on a gated `Read`. The honest

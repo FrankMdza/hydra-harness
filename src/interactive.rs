@@ -189,7 +189,7 @@ fn finish_policy_launch(
     }
 
     let store_sha = injected.as_ref().map(|i| i.store_sha.as_str());
-    let spawn = write_spawn_config(
+    let mut spawn = write_spawn_config(
         layout,
         run_id,
         policies,
@@ -200,6 +200,11 @@ fn finish_policy_launch(
         store_sha,
         false,
     )?;
+    // Build ticket 250: the session a human types into writes nothing under
+    // the home directory outside its worktree and `claude`'s own state.
+    if let Some(profile) = &spawn.sandbox_profile {
+        spawn.sandbox_sha = Some(crate::sandbox::narrow_for_copilot(profile, &worktree.path)?);
+    }
     // The seatbelt this launch runs under denies the parent's `objects/`.
     let object_env = crate::worktree::prepare_run_objects(layout, run_id, repo)?;
 

@@ -1,7 +1,7 @@
 # 250 - A narrower sandbox for the gated copilot
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -37,3 +37,37 @@ outside the worktree and the temp directory. Agents launched headless keep today
 - The live check fails with the deny removed (revert it, run it, restore it). fmt, clippy and
   `cargo test` pass. A real gated cockpit session still starts and answers; the human checks this
   one by hand and the Outcome says it is his.
+
+## Outcome
+
+Resolved 2026-10-03 by run `01a101a9-6ff9` (`claude` opus 5.5, `standard`, 2.21M tokens),
+applied by the session unchanged; the live check was run by the session, since a seatbelt does
+not nest inside a run.
+
+Built: `sandbox::copilot_block` and `narrow_for_copilot`. For a gated interactive launch only
+(`interactive::finish_policy_launch`), the profile gains, right after the TIOCSTI rule,
+`(deny file-write* (subpath "<home>"))` and then allows for the worktree, the temp directories,
+the spawn directory, twelve named state directories under `~/.claude` (backups, debug,
+file-history, paste-cache, plans, session-env, sessions, shell-snapshots, statsig, tasks,
+telemetry, todos), `~/Library/Caches/claude-cli-nodejs`, and `~/.claude.json*` and
+`~/.claude/history.jsonl*` by prefix. Hydra's own denies come after the block and still win.
+`settings.json`, `hooks/`, `skills/`, `plugins/`, `commands/`, `agents/` and `CLAUDE.md` stay
+unwritable. Headless profiles are byte for byte unchanged; `run_start.sandbox` records the
+narrowed sha. Tests: four in `tests/sandbox_copilot.rs`, one a live `sandbox-exec` probe that
+writes into the worktree as a control and `printf x > ~/<probe>` as the check.
+
+Measured by the session on master, outside any seatbelt: the live probe runs and passes; with the
+home deny removed it fails with `a write to home was not refused: rc=0`, and restored it passes.
+The run measured `a_gated_interactive_launch_records_the_narrowed_profile` failing without the
+`interactive.rs` hunk. `sandbox_copilot` 4, `sandbox_read_only` 3, `sandbox_tty` 2, `spawn` 36,
+`--lib` 234; fmt and clippy clean.
+
+Not measured: the list of `claude`'s state directories was read off names and modification times
+under `~/.claude`, not traced from a launch under the profile, so step 2's condition is unknown.
+Whether a real gated cockpit session still starts and answers is the human's check, after a
+release build; the likely failures are a missing `~/.claude` entry or the updater under
+`~/.local/share/claude`. Writes to `~/.cargo` or `~/.npm` now fail in a gated session.
+
+Left open, map ticket 99: `~/.claude.json` stays writable because `claude` rewrites it at every
+start, and it holds user-scope MCP servers, so a gated session can add a server that the next
+ungated session starts.

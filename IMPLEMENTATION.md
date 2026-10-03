@@ -3119,6 +3119,22 @@ The ungated arm stays bare. `tests/spawn.rs::a_gated_interactive_launch_wraps_cl
 asserts the prep yields a profile path and that the argv starts with `/usr/bin/sandbox-exec`.
 A human must still run one session and confirm the vendor's TUI works under the wrap.
 
+**Since build ticket 250, that profile denies writes under the home directory.** Map ticket 98
+answered a gated session writing `~/prueba-fuera.txt` with `printf`. `sandbox::narrow_for_copilot`
+puts `(deny file-write* (subpath "<home>"))` right after the TIOCSTI rule, then allows the
+worktree, `$TMPDIR`, `/private/tmp`, `/private/var/folders`, the spawn directory, twelve
+directories of `claude` state under `~/.claude`, `~/Library/Caches/claude-cli-nodejs`, and
+`~/.claude.json` and `~/.claude/history.jsonl` by prefix. Every rule `compose` writes comes
+after the block, so Hydra's own denials still win over it, and `run_start.sandbox` is the sha of
+the narrowed file. Headless launches compose the profile they did before, byte for byte.
+`settings.json`, `hooks/`, `skills/`, `plugins/` and `CLAUDE.md` stay denied, but
+`~/.claude.json` is writable and carries user-scope MCP servers. The `claude` list was not
+traced: nested `sandbox-exec` is refused inside a run, so it comes from the entries running
+sessions had modified on 2026-10-03, and `claude --version` and `--help` wrote nothing outside
+`~/.claude`. The live probe in `tests/sandbox_copilot.rs` skips inside a seatbelt and has not
+run. Shell work that writes under home, `~/.cargo` or `~/.npm`, now fails in a gated session.
+Whether a real cockpit session still starts and answers is the human's to check.
+
 ## `judge` is not injected, and the face is admitted
 
 **A `judge` run is linked no skills, since build ticket 25.** Map ticket 47 decided it: the
