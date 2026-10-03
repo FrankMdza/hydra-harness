@@ -1148,10 +1148,17 @@ pub fn roll_back(repo: &Path, dest: &Path, branch: &str) -> Result<()> {
 /// Ignored files are outside it, because `add -A` honours `.gitignore` and the
 /// seed skipped them for the same reason: they are `target/` and the rest of what
 /// a build produces.
+///
+/// **The index starts from `HEAD`, not empty.** Git ignores only untracked
+/// files, and in an empty index every file is untracked. Skill injection writes
+/// `.claude/skills/.gitignore` holding `*` after the seed tree is taken, so a
+/// cold `add -A` at the close dropped every tracked file under that directory,
+/// and a run that wrote nothing showed them as deleted: build ticket 243.
 pub fn seed_tree<G: GitLocation + ?Sized>(worktree: &G, index: &Path) -> Result<String> {
     if let Some(parent) = index.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    git_with_index(worktree, index, &["read-tree", "HEAD"])?;
     git_with_index(worktree, index, &["add", "-A"])?;
     Ok(git_with_index(worktree, index, &["write-tree"])?
         .trim()
@@ -1184,7 +1191,8 @@ pub fn tree_of_index<G: GitLocation + ?Sized>(worktree: &G, index: &Path) -> Res
 ///
 /// The index is a scratch file the caller names, and it has to be a different one
 /// from the seed's: staging into that path would destroy the base this measures
-/// against. So it starts cold and rehashes every file in the checkout. Measured on
+/// against. [`seed_tree`] reads `HEAD` into it with no stat cache, so it rehashes
+/// every file in the checkout. Measured on
 /// Hydra's own repo, 123 tracked files, that is 10 to 50ms. A repo big enough for
 /// it to matter can be handed a copy of the seed index instead, which carries the
 /// stat cache, and nothing here has to change for that.

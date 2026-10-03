@@ -1,7 +1,7 @@
 # 243 - `diff_stat` counts 75 deletions on a run that wrote nothing
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -31,3 +31,32 @@ kept for this ticket: do not reap `01a0fe73-5a9c`.
 ## Done when
 
 - The Outcome names the file and the two trees. fmt, clippy and `cargo test` pass.
+
+## Outcome
+
+Resolved 2026-10-03 by run `01a101a7-89a9` (`claude` opus 5.5, `standard`, 1.51M tokens),
+applied by the session unchanged.
+
+The file and the two trees: `.claude/skills/puppets/SKILL.md`, tracked, 75 lines. The base is
+the seed tree, staged before skill injection. The head is the closing tree, staged by
+`diff_stat` into a fresh empty index after injection wrote `.claude/skills/.gitignore` holding
+`*`. In an empty index every file is untracked, `add -A` skips untracked files an ignore rule
+matches, so the tracked skill file was left out and `diff-tree` reported it deleted. The
+session's own `git diff --numstat` used the worktree's real index, where the file is tracked, so
+it could not see this. The provider wrote nothing; the count was wrong, and every `claude` run in
+this repository carried the same false deletion.
+
+Built: `seed_tree` (`src/worktree.rs`) runs `git read-tree HEAD` into its scratch index before
+`add -A`, so a file tracked in the checkout's `HEAD` stays tracked whatever an ignore rule says.
+Both snapshots and `rungs/evolve.rs` go through it. Test:
+`a_run_that_writes_nothing_changes_no_files_even_where_injection_ignores_a_tracked_one` in
+`tests/worktree.rs`, which runs the real `skills::inject` for `claude`.
+
+Measured by the session on master: with the `read-tree` line removed the test fails with
+`Stat { files_changed: 1, insertions: 0, deletions: 75 }`; restored, it passes. `--test worktree`
+9, `--test evolve` 42, `--lib` 234; fmt and clippy clean.
+
+Not done: why `run_start` on `01a0fe73-5a9c` carries no `base_tree` (the run reads it as the
+launch-time seed snapshot failing, then `hydra show` rebuilding the base from the seed index,
+`src/status.rs:188`). Not checked: whether any reader stored the false count; the grader and
+Rungs read diff stats through `hydra show`, which computes them, so a record holds none.

@@ -2737,8 +2737,11 @@ rather than theoretical. Harness spec 6.3 seeds a run's worktree with the parent
 uncommitted work, so `git diff HEAD` inside the checkout counts the human's work in
 progress as the child's.
 
-**So the base is a tree, snapshotted after seeding.** `worktree::seed_tree` stages the
-freshly seeded checkout into a scratch index and calls `git write-tree`; the sha rides on
+**So the base is a tree, snapshotted after seeding.** `worktree::seed_tree` reads `HEAD`
+into a scratch index, stages the freshly seeded checkout into it and calls `git write-tree`,
+and since build ticket 243 the `HEAD` read is what keeps a tracked file under an ignore
+rule, such as the `*` skill injection writes into `.claude/skills/`, from counting as
+deleted at the close; the sha rides on
 the `Worktree` and the closing `git diff-tree -r --numstat` is against it. The returned
 `diff_stat` carries `base_tree` and a `covers` sentence, because the number is useless to
 anyone who does not know what it is measured from.

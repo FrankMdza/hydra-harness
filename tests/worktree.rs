@@ -165,6 +165,60 @@ fn the_diff_stat_counts_the_child_and_not_the_seed() {
     assert_eq!(stat.deletions, 1, "the seeded file the child removed");
 }
 
+/// Build ticket 243: run `01a0fe73-5a9c` was refused its one write and showed
+/// one file and 75 deletions. The file was `.claude/skills/puppets/SKILL.md`,
+/// tracked in Hydra's own repo and 75 lines long. The seed tree is taken before
+/// skill injection, and injection then writes `.claude/skills/.gitignore`
+/// holding `*`. The stat index started cold, and in a cold index a tracked file
+/// under an ignore rule reads as untracked and ignored, so `add -A` left it out
+/// of the closing tree and the stat counted it deleted.
+#[test]
+fn a_run_that_writes_nothing_changes_no_files_even_where_injection_ignores_a_tracked_one() {
+    let repo = a_repo("quiet");
+    std::fs::create_dir_all(repo.join(".claude/skills/puppets")).unwrap();
+    let tracked: String = (1..=75).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(repo.join(".claude/skills/puppets/SKILL.md"), &tracked).unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "a tracked skill"]);
+
+    // The parent's untracked work the seed copies across, as on the real run.
+    std::fs::write(repo.join("pendientes.md"), "a\nb\n").unwrap();
+    std::fs::create_dir_all(repo.join(".scratch/labeling")).unwrap();
+    std::fs::write(repo.join(".scratch/labeling/shard.jsonl"), "{}\n").unwrap();
+
+    let dest = repo.parent().unwrap().join("quiet-wt");
+    let _ = std::fs::remove_dir_all(&dest);
+    let worktree =
+        hydra::worktree::create(&repo, &dest, "hydra/quiet-run", &index(&repo, "quiet-seed"))
+            .unwrap();
+    let base = worktree
+        .seed_tree
+        .expect("the seed left no tree to measure from");
+
+    // What the launch does after the seed and before the provider starts. An
+    // empty snapshot links nothing and still writes the ignore file.
+    let snapshot = repo.parent().unwrap().join("quiet-snapshot");
+    hydra::skills::inject(
+        &dest,
+        hydra::provider::Provider::Claude,
+        &snapshot,
+        "0000000000000000000000000000000000000000",
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dest.join(".claude/skills/.gitignore")).unwrap(),
+        "*\n"
+    );
+
+    // The provider writes nothing.
+    let stat = hydra::worktree::diff_stat(&dest, &index(&repo, "quiet-stat"), &base).unwrap();
+    assert_eq!(
+        stat,
+        hydra::worktree::Stat::default(),
+        "a run that wrote nothing was charged with a change"
+    );
+}
+
 #[test]
 fn the_seed_snapshot_leaves_the_childs_own_index_alone() {
     let repo = a_repo("index");
