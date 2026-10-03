@@ -293,7 +293,10 @@ ASCII letters and leaves everything else alone, which is what harness spec 15.2 
 filesystem's case-insensitivity, not Unicode equivalence. `tests/gate.rs` builds the same gate under
 `Straße` and under an ASCII control and asserts a `permissive` write into the corpus is refused on
 both; reverting the Python fold alone brings back `hydra/allow` on the first and leaves the second
-refused.
+refused. Since build ticket 242 the fold is for comparing only: a `hydra/out-of-scope` or
+`hydra/protected-path` refusal of a file tool prints the agent's path resolved but in the case the
+call gave, where it used to print `/users/user/...` for `/Users/USER/...`. The script changed, so
+`gate_sha` changed with it.
 
 **The shell check reads the command twice since build ticket 56.** The token pass resolves each
 `shlex` token, which is what catches a relative path and a symlink, and it sees whole tokens

@@ -136,9 +136,25 @@ def resolve(path, cwd):
     Case-folded because 15.2 says so: `write_file(path="bible.md")` on macOS
     writes `BIBLE.md`, and an exact-case membership test misses it.
     """
+    return fold_ascii(resolve_shown(path, cwd))
+
+
+def resolve_shown(path, cwd):
+    """`resolve` without the fold, the spelling a refusal prints.
+
+    The gate compares folded and says what it refused in the case the tool
+    call gave. A refusal that printed the folded path read to a tester as the
+    gate looking at another file (build ticket 242).
+    """
     if not os.path.isabs(path):
         path = os.path.join(cwd, path)
-    return fold_ascii(os.path.realpath(path))
+    return os.path.realpath(path)
+
+
+def resolved_pair(path, cwd):
+    """(folded, shown) for one path: the first is compared, the second printed."""
+    shown = resolve_shown(path, cwd)
+    return fold_ascii(shown), shown
 
 
 def inside(path, root):
@@ -155,20 +171,20 @@ PATCH_HEADERS = (
 
 
 def parse_patch_paths(body, cwd):
-    """Every path an `apply_patch` body names in its headers, resolved."""
+    """Every path an `apply_patch` body names in its headers, as resolved pairs."""
     paths = []
     for line in body.splitlines():
         for prefix in PATCH_HEADERS:
             if line.startswith(prefix):
                 raw = line[len(prefix) :].strip()
                 if raw:
-                    paths.append(resolve(raw, cwd))
+                    paths.append(resolved_pair(raw, cwd))
                 break
     return paths
 
 
 def paths_from_changes(tool_input, cwd):
-    """Paths a replayed `file_change` carries in `changes[].path`."""
+    """Paths a replayed `file_change` carries in `changes[].path`, as pairs."""
     changes = tool_input.get("changes")
     if not isinstance(changes, list):
         return []
@@ -178,12 +194,15 @@ def paths_from_changes(tool_input, cwd):
             continue
         raw = change.get("path")
         if isinstance(raw, str) and raw:
-            paths.append(resolve(raw, cwd))
+            paths.append(resolved_pair(raw, cwd))
     return paths
 
 
 def target_paths(tool, tool_input, cwd):
-    """Every path a tool call acts on, or an empty list when it names none."""
+    """Every path a tool call acts on, or an empty list when it names none.
+
+    Each entry is a `resolved_pair`, folded to compare and unfolded to print.
+    """
     patch_tools = HYDRA_CONFIG.get("patch_path_tools", {})
     if tool in patch_tools:
         paths = []
@@ -194,10 +213,10 @@ def target_paths(tool, tool_input, cwd):
         paths.extend(paths_from_changes(tool_input, cwd))
         seen = set()
         out = []
-        for path in paths:
-            if path not in seen:
-                seen.add(path)
-                out.append(path)
+        for pair in paths:
+            if pair[0] not in seen:
+                seen.add(pair[0])
+                out.append(pair)
         return out
     path = target_path(tool, tool_input, cwd)
     if path is None:
@@ -206,7 +225,7 @@ def target_paths(tool, tool_input, cwd):
 
 
 def target_path(tool, tool_input, cwd):
-    """The path a tool call acts on, or None when the table names no field."""
+    """The `resolved_pair` a tool call acts on, or None when the table names no field."""
     field = HYDRA_CONFIG["path_fields"].get(tool)
     if field is None:
         return None
@@ -215,9 +234,9 @@ def target_path(tool, tool_input, cwd):
         # `Glob` and `Grep` search the caller's cwd when given no path, so that
         # cwd is the path they act on and the scope check applies to it.
         if tool in HYDRA_CONFIG.get("cwd_default_tools", []) and cwd:
-            return resolve(".", cwd)
+            return resolved_pair(".", cwd)
         return None
-    return resolve(raw, cwd)
+    return resolved_pair(raw, cwd)
 
 
 def protected_root(path):
@@ -969,7 +988,9 @@ def evaluate(payload):
             "provider. The table is stale or the provider renamed a tool.".format(tool)
         )
 
-    paths = target_paths(tool, tool_input, cwd)
+    pairs = target_paths(tool, tool_input, cwd)
+    paths = [folded for folded, _ in pairs]
+    shown = dict(pairs)
     path = paths[0] if paths else None
 
     # Own-read carve-out, before the denied-parent check. A Cursor run's
@@ -1007,7 +1028,9 @@ def evaluate(payload):
             if protected is not None:
                 return False, (
                     "hydra/protected-path: {} writes {}, under {}, denied under "
-                    "every policy by harness spec 7.5.".format(tool, write_path, protected)
+                    "every policy by harness spec 7.5.".format(
+                        tool, shown[write_path], protected
+                    )
                 )
             # The skill roots Hydra linked into the worktree (6.4). A write there
             # replaces a link, so the tool-level write is refused under every
@@ -1020,7 +1043,7 @@ def evaluate(payload):
                     return False, (
                         "hydra/protected-path: {} writes {}, under {}, the skills "
                         "Hydra linked for this run, denied under every policy by "
-                        "harness spec 6.4.".format(tool, write_path, root)
+                        "harness spec 6.4.".format(tool, shown[write_path], root)
                     )
 
     # The same list, reached through the capability that carries no path field
@@ -1113,7 +1136,7 @@ def evaluate(payload):
                             HYDRA_CONFIG["policy"],
                             capability,
                             " or ".join(allowed_scopes),
-                            scoped_path,
+                            shown[scoped_path],
                         )
                     )
 

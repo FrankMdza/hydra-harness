@@ -1241,6 +1241,45 @@ fn a_before_read_file_payload_is_gated_as_a_read() {
 }
 
 #[test]
+fn a_refusal_prints_the_path_in_the_case_the_call_gave() {
+    // Build ticket 242. The gate compares ASCII-folded, because the volume
+    // does not tell case apart, and used to print the folded path too, which a
+    // tester read as the gate looking at another file.
+    let gate = Gate::new("standard");
+    let outside = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join("Prueba-Fuera-242.TXT");
+    let decision = gate.write_to(&outside);
+    assert!(
+        decision.denied_for("hydra/out-of-scope"),
+        "{}",
+        decision.reason
+    );
+    assert!(
+        decision.reason.contains(&*outside.to_string_lossy()),
+        "the refusal does not carry {} as the call gave it: {}",
+        outside.display(),
+        decision.reason
+    );
+
+    let protected = std::fs::canonicalize(&gate.skills)
+        .unwrap()
+        .join("Naming/SKILL.md");
+    let decision = gate.write_to(&protected);
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "{}",
+        decision.reason
+    );
+    assert!(
+        decision.reason.contains(&*protected.to_string_lossy()),
+        "the refusal does not carry {} as the call gave it: {}",
+        protected.display(),
+        decision.reason
+    );
+}
+
+#[test]
 fn cursors_tool_names_answer_to_the_capabilities_the_policies_speak_in() {
     // The names measured off the hook on 2026-09-06: `Read`, `Shell`, `Write`,
     // `Grep` and `Delete`, and the list tool arrives as `Grep` with an
