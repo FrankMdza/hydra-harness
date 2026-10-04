@@ -100,8 +100,27 @@ impl PreferencePair {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JudgeDisposition {
     Exported(PreferencePair),
-    Withheld { pass_id: String },
-    Refused { pass_id: String },
+    Withheld {
+        pass_id: String,
+    },
+    Refused {
+        pass_id: String,
+    },
+    /// The pass branch or the proposer's `base_tree` cannot be read. The rest
+    /// of the export continues; `--dry-run` prints `pass_unreadable`.
+    Unreadable {
+        pass_id: String,
+    },
+}
+
+impl JudgeDisposition {
+    /// The reason `--dry-run` prints for a pass that did not export, if any.
+    pub fn dry_run_reason(&self) -> Option<(&'static str, &str)> {
+        match self {
+            Self::Unreadable { pass_id } => Some(("pass_unreadable", pass_id)),
+            Self::Exported(_) | Self::Withheld { .. } | Self::Refused { .. } => None,
+        }
+    }
 }
 
 /// Corrections from one eligible run.
@@ -175,12 +194,16 @@ fn read_judge_pairs_from_runs(
             Ok(branch) => branch,
             Err(_) => continue,
         };
-        let base_tree = base_tree_of(proposer.1)?;
-        let rejected = branch_diff(repo, &blocked, &base_tree)?;
+        let (rejected, chosen) = match readable_halves(repo, proposer.1, &blocked, &pass_id) {
+            Ok(halves) => halves,
+            Err(_) => {
+                out.push(JudgeDisposition::Unreadable { pass_id });
+                continue;
+            }
+        };
         if rejected.trim().is_empty() {
             continue;
         }
-        let chosen = chosen_half(repo, &pass_id, &base_tree)?;
         if chosen.is_none() {
             out.push(JudgeDisposition::Withheld { pass_id });
             continue;
@@ -340,6 +363,18 @@ fn is_evolve_pass(run: &Run) -> bool {
             .run_start()
             .and_then(|start| start.body["command"].as_str())
             == Some("evolve")
+}
+
+fn readable_halves(
+    repo: &Path,
+    proposer: &Run,
+    blocked: &str,
+    pass_id: &str,
+) -> Result<(String, Option<String>)> {
+    let base_tree = base_tree_of(proposer)?;
+    let rejected = branch_diff(repo, blocked, &base_tree)?;
+    let chosen = chosen_half(repo, pass_id, &base_tree)?;
+    Ok((rejected, chosen))
 }
 
 fn blocked_branch(repo: &Path, pass_id: &str) -> Result<String> {

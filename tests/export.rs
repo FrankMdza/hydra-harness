@@ -230,6 +230,8 @@ fn git(repo: &Path, args: &[&str]) {
     let out = std::process::Command::new("git")
         .args(args)
         .current_dir(repo)
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
         .output()
         .unwrap();
     assert!(
@@ -255,6 +257,8 @@ fn head(repo: &Path) -> String {
     let out = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(repo)
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
         .output()
         .unwrap();
     String::from_utf8_lossy(&out.stdout).trim().to_string()
@@ -426,6 +430,83 @@ fn a_blocked_pass_with_a_merged_fix_and_no_manifest_entry_is_refused() {
         vec![JudgeDisposition::Refused {
             pass_id: PASS.to_string()
         }]
+    );
+}
+
+#[test]
+fn a_pass_whose_base_commit_is_gone_is_unreadable() {
+    let fixture = Fixture::new("unreadable");
+    let repo = &fixture.repo_a;
+    git_init(repo);
+    std::fs::write(repo.join("src.txt"), "base\n").unwrap();
+    git_commit_all(repo, "base");
+    git(
+        repo,
+        &["checkout", "-q", "-b", &format!("rungs/blocked/{PASS}")],
+    );
+    std::fs::write(repo.join("src.txt"), "rejected\n").unwrap();
+    git_commit_all(
+        repo,
+        &format!("hydra evolve pass {PASS}\n\nverdict: blocked"),
+    );
+    git(repo, &["checkout", "-q", "main"]);
+    std::fs::write(repo.join("src.txt"), "chosen\n").unwrap();
+    git_commit_all(repo, &format!("hydra evolve pass {PASS}\n\nhuman fix"));
+    let answer = r#"{"verdict":"block","findings":[{"item":"self_consistency","severity":"major","note":"gap"}]}"#;
+    // The sha found on 2026-10-03: a pass branch whose base is no longer in
+    // the object store. git diff then used to abort the whole export.
+    write_pass_corpus(
+        &fixture,
+        repo,
+        "02a6c80784ba72b845a3c3c02da2b82d329d2dd6",
+        "fix src.txt",
+        answer,
+        "claude",
+    );
+    fixture.write_allowlist();
+    let in_a = fixture.repo_a.join("src.txt");
+    fixture.write(ELIGIBLE, &read_in_repo(&fixture, ELIGIBLE, None, &in_a));
+    signoff_at(
+        &fixture,
+        &[json!({
+            "pass_id": PASS,
+            "judge_run_id": JUDGE,
+            "finding_item": "self_consistency"
+        })],
+    );
+    let signoff = SignoffManifest::load(&fixture.root.join("config/export-signoff.json")).unwrap();
+    let dispositions =
+        read_judge_pairs(&fixture.layout(), &policies(), &fixture.repo_a, &signoff).unwrap();
+    assert_eq!(
+        dispositions,
+        vec![JudgeDisposition::Unreadable {
+            pass_id: PASS.to_string()
+        }]
+    );
+    assert_eq!(
+        dispositions[0].dry_run_reason(),
+        Some(("pass_unreadable", PASS))
+    );
+
+    let out = fixture.root.join("events.jsonl");
+    export_with_signoff(
+        &fixture.layout(),
+        &fixture.allowlist_path(),
+        Some(&out),
+        false,
+        Some(&fixture.root.join("config/export-signoff.json")),
+    )
+    .unwrap();
+    let events = std::fs::read_to_string(&out).unwrap();
+    assert!(
+        events.starts_with("export count=3 "),
+        "the rest of the corpus should still leave: {events}"
+    );
+    assert!(events.contains("tool_call"), "{events}");
+    let preference = std::fs::read_to_string(fixture.root.join("preference.jsonl")).unwrap();
+    assert!(
+        !preference.contains("judge_verdict"),
+        "unreadable pass left: {preference}"
     );
 }
 

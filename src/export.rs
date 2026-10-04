@@ -328,6 +328,25 @@ pub fn export_with_signoff(
                 writeln!(stdout, "{}: {}", verdict.run_id, names)?;
             }
         }
+        let signoff = crate::export_preference::SignoffManifest::load(
+            signoff_path.unwrap_or(&crate::export_preference::signoff_path()),
+        )?;
+        let eligible_ids: Vec<String> = verdicts
+            .iter()
+            .filter(|v| v.eligible())
+            .map(|v| v.run_id.clone())
+            .collect();
+        let (_, dispositions) = crate::export_preference::collect_pairs_from_runs(
+            runs,
+            &allowlist,
+            &eligible_ids,
+            &signoff,
+        )?;
+        for disposition in dispositions {
+            if let Some((reason, pass_id)) = disposition.dry_run_reason() {
+                writeln!(stdout, "{pass_id}: {reason}")?;
+            }
+        }
         return Ok(Vec::new());
     }
 

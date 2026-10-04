@@ -4633,7 +4633,7 @@ never quality. `Reason::AuthFailed` replaced `NeverOutcome`.
 reads correction pairs off eligible runs and judge-derived pairs off the `evolve` passes: the
 rejected half is the diff on `rungs/blocked/<pass-id>` or the older `ouroboros/blocked/` against the
 proposer's `base_tree`, the chosen half is the diff on `rungs/<pass-id>` or in a later `master`
-commit whose message names the pass, and a pass with no chosen half is reported withheld. A pair
+commit whose message names the pass, and a pass with no chosen half is reported withheld. A pass whose `base_tree` or branch cannot be read is `pass_unreadable` and the rest of the export continues. A pair
 leaves only when `config/export-signoff.json` lists the pass id, the judge run id and the finding
 item a human confirmed; the file is the human's, denied to runs beside the allowlist, and its sha is
 in the preference file's header. `gated` judges are read like `completed` ones. Map ticket 55. The

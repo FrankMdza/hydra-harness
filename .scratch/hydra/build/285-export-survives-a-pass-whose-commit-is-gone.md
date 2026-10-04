@@ -1,7 +1,7 @@
 # 285 - Export survives a pass whose commit is gone
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -17,3 +17,17 @@ a missing commit. `hydra export --dry-run` on the real corpus then lists that pa
 else changes; the session checks that.
 
 ## Outcome
+
+Resolved 2026-10-04 by run `01a1051f-e4e1` (`cursor-agent` cursor-grok-4.6-high, `standard`,
+3.52M tokens), applied without changes.
+
+Built: a blocked pass whose base or branch cannot be read is `JudgeDisposition::Unreadable`, and
+`--dry-run` now walks preference pairs too and prints it as `pass_unreadable`; the rest exports.
+Test `a_pass_whose_base_commit_is_gone_is_unreadable` failed with the catch reverted. The ticket
+called it a curate pass; it is an evolve pass (`ouroboros/blocked/`).
+
+Measured by the session on the real corpus: the dry run lists six `pass_unreadable` evolve passes
+(`01a0814a`, `01a08169`, `01a0822e`, `01a08241`, `01a084d3`, `01a08684`) and is otherwise the
+same as before but for two runs that did not exist then; a real `hydra export` exits 0 with 350
+lines, where it stopped at the first of those passes. The export is what the first training round
+reads.
