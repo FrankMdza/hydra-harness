@@ -343,6 +343,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [106 - The attack corpus becomes a benchmark](issues/106-the-attack-corpus-becomes-a-benchmark.md): resolved 2026-10-03 by a panel. The whole corpus, three repetitions, Wilson intervals, nightly over a week; tie-break by Fable and astra.
 - [107 - Orchestrator cost with variance, and one entry point](issues/107-orchestrator-cost-with-variance-and-one-entry-point.md): resolved 2026-10-03 by a panel. A fixed goal set plus real sessions; Master of Puppets the one entry point.
 - [109 - A System 1 of our own](issues/109-a-system-one-of-our-own.md): resolved 2026-10-04 by Fable research. Labels, not technique, are missing; a logistic head over embeddings first, JEPA later; Jev ranks diffs; one answer withheld.
+- [111 - Which small local model calls tools](issues/111-which-small-model-calls-tools.md): resolved 2026-10-04 by measurement. Qwen 2.5 3B and Ministral 3B 10 of 10, Llama 3.2 3B 8, Granite 4 micro 7; map 88 reopens as map 112.
 
 ## Not yet specified
 
