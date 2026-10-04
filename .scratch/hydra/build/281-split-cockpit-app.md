@@ -1,7 +1,7 @@
 # 281 - Split the cockpit's app.rs
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
