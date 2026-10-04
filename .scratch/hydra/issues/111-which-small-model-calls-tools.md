@@ -37,7 +37,7 @@ small sample and they are single-turn; a model that passes here still has to hol
 loop with results fed back.
 
 **Daily driver.** `qwen2.5:3b` and `ministral-3:3b` tie on calls. On an 8 GB Mac `qwen2.5:3b`
-costs a gigabyte less; `ministral-3:3b` is a little faster. The licences were not checked here,
-and they decide which one can be fine-tuned and shipped: the session's recollection, to verify,
-is that Qwen 2.5 3B carries Qwen's research licence rather than Apache 2.0. Map 112 carries the
-choice with the harness's open decision.
+costs a gigabyte less; `ministral-3:3b` is a little faster. Read on Hugging Face on 2026-10-04: `Qwen/Qwen2.5-3B-Instruct` ships under the Qwen Research
+License Agreement, non-commercial; `mistralai/Ministral-3-3B-Instruct-2512` under Apache 2.0. For a
+portfolio piece that may be fine-tuned and shipped, that points at `ministral-3:3b`. Map 112
+carries the choice with the harness's open decision.
