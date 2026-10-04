@@ -24,7 +24,7 @@ whichever provider this chat is.
 cd {{REPO}} && hydra run --provider <claude|cursor-agent|agy|codex> --policy <name> --timeout 0 --task "<what to do>"
 ```
 
-Pick a policy narrower than the task needs. Default to `standard` unless you need read-only review
+Pick the narrowest policy the task can still run under. Default to `standard` unless you need read-only review
 or a wider pass.
 
 | Policy | One line |
