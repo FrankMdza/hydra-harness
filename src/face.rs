@@ -409,35 +409,9 @@ pub fn marked(result: &RunResult, token: &str) -> Result<Value> {
     Ok(body)
 }
 
-/// Wraps a child's text in a boundary whose delimiter was drawn after it ran.
-///
-/// Harness spec 8: the token is picked after the child returned, so a child cannot
-/// close an envelope whose token did not exist while it was running.
-///
-/// **Marking is advice.** What Hydra guarantees is that the marker is present. It
-/// says which bytes came out of a delegated run, and nothing stops an orchestrator
-/// believing them. The layer that stops a laundered instruction is the gate, which
-/// never reads the text.
-pub fn mark(text: &str, token: &str) -> String {
-    format!("<<<hydra-result {token}>>>\n{text}\n<<<end hydra-result {token}>>>")
-}
-
-/// A fresh delimiter for one call.
-///
-/// **A UUIDv7 with the time bits thrown away**, which is the shortest path to
-/// randomness in a crate that already mints run ids. Bytes 0 to 5 are the
-/// millisecond clock, and a child that knows roughly when it finished could guess
-/// them; the ten that follow are the random half, less the version and variant
-/// nibbles, so a token is 74 bits a child has no way to see. Reading
-/// `/dev/urandom` would give 128 and one more failure mode on a path with no way
-/// to report one.
-pub fn token() -> String {
-    let id = uuid::Uuid::now_v7();
-    id.as_bytes()[6..]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
+/// The boundary and its token live in `marker.rs` since `hydra show` draws the same
+/// one, map 105 D3. Re-exported so `seats.rs` reads them where it always did.
+pub use crate::marker::{mark, token};
 
 /// The arguments, as a launch.
 ///

@@ -17,7 +17,7 @@ use crate::fold::{self, GoalState, approval_available};
 use crate::json::{self, Dict, ParseError, PyStr, Value};
 use crate::launch::{
     answer_text, build_run_argv, capture, decoded, find, goal_field, herdr_pane, hydra_show,
-    hydra_show_text, loads_or_raise, os_argv, pathlib, read_text, run_file_has_end, run_id_of,
+    hydra_show_text, loads_show, os_argv, pathlib, read_text, run_file_has_end, run_id_of,
     show_failed, spawn_error, spawn_run, split_pane_id, string,
 };
 use crate::log::Home;
@@ -1370,7 +1370,7 @@ pub fn review(
     if !shown.ok() {
         return Err(show_failed(&shown)?);
     }
-    let mut run = match loads_or_raise(&shown.stdout()?, "hydra show")? {
+    let mut run = match loads_show(&shown.stdout()?)? {
         Value::Dict(run) => run,
         other => bail!(
             "AttributeError: '{}' object has no attribute 'setdefault'",

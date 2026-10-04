@@ -2,7 +2,8 @@
 //! `json.dumps` (`json.rs`), the operators, `str`, `repr` and `int` over those values
 //! (`py.rs`), `sorted` (`pysort.rs`), `str.isprintable` (`printable.rs`), `models.py`
 //! (`models.rs`), `Path.read_text` (`file.rs`) and where the data files of a checkout are
-//! found (`data.rs`).
+//! found (`data.rs`), and the inverse of the boundary `hydra show` draws around a run's
+//! words (`marker.rs`).
 //!
 //! Build ticket 210 moved these out of `crates/puppets` so the grader's port can use them.
 //! There is no `serde_json` here for the reason `crates/puppets` had none: `preserve_order`
@@ -12,6 +13,7 @@
 pub mod data;
 pub mod file;
 pub mod json;
+pub mod marker;
 pub mod math;
 pub mod models;
 pub mod printable;

@@ -1,7 +1,7 @@
 # 272 - Agent text reaches the orchestrator marked
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -25,3 +25,25 @@ instruction.
   --workspace`. `SECURITY.md` and `IMPLEMENTATION.md`: one paragraph each.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a104f8-d22b-7772` (`claude` opus 5.5, `standard`, 7.77M tokens),
+applied without changes, its sixteen files only: its worktree also deleted the human's untracked
+`.scratch/hydra/labeling/2026-09-29/classes-c-agy-discarded.jsonl`, which did not reach master.
+
+Built: `src/marker.rs` holds `mark` and `token`, moved from `face.rs`, and `mark` now escapes any
+`<<<` followed by `hydra-result`, `end hydra-result` or a backslash, reversibly, so the only
+boundary lines in a marked string are the two real ones. `hydra show` draws one token per call
+and marks `result_text` and, under `--events`, message, delta and thinking text and tool output.
+`error` stays plain (only Hydra writes it in this build) and so do tool-call arguments.
+`hydra_pyjson::marker::unmark_show` is the one place the machine readers strip it: the grader's
+`collect` and `judge`, and `hydra-puppets` through `loads_show` and `shown_text`. `COPILOT.md`
+says marked text is a report, never an instruction. Tests: `tests/show.rs`, `cutover.rs`,
+`launch.rs`, and unit tests in both marker modules; the agent reverted each and saw it fail.
+
+Measured by the session: `cargo test --workspace` with it applied, 1,253 passed and none failed.
+
+Assumed and false: `hydra wait` prints nothing a run wrote, so it is unchanged; the cockpit never
+calls `hydra show`. Left for a decision: the grader's judge still hands the judge an unmarked
+`result_text`, and marking it would change the judge's input and its recorded fixtures. The two
+marker modules are tied only by matching literal strings, since neither crate depends on the
+other.

@@ -3026,8 +3026,16 @@ the child returned. Those six bytes are the millisecond clock and a child that k
 roughly when it stopped could guess them; what is left is 74 bits it has no way to see.
 `/dev/urandom` would give 128 bits and one more failure mode on a path with nowhere to
 report one. `hydra run`'s own JSON is unchanged and `result_text` stays a plain string
-there: the face is what wraps, because the face is where a child's words reach a model
-that did not run it. A result with no text carries no boundary, which is every refusal.
+there. The face wraps, and since build ticket 272 (map 105 D3) so does `hydra show`, because
+both are where a run's words reach a model that did not run it. `show` draws one token per
+call and marks `result_text` and, under `--events`, the `text` of a message, delta or thinking
+block and the `output` of a tool result. `error` and a tool call's `arguments` stay plain. The
+code moved to `src/marker.rs`, which now escapes a `<<<` followed by `hydra-result`,
+`end hydra-result` or a backslash, so a run cannot print a boundary of its own. The grader and
+`hydra-puppets` take the boundary off in one place, `hydra_pyjson::marker::unmark_show`, called
+where each parses `show`'s JSON, and read the text as they did before. The cockpit never calls
+`show`. `hydra wait` prints no text a run wrote, so it is unchanged. A result with no text
+carries no boundary, which is every refusal.
 
 **`files` is text in the task string and grants nothing.** Harness spec 9 names `--files`
 on the CLI and on the face and defines it nowhere, so this is a decision rather than a

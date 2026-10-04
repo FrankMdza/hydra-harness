@@ -20,6 +20,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use hydra_pyjson::file::os_error;
 use hydra_pyjson::json::{self, Dict, ParseError, PyStr, Value};
+use hydra_pyjson::marker;
 use hydra_pyjson::py;
 use sha2::{Digest, Sha256};
 
@@ -167,7 +168,9 @@ pub fn show_projection(run_id: &Value, runs: &Path, hydra: &str, env: &Env) -> R
     }
     let stdout = stdout.replace("\r\n", "\n").replace('\r', "\n");
     let answer = match json::loads_explained(&PyStr::from(stdout)) {
-        Ok(answer) => answer,
+        // Map 105 D3: `result_text` arrives inside a boundary, and the verdict parser and
+        // the prompt read it bare.
+        Ok(answer) => marker::unmark_show(&answer),
         Err((ParseError::Decode, _)) => return empty(),
         Err((err, message)) => bail!("{}: {message}", err.class()),
     };

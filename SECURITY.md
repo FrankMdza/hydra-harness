@@ -158,6 +158,15 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
 - **Nothing pins what an MCP server advertises.** The record carries the servers a launch was
   handed by name, not their tool descriptions, so a server that changes its descriptions after
   admission is not detected.
+- **A run's words reach the orchestrator marked, and marking is advice.** The orchestrator that
+  reads `hydra show` and the delegate face is the one session no gate binds. Since build ticket
+  272 both print every field the run's model or tools wrote (`result_text`, and the message,
+  thinking and tool output text `--events` prints) inside `<<<hydra-result TOKEN>>>` and
+  `<<<end hydra-result TOKEN>>>`. The token is drawn after the text was on disk, and a run that
+  writes a boundary of its own has it escaped with a backslash. That tells the orchestrator which
+  bytes are a report. It does not stop the orchestrator obeying them. `error` stays plain, since
+  only Hydra writes it, and so do a tool call's `arguments`, which are JSON rather than text.
+  `hydra wait` prints no text a run wrote.
 
 ## Known exposures, stated before someone else does
 

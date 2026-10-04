@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::{Result, anyhow, bail};
 use hydra_pyjson::file::os_error;
 use hydra_pyjson::json::{self, Dict, PyStr, Value};
+use hydra_pyjson::marker;
 use hydra_pyjson::models::Pair;
 use hydra_pyjson::py;
 use sha2::{Digest, Sha256};
@@ -304,7 +305,8 @@ pub fn refresh_full_show_answer(
         Ok(full) => full,
         Err((err, message)) => bail!("{}: {message}", err.class()),
     };
-    Ok(full)
+    // Map 105 D3: the run's words arrive inside a boundary, and a row reads them bare.
+    Ok(marker::unmark_show(&full))
 }
 
 /// `dataset_row`: one line of the dataset. Puppets names the run: it wins. Otherwise a class

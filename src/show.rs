@@ -11,12 +11,21 @@
 //! this adds `run_id`, the events in file order and the findings the
 //! normalizer raised. Nothing here writes anything, and nothing here decides
 //! anything a policy has not already decided.
+//!
+//! **Every field the run's own model or tools wrote comes out marked**, map 105
+//! D3: `result_text`, and the `text` of a message, a delta or a thinking block
+//! and the `output` of a tool result under `--events`, each inside the boundary
+//! the delegate face draws (`marker.rs`), always. This command's reader is
+//! usually an orchestrator no gate binds. `error` is left plain: in this build
+//! only Hydra writes it, and the outcome derivation and the readers match on its
+//! prefixes. The machine readers strip the boundary in `hydra_pyjson::marker`.
 
 use std::io::Write;
 
 use anyhow::Result;
 use serde_json::{Value, json};
 
+use crate::marker::mark;
 use crate::normalize::{Counts, Event, Finding, ResultStatus, Role};
 use crate::paths::Layout;
 use crate::policy::{Capability, PolicySet};
@@ -25,7 +34,12 @@ use crate::policy::{Capability, PolicySet};
 /// suite.
 pub fn show(layout: &Layout, run_id: &str, events: bool, out: &mut dyn Write) -> Result<()> {
     let run_id = &crate::resolver::resolve(layout, run_id)?;
-    let projection = crate::status::projection(layout, run_id)?;
+    // One token per call, drawn now: every word below was on disk before it existed.
+    let token = crate::marker::token();
+    let mut projection = crate::status::projection(layout, run_id)?;
+    if let Some(text) = projection["result_text"].as_str() {
+        projection["result_text"] = Value::String(mark(text, &token));
+    }
     if !events {
         writeln!(out, "{}", serde_json::to_string_pretty(&projection)?)?;
         return Ok(());
@@ -36,7 +50,7 @@ pub fn show(layout: &Layout, run_id: &str, events: bool, out: &mut dyn Write) ->
     let report = json!({
         "run_id": run_id,
         "projection": projection,
-        "events": run.events.iter().map(event_json).collect::<Vec<Value>>(),
+        "events": run.events.iter().map(|e| event_json(e, &token)).collect::<Vec<Value>>(),
         "findings": run.findings.iter().map(finding_json).collect::<Vec<Value>>(),
     });
     writeln!(out, "{}", serde_json::to_string_pretty(&report)?)?;
@@ -44,15 +58,15 @@ pub fn show(layout: &Layout, run_id: &str, events: bool, out: &mut dyn Write) ->
 }
 
 /// One event, as `seq`, `type` off [`Event::type_name`], and that variant's
-/// own fields by name.
+/// own fields by name, with the run's own words marked under `token`.
 ///
 /// `thinking` carries `signed` rather than the signature itself. The bytes are
 /// `claude`'s to keep, and a reader here only needs to know one arrived.
-/// `tool_result.output` is verbatim and untruncated, since contract 7.6 makes
+/// `tool_result.output` is untruncated inside its boundary, since contract 7.6 makes
 /// the truncation marker the reader's to see rather than something this cuts
 /// again. `run_start` and `run_end` carry the body the record holds, the same
 /// object a launch wrote.
-fn event_json(event: &Event) -> Value {
+fn event_json(event: &Event, token: &str) -> Value {
     let type_name = event.type_name();
     match event {
         Event::RunStart(e) => json!({"seq": e.seq, "type": type_name, "body": e.body}),
@@ -61,19 +75,19 @@ fn event_json(event: &Event) -> Value {
             "seq": e.seq,
             "type": type_name,
             "role": role_str(e.role),
-            "text": e.text,
+            "text": mark(&e.text, token),
             "block": e.block,
         }),
         Event::MessageDelta(e) => json!({
             "seq": e.seq,
             "type": type_name,
             "role": role_str(e.role),
-            "text": e.text,
+            "text": mark(&e.text, token),
         }),
         Event::Thinking(e) => json!({
             "seq": e.seq,
             "type": type_name,
-            "text": e.text,
+            "text": mark(&e.text, token),
             "signed": e.signature.is_some(),
             "block": e.block,
         }),
@@ -90,7 +104,7 @@ fn event_json(event: &Event) -> Value {
             "type": type_name,
             "call_id": e.call_id,
             "status": status_str(e.status),
-            "output": e.output,
+            "output": mark(&e.output, token),
             "truncated": e.truncated,
         }),
         Event::PermissionDecision(e) => json!({

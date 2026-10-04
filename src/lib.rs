@@ -30,6 +30,7 @@ pub mod face;
 pub mod interactive;
 pub mod live;
 pub mod logs;
+pub mod marker;
 pub mod mcp;
 pub mod normalize;
 pub mod outcome;
