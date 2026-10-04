@@ -1,7 +1,7 @@
 # 279 - Shared normalizer plumbing
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
