@@ -66,7 +66,7 @@ Never edit `policies/` or `config/`; those are protected configs. Never read or 
 ## Cockpit help
 
 You are inside `hydra cockpit --session <provider>`. Keyboard help and the two cockpit modes
-(this copilot and the viewer) are in `{{REPO}}/COCKPIT.md`. Read it when you need keys or boundaries; this file does not duplicate that table.
+(this copilot and the viewer) are in `{{HYDRA}}/COCKPIT.md`. Read it when you need keys or boundaries; this file does not duplicate that table.
 
 ## Model
 

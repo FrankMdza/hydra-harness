@@ -14,6 +14,11 @@ from a shell with `hydra run`, waits for them with `hydra wait`, and reads them 
 `panel` or `delegate` tool. On `claude` its `Edit`, `Write` and `NotebookEdit` tools are
 disallowed so file changes go through `hydra run`; `codex` has no such switch. It is told this in one line when it starts.
 
+**Master of Puppets: the copilot with `HYDRA_COPILOT_MODE=puppets`.** The same ungated copilot,
+started from `~/.hydra-puppets-copilot` with the `puppets` skill installed and its loop in the
+chat's instructions, so a goal goes through plan, table, launches and diffs on the repository
+`hydra-copilot` was given; the goal and its panel show in this cockpit.
+
 **Viewer: `hydra cockpit` with no `--session`.** No chat. The cockpit shows runs, seat
 requests and Puppets steps on disk, and you can still approve, deny, review and stop from the
 keyboard. The `a` key of the help view is not offered, since there is no chat to type into.

@@ -224,3 +224,58 @@ fn hydra_copilot_unknown_provider_exits_one() {
     let stderr = stderr_line.trim();
     assert_eq!(stderr, "hydra-copilot: provider must be claude or codex");
 }
+
+/// Master of Puppets mode: the start directory gets the mode's document after the copilot's in
+/// both instruction files, and the `puppets` skill as a project skill, all naming the repository.
+#[test]
+fn hydra_copilot_in_puppets_mode_installs_the_skill_and_the_loop() {
+    let scratch =
+        std::env::temp_dir().join(format!("hydra-copilot-puppets-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("scratch dir");
+    let home = scratch.join("copilot-home");
+    let stub = scratch.join("hydra-stub");
+    std::fs::write(&stub, "#!/usr/bin/env bash\nprintf 'argv=%s\\n' \"$*\"\n").expect("write stub");
+    let mut perms = std::fs::metadata(&stub)
+        .expect("stub metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&stub, perms).expect("chmod stub");
+    let repo = manifest().canonicalize().expect("manifest path");
+
+    let out = Command::new(copilot_bin())
+        .env("HYDRA_COPILOT_HOME", &home)
+        .env("HYDRA_BIN", &stub)
+        .env("HYDRA_COPILOT_MODE", "puppets")
+        .args(["sonnet", repo.to_str().unwrap()])
+        .output()
+        .expect("running hydra-copilot");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for name in ["CLAUDE.md", "AGENTS.md"] {
+        let text = std::fs::read_to_string(home.join(name)).expect("rendered document");
+        assert!(text.contains("## Master of Puppets mode"), "{name}");
+        assert!(
+            text.contains("## The loop"),
+            "{name} carries the skill's text"
+        );
+        assert!(!text.contains("{{"), "{name} has an unrendered placeholder");
+        assert!(
+            !text.contains("name: puppets"),
+            "{name} carries no frontmatter"
+        );
+    }
+    let skill = std::fs::read_to_string(home.join(".claude/skills/puppets/SKILL.md"))
+        .expect("the skill is installed as a project skill");
+    assert!(skill.starts_with("---\nname: puppets"));
+
+    let out = Command::new(copilot_bin())
+        .env("HYDRA_COPILOT_HOME", scratch.join("other"))
+        .env("HYDRA_BIN", &stub)
+        .env("HYDRA_COPILOT_MODE", "nope")
+        .output()
+        .expect("running hydra-copilot");
+    assert_eq!(out.status.code(), Some(1));
+}

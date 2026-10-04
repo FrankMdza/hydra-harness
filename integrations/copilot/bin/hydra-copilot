@@ -7,7 +7,13 @@ set -euo pipefail
 # starts in a directory outside the repository instead, holding only the
 # copilot's document, rendered with the repository's absolute path.
 DEFAULT_REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
-HOME_DIR="${HYDRA_COPILOT_HOME:-$HOME/.hydra-copilot}"
+# `copilot` by default; `puppets` adds the Master of Puppets loop and its own start directory.
+MODE="${HYDRA_COPILOT_MODE:-copilot}"
+case "$MODE" in
+  copilot) HOME_DIR="${HYDRA_COPILOT_HOME:-$HOME/.hydra-copilot}" ;;
+  puppets) HOME_DIR="${HYDRA_COPILOT_HOME:-$HOME/.hydra-puppets-copilot}" ;;
+  *) echo "hydra-copilot: HYDRA_COPILOT_MODE must be copilot or puppets" >&2; exit 1 ;;
+esac
 MODEL="${1:-}"
 PROVIDER="${3:-claude}"
 
@@ -35,11 +41,23 @@ mkdir -p "$HOME_DIR"
 
 # One source:destination pair per rendered file; map 100 D3 adds GEMINI.md later.
 while IFS=: read -r src dst; do
-  sed "s|{{REPO}}|$REPO|g" "$DEFAULT_REPO/integrations/copilot/$src" > "$HOME_DIR/$dst"
+  sed -e "s|{{REPO}}|$REPO|g" -e "s|{{HYDRA}}|$DEFAULT_REPO|g" "$DEFAULT_REPO/integrations/copilot/$src" > "$HOME_DIR/$dst"
 done <<'PAIRS'
 COPILOT.md:CLAUDE.md
 COPILOT.md:AGENTS.md
 PAIRS
+
+# Master of Puppets: the mode's document and the skill's text go after the copilot's in both
+# files, and on `claude` the skill is also a project skill here, so `/puppets` exists.
+if [[ "$MODE" == puppets ]]; then
+  SKILL="$DEFAULT_REPO/.claude/skills/puppets/SKILL.md"
+  render() { sed -e "s|{{REPO}}|$REPO|g" -e "s|{{HYDRA}}|$DEFAULT_REPO|g" -e "s|~/hydra/|$DEFAULT_REPO/|g" "$1"; }
+  for dst in CLAUDE.md AGENTS.md; do
+    { render "$DEFAULT_REPO/integrations/copilot/PUPPETS.md"; echo; awk 'n >= 2 { print } /^---$/ { n++ }' "$SKILL" | render /dev/stdin; } >> "$HOME_DIR/$dst"
+  done
+  mkdir -p "$HOME_DIR/.claude/skills/puppets"
+  render "$SKILL" > "$HOME_DIR/.claude/skills/puppets/SKILL.md"
+fi
 
 cd "$HOME_DIR"
 

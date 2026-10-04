@@ -771,7 +771,12 @@ ungated argv only (build ticket 253). **`integrations/copilot/bin/hydra-copilot 
 starts that session on Sonnet by default from `~/.hydra-copilot/`, outside the repository,
 where it renders `integrations/copilot/COPILOT.md` into `CLAUDE.md` and `AGENTS.md` with the
 chosen git top level (defaulting to Hydra's own checkout) and passes `--session claude` or
-`codex` (build tickets 249, 253, 258).** Gated, it names the policy and the shapes in
+`codex` (build tickets 249, 253, 258).** With `HYDRA_COPILOT_MODE=puppets` it starts from
+`~/.hydra-puppets-copilot/` instead, appends `integrations/copilot/PUPPETS.md` and the `puppets`
+skill's text to both files, and installs the skill there as a project skill, so the chat
+orchestrates a goal on any repository; `~/hydra-oficina/masterofpuppets.sh <repo>` is the human's
+wrapper (build ticket 261). `COPILOT.md` names Hydra's own `COCKPIT.md`, which a pointed-at
+repository does not have. Gated, it names the policy and the shapes in
 `config/panels.json` whose askers include that policy, read at launch by
 `interactive::askable_shapes`. A file that does not load names none and the launch goes on with
 a warning on stderr, because the launcher refuses every `panel` request against it anyway. Two
