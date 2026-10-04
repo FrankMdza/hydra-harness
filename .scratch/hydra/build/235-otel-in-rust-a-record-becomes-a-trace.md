@@ -1,7 +1,7 @@
 # 235 - otel in Rust: a record becomes a trace
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 224
 
 ## What

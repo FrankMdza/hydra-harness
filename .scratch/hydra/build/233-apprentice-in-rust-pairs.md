@@ -1,7 +1,7 @@
 # 233 - apprentice in Rust: pairs
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 231
 
 ## What
