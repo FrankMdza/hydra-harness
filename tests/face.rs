@@ -237,7 +237,61 @@ fn the_face_lists_one_tool_with_four_arguments_and_no_model() {
     // The description says which binaries there are, because a model that guesses
     // a provider name gets an error rather than a run.
     let providers = schema["properties"]["provider"]["enum"].as_array().unwrap();
-    assert_eq!(providers.len(), 3, "{schema}");
+    assert_eq!(providers.len(), 4, "{schema}");
+}
+
+#[test]
+fn the_delegate_tool_lists_codex_and_says_it_needs_a_repository() {
+    // Build ticket 265: the enum was written before `codex` was routed. Its gate
+    // is read from the worktree like `cursor-agent` and `agy`, so the same note
+    // applies. A model that cannot name it cannot launch it.
+    let mut face = Face::start(None);
+    face.initialize();
+
+    let listed = face.call(2, "tools/list", json!({}));
+    let tools = listed["result"]["tools"].as_array().unwrap();
+    let schema = &tools[0]["inputSchema"];
+    let providers = schema["properties"]["provider"]["enum"].as_array().unwrap();
+    let names: Vec<&str> = providers.iter().filter_map(Value::as_str).collect();
+    assert_eq!(
+        names,
+        vec!["claude", "cursor-agent", "agy", "codex"],
+        "{schema}"
+    );
+    let description = schema["properties"]["provider"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(
+        description.contains("codex") && description.contains("worktree"),
+        "the repository note must name `codex`: {description}"
+    );
+}
+
+#[test]
+fn a_codex_child_asked_for_read_only_is_refused_with_that_reason() {
+    // `codex` has no read tool. The pair is unroutable, so the face says so as a
+    // tool result the model reads, without asking a binary or writing a record.
+    let mut face = Face::start(None);
+    face.initialize();
+
+    let answer = face.delegate(
+        2,
+        json!({"provider": "codex", "task": "read the parser", "policy": "read-only"}),
+    );
+    assert!(answer.get("error").is_none(), "{answer}");
+    assert_eq!(answer["result"]["isError"], true, "{answer}");
+    let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("read-only"), "{text}");
+    assert!(text.contains("codex"), "{text}");
+    assert!(
+        text.contains("build ticket 48 item 4"),
+        "the reason is the routing refusal, not a missing binary or the seatbelt: {text}"
+    );
+    assert_eq!(
+        std::fs::read_dir(face.root.join("runs")).unwrap().count(),
+        0,
+        "no child record was written"
+    );
 }
 
 #[test]

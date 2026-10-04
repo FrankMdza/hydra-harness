@@ -398,6 +398,40 @@ fn a_permissive_parent_delegating_read_only_passes_both_checks() {
 }
 
 #[test]
+fn a_codex_child_asked_for_read_only_is_refused_with_that_reason() {
+    // Build ticket 265: the face can now name `codex`, so a child asked for
+    // `read-only` on it must not look like a narrowing miss. `standard` contains
+    // `read-only`; the refusal is the provider, in the same words `hydra run`
+    // uses, and nothing here starts a binary.
+    let (layout, _root) = layout();
+    let policies = PolicySet::discover().unwrap();
+    write_parent(&layout, PARENT, Some("standard"), 0);
+
+    let mut request = request("read-only", Some(PARENT));
+    request.provider = Provider::Codex;
+    let lineage = Lineage::of(&layout, request.parent.as_deref()).unwrap();
+    assert_eq!(lineage.depth, 1);
+    assert!(
+        lineage
+            .narrowing(&policies, &request.policy)
+            .unwrap()
+            .is_none(),
+        "standard contains read-only; the refusal is not 7.3"
+    );
+
+    let reason = hydra::provider::codex::unsupported_policy(&request.policy)
+        .expect("codex stays refused under read-only");
+    assert!(reason.contains("read-only"), "{reason}");
+    assert!(reason.contains("codex"), "{reason}");
+    assert!(reason.contains("build ticket 48 item 4"), "{reason}");
+    assert_eq!(
+        records(&layout),
+        1,
+        "the refusal wrote no record of its own"
+    );
+}
+
+#[test]
 fn the_written_config_carries_the_parent_id_the_face_needs_for_its_own_depth() {
     // Map ticket 48. The document has no field for this, so the flag exists
     // only in the file one run writes for itself: without it, a face spawned

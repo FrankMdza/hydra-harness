@@ -245,11 +245,12 @@ fn tool() -> Value {
             "properties": {
                 "provider": {
                     "type": "string",
-                    "enum": ["claude", "cursor-agent", "agy"],
+                    "enum": ["claude", "cursor-agent", "agy", "codex"],
                     "description":
-                        "Which binary runs the task. `cursor-agent` and `agy` read their \
-                         gate out of a git worktree, so both need this run to be inside a \
-                         repository; `claude` does not.",
+                        "Which binary runs the task. `cursor-agent`, `agy` and `codex` read \
+                         their gate out of a git worktree, so they need this run to be \
+                         inside a repository; `claude` does not. `codex` is refused under \
+                         `read-only`.",
                 },
                 "task": {
                     "type": "string",
@@ -351,6 +352,11 @@ fn ask_panel(arguments: &Value, parent: Option<&str>) -> Result<(String, bool)> 
 /// seatbelt, launch outside one.
 fn call(arguments: &Value, parent: Option<&str>) -> Result<(String, bool)> {
     let request = read(arguments, parent)?;
+    // A pair this build does not route is said here, before a seatbelt or a
+    // launcher is asked, so the model reads the routing reason rather than
+    // `hydra/seatbelt-delegation`. `hydra run` says the same words in
+    // `prepare_machine`.
+    refuse_unroutable(&request)?;
     if let Some(parent) = parent {
         let ask = crate::seats::Ask {
             task: request.task.clone(),
@@ -376,6 +382,17 @@ fn call(arguments: &Value, parent: Option<&str>) -> Result<(String, bool)> {
         Call::Handle(handle) => serde_json::to_value(&handle)?,
     };
     Ok((serde_json::to_string_pretty(&body)?, false))
+}
+
+/// A provider-policy pair this build does not route, in the same words
+/// `hydra run` uses.
+fn refuse_unroutable(request: &Request) -> Result<()> {
+    if request.provider == Provider::Codex
+        && let Some(reason) = crate::provider::codex::unsupported_policy(&request.policy)
+    {
+        bail!(reason);
+    }
+    Ok(())
 }
 
 /// Contract 17's JSON with the child's text inside a per-call boundary.
@@ -447,7 +464,7 @@ fn read(arguments: &Value, parent: Option<&str>) -> Result<Request> {
     let provider = object
         .get("provider")
         .and_then(Value::as_str)
-        .context("delegate needs a provider: claude, cursor-agent or agy")?;
+        .context("delegate needs a provider: claude, cursor-agent, agy or codex")?;
     let provider: Provider = provider.parse()?;
 
     let task = object

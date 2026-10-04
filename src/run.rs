@@ -734,6 +734,15 @@ fn prepare_machine(
     preflight: PreflightInputs,
     reserved: ReservedRun,
 ) -> Result<MachineReady> {
+    // A pair this build does not route is a fact about the attempt, not the
+    // machine: reading the version first would turn `codex` under `read-only`
+    // into "not on PATH" on a box with no binary. The face says the same words
+    // before it asks a seatbelt.
+    if request.provider == Provider::Codex
+        && let Some(remediation) = codex::unsupported_policy(&request.policy)
+    {
+        anyhow::bail!(remediation);
+    }
     // The machine's own facts, read once the attempt has been judged. A wrong
     // PATH, a missing HOME, a provider binary that is not installed and a repo
     // that already carries the provider's two files are all errors rather than
@@ -745,11 +754,6 @@ fn prepare_machine(
         preflight.repo.as_deref(),
     )?;
     let provider_version = request.provider.version()?;
-    if request.provider == Provider::Codex
-        && let Some(remediation) = codex::unsupported_policy(&request.policy)
-    {
-        anyhow::bail!(remediation);
-    }
     // Both providers that read their hook config out of the worktree get the same
     // check against their own two files.
     match request.provider {

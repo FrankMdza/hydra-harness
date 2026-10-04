@@ -3006,7 +3006,10 @@ the client's parser and the failure looks like a hung server, so diagnostics go 
 beside the ones `hydra run` already prints.
 
 **One tool, `delegate(provider, task, files?, policy?)`, and everything the model gets
-wrong comes back as a tool result rather than a protocol error.** An unroutable provider
+wrong comes back as a tool result rather than a protocol error.** The provider enum is
+`claude`, `cursor-agent`, `agy` and `codex`; `codex` needs a repository the way
+`cursor-agent` and `agy` do, and a child asked for `read-only` on it is refused with that
+reason before a binary is asked. An unroutable provider
 name, an argument the face does not take, a policy the parent does not contain, a call from
 inside a macOS seatbelt: all of them are `isError` with a sentence, because a JSON-RPC error
 is the client's to handle and the model never sees it. A refused launch is not even that. It
