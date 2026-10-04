@@ -1,7 +1,7 @@
 # 281 - Split the cockpit's app.rs
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -23,3 +23,14 @@ was. That is one module in seven files: no boundary, and tools that read modules
 Not applied. The second attempt uses child modules: a child sees its parent's private fields and
 items; a method moved into a child that the parent or a sibling calls becomes `pub(super)`, and
 nothing wider. No `include!`.
+
+Resolved 2026-10-04 by the second attempt, run `01a1056a-5b22` (`claude` opus 5.5, `standard`,
+2.99M tokens), applied without changes.
+
+Built: `src/cockpit/app/mod.rs` (1,521 lines: the types, `App`, focus, events, approve and the
+unit tests), with child modules `text.rs` (356), `confirm.rs` (166), `review.rs` (244),
+`stop.rs` (184), `pages.rs` (349) and `draw.rs` (1,116). Explicit `use` lists, no globs, no
+`include!`; what a parent or sibling calls is `pub(super)`, and `mod.rs` re-exports `draft` and
+`wrapped_rows` for the tests. The two scroll blocks are one.
+
+Measured by the session: `cargo test --workspace`, 1,262 passed and none failed; clippy clean.
