@@ -60,8 +60,8 @@ fn hydra_copilot_argv_matches_cli_without_launching() {
         "hydra-copilot must exec ungated cockpit with session and model flags"
     );
     assert!(
-        script.contains("MODEL=sonnet"),
-        "hydra-copilot must default a claude copilot's model to sonnet"
+        script.contains("MODEL=claude-opus-5-5"),
+        "hydra-copilot must default a claude copilot's model to opus"
     );
 
     for want in ["sonnet", "opus"] {

@@ -64,9 +64,10 @@ cd "$HOME_DIR"
 
 HYDRA="${HYDRA_BIN:-hydra}"
 
-# Sonnet is a `claude` model; `codex` keeps its own default when none is named.
+# The orchestrator also reviews, so it runs on the strongest model: Opus on `claude` by the
+# human's rule of 2026-10-03, over map 97's Sonnet. `codex` keeps its own default.
 if [[ -z "$MODEL" && "$PROVIDER" == claude ]]; then
-  MODEL=sonnet
+  MODEL=claude-opus-5-5
 fi
 if [[ -n "$MODEL" ]]; then
   exec "$HYDRA" cockpit --session "$PROVIDER" --model "$MODEL"

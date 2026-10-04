@@ -70,5 +70,5 @@ You are inside `hydra cockpit --session <provider>`. Keyboard help and the two c
 
 ## Model
 
-`integrations/copilot/bin/hydra-copilot` defaults to Sonnet. Pass another model name as the first
+`integrations/copilot/bin/hydra-copilot` defaults to Opus on `claude`; an orchestrator is only ever Opus or Fable. Pass another model name as the first
 argument if the person asks.
