@@ -5634,6 +5634,22 @@ the corpus walk read five allowed commands on run 01a0c9d9-6652 as leaks the gat
 suite that closed build 76 was reported green before that line was read, which was the session's
 mistake; `tests/normalize.rs::a_variable_the_gate_expands_is_read_against_the_records_cwd_and_not_the_readers`
 fails without the one-line fix in `src/policy/replay.rs` and passes with it, measured both ways.
+**Build ticket 286 found the rest of the reader's environment doing the same**, and three more
+causes behind the five records the walk filed as leaks on 2026-10-04. All five name a `gate_sha`
+this build compiles byte for byte, so no gate moved and none leaked. First, the replay now clears
+its environment and hands the gate only the names `src/env.rs` passes the provider, with the
+reader's values: run 01a10445-e17a spelled `"$OLDPWD/docs/costos/..."`, the live gate had no
+`OLDPWD` and allowed it, and the walk expanded the human's own into `~/hydra`. Second, Claude
+Code hands the hook the directory a `cd` left its shell in, and the record does not carry it, so
+the replay resolved `cd ..`, `../..` and `../orig.xlsx` one level too high on four calls in four
+runs. A call the gate answered after an earlier `Bash` call ran `cd`, with no `Shell cwd was reset`
+since, now gets a `Limit` where a `GateLeak` or `Disagreement` stood (`shell_moved_before` in
+`src/normalize/claude.rs`); the same climb with no earlier `cd`, or after a reset, still reads as
+a leak. Third, `<tool_use_error>No task found with ID` joined the spellings of a call `claude`
+refuses before any hook: a `TaskStop` on run 01a1049c-35c1 with no `PreToolUse:TaskStop` start of
+its own. Fourth, `updateTodos` is an unhooked cursor row: on 2026.10.01-e373342 four calls on run
+01a1051f-e4e1 completed in 0 to 27 ms against 159 ms and up for every hooked call, which makes five
+tools Cursor runs without asking the hook, not the four the paragraph on them counts.
 
 What it found that this file already said and the README did not: the corpus walks are vacuous in
 CI, `gated` needs every call refused, the concurrency cap was a check without a reservation

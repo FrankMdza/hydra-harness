@@ -138,7 +138,7 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   parent kept a full write grant, and a run could plant a pack that mapped an existing sha to
   other bytes, which git served. That window is closed, build ticket 112.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`,
-  `awaitToolCall` and `WebSearch` without consulting it. The record marks an allowed one
+  `awaitToolCall`, `WebSearch` and, measured on 2026.10.01, `updateTodos` without consulting it. The record marks an allowed one
   `unhooked`; under a policy that denies the row's capability, it files `UnhookedDenied`
   instead of treating the tool as outside every policy.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never

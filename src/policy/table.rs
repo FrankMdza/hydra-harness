@@ -216,6 +216,12 @@ pub const CURSOR: &[Tool] = &[
     unhooked("awaitToolCall", Capability::ProviderNative),
     // Measured 2026-09-24 on cursor-agent 2026.09.23-86fc751 under `standard`.
     unhooked("WebSearch", Capability::NetworkRead),
+    // Read off the bundle as a hooked tool, and measured otherwise on
+    // 2026.10.01-e373342 under `standard`, build ticket 286: four calls on run
+    // 01a1051f-e4e1 each completed with `success` in 0 to 27 ms, against 159 ms
+    // and up for every hooked call in the same run, and a fail-closed gate
+    // that does not grant `provider_native` could only have refused them.
+    unhooked("updateTodos", Capability::ProviderNative),
     tool("Fetch", Capability::NetworkRead),
     // Feeds stdin to a background shell command, and carries no command for the
     // floor or the path check to read. It was `shell` until build ticket 59,
@@ -233,7 +239,6 @@ pub const CURSOR: &[Tool] = &[
     tool("askQuestion", Capability::ProviderNative),
     tool("createPlan", Capability::ProviderNative),
     tool("generateImage", Capability::ProviderNative),
-    tool("updateTodos", Capability::ProviderNative),
 ];
 
 pub const CURSOR_COMMAND_FIELD: &str = "command";
@@ -724,6 +729,7 @@ mod tests {
             ("getMcpToolsToolCall", Capability::ProviderNative),
             ("awaitToolCall", Capability::ProviderNative),
             ("WebSearch", Capability::NetworkRead),
+            ("updateTodos", Capability::ProviderNative),
         ] {
             assert!(cursor_is_unhooked(name), "{name}");
             assert_eq!(cursor_capability(name), Some(capability), "{name}");

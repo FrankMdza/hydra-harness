@@ -28,6 +28,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::policy::{Dialect, PolicySet, Spawn, compile};
+use crate::provider::Provider;
 
 /// The interpreter the gate's shebang names.
 ///
@@ -36,6 +37,27 @@ use crate::policy::{Dialect, PolicySet, Spawn, compile};
 /// a rule that behaves differently on the two would be invisible if this
 /// re-evaluation used the other one.
 const GATE_PYTHON: &str = "/usr/bin/python3";
+
+/// The variables a replayed gate is handed from the reader's environment.
+///
+/// The live gate ran in the provider's environment, which harness spec 6.2
+/// builds from an allowlist, and `path_candidates` expands `$VAR` out of it.
+/// A replay that inherits the reader's whole environment expands names the
+/// run never had: measured on run 01a10445-e17a, a command spelling
+/// `"$OLDPWD/docs/costos/..."` that the live gate allowed, and that the walk
+/// replayed under the human's own `OLDPWD` into `~/hydra` and filed as a leak.
+/// These are the names `src/env.rs` passes to every provider, plus the two it
+/// gives `claude` alone, with the reader's values: the per-run names Hydra sets
+/// itself, `HYDRA_RUN_ID` and the git object directories, stay unset, so a
+/// command naming one is judged with the name unexpanded.
+fn gate_env_names(provider: Provider) -> &'static [&'static str] {
+    match provider {
+        Provider::Claude => &["HOME", "USER", "PATH", "TERM", "SHELL", "TMPDIR"],
+        Provider::CursorAgent | Provider::Agy | Provider::Codex => {
+            &["HOME", "USER", "PATH", "TERM"]
+        }
+    }
+}
 
 /// One run's policy, compiled and ready to answer.
 ///
@@ -48,6 +70,8 @@ pub struct Replay {
     /// The shape the compiled gate insists on being asked in, which is the
     /// run's provider's. The answer is read back in the same shape.
     dialect: Dialect,
+    /// Which environment names the gate is handed, [`gate_env_names`].
+    provider: Provider,
 }
 
 /// What the policy says about one call, in the gate's own words.
@@ -100,6 +124,7 @@ impl Replay {
             script: compile(set, spawn)?,
             policy: spawn.policy.to_string(),
             dialect: spawn.provider.dialect(),
+            provider: spawn.provider,
         })
     }
 
@@ -217,6 +242,12 @@ impl Replay {
         if batch {
             command.arg("batch");
         }
+        command.env_clear();
+        for name in gate_env_names(self.provider) {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
         if let Some(pwd) = pwd {
             command.env("PWD", pwd);
         }
@@ -311,6 +342,7 @@ print(json.dumps({"decision": "allow", "reason": "hydra/allow: " + os.environ["P
             script: BATCH_DIES.to_string(),
             policy: "standard".to_string(),
             dialect: Dialect::Agy,
+            provider: Provider::Agy,
         };
         let input = json!({});
         let first = Path::new("/tmp/first");
@@ -346,6 +378,7 @@ print(json.dumps({"decision": "allow", "reason": "hydra/allow: " + os.environ["P
             script: String::new(),
             policy: "permissive".to_string(),
             dialect: Dialect::Claude,
+            provider: Provider::Claude,
         };
         let cwd = Path::new("/tmp/run");
         for tool in ["Task", "Agent"] {
@@ -353,6 +386,53 @@ print(json.dumps({"decision": "allow", "reason": "hydra/allow: " + os.environ["P
             assert!(absent.get("tool_input").is_none(), "{tool}: {absent}");
             let present = replay.payload(tool, &json!({ "prompt": "x" }), cwd);
             assert_eq!(present["tool_input"], json!({ "prompt": "x" }), "{tool}");
+        }
+    }
+
+    /// A stand-in gate that answers with the names in its own environment.
+    const ECHOES_ITS_ENV: &str = r#"
+import json, os, sys
+payload = json.loads(sys.stdin.read())
+names = ",".join(sorted(os.environ))
+print(json.dumps({"decision": "allow", "reason": "hydra/allow: " + names}))
+"#;
+
+    #[test]
+    fn the_gate_is_replayed_without_the_readers_own_environment() {
+        // Run 01a10445-e17a: `"$OLDPWD/docs/costos/x.xlsx"` resolved under the
+        // reader's `OLDPWD` rather than the provider's, which never had one.
+        // The names cargo sets for this test stand in for it: 6.2 passes none
+        // of them to a child. Not every name off the list, because macOS's
+        // `/usr/bin/python3` adds `__CF_USER_TEXT_ENCODING` and a few SDK
+        // paths to its own environment whatever it was handed.
+        let readers_own: Vec<String> = std::env::vars_os()
+            .filter_map(|(name, _)| name.into_string().ok())
+            .filter(|name| name.starts_with("CARGO_"))
+            .collect();
+        assert!(
+            readers_own.iter().any(|name| name == "CARGO_MANIFEST_DIR"),
+            "the test needs a name off the list in its own environment"
+        );
+        let replay = Replay {
+            script: ECHOES_ITS_ENV.to_string(),
+            policy: "standard".to_string(),
+            dialect: Dialect::Agy,
+            provider: Provider::Agy,
+        };
+        let verdict = replay
+            .decide("run_command", &json!({}), Path::new("/tmp/run"))
+            .unwrap();
+        let seen: Vec<&str> = verdict
+            .reason
+            .trim_start_matches("hydra/allow: ")
+            .split(',')
+            .collect();
+        for name in &readers_own {
+            assert!(!seen.contains(&name.as_str()), "{name} reached the gate");
+        }
+        assert!(seen.contains(&"PWD"), "{seen:?}");
+        if std::env::var_os("HOME").is_some() {
+            assert!(seen.contains(&"HOME"), "{seen:?}");
         }
     }
 }

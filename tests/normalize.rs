@@ -1510,6 +1510,48 @@ fn a_cursor_await_call_is_the_providers_decision() {
 }
 
 #[test]
+fn a_cursor_update_todos_is_the_providers_decision() {
+    // Build ticket 286, run 01a1051f-e4e1 on cursor-agent 2026.10.01-e373342:
+    // four `updateTodosToolCall`s each completed with `success` in 0 to 27 ms,
+    // where every hooked call in the same run took 159 ms or more, and a
+    // fail-closed `standard` gate could only have refused them. The walk filed
+    // all four as leaks of a gate that was never asked.
+    let sandbox = Sandbox::new("cursor-unhooked-todos");
+    let todos = json!({"todos": [{"id": "1", "content": "x", "status": "TODO_STATUS_PENDING"}], "merge": false});
+    let text = Record::gated(&sandbox, "cursor-agent", "standard", policies().sha())
+        .cursor_call(
+            "todo1",
+            "updateTodosToolCall",
+            todos.clone(),
+            json!({"success": todos}),
+        )
+        .closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+    // Map ticket 79: an unhooked row carrying `provider_native` sits outside
+    // what the five policies regulate, so the call is the provider's decision
+    // and raises nothing, as `getMcpToolsToolCall` does.
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].decision, Decision::Allow);
+    assert_eq!(decisions[0].decider, Decider::Provider);
+    assert!(
+        decisions[0]
+            .reason
+            .starts_with("hydra/unhooked: updateTodos"),
+        "{}",
+        decisions[0].reason
+    );
+}
+
+#[test]
 fn a_cursor_websearch_under_judge_is_a_finding_the_hook_never_saw() {
     let sandbox = Sandbox::new("cursor-unhooked-websearch-judge");
     let ws = sandbox.worktree();
@@ -2224,6 +2266,96 @@ fn a_call_withheld_by_a_safety_classifier_never_reached_the_hook() {
         true,
     );
     let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. } | Finding::GateLeak { .. })),
+        "{:?}",
+        run.findings
+    );
+}
+
+/// Two `Bash` calls under `standard`, each answered allow by the gate: the
+/// first whatever the caller names, the second `ls ..`, which from the run's
+/// own directory names the sandbox's `worktrees/`, denied to every run.
+fn a_climb_after(name: &str, first: &str, first_output: &str) -> hydra::normalize::Run {
+    let sandbox = Sandbox::new(name);
+    std::fs::create_dir_all(sandbox.worktree().join("sub")).unwrap();
+    let allow = "hydra/allow: policy standard allows shell.";
+    let text = Record::gated(&sandbox, "claude", "standard", policies().sha())
+        .tool_use("toolu_01", "Bash", json!({"command": first}))
+        .hook_response("Bash", "allow", allow)
+        .tool_result("toolu_01", first_output, false)
+        .tool_use("toolu_02", "Bash", json!({"command": "ls .."}))
+        .hook_response("Bash", "allow", allow)
+        .tool_result("toolu_02", "a.txt", false)
+        .closed();
+    hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap()
+}
+
+fn claims_the_gate(run: &hydra::normalize::Run, id: &str) -> bool {
+    run.findings.iter().any(|finding| match finding {
+        Finding::GateLeak { call_id, .. } | Finding::Disagreement { call_id, .. } => call_id == id,
+        _ => false,
+    })
+}
+
+#[test]
+fn a_climb_out_of_a_directory_an_earlier_call_entered_is_a_limit_not_a_leak() {
+    // Build ticket 286, runs 01a10415-de88, 01a10445-e17a, 01a1049c-35c1 and
+    // 01a104cf-8b1f on claude 2.1.288 and 2.1.289: `cd replay` in one call,
+    // `cd .. && bash tools/correr_tests.sh` in the next. Claude Code handed
+    // the second call's hook the shell's directory, the gate resolved `..` to
+    // the worktree and allowed it, and the replay resolved it from the
+    // worktree to `~/hydra/worktrees` and filed a leak and a disagreement.
+    let run = a_climb_after("climb-moved", "cd sub && ls", "a.txt");
+    assert!(!claims_the_gate(&run, "toolu_02"), "{:?}", run.findings);
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Limit(text) if text.contains("toolu_02") && text.contains("ran cd")
+        )),
+        "{:?}",
+        run.findings
+    );
+}
+
+#[test]
+fn the_same_climb_with_no_earlier_cd_is_still_a_leak() {
+    let run = a_climb_after("climb-still", "ls", "sub");
+    assert!(claims_the_gate(&run, "toolu_02"), "{:?}", run.findings);
+}
+
+#[test]
+fn the_same_climb_after_claude_code_reset_the_shell_is_still_a_leak() {
+    // Claude Code puts the shell back in the run's own directory when a call
+    // leaves it outside the project, and says so at the end of the result.
+    let run = a_climb_after(
+        "climb-reset",
+        "cd /tmp && ls",
+        "x\nShell cwd was reset to /somewhere/the/run/started",
+    );
+    assert!(claims_the_gate(&run, "toolu_02"), "{:?}", run.findings);
+}
+
+#[test]
+fn a_task_stop_for_a_task_that_does_not_exist_never_reached_the_hook() {
+    // Build ticket 286, run 01a1049c-35c1 on claude 2.1.289, opus: a third
+    // `TaskStop` came back `<tool_use_error>No task found with ID: ...` with no
+    // `PreToolUse:TaskStop` start of its own, while the gate refused the two
+    // before it, and `result.permission_denials` names only those two. The
+    // walk filed it as ungated and as a leak.
+    let sandbox = Sandbox::new("claude-missing-task");
+    let text = Record::gated(&sandbox, "claude", "standard", policies().sha())
+        .tool_use("toolu_01", "TaskStop", json!({"task_id": "bh7m06v91"}))
+        .tool_result(
+            "toolu_01",
+            "<tool_use_error>No task found with ID: bh7m06v91</tool_use_error>",
+            true,
+        )
+        .closed();
 
     let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
     assert!(

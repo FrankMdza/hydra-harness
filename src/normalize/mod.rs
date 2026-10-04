@@ -969,6 +969,14 @@ impl<'a> ReplaySpawn<'a> {
     /// `src/rungs/corpus.rs` keeps limits out of the weighted
     /// `signals.disagreements` a brief ranks on.
     pub(crate) fn cannot_back(&self, what: &str) -> Option<Finding> {
+        self.cannot_back_call(what, None)
+    }
+
+    /// The same door, with one more reason that belongs to the call rather
+    /// than to the record: an input the gate was handed for this call and the
+    /// record does not carry. Build ticket 286 is the one producer, `claude`'s
+    /// shell directory after a `cd`, in `claude.rs`.
+    pub(crate) fn cannot_back_call(&self, what: &str, call: Option<&str>) -> Option<Finding> {
         // Every reason, not the first one. Both can be true of one record, and
         // a reader fixing the record wants to know it carries neither mark
         // rather than discovering the second after supplying the first.
@@ -983,11 +991,19 @@ impl<'a> ReplaySpawn<'a> {
                 self.rebuilt.join(", ")
             ));
         }
+        // A record reason means two gates. A call reason alone means one gate
+        // asked about two calls that differ in what the record lost.
+        let about = if why.is_empty() {
+            "two calls"
+        } else {
+            "two gates"
+        };
+        why.extend(call.map(str::to_string));
         if why.is_empty() {
             return None;
         }
         Some(Finding::Limit(format!(
-            "{what}, and {}, so the two answered about two gates",
+            "{what}, and {}, so the two answered about {about}",
             why.join(", and ")
         )))
     }

@@ -511,6 +511,7 @@ impl Walk {
         };
 
         let results = super::results_by_call(&self.events);
+        let shell_moved = Self::shell_moved_before(&calls, &results);
         let replay_inputs: Vec<(&str, &Value, &Path)> = calls
             .iter()
             .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
@@ -550,6 +551,10 @@ impl Walk {
                 }
             };
             let gate_said = self.take_gate_answer(window, group, &tool);
+            // The gate answered from wherever the shell stood, and the replay
+            // asks from the run's own directory. Only a call the gate spoke
+            // for: a silent gate is `Ungated` whatever the directory was.
+            let unvouched_cwd = (shell_moved[index] && gate_said.is_some()).then_some(SHELL_MOVED);
             let refusal = self.refusal(&call_id, window, group, &tool, results.get(&call_id));
 
             // 6.6: a hook that fails to start fails open on this provider, and
@@ -582,7 +587,11 @@ impl Walk {
             // And a seventh, the same day on run 01a0cf89-8b3d, opus: `Not run:
             // the response that made this tool call was stopped by a safety
             // classifier.`, a `Write` withheld by the model provider before
-            // Claude Code ran any tool or hook.
+            // Claude Code ran any tool or hook. An eighth, `<tool_use_error>No
+            // task found with ID: ...`, 2026-10-04 on run 01a1049c-35c1, opus on
+            // 2.1.289: a `TaskStop` for a task that had already ended, with two
+            // `PreToolUse:TaskStop` starts in the record for the two calls
+            // before it and none for this one. Build ticket 286.
             // The gate was never asked, so neither its silence nor the table's
             // ignorance of an invented name is a finding.
             let refused_on_input = results.get(&call_id).is_some_and(|(status, output)| {
@@ -592,6 +601,7 @@ impl Walk {
                         || output.starts_with("<tool_use_error>Blocked:")
                         || output.starts_with("<tool_use_error>File has not been read yet")
                         || output.starts_with("<tool_use_error>File does not exist.")
+                        || output.starts_with("<tool_use_error>No task found with ID")
                         || output.starts_with("<tool_use_error>Error calling tool (")
                         || output.starts_with(
                             "Not run: the response that made this tool call was stopped",
@@ -620,11 +630,14 @@ impl Walk {
                         decision,
                         verdict_decision(verdict.allowed),
                     )));
-                } else if let Some(limit) = spawn.cannot_back(&format!(
-                    "the gate answered {:?} for {call_id} ({tool}) and the derivation says {:?}",
-                    decision,
-                    verdict_decision(verdict.allowed),
-                )) {
+                } else if let Some(limit) = spawn.cannot_back_call(
+                    &format!(
+                        "the gate answered {:?} for {call_id} ({tool}) and the derivation says {:?}",
+                        decision,
+                        verdict_decision(verdict.allowed),
+                    ),
+                    unvouched_cwd,
+                ) {
                     self.findings.push(limit);
                 } else {
                     self.findings.push(Finding::Disagreement {
@@ -677,9 +690,13 @@ impl Walk {
                             "{call_id} ({tool}) named no path the replay could judge and \
                              the provider answered an error, so whether it ran is unknown"
                         )));
-                    } else if let Some(limit) = spawn.cannot_back(&format!(
-                        "the policy denies {call_id} ({tool}) and nothing in the record refused it"
-                    )) {
+                    } else if let Some(limit) = spawn.cannot_back_call(
+                        &format!(
+                            "the policy denies {call_id} ({tool}) and nothing in the record \
+                             refused it"
+                        ),
+                        unvouched_cwd,
+                    ) {
                         self.findings.push(limit);
                     } else {
                         self.findings.push(Finding::GateLeak {
@@ -721,6 +738,49 @@ impl Walk {
             decisions.push(Some(derived));
         }
         decisions
+    }
+
+    /// Whether Claude Code's shell may stand somewhere other than the run's own
+    /// directory when each call was asked, one answer per call.
+    ///
+    /// **The hook's `cwd` is the shell's, not the run's.** Claude Code keeps the
+    /// directory a `Bash` call left its shell in, hands it to the next call's
+    /// `PreToolUse` hook as `cwd`, and resets it only when it lands outside the
+    /// project, saying `Shell cwd was reset to <dir>` at the end of that
+    /// call's result. The record carries no other trace of it, and the replay
+    /// asks every call from `run_start.cwd`. Build ticket 286 measured what
+    /// that costs: four calls on 2026-10-04, each a relative `..` climbing out
+    /// of a subdirectory an earlier call had `cd`'d into, which the live gate
+    /// allowed and the replay resolved one level too high, into
+    /// `~/hydra/worktrees` or `~/hydra`, and filed as leaks.
+    ///
+    /// Coarse in one direction on purpose. Any `cd`, `pushd` or `popd` that
+    /// begins a segment counts, including one inside a subshell that never
+    /// moved anything, because reading which ones moved the shell is running
+    /// the command. The cost is a `Limit` where a `GateLeak` or a
+    /// `Disagreement` stood, and only on a call the gate itself answered.
+    fn shell_moved_before(
+        calls: &[(u64, String, String, Value)],
+        results: &HashMap<String, (ResultStatus, String)>,
+    ) -> Vec<bool> {
+        let mut moved = false;
+        calls
+            .iter()
+            .map(|(_, call_id, tool, arguments)| {
+                let before = moved;
+                if tool == "Bash" {
+                    let reset = results
+                        .get(call_id)
+                        .is_some_and(|(_, output)| output.contains("Shell cwd was reset to "));
+                    if reset {
+                        moved = false;
+                    } else if arguments["command"].as_str().is_some_and(changes_directory) {
+                        moved = true;
+                    }
+                }
+                before
+            })
+            .collect()
     }
 
     /// Every `hook_started` frame assigned to the call it belongs to.
@@ -907,6 +967,25 @@ impl Walk {
 fn pretooluse_hook_error_reason<'a>(tool: &str, text: &'a str) -> &'a str {
     text.strip_prefix(&format!("PreToolUse:{tool} hook error: "))
         .unwrap_or(text)
+}
+
+/// The clause a finding loses to [`Walk::shell_moved_before`].
+const SHELL_MOVED: &str = "an earlier Bash call ran cd, and Claude Code hands the hook the \
+     directory its shell was left in, so the gate resolved this call from a directory the \
+     record does not carry and the replay from the run's own";
+
+/// Whether a `Bash` command changes its shell's directory, read coarsely: a
+/// segment, split at the shell's separators, whose first word is `cd`,
+/// `pushd` or `popd`.
+fn changes_directory(command: &str) -> bool {
+    command
+        .split([';', '&', '|', '\n', '(', '{'])
+        .any(|segment| {
+            matches!(
+                segment.split_whitespace().next(),
+                Some("cd" | "pushd" | "popd")
+            )
+        })
 }
 
 /// The content blocks of one `assistant` or `user` message, in order.
