@@ -28,9 +28,9 @@ else
 fi
 
 case "$PROVIDER" in
-  claude|codex) ;;
+  claude|codex|cursor-agent) ;;
   *)
-    echo "hydra-copilot: provider must be claude or codex" >&2
+    echo "hydra-copilot: provider must be claude, codex or cursor-agent" >&2
     exit 1
     ;;
 esac
@@ -40,7 +40,9 @@ case "$HOME_DIR/" in
 esac
 mkdir -p "$HOME_DIR"
 
-# One source:destination pair per rendered file; map 100 D3 adds GEMINI.md later.
+# One source:destination pair per rendered file; map 100 D3 adds GEMINI.md later. `codex` and
+# `cursor-agent` take AGENTS.md: build 154 for `codex`, Cursor's own rules for
+# `cursor-agent`, not measured by Hydra (build 266).
 while IFS=: read -r src dst; do
   sed -e "s|{{REPO}}|$REPO|g" -e "s|{{HYDRA}}|$DEFAULT_REPO|g" "$DEFAULT_REPO/integrations/copilot/$src" > "$HOME_DIR/$dst"
 done <<'PAIRS'
@@ -65,7 +67,7 @@ cd "$HOME_DIR"
 HYDRA="${HYDRA_BIN:-hydra}"
 
 # The orchestrator also reviews, so it runs on the strongest model: Opus on `claude` by the
-# human's rule of 2026-10-03, over map 97's Sonnet. `codex` keeps its own default.
+# human's rule of 2026-10-03, over map 97's Sonnet. `codex` and `cursor-agent` keep their own.
 if [[ -z "$MODEL" && "$PROVIDER" == claude ]]; then
   MODEL=claude-opus-5-5
 fi

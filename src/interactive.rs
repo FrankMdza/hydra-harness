@@ -11,12 +11,14 @@
 //! calls on a dead run whose body nobody harvested yet (section 10, "harvest is
 //! idempotent and any process can do it").
 //!
-//! **`claude` and, ungated, `codex`.** Harness spec 10: `claude` writes an
+//! **`claude` and, ungated, `codex` and `cursor-agent`.** Harness spec 10: `claude` writes an
 //! append-only transcript during the run, at a path Hydra predicts before the
 //! process starts off the same `--session-id` the pre-flight probe already
 //! mints ([`crate::provider::claude::transcript_path`]). `codex` takes no
 //! session id, so its harvest finds the session file after the fact
 //! ([`crate::provider::codex::find_interactive_session`]), build ticket 255.
+//! `cursor-agent` is the same shape over a SQLite chat store
+//! ([`crate::provider::cursor::find_interactive_chat`]), build ticket 266.
 //! The gated mode stays `claude` only: it compiles a `claude` gate and wraps a
 //! `claude` argv.
 
@@ -28,7 +30,7 @@ use uuid::Uuid;
 use crate::env::ChildEnv;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
-use crate::provider::{Provider, claude, codex};
+use crate::provider::{Provider, claude, codex, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
 use crate::run::{SpawnFiles, inject_skills, write_spawn_config};
 
@@ -36,7 +38,7 @@ use crate::run::{SpawnFiles, inject_skills, write_spawn_config};
 /// launch compiles a gate, seeds a worktree and links the snapshot the way a
 /// recorded run does before the spawn.
 pub struct Request {
-    /// `claude`, or `codex` when no policy is named.
+    /// `claude`, or `codex` or `cursor-agent` when no policy is named.
     pub provider: Provider,
     pub task: Option<String>,
     pub model: Option<String>,
@@ -308,19 +310,21 @@ pub fn run(request: Request) -> Result<RunResult> {
     }
 }
 
-/// The providers each interactive mode launches, build ticket 255: `claude`
-/// gated or not, `codex` ungated, and nothing else yet.
+/// The providers each interactive mode launches, build tickets 255 and 266:
+/// `claude` gated or not, `codex` and `cursor-agent` ungated, and `agy` not
+/// yet.
 pub fn refuse_provider(provider: Provider, gated: bool) -> Result<()> {
     match provider {
         Provider::Claude => Ok(()),
-        Provider::Codex if !gated => Ok(()),
-        Provider::Codex => anyhow::bail!(
+        Provider::Codex | Provider::CursorAgent if !gated => Ok(()),
+        Provider::Codex | Provider::CursorAgent => anyhow::bail!(
             "hydra run --interactive --policy is claude only: the gated interactive mode \
-             compiles a claude gate. Drop --policy to launch codex ungated"
+             compiles a claude gate. Drop --policy to launch {} ungated",
+            provider.binary()
         ),
         other => anyhow::bail!(
-            "hydra run --interactive supports claude and codex; {} is not launched \
-             interactively yet",
+            "hydra run --interactive supports claude, codex and cursor-agent; {} is not \
+             launched interactively yet",
             other.binary()
         ),
     }
@@ -522,6 +526,14 @@ fn run_ungated(request: Request) -> Result<RunResult> {
             let argv = codex::interactive_argv(request.task.as_deref(), request.model.as_deref());
             (None, argv)
         }
+        Provider::CursorAgent => {
+            // The same as `codex`: no chat id goes in, the harvest finds the
+            // chat by its start, and the MCP config Hydra writes lives in a
+            // checkout (6.5) this launch does not make, so the human's own
+            // Cursor config is what the TUI reads.
+            let argv = cursor::interactive_argv(request.task.as_deref(), request.model.as_deref());
+            (None, argv)
+        }
         _ => {
             // 6.5: the run's file, without `--strict-mcp-config` so the human's
             // own servers survive beside it. Nothing is admitted, because
@@ -580,7 +592,8 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         // Known before the child starts on `claude`, unlike a recorded run's:
         // it takes `--session-id` rather than minting its own, so line 0
         // carries it from the first write rather than arriving late on an init
-        // frame. Null on `codex`, whose id only its session file names.
+        // frame. Null on `codex` and `cursor-agent`, whose ids only their own
+        // files name.
         provider_session_id: session,
         // Verbatim, with no preamble: harness spec 3 gives an interactive run
         // none.
@@ -781,9 +794,9 @@ pub fn harvest_in(
         .with_context(|| format!("line 0 of {} did not parse", run_file.display()))?;
     let provider = envelope["provider"].as_str();
     anyhow::ensure!(
-        matches!(provider, Some("claude" | "codex")),
-        "harvest reads only a claude or codex transcript in this build, and run {run_id} is \
-         {provider:?}"
+        matches!(provider, Some("claude" | "codex" | "cursor-agent")),
+        "harvest reads only a claude, codex or cursor-agent transcript in this build, and run \
+         {run_id} is {provider:?}"
     );
     let start = &envelope["hydra"];
     anyhow::ensure!(
@@ -796,76 +809,15 @@ pub fn harvest_in(
     let parent_run_id = envelope["parent_run_id"].as_str();
     let model = envelope["model"].as_str();
 
-    let (transcript_path, note) = if provider == Some("codex") {
-        // The process's own start, which the TUI's session timestamp follows;
-        // the envelope's time when the record carries none.
-        let since = start["process_start_time"]
-            .as_str()
-            .or_else(|| envelope["ts"].as_str())
-            .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-            .map(|t| t.with_timezone(&chrono::Utc))
-            .with_context(|| format!("run {run_id} carries no start time to find a session by"))?;
-        match codex::find_interactive_session(home, Path::new(cwd), since)? {
-            Some(found) => {
-                let note = (found.later > 0).then(|| {
-                    format!(
-                        "harvested codex session {}, the first of {} that began in {cwd} after \
-                         the run started",
-                        found.session_id,
-                        found.later + 1
-                    )
-                });
-                (found.path, note)
-            }
-            None => {
-                let looked = codex::sessions_dir(home);
-                return close_without_transcript(
-                    layout,
-                    &run_file,
-                    run_id,
-                    exit_code,
-                    &envelope,
-                    format!(
-                        "the session wrote no codex session file under {} that ran in {cwd} \
-                         and began after {since}, so there is nothing to harvest",
-                        looked.display()
-                    ),
-                );
-            }
-        }
+    let found = if provider == Some("cursor-agent") {
+        cursor_chat(home, Path::new(cwd), started_at(&envelope, run_id)?)?
     } else {
-        let session = start["provider_session_id"].as_str().with_context(|| {
-            format!("run {run_id} carries no provider_session_id to harvest with")
-        })?;
-        (claude::transcript_path(home, Path::new(cwd), session), None)
+        transcript_file(home, &envelope, run_id, cwd)?
     };
-
-    // A session that exits before its first turn writes no transcript at all,
-    // measured 2026-09-08 on a consent dialog answered with exit. That run is
-    // over and has nothing to harvest, and a `run_end` saying so is what keeps
-    // `hydra status` from re-reporting the same missing file forever.
-    let transcript = match std::fs::read_to_string(&transcript_path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return close_without_transcript(
-                layout,
-                &run_file,
-                run_id,
-                exit_code,
-                &envelope,
-                format!(
-                    "the session wrote no transcript at {}, so there is nothing to harvest",
-                    transcript_path.display()
-                ),
-            );
-        }
-        Err(err) => {
-            return Err(err).with_context(|| {
-                format!(
-                    "reading the transcript hydra found for run {run_id} at {}",
-                    transcript_path.display()
-                )
-            });
+    let (lines, note) = match found {
+        Found::Lines { lines, note } => (lines, note),
+        Found::Nothing(why) => {
+            return close_without_transcript(layout, &run_file, run_id, exit_code, &envelope, why);
         }
     };
 
@@ -886,10 +838,7 @@ pub fn harvest_in(
     }
 
     let mut records = 0usize;
-    for line in transcript.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
+    for line in &lines {
         writer.provider_line(line)?;
         records += 1;
     }
@@ -905,6 +854,146 @@ pub fn harvest_in(
     writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, error))?;
 
     Ok(HarvestOutcome::Harvested { records })
+}
+
+/// What a harvest found to wrap: the vendor's lines and a note for
+/// `run_end.error`, or why there is nothing.
+enum Found {
+    Lines {
+        lines: Vec<String>,
+        note: Option<String>,
+    },
+    Nothing(String),
+}
+
+/// The process's own start, which the vendor's own session start follows;
+/// the envelope's time when the record carries none.
+fn started_at(envelope: &serde_json::Value, run_id: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    envelope["hydra"]["process_start_time"]
+        .as_str()
+        .or_else(|| envelope["ts"].as_str())
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .map(|t| t.with_timezone(&chrono::Utc))
+        .with_context(|| format!("run {run_id} carries no start time to find a session by"))
+}
+
+/// The lines of a `claude` transcript or a `codex` session file.
+fn transcript_file(
+    home: &Path,
+    envelope: &serde_json::Value,
+    run_id: &str,
+    cwd: &str,
+) -> Result<Found> {
+    let (transcript_path, note) = if envelope["provider"].as_str() == Some("codex") {
+        let since = started_at(envelope, run_id)?;
+        match codex::find_interactive_session(home, Path::new(cwd), since)? {
+            Some(found) => {
+                let note = (found.later > 0).then(|| {
+                    format!(
+                        "harvested codex session {}, the first of {} that began in {cwd} after \
+                         the run started",
+                        found.session_id,
+                        found.later + 1
+                    )
+                });
+                (found.path, note)
+            }
+            None => {
+                return Ok(Found::Nothing(format!(
+                    "the session wrote no codex session file under {} that ran in {cwd} \
+                     and began after {since}, so there is nothing to harvest",
+                    codex::sessions_dir(home).display()
+                )));
+            }
+        }
+    } else {
+        let session = envelope["hydra"]["provider_session_id"]
+            .as_str()
+            .with_context(|| {
+                format!("run {run_id} carries no provider_session_id to harvest with")
+            })?;
+        (claude::transcript_path(home, Path::new(cwd), session), None)
+    };
+
+    // A session that exits before its first turn writes no transcript at all,
+    // measured 2026-09-08 on a consent dialog answered with exit. That run is
+    // over and has nothing to harvest, and a `run_end` saying so is what keeps
+    // `hydra status` from re-reporting the same missing file forever.
+    match std::fs::read_to_string(&transcript_path) {
+        Ok(text) => Ok(Found::Lines {
+            lines: text
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_string)
+                .collect(),
+            note,
+        }),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Found::Nothing(format!(
+            "the session wrote no transcript at {}, so there is nothing to harvest",
+            transcript_path.display()
+        ))),
+        Err(err) => Err(err).with_context(|| {
+            format!(
+                "reading the transcript hydra found for run {run_id} at {}",
+                transcript_path.display()
+            )
+        }),
+    }
+}
+
+/// The messages of the `cursor-agent` chat a run wrote, build ticket 266,
+/// one record line each in conversation order. The note says what the
+/// harvest could not place or read, since neither is in the lines.
+fn cursor_chat(home: &Path, cwd: &Path, since: chrono::DateTime<chrono::Utc>) -> Result<Found> {
+    let Some(found) = cursor::find_interactive_chat(home, cwd, since)? else {
+        return Ok(Found::Nothing(format!(
+            "the session wrote no cursor-agent chat under {} that ran in {} and began after \
+             {since}, so there is nothing to harvest",
+            cursor::chats_dir(home).display(),
+            cwd.display()
+        )));
+    };
+    let store = found.dir.join("store.db");
+    if !store.exists() {
+        return Ok(Found::Nothing(format!(
+            "cursor-agent chat {} has no store.db, so there is nothing to harvest",
+            found.chat_id
+        )));
+    }
+    let chat = cursor::read_chat(&store)?;
+    if chat.messages.is_empty() {
+        return Ok(Found::Nothing(format!(
+            "cursor-agent chat {} holds no message, so there is nothing to harvest",
+            found.chat_id
+        )));
+    }
+    let mut notes = Vec::new();
+    if found.later > 0 {
+        notes.push(format!(
+            "harvested cursor-agent chat {}, the first of {} that began in {} after the run \
+             started",
+            found.chat_id,
+            found.later + 1,
+            cwd.display()
+        ));
+    }
+    if chat.unordered > 0 {
+        notes.push(format!(
+            "messages no state blob placed are last, in id order: {}",
+            chat.unordered
+        ));
+    }
+    if chat.unread > 0 {
+        notes.push(format!(
+            "protobuf blobs that name no message were left unread, and any usage the chat \
+             recorded is among them: {}",
+            chat.unread
+        ));
+    }
+    Ok(Found::Lines {
+        lines: chat.messages,
+        note: (!notes.is_empty()).then(|| notes.join("; ")),
+    })
 }
 
 /// The `run_end` of a session that left nothing to harvest, with `error`
@@ -994,17 +1083,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Build ticket 255: `codex` launches interactively only without a
-    /// policy, and the refusal says the gated mode is `claude` only.
+    /// Build tickets 255 and 266: `codex` and `cursor-agent` launch
+    /// interactively only without a policy, and the refusal says the gated
+    /// mode is `claude` only.
     #[test]
-    fn codex_is_interactive_only_ungated() {
+    fn codex_and_cursor_agent_are_interactive_only_ungated() {
         assert!(refuse_provider(Provider::Claude, true).is_ok());
         assert!(refuse_provider(Provider::Claude, false).is_ok());
         assert!(refuse_provider(Provider::Codex, false).is_ok());
+        assert!(refuse_provider(Provider::CursorAgent, false).is_ok());
         let gated = refuse_provider(Provider::Codex, true)
             .unwrap_err()
             .to_string();
         assert!(gated.contains("claude only"), "{gated}");
+        let gated = refuse_provider(Provider::CursorAgent, true)
+            .unwrap_err()
+            .to_string();
+        assert!(gated.contains("launch cursor-agent ungated"), "{gated}");
         let other = refuse_provider(Provider::Agy, false)
             .unwrap_err()
             .to_string();

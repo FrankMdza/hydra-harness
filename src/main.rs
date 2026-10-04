@@ -290,6 +290,11 @@ fn main() -> Result<()> {
                 &mut out,
             )?;
         }
+        Command::Cost { runs, check } => {
+            let layout = Layout::discover()?;
+            let mut out = std::io::stdout().lock();
+            hydra::cost::command(&layout, hydra::cost::CostRequest { runs, check }, &mut out)?;
+        }
         Command::Watch { spec } => hydra::watch::watch(&spec)?,
         // Stdout belongs to the protocol from here on, so nothing below prints.
         Command::DelegateFace { parent } => {

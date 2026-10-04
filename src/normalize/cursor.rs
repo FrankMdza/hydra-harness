@@ -170,6 +170,8 @@ struct Walk {
     /// shell command is told from an `error` without re-reading the output.
     cases: HashMap<String, &'static str>,
     unknown_tools: Vec<String>,
+    /// Chat part types this reader drops, each named once. Build ticket 266.
+    unread_parts: Vec<String>,
 }
 
 pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
@@ -290,6 +292,9 @@ impl Walk {
                 self.events.push(Event::Usage(usage_of(seq, raw)));
                 self.usage_emitted = true;
             }
+            // Build ticket 266: an interactive run's body is its chat's message
+            // blobs, which carry a `role` and no `type`.
+            None if raw.get("role").is_some() => self.chat_message(seq, raw),
             // `system/init` carries the display name and the session id, which
             // the envelope already took, and no tool list: 7.1's table check
             // has nothing to read on this provider.
@@ -401,6 +406,100 @@ impl Walk {
             // normalizer cuts nothing, so the marker is always false.
             truncated: false,
         }));
+    }
+
+    /// One message blob of a harvested chat, build ticket 266.
+    /// `provider::cursor` holds the measured shapes.
+    ///
+    /// The tool names are the chat's own spelling, which no hook saw and no
+    /// table maps yet, so a name the table does not know is a finding here as
+    /// on the stream. An ungated run has no policy, so nothing is re-decided.
+    fn chat_message(&mut self, seq: u64, raw: &Value) {
+        // A `tool` message carries results and says nothing of its own.
+        let speaker = match raw["role"].as_str() {
+            Some("user") => Some(Role::User),
+            Some("assistant") => Some(Role::Assistant),
+            Some("tool") => None,
+            // `system` is the TUI's own instructions, not a turn.
+            _ => return,
+        };
+        let parts = match &raw["content"] {
+            Value::String(text) => {
+                if let Some(role) = speaker.filter(|_| !text.is_empty()) {
+                    self.events.push(Event::Message(Message {
+                        seq,
+                        role,
+                        text: text.clone(),
+                        block: 0,
+                    }));
+                }
+                return;
+            }
+            Value::Array(parts) => parts,
+            _ => return,
+        };
+        for (block, part) in parts.iter().enumerate() {
+            match part["type"].as_str() {
+                Some("text") => {
+                    let text = part["text"].as_str().unwrap_or_default();
+                    if let Some(role) = speaker.filter(|_| !text.is_empty()) {
+                        self.events.push(Event::Message(Message {
+                            seq,
+                            role,
+                            text: text.to_string(),
+                            block,
+                        }));
+                    }
+                }
+                Some("tool-call") => {
+                    let name = part["toolName"].as_str().unwrap_or_default().to_string();
+                    let capability = cursor_capability(&name);
+                    if capability.is_none() {
+                        self.note_unknown(&name);
+                    }
+                    self.events.push(Event::ToolCall(ToolCall {
+                        seq,
+                        call_id: part["toolCallId"].as_str().unwrap_or_default().to_string(),
+                        name,
+                        arguments: part["args"].clone(),
+                        capability,
+                    }));
+                }
+                Some("tool-result") => {
+                    let output = match &part["result"] {
+                        Value::String(text) => text.clone(),
+                        other => other.to_string(),
+                    };
+                    // The chat says nothing about success on the part itself,
+                    // so only a hook's own marker makes this an error.
+                    let status =
+                        if output.contains(BLOCKED_BY_HOOK) || hydra_voice(&output).is_some() {
+                            ResultStatus::Error
+                        } else {
+                            ResultStatus::Unclassified
+                        };
+                    self.events.push(Event::ToolResult(ToolResult {
+                        seq,
+                        call_id: part["toolCallId"].as_str().unwrap_or_default().to_string(),
+                        status,
+                        output,
+                        truncated: false,
+                    }));
+                }
+                // Encrypted, with nothing readable in it.
+                Some("redacted-reasoning") => {}
+                other => {
+                    let kind = other.unwrap_or("(none)").to_string();
+                    if !self.unread_parts.contains(&kind) {
+                        self.findings.push(Finding::Limit(format!(
+                            "a chat part of type {kind} is one this reader does not know, so \
+                             nothing was derived from it"
+                        )));
+                        self.unread_parts.push(kind);
+                    }
+                }
+            }
+        }
     }
 
     fn note_unknown(&mut self, name: &str) {

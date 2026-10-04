@@ -99,11 +99,11 @@ pub(crate) fn is_abandoned_interactive_claude(view: &RunView) -> bool {
 
 /// Whether a view is a dead interactive run this build knows how to harvest:
 /// [`is_abandoned_interactive_claude`], or the same on a `codex` envelope,
-/// build ticket 255.
+/// build ticket 255, or a `cursor-agent` one, build ticket 266.
 pub(crate) fn is_abandoned_interactive(view: &RunView) -> bool {
     is_abandoned_interactive_claude(view)
         || (view.state == State::Abandoned
-            && view.provider.as_deref() == Some("codex")
+            && matches!(view.provider.as_deref(), Some("codex" | "cursor-agent"))
             && view.launch_mode.as_deref() == Some("interactive"))
 }
 

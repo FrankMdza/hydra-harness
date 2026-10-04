@@ -1050,3 +1050,266 @@ fn a_codex_run_with_no_session_file_ends_with_usage_unknown() {
         HarvestOutcome::AlreadyDone
     );
 }
+
+/// Line 0 of an ungated interactive `cursor-agent` run: no chat id, because
+/// the TUI takes none, and the liveness pair of this test's own process.
+fn open_cursor_interactive_run(layout: &Layout, run_id: &str, cwd: &Path) {
+    let mut start = unfilled_start(cwd);
+    let pid = std::process::id();
+    start.pid = Some(pid);
+    start.process_start_time = hydra::procinfo::start_time(pid)
+        .unwrap()
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
+    start.provider_version = Some("2026.10.01-e373342".into());
+    start.provider_session_id = None;
+    start.subscription = Some("cursor".into());
+    let mut writer = Writer::create(
+        layout.run_file(run_id),
+        run_id,
+        None,
+        Some("cursor-agent"),
+        None,
+    )
+    .unwrap();
+    writer.hydra_line(&start).unwrap();
+}
+
+/// A blob's id the way the store names it: its SHA-256, in hex.
+fn blob_id(data: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(data)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// A state blob in the measured shape: first byte `0x0a`, the raw ids of the
+/// messages so far in order.
+fn state_blob(ids: &[&str]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for id in ids {
+        bytes.extend([0x0a, 0x20]);
+        for at in (0..id.len()).step_by(2) {
+            bytes.push(u8::from_str_radix(&id[at..at + 2], 16).unwrap());
+        }
+    }
+    bytes
+}
+
+/// A chat directory in the shape `provider::cursor` measured: `meta.json`
+/// and, when `blobs` is some, a `store.db` with its two tables, made by the
+/// system's `sqlite3`. Every row is synthetic.
+fn write_cursor_chat(
+    home: &Path,
+    cwd: &Path,
+    chat: &str,
+    created: chrono::DateTime<chrono::Utc>,
+    blobs: Option<&[Vec<u8>]>,
+) -> PathBuf {
+    let dir = hydra::provider::cursor::chats_dir(home)
+        .join("0123456789abcdef0123456789abcdef")
+        .join(chat);
+    std::fs::create_dir_all(&dir).unwrap();
+    let meta = json!({
+        "schemaVersion": 1,
+        "createdAtMs": created.timestamp_millis(),
+        "hasConversation": blobs.is_some(),
+        "updatedAtMs": created.timestamp_millis() + 1000,
+        "cwd": cwd.display().to_string(),
+    });
+    std::fs::write(dir.join("meta.json"), meta.to_string()).unwrap();
+    let Some(blobs) = blobs else {
+        return dir;
+    };
+    let mut sql = String::from(
+        "CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB);\n\
+         CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);\n\
+         INSERT INTO meta VALUES ('k', 'v');\n",
+    );
+    for data in blobs {
+        let hex: String = data.iter().map(|byte| format!("{byte:02x}")).collect();
+        sql.push_str(&format!(
+            "INSERT INTO blobs VALUES ('{}', X'{hex}');\n",
+            blob_id(data)
+        ));
+    }
+    let mut child = std::process::Command::new("sqlite3")
+        .arg(dir.join("store.db"))
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(sql.as_bytes())
+            .unwrap();
+    }
+    assert!(child.wait().unwrap().success());
+    dir
+}
+
+/// Build ticket 266. The chat that began after the run, in its cwd, is the one
+/// harvested; one from before the run and one in another directory are not.
+/// The blobs go in out of order and come out in the order the latest state
+/// blob names, and the protobuf blob that names nothing is counted unread.
+#[test]
+fn a_cursor_agent_chat_harvests_in_its_own_order_with_usage_unavailable() {
+    let (layout, home, cwd) = scratch("cursor");
+    let run_id = "01a1073a-0000-7000-8000-000000000266";
+    open_cursor_interactive_run(&layout, run_id, &cwd);
+    let now = chrono::Utc::now();
+
+    let message = |body: Value| body.to_string().into_bytes();
+    let system = message(json!({"role": "system", "content": "the TUI's own instructions"}));
+    let user = message(json!({"role": "user", "content": "list the files"}));
+    let call = message(json!({"role": "assistant", "id": "m1", "content": [
+        {"type": "redacted-reasoning", "data": "opaque", "providerOptions": {}},
+        {"type": "text", "text": "Looking."},
+        {"type": "tool-call", "toolCallId": "tc1", "toolName": "run_terminal_cmd",
+         "args": {"command": "ls"}},
+    ]}));
+    let result = message(json!({"role": "tool", "content": [
+        {"type": "tool-result", "toolCallId": "tc1", "toolName": "run_terminal_cmd",
+         "result": "a.txt", "experimental_content": []},
+    ]}));
+    let answer = message(json!({"role": "assistant", "content": [
+        {"type": "text", "text": "There is one file, a.txt."},
+    ]}));
+    let ids: Vec<String> = [&system, &user, &call, &result, &answer]
+        .iter()
+        .map(|data| blob_id(data))
+        .collect();
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let blobs = vec![
+        answer.clone(),
+        state_blob(&ids[..2]),
+        call.clone(),
+        vec![0x12, 0x02, 0x08, 0x01],
+        user.clone(),
+        state_blob(&ids),
+        result.clone(),
+        system.clone(),
+    ];
+    let mine = write_cursor_chat(
+        &home,
+        &cwd,
+        "0a1b2c3d-0000-4000-8000-000000000001",
+        now,
+        Some(&blobs),
+    );
+    let earlier = vec![user.clone()];
+    write_cursor_chat(
+        &home,
+        &cwd,
+        "0a1b2c3d-0000-4000-8000-000000000002",
+        now - chrono::Duration::days(3),
+        Some(&earlier),
+    );
+    let elsewhere = home.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    write_cursor_chat(
+        &home,
+        &elsewhere,
+        "0a1b2c3d-0000-4000-8000-000000000003",
+        now - chrono::Duration::milliseconds(1),
+        Some(&earlier),
+    );
+    // A second TUI a human opened in the same directory while this one ran.
+    write_cursor_chat(
+        &home,
+        &cwd,
+        "0a1b2c3d-0000-4000-8000-000000000004",
+        now + chrono::Duration::seconds(5),
+        None,
+    );
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(
+        outcome,
+        HarvestOutcome::Harvested { records: 5 },
+        "{} should have been the one harvested",
+        mine.display()
+    );
+
+    let text = std::fs::read_to_string(layout.run_file(run_id)).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(
+        error.contains("000000000001, the first of 2"),
+        "the later chat is counted, not taken: {error}"
+    );
+    assert!(
+        error.contains("left unread, and any usage the chat recorded is among them: 1"),
+        "{error}"
+    );
+    assert!(!error.contains("no state blob placed"), "{error}");
+
+    let said: Vec<(Role, &str)> = run.messages().map(|m| (m.role, m.text.as_str())).collect();
+    assert_eq!(
+        said,
+        [
+            (Role::User, "list the files"),
+            (Role::Assistant, "Looking."),
+            (Role::Assistant, "There is one file, a.txt."),
+        ]
+    );
+    let calls: Vec<_> = run.tool_calls().collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].call_id, "tc1");
+    assert_eq!(calls[0].arguments, json!({"command": "ls"}));
+    let results: Vec<_> = run.tool_results().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        (results[0].call_id.as_str(), results[0].output.as_str()),
+        ("tc1", "a.txt")
+    );
+
+    let usage = run.usage().expect("an ended run still says what it knows");
+    assert_eq!(usage.source, hydra::normalize::UsageSource::Unavailable);
+    assert!(usage.counts.is_none());
+    assert_eq!(
+        hydra::outcome::derive(&run).unwrap().outcome,
+        hydra::outcome::Outcome::Completed
+    );
+    assert_eq!(
+        harvest_in(&layout, run_id, None, &home).unwrap(),
+        HarvestOutcome::AlreadyDone
+    );
+}
+
+/// Build ticket 266. A `cursor-agent` session that left no chat closes the
+/// record failed, saying where the harvest looked.
+#[test]
+fn a_cursor_agent_run_with_no_chat_derives_failed() {
+    let (layout, home, cwd) = scratch("cursor-none");
+    let run_id = "01a1073a-0000-7000-8000-000000000267";
+    open_cursor_interactive_run(&layout, run_id, &cwd);
+    // A chat from before the run started is not this run's.
+    write_cursor_chat(
+        &home,
+        &cwd,
+        "0a1b2c3d-0000-4000-8000-000000000005",
+        chrono::Utc::now() - chrono::Duration::days(1),
+        None,
+    );
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(outcome, HarvestOutcome::Harvested { records: 0 });
+    let text = std::fs::read_to_string(layout.run_file(run_id)).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(error.contains("no cursor-agent chat"), "{error}");
+    assert_eq!(
+        hydra::outcome::derive(&run).unwrap().outcome,
+        hydra::outcome::Outcome::Failed
+    );
+}

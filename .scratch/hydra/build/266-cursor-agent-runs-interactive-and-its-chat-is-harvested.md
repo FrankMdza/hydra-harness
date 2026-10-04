@@ -1,7 +1,7 @@
 # 266 - `cursor-agent` runs interactive, and its chat is harvested
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -45,3 +45,36 @@ Fixtures are built by hand in the test from these shapes, never copied from `~/.
 check (a real interactive run, harvested) is the session's after the code lands.
 
 ## Outcome
+
+Built 2026-10-04 by an Opus run (`01a1073a-63cb-78c0`), reviewed and applied by the session.
+
+`hydra run --interactive --provider cursor-agent` launches the TUI ungated (`--policy`
+refused, as for `codex`); `provider/cursor.rs` finds the chat (earliest in the run's cwd created
+at or after the process start) and reads `store.db` with the system `sqlite3 -readonly -json`,
+since nothing in the repo reads SQLite and `rusqlite` would compile a C library into every build
+for one read; `order_chat` orders the messages by the state blob naming the most message ids.
+`normalize/cursor.rs` reads a frame with `role` and no `type` as a chat message.
+`hydra-copilot` and `masterofpuppets` accept `cursor-agent`. Tests in `tests/harvest.rs` and
+`tests/copilot_repo_and_tools.rs` fail on the old provider check.
+
+**The run's guesses, checked by the session on this machine's real chats (no content read):**
+- Every blob id is the SHA-256 of its data (19 of 19 on one store).
+- Ids sit in the state blobs both behind `0a 20` (24) and otherwise (12); the code searches any
+  32-byte run that matches a message id, so it does not depend on the framing. The fixtures use
+  only `0a 20`.
+- The latest state names the `system` message.
+- Tool names across the 40 newest stores: `Read` 1,044, `Grep` 624, `StrReplace` 471, `Shell`
+  352, `Glob` 100, `Write` 53, `CallDynamicTool` 11, `GetDynamicTools` 5. The run invented
+  `run_terminal_cmd`. The capability table knows `Read`, `Grep`, `Shell` and `Write` for cursor,
+  so "every chat tool name becomes an unknown-tool finding" overstates it: `StrReplace`,
+  `Glob` and the two dynamic-tool names do.
+
+**No change to existing records:** `hydra doctor --walk` identical before and after, and
+`hydra show --events` on all 267 gated `cursor-agent` records identical once the per-call marker
+token is masked.
+
+Not done, the session's: one live `hydra run --interactive --provider cursor-agent` and its
+harvest. Found by the run and left for the map: `cursor-agent create-chat` returns a new chat's
+id, so Hydra could mint the chat up front instead of finding it by cwd and time, and nothing
+measured tells a TUI chat from a `--print` chat started in the same cwd. The contract has no
+`usage_source: unknown`; a harvested chat records `unavailable`.

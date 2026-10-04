@@ -444,9 +444,348 @@ pub fn observe(raw: &str) -> Observed {
     }
 }
 
+/// The interactive argv, harness spec 3's second mode, build ticket 266.
+///
+/// `cursor-agent` with no `--print` is the TUI, and `cursor-agent --help` on
+/// 2026.10.01-e373342 names the prompt as a positional and the model as
+/// `--model`. No `--force`, no `--workspace`: an ungated interactive run is the
+/// human's own session in the human's own cwd, and keeps whatever the human's
+/// own Cursor config says.
+pub fn interactive_argv(task: Option<&str>, model: Option<&str>) -> Vec<String> {
+    let mut argv = Vec::new();
+    if let Some(model) = model {
+        argv.push("--model".to_string());
+        argv.push(model.to_string());
+    }
+    if let Some(task) = task {
+        argv.push(task.to_string());
+    }
+    argv
+}
+
+// What an interactive `cursor-agent` leaves on disk, measured by the session
+// on 2026-10-04 from this machine's `~/.cursor/chats`, shapes only. Build
+// ticket 266.
+//
+// `~/.cursor/chats/<32-hex workspace>/<chat uuid>/` holds `meta.json` and
+// `store.db`, plus the SQLite `-wal` and `-shm` while the chat is open. The
+// workspace hash was not reversed, so the finder reads every `meta.json`.
+//
+// - `meta.json` is `{schemaVersion, createdAtMs, hasConversation, updatedAtMs,
+//   cwd}`. `cwd` and `createdAtMs` find a run's chat.
+// - `store.db` has `blobs (id TEXT PRIMARY KEY, data BLOB)` and
+//   `meta (key TEXT PRIMARY KEY, value TEXT)`. Blob ids are 64-hex SHA-256.
+// - A message blob is JSON `{role, content, id?, providerOptions?}`, role
+//   `system`, `user`, `assistant` or `tool`. `content` is a string or a list
+//   of parts: on `assistant` `{type: tool-call, toolCallId, toolName, args}`,
+//   `{type: text, text}` and `{type: redacted-reasoning, data,
+//   providerOptions}`; on `tool` `{type: tool-result, toolCallId, toolName,
+//   result, experimental_content}`. Calls and results join on `toolCallId`.
+// - The order is not in the JSON. A protobuf blob whose first byte is `0x0a`
+//   embeds the raw 32-byte ids of the message blobs of the conversation so
+//   far, in order, and they grow, so the one naming the most ids is the
+//   latest state. Protobuf blobs that start `0x12`, `0x1a`, `0x23` or `0x2f`
+//   name no message id and are not decoded here.
+// - No token counts were found in the JSON blobs. If the TUI writes usage
+//   anywhere it is in the protobuf, so a harvested chat carries none.
+//
+// Nothing measured tells a TUI chat from a `--print` one, so the finder
+// filters on the directory and the start alone.
+
+/// Where `cursor-agent` keeps its chats under `home`. Harness spec 10:
+/// `CURSOR_DATA_DIR` does not move it, and Hydra sets nothing that does.
+pub fn chats_dir(home: &Path) -> PathBuf {
+    home.join(".cursor/chats")
+}
+
+/// The chat an interactive run wrote, and how sure the match is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundChat {
+    /// The chat's directory, holding `meta.json` and `store.db`.
+    pub dir: PathBuf,
+    pub chat_id: String,
+    /// Chats in the same directory that began after the run and later than
+    /// this one, which a human may have opened in another pane.
+    pub later: usize,
+}
+
+/// The chat `cursor-agent` wrote for a run that started at `since` in `cwd`,
+/// build ticket 266.
+///
+/// The same rule as [`super::codex::find_interactive_session`]: the chats whose
+/// `meta.json` names this `cwd` and a `createdAtMs` at or after `since`, and of
+/// those the **earliest**, because a later one is more likely a second session
+/// the human opened in the same directory. `later` counts the rest.
+pub fn find_interactive_chat(
+    home: &Path,
+    cwd: &Path,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<FoundChat>> {
+    let since_ms = since.timestamp_millis();
+    let mut found: Vec<(i64, String, PathBuf)> = Vec::new();
+    let root = chats_dir(home);
+    let workspaces = match std::fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", root.display())),
+    };
+    for workspace in workspaces {
+        let workspace = workspace?.path();
+        let Ok(chats) = std::fs::read_dir(&workspace) else {
+            continue;
+        };
+        for chat in chats {
+            let dir = chat?.path();
+            let Some(created) = chat_created_in(&dir, cwd) else {
+                continue;
+            };
+            if created >= since_ms {
+                let id = dir
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                found.push((created, id, dir));
+            }
+        }
+    }
+    found.sort();
+    let later = found.len().saturating_sub(1);
+    Ok(found.into_iter().next().map(|(_, chat_id, dir)| FoundChat {
+        dir,
+        chat_id,
+        later,
+    }))
+}
+
+/// `createdAtMs` of the chat in `dir`, when its `meta.json` says it ran in
+/// `cwd`. A `meta.json` that is missing or does not parse is skipped rather
+/// than fatal: it is someone else's, mid-write.
+fn chat_created_in(dir: &Path, cwd: &Path) -> Option<i64> {
+    let text = std::fs::read_to_string(dir.join("meta.json")).ok()?;
+    let meta: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let ran_in = Path::new(meta["cwd"].as_str()?);
+    let same_dir = ran_in == cwd
+        || matches!(
+            (ran_in.canonicalize(), cwd.canonicalize()),
+            (Ok(a), Ok(b)) if a == b
+        );
+    if !same_dir {
+        return None;
+    }
+    meta["createdAtMs"].as_i64()
+}
+
+/// What a chat's `store.db` gave up, in conversation order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Chat {
+    /// One message blob each, the JSON as the TUI wrote it, on one line.
+    pub messages: Vec<String>,
+    /// Messages no state blob placed, appended after the ordered ones in id
+    /// order, because nothing else says where they go.
+    pub unordered: usize,
+    /// Blobs that are neither a message nor a state naming one: protobuf
+    /// this harvest does not decode, and whatever usage they may carry.
+    pub unread: usize,
+}
+
+/// Reads `store` read-only through the system's `sqlite3`, build ticket 266.
+///
+/// **Through the command-line shell, not a crate.** Hydra links no SQLite and
+/// this is the one database it reads, once per interactive run; `/usr/bin/sqlite3`
+/// ships with macOS, and a bundled `rusqlite` would compile a C library into
+/// every build for one query. `-readonly` opens the file the way `mode=ro`
+/// does, because the TUI may still hold it.
+pub fn read_chat(store: &Path) -> Result<Chat> {
+    let out = std::process::Command::new("sqlite3")
+        .arg("-readonly")
+        .arg("-json")
+        .arg(store)
+        .arg("SELECT id, hex(data) AS data FROM blobs")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .context("running sqlite3, which the cursor-agent harvest reads chats with")?;
+    if !out.status.success() {
+        bail!(
+            "sqlite3 could not read {}: {}",
+            store.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    // `-json` prints nothing at all for an empty table.
+    let rows: Vec<serde_json::Value> = if text.trim().is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str(&text)
+            .with_context(|| format!("sqlite3's answer for {} did not parse", store.display()))?
+    };
+    let blobs = rows
+        .iter()
+        .map(|row| {
+            let id = row["id"].as_str().unwrap_or_default().to_string();
+            let data = from_hex(row["data"].as_str().unwrap_or_default()).unwrap_or_default();
+            (id, data)
+        })
+        .collect();
+    Ok(order_chat(blobs))
+}
+
+/// The messages among `blobs`, in the order the latest state blob names them.
+pub fn order_chat(blobs: Vec<(String, Vec<u8>)>) -> Chat {
+    let mut messages: Vec<(String, String)> = Vec::new();
+    let mut states: Vec<Vec<u8>> = Vec::new();
+    let mut unread = 0;
+    for (id, data) in blobs {
+        match message_line(&data) {
+            Some(line) => messages.push((id, line)),
+            None if data.first() == Some(&0x0a) => states.push(data),
+            None => unread += 1,
+        }
+    }
+    let by_raw_id: std::collections::HashMap<[u8; 32], usize> = messages
+        .iter()
+        .enumerate()
+        .filter_map(|(at, (id, _))| {
+            let raw: [u8; 32] = from_hex(id)?.try_into().ok()?;
+            Some((raw, at))
+        })
+        .collect();
+
+    let mut latest: Vec<usize> = Vec::new();
+    for state in &states {
+        let named = named_ids(state, &by_raw_id);
+        if named.is_empty() {
+            unread += 1;
+        } else if named.len() > latest.len() {
+            latest = named;
+        }
+    }
+
+    let mut placed = vec![false; messages.len()];
+    let mut ordered = Vec::with_capacity(messages.len());
+    for at in latest {
+        placed[at] = true;
+        ordered.push(messages[at].1.clone());
+    }
+    let mut rest: Vec<&(String, String)> = messages
+        .iter()
+        .zip(&placed)
+        .filter(|(_, placed)| !**placed)
+        .map(|(message, _)| message)
+        .collect();
+    rest.sort();
+    let unordered = rest.len();
+    ordered.extend(rest.into_iter().map(|(_, line)| line.clone()));
+    Chat {
+        messages: ordered,
+        unordered,
+        unread,
+    }
+}
+
+/// The message ids `state` names, in the order they appear, each once.
+///
+/// Searched for as raw 32-byte runs rather than decoded as protobuf, because
+/// the measurement names the bytes and not the field layout around them.
+fn named_ids(state: &[u8], by_raw_id: &std::collections::HashMap<[u8; 32], usize>) -> Vec<usize> {
+    let mut named = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut at = 0;
+    while at + 32 <= state.len() {
+        let window: [u8; 32] = state[at..at + 32].try_into().expect("32 bytes");
+        match by_raw_id.get(&window) {
+            Some(&message) => {
+                if seen.insert(message) {
+                    named.push(message);
+                }
+                at += 32;
+            }
+            None => at += 1,
+        }
+    }
+    named
+}
+
+/// The blob as one record line, when it is a chat message: a JSON object
+/// with a `role`. Kept as written when it is already one line; a message
+/// spread over several is written again compact, since a record line cannot
+/// hold a newline.
+fn message_line(data: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(data).ok()?;
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    value["role"].as_str()?;
+    if text.contains(['\n', '\r']) {
+        Some(value.to_string())
+    } else {
+        Some(text.trim().to_string())
+    }
+}
+
+fn from_hex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(text.get(at..at + 2)?, 16).ok())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build ticket 266: the latest state blob orders the messages, a message
+    /// it does not name goes last, and a protobuf blob naming nothing is
+    /// counted unread.
+    #[test]
+    fn the_state_naming_the_most_ids_orders_the_chat() {
+        let id = |n: u8| ([n; 32], format!("{n:02x}").repeat(32));
+        let (raw_user, user) = id(1);
+        let (raw_answer, answer) = id(2);
+        let (_, orphan) = id(3);
+        let message = |role: &str, text: &str| {
+            serde_json::json!({ "role": role, "content": text })
+                .to_string()
+                .into_bytes()
+        };
+        let state = |ids: &[[u8; 32]]| {
+            let mut bytes = Vec::new();
+            for raw in ids {
+                bytes.extend([0x0a, 0x20]);
+                bytes.extend(raw);
+            }
+            bytes
+        };
+        let blobs = vec![
+            (answer.clone(), message("assistant", "hi")),
+            (orphan.clone(), message("user", "late")),
+            (user.clone(), message("user", "hello")),
+            ("aa".repeat(32), state(&[raw_user])),
+            ("bb".repeat(32), state(&[raw_user, raw_answer])),
+            ("cc".repeat(32), vec![0x12, 0x03, 1, 2, 3]),
+            ("dd".repeat(32), vec![0x0a, 0x01, 0x00]),
+        ];
+        let chat = order_chat(blobs);
+        let said: Vec<String> = chat
+            .messages
+            .iter()
+            .map(|line| {
+                let value: serde_json::Value = serde_json::from_str(line).unwrap();
+                value["content"].as_str().unwrap().to_string()
+            })
+            .collect();
+        assert_eq!(said, ["hello", "hi", "late"]);
+        assert_eq!(chat.unordered, 1);
+        assert_eq!(chat.unread, 2, "the 0x12 blob and the state naming nothing");
+    }
+
+    #[test]
+    fn the_tui_argv_has_no_print_and_ends_on_the_prompt() {
+        let argv = interactive_argv(Some("look around"), Some("composer-2.5"));
+        assert_eq!(argv, ["--model", "composer-2.5", "look around"]);
+        assert!(interactive_argv(None, None).is_empty());
+    }
 
     #[test]
     fn the_task_is_last_and_force_rides_with_print() {

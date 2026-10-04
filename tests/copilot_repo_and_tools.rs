@@ -217,12 +217,59 @@ fn hydra_copilot_unknown_provider_exits_one() {
         &stub,
         "sonnet",
         Some(default_repo.as_path()),
-        Some("cursor-agent"),
+        Some("agy"),
     );
     assert!(!out.status.success());
     let stderr_line = String::from_utf8_lossy(&out.stderr);
     let stderr = stderr_line.trim();
-    assert_eq!(stderr, "hydra-copilot: provider must be claude or codex");
+    assert_eq!(
+        stderr,
+        "hydra-copilot: provider must be claude, codex or cursor-agent"
+    );
+}
+
+/// Build ticket 266: `cursor-agent` is accepted, gets the copilot's document
+/// as `AGENTS.md`, and keeps its own model when none is named.
+#[test]
+fn hydra_copilot_cursor_agent_renders_agents_md_and_passes_its_session() {
+    let scratch =
+        std::env::temp_dir().join(format!("hydra-copilot-cursor-test-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("scratch dir");
+    let home = scratch.join("copilot-home");
+    let stub = scratch.join("hydra-stub");
+    std::fs::write(&stub, "#!/usr/bin/env bash\nprintf 'argv=%s\\n' \"$*\"\n").expect("write stub");
+    let mut perms = std::fs::metadata(&stub)
+        .expect("stub metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&stub, perms).expect("chmod stub");
+
+    let default_repo = manifest().canonicalize().expect("manifest path");
+    let out = run_copilot(
+        &home,
+        &stub,
+        "",
+        Some(default_repo.as_path()),
+        Some("cursor-agent"),
+    );
+    assert!(
+        out.status.success(),
+        "hydra-copilot cursor-agent failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rendered = std::fs::read_to_string(home.join("AGENTS.md")).expect("rendered AGENTS.md");
+    assert!(
+        rendered.contains(&default_repo.to_string_lossy().to_string()),
+        "the cursor-agent copilot must render {{REPO}} into AGENTS.md"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout
+            .trim_end()
+            .ends_with("cockpit --session cursor-agent"),
+        "stub argv: {stdout}"
+    );
+    let _ = std::fs::remove_dir_all(&scratch);
 }
 
 /// Master of Puppets mode: the start directory gets the mode's document after the copilot's in

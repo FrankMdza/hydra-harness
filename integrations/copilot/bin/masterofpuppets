@@ -6,5 +6,6 @@ set -euo pipefail
 #   masterofpuppets <repo> [model] [provider]
 #   masterofpuppets ~/private-repo opus
 #   masterofpuppets ~/private-repo "" codex
+#   masterofpuppets ~/private-repo "" cursor-agent
 REPO="${1:?usage: masterofpuppets <repo> [model] [provider]}"
 HYDRA_COPILOT_MODE=puppets exec "$(dirname "$(readlink -f "$0")")/hydra-copilot" "${2:-}" "$REPO" "${3:-claude}"

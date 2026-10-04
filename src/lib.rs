@@ -23,6 +23,7 @@ pub mod bench;
 pub mod cli;
 pub mod cockpit;
 pub mod containment;
+pub mod cost;
 pub mod doctor;
 pub mod env;
 pub mod export;

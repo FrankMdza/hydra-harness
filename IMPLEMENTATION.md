@@ -3126,8 +3126,9 @@ and a second harvest writes nothing. `normalize` reads the harvested shape by co
 
 Measured 2026-09-07 in a Herdr pane on haiku: Herdr detected the session as `claude idle` on
 its own, the first time any run Hydra launched registered with Herdr's detection, and the
-record ended at 24 lines with outcome `completed`. `cursor-agent` and `agy` are not launched
-interactively; the launch refuses them by name. An interactive run may take a policy since map
+record ended at 24 lines with outcome `completed`. `codex` (build ticket 255) and `cursor-agent`
+(build ticket 266) launch interactively too, below; `agy` does not, and the launch refuses it by
+name. An interactive run may take a policy since map
 ticket 50, which is build ticket 28.
 
 **`codex` runs interactive too, ungated, since build ticket 255** (map 100).
@@ -3162,6 +3163,28 @@ beside it carry `exit_code` under ids no `call_id` names, and over 140 files the
 calls, so harvested results stay `unclassified`. Nobody has launched a real interactive `codex` through Hydra yet; the
 shapes come from files on this machine written by 0.154.0 and 0.159.2, and the tests drive
 synthetic ones.
+
+**`cursor-agent` runs interactive the same way, ungated, since build ticket 266** (map 100).
+`hydra run --interactive --provider cursor-agent` starts the TUI as `cursor-agent [--model M]
+[task]` in the caller's cwd, writes `provider_session_id` null, writes no MCP file, and refuses
+`--policy`, all as `codex` does. After exit `cursor::find_interactive_chat` reads every
+`~/.cursor/chats/<workspace>/<chat>/meta.json` and takes the earliest chat whose `cwd` is the
+run's and whose `createdAtMs` is at or after the process's start; `run_end.error` counts the
+later ones. Nothing measured tells a TUI chat from a `--print` one, so the filter is the
+directory and the start alone. `store.db` is SQLite, and Hydra links no SQLite: `read_chat`
+runs the system's `sqlite3 -readonly -json` for one query, because a bundled crate would compile
+a C library into every build for one read. Message blobs are JSON with a `role` and carry no
+order, so the order comes from the protobuf blob starting `0x0a` that names the most raw
+32-byte message ids; a message no such blob names goes last in id order, and `run_end.error`
+counts those and the protobuf blobs left unread. Each message goes under `raw` as written, and
+`normalize::cursor` reads `user` and `assistant` text, `tool-call` parts as calls and
+`tool-result` parts as results, `unclassified` unless a hook's marker is in them. No token
+count was found outside the protobuf, so usage is `unavailable`. The tool names are the chat's
+own spelling, which the capability table does not map, so each is an unknown-tool finding.
+`hydra status` harvests a dead one, and `hydra-copilot` and `masterofpuppets` take
+`cursor-agent` as their third argument, rendering `COPILOT.md` as `AGENTS.md`. The shapes were
+measured by the session on 2026-10-04; the tests build their stores by hand with `sqlite3`, and
+no real interactive `cursor-agent` has run through Hydra yet.
 
 **With `--policy <name>`, since build ticket 28, an interactive `claude` run is gated.** The
 launch reuses the recorded pre-flight: worktree seeded with `base_tree`, snapshot linked, gate
@@ -5786,6 +5809,18 @@ median of comparable records already in `runs/`; it launches nothing. A cell thi
 route (`codex` under `read-only`) is listed as unsupported, not as a zero. Success is read from the
 derived outcome on the record against the corpus row's expectation, never from the agent's words.
 The first real batch is a dry run.
+
+**`hydra cost` reports orchestrator tokens against the agents of each run** (build 274). Map 107
+D5 C chose a fixed set of five goals in three sizes, each run three times through Master of
+Puppets, with real sessions beside the set as a check that it is typical. The goals live under
+`integrations/bench/goals/` and run against a scratch copy of `integrations/bench/repo/`. The
+command lives in `src/cost.rs` rather than in `crates/puppets` or as a script under
+`integrations/bench/`, because it walks a `Layout` and the run records the way `hydra usage` and
+`hydra show` do; `hydra-puppets` reads goal logs and does not depend on this crate. Given
+orchestrator run ids, it finds each one's agents (started after it, in its repository, until the
+next named orchestrator there), prints the ratio of `total_tokens` per run, and the median and
+spread. `--check` prints the same for real sessions. It launches nothing. Running a goal is the
+session's, one a night.
 
 **A non-ASCII root is refused before launch** (build 78). The gate folds case ASCII only, and the
 macOS filesystem folds `É` too, so on a root with a cased non-ASCII letter every denial missed the

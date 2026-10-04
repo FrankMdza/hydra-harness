@@ -24,6 +24,10 @@
 //! **`bench` is a further command a human types, build ticket 273.** It is the
 //! attack-corpus runner: cells, repetitions, resume, a Wilson report, and a
 //! `--dry-run` that launches nothing.
+//!
+//! **`cost` is a further command a human types, build ticket 274.** It reports
+//! orchestrator tokens against the agents of each named run (started after it,
+//! in its repository), with the median and spread. It launches nothing.
 
 use std::time::Duration;
 
@@ -103,7 +107,8 @@ pub enum Command {
         /// With `--policy` on `claude` the launch compiles a gate, seeds a
         /// worktree and links the snapshot the way a recorded run does.
         /// `--parent` and `--allow-floor-escape` are ignored. `claude` gated or
-        /// not, `codex` ungated only, since build ticket 255.
+        /// not, `codex` ungated only since build ticket 255, and `cursor-agent`
+        /// ungated only since build ticket 266.
         #[arg(long)]
         interactive: bool,
     },
@@ -360,6 +365,17 @@ pub enum Command {
         /// shipped policies.
         #[arg(long)]
         corpus: Option<std::path::PathBuf>,
+    },
+
+    /// Orchestrator cost against its agents, map 107. Prints the ratio per
+    /// named run and the median. Launches nothing.
+    Cost {
+        /// Orchestrator run ids of the fixed goal set. Prefixes resolve.
+        #[arg(required = true, num_args = 1..)]
+        runs: Vec<String>,
+        /// Real sessions printed beside the set as a check that it is typical.
+        #[arg(long = "check", num_args = 1..)]
+        check: Vec<String>,
     },
 
     /// The detached half of a launch. `hydra run` types this; a human does not.
