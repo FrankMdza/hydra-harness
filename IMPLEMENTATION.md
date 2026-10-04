@@ -3149,6 +3149,8 @@ reached its first prompt writes no file, and its record closes with usage `unava
 misreported. A turn the provider would not finish ends on a `task_complete` event carrying
 `error.codex_error_info`, and the reader keeps it as the result while the latest turn ended on
 one, so `usage_limit_exceeded` derives `rate_limited` the way `turn.failed` does on the stream.
+A last turn that ended on `other` or `cyber_policy` derives `failed`, and `hydra doctor --walk`
+reads that session terminator the same way it reads `turn.failed`.
 `input_tokens` is now net of `cached_input_tokens` on both paths, because `codex` counts the
 cache inside it; old records read right without a recount, since every reader derives usage
 from the raw lines, and `hydra usage recount` only tallies sources. A streamed

@@ -302,9 +302,10 @@ pub fn derive(run: &Run) -> Option<Derived> {
             // `refused_everything` above is for.
             //
             // **`codex` ends a turn it could not finish on `turn.failed`**, a
-            // frame with no `is_error`. Without this row that run reads
-            // `completed`. The usage-limit spelling of it never gets here,
-            // because [`codex_limit_refusal`] read it first.
+            // frame with no `is_error`. A harvested session says the same on
+            // `event_msg` `task_complete` with a non-null `error`. Without this
+            // row that run reads `completed`. The usage-limit spelling of it
+            // never gets here, because [`codex_limit_refusal`] read it first.
             if result["is_error"].as_bool() == Some(true)
                 || agy_status(run, result).is_some_and(|status| status != "SUCCESS")
                 || codex_turn_failed(run, result)
@@ -410,8 +411,23 @@ fn cursor_stderr_refusal(run: &Run) -> Option<Outcome> {
 }
 
 /// Whether a `codex` run's terminator is the frame of a turn that failed.
+///
+/// The streamed spelling is `turn.failed`. A harvested session file ends the
+/// same turn on an `event_msg` of type `task_complete` whose `error` is not
+/// null, build ticket 260. The usage-limit spelling of either never reaches
+/// this check, because [`codex_limit_refusal`] read it first.
 fn codex_turn_failed(run: &Run, frame: &Value) -> bool {
-    run.provider.as_deref() == Some("codex") && frame["type"].as_str() == Some("turn.failed")
+    if run.provider.as_deref() != Some("codex") {
+        return false;
+    }
+    match frame["type"].as_str() {
+        Some("turn.failed") => true,
+        Some("event_msg") => {
+            frame["payload"]["type"].as_str() == Some("task_complete")
+                && !frame["payload"]["error"].is_null()
+        }
+        _ => false,
+    }
 }
 
 /// The usage-limit sentence a `codex` turn fails with.
@@ -432,15 +448,13 @@ fn codex_turn_failed(run: &Run, frame: &Value) -> bool {
 /// session that hit its limit, 0.154.0, 2026-09-25. Build ticket 259.
 fn codex_limit_refusal(run: &Run) -> Option<Outcome> {
     let result = run.result.as_ref()?;
-    let error = if codex_turn_failed(run, result) {
-        &result["error"]
-    } else if run.provider.as_deref() == Some("codex")
-        && result["type"].as_str() == Some("event_msg")
-        && result["payload"]["type"].as_str() == Some("task_complete")
-    {
-        &result["payload"]["error"]
-    } else {
+    if !codex_turn_failed(run, result) {
         return None;
+    }
+    let error = if result["type"].as_str() == Some("turn.failed") {
+        &result["error"]
+    } else {
+        &result["payload"]["error"]
     };
     if error["codex_error_info"].as_str() == Some("usage_limit_exceeded") {
         return Some(Outcome::RateLimited);

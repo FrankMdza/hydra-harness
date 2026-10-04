@@ -136,6 +136,55 @@ fn walk_passes_a_stopped_codex_run_that_ended_on_turn_failed() {
 }
 
 #[test]
+fn walk_passes_a_harvested_codex_session_that_hit_its_limit() {
+    // Build ticket 260: a harvested `codex` limit is an `event_msg` of type
+    // `task_complete` with `codex_error_info: "usage_limit_exceeded"`, not
+    // `turn.failed`. Without the session shape the walk expected `completed`.
+    // Every line here is synthetic.
+    let sandbox = Sandbox::new("doctor-walk-harvested-codex-limit");
+    let layout = sandbox.layout();
+    let run_id = "00000000-0000-7000-8000-000000000096";
+    std::fs::create_dir_all(layout.worktree(run_id)).unwrap();
+    let mut record = Record::shaped(Shape {
+        run_id,
+        provider: Some("codex"),
+        launch_mode: "interactive",
+        worktree: Some(&layout.worktree(run_id)),
+        ..Shape::default()
+    });
+    record.raw(json!({"type": "session_meta", "payload": {
+        "id": "s", "source": "cli", "originator": "codex-tui",
+    }}));
+    record.raw(json!({"type": "event_msg", "payload": {"type": "task_started"}}));
+    record.raw(json!({"type": "response_item", "payload": {
+        "type": "message", "role": "user",
+        "content": [{"type": "input_text", "text": "look around"}],
+    }}));
+    record.raw(json!({"type": "event_msg", "payload": {
+        "type": "token_count", "info": null,
+    }}));
+    record.raw(json!({"type": "event_msg", "payload": {
+        "type": "task_complete",
+        "last_agent_message": null,
+        "error": {
+            "message": "You've hit your usage limit. Try again later.",
+            "codex_error_info": "usage_limit_exceeded",
+        },
+    }}));
+    let text = record.closed_with(json!({"exit_code": 0, "body_source": "harvest"}));
+    std::fs::write(layout.run_file(run_id), text).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    assert!(stdout.contains("checked 1 record(s)"), "{stdout}");
+}
+
+#[test]
 fn doctor_lists_the_panel_shapes_beside_the_other_protected_configs() {
     // 15.1 #6, build ticket 138. The home is a scratch one, so the line reads
     // a file this test wrote and never the checkout's own `config/`.

@@ -1427,3 +1427,52 @@ fn a_harvested_codex_session_that_hit_its_limit_is_rate_limited() {
         Some(Outcome::RateLimited)
     );
 }
+
+/// Build ticket 260: a harvested session whose last turn ended on a non-limit
+/// error (`codex_error_info` `other` or `cyber_policy`) is the session file's
+/// `turn.failed`. It reads `failed` the way a streamed non-quota `turn.failed`
+/// does, even when the TUI exited nonzero. Every line here is synthetic.
+#[test]
+fn a_harvested_codex_session_that_ended_on_a_non_limit_error_is_failed() {
+    let sandbox = Sandbox::new("codex-session-failed");
+    let worktree = sandbox.worktree();
+    let session = |info: &str, message: &str| {
+        let mut record = Record::shaped(Shape {
+            provider: Some("codex"),
+            launch_mode: "interactive",
+            worktree: Some(&worktree),
+            ..Shape::default()
+        });
+        record.raw(json!({"type": "session_meta", "payload": {
+            "id": "s", "source": "cli", "originator": "codex-tui",
+        }}));
+        record.raw(json!({"type": "event_msg", "payload": {"type": "task_started"}}));
+        record.raw(json!({"type": "response_item", "payload": {
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": "look around"}],
+        }}));
+        record.raw(json!({"type": "event_msg", "payload": {
+            "type": "token_count", "info": null,
+        }}));
+        record.raw(json!({"type": "event_msg", "payload": {
+            "type": "task_complete",
+            "last_agent_message": null,
+            "error": {"message": message, "codex_error_info": info},
+        }}));
+        record.closed_with(json!({"exit_code": 1, "body_source": "harvest"}))
+    };
+
+    for (info, message) in [
+        ("other", "the model could not finish this turn."),
+        (
+            "cyber_policy",
+            "This content was flagged for possible cybersecurity risk.",
+        ),
+    ] {
+        assert_eq!(
+            outcome_of(&sandbox, &session(info, message)),
+            Some((Outcome::Failed, Source::Derived)),
+            "{info}"
+        );
+    }
+}

@@ -640,15 +640,21 @@ pub fn check_gated_write_denials(
         // A `codex` turn that failed ends on `turn.failed`, and build ticket 100
         // reads it. Four landed on 2026-09-22 and 2026-09-23: three on the usage
         // limit, which rung one must not learn from, and one the provider's own
-        // content filter stopped, which is `failed`.
-        if run
-            .result
-            .as_ref()
-            .is_some_and(|result| result["type"] == "turn.failed")
-        {
-            let quota = run.result.as_ref().unwrap()["error"]["message"]
-                .as_str()
-                .is_some_and(|text| text.contains("usage limit"));
+        // content filter stopped, which is `failed`. A harvested session says
+        // the same on `event_msg` `task_complete` with a non-null `error`
+        // (build ticket 260); without this row the walk expected `completed`
+        // of a record that derived `rate_limited`.
+        if run.result.as_ref().is_some_and(codex_failed_turn_result) {
+            let result = run.result.as_ref().unwrap();
+            let error = if result["type"] == "turn.failed" {
+                &result["error"]
+            } else {
+                &result["payload"]["error"]
+            };
+            let quota = error["codex_error_info"].as_str() == Some("usage_limit_exceeded")
+                || error["message"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("usage limit"));
             let expected = if quota {
                 Outcome::RateLimited
             } else {
@@ -817,4 +823,13 @@ pub fn check_unknown_sources(
 
 fn rebuilt_the_scopes(finding: &NormalizeFinding) -> bool {
     matches!(finding, NormalizeFinding::Limit(said) if said.contains("carries no scopes"))
+}
+
+/// Streamed `turn.failed`, or the harvested session spelling of the same
+/// ending: `event_msg` `task_complete` with a non-null `error`.
+fn codex_failed_turn_result(result: &serde_json::Value) -> bool {
+    result["type"] == "turn.failed"
+        || (result["type"] == "event_msg"
+            && result["payload"]["type"] == "task_complete"
+            && !result["payload"]["error"].is_null())
 }
