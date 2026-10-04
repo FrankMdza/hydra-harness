@@ -4609,7 +4609,7 @@ and corrected twice by the orchestrating session.
 **The allowlist is protected config #3 and a human writes it.** `config/export-allowlist.json`
 is a JSON array of absolute repo paths, read at export time only, and `hydra export`
 refuses in one sentence naming the file when it is missing. Nothing creates it. Its sha
-rides the output header.
+rides the output header; since build ticket 277, export normalizes each ended record once and shares the corpus across eligibility, events and preference pairs.
 
 **Eligibility is a list of named reasons per run**, and `--dry-run` prints them:
 `harness_run`, `path_outside_allowlist`, `unclassified_path`, `unknown_outcome`,

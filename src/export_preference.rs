@@ -138,18 +138,19 @@ pub fn read_judge_pairs(
     repo: &Path,
     signoff: &SignoffManifest,
 ) -> Result<Vec<JudgeDisposition>> {
-    let mut passes: BTreeMap<String, Run> = BTreeMap::new();
-    let mut children: BTreeMap<String, Vec<(String, Run)>> = BTreeMap::new();
+    let corpus = crate::export::read_corpus(layout, policies)?;
+    read_judge_pairs_from_runs(&corpus.runs, repo, signoff)
+}
 
-    for view in crate::live::scan(layout)? {
-        if view.state == crate::live::State::Live {
-            continue;
-        }
-        let text = std::fs::read_to_string(&view.run_file)
-            .with_context(|| format!("reading {}", view.run_file.display()))?;
-        let run = crate::normalize::read_with(&text, policies, layout)
-            .with_context(|| format!("normalizing {}", view.run_id))?;
-        if is_evolve_pass(&run) {
+fn read_judge_pairs_from_runs(
+    runs: &BTreeMap<String, Run>,
+    repo: &Path,
+    signoff: &SignoffManifest,
+) -> Result<Vec<JudgeDisposition>> {
+    let mut passes = BTreeMap::new();
+    let mut children: BTreeMap<String, Vec<(String, &Run)>> = BTreeMap::new();
+    for run in runs.values() {
+        if is_evolve_pass(run) {
             passes.insert(run.run_id.clone(), run);
             continue;
         }
@@ -174,7 +175,7 @@ pub fn read_judge_pairs(
             Ok(branch) => branch,
             Err(_) => continue,
         };
-        let base_tree = base_tree_of(&proposer.1)?;
+        let base_tree = base_tree_of(proposer.1)?;
         let rejected = branch_diff(repo, &blocked, &base_tree)?;
         if rejected.trim().is_empty() {
             continue;
@@ -206,7 +207,7 @@ pub fn read_judge_pairs(
             out.push(JudgeDisposition::Refused { pass_id });
             continue;
         }
-        let prompt = proposer_prompt(&proposer.1);
+        let prompt = proposer_prompt(proposer.1);
         out.push(JudgeDisposition::Exported(PreferencePair {
             prompt,
             rejected: diff_message(&rejected),
@@ -291,18 +292,29 @@ pub fn collect_pairs(
     eligible_run_ids: &[String],
     signoff: &SignoffManifest,
 ) -> Result<(Vec<PreferencePair>, Vec<JudgeDisposition>)> {
+    let corpus = crate::export::read_corpus(layout, policies)?;
+    collect_pairs_from_runs(&corpus.runs, allowlist, eligible_run_ids, signoff)
+}
+
+pub(crate) fn collect_pairs_from_runs(
+    runs: &BTreeMap<String, Run>,
+    allowlist: &Allowlist,
+    eligible_run_ids: &[String],
+    signoff: &SignoffManifest,
+) -> Result<(Vec<PreferencePair>, Vec<JudgeDisposition>)> {
     let mut pairs = Vec::new();
     for run_id in eligible_run_ids {
-        let path = layout.run_file(run_id);
-        let run = crate::normalize::read_file(&path, policies)?;
-        let own_repo = own_repo(&run, &allowlist.repos);
+        let run = runs
+            .get(run_id)
+            .with_context(|| format!("missing eligible run {run_id}"))?;
+        let own_repo = own_repo(run, &allowlist.repos);
         let names = repo_names_to_redact(&allowlist.repos, own_repo.as_deref());
-        pairs.extend(correction_pairs(&run, &names));
+        pairs.extend(correction_pairs(run, &names));
     }
 
     let mut judge_dispositions = Vec::new();
     for repo in &allowlist.repos {
-        judge_dispositions.extend(read_judge_pairs(layout, policies, repo, signoff)?);
+        judge_dispositions.extend(read_judge_pairs_from_runs(runs, repo, signoff)?);
     }
     for disposition in &judge_dispositions {
         if let JudgeDisposition::Exported(pair) = disposition {

@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::live::State;
 use crate::normalize::paths::{PathExtraction, cwd_of, inside, paths_touched};
-use crate::normalize::{Event, ResultStatus, Role};
+use crate::normalize::{Event, ResultStatus, Role, Run};
 use crate::outcome::{Source, derive};
 use crate::paths::Layout;
 use crate::policy::{Capability, PolicySet};
@@ -107,10 +107,25 @@ impl Verdict {
 
 /// Walks the corpus and answers export eligibility for every run.
 pub fn audit(layout: &Layout, allowlist: &Allowlist, policies: &PolicySet) -> Result<Vec<Verdict>> {
-    let mut curator_passes: Vec<String> = Vec::new();
-    let mut runs: BTreeMap<String, (String, crate::normalize::Run)> = BTreeMap::new();
-    let mut live: BTreeSet<String> = BTreeSet::new();
+    let corpus = read_corpus(layout, policies)?;
+    Ok(audit_runs(
+        &corpus.runs,
+        &corpus.texts,
+        &corpus.live,
+        allowlist,
+    ))
+}
 
+pub(crate) struct Corpus {
+    pub runs: BTreeMap<String, Run>,
+    texts: BTreeMap<String, String>,
+    live: BTreeSet<String>,
+}
+
+pub(crate) fn read_corpus(layout: &Layout, policies: &PolicySet) -> Result<Corpus> {
+    let mut runs = BTreeMap::new();
+    let mut texts = BTreeMap::new();
+    let mut live = BTreeSet::new();
     for view in crate::live::scan(layout)? {
         if view.state == State::Live {
             live.insert(view.run_id.clone());
@@ -120,15 +135,25 @@ pub fn audit(layout: &Layout, allowlist: &Allowlist, policies: &PolicySet) -> Re
             .with_context(|| format!("reading {}", view.run_file.display()))?;
         let run = crate::normalize::read_with(&text, policies, layout)
             .with_context(|| format!("normalizing {}", view.run_id))?;
-        if run.policy.as_deref() == Some("curate") {
-            curator_passes.push(run.run_id.clone());
-        }
-        runs.insert(run.run_id.clone(), (text, run));
+        texts.insert(run.run_id.clone(), text);
+        runs.insert(run.run_id.clone(), run);
     }
+    Ok(Corpus { runs, texts, live })
+}
 
+fn audit_runs(
+    runs: &BTreeMap<String, Run>,
+    texts: &BTreeMap<String, String>,
+    live: &BTreeSet<String>,
+    allowlist: &Allowlist,
+) -> Vec<Verdict> {
+    let curator_passes: Vec<String> = runs
+        .values()
+        .filter(|run| run.policy.as_deref() == Some("curate"))
+        .map(|run| run.run_id.clone())
+        .collect();
     let children: BTreeMap<String, Vec<String>> = runs
         .values()
-        .map(|(_, run)| run)
         .filter_map(|run| {
             run.parent_run_id
                 .as_ref()
@@ -142,13 +167,13 @@ pub fn audit(layout: &Layout, allowlist: &Allowlist, policies: &PolicySet) -> Re
     let mut verdicts = Vec::new();
     for run_id in live {
         verdicts.push(Verdict {
-            run_id,
+            run_id: run_id.clone(),
             reasons: vec![Reason::StillRunning],
         });
     }
 
-    for (run_id, (text, run)) in &runs {
-        let reasons = reasons_for(run, text, allowlist, &curator_passes, &children, &runs);
+    for (run_id, run) in runs {
+        let reasons = reasons_for(run, texts, allowlist, &curator_passes, &children, runs);
         verdicts.push(Verdict {
             run_id: run_id.clone(),
             reasons,
@@ -156,16 +181,16 @@ pub fn audit(layout: &Layout, allowlist: &Allowlist, policies: &PolicySet) -> Re
     }
 
     verdicts.sort_by(|a, b| a.run_id.cmp(&b.run_id));
-    Ok(verdicts)
+    verdicts
 }
 
 fn reasons_for(
     run: &crate::normalize::Run,
-    text: &str,
+    texts: &BTreeMap<String, String>,
     allowlist: &Allowlist,
     curator_passes: &[String],
     children: &BTreeMap<String, Vec<String>>,
-    runs: &BTreeMap<String, (String, crate::normalize::Run)>,
+    runs: &BTreeMap<String, Run>,
 ) -> Vec<Reason> {
     let mut reasons = Vec::new();
 
@@ -178,11 +203,11 @@ fn reasons_for(
         reasons.push(Reason::NoRunEnd);
     }
 
-    if has_attachment(text) {
+    if has_attachment(&texts[&run.run_id]) {
         reasons.push(Reason::Attachment);
     }
 
-    if has_secret_flag(text) {
+    if has_secret_flag(&texts[&run.run_id]) {
         reasons.push(Reason::SecretFlag);
     }
 
@@ -219,15 +244,9 @@ fn reasons_for(
 
     if let Some(kids) = children.get(&run.run_id) {
         for child_id in kids {
-            let (_, child) = &runs[child_id];
-            let child_reasons = reasons_for(
-                child,
-                &runs[child_id].0,
-                allowlist,
-                curator_passes,
-                children,
-                runs,
-            );
+            let child = &runs[child_id];
+            let child_reasons =
+                reasons_for(child, texts, allowlist, curator_passes, children, runs);
             if !child_reasons.is_empty() {
                 reasons.push(Reason::ChildIneligible);
                 break;
@@ -290,7 +309,9 @@ pub fn export_with_signoff(
 ) -> Result<Vec<ExportWarning>> {
     let allowlist = Allowlist::load(allowlist_path)?;
     let policies = PolicySet::discover()?;
-    let verdicts = audit(layout, &allowlist, &policies)?;
+    let corpus = read_corpus(layout, &policies)?;
+    let runs = &corpus.runs;
+    let verdicts = audit_runs(runs, &corpus.texts, &corpus.live, &allowlist);
 
     if dry_run {
         let mut stdout = std::io::stdout().lock();
@@ -324,9 +345,8 @@ pub fn export_with_signoff(
         signoff_path.unwrap_or(&crate::export_preference::signoff_path()),
     )?;
     let eligible_ids: Vec<String> = eligible.iter().map(|v| v.run_id.clone()).collect();
-    let (preference_pairs, _) = crate::export_preference::collect_pairs(
-        layout,
-        &policies,
+    let (preference_pairs, _) = crate::export_preference::collect_pairs_from_runs(
+        runs,
         &allowlist,
         &eligible_ids,
         &signoff,
@@ -335,10 +355,9 @@ pub fn export_with_signoff(
     let mut lines: Vec<String> = Vec::new();
     let mut warnings: Vec<ExportWarning> = Vec::new();
     for verdict in eligible {
-        let path = layout.run_file(&verdict.run_id);
-        let run = crate::normalize::read_file(&path, &policies)?;
-        let own_repo = own_repo(&run, &allowlist.repos);
-        let events = export_events(&run, &allowlist.repos, own_repo.as_deref());
+        let run = &runs[&verdict.run_id];
+        let own_repo = own_repo(run, &allowlist.repos);
+        let events = export_events(run, &allowlist.repos, own_repo.as_deref());
         let line = serde_json::to_string(&json!({ "events": events }))?;
         for warning in verify_export_line(&line)? {
             warnings.push(ExportWarning {
