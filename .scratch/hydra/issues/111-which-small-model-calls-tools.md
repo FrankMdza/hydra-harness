@@ -65,3 +65,19 @@ Ollama with a 4,096-token context: Qwen 2.2 GB, Granite 2.5 GB, Ministral 2.7 GB
 So the daily driver is Granite or Ministral, both Apache 2.0, and ten tasks do not separate them.
 Not yet done: a set of about 30 multi-step tasks, and Granite under llama.cpp with the chat
 template IBM ships in the GGUF, to rule out Ollama's.
+
+**Third pass: Granite under llama.cpp with IBM's own chat template**, to rule out Ollama's.
+`llama-server` 0.5.0 from Homebrew, `--jinja` so the template comes from the GGUF,
+`ibm-granite/granite-4.0-micro-GGUF` `Q4_K_M`, 4,096 tokens of context, both scripts pointed at
+it through `BAKEOFF_URL`. Raw rows in `111-granite-llamacpp-results.jsonl`.
+
+| `granite4:micro` Q4_K_M | First call | Loop, end state | RAM |
+|---|---|---|---|
+| Ollama | 7 / 10 | 8 / 10 | 2.5 GB |
+| llama.cpp, official template | 6 / 10 | 6 / 10 | 2.3 GB |
+
+Ollama was not the problem; the official template made it worse. Granite reaches for `Read` where
+a shell command fits: it read the `tests` directory instead of listing it, and read
+`.git/refs/heads/main` six times instead of running `git log`. One run each at temperature 0.
+So Ministral 3B stays the stronger candidate: 10 of 10 on the first call, 8 of 10 in the loop,
+Apache 2.0.

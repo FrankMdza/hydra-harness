@@ -19,7 +19,7 @@ import tempfile
 import time
 import urllib.request
 
-URL = "http://127.0.0.1:11434/v1/chat/completions"
+URL = os.environ.get("BAKEOFF_URL", "http://127.0.0.1:11434/v1/chat/completions")
 MAX_TURNS = 6
 ALLOWED = {"ls", "wc", "cat", "head", "git"}
 

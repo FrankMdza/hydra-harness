@@ -8,11 +8,12 @@ answer is a tool call whose arguments parse as JSON, name the expected tool, and
 argument the task needs. Usage: python3 111-tool-call-bakeoff.py MODEL [MODEL...]
 """
 import json
+import os
 import sys
 import time
 import urllib.request
 
-URL = "http://127.0.0.1:11434/v1/chat/completions"
+URL = os.environ.get("BAKEOFF_URL", "http://127.0.0.1:11434/v1/chat/completions")
 
 TOOLS = [
     {"type": "function", "function": {"name": "Read", "description": "Read a file.",
