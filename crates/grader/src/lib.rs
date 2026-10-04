@@ -46,6 +46,8 @@ pub mod judge_http;
 pub mod labels;
 pub mod monitor;
 pub mod monitor_cli;
+pub mod originals;
+pub mod originals_cli;
 pub mod queue;
 pub mod records;
 pub mod redact;

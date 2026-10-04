@@ -3692,6 +3692,11 @@ Outcome matching use handwritten code, with no new dependencies. `jev.rs` implem
 `hydra-pyjson` gained `json::dumps_unicode_default` for `ensure_ascii=False` with Python's
 default separators. Text reads translate CRLF and CR as Python does, while CSV preserves them.
 
+Build ticket 288 adds `hydra-grader originals`, which joins each human verdict in
+`ticket-verdicts.json` with the unified `git diff` of `hydra/<run-id>` against the run
+record's `base_tree` and writes a local jsonl. A gone branch or base tree becomes a line
+with a `missing` reason, so the line count matches the verdict count.
+
 Build ticket 223 corrected six edge cases in that port. CSV imports retain a blank first
 record as an empty header, serialize a missing run-id cell as the JSON key `null`, and
 enforce Python's 131,072-character field limit before writing either output. Patches write

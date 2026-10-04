@@ -353,6 +353,25 @@ pub fn label_import(csv_path: &Path, dataset_path: &Path, home: &Path) -> Result
     Ok((verdicts.len(), unknown))
 }
 
+/// Every human verdict in `ticket-verdicts.json` under `home`, in file order.
+pub fn ticket_verdicts(home: &Path) -> Result<Vec<(String, String)>> {
+    let kept = records::read_json(&home.join(TICKET_VERDICTS))?.unwrap_or(Value::Dict(Dict::new()));
+    let Value::Dict(dict) = kept else {
+        bail!("ValueError: ticket-verdicts.json is not an object");
+    };
+    let mut rows = Vec::with_capacity(dict.len());
+    for (key, value) in dict.iter() {
+        let run_id = key.to_utf8().unwrap_or_else(|| key.lossy());
+        let held = match value {
+            Value::Str(s) => s.clone(),
+            other => hydra_pyjson::py::str(other),
+        };
+        let verdict = held.to_utf8().unwrap_or_else(|| held.lossy());
+        rows.push((run_id, verdict));
+    }
+    Ok(rows)
+}
+
 fn dict_str(dict: &Dict, key: &str) -> Option<String> {
     match dict.get(key) {
         Some(Value::Str(s)) => s.to_utf8(),

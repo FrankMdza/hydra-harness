@@ -1,7 +1,7 @@
 # 288 - The set of original diffs
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -27,3 +27,25 @@ Pointers, added by the session on 2026-10-04:
   nothing leaves the machine.
 
 ## Outcome
+
+Built 2026-10-04 by a Grok 4.6 run (`01a105e9`), reviewed and applied by the session.
+
+`hydra-grader originals [--home] [--dataset] [--tickets] [--repo] [--runs] out`
+(`crates/grader/src/originals.rs`, `originals_cli.rs`): one line per verdict in
+`ticket-verdicts.json`, with ticket from the label queue, provider and model from
+`dataset.jsonl`, and the unified diff of `refs/heads/hydra/<run-id>` against the record's
+`worktree.base_tree`, plus `files_changed`. Git runs with the inherited git path variables
+removed and no global or system config. Three tests on a synthetic repository and queue, each
+failing before the change; `cargo test -p hydra-grader` 77 of 77, fmt and clippy clean.
+
+**Two pointers the session wrote were wrong.** `ticket-verdicts.json` is `{run_id: verdict}`,
+not six-column rows; the run joins the queue and the dataset for the rest. The record's field is
+`worktree.base_tree`; `diff_stat.base_tree` is only what `hydra show` prints.
+
+**Measured on the real queue: 70 verdicts, 70 lines, 7 with a diff.** 62 runs' branches are
+gone and 1 run has no base tree. `git fsck --unreachable` finds no commit for them either, since
+each run commits into its own object directory and a deleted branch takes the commit with it.
+So the set of original diffs is 7 today. It grows only forward, from runs reaped without
+`--delete-branch`. The session's own applied patches under `~/.claude/handoffs/*/diff-*.patch`
+cover some of the lost runs, but they are cut to the ticket's files, so they are not the diff
+as returned and the command does not read them.
