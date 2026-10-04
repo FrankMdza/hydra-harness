@@ -18,10 +18,10 @@ use crate::bank::home;
 
 /// A Python dict over arbitrary keys, in insertion order. Setting a key that is present
 /// keeps the first key and its place, and replaces the value.
-struct Table<T>(Vec<(Value, T)>);
+pub(crate) struct Table<T>(Vec<(Value, T)>);
 
 impl<T> Table<T> {
-    fn new() -> Table<T> {
+    pub(crate) fn new() -> Table<T> {
         Table(Vec::new())
     }
 
@@ -30,11 +30,11 @@ impl<T> Table<T> {
         Ok(self.0.iter().position(|(held, _)| py::same_key(held, key)))
     }
 
-    fn get(&self, key: &Value) -> Result<Option<&T>> {
+    pub(crate) fn get(&self, key: &Value) -> Result<Option<&T>> {
         Ok(self.find(key)?.map(|at| &self.0[at].1))
     }
 
-    fn set(&mut self, key: Value, value: T) -> Result<()> {
+    pub(crate) fn set(&mut self, key: Value, value: T) -> Result<()> {
         match self.find(&key)? {
             Some(at) => self.0[at].1 = value,
             None => self.0.push((key, value)),

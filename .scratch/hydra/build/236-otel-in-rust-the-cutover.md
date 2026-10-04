@@ -18,3 +18,6 @@ runs `--all` both ways over the real runs first.
 - Each test failed before the change, or the report says why it could not; fmt and clippy clean over
   the workspace; the tests of every crate the ticket touches pass; no dependency added without a
   reason in the report.
+
+
+**From 235 (2026-10-04):** refuse a run id holding `/` or `..` in `convert.rs`'s `normalized`, which joins it into a path; the Python does not, and the port kept parity.

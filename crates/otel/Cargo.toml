@@ -1,0 +1,21 @@
+[package]
+name = "hydra-otel"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Translate Hydra records to local OTLP JSON files"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "hydra-otel"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+hydra-pyjson = { path = "../pyjson" }
+hydra-records = { path = "../records" }
+sha2 = "0.10"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"

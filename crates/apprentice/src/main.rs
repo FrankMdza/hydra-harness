@@ -1,5 +1,5 @@
 //! `hydra-apprentice`: `integrations/apprentice/apprentice.py`, one command at a time. Build
-//! ticket 231 ported `bank build`.
+//! tickets 231 to 233 ported `bank build`, `attempt`, `score` and `pairs`.
 
 use std::process::ExitCode;
 

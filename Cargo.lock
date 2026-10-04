@@ -587,6 +587,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydra-otel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hydra-pyjson",
+ "hydra-records",
+ "sha2",
+]
+
+[[package]]
 name = "hydra-puppets"
 version = "0.1.0"
 dependencies = [

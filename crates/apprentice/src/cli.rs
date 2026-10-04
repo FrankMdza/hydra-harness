@@ -1,11 +1,12 @@
 //! The command line of `apprentice.py`, as `argparse` reads it, for the commands ported.
 //!
-//! `bank build [--n N]`, `attempt [--limit N] [--minutes M]` and `score [--model NAME]` run
-//! here. `pairs` is a command the parser knows and the Rust does not run yet: it exits 2 and
-//! names the Python that still does (build ticket 233). The rules where a caller can tell are `argparse`'s: an
+//! `bank build [--n N]`, `attempt [--limit N] [--minutes M]`, `score [--model NAME]` and
+//! `pairs GRADED` run here. The rules where a caller can tell are `argparse`'s: an
 //! option may be cut to any prefix that names one option and takes its value after a space
-//! or an `=`; an option a parser does not know waits and is reported, with any surplus
-//! argument, as unrecognized once the rest parsed; the first `--` ends the options. A wrong
+//! or an `=`; `-h` followed by more letters is `-h` and those letters as further short
+//! options, so it asks for help; an option a parser does not know waits and is reported,
+//! with any surplus argument, as unrecognized once the rest parsed; the first `--` ends the
+//! options, and `pairs` drops it where it sits next to the one argument it takes. A wrong
 //! command line exits 2 with the usage of the parser that refused it, then
 //! `PROG: error: MESSAGE`. The help texts are what CPython 3.14.8 printed at 80 columns.
 
@@ -15,7 +16,7 @@ use std::io::Write;
 use hydra_pyjson::json::Value;
 use hydra_pyjson::py;
 
-use crate::{attempt, bank, score};
+use crate::{attempt, bank, pairs, score};
 
 const PROG: &str = "hydra-apprentice";
 const COMMANDS: [&str; 4] = ["bank", "attempt", "score", "pairs"];
@@ -74,6 +75,16 @@ options:
   --model MODEL  print only this model's block
 ";
 
+const PAIRS_USAGE: &str = "usage: hydra-apprentice pairs [-h] graded";
+const PAIRS_HELP: &str = "usage: hydra-apprentice pairs [-h] graded
+
+positional arguments:
+  graded
+
+options:
+  -h, --help  show this help message and exit
+";
+
 /// `repr(text)`, which is how `argparse` quotes a value it refuses.
 fn repr(text: &str) -> String {
     py::repr(&Value::text(text))
@@ -105,13 +116,27 @@ fn kind(arg: &str, longs: &[&str]) -> Kind {
     if arg == "-h" {
         return Kind::Help;
     }
-    if let Some(explicit) = arg.strip_prefix("-h")
+    if let Some(mut tail) = arg.strip_prefix("-h")
         && !arg.starts_with("--")
     {
-        return Kind::Wrong(format!(
-            "argument -h/--help: ignored explicit argument {}",
-            repr(explicit)
-        ));
+        // Each letter after `-h` is read as another short option, and help runs once they
+        // are all read. Only `-h` itself is one, so the first other letter ends the reading,
+        // and an `=` or a `-` where a letter should be is refused.
+        loop {
+            let ignored = tail
+                .strip_prefix('=')
+                .or(tail.starts_with('-').then_some(tail));
+            if let Some(explicit) = ignored {
+                return Kind::Wrong(format!(
+                    "argument -h/--help: ignored explicit argument {}",
+                    repr(explicit)
+                ));
+            }
+            match tail.strip_prefix('h') {
+                Some(rest) => tail = rest,
+                None => return Kind::Help,
+            }
+        }
     }
     if arg.starts_with("--") {
         let (head, explicit) = match arg.split_once('=') {
@@ -308,6 +333,104 @@ fn options(
     Ok(given)
 }
 
+/// The arguments of `pairs`, which takes one positional, `graded`, and no option but
+/// `--help`. Arguments it does not take go to `extras`. `Err(Ok(()))` is a request for help
+/// and `Err(Err(message))` a refusal.
+///
+/// This is `argparse`'s loop for that one parser. Each argument is an option (`O`), an
+/// argument (`A`), or the first `--` (`-`), after which every argument is an `A`. Before
+/// each option, and once after the last, `graded` takes `-*A-*` if the arguments there match
+/// it, and a `--` it took is dropped.
+fn graded(args: &[String], extras: &mut Vec<String>) -> Result<String, Result<(), String>> {
+    let mut ended = false;
+    let pattern: Vec<char> = args
+        .iter()
+        .map(|arg| match arg.as_str() {
+            _ if ended => 'A',
+            "--" => {
+                ended = true;
+                '-'
+            }
+            arg => match kind(arg, &["--help"]) {
+                Kind::Positional => 'A',
+                _ => 'O',
+            },
+        })
+        .collect();
+    let mut graded: Option<String> = None;
+    let consume = |start: usize, graded: &mut Option<String>| {
+        if graded.is_some() {
+            return start;
+        }
+        let at = |i: usize| pattern.get(i).copied();
+        let mut end = start + usize::from(at(start) == Some('-'));
+        if at(end) != Some('A') {
+            return start;
+        }
+        end += 1;
+        while at(end) == Some('-') {
+            end += 1;
+        }
+        let mut taken: Vec<&String> = args[start..end].iter().collect();
+        if pattern[start..end].contains(&'-') {
+            let dashes = taken.iter().position(|arg| *arg == "--");
+            taken.remove(dashes.expect("a `-` is a `--`"));
+        }
+        *graded = Some(taken[0].clone());
+        end
+    };
+    let options: Vec<usize> = (0..args.len()).filter(|i| pattern[*i] == 'O').collect();
+    let mut start = 0;
+    if let Some(&last) = options.last() {
+        while start <= last {
+            let next = *options
+                .iter()
+                .find(|i| **i >= start)
+                .expect("start <= last");
+            if start != next {
+                let end = consume(start, &mut graded);
+                if end > start {
+                    start = end;
+                    continue;
+                }
+            }
+            if pattern[start] != 'O' {
+                extras.extend(args[start..next].iter().cloned());
+                start = next;
+            }
+            match kind(&args[start], &["--help"]) {
+                Kind::Help => return Err(Ok(())),
+                Kind::Wrong(message) => return Err(Err(message)),
+                _ => extras.push(args[start].clone()),
+            }
+            start += 1;
+        }
+    }
+    let stop = consume(start, &mut graded);
+    extras.extend(args[stop..].iter().cloned());
+    graded.ok_or_else(|| Err("the following arguments are required: graded".into()))
+}
+
+/// The surplus arguments, if any, refused as `argparse` refuses them once the rest parsed.
+fn unrecognized(extras: &[String], stderr: &mut dyn Write) -> Option<u8> {
+    (!extras.is_empty()).then(|| {
+        wrong(
+            stderr,
+            TOP_USAGE,
+            PROG,
+            &format!("unrecognized arguments: {}", extras.join(" ")),
+        )
+    })
+}
+
+/// The exit code of a command that ran, or 1 with its error on stderr.
+fn finished(ran: anyhow::Result<u8>, stderr: &mut dyn Write) -> u8 {
+    ran.unwrap_or_else(|err| {
+        let _ = writeln!(stderr, "{err}");
+        1
+    })
+}
+
 /// `main`: the exit code of `apprentice.py` given `args`, the arguments after the program.
 pub fn main(
     args: &[String],
@@ -329,12 +452,21 @@ pub fn main(
         Err(code) => return code,
     };
     if command == "pairs" {
-        let _ = writeln!(
-            stderr,
-            "{PROG}: pairs is not ported yet (build ticket 233); \
-             run integrations/apprentice/apprentice.py pairs"
-        );
-        return 2;
+        let graded = match graded(rest, &mut extras) {
+            Ok(graded) => graded,
+            Err(Ok(())) => {
+                let _ = write!(stdout, "{PAIRS_HELP}");
+                return 0;
+            }
+            Err(Err(message)) => {
+                return wrong(stderr, PAIRS_USAGE, &format!("{PROG} pairs"), &message);
+            }
+        };
+        if let Some(code) = unrecognized(&extras, stderr) {
+            return code;
+        }
+        let path = std::path::PathBuf::from(bank::pure_path(&graded));
+        return finished(pairs::pairs(&path, env, stdout), stderr);
     }
     let bank_prog = format!("{PROG} bank");
     let (rest, longs, usage, help): (&[String], &[(&str, Type)], &str, &str) = match command {
@@ -374,13 +506,8 @@ pub fn main(
             return wrong(stderr, usage, prog, &message);
         }
     };
-    if !extras.is_empty() {
-        return wrong(
-            stderr,
-            TOP_USAGE,
-            PROG,
-            &format!("unrecognized arguments: {}", extras.join(" ")),
-        );
+    if let Some(code) = unrecognized(&extras, stderr) {
+        return code;
     }
     let ran = match command {
         "bank" => {
@@ -402,11 +529,5 @@ pub fn main(
             score::score(only.as_deref(), env, stdout)
         }
     };
-    match ran {
-        Ok(code) => code,
-        Err(err) => {
-            let _ = writeln!(stderr, "{err}");
-            1
-        }
-    }
+    finished(ran, stderr)
 }

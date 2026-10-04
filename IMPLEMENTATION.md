@@ -3413,9 +3413,16 @@ Build ticket 232 ported `attempt` and `score`, lines 325 to 499, which match the
 recorded cases against a stub model server in `crates/apprentice/tests/fixtures/attempt.json`,
 except that a URL naming any host but this machine's loopback is refused with one sentence and
 exit 1 where the Python connects, so only `pairs` still exits 2.
+Build ticket 233 ported `pairs`, lines 505 to 543, which matches the Python on 104 recorded cases
+in `crates/apprentice/tests/fixtures/pairs.json`, most of them run twice on one graded file, with
+each `graded_at` read as the clock, so all four commands now run in Rust.
 Build ticket 237 added a seventh, `crates/local-llm` (binary `hydra-local-llm`, on `hydra-pyjson`
 and `hydra-records`), which is the MCP stdio server of `integrations/local-llm/hydra-local-llm`
 and matches the Python on 43 recorded request lines; the Python stays until build ticket 238.
+Build ticket 235 added an eighth, `crates/otel` (binary `hydra-otel`, on `hydra-pyjson`,
+`hydra-records` and `sha2`), which is `integrations/otel/record_to_otlp.py` and matches the
+Python on 65 recorded cases in `crates/otel/tests/fixtures/otel.json`; the Python stays until
+the cutover.
 
 `crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
 the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a

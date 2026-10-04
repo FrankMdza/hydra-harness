@@ -47,7 +47,7 @@ fn safe(text: &PyStr) -> PyStr {
 
 /// `str(Path(text))`: `pathlib` drops a `.` part, a doubled slash and a trailing one, and
 /// keeps a leading pair of slashes but not three.
-fn pure_path(text: &str) -> String {
+pub(crate) fn pure_path(text: &str) -> String {
     let lead = if text.starts_with("//") && !text.starts_with("///") {
         "//"
     } else if text.starts_with('/') {
@@ -361,7 +361,7 @@ fn facts(item: &Scanned, root: &Path) -> Result<Facts> {
 }
 
 /// A dict of `pairs`, in the order given.
-fn dict(pairs: Vec<(&str, Value)>) -> Value {
+pub(crate) fn dict(pairs: Vec<(&str, Value)>) -> Value {
     let mut out = Dict::new();
     for (key, value) in pairs {
         out.set(key, value);
