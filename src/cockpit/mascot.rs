@@ -18,7 +18,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use serde::Deserialize;
 
-use super::snapshot::{Card, Lane, Snapshot};
+use super::snapshot::{Card, Lane, RunInfo, Snapshot};
 use crate::live::State;
 
 /// How many heads the dragon has, and so how many live seats wake one each.
@@ -293,8 +293,9 @@ impl Mascot {
         self.extra
     }
 
-    /// From the next read on, counts only the session `run_id` and the runs whose
-    /// `parent_run_id` is it. Without a call every live run is a seat, as build 152 drew it.
+    /// From the next read on, counts the session `run_id`, the runs whose
+    /// `parent_run_id` is it, and runs that started after it. Without a call
+    /// every live run is a seat, as build 152 drew it.
     pub fn watch(&mut self, run_id: &str) {
         if self.session.as_deref() != Some(run_id) {
             self.session = Some(run_id.to_string());
@@ -309,10 +310,10 @@ impl Mascot {
     }
 
     /// Whether `card` is one of the seats the heads count.
-    fn counts(&self, card: &Card) -> bool {
-        self.session.as_ref().is_none_or(|session| {
-            card.run_id == *session || card.parent_run_id.as_ref() == Some(session)
-        })
+    fn counts(&self, card: &Card, run_info: &HashMap<String, RunInfo>) -> bool {
+        self.session
+            .as_ref()
+            .is_none_or(|session| Snapshot::is_session_seat(session, card, run_info))
     }
 
     /// Live seats.
@@ -329,7 +330,8 @@ impl Mascot {
     /// this read, one that ended any other way but ok gives its own head hurt when it was on one
     /// of the three and ended in [`HURTS`], the meme head otherwise, and a request that left the
     /// waiting lane gives fire, in that order of precedence. Otherwise the heads awake are the
-    /// live seats. With a session watched, a run outside it neither wakes a head nor flashes.
+    /// live seats. With a session watched, a run outside it neither wakes a head nor flashes,
+    /// unless it started after the session.
     pub fn observe(&mut self, snapshot: &Snapshot) {
         if !snapshot.read {
             return;
@@ -337,7 +339,7 @@ impl Mascot {
         self.live = snapshot
             .cards
             .iter()
-            .filter(|card| card.state == State::Live && self.counts(card))
+            .filter(|card| card.state == State::Live && self.counts(card, &snapshot.run_info))
             .count();
         self.extra = self.live.saturating_sub(HEADS);
         let mut flash = None;
@@ -346,7 +348,7 @@ impl Mascot {
             for card in &snapshot.cards {
                 if seen.states.get(&card.run_id) != Some(&State::Live)
                     || card.state == State::Live
-                    || !self.counts(card)
+                    || !self.counts(card, &snapshot.run_info)
                 {
                     continue;
                 }
@@ -392,7 +394,7 @@ impl Mascot {
         let mut heads: Vec<String> = snapshot
             .cards
             .iter()
-            .filter(|card| card.state == State::Live && self.counts(card))
+            .filter(|card| card.state == State::Live && self.counts(card, &snapshot.run_info))
             .map(|card| card.run_id.clone())
             .collect();
         heads.sort();

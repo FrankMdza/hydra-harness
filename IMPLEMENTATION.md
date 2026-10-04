@@ -3318,8 +3318,9 @@ then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spelling
 (`sonnet`, `Sonnet 5`, `claude-sonnet-5`), which the sheet keeps apart on purpose.
 
 **The judged steps, since build ticket 111.** `choose --judge` and `review` launch three seats,
-`claude` opus and composer-2.5 under `judge` and `codex` under `standard` (map ticket 63), each
-answering one JSON object; every checklist item carries a severity ceiling so an advisory item
+`claude` opus and `cursor-agent` grok-4.7-high under `judge` and `codex` under `standard`, each
+answering one JSON object, while default cursor tasks use cursor-grok-4.6-high (ticket 270);
+every checklist item carries a severity ceiling so an advisory item
 cannot block, and major or critical diff findings go into the human's Hunk session as comments
 before it opens. Since ticket 252, plan headings use neutral Proposal A, B, etc. labels that
 follow the proposal as each seat starts at its own index and wraps; plan bodies are unchanged
@@ -4162,8 +4163,8 @@ them by name, and `k` again brings the four back. Whether this view replaces the
 not decided, so both stay and the one by state is the default. A card in an agent's lane reads
 short id, model, state or outcome, and the task id when the goal table names the run. The
 waiting approval lane is the last lane in both views, so its requests and steps stay reachable.
-Once the chat has named its session, the lanes by agent show only that run and the runs whose
-parent it is, the runs the dragon counts; the lanes by state still show every run, and the
+Once the chat has named its session, the lanes by agent show only that run, the runs whose
+parent it is, and runs that started after it, the runs the dragon counts; the lanes by state still show every run, and the
 waiting lane is not filtered, since a request from another session still waits on the human. A
 selected run stays selected across `k`, in the lane the other view puts it in, and `Enter`, a
 click, the detail, `m`, `a` and `d` act the same from either view; `m` still refuses a run that
@@ -4351,8 +4352,9 @@ before build 187. No real panel has been run from the cockpit.
 **Stepping in on a seat, build ticket 184.** `m` on a card in the live lane opens `stop <short
 id> and draft a note to the session? y`. With `--session` a seat is a run whose
 `parent_run_id` is the run the chat named; without it, any live run with a parent, and the
-question is `stop <short id>? y`. A run with no parent is refused, and so is `m` inside a
-seatbelt, as `hydra/stop-inside-seatbelt`. `y` calls `stop::stop` on that one run with the
+question is `stop <short id>? y`. A run with no parent is refused even when the dragon counts it
+as a later launch of this session, and so is `m` inside a seatbelt, as `hydra/stop-inside-seatbelt`.
+`y` calls `stop::stop` on that one run with the
 policy set the pane loads. Since build ticket 186 it does so on a thread and returns at once,
 so the cockpit keeps drawing and reading keys for the up to `GRACE` plus `CLOSE_BUDGET` the
 stop waits for the record to close. It is a thread rather than a child `hydra stop` because
@@ -4434,7 +4436,8 @@ one read, any other end but `completed` shows the meme head, and a request that 
 waiting lane shows fire. What was already ended when the cockpit opened shows nothing.
 Since build ticket 177 a card carries `parent_run_id` off line 0, and with `--session` the heads,
 the `+N` line and the `N live seat(s)` label count the session's own run and the live runs whose
-`parent_run_id` is it; a run outside the session neither wakes a head nor flashes. The chat learns
+`parent_run_id` is it. Since build ticket 269 they also count live runs that started after the
+session; a run that started before the session neither wakes a head nor flashes. The chat learns
 the session's id from the `hydra: run <uuid>` line, so until the child prints it every live run
 counts, as without `--session`. When one of those seats ends not ok the flash is the same, and
 for that one read the header adds `<short id> <outcome>` under the seat count.

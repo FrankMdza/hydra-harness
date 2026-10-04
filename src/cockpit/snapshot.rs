@@ -125,6 +125,9 @@ pub struct RunInfo {
     pub role: Option<String>,
     pub panel_seat: bool,
     pub elapsed_seconds: Option<i64>,
+    /// Line 0's `ts`. Build ticket 268 kept it on the reader; 269 lifts it so
+    /// a session's seats include runs that started after it.
+    pub started: Option<DateTime<Utc>>,
 }
 
 /// Everything one tick read.
@@ -162,6 +165,30 @@ pub struct Snapshot {
     /// What each provider's live runs have spent, one entry per provider with
     /// a live run, by name.
     pub spend: Vec<Spend>,
+}
+
+impl Snapshot {
+    /// The session itself, a run it launched, or a run that started after it.
+    /// Stopping still reads the recorded parent, not this.
+    pub fn is_session_seat(
+        session: &str,
+        card: &Card,
+        run_info: &HashMap<String, RunInfo>,
+    ) -> bool {
+        card.run_id == session
+            || card.parent_run_id.as_deref() == Some(session)
+            || started_after(session, &card.run_id, run_info)
+    }
+}
+
+fn started_after(session: &str, run_id: &str, run_info: &HashMap<String, RunInfo>) -> bool {
+    let Some(session_start) = run_info.get(session).and_then(|info| info.started) else {
+        return false;
+    };
+    run_info
+        .get(run_id)
+        .and_then(|info| info.started)
+        .is_some_and(|start| start > session_start)
 }
 
 /// One approval a goal waits on, as `hydra-puppets pending --json` lists it.
@@ -503,6 +530,7 @@ impl Reader {
             let mut info = RunInfo::default();
             if let Some(record) = self.record_info.get(&card.run_id) {
                 info.task = record.task.clone();
+                info.started = record.started;
                 let end = match card.state {
                     State::Ended => record.ended,
                     State::Live => Some(now),

@@ -516,14 +516,14 @@ impl App {
             .collect()
     }
 
-    /// The runs the lanes by agent show. With a session named, only it and
-    /// the runs it launched, the ones the dragon counts; otherwise every run.
+    /// The runs the lanes by agent show. With a session named, only it, the
+    /// runs it launched, and runs that started after it, the ones the dragon
+    /// counts; otherwise every run.
     fn agent_cards(&self) -> impl Iterator<Item = &Card> {
         let session = self.session.as_deref();
+        let run_info = &self.snapshot.run_info;
         self.snapshot.cards.iter().filter(move |card| {
-            session.is_none_or(|session| {
-                card.run_id == session || card.parent_run_id.as_deref() == Some(session)
-            })
+            session.is_none_or(|session| Snapshot::is_session_seat(session, card, run_info))
         })
     }
 
@@ -2485,6 +2485,8 @@ impl App {
     }
 
     fn run_label<'a>(&'a self, id: &'a str) -> &'a str {
+        let session = self.session.as_deref();
+        let run_info = &self.snapshot.run_info;
         crate::resolver::unique_prefix(
             id,
             self.snapshot
@@ -2492,8 +2494,8 @@ impl App {
                 .iter()
                 .filter(|card| {
                     !self.by_agent
-                        || self.session.as_deref().is_none_or(|session| {
-                            card.run_id == session || card.parent_run_id.as_deref() == Some(session)
+                        || session.is_none_or(|session| {
+                            Snapshot::is_session_seat(session, card, run_info)
                         })
                 })
                 .map(|card| card.run_id.as_str())

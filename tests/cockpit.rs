@@ -17,7 +17,7 @@ use hydra::approve::Pending;
 use hydra::cockpit::app::{App, Effect, Focus, Opened};
 use hydra::cockpit::goal::{self, TaskRow};
 use hydra::cockpit::snapshot::{
-    CallLine, Card, DETAIL_CALLS, Lane, Reader, Snapshot, Spend, lane_of, spend_text,
+    CallLine, Card, DETAIL_CALLS, Lane, Reader, RunInfo, Snapshot, Spend, lane_of, spend_text,
 };
 use hydra::cockpit::window::Budgets;
 use hydra::live::State;
@@ -1297,6 +1297,121 @@ fn without_a_session_an_ended_run_is_not_named() {
     let text = (0..12).map(|y| row_of(&buf, y)).collect::<String>();
     assert!(text.contains("meme"), "{text}");
     assert!(!text.contains("01a0bbbb"), "{text}");
+}
+
+// --- later unparented launches, build ticket 269 -----------------------------
+
+const AFTER_A: &str = "01a0dd01-0000-7000-8000-0000000000d1";
+const AFTER_B: &str = "01a0dd02-0000-7000-8000-0000000000d2";
+const AFTER_C: &str = "01a0dd03-0000-7000-8000-0000000000d3";
+const EARLIER: &str = "01a0aa00-0000-7000-8000-0000000000e0";
+
+fn started(at: chrono::DateTime<chrono::Utc>) -> RunInfo {
+    RunInfo {
+        started: Some(at),
+        ..RunInfo::default()
+    }
+}
+
+#[test]
+fn later_unparented_runs_wake_three_heads() {
+    let t0 = noon();
+    let later = t0 + chrono::Duration::seconds(10);
+    let snapshot = Snapshot {
+        cards: vec![
+            card(WATCHED, "claude", State::Ended, Some("completed")),
+            card(AFTER_A, "codex", State::Live, None),
+            card(AFTER_B, "cursor-agent", State::Live, None),
+            card(AFTER_C, "agy", State::Live, None),
+        ],
+        run_info: [
+            (WATCHED.to_string(), started(t0)),
+            (AFTER_A.to_string(), started(later)),
+            (AFTER_B.to_string(), started(later)),
+            (AFTER_C.to_string(), started(later)),
+        ]
+        .into(),
+        read: true,
+        ..Snapshot::default()
+    };
+    let mut app = App::new(scratch("later-heads"), true, Duration::from_secs(2));
+    app.set_mascot(Some(Mascot::new(committed_frames())));
+    app.watch(WATCHED);
+    app.set_snapshot(snapshot);
+    assert_eq!(app.mascot().unwrap().live(), 3);
+    assert_eq!(app.mascot().unwrap().pose(), Pose::Working);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let header = (0..12).map(|y| row_of(&buf, y)).collect::<String>();
+    assert!(header.contains("3 live seat(s)"), "{header}");
+    assert!(header.contains("working"), "{header}");
+    let mut agents = app.agents();
+    agents.sort();
+    assert_eq!(
+        agents,
+        vec![
+            "agy".to_string(),
+            "claude".to_string(),
+            "codex".to_string(),
+            "cursor-agent".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn a_live_run_that_started_before_the_session_is_not_a_seat() {
+    let t0 = noon();
+    let earlier = t0 - chrono::Duration::seconds(10);
+    let snapshot = Snapshot {
+        cards: vec![
+            card(WATCHED, "claude", State::Live, None),
+            card(EARLIER, "agy", State::Live, None),
+        ],
+        run_info: [
+            (WATCHED.to_string(), started(t0)),
+            (EARLIER.to_string(), started(earlier)),
+        ]
+        .into(),
+        read: true,
+        ..Snapshot::default()
+    };
+    let mut app = App::new(scratch("earlier-not-seat"), true, Duration::from_secs(2));
+    app.set_mascot(Some(Mascot::new(committed_frames())));
+    app.watch(WATCHED);
+    app.set_snapshot(snapshot);
+    assert_eq!(app.mascot().unwrap().live(), 1);
+    assert_eq!(app.mascot().unwrap().pose(), Pose::TwoAsleep);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let header = (0..12).map(|y| row_of(&buf, y)).collect::<String>();
+    assert!(header.contains("1 live seat(s)"), "{header}");
+    assert_eq!(app.agents(), vec!["claude".to_string()]);
+}
+
+#[test]
+fn m_on_an_unparented_later_run_is_still_refused() {
+    let t0 = noon();
+    let later = t0 + chrono::Duration::seconds(10);
+    let layout = scratch("later-m");
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_mascot(Some(Mascot::new(committed_frames())));
+    app.watch(WATCHED);
+    app.set_snapshot(Snapshot {
+        cards: vec![card(AFTER_A, "codex", State::Live, None)],
+        run_info: [
+            (WATCHED.to_string(), started(t0)),
+            (AFTER_A.to_string(), started(later)),
+        ]
+        .into(),
+        read: true,
+        ..Snapshot::default()
+    });
+    assert_eq!(app.mascot().unwrap().live(), 1);
+    app.focus = Focus::Lane(Lane::Live);
+    app.handle(&key(KeyCode::Char('m')));
+    let text = drawn_app(&mut app);
+    assert!(text.contains("01a0dd01 is not a seat"), "{text}");
+    assert!(!text.contains("stop 01a0dd01"), "{text}");
 }
 
 // --- a head that failed turns red, build ticket 192 -------------------------

@@ -103,7 +103,9 @@ the sentence: `Read COCKPIT.md in this repository and tell me how to `.
 
 Use `PageUp`, `PageDown`, `Space`, `b`, `Home`, `g`, `End`, or `G` in the detail pane or on a
 full-page run. `Enter` on a lane card opens that run full screen; `Left` or `Backspace` steps
-back through pages you opened. `m` then `y` on a live card stops that seat the same way
+back through pages you opened. With `--session`, the dragon, the header seat count and the lanes
+by agent also count a run that started after this chat's run, so agents launched with `hydra run`
+show even with no parent recorded. `m` then `y` on a live card stops that seat the same way
 `hydra stop` does. With `--session`, only runs launched as seats of this chat's session can be
 stopped from `m`; the cockpit leaves an unsent note in the chat when a stop succeeds. To read
 what a run did, open it and use `r` to switch between summarized tool calls and the raw tail of
