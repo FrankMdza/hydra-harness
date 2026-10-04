@@ -186,34 +186,6 @@ const TASK_DIFF_CHECKLIST: [(&str, bool, &str); 12] = [
 /// How many times, a second apart, the findings are offered to a Hunk session.
 const HUNK_TRIES: usize = 30;
 
-/// `str.splitlines()`: every boundary Python counts as a line end, and no empty last line.
-fn splitlines(text: &str) -> Vec<&str> {
-    const ENDS: [char; 10] = [
-        '\n', '\r', '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}',
-        '\u{2029}',
-    ];
-    let mut lines = Vec::new();
-    let mut rest = text;
-    while !rest.is_empty() {
-        match rest.find(ENDS) {
-            Some(at) => {
-                lines.push(&rest[..at]);
-                let end = if rest[at..].starts_with("\r\n") {
-                    at + 2
-                } else {
-                    at + rest[at..].chars().next().map_or(1, char::len_utf8)
-                };
-                rest = &rest[end..];
-            }
-            None => {
-                lines.push(rest);
-                break;
-            }
-        }
-    }
-    lines
-}
-
 /// A seat as it sits for one command: its own provider, or the substitute a degraded
 /// approval names for a provider that is down.
 struct Resolved {
@@ -1110,7 +1082,7 @@ fn first_changed_file(repo: &Path, base_sha: &Value, branch: &Value) -> Result<O
         &[OsStr::new("diff"), OsStr::new("--name-only"), &range],
     )?;
     Ok(names.and_then(|names| {
-        splitlines(py::strip_str(&names))
+        py::splitlines(py::strip_str(&names))
             .first()
             .map(|first| first.to_string())
     }))
@@ -1124,7 +1096,7 @@ fn test_paths_from_diff(diff: &str) -> String {
     }
     let mut keep: Vec<&str> = Vec::new();
     let mut current: Vec<&str> = Vec::new();
-    for line in splitlines(diff) {
+    for line in py::splitlines(diff) {
         if line.starts_with("diff --git ") || line.starts_with("--- ") || line.starts_with("+++ ") {
             let last = line
                 .split(py::is_space)
@@ -1920,11 +1892,11 @@ mod tests {
     #[test]
     fn lines_split_where_python_splits_them() {
         assert_eq!(
-            splitlines("a\nb\r\nc\rd\u{2028}e\n"),
+            py::splitlines("a\nb\r\nc\rd\u{2028}e\n"),
             ["a", "b", "c", "d", "e"]
         );
-        assert_eq!(splitlines("\n\na"), ["", "", "a"]);
-        assert!(splitlines("").is_empty());
+        assert_eq!(py::splitlines("\n\na"), ["", "", "a"]);
+        assert!(py::splitlines("").is_empty());
     }
 
     #[test]

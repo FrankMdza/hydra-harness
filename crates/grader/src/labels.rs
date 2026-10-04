@@ -573,49 +573,13 @@ pub fn collect(home: &Path, env: &Env, stderr: &mut dyn Write) -> Result<Keyed> 
     Ok(labels)
 }
 
-/// `str.splitlines()`: every character Python ends a line of text at.
-fn split_lines(text: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let mut chars = text.char_indices().peekable();
-    while let Some((at, c)) = chars.next() {
-        let ends = matches!(
-            c,
-            '\n' | '\r'
-                | '\x0b'
-                | '\x0c'
-                | '\x1c'
-                | '\x1d'
-                | '\x1e'
-                | '\u{85}'
-                | '\u{2028}'
-                | '\u{2029}'
-        );
-        if !ends {
-            continue;
-        }
-        lines.push(&text[start..at]);
-        start = at + c.len_utf8();
-        if c == '\r'
-            && let Some((_, '\n')) = chars.peek()
-        {
-            chars.next();
-            start += 1;
-        }
-    }
-    if start < text.len() {
-        lines.push(&text[start..]);
-    }
-    lines
-}
-
 /// `collect_llm`: every `task-classes-*.jsonl` under the grader home, oldest name first, so
 /// a later file wins on the same run id. A model wrote these, not a human.
 pub fn collect_llm(home: &Path) -> Result<Keyed> {
     let mut found = Keyed::new();
     for path in glob(home, "task-classes-", ".jsonl") {
         let text = read_text(&path)?;
-        for line in split_lines(&text) {
+        for line in py::splitlines(&text) {
             if py::strip_str(line).is_empty() {
                 continue;
             }
@@ -707,12 +671,12 @@ mod tests {
     #[test]
     fn text_splits_where_python_splits_it() {
         assert_eq!(
-            split_lines("a\r\nb\rc\n\nd\x0be\u{2028}f\u{85}g\x1ch"),
+            py::splitlines("a\r\nb\rc\n\nd\x0be\u{2028}f\u{85}g\x1ch"),
             ["a", "b", "c", "", "d", "e", "f", "g", "h"]
         );
-        assert_eq!(split_lines("a\n"), ["a"]);
-        assert!(split_lines("").is_empty());
-        assert_eq!(split_lines("a\x1fb\tc"), ["a\x1fb\tc"]);
+        assert_eq!(py::splitlines("a\n"), ["a"]);
+        assert!(py::splitlines("").is_empty());
+        assert_eq!(py::splitlines("a\x1fb\tc"), ["a\x1fb\tc"]);
     }
 
     #[test]

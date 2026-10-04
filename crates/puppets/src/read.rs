@@ -207,43 +207,6 @@ impl VerdictScores {
     }
 }
 
-/// `str.splitlines()`, which also breaks on the separators below `\x20` and above `\x7f`.
-fn str_splitlines(text: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let mut chars = text.char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
-        let breaks = matches!(
-            c,
-            '\n' | '\r'
-                | '\u{b}'
-                | '\u{c}'
-                | '\u{1c}'
-                | '\u{1d}'
-                | '\u{1e}'
-                | '\u{85}'
-                | '\u{2028}'
-                | '\u{2029}'
-        );
-        if !breaks {
-            continue;
-        }
-        lines.push(&text[start..i]);
-        let mut end = i + c.len_utf8();
-        if c == '\r'
-            && let Some((j, '\n')) = chars.peek().copied()
-        {
-            chars.next();
-            end = j + 1;
-        }
-        start = end;
-    }
-    if start < text.len() {
-        lines.push(&text[start..]);
-    }
-    lines
-}
-
 /// `load_verdict_scores`. A missing file is an empty score set; nothing is written.
 pub fn load_verdict_scores(path: &Path) -> Result<VerdictScores> {
     if !path.is_file() {
@@ -254,7 +217,7 @@ pub fn load_verdict_scores(path: &Path) -> Result<VerdictScores> {
     let mut rows: Vec<(PyStr, PyStr, f64)> = Vec::new();
     let mut best: Option<(PyStr, usize)> = None;
     let mut best_version: Option<PyStr> = None;
-    for (index, line) in str_splitlines(text).into_iter().enumerate() {
+    for (index, line) in py::splitlines(text).into_iter().enumerate() {
         let line = py::strip_str(line);
         if line.is_empty() {
             continue;

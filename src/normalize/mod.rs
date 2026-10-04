@@ -91,6 +91,15 @@ pub enum Role {
     User,
 }
 
+impl Role {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Assistant => "assistant",
+            Role::User => "user",
+        }
+    }
+}
+
 /// Contract 7.3. Text that arrived whole on `claude`.
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -146,6 +155,16 @@ pub enum ResultStatus {
     /// adapter that guesses produces a curator that rewrites a skill because a
     /// file was missing. Nothing upgrades it to `Ok` later.
     Unclassified,
+}
+
+impl ResultStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResultStatus::Ok => "ok",
+            ResultStatus::Error => "error",
+            ResultStatus::Unclassified => "unclassified",
+        }
+    }
 }
 
 /// Contract 7.6, joined to its call on `tool_use_id`.

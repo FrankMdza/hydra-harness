@@ -16,9 +16,10 @@ use crate::export::{
     Allowlist, EntropyWarning, ExportWarning, own_repo, redact_string, redact_value,
     repo_names_to_redact, verify_export_line,
 };
-use crate::normalize::{Event, Role, Run};
+use crate::normalize::{Event, Run};
 use crate::paths::Layout;
 use crate::policy::PolicySet;
+use crate::rungs::evolve::{blocked_branch_names, branch_exists, offerable_branch_names};
 use crate::rungs::review;
 use crate::worktree;
 
@@ -378,25 +379,16 @@ fn readable_halves(
 }
 
 fn blocked_branch(repo: &Path, pass_id: &str) -> Result<String> {
-    for branch in [
-        format!("rungs/blocked/{pass_id}"),
-        format!("ouroboros/blocked/{pass_id}"),
-    ] {
-        if branch_exists(repo, &branch)? {
-            return Ok(branch);
-        }
-    }
-    Err(anyhow::anyhow!("no blocked branch for pass {pass_id}"))
+    blocked_branch_names(pass_id)
+        .into_iter()
+        .find(|branch| branch_exists(repo, branch))
+        .ok_or_else(|| anyhow::anyhow!("no blocked branch for pass {pass_id}"))
 }
 
 fn offerable_branch(repo: &Path, pass_id: &str) -> Option<String> {
-    [format!("rungs/{pass_id}"), format!("ouroboros/{pass_id}")]
+    offerable_branch_names(pass_id)
         .into_iter()
-        .find(|branch| branch_exists(repo, branch).unwrap_or(false))
-}
-
-fn branch_exists(repo: &Path, branch: &str) -> Result<bool> {
-    Ok(worktree::git(repo, &["rev-parse", "--verify", branch]).is_ok())
+        .find(|branch| branch_exists(repo, branch))
 }
 
 fn branch_diff(repo: &Path, branch: &str, base: &str) -> Result<String> {
@@ -411,7 +403,7 @@ fn chosen_half(repo: &Path, pass_id: &str, base: &str) -> Result<Option<String>>
         }
     }
     for main in ["master", "main"] {
-        if !branch_exists(repo, main)? {
+        if !branch_exists(repo, main) {
             continue;
         }
         let log = worktree::git(repo, &["log", main, "--grep", pass_id, "-1", "--format=%H"])?;
@@ -457,7 +449,7 @@ fn prompt_before(events: &[Event], repo_names: &[String]) -> Vec<Value> {
 fn prompt_event(event: &Event, repo_names: &[String]) -> Option<Value> {
     match event {
         Event::Message(message) => Some(json!({
-            "role": role_str(message.role),
+            "role": message.role.as_str(),
             "content": redact_string(&message.text, repo_names),
         })),
         Event::Thinking(thinking) => Some(json!({
@@ -486,12 +478,5 @@ fn prompt_event(event: &Event, repo_names: &[String]) -> Option<Value> {
         | Event::PermissionDecision(_)
         | Event::Usage(_)
         | Event::Correction(_) => None,
-    }
-}
-
-fn role_str(role: Role) -> &'static str {
-    match role {
-        Role::Assistant => "assistant",
-        Role::User => "user",
     }
 }

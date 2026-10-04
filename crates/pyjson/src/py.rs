@@ -290,6 +290,34 @@ pub fn strip_str(s: &str) -> &str {
     s.trim_matches(is_space)
 }
 
+/// `str.splitlines()`: every boundary Python counts as a line end, and no empty last line.
+pub fn splitlines(text: &str) -> Vec<&str> {
+    const ENDS: [char; 10] = [
+        '\n', '\r', '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}',
+        '\u{2029}',
+    ];
+    let mut lines = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        match rest.find(ENDS) {
+            Some(at) => {
+                lines.push(&rest[..at]);
+                let end = if rest[at..].starts_with("\r\n") {
+                    at + 2
+                } else {
+                    at + rest[at..].chars().next().map_or(1, char::len_utf8)
+                };
+                rest = &rest[end..];
+            }
+            None => {
+                lines.push(rest);
+                break;
+            }
+        }
+    }
+    lines
+}
+
 /// `str.strip()`.
 pub fn strip(s: &PyStr) -> PyStr {
     let space = |code: &u32| char::from_u32(*code).is_some_and(is_space);

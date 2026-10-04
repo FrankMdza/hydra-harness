@@ -160,9 +160,8 @@ pub fn provider_session_id(path: &Path, provider: Provider, start: &Value) -> Op
 }
 
 fn first_envelope_model(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let first = text.lines().next()?;
-    let envelope = serde_json::from_str::<Value>(first).ok()?;
+    let first = live::first_line(path).ok().flatten()?;
+    let envelope = serde_json::from_str::<Value>(&first).ok()?;
     envelope
         .get("model")
         .and_then(Value::as_str)

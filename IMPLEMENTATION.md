@@ -4873,7 +4873,11 @@ the mechanical half in run 01a0c4a6-cf6d, `git mv` so history follows; the spec 
 `docs/rungs-spec.md` and every document names it so. Two things stay as they were on disk:
 the branches earlier passes wrote, `ouroboros/<pass-id>` and `ouroboros/blocked/<pass-id>`,
 which `pass_run_id_from_branch` still reads beside the new `rungs/` prefix with a test on both
-spellings, and the run records that mention the old name, which are evidence.
+spellings, and the run records that mention the old name, which are evidence. Since build ticket
+280 those four prefixes live in `blocked_branch_names` and `offerable_branch_names`,
+`branch_exists` returns bool, `Role` and `ResultStatus` stringify through `as_str`,
+`live::first_line` is the line-0 reader for reap and resume, and Python `str.splitlines` lives in
+`hydra_pyjson::py`.
 
 **What a judge receives, since build ticket 63.** `judge_task` in `src/rungs/evolve.rs` takes the
 proposer patch and the pass's task and composes four sections in order: the task under "Intent the

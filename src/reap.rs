@@ -219,16 +219,13 @@ enum Start {
 
 /// Line 0 from `runs/`, or from `pruned/` for a pruned run.
 fn line_zero(layout: &Layout, run_id: &str) -> Start {
-    let Some(text) = [layout.run_file(run_id), layout.pruned_file(run_id)]
+    let Some(first) = [layout.run_file(run_id), layout.pruned_file(run_id)]
         .iter()
-        .find_map(|path| std::fs::read_to_string(path).ok())
+        .find_map(|path| crate::live::first_line(path).ok().flatten())
     else {
         return Start::Missing;
     };
-    let Some(first) = text.lines().next() else {
-        return Start::Missing;
-    };
-    match serde_json::from_str::<LineZero>(first) {
+    match serde_json::from_str::<LineZero>(&first) {
         Ok(line) if line.hydra.kind == "run_start" => Start::Read(line),
         _ => Start::Unreadable,
     }

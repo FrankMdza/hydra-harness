@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::live::State;
 use crate::normalize::paths::{PathExtraction, cwd_of, inside, paths_touched};
-use crate::normalize::{Event, ResultStatus, Role, Run};
+use crate::normalize::{Event, Run};
 use crate::outcome::{Source, derive};
 use crate::paths::Layout;
 use crate::policy::{Capability, PolicySet};
@@ -487,54 +487,48 @@ pub(crate) fn repo_names_to_redact(repos: &[PathBuf], own_repo: Option<&Path>) -
 
 fn export_event(event: &Event, repo_names: &[String]) -> Option<Value> {
     match event {
-        Event::RunStart(_) | Event::RunEnd(_) | Event::PermissionDecision(_) | Event::Usage(_) => {
-            None
-        }
-        Event::MessageDelta(_) => None,
-        other => Some(match other {
-            Event::Message(e) => json!({
-                "seq": e.seq,
-                "type": "message",
-                "role": role_str(e.role),
-                "text": redact_string(&e.text, repo_names),
-                "block": e.block,
-            }),
-            Event::Thinking(e) => json!({
-                "seq": e.seq,
-                "type": "thinking",
-                "text": redact_string(&e.text, repo_names),
-                "signed": e.signature.is_some(),
-                "block": e.block,
-            }),
-            Event::ToolCall(e) => json!({
-                "seq": e.seq,
-                "type": "tool_call",
-                "call_id": redact_string(&e.call_id, repo_names),
-                "name": redact_string(&e.name, repo_names),
-                "arguments": redact_value(&e.arguments, repo_names),
-                "capability": e.capability.map(Capability::as_str),
-            }),
-            Event::ToolResult(e) => json!({
-                "seq": e.seq,
-                "type": "tool_result",
-                "call_id": redact_string(&e.call_id, repo_names),
-                "status": status_str(e.status),
-                "output": redact_string(&e.output, repo_names),
-                "truncated": e.truncated,
-            }),
-            Event::Correction(e) => json!({
-                "type": "correction",
-                "corrects": e.corrects,
-                "rejected": redact_value(&e.rejected, repo_names),
-                "chosen": redact_value(&e.chosen, repo_names),
-                "words": e.words.as_ref().map(|w| redact_string(w, repo_names)),
-            }),
-            Event::RunStart(_)
-            | Event::RunEnd(_)
-            | Event::MessageDelta(_)
-            | Event::PermissionDecision(_)
-            | Event::Usage(_) => return None,
-        }),
+        Event::Message(e) => Some(json!({
+            "seq": e.seq,
+            "type": "message",
+            "role": e.role.as_str(),
+            "text": redact_string(&e.text, repo_names),
+            "block": e.block,
+        })),
+        Event::Thinking(e) => Some(json!({
+            "seq": e.seq,
+            "type": "thinking",
+            "text": redact_string(&e.text, repo_names),
+            "signed": e.signature.is_some(),
+            "block": e.block,
+        })),
+        Event::ToolCall(e) => Some(json!({
+            "seq": e.seq,
+            "type": "tool_call",
+            "call_id": redact_string(&e.call_id, repo_names),
+            "name": redact_string(&e.name, repo_names),
+            "arguments": redact_value(&e.arguments, repo_names),
+            "capability": e.capability.map(Capability::as_str),
+        })),
+        Event::ToolResult(e) => Some(json!({
+            "seq": e.seq,
+            "type": "tool_result",
+            "call_id": redact_string(&e.call_id, repo_names),
+            "status": e.status.as_str(),
+            "output": redact_string(&e.output, repo_names),
+            "truncated": e.truncated,
+        })),
+        Event::Correction(e) => Some(json!({
+            "type": "correction",
+            "corrects": e.corrects,
+            "rejected": redact_value(&e.rejected, repo_names),
+            "chosen": redact_value(&e.chosen, repo_names),
+            "words": e.words.as_ref().map(|w| redact_string(w, repo_names)),
+        })),
+        Event::RunStart(_)
+        | Event::RunEnd(_)
+        | Event::MessageDelta(_)
+        | Event::PermissionDecision(_)
+        | Event::Usage(_) => None,
     }
 }
 
@@ -668,21 +662,6 @@ fn redact_secrets(text: &str) -> String {
         out.replace_range(at..end, "[REDACTED:openai_api_key]");
     }
     out
-}
-
-fn role_str(role: Role) -> &'static str {
-    match role {
-        Role::Assistant => "assistant",
-        Role::User => "user",
-    }
-}
-
-fn status_str(status: ResultStatus) -> &'static str {
-    match status {
-        ResultStatus::Ok => "ok",
-        ResultStatus::Error => "error",
-        ResultStatus::Unclassified => "unclassified",
-    }
 }
 
 /// A long, random-looking token the verifier found in an exported value. It

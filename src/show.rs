@@ -26,7 +26,7 @@ use anyhow::Result;
 use serde_json::{Value, json};
 
 use crate::marker::mark;
-use crate::normalize::{Counts, Event, Finding, ResultStatus, Role};
+use crate::normalize::{Counts, Event, Finding};
 use crate::paths::Layout;
 use crate::policy::{Capability, PolicySet};
 
@@ -74,14 +74,14 @@ fn event_json(event: &Event, token: &str) -> Value {
         Event::Message(e) => json!({
             "seq": e.seq,
             "type": type_name,
-            "role": role_str(e.role),
+            "role": e.role.as_str(),
             "text": mark(&e.text, token),
             "block": e.block,
         }),
         Event::MessageDelta(e) => json!({
             "seq": e.seq,
             "type": type_name,
-            "role": role_str(e.role),
+            "role": e.role.as_str(),
             "text": mark(&e.text, token),
         }),
         Event::Thinking(e) => json!({
@@ -103,7 +103,7 @@ fn event_json(event: &Event, token: &str) -> Value {
             "seq": e.seq,
             "type": type_name,
             "call_id": e.call_id,
-            "status": status_str(e.status),
+            "status": e.status.as_str(),
             "output": mark(&e.output, token),
             "truncated": e.truncated,
         }),
@@ -143,21 +143,6 @@ fn counts_json(counts: Counts) -> Value {
         "cache_write_tokens": counts.cache_write_tokens,
         "thinking_tokens": counts.thinking_tokens,
     })
-}
-
-fn role_str(role: Role) -> &'static str {
-    match role {
-        Role::Assistant => "assistant",
-        Role::User => "user",
-    }
-}
-
-fn status_str(status: ResultStatus) -> &'static str {
-    match status {
-        ResultStatus::Ok => "ok",
-        ResultStatus::Error => "error",
-        ResultStatus::Unclassified => "unclassified",
-    }
 }
 
 /// One finding, its own type name and its fields by name, the same shape

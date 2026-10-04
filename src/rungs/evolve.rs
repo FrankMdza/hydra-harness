@@ -76,6 +76,23 @@ pub fn pass_run_id_from_branch(branch: &str) -> Option<&str> {
         .filter(|id| !id.contains('/'))
 }
 
+/// Names a blocked pass may still carry, newest first.
+pub(crate) fn blocked_branch_names(pass_id: &str) -> [String; 2] {
+    [
+        format!("rungs/blocked/{pass_id}"),
+        format!("ouroboros/blocked/{pass_id}"),
+    ]
+}
+
+/// Names an offerable pass may still carry, newest first.
+pub(crate) fn offerable_branch_names(pass_id: &str) -> [String; 2] {
+    [format!("rungs/{pass_id}"), format!("ouroboros/{pass_id}")]
+}
+
+pub(crate) fn branch_exists(repo: &Path, branch: &str) -> bool {
+    git(repo, &["rev-parse", "--verify", branch]).is_ok()
+}
+
 /// Reads the corpus, runs the proposer, reviews the patch, lands on a branch.
 /// The repository a pass branches from and commits its verdict into: the one
 /// containing `dir`, which is where the human typed `hydra evolve`.
@@ -1329,13 +1346,10 @@ fn baseline_file(patch: &ProposerPatch, path: &str) -> Result<String> {
 /// Returns the blocked branch name for a pass id, or an error when the pass is
 /// not blocked. Map ticket 57, build ticket 64.
 pub fn ensure_reviewable(repo: &Path, pass_id: &str) -> Result<String> {
-    for branch in [
-        format!("rungs/blocked/{pass_id}"),
-        format!("ouroboros/blocked/{pass_id}"),
-    ] {
-        if branch_exists(repo, &branch)? {
-            for offer in [format!("rungs/{pass_id}"), format!("ouroboros/{pass_id}")] {
-                if branch_exists(repo, &offer)? {
+    for branch in blocked_branch_names(pass_id) {
+        if branch_exists(repo, &branch) {
+            for offer in offerable_branch_names(pass_id) {
+                if branch_exists(repo, &offer) {
                     bail!("pass {pass_id} is offerable, not blocked");
                 }
             }
@@ -1343,10 +1357,6 @@ pub fn ensure_reviewable(repo: &Path, pass_id: &str) -> Result<String> {
         }
     }
     bail!("pass {pass_id} is not blocked")
-}
-
-fn branch_exists(repo: &Path, branch: &str) -> Result<bool> {
-    Ok(git(repo, &["rev-parse", "--verify", branch]).is_ok())
 }
 
 /// Commit message for a fresh review of a blocked pass. Build ticket 64.

@@ -466,7 +466,9 @@ fn parse_time(text: &str) -> Option<DateTime<Utc>> {
         .map(|t| t.with_timezone(&Utc))
 }
 
-fn first_line(path: &Path) -> Result<Option<String>> {
+/// Line 0 of a run file, including its trailing newline, or `None` when the
+/// file is missing or empty.
+pub(crate) fn first_line(path: &Path) -> Result<Option<String>> {
     use std::io::BufRead;
 
     let file = match std::fs::File::open(path) {
