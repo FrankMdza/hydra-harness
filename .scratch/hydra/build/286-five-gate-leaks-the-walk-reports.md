@@ -1,7 +1,7 @@
 # 286 - Five gate leaks the walk reports
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
