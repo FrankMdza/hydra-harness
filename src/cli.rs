@@ -58,8 +58,8 @@ pub enum Command {
     /// Launch a provider on a recorded run and write its run record.
     Run {
         /// Which binary to route to: `claude`, `cursor-agent`, `agy` or `codex`.
-        #[arg(long)]
-        provider: String,
+        #[arg(long, value_parser = parse_provider)]
+        provider: crate::provider::Provider,
 
         /// The task string, passed to the provider verbatim. Optional only
         /// with `--interactive`, which opens with no prompt when it is
@@ -364,6 +364,12 @@ pub enum UsageCommand {
     },
 }
 
+fn parse_provider(text: &str) -> Result<crate::provider::Provider, String> {
+    text.parse().map_err(|_| {
+        format!("{text} is not a routable provider; expected claude, cursor-agent, agy or codex")
+    })
+}
+
 /// `600`, `30s`, `10m` or `2h`.
 ///
 /// **Bare digits are seconds**, which is what every other tool on this machine
@@ -453,5 +459,23 @@ mod tests {
             let text = render_duration(Duration::from_secs(secs));
             assert_eq!(parse_duration(&text).unwrap().as_secs(), secs, "{text}");
         }
+    }
+
+    #[test]
+    fn a_bad_provider_name_is_refused_with_the_valid_list() {
+        use clap::Parser;
+        let Err(err) =
+            super::Cli::try_parse_from(["hydra", "run", "--provider", "hermes", "--task", "x"])
+        else {
+            panic!("hermes parsed as a provider");
+        };
+        let text = err.to_string();
+        assert!(
+            text.contains("claude")
+                && text.contains("cursor-agent")
+                && text.contains("agy")
+                && text.contains("codex"),
+            "{text}"
+        );
     }
 }

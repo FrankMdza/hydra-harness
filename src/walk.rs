@@ -698,7 +698,7 @@ pub fn check_gated_write_denials(
             if outcome.rung_one_learns() {
                 push(&mut findings, path, "a refused launch taught a lesson");
             }
-            if derive(&run).unwrap().source != Source::Refusal {
+            if derived.source != Source::Refusal {
                 push(&mut findings, path, "refusal source mismatch");
             }
             continue;
@@ -804,7 +804,7 @@ pub fn check_unknown_sources(
         let unclassified = run
             .tool_results()
             .any(|r| r.status == crate::normalize::ResultStatus::Unclassified);
-        let completed = derive(&run).unwrap().outcome == Outcome::Completed;
+        let completed = derived.outcome == Outcome::Completed;
         if (source == Source::Unknown) != (unclassified && completed) {
             push(
                 &mut findings,

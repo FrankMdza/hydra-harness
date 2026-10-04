@@ -205,11 +205,10 @@ fn read_judge_pairs_from_runs(
         if rejected.trim().is_empty() {
             continue;
         }
-        if chosen.is_none() {
+        let Some(chosen) = chosen else {
             out.push(JudgeDisposition::Withheld { pass_id });
             continue;
-        }
-        let chosen = chosen.unwrap();
+        };
         let judges: Vec<_> = kids
             .iter()
             .filter(|(_, run)| run.policy.as_deref() == Some("judge"))

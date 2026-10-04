@@ -841,14 +841,14 @@ fn agy_gate_mounted(
              in front of the run",
             checkout.display()
         )
-    });
-    match &mounted {
-        Ok(mounted) if agy::gate_is_mounted(mounted, &handoff.spawn.hook_config) => Ok(()),
-        Ok(mounted) => Err(anyhow::anyhow!(
+    })?;
+    if agy::gate_is_mounted(&mounted, &handoff.spawn.hook_config) {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
             "{}",
-            agy::unmounted_remediation(mounted, &handoff.spawn.hook_config)
-        )),
-        Err(err) => Err(anyhow::anyhow!("{err:#}")),
+            agy::unmounted_remediation(&mounted, &handoff.spawn.hook_config)
+        ))
     }
 }
 

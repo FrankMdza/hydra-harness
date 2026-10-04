@@ -5,7 +5,6 @@ use clap::Parser;
 
 use hydra::cli::{Cli, Command, UsageCommand};
 use hydra::paths::Layout;
-use hydra::provider::Provider;
 use hydra::run::{Call, Request, run};
 
 fn main() -> Result<()> {
@@ -23,7 +22,7 @@ fn main() -> Result<()> {
         } => {
             if interactive {
                 let result = hydra::interactive::run(hydra::interactive::Request {
-                    provider: provider.parse::<Provider>()?,
+                    provider,
                     task,
                     model,
                     policy,
@@ -34,7 +33,7 @@ fn main() -> Result<()> {
                     anyhow::anyhow!("a recorded run needs --task; only --interactive may omit it")
                 })?;
                 let call = run(Request {
-                    provider: provider.parse::<Provider>()?,
+                    provider,
                     task,
                     model,
                     policy: policy.unwrap_or_else(|| "standard".to_string()),

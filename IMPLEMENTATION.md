@@ -384,7 +384,8 @@ creates the store.
 `cursor-agent` is routed as of ticket 09 and `agy` as of ticket 10, and each has a
 section below that is the one to read before trusting a record it wrote. All three of the
 design's routable providers are now routed; `hermes` is the fourth that ticket 22
-unrouted, and its name still comes back as an unknown provider.
+unrouted, and its name still comes back as an unknown provider. Since build ticket 283,
+`--provider` is a clap value parser and a bad name is refused with the four valid ones.
 
 ## `hydra stop`, since build ticket 169
 

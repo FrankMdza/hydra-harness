@@ -44,11 +44,11 @@ impl App {
             self.message = Some("select a task row first".to_string());
             return Effect::None;
         };
-        if row.run_id.is_none() {
+        let Some(run_id) = row.run_id.clone() else {
             self.message = Some(format!("task {} has no run to review", row.id));
             return Effect::None;
-        }
-        let asked = (goal.id.clone(), row.id.clone(), row.run_id.clone().unwrap());
+        };
+        let asked = (goal.id.clone(), row.id.clone(), run_id);
         self.poll_reviews();
         if self.review_running(&asked.0, &asked.1) {
             self.message = Some(format!("a review of {} is already running", asked.1));

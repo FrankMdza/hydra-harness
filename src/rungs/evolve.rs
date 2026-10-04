@@ -108,8 +108,7 @@ pub fn pass_repo(layout: &Layout, dir: &Path) -> Result<PathBuf> {
 }
 
 pub fn evolve(pass: Pass) -> Result<Done> {
-    if pass.review.is_some() {
-        let reviewed_pass_id = pass.review.clone().unwrap();
+    if let Some(reviewed_pass_id) = pass.review.clone() {
         let evidence_path = pass
             .evidence
             .clone()
