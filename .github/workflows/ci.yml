@@ -38,9 +38,3 @@ jobs:
           cargo test --release --test record_contract every_fixture_meets_the_contract -- --nocapture 2>&1 \
             | { grep '^checked ' || echo "the fixture walk found no fixtures"; } \
             | tee -a "$GITHUB_STEP_SUMMARY"
-      # Build ticket 220 deleted the grader's Python suite with the grader's Python. Two of
-      # its files outlived it, `records.py` and `redact.py`, moved beside `apprentice.py`,
-      # which still loads them. Their two test files moved with them and are what this step
-      # runs: stdlib unittest, no binary and no network. The apprentice's own tests were
-      # never part of CI and still are not.
-      - run: python3 -m unittest discover -s integrations/apprentice/tests -p 'test_re*.py' -q

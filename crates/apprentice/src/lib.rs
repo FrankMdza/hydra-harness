@@ -1,5 +1,5 @@
-//! `hydra-apprentice`: the commands of `integrations/apprentice/apprentice.py`, ticket by
-//! ticket.
+//! `hydra-apprentice`: the commands of `integrations/apprentice/apprentice.py`, which build
+//! ticket 234 deleted once all four ran here.
 //!
 //! Build ticket 231 ported `bank build` (`bank.rs`), with the `json.dumps` the prompts are
 //! written with (`dump.rs`) and the command line (`cli.rs`). Build ticket 232 ported

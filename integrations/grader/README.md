@@ -342,9 +342,10 @@ launchctl bootout gui/$(id -u)/co.hephaestuslab.hydra-grader && rm ~/Library/Lau
 | `redact.rs` | Secret redaction ported from `src/export.rs` |
 | `data.rs`, `argparse.rs` | Where the data directory is found, and the one reading of `argparse` every command shares |
 
-Two Python files outlived the cutover because Python still loads them: `records.py` and
-`redact.py`, with `models.py`, are now in `integrations/apprentice/`, where `apprentice.py`
-loads all three and `integrations/otel/record_to_otlp.py` loads `redact.py`.
+Two Python files outlived the cutover because Python still loaded them: `records.py` and
+`redact.py`, with `models.py`, moved to `integrations/apprentice/`. Build tickets 234 and 236
+deleted them on 2026-10-04 with the apprentice's and otel's Python; the Rust for all three is
+`crates/records`.
 
 ## Benchmark
 

@@ -3,7 +3,7 @@ name = "hydra-apprentice"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "The apprentice: a bank of tasks about run records, and, ticket by ticket, the rest of its Python"
+description = "The apprentice: a bank of tasks about run records, the local model's attempts at them, and the preference pairs a panel's grading leaves"
 license = "Apache-2.0"
 publish = false
 

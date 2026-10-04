@@ -1,6 +1,8 @@
 """Record what `apprentice.py attempt` and `score` give, so `attempt.rs` can compare the Rust.
 
-Build ticket 232, the second of the apprentice's port. From the checkout's root:
+Build ticket 232, the second of the apprentice's port. Build ticket 234 deleted
+the Python it records, so it runs only in a checkout taken from before that ticket, from
+that checkout's root:
 
     python3 crates/apprentice/tests/record_attempt.py
 

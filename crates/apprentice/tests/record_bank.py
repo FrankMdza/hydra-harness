@@ -1,6 +1,8 @@
 """Record what `apprentice.py bank build` gives, so `bank.rs` can compare the Rust.
 
-Build ticket 231, the first of the apprentice's port. From the checkout's root:
+Build ticket 231, the first of the apprentice's port. Build ticket 234 deleted
+the Python it records, so it runs only in a checkout taken from before that ticket, from
+that checkout's root:
 
     python3 crates/apprentice/tests/record_bank.py
 

@@ -3416,13 +3416,21 @@ exit 1 where the Python connects, so only `pairs` still exits 2.
 Build ticket 233 ported `pairs`, lines 505 to 543, which matches the Python on 104 recorded cases
 in `crates/apprentice/tests/fixtures/pairs.json`, most of them run twice on one graded file, with
 each `graded_at` read as the clock, so all four commands now run in Rust.
+Build ticket 234 deleted the Python: `apprentice.py`, `records.py`, `models.py`, `redact.py`,
+`bitnet_serve.py` (dropped, not ported, by map ticket 95) and their four test files.
+`integrations/apprentice/` keeps its README and the launchd template, which runs
+`target/release/hydra-apprentice attempt --minutes 30` and is read by
+`crates/apprentice/tests/launchd.rs`. The recorders under `crates/apprentice/tests/` run only
+against a checkout from before that ticket. A job installed earlier names the deleted script and
+fails until the human replaces it with the README's command; none is installed on this machine.
 Build ticket 237 added a seventh, `crates/local-llm` (binary `hydra-local-llm`, on `hydra-pyjson`
 and `hydra-records`), which is the MCP stdio server of `integrations/local-llm/hydra-local-llm`
 and matches the Python on 43 recorded request lines; the Python stays until build ticket 238.
 Build ticket 235 added an eighth, `crates/otel` (binary `hydra-otel`, on `hydra-pyjson`,
-`hydra-records` and `sha2`), which is `integrations/otel/record_to_otlp.py` and matches the
-Python on 65 recorded cases in `crates/otel/tests/fixtures/otel.json`; the Python stays until
-the cutover.
+`hydra-records` and `sha2`), which is the former `integrations/otel/record_to_otlp.py` and
+matches the Python on 65 recorded cases in `crates/otel/tests/fixtures/otel.json`. Build
+ticket 236 deleted that script and its test; `normalized` refuses a run id that holds `/`
+or `..` before joining it into a path under the temporary `runs/`, which the Python did not.
 
 `crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
 the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a
@@ -4078,7 +4086,8 @@ its README, `SCHEMA.md` and the launchd template, which runs
 `target/release/hydra-grader once`. `records.py` and `redact.py` moved to
 `integrations/apprentice/` with their two test files, and `models.py` moved there from
 `integrations/puppets/`: `apprentice.py` loads all three and `integrations/otel/record_to_otlp.py`
-loads `redact.py`. They are the apprentice's now and nothing keeps them in step with the Rust.
+loads `redact.py`. They were the apprentice's until build tickets 234 and 236 deleted all of them
+on 2026-10-04, with `apprentice.py` and `record_to_otlp.py`.
 `aliases.json` stayed in `integrations/puppets/`, where both binaries read it, and
 `hydra-puppets` reads `scores.jsonl` from the grader home as it did.
 
@@ -4156,8 +4165,8 @@ What is left open:
   append-only and no old score is rewritten. Whether to retrain is the human's call.
 - `hydra-grader once` has not been run by launchd. The lock was tested with a lock held by the
   test process, not with two real passes racing.
-- CI runs `test_records.py` and `test_redact.py` from their new place and no other Python of
-  `integrations/apprentice/` or `integrations/otel/`, as before.
+- CI ran `test_records.py` and `test_redact.py` from their new place until build ticket 234
+  deleted both; CI now runs no Python of `integrations/apprentice/` or `integrations/otel/`.
 - `jev ask` is gone with `jev_probe.py`, as map 94 decided.
 - Outside `.scratch/`, `docs/` and the fixtures, `grader.py` is still named where a module says
   which file it is the port of, in the comparator, which reads `grader.py` at the start of a

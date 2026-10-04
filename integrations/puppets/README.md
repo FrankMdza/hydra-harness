@@ -17,7 +17,7 @@ input of the differential tests and wrote its output under `crates/puppets/tests
 Build ticket 219 ports the sheet builder to `hydra-grader sheet build|budget|show`.
 `rank` and `beta_lower` remain in `crates/puppets/src/sheet.rs`, where `assign` uses them.
 Build ticket 220 moved `models.py` to `integrations/apprentice/`, beside `records.py`, the one
-file that loads it, and deleted `jev_probe.py` with the rest of the grader's Python. No Python
+file that loaded it (build ticket 234 deleted both), and deleted `jev_probe.py` with the rest of the grader's Python. No Python
 is left in this directory.
 
 Nothing under `src/` imports this directory. Hydra works with it stopped.

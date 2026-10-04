@@ -359,8 +359,8 @@ the second reading in reverse order, and the verdict is theirs only when the two
 - A gated interactive session on `codex`, `cursor-agent` and `agy`. Build ticket 130 is open,
   and `integrations/herdr/interactive-gate-providers.txt` lists `claude` alone as measured.
 - More vendor CLIs that log in rather than take a key.
-- OpenTelemetry emission from the binary. Today `integrations/otel/record_to_otlp.py` converts
-  a record to OTLP JSON by hand.
+- OpenTelemetry emission from the binary. Today `hydra-otel`, a separate binary, converts a
+  record to OTLP JSON files.
 - Linux.
 
 ## Ports wanted
