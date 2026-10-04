@@ -1,7 +1,7 @@
 # 287 - The cockpit's pending tests hold under load
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
