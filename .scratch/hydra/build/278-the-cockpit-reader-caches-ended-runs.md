@@ -1,7 +1,7 @@
 # 278 - The cockpit reader caches ended runs
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
