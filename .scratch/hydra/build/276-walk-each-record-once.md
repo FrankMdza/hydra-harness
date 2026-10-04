@@ -1,7 +1,7 @@
 # 276 - Walk each record once
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

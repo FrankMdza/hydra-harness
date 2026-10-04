@@ -1,7 +1,7 @@
 # 277 - Normalize the corpus once per export
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
