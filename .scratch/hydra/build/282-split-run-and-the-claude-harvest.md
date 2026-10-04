@@ -1,7 +1,7 @@
 # 282 - Split run.rs and the claude harvest
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
