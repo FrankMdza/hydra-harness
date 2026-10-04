@@ -1,7 +1,7 @@
 # 278 - The cockpit reader caches ended runs
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -14,3 +14,16 @@ From the Rust review of 2026-10-03 (build 275, run `01a1050b-c1bf`), `.scratch/h
   change leaves every existing test passing unchanged. `IMPLEMENTATION.md`: one sentence.
 
 ## Outcome
+
+Resolved 2026-10-04 by run `01a1052a-6599` (`codex` gpt-6.1-sol, `standard`, 0.92M tokens),
+applied without changes.
+
+Built: the reader keeps an ended run's card keyed by its file length and skips `read_view`, line
+0 and the ended projection while the length holds; goal logs are folded once per length and
+mtime and shared between the table and the seat roles; line 0 is parsed once per read; `ended`
+returns a reference instead of cloning the projection. Per tick an unchanged ended run saves three
+file opens and three JSON parses. Not done: a single line-0 read shared with `live::read_view`,
+which would change `read_view` itself.
+
+Measured by the session: `cargo test --workspace` with it applied, 1,254 passed and none failed;
+clippy clean.

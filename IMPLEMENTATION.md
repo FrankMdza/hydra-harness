@@ -4143,6 +4143,8 @@ as questions. The shown goal's panel lists each seat and tie-break provider/mode
 recorded answer through the logged labels, reporting a split without recomputing the verdict.
 Codex 0.154.0 fixtures carry no provider model, so a launch without one shows `default`.
 
+The reader caches ended cards until their record length changes and shares goal folds while the log length and modification time stay unchanged.
+
 **What it reads.** The left column is one goal's task table, folded in Rust from the goal log
 under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `hydra-puppets`'s `fold` rules for the events
 that change a row: `task`, `assignment`, `run`, `run_end`, `human_verdict`. Without `--goal` it

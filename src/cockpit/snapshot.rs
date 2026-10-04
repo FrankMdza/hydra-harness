@@ -339,6 +339,12 @@ struct RecordInfo {
     ended: Option<DateTime<Utc>>,
 }
 
+struct GoalRead {
+    len: u64,
+    modified: std::time::SystemTime,
+    goal: goal::Goal,
+}
+
 /// The reader thread's state: where to look and what it has normalized.
 pub struct Reader {
     started_at: DateTime<Utc>,
@@ -347,6 +353,8 @@ pub struct Reader {
     puppets_home: PathBuf,
     goal: Option<String>,
     ended: HashMap<String, Ended>,
+    ended_cards: HashMap<PathBuf, (u64, Card)>,
+    goals: HashMap<PathBuf, GoalRead>,
     record_info: HashMap<String, RecordInfo>,
     live: HashMap<String, Live>,
     calls: Option<OpenCalls>,
@@ -374,6 +382,8 @@ impl Reader {
             puppets_home,
             goal,
             ended: HashMap::new(),
+            ended_cards: HashMap::new(),
+            goals: HashMap::new(),
             record_info: HashMap::new(),
             live: HashMap::new(),
             calls: None,
@@ -483,7 +493,34 @@ impl Reader {
         }
     }
 
-    fn read_goal(&self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
+    fn cached_goal(&mut self, path: &Path) -> Result<goal::Goal> {
+        let Ok(metadata) = path.metadata() else {
+            self.goals.remove(path);
+            return goal::read(path);
+        };
+        let Ok(modified) = metadata.modified() else {
+            self.goals.remove(path);
+            return goal::read(path);
+        };
+        if let Some(kept) = self.goals.get(path)
+            && kept.len == metadata.len()
+            && kept.modified == modified
+        {
+            return Ok(kept.goal.clone());
+        }
+        let goal = goal::read(path)?;
+        self.goals.insert(
+            path.to_path_buf(),
+            GoalRead {
+                len: metadata.len(),
+                modified,
+                goal: goal.clone(),
+            },
+        );
+        Ok(goal)
+    }
+
+    fn read_goal(&mut self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
         let path = match &self.goal {
             Some(id) => self.puppets_home.join(format!("{id}.jsonl")),
             None => match goal::latest(&self.puppets_home) {
@@ -503,7 +540,7 @@ impl Reader {
             snapshot.goal_note = Some(format!("no goal log at {}", path.display()));
             return;
         }
-        match goal::read(&path) {
+        match self.cached_goal(&path) {
             Ok(goal) => {
                 let recent = path
                     .metadata()
@@ -525,7 +562,7 @@ impl Reader {
         }
     }
 
-    fn read_run_info(&self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
+    fn read_run_info(&mut self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
         for card in &snapshot.cards {
             let mut info = RunInfo::default();
             if let Some(record) = self.record_info.get(&card.run_id) {
@@ -550,7 +587,7 @@ impl Reader {
                 if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                     continue;
                 }
-                if let Ok(goal) = goal::read(&path) {
+                if let Ok(goal) = self.cached_goal(&path) {
                     for seat in goal.panels.iter().flat_map(|panel| &panel.seats) {
                         if let Some(info) = snapshot.run_info.get_mut(&seat.run_id) {
                             info.role = seat.role.clone();
@@ -655,7 +692,18 @@ impl Reader {
         paths.reverse();
 
         let mut cards = Vec::with_capacity(paths.len());
+        let present_paths: HashSet<&PathBuf> = paths.iter().collect();
+        self.ended_cards
+            .retain(|path, _| present_paths.contains(path));
         for path in &paths {
+            let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+            if let Some((kept_len, card)) = self.ended_cards.get(path)
+                && *kept_len == len
+            {
+                cards.push(card.clone());
+                continue;
+            }
+            self.ended_cards.remove(path);
             let view = match crate::live::read_view(path) {
                 Ok(view) => view,
                 Err(err) => {
@@ -664,16 +712,16 @@ impl Reader {
                 }
             };
             let line_zero = line_zero(path);
-            let (model, policy_sha, started) = opening_of(line_zero.as_deref());
+            let opening = line_zero
+                .as_deref()
+                .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok());
+            let (model, policy_sha, started) = opening_of(opening.as_ref());
             let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
             if !self
                 .record_info
                 .get(&view.run_id)
                 .is_some_and(|info| info.len == len && info.opening == line_zero)
             {
-                let opening = line_zero
-                    .as_deref()
-                    .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok());
                 let task = opening
                     .as_ref()
                     .and_then(|line| line["hydra"]["task"].as_str())
@@ -722,10 +770,10 @@ impl Reader {
             match view.state {
                 State::Ended => {
                     let ended = self.ended(&view.run_id, path);
-                    card.outcome = ended.outcome;
+                    card.outcome = ended.outcome.clone();
                     card.total_tokens = ended.total_tokens;
-                    card.result_text = ended.result_text;
-                    card.note = ended.note;
+                    card.result_text = ended.result_text.clone();
+                    card.note = ended.note.clone();
                 }
                 State::Abandoned => {
                     card.note = Some("abandoned: no closing line and no process".to_string());
@@ -738,6 +786,9 @@ impl Reader {
                         .and_then(|live| live.counts)
                         .map(|counts| counts.total_tokens());
                 }
+            }
+            if card.state == State::Ended {
+                self.ended_cards.insert(path.clone(), (len, card.clone()));
             }
             cards.push(card);
         }
@@ -888,16 +939,13 @@ impl Reader {
         by_provider.into_values().collect()
     }
 
-    fn ended(&mut self, run_id: &str, path: &Path) -> Ended {
+    fn ended(&mut self, run_id: &str, path: &Path) -> &Ended {
         let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-        if let Some(kept) = self.ended.get(run_id)
-            && kept.len == len
-        {
-            return kept.clone();
+        if !self.ended.get(run_id).is_some_and(|kept| kept.len == len) {
+            let read = self.normalize(path, len);
+            self.ended.insert(run_id.to_string(), read);
         }
-        let read = self.normalize(path, len);
-        self.ended.insert(run_id.to_string(), read.clone());
-        read
+        self.ended.get(run_id).expect("inserted above")
     }
 
     fn normalize(&self, path: &Path, len: u64) -> Ended {
@@ -1047,8 +1095,9 @@ fn provider_model(path: &Path, provider: Option<&str>) -> Option<String> {
 
 /// The model on line 0's envelope, the `policy_sha` in its body and the
 /// envelope's `ts`. [`crate::live::read_view`] reads none of them.
-fn opening_of(line_zero: Option<&str>) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
-    let envelope = line_zero.and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok());
+fn opening_of(
+    envelope: Option<&serde_json::Value>,
+) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
     let Some(envelope) = envelope else {
         return (None, None, None);
     };
