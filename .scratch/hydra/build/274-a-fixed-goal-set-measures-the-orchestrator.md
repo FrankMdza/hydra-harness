@@ -1,7 +1,7 @@
 # 274 - A fixed goal set measures the orchestrator
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
