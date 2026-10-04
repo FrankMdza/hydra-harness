@@ -18,7 +18,7 @@ what the human still owes; `show <goal>` is the same as JSON. Read one before ev
 ## The loop
 
 1. `new "<goal text>"` prints the goal id. Record the id in your reply.
-2. `plan <goal> --seat codex --seat cursor-agent:composer-2.5 --seat agy:gemini-3.1-pro-high
+2. `plan <goal> --seat codex --seat cursor-agent:cursor-grok-4.6-high --seat agy:gemini-3.1-pro-high
    --seat claude:<model>` launches one proposer per seat. The `claude` seat runs on a model other
    than the one this session orchestrates on (`claude-fable-5-1` when you are Opus,
    `claude-opus-5-5` when you are Fable), so the plan you will judge is not your own model's.
@@ -28,7 +28,7 @@ what the human still owes; `show <goal>` is the same as JSON. Read one before ev
    seat sees another's proposal, and the judges never see the stances. Check swap
    (`sysctl vm.swapusage`) before four launches; under 1 GB free, launch in waves.
 3. `plans <goal>` once the runs have ended (`hydra status`), then `choose <goal> --judge`:
-   three judge seats (claude opus, codex under standard, composer-2.5) read the plans and must
+   three judge seats (claude opus, codex under standard, cursor `grok-4.7-high` since build 270) read the plans and must
    agree, or the command names the seat that blocked. Each seat has its own role and slice of
    evidence (build 133). When a provider is out of quota, set `"available": false` on its row in
    `integrations/puppets/vendors.json` (and back when it resets); the panel then refuses and names
