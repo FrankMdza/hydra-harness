@@ -774,8 +774,9 @@ chosen git top level (defaulting to Hydra's own checkout) and passes `--session 
 `codex` (build tickets 249, 253, 258).** With `HYDRA_COPILOT_MODE=puppets` it starts from
 `~/.hydra-puppets-copilot/` instead, appends `integrations/copilot/PUPPETS.md` and the `puppets`
 skill's text to both files, and installs the skill there as a project skill, so the chat
-orchestrates a goal on any repository; `~/hydra-oficina/masterofpuppets.sh <repo>` is the human's
-wrapper (build ticket 261). `COPILOT.md` names Hydra's own `COCKPIT.md`, which a pointed-at
+orchestrates a goal on any repository; `integrations/copilot/bin/masterofpuppets <repo> [model]
+[provider]` is the wrapper, linked as `masterofpuppets` on the human's PATH beside `suprema`, a link
+to `hydra-copilot`; both resolve their link to find this checkout (build ticket 261). `COPILOT.md` names Hydra's own `COCKPIT.md`, which a pointed-at
 repository does not have. Gated, it names the policy and the shapes in
 `config/panels.json` whose askers include that policy, read at launch by
 `interactive::askable_shapes`. A file that does not load names none and the launch goes on with

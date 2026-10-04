@@ -32,3 +32,11 @@ Test: `hydra_copilot_in_puppets_mode_installs_the_skill_and_the_loop` in
 left, the skill is installed, an unknown mode exits 1). Checked by hand against a stub `hydra`
 with `~/private-repo`. Not checked: a real session typing `/puppets` from that start directory,
 which may first ask the human to trust the directory.
+
+Moved the same day: `~/hydra-oficina/`, the office root of the 2026-10-02 usability probes, was
+deleted at the human's word. Its four run records went to `~/hydra/pruned/` with the other 34,
+its four worktrees were reaped first (branches kept), and its scripts were dropped except two:
+`integrations/copilot/bin/masterofpuppets` in the repository, and the links `masterofpuppets` and
+`suprema` (to `hydra-copilot`) in `~/.local/bin`. Both scripts now resolve their own symlink with
+`readlink -f`, because through a link `dirname "$0"` named `~/.local/bin`; checked through both
+links against a stub `hydra`.

@@ -6,7 +6,8 @@ set -euo pipefail
 # repository would still load the repository's build instructions. The chat
 # starts in a directory outside the repository instead, holding only the
 # copilot's document, rendered with the repository's absolute path.
-DEFAULT_REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
+# Resolved through symlinks, so `suprema` on PATH still finds this checkout.
+DEFAULT_REPO="$(cd "$(dirname "$(readlink -f "$0")")/../../.." && pwd)"
 # `copilot` by default; `puppets` adds the Master of Puppets loop and its own start directory.
 MODE="${HYDRA_COPILOT_MODE:-copilot}"
 case "$MODE" in
