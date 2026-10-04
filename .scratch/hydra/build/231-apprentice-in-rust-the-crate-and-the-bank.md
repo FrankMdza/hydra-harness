@@ -1,7 +1,7 @@
 # 231 - apprentice in Rust: the crate and the bank
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 224
 
 ## What
