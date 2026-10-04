@@ -558,6 +558,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydra-apprentice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hydra-pyjson",
+ "hydra-records",
+ "sha2",
+]
+
+[[package]]
 name = "hydra-grader"
 version = "0.1.0"
 dependencies = [

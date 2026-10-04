@@ -3405,6 +3405,11 @@ and its judge's client, renamed `loopback_http.rs`, because the apprentice, otel
 need those four and not the grader, so wherever this file places one of them under
 `crates/grader/src/` it now lives in `crates/records/src/`.
 
+Build ticket 231 added a sixth, `crates/apprentice` (binary `hydra-apprentice`, on `hydra-pyjson`,
+`hydra-records` and `sha2`), which runs `apprentice.py`'s `bank build` from lines 61 to 319 and
+matches the Python on 63 recorded cases in `crates/apprentice/tests/fixtures/bank.json`, while
+`attempt`, `score` and `pairs` exit 2 and name the Python, which stays until build ticket 234.
+
 `crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
 the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a
 recording of it, described where that ticket is, below. The inputs are every goal log the Python
