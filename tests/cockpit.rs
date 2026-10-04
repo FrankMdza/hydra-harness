@@ -120,13 +120,18 @@ fn row(
 ) -> TaskRow {
     TaskRow {
         id: id.to_string(),
+        text: String::new(),
         class: class.to_string(),
         grade: grade.to_string(),
+        deps: Vec::new(),
         provider: agent.map(|(p, _)| p.to_string()),
         model: agent.and_then(|(_, m)| m.map(str::to_string)),
+        policy: None,
         status: status.to_string(),
         run_id: run_id.map(str::to_string),
         done: None,
+        launch_approval_needed: false,
+        launch_approved: false,
     }
 }
 
@@ -148,6 +153,8 @@ fn a_goal_log_folds_into_the_rows_board_prints() {
         vec![
             // A verdict replaces the status.
             TaskRow {
+                text: "fold".to_string(),
+                policy: Some("standard".to_string()),
                 done: Some("the fold test passes".to_string()),
                 ..row(
                     "t1",
@@ -160,27 +167,40 @@ fn a_goal_log_folds_into_the_rows_board_prints() {
             },
             // A `run_end` for another run id leaves the row running, and an
             // empty model is no model.
-            row(
-                "t2",
-                "rust_launch_path",
-                "high",
-                Some(("codex", None)),
-                "running",
-                Some("01a0bbbb-0000-7000-8000-000000000002"),
-            ),
+            TaskRow {
+                text: "lanes".to_string(),
+                deps: vec!["t1".to_string()],
+                policy: Some("standard".to_string()),
+                launch_approval_needed: true,
+                launch_approved: false,
+                ..row(
+                    "t2",
+                    "rust_launch_path",
+                    "high",
+                    Some(("codex", None)),
+                    "running",
+                    Some("01a0bbbb-0000-7000-8000-000000000002"),
+                )
+            },
             // A repeated `task` resets the row in place, assignment included,
             // and one with no `done` leaves none, as `event.get("done")` does.
-            row("t3", "docs", "medium", None, "pending", None),
+            TaskRow {
+                text: "docs again".to_string(),
+                ..row("t3", "docs", "medium", None, "pending", None)
+            },
             // An assignment for a task never defined makes one with `fold`'s
             // defaults.
-            row(
-                "t9",
-                "batch_scripting",
-                "low",
-                Some(("agy", Some("gemini-3.1-pro-high"))),
-                "assigned",
-                None,
-            ),
+            TaskRow {
+                policy: Some("standard".to_string()),
+                ..row(
+                    "t9",
+                    "batch_scripting",
+                    "low",
+                    Some(("agy", Some("gemini-3.1-pro-high"))),
+                    "assigned",
+                    None,
+                )
+            },
         ]
     );
 
@@ -5101,4 +5121,76 @@ fn ticket256_panel_shows_seats_mapped_votes_split_and_tie_break_source() {
     ] {
         assert!(text.contains(expected), "{expected}:\n{text}");
     }
+}
+
+// --- goal table full page, build ticket 263 --------------------------------
+
+fn ticket263_goal_log() -> String {
+    [
+        r#"{"event":"goal","text":"table page","repo":"/r","base_sha":"a"}"#,
+        r#"{"event":"task","id":"t1","text":"wire policy","class":"rust_launch_path","grade":"high","deps":["base"],"paths":[]}"#,
+        r#"{"event":"assignment","task":"t1","provider":"codex","model":"","policy":"judge","source":"default"}"#,
+    ]
+    .join("\n")
+        + "\n"
+}
+
+#[test]
+fn ticket263_goal_table_page_shows_task_policy_and_deps() {
+    let log = ticket263_goal_log();
+    let mut snapshot = fixed_snapshot();
+    snapshot.goal = Some(goal::fold("g263", log.as_bytes()));
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    assert_eq!(app.handle(&key(KeyCode::Char('t'))), Effect::Refresh);
+    assert!(app.on_goal_table_page());
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(text.contains("policy judge"), "{text}");
+    assert!(text.contains("deps base"), "{text}");
+}
+
+#[test]
+fn ticket263_table_approval_voids_after_a_task_edit() {
+    let log = [
+        r#"{"event":"goal","text":"rev","repo":"/r","base_sha":"a"}"#,
+        r#"{"event":"task","id":"t1","text":"one","class":"docs","grade":"low","deps":[],"paths":[]}"#,
+        r#"{"event":"approval","kind":"table","ref":null,"revision":1,"yes":true}"#,
+        r#"{"event":"task","id":"t1","text":"two","class":"docs","grade":"low","deps":[],"paths":[]}"#,
+    ]
+    .join("\n")
+        + "\n";
+    let goal = goal::fold("g-rev", log.as_bytes());
+    assert_eq!(goal.revision, 2);
+    assert!(!goal.table_approved);
+    let mut snapshot = fixed_snapshot();
+    snapshot.goal = Some(goal);
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(snapshot);
+    app.handle(&key(KeyCode::Char('t')));
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(text.contains("table approved no"), "{text}");
+}
+
+#[test]
+fn ticket263_t_with_no_goal_opens_nothing() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    let snapshot = fixed_snapshot();
+    app.set_snapshot(snapshot);
+    app.snapshot.goal = None;
+    assert_eq!(app.handle(&key(KeyCode::Char('t'))), Effect::None);
+    assert!(!app.on_goal_table_page());
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(text.contains("no goal on screen"), "{text}");
 }

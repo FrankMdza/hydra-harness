@@ -1,7 +1,7 @@
 # 263 - The cockpit opens the goal's table full page
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -31,3 +31,22 @@ grade, class, done) beside the lanes, and lacks what the human approves on.
   paragraph.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a1044a-13b1-7580` (`cursor-agent` composer-2.5, `standard`, 3.58M
+tokens), with three fixes by the session.
+
+Built: `t` opens the shown goal's table as a full page (`Esc`, `t` or `Left` return; the usual
+scroll keys), with the goal, the revision, whether the plan and the table are approved, the
+panel lines of build 256, and per task its text, class, grade, provider, model, policy, deps,
+status, run and launch approval. `cockpit/goal.rs` folds task text, deps, policy and the
+`approval` events. Three tests in `tests/cockpit.rs`.
+
+What the session changed: a `task` event without `text` made the fold drop the whole event, so a
+task from an older log would have vanished from the table; it now shows with no text. A task
+whose launch had run read "needed, not approved", because the run consumes the approval; a
+consumed approval now counts as given. The agent did not check its tests against a reverted
+change; the session did for one: with the policy read removed,
+`ticket263_goal_table_page_shows_task_policy_and_deps` fails, and restored it passes.
+
+Left for build 264: the fold of approvals (voided by a later revision, consumed by a run) is a
+second copy of `hydra-puppets`' own, which `hydra-puppets show <goal>` already prints.

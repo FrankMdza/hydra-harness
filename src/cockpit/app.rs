@@ -116,6 +116,8 @@ pub struct Hits {
     pub detail: Rect,
     /// The full-page run view, when one is open.
     pub run_page: Rect,
+    /// The full-page goal table, when `t` opened it.
+    pub goal_table_page: Rect,
     /// The policy pane, while it is up, how many runs it had rows for, and
     /// the offset of its last page.
     pub policy_pane: Rect,
@@ -189,6 +191,11 @@ pub struct App {
     page_stack: Vec<PageLayer>,
     /// The last rectangle [`draw_run_page`] used, for keys between draws.
     run_page_area: Rect,
+    /// The goal's table over the cockpit, build ticket 263.
+    goal_table_open: bool,
+    goal_table_scroll: u16,
+    goal_table_place: Option<CockpitPlace>,
+    goal_table_area: Rect,
     /// The request the confirmation shows, while it is up.
     pub confirming: Option<Pending>,
     /// Whether that confirmation denies rather than approves, build ticket 170.
@@ -275,6 +282,10 @@ impl App {
             run_page_place: None,
             page_stack: Vec::new(),
             run_page_area: Rect::default(),
+            goal_table_open: false,
+            goal_table_scroll: 0,
+            goal_table_place: None,
+            goal_table_area: Rect::default(),
             confirming: None,
             denying: false,
             confirming_step: None,
@@ -804,6 +815,14 @@ impl App {
         if self.policy_pane {
             return self.policy_key(key);
         }
+        if self.goal_table_open {
+            if matches!(key.code, KeyCode::Left | KeyCode::Backspace) {
+                return self.close_goal_table();
+            }
+            if self.goal_table_scroll_key(key) {
+                return Effect::None;
+            }
+        }
         if self.on_run_page() {
             if matches!(key.code, KeyCode::Left | KeyCode::Backspace) {
                 return self.page_back_one();
@@ -837,6 +856,9 @@ impl App {
             Some(MainKey::MoveDown) => self.move_selection(true),
             Some(MainKey::Open) => self.open_selected(),
             Some(MainKey::CloseOpened) => {
+                if self.goal_table_open {
+                    return self.close_goal_table();
+                }
                 if self.on_run_page() {
                     return self.page_back_all();
                 }
@@ -858,6 +880,7 @@ impl App {
             }
             Some(MainKey::ToggleReveal) => self.toggle_reveal(),
             Some(MainKey::ToggleHelp) => Effect::None,
+            Some(MainKey::ToggleGoalTable) => self.toggle_goal_table(),
             None => Effect::None,
         }
     }
@@ -1084,6 +1107,10 @@ impl App {
         self.run_page_place.is_some()
     }
 
+    pub fn on_goal_table_page(&self) -> bool {
+        self.goal_table_open
+    }
+
     fn save_place(&self) -> CockpitPlace {
         CockpitPlace {
             focus: self.focus,
@@ -1172,6 +1199,178 @@ impl App {
              Esc to cockpit, r raw, i reveal",
             Style::default().add_modifier(Modifier::DIM),
         )
+    }
+
+    fn goal_table_footer() -> Line<'static> {
+        Line::styled(
+            "Up/Down scroll, PageUp/PageDown or Space/b page, Home/g End/G, Left/Backspace back, \
+             t or Esc to cockpit",
+            Style::default().add_modifier(Modifier::DIM),
+        )
+    }
+
+    fn toggle_goal_table(&mut self) -> Effect {
+        if self.goal_table_open {
+            return self.close_goal_table();
+        }
+        if self.snapshot.goal.is_none() {
+            self.message = Some("no goal on screen".to_string());
+            return Effect::None;
+        }
+        self.goal_table_place = Some(self.save_place());
+        self.goal_table_open = true;
+        self.goal_table_scroll = 0;
+        Effect::Refresh
+    }
+
+    fn close_goal_table(&mut self) -> Effect {
+        if !self.goal_table_open {
+            return Effect::None;
+        }
+        self.goal_table_open = false;
+        self.goal_table_scroll = 0;
+        if let Some(place) = self.goal_table_place.take() {
+            self.restore_place(place);
+        }
+        Effect::Refresh
+    }
+
+    fn goal_table_lines(&self, width: usize) -> Vec<Line<'static>> {
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let label = |name: &str, value: String| {
+            Line::from(vec![
+                Span::styled(format!("{name} "), dim),
+                Span::raw(value),
+            ])
+        };
+        let Some(goal) = self.snapshot.goal.as_ref() else {
+            return vec![Line::raw("no goal")];
+        };
+        let mut lines = vec![
+            label("goal", goal.text.clone().unwrap_or_default()),
+            label("table revision", goal.revision.to_string()),
+            label(
+                "table approved",
+                if goal.table_approved { "yes" } else { "no" }.to_string(),
+            ),
+            label(
+                "plan approved",
+                if goal.plan_approved { "yes" } else { "no" }.to_string(),
+            ),
+            Line::raw(""),
+        ];
+        lines.extend(self.panel_lines(goal));
+        lines.push(Line::raw(""));
+        for row in &goal.rows {
+            lines.push(Line::styled(
+                row.id.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+            lines.push(label("text", row.text.clone()));
+            lines.push(label("class", row.class.clone()));
+            lines.push(label("grade", row.grade.clone()));
+            lines.push(label(
+                "provider",
+                row.provider.clone().unwrap_or_else(|| "-".into()),
+            ));
+            lines.push(label(
+                "model",
+                row.model.clone().unwrap_or_else(|| "-".into()),
+            ));
+            lines.push(label(
+                "policy",
+                row.policy.clone().unwrap_or_else(|| "-".into()),
+            ));
+            let deps = if row.deps.is_empty() {
+                "-".to_string()
+            } else {
+                row.deps.join(", ")
+            };
+            lines.push(label("deps", deps));
+            lines.push(label("status", row.status.clone()));
+            let run = row
+                .run_id
+                .as_deref()
+                .map(short)
+                .map(str::to_string)
+                .unwrap_or_else(|| "-".to_string());
+            lines.push(label("run", run));
+            let launch = if row.launch_approval_needed {
+                if row.launch_approved {
+                    "needed, approved"
+                } else {
+                    "needed, not approved"
+                }
+            } else {
+                "not needed"
+            };
+            lines.push(label("launch approval", launch.to_string()));
+            lines.push(Line::raw(""));
+        }
+        lines.push(Line::raw(""));
+        lines.push(Self::goal_table_footer());
+        let _ = width;
+        lines
+    }
+
+    fn goal_table_content_metrics(&self, area: Rect) -> (usize, usize, u16) {
+        let width = area.width.saturating_sub(2).max(1) as usize;
+        let visible = area.height.saturating_sub(2).max(1) as usize;
+        let total = self
+            .goal_table_lines(width)
+            .iter()
+            .map(|line| wrapped_rows(line, width))
+            .sum::<usize>();
+        let max_scroll = total.saturating_sub(visible) as u16;
+        (width, visible, max_scroll)
+    }
+
+    fn scroll_goal_table_lines(&mut self, area: Rect, delta: i32) {
+        let (_, _, max_scroll) = self.goal_table_content_metrics(area);
+        if delta < 0 {
+            let step = (-delta) as u16;
+            self.goal_table_scroll = self.goal_table_scroll.saturating_sub(step);
+        } else {
+            self.goal_table_scroll = (self.goal_table_scroll + delta as u16).min(max_scroll);
+        }
+    }
+
+    fn goal_table_scroll_key(&mut self, key: &KeyEvent) -> bool {
+        let area = if self.hits.goal_table_page.is_empty() {
+            self.goal_table_area
+        } else {
+            self.hits.goal_table_page
+        };
+        match key.code {
+            KeyCode::Up => {
+                self.scroll_goal_table_lines(area, -1);
+                true
+            }
+            KeyCode::Down => {
+                self.scroll_goal_table_lines(area, 1);
+                true
+            }
+            KeyCode::PageUp | KeyCode::Char('b') => {
+                let (_, visible, _) = self.goal_table_content_metrics(area);
+                self.scroll_goal_table_lines(area, -(visible as i32));
+                true
+            }
+            KeyCode::PageDown | KeyCode::Char(' ') => {
+                let (_, visible, _) = self.goal_table_content_metrics(area);
+                self.scroll_goal_table_lines(area, visible as i32);
+                true
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.goal_table_scroll = 0;
+                true
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                let (_, _, max_scroll) = self.goal_table_content_metrics(area);
+                self.goal_table_scroll = max_scroll;
+                true
+            }
+            _ => false,
+        }
     }
 
     fn detail_scroll_lines(&self, width: usize, page_footer: bool) -> Vec<Line<'static>> {
@@ -1296,6 +1495,11 @@ impl App {
         if self.on_run_page() && self.hits.run_page.contains(at) {
             let step = if down { 3 } else { -3 };
             self.scroll_detail_lines(self.hits.run_page, true, step);
+            return Effect::None;
+        }
+        if self.goal_table_open && self.hits.goal_table_page.contains(at) {
+            let step = if down { 3 } else { -3 };
+            self.scroll_goal_table_lines(self.hits.goal_table_page, step);
             return Effect::None;
         }
         if self.policy_pane {
@@ -1990,6 +2194,9 @@ impl App {
         if self.on_run_page() {
             self.draw_run_page(main, buf);
         }
+        if self.goal_table_open {
+            self.draw_goal_table_page(main, buf);
+        }
     }
 
     /// The policy pane: the five files, the set's sha now, and each live
@@ -2665,6 +2872,27 @@ impl App {
             .block(block)
             .wrap(Wrap { trim: false })
             .scroll((self.detail_scroll, 0))
+            .render(area, buf);
+    }
+
+    /// The shown goal's table, opened with `t`, build ticket 263.
+    fn draw_goal_table_page(&mut self, area: Rect, buf: &mut Buffer) {
+        self.hits.goal_table_page = area;
+        self.goal_table_area = area;
+        Clear.render(area, buf);
+        let Some(goal) = self.snapshot.goal.as_ref() else {
+            return;
+        };
+        let title = format!(" tasks of {} ", goal.id);
+        let inner_w = area.width.saturating_sub(2).max(1) as usize;
+        let body = self.goal_table_lines(inner_w);
+        let block = Block::bordered()
+            .title(title)
+            .title_style(Style::default().add_modifier(Modifier::BOLD));
+        Paragraph::new(body)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .scroll((self.goal_table_scroll, 0))
             .render(area, buf);
     }
 
@@ -3464,23 +3692,27 @@ mod tests {
                 card
             })
             .collect();
-        app.snapshot.goal = Some(Goal {
-            rows: ids
-                .iter()
-                .enumerate()
-                .map(|(i, id)| TaskRow {
-                    id: format!("task{i}"),
-                    class: String::new(),
-                    grade: String::new(),
-                    provider: None,
-                    model: None,
-                    status: "running".to_string(),
-                    run_id: Some(id.to_string()),
-                    done: None,
-                })
-                .collect(),
-            ..Goal::default()
-        });
+        let mut goal = Goal::default();
+        goal.rows = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| TaskRow {
+                id: format!("task{i}"),
+                text: String::new(),
+                class: String::new(),
+                grade: String::new(),
+                deps: Vec::new(),
+                provider: None,
+                model: None,
+                policy: None,
+                status: "running".to_string(),
+                run_id: Some(id.to_string()),
+                done: None,
+                launch_approval_needed: false,
+                launch_approved: false,
+            })
+            .collect();
+        app.snapshot.goal = Some(goal);
         for mode in 0..3 {
             let area = Rect::new(0, 0, 160, 20);
             let mut buf = Buffer::empty(area);

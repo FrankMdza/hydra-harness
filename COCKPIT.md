@@ -43,6 +43,7 @@ Opening:
 |---|---|
 | Enter, Esc | open the selected run as a full page, or a request or step in the detail pane; Esc closes or leaves the page |
 | Left, Backspace | on a full-page run, back one step; Esc returns to the cockpit |
+| t | open the shown goal's task table as a full page; t again or Esc returns |
 
 Scrolling the detail or a full-page run:
 

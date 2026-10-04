@@ -4046,7 +4046,11 @@ model, policy, state, outcome, total tokens, `result_text` and its last fifteen 
 with `r` the last twenty record lines. `Enter` on a task row or lane card opens that run as a
 full page over the cockpit (build ticket 245), with `Left` or `Backspace` stepping back through
 pages and `Esc` returning to the cockpit; the detail pane still scrolls with `PageUp`, `PageDown`,
-`Home` and `End`.
+`Home` and `End`. `t` opens the shown goal's full task table the same way when a goal is on
+screen: goal text, table revision, whether `approve --table` and the plan still cover that
+revision, the panel verdict lines, and every task's text, class, grade, provider, model, policy,
+deps, status, run id and launch approval, folded in [`src/cockpit/goal.rs`](src/cockpit/goal.rs);
+`t` again, `Esc` or `Left` returns, and with no goal the status line says so and nothing opens.
 
 **Lanes by agent, build ticket 191.** `k` swaps the four lanes for one lane per provider with a
 run in the snapshot, `claude`, `cursor-agent`, `agy` and `codex` in that order and any other after

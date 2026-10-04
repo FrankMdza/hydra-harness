@@ -39,6 +39,7 @@ pub enum MainKey {
     ToggleRawTail,
     ToggleReveal,
     ToggleHelp,
+    ToggleGoalTable,
 }
 
 /// One line in the help overlay and the codes it dispatches.
@@ -88,6 +89,12 @@ pub const HELP: &[HelpEntry] = &[
         keys: "Left, Backspace",
         description: "on a full-page run, back one step; Esc returns to the cockpit",
         bindings: &[],
+    },
+    HelpEntry {
+        group: HelpGroup::Opening,
+        keys: "t",
+        description: "open the shown goal's task table as a full page; t again or Esc returns",
+        bindings: &[(KeyCode::Char('t'), MainKey::ToggleGoalTable)],
     },
     HelpEntry {
         group: HelpGroup::Views,
@@ -287,6 +294,7 @@ mod tests {
         MainKey::ToggleRawTail,
         MainKey::ToggleReveal,
         MainKey::ToggleHelp,
+        MainKey::ToggleGoalTable,
     ];
 
     #[test]

@@ -17,15 +17,32 @@ use serde_json::Value;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskRow {
     pub id: String,
+    pub text: String,
     pub class: String,
     pub grade: String,
+    pub deps: Vec<String>,
     pub provider: Option<String>,
     pub model: Option<String>,
+    pub policy: Option<String>,
     /// `pending`, `assigned`, `running`, `ended`, or the human's verdict.
     pub status: String,
     pub run_id: Option<String>,
     /// The plan's definition of done, when it stated one.
     pub done: Option<String>,
+    /// Whether this task's provider and grade need a `approve --launch`.
+    pub launch_approval_needed: bool,
+    /// When [`launch_approval_needed`], whether the log still holds one at this revision.
+    pub launch_approved: bool,
+}
+
+#[derive(Clone, Debug)]
+struct ApprovalRecord {
+    kind: String,
+    task: Option<String>,
+    revision: i64,
+    yes: bool,
+    consumed: bool,
+    voided: bool,
 }
 
 /// One `review` event: the panel's verdict on a task's diff.
@@ -136,6 +153,11 @@ pub struct Goal {
     /// The table revision as the helper's `fold` counts it: one per `task` and
     /// `assignment` event, and `removed + 1` per `repair`.
     pub revision: i64,
+    /// A live `approve --table` at [`revision`].
+    pub table_approved: bool,
+    /// A live `approve --plan`.
+    pub plan_approved: bool,
+    approvals: Vec<ApprovalRecord>,
 }
 
 /// Reads and folds `<home>/<id>.jsonl`.
@@ -202,7 +224,76 @@ pub fn fold(id: &str, bytes: &[u8]) -> Goal {
             goal.skipped += 1;
         }
     }
+    finalize(&mut goal);
     goal
+}
+
+fn finalize(goal: &mut Goal) {
+    for approval in &mut goal.approvals {
+        if approval.kind != "plan" && approval.revision != goal.revision {
+            approval.voided = true;
+        }
+    }
+    goal.table_approved = approval_live(goal, "table", None);
+    goal.plan_approved = approval_live(goal, "plan", None);
+    for index in 0..goal.rows.len() {
+        let id = goal.rows[index].id.clone();
+        goal.rows[index].launch_approval_needed = needs_launch_approval(&goal.rows[index]);
+        // A launch that already ran consumed its approval; it still got one.
+        let used = goal.approvals.iter().any(|approval| {
+            approval.kind == "launch"
+                && approval.yes
+                && approval.consumed
+                && approval.task.as_deref() == Some(id.as_str())
+        });
+        goal.rows[index].launch_approved = goal.rows[index].launch_approval_needed
+            && (used || approval_live(goal, "launch", Some(&id)));
+    }
+}
+
+fn approval_live(goal: &Goal, kind: &str, task: Option<&str>) -> bool {
+    goal.approvals.iter().any(|approval| {
+        approval.kind == kind
+            && approval.yes
+            && !approval.consumed
+            && !approval.voided
+            && (kind == "plan" || approval.revision == goal.revision)
+            && match (kind, task) {
+                ("launch", Some(id)) => approval.task.as_deref() == Some(id),
+                ("launch", None) => false,
+                _ => true,
+            }
+    })
+}
+
+fn needs_launch_approval(row: &TaskRow) -> bool {
+    let Some(provider) = row.provider.as_deref() else {
+        return false;
+    };
+    if provider == "codex" {
+        return true;
+    }
+    provider == "claude" && (row.grade == "high" || row.grade == "agi")
+}
+
+fn deps_of(event: &Value) -> Vec<String> {
+    event["deps"]
+        .as_array()
+        .map(|deps| {
+            deps.iter()
+                .filter_map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .or_else(|| value.as_i64().map(|n| n.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn revision_of(event: &Value) -> Option<i64> {
+    event["revision"].as_i64()
 }
 
 /// One event. `None` when a field `fold` would index is missing.
@@ -217,13 +308,19 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
             // resets the assignment and status too. The dict keeps its slot.
             let row = TaskRow {
                 id: text("id")?,
+                // A log written before a task carried text still shows the task.
+                text: text("text").unwrap_or_default(),
                 class: text("class")?,
                 grade: text("grade")?,
+                deps: deps_of(event),
                 provider: None,
                 model: None,
+                policy: None,
                 status: "pending".to_string(),
                 run_id: None,
                 done: text("done"),
+                launch_approval_needed: false,
+                launch_approved: false,
             };
             match goal.rows.iter_mut().find(|r| r.id == row.id) {
                 Some(slot) => *slot = row,
@@ -238,9 +335,27 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
             let row = row_or_default(goal, &task);
             row.provider = Some(provider);
             row.model = model;
+            row.policy = text("policy");
             if row.status == "pending" {
                 row.status = "assigned".to_string();
             }
+        }
+        "approval" => {
+            let kind = text("kind")?;
+            let revision = revision_of(event)?;
+            let yes = event["yes"].as_bool().unwrap_or(false);
+            let task = event["ref"]
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| event["ref"].as_i64().map(|n| n.to_string()));
+            goal.approvals.push(ApprovalRecord {
+                kind,
+                task,
+                revision,
+                yes,
+                consumed: false,
+                voided: false,
+            });
         }
         "run" => {
             let task = text("task")?;
@@ -248,6 +363,18 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
             if let Some(row) = goal.rows.iter_mut().find(|r| r.id == task) {
                 row.status = "running".to_string();
                 row.run_id = Some(run_id);
+                if needs_launch_approval(row)
+                    && let Some(approval) = goal.approvals.iter_mut().find(|approval| {
+                        approval.kind == "launch"
+                            && approval.task.as_deref() == Some(task.as_str())
+                            && approval.revision == goal.revision
+                            && approval.yes
+                            && !approval.consumed
+                            && !approval.voided
+                    })
+                {
+                    approval.consumed = true;
+                }
             }
         }
         "run_end" => {
@@ -293,13 +420,18 @@ fn row_or_default<'a>(goal: &'a mut Goal, task: &str) -> &'a mut TaskRow {
         None => {
             goal.rows.push(TaskRow {
                 id: task.to_string(),
+                text: String::new(),
                 class: "batch_scripting".to_string(),
                 grade: "low".to_string(),
+                deps: Vec::new(),
                 provider: None,
                 model: None,
+                policy: None,
                 status: "pending".to_string(),
                 run_id: None,
                 done: None,
+                launch_approval_needed: false,
+                launch_approved: false,
             });
             goal.rows.len() - 1
         }
