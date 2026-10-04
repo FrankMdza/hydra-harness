@@ -343,8 +343,67 @@ pub(crate) fn goal_field(goal: &Dict, key: &str) -> Result<Value> {
     }
 }
 
+const STANCES: [&str; 4] = ["minimal", "risk", "contrarian", "builder"];
+
+fn planning_seats(seats: &[PyStr]) -> Result<Vec<(PyStr, PyStr, &'static str)>> {
+    let mut parsed = Vec::new();
+    let mut used = Vec::new();
+    for seat in seats {
+        let codes = seat.code_points();
+        let (base, stance) = match codes.iter().position(|c| *c == u32::from('@')) {
+            Some(at) => {
+                let name = write::slice(&codes[at + 1..]);
+                let Some(stance) = STANCES.iter().copied().find(|s| name == *s) else {
+                    bail!(
+                        "unknown stance {}; expected minimal, risk, contrarian, builder",
+                        name.lossy()
+                    );
+                };
+                if seats.len() <= STANCES.len() && used.contains(&stance) {
+                    bail!("duplicate stance {stance}; seats must take distinct stances");
+                }
+                used.push(stance);
+                (write::slice(&codes[..at]), Some(stance))
+            }
+            None => (seat.clone(), None),
+        };
+        let codes = base.code_points();
+        let (provider, model) = match codes.iter().position(|c| *c == u32::from(':')) {
+            Some(colon) => (
+                write::slice(&codes[..colon]),
+                write::slice(&codes[colon + 1..]),
+            ),
+            None => (base, PyStr::new()),
+        };
+        parsed.push((provider, model, stance));
+    }
+    Ok(parsed
+        .into_iter()
+        .enumerate()
+        .map(|(n, (provider, model, stance))| {
+            let stance = stance.unwrap_or_else(|| {
+                let chosen = (0..4)
+                    .map(|offset| STANCES[(n + offset) % 4])
+                    .find(|s| !used.contains(s))
+                    .unwrap_or(STANCES[n % 4]);
+                used.push(chosen);
+                chosen
+            });
+            (provider, model, stance)
+        })
+        .collect())
+}
+
+fn stance_brief(brief: &PyStr, directory: &Path, stance: &str) -> Result<PyStr> {
+    Ok(text!(
+        brief.clone(),
+        "\n\n",
+        read_text(&directory.join(format!("{stance}.md")))?
+    ))
+}
+
 /// `plan`: launch one proposer per seat, each under `standard` with the plan prompt, and
-/// record its run. A seat is a provider or `provider:model`.
+/// record its run. A seat is `provider[:model][@stance]`.
 pub fn plan(
     home: &Home,
     goal_id: &str,
@@ -367,15 +426,12 @@ pub fn plan(
     };
     let brief = replace(&template, "{{GOAL}}", &goal_text);
     let standard = Value::text("standard");
-    for seat in seats {
-        let codes = seat.code_points();
-        let (provider, model) = match codes.iter().position(|code| *code == u32::from(':')) {
-            Some(colon) => (
-                write::slice(&codes[..colon]),
-                write::slice(&codes[colon + 1..]),
-            ),
-            None => (seat.clone(), PyStr::new()),
-        };
+    let prepared = planning_seats(seats)?;
+    let briefs = prepared
+        .iter()
+        .map(|(_, _, stance)| stance_brief(&brief, &prompts_dir()?.join("stances"), stance))
+        .collect::<Result<Vec<_>>>()?;
+    for ((provider, model, stance), brief) in prepared.into_iter().zip(briefs) {
         let argv = build_run_argv(
             &Value::Str(provider.clone()),
             &Value::Str(model.clone()),
@@ -385,6 +441,7 @@ pub fn plan(
         let run_id = spawn_run(&argv)?;
         let mut event = body(vec![
             ("event", Value::text("plan_proposed")),
+            ("stance", Value::text(stance)),
             ("provider", Value::Str(provider.clone())),
             ("run_id", Value::text(&run_id)),
         ]);
@@ -867,6 +924,60 @@ mod tests {
 
     fn s(text: &str) -> PyStr {
         PyStr::from(text)
+    }
+
+    #[test]
+    fn planning_plain_seats_take_distinct_stances_in_order() {
+        let seats = planning_seats(&[s("codex"), s("claude"), s("agy")]).unwrap();
+        assert_eq!(
+            seats.iter().map(|s| s.2).collect::<Vec<_>>(),
+            ["minimal", "risk", "contrarian"]
+        );
+        let four = planning_seats(&[s("a"), s("b"), s("c"), s("d")]).unwrap();
+        assert_eq!(four.iter().map(|s| s.2).collect::<Vec<_>>(), STANCES);
+    }
+
+    #[test]
+    fn planning_explicit_risk_overrides_position_without_collisions() {
+        let seats = planning_seats(&[s("claude:other@risk"), s("codex"), s("agy")]).unwrap();
+        assert_eq!(seats[0], (s("claude"), s("other"), "risk"));
+        assert_eq!(seats[1].2, "contrarian");
+        assert_eq!(seats[2].2, "builder");
+        let later = planning_seats(&[s("a"), s("b"), s("c@risk")]).unwrap();
+        assert_eq!(
+            later.iter().map(|s| s.2).collect::<Vec<_>>(),
+            ["minimal", "contrarian", "risk"]
+        );
+        assert!(planning_seats(&[s("a@risk"), s("b@risk")]).is_err());
+    }
+
+    #[test]
+    fn planning_unknown_stance_lists_all_four_names() {
+        let error = planning_seats(&[s("codex@unknown")])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("unknown stance"));
+        for stance in STANCES {
+            assert!(error.contains(stance));
+        }
+    }
+
+    #[test]
+    fn planning_brief_contains_only_its_stance_file() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../integrations/puppets/prompts/stances");
+        for stance in STANCES {
+            let brief = stance_brief(&s("goal brief"), &directory, stance)
+                .unwrap()
+                .lossy();
+            assert!(brief.starts_with("goal brief"));
+            for other in STANCES {
+                let content =
+                    std::fs::read_to_string(directory.join(format!("{other}.md"))).unwrap();
+                assert_eq!(brief.contains(content.trim()), stance == other);
+            }
+            assert!(brief.ends_with("You will not see the other proposals; do not hedge toward a middle you imagine they take.\n"));
+        }
     }
 
     /// Build 196, item 0. A provider's frame can hold any byte, and the Python stops

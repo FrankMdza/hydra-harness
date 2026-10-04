@@ -1634,6 +1634,23 @@ mod tests {
     }
 
     #[test]
+    fn blind_choose_prompts_do_not_expose_stance_names() {
+        let (_, blocks) = blind_fixture();
+        for (n, seat) in PANEL.iter().enumerate() {
+            let prompt = build_choose_seat_prompt(
+                seat,
+                &s("goal"),
+                &ordered_blocks(&blocks, &proposal_order(3, n)),
+                &s("Proposal A, Proposal B, Proposal C"),
+            )
+            .lossy();
+            for stance in ["minimal", "risk", "contrarian", "builder"] {
+                assert!(!prompt.contains(stance), "{prompt}");
+            }
+        }
+    }
+
+    #[test]
     fn blind_seats_read_three_rotations_with_stable_labels() {
         let (_, blocks) = blind_fixture();
         for (n, expected) in [[0, 1, 2], [1, 2, 0], [2, 0, 1]].iter().enumerate() {

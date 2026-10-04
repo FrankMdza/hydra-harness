@@ -3295,8 +3295,12 @@ before a verdict of `applied` or `fixed`, are each spent by one use. `launch` wr
 `launch_intent` before it spawns `hydra run --timeout 0` and `run` the moment the id is read off
 stderr; an intent with no run after it blocks every launch until the human settles it with
 `reconcile`, and the helper never relaunches on its own. Plans are launched one proposer per seat
-with `prompts/plan.md`, read back from each run's `result_text`, and imported as tasks from the
-chosen plan's fenced JSON block. The judged choice and the diff review are build ticket 111;
+with `prompts/plan.md` plus a stance file since ticket 262. Seats accept
+`provider[:model][@stance]`; plain seats take minimal, risk, contrarian and builder in order,
+reserving explicit stances to avoid duplicates for up to four seats. `plan_proposed` records
+the stance, older logs remain readable, and judge prompts keep neutral proposal labels
+without stance metadata. Proposals are read back from each run's `result_text`, and imported
+as tasks from the chosen plan's fenced JSON block. The judged choice and the diff review are build ticket 111;
 until then `choose` records an empty judge list.
 
 `sheet.py` builds one JSON per provider and model pair from the records: provider, model and

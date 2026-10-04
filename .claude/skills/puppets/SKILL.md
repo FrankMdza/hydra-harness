@@ -18,10 +18,14 @@ what the human still owes; `show <goal>` is the same as JSON. Read one before ev
 ## The loop
 
 1. `new "<goal text>"` prints the goal id. Record the id in your reply.
-2. `plan <goal> --seat codex --seat cursor-agent:composer-2.5 --seat agy:gemini-3.1-pro-high`
-   launches one proposer per seat. Keep `claude` off planning: the session's own window pays for
-   the orchestration. Check swap (`sysctl vm.swapusage`) before three launches; under 1 GB free,
-   launch in waves.
+2. `plan <goal> --seat codex --seat cursor-agent:composer-2.5 --seat agy:gemini-3.1-pro-high
+   --seat claude:<model>` launches one proposer per seat. The `claude` seat runs on a model other
+   than the one this session orchestrates on (`claude-opus-5-5` when you are Sonnet,
+   `claude-fable-5-1` when you are Opus), so the plan you will judge is not your own model's.
+   Each seat gets its own stance appended to the brief (build 262): `minimal`, `risk`,
+   `contrarian`, `builder`, by position, or one named with `@`, as in `--seat codex@risk`. No
+   seat sees another's proposal, and the judges never see the stances. Check swap
+   (`sysctl vm.swapusage`) before four launches; under 1 GB free, launch in waves.
 3. `plans <goal>` once the runs have ended (`hydra status`), then `choose <goal> --judge`:
    three judge seats (claude opus, codex under standard, composer-2.5) read the plans and must
    agree, or the command names the seat that blocked. Each seat has its own role and slice of

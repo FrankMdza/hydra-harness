@@ -142,7 +142,7 @@ enum Command {
     Plan {
         /// goal id
         goal: String,
-        /// provider or provider:model
+        /// provider[:model][@stance], with minimal, risk, contrarian or builder
         #[arg(long, required = true, allow_negative_numbers = true)]
         seat: Vec<OsString>,
     },

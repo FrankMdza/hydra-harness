@@ -3762,6 +3762,9 @@ fn launch_cases(shared: &Path, base_sha: &str) -> Vec<LaunchCase> {
 /// is tested in `panel.rs`.
 const DIVERGED_SINCE_252: &str = "choose --judge";
 
+/// Build 262 appends distinct stance files and records stance in plan events.
+const DIVERGED_SINCE_262: &str = "plan:";
+
 #[test]
 fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
     let scratch = Scratch::new("launch");
@@ -3771,7 +3774,7 @@ fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
     let mut mismatches = Vec::new();
     let mut diverged = Vec::new();
     visit_launch(root, false, &mut |job, home| {
-        if job.label.starts_with(DIVERGED_SINCE_252) {
+        if job.label.starts_with(DIVERGED_SINCE_252) || job.label.starts_with(DIVERGED_SINCE_262) {
             diverged.push(job.label.clone());
             labels.push(job.label.clone());
             return;
@@ -3789,7 +3792,7 @@ fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
         eprintln!("  {label}");
     }
     eprintln!(
-        "not compared, changed on purpose by build 252 ({}):",
+        "not compared, changed on purpose by builds 252 and 262 ({}):",
         diverged.len()
     );
     for label in &diverged {

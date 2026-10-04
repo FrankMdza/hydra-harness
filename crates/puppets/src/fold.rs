@@ -183,6 +183,15 @@ pub fn fold(goal_id: &str, events: &[Value]) -> Result<GoalState> {
                     ("model", py::get(event, "model", Value::Null)?),
                     ("run_id", py::item(event, "run_id")?.clone()),
                 ]));
+                if let Value::Dict(fields) = event
+                    && let Some(stance) = fields.get("stance")
+                {
+                    state
+                        .plans
+                        .last_mut()
+                        .unwrap()
+                        .set("stance", stance.clone());
+                }
             }
             "plan_ready" => {
                 for plan in &mut state.plans {
@@ -755,6 +764,23 @@ mod tests {
             .map(|line| json::loads_str(line).unwrap())
             .collect();
         fold("g1", &events)
+    }
+
+    #[test]
+    fn planning_stance_survives_fold_and_old_logs_need_none() {
+        let old = r#"{"event":"plan_proposed","provider":"codex","run_id":"old"}"#;
+        let new = r#"{"event":"plan_proposed","provider":"claude","model":"other","stance":"risk","run_id":"new"}"#;
+        let ready = r#"{"event":"plan_ready","provider":"claude","run_id":"new","path":"/scratch/plan.md"}"#;
+        let state = folded(&[GOAL, old, new, ready]).unwrap();
+        assert!(state.plans[0].get("stance").is_none());
+        assert!(py::eq(
+            &state.plans[1].get("stance").cloned().unwrap_or(Value::Null),
+            &Value::text("risk")
+        ));
+        assert!(py::eq(
+            state.plans[1].get("path").unwrap(),
+            &Value::text("/scratch/plan.md")
+        ));
     }
 
     /// Build 199, item 12, the rule the Python helper had too: `removed` counts when it is an int

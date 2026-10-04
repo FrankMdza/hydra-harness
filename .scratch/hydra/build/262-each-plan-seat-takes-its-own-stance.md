@@ -1,7 +1,7 @@
 # 262 - Each plan seat takes its own stance
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -44,3 +44,19 @@ build 257; the session edits it. Say in the report what it should say.
   provider. `IMPLEMENTATION.md`: one paragraph.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a1044a-13b1-7391` (`codex` gpt-6.1-sol, `standard`, 1.33M tokens),
+applied with one curly quote straightened in `contrarian.md`.
+
+Built: `--seat provider[:model][@stance]`; four stance files under
+`integrations/puppets/prompts/stances/`, appended to the brief; plain seats take the first stances
+no named seat took, in the order `minimal`, `risk`, `contrarian`, `builder`; an unknown stance is
+refused with the four names, and two seats naming the same one are refused when there are four
+seats or fewer. `plan_proposed` carries `stance`, and older logs fold without it. The
+differential test no longer compares `plan:` cases (`DIVERGED_SINCE_262`). Five unit tests, each
+failing with its part reverted; the judge-prompt test passed before and after, since `choose
+--judge` never printed a stance.
+
+The session edited the `puppets` skill, which a gated run cannot write since build 257: step 2
+now seats `claude` on a model other than the orchestrator's and names the stances. A proposal's
+own text can still name its stance or author; the judges see it as written.
