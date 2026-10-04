@@ -338,6 +338,10 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [101 - A copilot that does the work itself](issues/101-a-copilot-that-does-the-work-itself.md): resolved 2026-10-03 by the same panel, 2 to 1. Edit tools disallowed in the copilot; its token count against its agents' shown beside it.
 - [102 - The cockpit is for the one who orchestrates](issues/102-the-cockpit-is-for-the-one-who-orchestrates.md): resolved 2026-10-03, D6 by panel unanimous, D7 by the human. The gated chat leaves the cockpit; the row and the panel detail show model, role, question, judge and votes.
 - [103 - How a gated `claude` run keeps mods out](issues/103-how-a-gated-claude-run-keeps-mods-out.md): resolved 2026-10-03 by the human. A managed settings file with `allowManagedModsOnly`, and Hydra refuses a run's writes to plugin paths.
+- [104 - Herdr goes, and the run graph stays](issues/104-herdr-goes-and-the-run-graph-stays.md): resolved 2026-10-03 by a panel. Herdr frozen, the cockpit the one interface, the run graph a cockpit view.
+- [105 - Agent text reaches the orchestrator marked](issues/105-agent-text-reaches-the-orchestrator-marked.md): resolved 2026-10-03 by a panel. Agent text reaches the orchestrator inside the boundary marker.
+- [106 - The attack corpus becomes a benchmark](issues/106-the-attack-corpus-becomes-a-benchmark.md): resolved 2026-10-03 by a panel. The whole corpus, three repetitions, Wilson intervals, nightly over a week; tie-break by Fable and astra.
+- [107 - Orchestrator cost with variance, and one entry point](issues/107-orchestrator-cost-with-variance-and-one-entry-point.md): resolved 2026-10-03 by a panel. A fixed goal set plus real sessions; Master of Puppets the one entry point.
 
 ## Not yet specified
 

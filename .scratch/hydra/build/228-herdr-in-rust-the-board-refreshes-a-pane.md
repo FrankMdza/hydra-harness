@@ -1,7 +1,7 @@
 # 228 - herdr in Rust: the board refreshes a pane
 
 Type: build
-Status: open
+Status: resolved
 Blocked by: 225
 
 ## What
@@ -26,3 +26,7 @@ on, what must be identical, what is normalized, and the one thing most likely to
 - Each test failed before the change, or the report says why it could not; fmt and clippy clean over
   the workspace; the tests of every crate the ticket touches pass; no dependency added without a
   reason in the report.
+
+## Outcome
+
+Dropped 2026-10-03 by map ticket 104 (D1, B): Herdr is frozen and the cockpit is the one interface, so the plugin is not ported to Rust. The run graph moves into the cockpit as build 271.
