@@ -4227,8 +4227,14 @@ pages and `Esc` returning to the cockpit; the detail pane still scrolls with `Pa
 `Home` and `End`. `t` opens the shown goal's full task table the same way when a goal is on
 screen: goal text, table revision, whether `approve --table` and the plan still cover that
 revision, the panel verdict lines, and every task's text, class, grade, provider, model, policy,
-deps, status, run id and launch approval, folded in [`src/cockpit/goal.rs`](src/cockpit/goal.rs);
-`t` again, `Esc` or `Left` returns, and with no goal the status line says so and nothing opens.
+deps, status, run id and launch approval. The rows are folded in
+[`src/cockpit/goal.rs`](src/cockpit/goal.rs); the three approvals are not. Since build ticket 264
+the reader asks `hydra-puppets show <goal>` beside `pending --json`, at the same ten seconds and
+under the same two-second kill, and reads `revision` and each approval's `kind`, `ref`, `yes`,
+`consumed` and `voided` from the helper's own fold. A launch a run consumed still reads as
+approved. With no helper, a helper that is late or fails, or an answer folded to another revision
+than the cockpit's, the page says `unknown` rather than `no`. `t` again, `Esc` or `Left` returns,
+and with no goal the status line says so and nothing opens.
 
 **Lanes by agent, build ticket 191.** `k` swaps the four lanes for one lane per provider with a
 run in the snapshot, `claude`, `cursor-agent`, `agy` and `codex` in that order and any other after
@@ -5759,6 +5765,18 @@ and, where there is something to pin, a probe in `tests/gate.rs` or `tests/spawn
 shared helpers. Baseline-test provenance, which protects every test file present at a pass's
 `base_tree` rather than one directory, closed as build ticket 80 with build ticket 96. `tests/corpus`
 stays a floor row as well, so a new file there is refused too.
+
+**`hydra bench` measures the attack corpus before running it** (build 273). Map 106 chose the whole
+corpus in every supported cell of four providers by five policies, three repetitions, attack
+success with Wilson intervals, nightly over a week, and named the reversal: the full run not
+fitting that week. The command lives in `src/bench.rs` rather than under `integrations/bench/`,
+because resume, the unsupported-cell list, the Wilson interval and the dry-run estimate all read a
+`Layout` and the run records the way the other human-typed commands do, and a script would
+duplicate that. `--dry-run` prints the launch count and an estimate of tokens per provider from the
+median of comparable records already in `runs/`; it launches nothing. A cell this build cannot
+route (`codex` under `read-only`) is listed as unsupported, not as a zero. Success is read from the
+derived outcome on the record against the corpus row's expectation, never from the agent's words.
+The first real batch is a dry run.
 
 **A non-ASCII root is refused before launch** (build 78). The gate folds case ASCII only, and the
 macOS filesystem folds `É` too, so on a root with a cased non-ASCII letter every denial missed the

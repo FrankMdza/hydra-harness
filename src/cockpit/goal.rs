@@ -5,8 +5,10 @@
 //! their fields are the ones `integrations/puppets/README.md` documents; the
 //! rules below are `fold`'s, event by event, and only the ones that change a
 //! row. Map 91: a blank or non-JSON line stops the fold as damage; JSON that
-//! lacks a field is skipped. Plans, approvals and intents are the helper's
-//! business and the cockpit shows none of them.
+//! lacks a field is skipped. Plans and intents are the helper's business and
+//! the cockpit shows none of them. Approvals are the helper's too: the fold
+//! leaves them unknown, and [`Goal::fill_approvals`] sets them from what
+//! `hydra-puppets show` printed. Build ticket 264.
 
 use std::path::{Path, PathBuf};
 
@@ -31,18 +33,9 @@ pub struct TaskRow {
     pub done: Option<String>,
     /// Whether this task's provider and grade need a `approve --launch`.
     pub launch_approval_needed: bool,
-    /// When [`launch_approval_needed`], whether the log still holds one at this revision.
-    pub launch_approved: bool,
-}
-
-#[derive(Clone, Debug)]
-struct ApprovalRecord {
-    kind: String,
-    task: Option<String>,
-    revision: i64,
-    yes: bool,
-    consumed: bool,
-    voided: bool,
+    /// When [`launch_approval_needed`], whether the helper holds a live one
+    /// or one a run consumed. `None` until the helper has answered.
+    pub launch_approved: Option<bool>,
 }
 
 /// One `review` event: the panel's verdict on a task's diff.
@@ -153,11 +146,125 @@ pub struct Goal {
     /// The table revision as the helper's `fold` counts it: one per `task` and
     /// `assignment` event, and `removed + 1` per `repair`.
     pub revision: i64,
-    /// A live `approve --table` at [`revision`].
-    pub table_approved: bool,
-    /// A live `approve --plan`.
-    pub plan_approved: bool,
-    approvals: Vec<ApprovalRecord>,
+    /// A live `approve --table` at [`revision`], or `None` until the helper
+    /// has answered.
+    pub table_approved: Option<bool>,
+    /// A live `approve --plan`, or `None` until the helper has answered.
+    pub plan_approved: Option<bool>,
+}
+
+/// One approval as `hydra-puppets show` prints it, after its fold has marked
+/// it `consumed` or `voided`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Approval {
+    pub kind: String,
+    /// The task of a `launch` or `diff` approval.
+    pub reference: Option<String>,
+    pub revision: Option<i64>,
+    pub yes: bool,
+    pub consumed: bool,
+    pub voided: bool,
+}
+
+/// What `hydra-puppets show <goal>` says about approvals.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Approvals {
+    /// The table revision the helper folded to.
+    pub revision: i64,
+    pub approvals: Vec<Approval>,
+}
+
+/// Reads the approvals out of what `show` printed. The rest of the state is
+/// the cockpit's own fold and is not read here.
+pub fn parse_show(bytes: &[u8]) -> Result<Approvals> {
+    let state: Value = serde_json::from_slice(bytes).context("reading what show printed")?;
+    let revision = state["revision"]
+        .as_i64()
+        .context("show printed no revision")?;
+    let approvals = state["approvals"]
+        .as_array()
+        .context("show printed no approvals")?
+        .iter()
+        .map(|approval| {
+            let kind = approval["kind"]
+                .as_str()
+                .context("an approval without a kind")?;
+            Ok(Approval {
+                kind: kind.to_string(),
+                reference: key_of(&approval["ref"]),
+                revision: approval["revision"].as_i64(),
+                yes: truthy(&approval["yes"]),
+                consumed: truthy(&approval["consumed"]),
+                voided: truthy(&approval["voided"]),
+            })
+        })
+        .collect::<Result<_>>()?;
+    Ok(Approvals {
+        revision,
+        approvals,
+    })
+}
+
+/// A task id as `fold` keys it: a string, or an int spelled out.
+fn key_of(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| value.as_i64().map(|n| n.to_string()))
+}
+
+/// Python's truth test, which is how the helper reads `yes`.
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(o) => !o.is_empty(),
+    }
+}
+
+impl Goal {
+    /// Sets the three approval fields from the helper's answer, by
+    /// `approval_available`'s rules: a live approval is `yes`, neither
+    /// consumed nor voided, and at the current revision unless it is a plan's.
+    /// A launch a run consumed still got its approval.
+    ///
+    /// An answer folded to another revision than this goal's is about another
+    /// table, and the fields stay unknown.
+    pub fn fill_approvals(&mut self, answer: &Approvals) {
+        if answer.revision != self.revision {
+            self.clear_approvals();
+            return;
+        }
+        let live = |approval: &Approval, kind: &str| {
+            approval.kind == kind
+                && approval.yes
+                && !approval.consumed
+                && !approval.voided
+                && (kind == "plan" || approval.revision == Some(answer.revision))
+        };
+        self.table_approved = Some(answer.approvals.iter().any(|a| live(a, "table")));
+        self.plan_approved = Some(answer.approvals.iter().any(|a| live(a, "plan")));
+        for row in &mut self.rows {
+            let given = answer.approvals.iter().any(|approval| {
+                approval.reference.as_deref() == Some(row.id.as_str())
+                    && ((approval.kind == "launch" && approval.yes && approval.consumed)
+                        || live(approval, "launch"))
+            });
+            row.launch_approved = Some(row.launch_approval_needed && given);
+        }
+    }
+
+    /// Leaves the three approval fields unknown.
+    pub fn clear_approvals(&mut self) {
+        self.table_approved = None;
+        self.plan_approved = None;
+        for row in &mut self.rows {
+            row.launch_approved = None;
+        }
+    }
 }
 
 /// Reads and folds `<home>/<id>.jsonl`.
@@ -229,41 +336,9 @@ pub fn fold(id: &str, bytes: &[u8]) -> Goal {
 }
 
 fn finalize(goal: &mut Goal) {
-    for approval in &mut goal.approvals {
-        if approval.kind != "plan" && approval.revision != goal.revision {
-            approval.voided = true;
-        }
+    for row in &mut goal.rows {
+        row.launch_approval_needed = needs_launch_approval(row);
     }
-    goal.table_approved = approval_live(goal, "table", None);
-    goal.plan_approved = approval_live(goal, "plan", None);
-    for index in 0..goal.rows.len() {
-        let id = goal.rows[index].id.clone();
-        goal.rows[index].launch_approval_needed = needs_launch_approval(&goal.rows[index]);
-        // A launch that already ran consumed its approval; it still got one.
-        let used = goal.approvals.iter().any(|approval| {
-            approval.kind == "launch"
-                && approval.yes
-                && approval.consumed
-                && approval.task.as_deref() == Some(id.as_str())
-        });
-        goal.rows[index].launch_approved = goal.rows[index].launch_approval_needed
-            && (used || approval_live(goal, "launch", Some(&id)));
-    }
-}
-
-fn approval_live(goal: &Goal, kind: &str, task: Option<&str>) -> bool {
-    goal.approvals.iter().any(|approval| {
-        approval.kind == kind
-            && approval.yes
-            && !approval.consumed
-            && !approval.voided
-            && (kind == "plan" || approval.revision == goal.revision)
-            && match (kind, task) {
-                ("launch", Some(id)) => approval.task.as_deref() == Some(id),
-                ("launch", None) => false,
-                _ => true,
-            }
-    })
 }
 
 fn needs_launch_approval(row: &TaskRow) -> bool {
@@ -292,10 +367,6 @@ fn deps_of(event: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn revision_of(event: &Value) -> Option<i64> {
-    event["revision"].as_i64()
-}
-
 /// One event. `None` when a field `fold` would index is missing.
 fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
     let text = |key: &str| event[key].as_str().map(str::to_string);
@@ -320,7 +391,7 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
                 run_id: None,
                 done: text("done"),
                 launch_approval_needed: false,
-                launch_approved: false,
+                launch_approved: None,
             };
             match goal.rows.iter_mut().find(|r| r.id == row.id) {
                 Some(slot) => *slot = row,
@@ -340,41 +411,12 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
                 row.status = "assigned".to_string();
             }
         }
-        "approval" => {
-            let kind = text("kind")?;
-            let revision = revision_of(event)?;
-            let yes = event["yes"].as_bool().unwrap_or(false);
-            let task = event["ref"]
-                .as_str()
-                .map(str::to_string)
-                .or_else(|| event["ref"].as_i64().map(|n| n.to_string()));
-            goal.approvals.push(ApprovalRecord {
-                kind,
-                task,
-                revision,
-                yes,
-                consumed: false,
-                voided: false,
-            });
-        }
         "run" => {
             let task = text("task")?;
             let run_id = text("run_id")?;
             if let Some(row) = goal.rows.iter_mut().find(|r| r.id == task) {
                 row.status = "running".to_string();
                 row.run_id = Some(run_id);
-                if needs_launch_approval(row)
-                    && let Some(approval) = goal.approvals.iter_mut().find(|approval| {
-                        approval.kind == "launch"
-                            && approval.task.as_deref() == Some(task.as_str())
-                            && approval.revision == goal.revision
-                            && approval.yes
-                            && !approval.consumed
-                            && !approval.voided
-                    })
-                {
-                    approval.consumed = true;
-                }
             }
         }
         "run_end" => {
@@ -431,7 +473,7 @@ fn row_or_default<'a>(goal: &'a mut Goal, task: &str) -> &'a mut TaskRow {
                 run_id: None,
                 done: None,
                 launch_approval_needed: false,
-                launch_approved: false,
+                launch_approved: None,
             });
             goal.rows.len() - 1
         }

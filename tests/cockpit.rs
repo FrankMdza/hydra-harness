@@ -132,7 +132,7 @@ fn row(
         run_id: run_id.map(str::to_string),
         done: None,
         launch_approval_needed: false,
-        launch_approved: false,
+        launch_approved: None,
     }
 }
 
@@ -173,7 +173,7 @@ fn a_goal_log_folds_into_the_rows_board_prints() {
                 deps: vec!["t1".to_string()],
                 policy: Some("standard".to_string()),
                 launch_approval_needed: true,
-                launch_approved: false,
+                launch_approved: None,
                 ..row(
                     "t2",
                     "rust_launch_path",
@@ -5286,19 +5286,21 @@ fn ticket263_goal_table_page_shows_task_policy_and_deps() {
     assert!(text.contains("deps base"), "{text}");
 }
 
+/// Build ticket 264: the cockpit's fold reads no approval out of the log,
+/// even a live one; only the helper's answer fills them.
 #[test]
-fn ticket263_table_approval_voids_after_a_task_edit() {
+fn ticket264_the_fold_leaves_approvals_unknown() {
     let log = [
         r#"{"event":"goal","text":"rev","repo":"/r","base_sha":"a"}"#,
         r#"{"event":"task","id":"t1","text":"one","class":"docs","grade":"low","deps":[],"paths":[]}"#,
-        r#"{"event":"approval","kind":"table","ref":null,"revision":1,"yes":true}"#,
         r#"{"event":"task","id":"t1","text":"two","class":"docs","grade":"low","deps":[],"paths":[]}"#,
+        r#"{"event":"approval","kind":"table","ref":null,"revision":2,"yes":true}"#,
     ]
     .join("\n")
         + "\n";
     let goal = goal::fold("g-rev", log.as_bytes());
     assert_eq!(goal.revision, 2);
-    assert!(!goal.table_approved);
+    assert_eq!(goal.table_approved, None);
     let mut snapshot = fixed_snapshot();
     snapshot.goal = Some(goal);
     let mut app = App::new(
@@ -5309,7 +5311,7 @@ fn ticket263_table_approval_voids_after_a_task_edit() {
     app.set_snapshot(snapshot);
     app.handle(&key(KeyCode::Char('t')));
     let text = screen_text(&draw_app(&mut app, AREA));
-    assert!(text.contains("table approved no"), "{text}");
+    assert!(text.contains("table approved unknown"), "{text}");
 }
 
 #[test]
@@ -5326,6 +5328,133 @@ fn ticket263_t_with_no_goal_opens_nothing() {
     assert!(!app.on_goal_table_page());
     let text = screen_text(&draw_app(&mut app, AREA));
     assert!(text.contains("no goal on screen"), "{text}");
+}
+
+// --- approvals from `hydra-puppets show`, build ticket 264 -----------------
+
+/// Goal `g264` at revision 2: task `t1` on codex, so its launch needs an
+/// approval. The log holds a live table approval at revision 2 and no launch
+/// approval, the opposite of what [`ticket264_show`] says, so a page that
+/// agrees with the stub read the helper and not the log.
+fn ticket264_log() -> String {
+    [
+        r#"{"event":"goal","text":"approvals","repo":"/r","base_sha":"a"}"#,
+        r#"{"event":"task","id":"t1","text":"one","class":"docs","grade":"low","deps":[],"paths":[]}"#,
+        r#"{"event":"assignment","task":"t1","provider":"codex","model":"","policy":"standard","source":"default"}"#,
+        r#"{"event":"approval","kind":"table","ref":null,"revision":2,"yes":true}"#,
+    ]
+    .join("\n")
+        + "\n"
+}
+
+/// What `show g264` prints, cut to the fields the cockpit reads: a table
+/// approval a later revision voided, and a launch approval a run consumed.
+fn ticket264_show() -> &'static str {
+    r#"{"goal_id":"g264","revision":2,"approvals":[
+{"kind":"table","ref":null,"run_id":null,"revision":1,"yes":true,"seq":3,"consumed":false,"voided":true},
+{"kind":"launch","ref":"t1","run_id":null,"revision":2,"yes":true,"seq":5,"consumed":true}]}"#
+}
+
+/// A scratch root with `g264` under its puppets home and a stub helper that
+/// answers `pending` with nothing and `show` with [`ticket264_show`], after
+/// running `delay`, a line of shell.
+fn ticket264_reader(name: &str, delay: &str) -> (Layout, Reader) {
+    let layout = scratch(name);
+    let home = layout.root().join("puppets");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("g264.jsonl"), ticket264_log()).unwrap();
+    let stub = layout.root().join("hydra-puppets");
+    std::fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\n\
+             echo \"$*\" >> \"$HYDRA_ROOT/calls\"\n\
+             case \"$1\" in\n\
+             pending) echo '[]' ;;\n\
+             show)\n\
+             {delay}\n\
+             cat <<'EOF'\n{}\nEOF\n\
+             ;;\n\
+             esac\n",
+            ticket264_show()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        home,
+        Some("g264".to_string()),
+    )
+    .with_puppets(stub)
+    .with_pending_budget(Duration::from_secs(30));
+    (layout, reader)
+}
+
+fn goal_table_text(layout: &Layout, snapshot: Snapshot) -> String {
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    assert_eq!(app.handle(&key(KeyCode::Char('t'))), Effect::Refresh);
+    screen_text(&draw_app(&mut app, AREA))
+}
+
+#[test]
+fn ticket264_approvals_are_what_show_says() {
+    let (layout, mut reader) = ticket264_reader("264-show", "");
+    let snapshot = reader.read_at(None, noon());
+    assert!(snapshot.errors.is_empty(), "{:?}", snapshot.errors);
+    assert_eq!(
+        calls(&layout, "calls"),
+        ["pending g264 --json", "show g264"]
+    );
+    let text = goal_table_text(&layout, snapshot);
+    assert!(text.contains("table approved no"), "{text}");
+    assert!(text.contains("plan approved no"), "{text}");
+    assert!(text.contains("launch approval needed, approved"), "{text}");
+
+    // Five seconds on the answer is reused; past ten the helper is asked again.
+    reader.read_at(None, noon() + chrono::Duration::seconds(5));
+    assert_eq!(calls(&layout, "calls").len(), 2);
+    reader.read_at(None, noon() + chrono::Duration::seconds(11));
+    assert_eq!(calls(&layout, "calls").len(), 4);
+}
+
+#[test]
+fn ticket264_a_late_show_leaves_the_approvals_unknown() {
+    let (layout, reader) = ticket264_reader("264-late", "sleep 10");
+    let mut reader = reader.with_pending_budget(PENDING_BUDGET);
+    let start = std::time::Instant::now();
+    let snapshot = reader.read_at(None, noon());
+    assert!(
+        start.elapsed() < Duration::from_secs(4),
+        "{:?}",
+        start.elapsed()
+    );
+    assert!(
+        snapshot
+            .errors
+            .iter()
+            .any(|e| e.contains("show g264 did not answer")),
+        "{:?}",
+        snapshot.errors
+    );
+    let text = goal_table_text(&layout, snapshot);
+    assert!(text.contains("table approved unknown"), "{text}");
+    assert!(text.contains("plan approved unknown"), "{text}");
+    assert!(text.contains("launch approval needed, unknown"), "{text}");
+}
+
+#[test]
+fn ticket264_no_helper_leaves_the_approvals_unknown() {
+    let (layout, reader) = ticket264_reader("264-none", "");
+    let mut reader = reader.with_helper(Err("no hydra-puppets beside hydra".to_string()));
+    let snapshot = reader.read_at(None, noon());
+    assert!(calls(&layout, "calls").is_empty());
+    let text = goal_table_text(&layout, snapshot);
+    assert!(text.contains("table approved unknown"), "{text}");
+    assert!(text.contains("launch approval needed, unknown"), "{text}");
 }
 
 #[test]

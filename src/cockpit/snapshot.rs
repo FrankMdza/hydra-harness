@@ -42,8 +42,8 @@ pub const DETAIL_CALLS: usize = 15;
 const TAIL_WINDOW: u64 = 256 * 1024;
 /// How far back the header's tokens per minute look.
 pub const RATE_WINDOW_MINUTES: i64 = 5;
-/// How often the reader asks `hydra-puppets pending`, and how long it waits.
-/// Build ticket 182.
+/// How often the reader asks `hydra-puppets pending` and `show`, and how long
+/// it waits for each. Build tickets 182 and 264.
 pub const PENDING_EVERY: chrono::TimeDelta = chrono::TimeDelta::seconds(10);
 pub const PENDING_BUDGET: Duration = Duration::from_secs(2);
 
@@ -263,6 +263,8 @@ struct PendingRead {
     goal: String,
     at: DateTime<Utc>,
     said: std::result::Result<Vec<Step>, String>,
+    /// What `show` said about approvals. Build ticket 264.
+    shown: std::result::Result<goal::Approvals, String>,
 }
 
 /// One tool call, as the detail lists it. Build ticket 178.
@@ -371,7 +373,7 @@ pub struct Reader {
     /// The line to show in place of the steps when there is no helper to ask.
     no_puppets: Option<String>,
     pending: Option<PendingRead>,
-    /// How long [`Self::ask_pending`] waits. Production stays
+    /// How long [`Self::ask`] waits. Production stays
     /// [`PENDING_BUDGET`]; the suite names a longer one so a loaded
     /// machine still finishes the stub.
     pending_budget: Duration,
@@ -422,7 +424,7 @@ impl Reader {
         self
     }
 
-    /// How long [`Self::ask_pending`] waits for the helper. Production
+    /// How long [`Self::ask`] waits for the helper. Production
     /// keeps [`PENDING_BUDGET`].
     pub fn with_pending_budget(mut self, budget: Duration) -> Self {
         self.pending_budget = budget;
@@ -618,10 +620,12 @@ impl Reader {
         }
     }
 
-    /// The steps the shown goal waits on, from `pending <goal> --json`, asked
-    /// at most once per [`PENDING_EVERY`] and again when the goal changes.
-    /// It reads the log and writes nothing, so a helper that does not answer
-    /// in [`PENDING_BUDGET`] is killed.
+    /// The steps the shown goal waits on, from `pending <goal> --json`, and
+    /// its approvals, from `show <goal>`, asked at most once per
+    /// [`PENDING_EVERY`] and again when the goal changes. Both read the log
+    /// and write nothing, so a helper that does not answer in
+    /// [`PENDING_BUDGET`] is killed. Without an answer the approvals stay
+    /// unknown.
     fn read_steps(&mut self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
         if snapshot.goal.is_some()
             && let Some(note) = &self.no_puppets
@@ -642,12 +646,21 @@ impl Reader {
             .is_some_and(|read| read.goal == goal.id && now - read.at < PENDING_EVERY);
         if !fresh {
             let said = self
-                .ask_pending(script, &goal.id)
+                .ask(script, &goal.id, &["pending", &goal.id, "--json"])
+                .and_then(|out| parse_steps(&goal.id, &out))
+                .map_err(|err| format!("{err:#}"));
+            let shown = self
+                .ask(script, &goal.id, &["show", &goal.id])
+                .and_then(|out| {
+                    goal::parse_show(&out)
+                        .with_context(|| format!("hydra-puppets show {}", goal.id))
+                })
                 .map_err(|err| format!("{err:#}"));
             self.pending = Some(PendingRead {
                 goal: goal.id.clone(),
                 at: now,
                 said,
+                shown,
             });
         }
         let Some(read) = &self.pending else {
@@ -658,21 +671,32 @@ impl Reader {
             Ok(steps) => snapshot.steps = steps.clone(),
             Err(err) => snapshot.errors.push(err.clone()),
         }
+        match &read.shown {
+            Ok(answer) => {
+                if let Some(goal) = &mut snapshot.goal {
+                    goal.fill_approvals(answer);
+                }
+            }
+            Err(err) => snapshot.errors.push(err.clone()),
+        }
     }
 
-    fn ask_pending(&self, script: &Path, goal: &str) -> Result<Vec<Step>> {
+    /// Runs the helper with `args` and returns what it printed when it exits
+    /// cleanly inside the budget.
+    fn ask(&self, script: &Path, goal: &str, args: &[&str]) -> Result<Vec<u8>> {
         super::check_goal_id(goal)?;
         let mut command = super::helper_command(script)?;
+        let verb = args.first().copied().unwrap_or_default();
         command
-            .args(["pending", goal, "--json"])
+            .args(args)
             .env("HYDRA_ROOT", self.layout.root())
             .env("HYDRA_PUPPETS_HOME", &self.puppets_home);
         match super::bounded(command, self.pending_budget)
-            .with_context(|| format!("hydra-puppets pending {goal}"))?
+            .with_context(|| format!("hydra-puppets {verb} {goal}"))?
         {
-            (super::Bounded::Exited(status, _), out) if status.success() => parse_steps(goal, &out),
+            (super::Bounded::Exited(status, _), out) if status.success() => Ok(out),
             (super::Bounded::Exited(status, line), _) => {
-                anyhow::bail!("hydra-puppets pending {goal} exited with {status}: {line}")
+                anyhow::bail!("hydra-puppets {verb} {goal} exited with {status}: {line}")
             }
             (super::Bounded::Late(mut child), _) => {
                 // The helper leads its own group, so this reaches whatever it started.
@@ -682,7 +706,7 @@ impl Reader {
                 }
                 let _ = child.wait();
                 anyhow::bail!(
-                    "hydra-puppets pending {goal} did not answer in {}s",
+                    "hydra-puppets {verb} {goal} did not answer in {}s",
                     self.pending_budget.as_secs()
                 )
             }

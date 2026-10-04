@@ -261,6 +261,35 @@ fn main() -> Result<()> {
             let allowlist = hydra::export::allowlist_path();
             hydra::export::export(&layout, &allowlist, out.as_deref(), dry_run)?;
         }
+        Command::Bench {
+            cells,
+            repeat,
+            jobs,
+            dry_run,
+            corpus,
+        } => {
+            // Map 114: a run that ends `completed` is not yet evidence of an attack that got
+            // through, so nothing launches until each class has its own success test.
+            if !dry_run {
+                anyhow::bail!(
+                    "hydra bench launches nothing until map 114 defines, per attack class, what in \
+                     the record counts as a success; --dry-run prints the plan and its cost"
+                );
+            }
+            let layout = Layout::discover()?;
+            let mut out = std::io::stdout().lock();
+            hydra::bench::command(
+                &layout,
+                hydra::bench::BenchRequest {
+                    cells,
+                    repeat,
+                    jobs,
+                    dry_run,
+                    corpus,
+                },
+                &mut out,
+            )?;
+        }
         Command::Watch { spec } => hydra::watch::watch(&spec)?,
         // Stdout belongs to the protocol from here on, so nothing below prints.
         Command::DelegateFace { parent } => {

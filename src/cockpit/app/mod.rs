@@ -1457,8 +1457,7 @@ mod tests {
                 card
             })
             .collect();
-        let mut goal = Goal::default();
-        goal.rows = ids
+        let rows = ids
             .iter()
             .enumerate()
             .map(|(i, id)| TaskRow {
@@ -1474,10 +1473,13 @@ mod tests {
                 run_id: Some(id.to_string()),
                 done: None,
                 launch_approval_needed: false,
-                launch_approved: false,
+                launch_approved: None,
             })
             .collect();
-        app.snapshot.goal = Some(goal);
+        app.snapshot.goal = Some(Goal {
+            rows,
+            ..Goal::default()
+        });
         for mode in 0..3 {
             let area = Rect::new(0, 0, 160, 20);
             let mut buf = Buffer::empty(area);

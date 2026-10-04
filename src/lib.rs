@@ -19,6 +19,7 @@
 //! Rung one is `hydra curate`; rung two is `hydra evolve`.
 
 pub mod approve;
+pub mod bench;
 pub mod cli;
 pub mod cockpit;
 pub mod containment;

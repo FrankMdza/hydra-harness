@@ -20,6 +20,10 @@
 //! spawns from the canonical MCP document, and section 17 lists commands a human
 //! types. Hidden for the same reason `watch` is: typing it yourself gets you a
 //! process waiting for a protocol you are not speaking.
+//!
+//! **`bench` is a further command a human types, build ticket 273.** It is the
+//! attack-corpus runner: cells, repetitions, resume, a Wilson report, and a
+//! `--dry-run` that launches nothing.
 
 use std::time::Duration;
 
@@ -335,6 +339,27 @@ pub enum Command {
         /// Print one line per run with its eligibility reasons and write nothing.
         #[arg(long)]
         dry_run: bool,
+    },
+
+    /// The attack-corpus benchmark, map 106. Launches each class through
+    /// `hydra run --timeout 0`, or prints the cost without launching.
+    Bench {
+        /// `provider:policy`. Repeat. Without it, every cell of four by five.
+        #[arg(long = "cell")]
+        cells: Vec<String>,
+        /// Times each attack is launched in each supported cell.
+        #[arg(long, default_value_t = 3)]
+        repeat: u32,
+        /// How many of those launches may be live at once.
+        #[arg(long, default_value_t = 2)]
+        jobs: usize,
+        /// Print the launch count and a token estimate, and launch nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The corpus table. Without it, `tests/corpus/README.md` beside the
+        /// shipped policies.
+        #[arg(long)]
+        corpus: Option<std::path::PathBuf>,
     },
 
     /// The detached half of a launch. `hydra run` types this; a human does not.

@@ -161,14 +161,8 @@ impl App {
         let mut lines = vec![
             label("goal", goal.text.clone().unwrap_or_default()),
             label("table revision", goal.revision.to_string()),
-            label(
-                "table approved",
-                if goal.table_approved { "yes" } else { "no" }.to_string(),
-            ),
-            label(
-                "plan approved",
-                if goal.plan_approved { "yes" } else { "no" }.to_string(),
-            ),
+            label("table approved", yes_no(goal.table_approved).to_string()),
+            label("plan approved", yes_no(goal.plan_approved).to_string()),
             Line::raw(""),
         ];
         lines.extend(self.panel_lines(goal));
@@ -207,14 +201,11 @@ impl App {
                 .map(str::to_string)
                 .unwrap_or_else(|| "-".to_string());
             lines.push(label("run", run));
-            let launch = if row.launch_approval_needed {
-                if row.launch_approved {
-                    "needed, approved"
-                } else {
-                    "needed, not approved"
-                }
-            } else {
-                "not needed"
+            let launch = match (row.launch_approval_needed, row.launch_approved) {
+                (false, _) => "not needed",
+                (true, Some(true)) => "needed, approved",
+                (true, Some(false)) => "needed, not approved",
+                (true, None) => "needed, unknown",
             };
             lines.push(label("launch approval", launch.to_string()));
             lines.push(Line::raw(""));
@@ -446,4 +437,13 @@ pub(super) enum Scrolled {
     Graph,
     Detail,
     RunPage,
+}
+
+/// An approval the helper answered for, or `unknown` while it has not.
+fn yes_no(approved: Option<bool>) -> &'static str {
+    match approved {
+        Some(true) => "yes",
+        Some(false) => "no",
+        None => "unknown",
+    }
 }
