@@ -220,7 +220,9 @@ mcp_call`. `config/mcp.md` admits no writing server today, so nothing had fired.
 
 **The live corpus walk is `hydra doctor --walk` since build ticket 126** (map ticket 80). The
 assertions moved into `src/walk.rs`; the command walks `Layout::discover()`'s `runs/` directory,
-prints one line per finding and exits non-zero when there is any. `cargo test` no longer reads
+prints one line per finding and exits non-zero when there is any. Since build ticket 276 the walk
+normalizes each record once and runs the write-nothing check first so its snapshot still brackets
+that read. `cargo test` no longer reads
 `~/hydra/runs/` on any machine: the fixture walks in `tests/record_contract.rs`, `tests/normalize.rs`
 and `tests/outcome.rs` call the same functions over `tests/fixtures/records/`. CI sets
 `HYDRA_ROOT` at an empty scratch root and never runs the live walk; the session's pre-push script

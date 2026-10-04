@@ -2,6 +2,8 @@
 //! `~/hydra/runs/`, now shared by `hydra doctor --walk` and the fixture walks
 //! in `tests/record_contract.rs`, `tests/normalize.rs` and `tests/outcome.rs`.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -66,20 +68,44 @@ pub fn walk_corpus(layout: &Layout) -> Result<Report> {
 
 /// Runs every walk assertion over an explicit list of records.
 pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Report {
+    let cache = RefCell::new(HashMap::<PathBuf, Result<Run, String>>::new());
+    let read = |path: &Path| cached_read(&cache, path, read);
+    // The write-nothing snapshot has to bracket the first (and, with the cache,
+    // only) normalize. Findings stay in the order the checks used to run.
+    let writes_nothing = check_normalizing_writes_nothing(paths, &read);
     let mut findings = Vec::new();
     findings.extend(check_contract(paths));
-    findings.extend(check_normalizes(paths, read).0);
-    findings.extend(check_write_denials(paths, read).0);
-    findings.extend(check_gate_leaks(paths, read));
-    findings.extend(check_normalizing_writes_nothing(paths, read));
-    findings.extend(check_shell_pairs(paths, read).0);
-    findings.extend(check_outcomes(paths, read).0);
-    findings.extend(check_gated_write_denials(paths, read).0);
-    findings.extend(check_unknown_sources(paths, read));
+    findings.extend(check_normalizes(paths, &read).0);
+    findings.extend(check_write_denials(paths, &read).0);
+    findings.extend(check_gate_leaks(paths, &read));
+    findings.extend(writes_nothing);
+    findings.extend(check_shell_pairs(paths, &read).0);
+    findings.extend(check_outcomes(paths, &read).0);
+    findings.extend(check_gated_write_denials(paths, &read).0);
+    findings.extend(check_unknown_sources(paths, &read));
     Report {
         findings,
         records_read: paths.len(),
     }
+}
+
+fn cached_read(
+    cache: &RefCell<HashMap<PathBuf, Result<Run, String>>>,
+    path: &Path,
+    read: &dyn Fn(&Path) -> Result<Run>,
+) -> Result<Run> {
+    if let Some(cached) = cache.borrow().get(path).cloned() {
+        return cached.map_err(|err| anyhow::anyhow!("{err}"));
+    }
+    let result = read(path);
+    cache.borrow_mut().insert(
+        path.to_path_buf(),
+        match &result {
+            Ok(run) => Ok(run.clone()),
+            Err(err) => Err(err.to_string()),
+        },
+    );
+    result
 }
 
 fn read_record(path: &Path, policies: &PolicySet, layout: &Layout) -> Result<Run> {
