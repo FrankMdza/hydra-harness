@@ -1,7 +1,7 @@
 # 283 - An idiom sweep
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
