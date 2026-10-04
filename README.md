@@ -93,7 +93,6 @@ The record's `subscription` field names who pays: `anthropic`, `cursor`, `google
 git clone https://github.com/FrankMdza/hydra-harness ~/hydra && cd ~/hydra
 cargo build --release --workspace   # Rust 1.88 or newer; --workspace also builds hydra-puppets
 mkdir -p ~/.local/bin && ln -sf ~/hydra/target/release/hydra ~/.local/bin/hydra
-ln -sf ~/hydra/integrations/copilot/bin/hydra-copilot ~/.local/bin/suprema
 ln -sf ~/hydra/integrations/copilot/bin/masterofpuppets ~/.local/bin/masterofpuppets
 hydra doctor            # its "hydra on PATH" line should say "this binary"
 ```
@@ -132,8 +131,7 @@ worktree, plus the skills Hydra linked. `hydra run` prints one JSON object with 
 agents can run side by side, and `hydra wait <id>...` blocks until they have all ended.
 
 ```
-suprema "" ~/some-repo            # the copilot: a chat that launches gated agents on that repo
-masterofpuppets ~/some-repo       # the same chat, running a goal through plan, table and diffs
+masterofpuppets ~/some-repo       # the orchestrator: a chat that runs a goal through plan, table and diffs
 hydra cockpit                     # the viewer: tasks, runs by state, one run's detail
 ```
 
@@ -318,8 +316,8 @@ did, which is the one thing Hydra was built around.
 
 ## Works with
 
-The copilot is `integrations/copilot/bin/hydra-copilot [model] [repo] [provider]`, linked as
-`suprema`. It starts `hydra cockpit --session` on `claude`, or on `codex` when asked, from
+The orchestrator chat is `integrations/copilot/bin/hydra-copilot [model] [repo] [provider]`,
+which `masterofpuppets` starts in its Master of Puppets mode. It starts `hydra cockpit --session` on `claude`, or on `codex` when asked, from
 `~/.hydra-copilot/`, outside any repository, where a short document rendered with the
 repository's path replaces that repository's own instructions. The repository is any git work
 tree, and this checkout when none is named. The chat is ungated and every agent it launches is
