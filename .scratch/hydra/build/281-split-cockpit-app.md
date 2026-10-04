@@ -14,3 +14,12 @@ From the Rust review of 2026-10-03 (build 275, run `01a1050b-c1bf`), `.scratch/h
   change leaves every existing test passing unchanged. `IMPLEMENTATION.md`: one sentence.
 
 ## Outcome
+
+### First attempt, rejected by the session (2026-10-04)
+
+Run `01a10553-f215` (`codex` gpt-6.1-sol, 0.88M tokens) split the file into `app/{text,confirm,
+review,stop,pages,draw}.rs` pulled back with `include!`, to keep every item's visibility as it
+was. That is one module in seven files: no boundary, and tools that read modules see one file.
+Not applied. The second attempt uses child modules: a child sees its parent's private fields and
+items; a method moved into a child that the parent or a sibling calls becomes `pub(super)`, and
+nothing wider. No `include!`.
