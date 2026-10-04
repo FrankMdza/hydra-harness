@@ -82,3 +82,23 @@ session and said "trabaja en ~/another-private-repo", which may have read as per
 work directly, so this does not show the copilot refuses to delegate. It shows nothing stops it
 from skipping delegation, and that an orchestrator doing the work bills at chat prices. That
 question goes to a new map ticket, not to D5 or D6.
+
+### Measured after builds 253 and 258 (2026-10-03, the human's second session)
+
+The first real comparison. Copilot `01a10441-619f`, `claude` Opus (the human's rule since that day:
+an orchestrator is only Opus or Fable, which sets D5 aside), no edit tools, 44 minutes, 13 prompts,
+on `~/another-private-repo`. It launched five agents (`01a10445-e17a`, `01a10451-8bcc`,
+`01a10452-8fdd`, `01a10459-ffc0`, `01a10462-419a`, all `claude` on the CLI's default model) and
+waited with `hydra wait` four times and `hydra status` once.
+
+| | total tokens | cache read | the rest |
+|---|---|---|---|
+| copilot | 12,525,194 | 12,218,710 | 306,484 |
+| five agents | 10,608,193 | 10,232,419 | 375,774 |
+
+Raw, the copilot is 1.18 times its agents. Outside cache reads it is below them (306k against
+376k). Weighting cache reads at a tenth, the vendor's discount, it is about 1.53M against 1.40M,
+1.09 times. So D6 and D7 (short document, `hydra wait`) worked: the copilot delegated and stopped
+polling, against 21.2M and no agent on the earlier session. What is left above the agents is
+cache re-reads of the copilot's own growing conversation, on the most expensive model. The
+criterion "costs less than its agents on a typical request" is not met yet, narrowly.
