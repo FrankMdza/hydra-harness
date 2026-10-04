@@ -1,7 +1,7 @@
 # 285 - Export survives a pass whose commit is gone
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
