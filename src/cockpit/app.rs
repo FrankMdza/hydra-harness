@@ -492,7 +492,7 @@ impl App {
         self.snapshot
             .goal
             .as_ref()
-            .map_or(0, |goal| goal.rows.len())
+            .map_or(self.snapshot.session_runs.len(), |goal| goal.rows.len())
     }
 
     fn cards_in(&self, lane: Lane) -> impl Iterator<Item = &Card> {
@@ -1079,6 +1079,13 @@ impl App {
                 .as_ref()
                 .and_then(|goal| goal.rows.get(self.table_selected))
                 .and_then(|row| row.run_id.clone())
+                .or_else(|| {
+                    self.snapshot
+                        .goal
+                        .is_none()
+                        .then(|| self.snapshot.session_runs.get(self.table_selected).cloned())
+                        .flatten()
+                })
                 .map(Opened::Run),
             focus @ (Focus::Lane(_) | Focus::Agent(_)) => self.item(focus, self.selected(focus)),
             Focus::Detail => return Effect::None,
@@ -2503,23 +2510,13 @@ impl App {
         self.hits.table = area;
         let title = match &self.snapshot.goal {
             Some(goal) => format!(" tasks of {} ", goal.id),
-            None => " tasks ".to_string(),
+            None => " tasks of this session ".to_string(),
         };
         let block = self.block(Focus::Table, title);
         let inner = block.inner(area);
         block.render(area, buf);
         let Some(goal) = self.snapshot.goal.clone() else {
-            let note = if self.snapshot.read {
-                self.snapshot
-                    .goal_note
-                    .clone()
-                    .unwrap_or_else(|| "no goal".to_string())
-            } else {
-                "reading".to_string()
-            };
-            Paragraph::new(note)
-                .wrap(Wrap { trim: false })
-                .render(inner, buf);
+            self.draw_session_tasks(inner, buf);
             return;
         };
         if inner.height < 2 {
@@ -2622,6 +2619,69 @@ impl App {
             };
             let style = self.selected_style(Focus::Table, index == self.table_selected);
             buf.set_line(rect.x, rect.y, &Line::styled(text, style), rect.width);
+            self.hits.table_rows.push((rect, index));
+        }
+    }
+
+    fn draw_session_tasks(&mut self, inner: Rect, buf: &mut Buffer) {
+        if inner.height < 2 {
+            return;
+        }
+        buf.set_line(
+            inner.x,
+            inner.y,
+            &Line::raw("run status provider model policy description"),
+            inner.width,
+        );
+        let visible = inner.height.saturating_sub(2) as usize;
+        self.table_offset = self
+            .table_offset
+            .min(self.snapshot.session_runs.len().saturating_sub(visible));
+        for (slot, index) in (self.table_offset..self.snapshot.session_runs.len())
+            .take(visible)
+            .enumerate()
+        {
+            let id = &self.snapshot.session_runs[index];
+            let Some(card) = self.snapshot.cards.iter().find(|card| &card.run_id == id) else {
+                continue;
+            };
+            let task = self
+                .snapshot
+                .run_info
+                .get(id)
+                .and_then(|info| info.task.as_deref())
+                .unwrap_or("");
+            let task = self
+                .preamble
+                .as_deref()
+                .and_then(|p| {
+                    task.strip_prefix(p.trim_end())
+                        .and_then(|rest| rest.strip_prefix("\n\n"))
+                })
+                .unwrap_or(task);
+            let text = format!(
+                "{} {} {} {} {} {}",
+                self.run_label(id),
+                if card.state == State::Live {
+                    "live"
+                } else {
+                    card.outcome.as_deref().unwrap_or(card.state.as_str())
+                },
+                card.provider.as_deref().unwrap_or("-"),
+                card.model.as_deref().unwrap_or("default"),
+                card.policy.as_deref().unwrap_or("-"),
+                task.lines().next().unwrap_or("")
+            );
+            let rect = Rect::new(inner.x, inner.y + 2 + slot as u16, inner.width, 1);
+            buf.set_line(
+                rect.x,
+                rect.y,
+                &Line::styled(
+                    text,
+                    self.selected_style(Focus::Table, index == self.table_selected),
+                ),
+                rect.width,
+            );
             self.hits.table_rows.push((rect, index));
         }
     }
@@ -2769,6 +2829,15 @@ impl App {
     fn panel_lines(&self, goal: &Goal) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
         for panel in &goal.panels {
+            // Written before build 252: no verdict source and no reading orders. A
+            // newer panel that split without a verdict has orders, and draws in full.
+            if panel.source.is_none() && panel.seats.iter().all(|seat| seat.order.is_empty()) {
+                lines.push(Line::raw(format!(
+                    "panel verdict {} (recorded before seat details)",
+                    panel.chosen.as_deref().unwrap_or("none")
+                )));
+                continue;
+            }
             lines.push(Line::raw(format!(
                 "panel verdict {} from {}",
                 panel.chosen.as_deref().unwrap_or("none"),

@@ -25,7 +25,7 @@ keyboard. The `a` key of the help view is not offered, since there is no chat to
 
 `F2` moves the keys between the chat and the cockpit with the copilot.
 
-In both modes the cockpit may start `hydra-puppets` for pending steps and reviews. That helper
+In both modes the cockpit may start `hydra-puppets` for pending steps and reviews, and without a recent or unfinished goal its tasks pane lists live runs and runs started since the cockpit opened, with Enter opening the selected run. That helper
 is the only writer of a goal log. The cockpit does not write policy files; `e` in the policy
 pane opens a file in your editor and the cockpit reloads the set.
 

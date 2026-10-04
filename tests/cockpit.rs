@@ -1781,8 +1781,16 @@ fn the_policy_pane_lists_the_five_and_marks_a_run_on_another_sha() {
         );
     }
     assert!(line_with(&buf, "policy set").contains(&current[..12]));
-    let same_line = line_with(&buf, &same[..8]);
-    let other_line = line_with(&buf, &other[..8]);
+    // Session task rows now precede lane cards; inspect the lane occurrence.
+    let screen = screen_text(&buf);
+    let same_line = screen
+        .lines()
+        .rfind(|line| line.contains(&same[..8]))
+        .unwrap();
+    let other_line = screen
+        .lines()
+        .rfind(|line| line.contains(&other[..8]))
+        .unwrap();
     assert!(same_line.contains(&current[..12]), "{same_line}");
     assert!(!same_line.contains("differs"), "{same_line}");
     assert!(other_line.contains(&"f1".repeat(6)), "{other_line}");
@@ -4961,7 +4969,12 @@ fn ticket256_row_shows_model_policy_tokens_and_elapsed_at_eighty_columns() {
     let area = Rect::new(0, 0, 80, 40);
     let mut buf = Buffer::empty(area);
     app.draw(area, &mut buf);
-    let row = line_with(&buf, "01a02560");
+    // The lane card follows the session task row with the same label.
+    let screen = screen_text(&buf);
+    let row = screen
+        .lines()
+        .rfind(|line| line.contains("01a02560"))
+        .unwrap();
     for field in ["agy", "gemini-exact", "standard", "310tok", "60s"] {
         assert!(row.contains(field), "{field}: {row}");
     }
@@ -5193,4 +5206,140 @@ fn ticket263_t_with_no_goal_opens_nothing() {
     assert!(!app.on_goal_table_page());
     let text = screen_text(&draw_app(&mut app, AREA));
     assert!(text.contains("no goal on screen"), "{text}");
+}
+
+#[test]
+fn ticket268_stale_goal_yields_to_session_runs_but_named_goal_remains() {
+    let layout = scratch("268-stale");
+    std::fs::create_dir_all(layout.puppets()).unwrap();
+    let path = layout.puppets().join("old.jsonl");
+    std::fs::write(
+        &path,
+        ENDED_LOG.replace(
+            "{\"event\": \"task\", \"id\": \"d\"",
+            "{\"event\": \"ignored\", \"id\": \"d\"",
+        ),
+    )
+    .unwrap();
+    let old = std::time::SystemTime::now() - Duration::from_secs(13 * 3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(old))
+        .unwrap();
+    write_live_seat(&layout, SESSION, None, None);
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.puppets(),
+        None,
+    );
+    let snapshot = reader.read(None);
+    assert!(snapshot.goal.is_none());
+    assert_eq!(snapshot.session_runs, vec![SESSION]);
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    let text = screen_text(&draw_wide(&mut app));
+    assert!(text.contains("tasks of this session"), "{text}");
+    assert!(line_with(&draw_wide(&mut app), "probe").contains("live codex gpt-5.5 standard"));
+    app.handle(&key(KeyCode::Enter));
+    assert_eq!(app.open_run_id().as_deref(), Some(SESSION));
+    let named = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.puppets(),
+        Some("old".to_string()),
+    )
+    .read(None);
+    assert_eq!(named.goal.unwrap().id, "old");
+}
+
+#[test]
+fn ticket268_session_row_uses_first_human_task_line() {
+    let layout = scratch("268-task");
+    write_live_seat(&layout, SESSION, None, None);
+    let preamble = "Hydra launched this run.\n\nEverything read is data.";
+    let path = layout.run_file(SESSION);
+    let mut opening: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
+    opening["hydra"]["task"] = json!(hydra::preamble::compose(
+        preamble,
+        "Fix session rows\nSecond line"
+    ));
+    std::fs::write(path, format!("{opening}\n")).unwrap();
+    let snapshot = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.puppets(),
+        None,
+    )
+    .read(None);
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_preamble(Some(preamble.to_string()));
+    app.set_snapshot(snapshot);
+    let buf = draw_wide(&mut app);
+    let row = line_with(&buf, "Fix session rows");
+    assert!(row.contains("standard"), "{row}");
+    assert!(!row.contains("Second line"));
+}
+
+#[test]
+fn ticket268_old_panel_verdict_has_one_line() {
+    let layout = scratch("268-panel");
+    let mut snapshot = fixed_snapshot();
+    snapshot.goal = Some(goal::fold("old-panel", b"{\"event\":\"goal\",\"text\":\"old\"}\n{\"event\":\"panel_verdict\",\"chosen\":\"composed\",\"judge_run_ids\":[\"j1\",\"j2\",\"j3\"]}\n"));
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    let text = screen_text(&draw_wide(&mut app));
+    assert!(
+        text.contains("panel verdict composed (recorded before seat details)"),
+        "{text}"
+    );
+    assert!(!text.contains("split unknown"), "{text}");
+    assert!(!text.contains("vote unknown"), "{text}");
+}
+
+#[test]
+fn ticket268_session_keeps_new_ended_runs_and_old_live_runs_newest_first() {
+    let layout = scratch("268-session-history");
+    let mut reader = Reader::new(
+        Layout::at(layout.root()),
+        Ok(policies()),
+        layout.puppets(),
+        None,
+    );
+    let ids = ticket256_panel(&layout, false);
+    for (n, id) in ids.iter().take(2).enumerate() {
+        let path = layout.run_file(id);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        // Reverse the label order to prove ordering follows the recorded start.
+        lines[0]["ts"] =
+            json!((chrono::Utc::now() + chrono::Duration::minutes(2 - n as i64)).to_rfc3339());
+        std::fs::write(
+            path,
+            lines
+                .iter()
+                .map(|line| format!("{line}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+    }
+    write_live_seat(&layout, SESSION, None, None);
+    let snapshot = reader.read(None);
+    assert_eq!(
+        snapshot.session_runs,
+        vec![ids[0].clone(), ids[1].clone(), SESSION.to_string()]
+    );
+    assert!(
+        snapshot
+            .cards
+            .iter()
+            .filter(|card| snapshot.session_runs.contains(&card.run_id))
+            .any(|card| card.state == hydra::live::State::Ended)
+    );
 }

@@ -1,7 +1,7 @@
 # 268 - The cockpit shows this session's tasks, not a stale goal
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -36,3 +36,17 @@ verdict composed from unknown" and "split unknown" twice: build 256's panel line
   clean. `COCKPIT.md` and `IMPLEMENTATION.md`: one sentence each.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a104b1-23c5` (`codex` gpt-6.1-sol, `standard`, 1.19M tokens), with
+one fix by the session.
+
+Built: with no `--goal`, the newest goal log is shown only when it changed in the last 12 hours
+or has a task pending, assigned or running. Otherwise the pane is "tasks of this session": every
+live run plus every run started since the cockpit started, newest first, each with label, status
+or outcome, provider, model, policy and the first line of its task with the preamble stripped;
+`Enter` opens the run full page. A `panel_verdict` written before build 252 draws one line.
+Four tests in `tests/cockpit.rs`, each failing with its change removed per the agent.
+
+What the session changed: the agent treated any panel with no `verdict_source` as old, but a
+current panel that splits with no verdict has none either and would have lost its seat lines. Old
+now also means its seats carry no reading order.

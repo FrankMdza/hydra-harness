@@ -4033,7 +4033,7 @@ Codex 0.154.0 fixtures carry no provider model, so a launch without one shows `d
 **What it reads.** The left column is one goal's task table, folded in Rust from the goal log
 under `HYDRA_PUPPETS_HOME` or `~/hydra/puppets/`, by `hydra-puppets`'s `fold` rules for the events
 that change a row: `task`, `assignment`, `run`, `run_end`, `human_verdict`. Without `--goal` it
-takes the log that changed last and says so on the status line. A newline-terminated line that is
+shows the newest log only if modified within twelve hours or holding unfinished tasks, otherwise showing live runs and runs started since this cockpit opened with their first human task line. A newline-terminated line that is
 blank or is not JSON makes the goal damaged: the table shows `damaged at line <n>: run
 hydra-puppets repair <id>` and no rows, and `v` and `a` on a Master of Puppets step refuse until
 `repair` has run. The confirmation checks damage again at `y` and closes with the repair

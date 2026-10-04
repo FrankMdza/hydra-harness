@@ -131,6 +131,7 @@ pub struct RunInfo {
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     pub run_info: HashMap<String, RunInfo>,
+    pub session_runs: Vec<String>,
     pub goal: Option<Goal>,
     /// Whether the goal was named with `--goal` rather than picked as the log
     /// that changed last.
@@ -313,6 +314,7 @@ struct RecordInfo {
 
 /// The reader thread's state: where to look and what it has normalized.
 pub struct Reader {
+    started_at: DateTime<Utc>,
     layout: Layout,
     policies: std::result::Result<PolicySet, String>,
     puppets_home: PathBuf,
@@ -339,6 +341,7 @@ impl Reader {
         goal: Option<String>,
     ) -> Self {
         Self {
+            started_at: Utc::now(),
             layout,
             policies: policies.map_err(|err| format!("{err:#}")),
             puppets_home,
@@ -392,10 +395,26 @@ impl Reader {
             read: true,
             ..Snapshot::default()
         };
-        self.read_goal(&mut snapshot);
+        self.read_goal(&mut snapshot, now);
         self.read_steps(&mut snapshot, now);
         snapshot.cards = self.read_cards(&mut snapshot.errors);
         self.read_run_info(&mut snapshot, now);
+        snapshot.session_runs = snapshot
+            .cards
+            .iter()
+            .filter(|card| {
+                card.state == State::Live
+                    || self
+                        .record_info
+                        .get(&card.run_id)
+                        .and_then(|info| info.started)
+                        .is_some_and(|start| start >= self.started_at)
+            })
+            .map(|card| card.run_id.clone())
+            .collect();
+        snapshot.session_runs.sort_by_key(|id| {
+            std::cmp::Reverse(self.record_info.get(id).and_then(|info| info.started))
+        });
         snapshot.spend = self.spend(&snapshot.cards, now, &mut snapshot.errors);
         match crate::approve::pending(&self.layout) {
             Ok(requests) => snapshot.requests = requests,
@@ -437,7 +456,7 @@ impl Reader {
         }
     }
 
-    fn read_goal(&self, snapshot: &mut Snapshot) {
+    fn read_goal(&self, snapshot: &mut Snapshot, now: DateTime<Utc>) {
         let path = match &self.goal {
             Some(id) => self.puppets_home.join(format!("{id}.jsonl")),
             None => match goal::latest(&self.puppets_home) {
@@ -458,7 +477,23 @@ impl Reader {
             return;
         }
         match goal::read(&path) {
-            Ok(goal) => snapshot.goal = Some(goal),
+            Ok(goal) => {
+                let recent = path
+                    .metadata()
+                    .and_then(|meta| meta.modified())
+                    .ok()
+                    .is_some_and(|modified| {
+                        now.signed_duration_since(DateTime::<Utc>::from(modified))
+                            < chrono::TimeDelta::hours(12)
+                    });
+                let active = goal
+                    .rows
+                    .iter()
+                    .any(|row| matches!(row.status.as_str(), "pending" | "assigned" | "running"));
+                if self.goal.is_some() || recent || active {
+                    snapshot.goal = Some(goal);
+                }
+            }
             Err(err) => snapshot.goal_note = Some(format!("{err:#}")),
         }
     }
