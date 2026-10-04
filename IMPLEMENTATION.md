@@ -695,7 +695,8 @@ every policy before ticket 40 grew the list to the full deny list the section ab
 describes. Five of the original seven are real files or directories: `policies/`,
 `~/hydra/runs/`, the per-spawn gate script, `config/preamble.md` from ticket 02 and
 `config/mcp.md` from ticket 08. The other two are named at `config/env-allowlist.json`
-and `config/export-allowlist.json`, and **neither of those files exists**. The
+and `config/export-allowlist.json`. The second exists since 2026-10-03 (`376af61`, the
+human's: this repository only, to his own cloud project for training); the first does not. The
 environment allowlist is still Rust code in `src/env.rs`, which 15.2 protects at
 admission rather than at run time, so the config
 the table means has no file. Denying a write to a path that holds nothing is the same
