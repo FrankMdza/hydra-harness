@@ -24,4 +24,14 @@ say whether cursor's hook sees it at all. Fix what is a leak, with a test that f
 reader bug likewise. A run cannot read `~/hydra/runs`: the session copies the five records into
 the worktree's scratch before launch, or runs the reading part itself.
 
+## Lead, from the session
+
+In `01a10415-de88` the refused call is `cd /Users/USER/hydra/worktrees/01a10415-de88-.../docs/costos; uv run ...`:
+the agent entered its own worktree by absolute path, and the command ran and printed its result.
+Two readings: the live gate let it through, which is a leak, since the build tasks' own template
+says a shell command spelling its worktree's absolute path is refused; or today's replay refuses
+what the gate compiled for that run allowed, because the protected-path rule in `gate.py` moved
+after it ran, and `StalePolicy` (build 49) notices a moved policy set but not a moved gate
+script. `run_start.gate_sha` against the sha of the gate the replay compiles tells them apart.
+
 ## Outcome
