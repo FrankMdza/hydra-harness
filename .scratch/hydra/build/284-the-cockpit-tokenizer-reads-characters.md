@@ -1,7 +1,7 @@
 # 284 - The cockpit's tokenizer reads characters, and its scroll clamps
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

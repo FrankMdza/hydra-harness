@@ -1,7 +1,7 @@
 # 280 - One home per small helper
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
