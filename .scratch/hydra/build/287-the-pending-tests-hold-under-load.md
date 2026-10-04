@@ -1,7 +1,7 @@
 # 287 - The cockpit's pending tests hold under load
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -20,3 +20,15 @@ or give the budget a test-only value large enough, without weakening what the te
   a row. fmt, clippy, `tests/cockpit.rs` clean.
 
 ## Outcome
+
+Resolved, in part, 2026-10-04 by run `01a10566-33ba` (`cursor-agent` cursor-grok-4.6-high,
+`standard`, 0.98M tokens), applied without changes.
+
+Built: `Reader::with_pending_budget`; production keeps `PENDING_BUDGET`, two seconds, and the
+suite's `steps_reader` gives the stub thirty, while the hang test sets the two seconds back and
+still checks the kill. The four ran ten times each under eight `yes` processes and passed.
+
+Not done: the original failure was not reproduced (under that load each finished in 0.24 to
+0.54 s, inside the old budget too), and `exit_two` and `exit_three` also wait on `APPROVE_BUDGET`
+in `src/cockpit/app.rs`, which another run held. If the four fail again in a loaded full suite,
+that budget is the next place to look.

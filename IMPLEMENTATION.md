@@ -4265,7 +4265,9 @@ that `n` writes nothing.
 on in Master of Puppets, labeled by goal, kind and ref, below the seat requests. The reader runs
 `hydra-puppets pending <goal> --json` on the goal the table shows, at most once per 10 seconds and
 again when that goal changes, with a 2 second budget; a helper that has not answered by then is
-killed with its process group and the error shows on the status line. An item whose argv does not
+killed with its process group and the error shows on the status line. The production budget stays
+two seconds. `Reader::with_pending_budget` lets the suite name a longer wait so a stub `pending`
+still finishes when the machine is loaded, and the hang test keeps the production two seconds. An item whose argv does not
 end in `--expect-revision` and its own revision is refused rather than shown. `a` on a step opens
 a confirmation with the exact argv, and `y` runs it as a child with the cockpit's `HYDRA_ROOT` and
 puppets home, waits at most 5 seconds, and shows the helper's last line. Exit 2 reads `the goal

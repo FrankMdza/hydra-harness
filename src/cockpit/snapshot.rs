@@ -366,6 +366,10 @@ pub struct Reader {
     /// The line to show in place of the steps when there is no helper to ask.
     no_puppets: Option<String>,
     pending: Option<PendingRead>,
+    /// How long [`Self::ask_pending`] waits. Production stays
+    /// [`PENDING_BUDGET`]; the suite names a longer one so a loaded
+    /// machine still finishes the stub.
+    pending_budget: Duration,
 }
 
 impl Reader {
@@ -391,6 +395,7 @@ impl Reader {
             puppets: None,
             no_puppets: None,
             pending: None,
+            pending_budget: PENDING_BUDGET,
         }
     }
 
@@ -409,6 +414,13 @@ impl Reader {
     /// The helper whose `pending` fills the waiting lane with steps.
     pub fn with_puppets(mut self, script: PathBuf) -> Self {
         self.puppets = Some(script);
+        self
+    }
+
+    /// How long [`Self::ask_pending`] waits for the helper. Production
+    /// keeps [`PENDING_BUDGET`].
+    pub fn with_pending_budget(mut self, budget: Duration) -> Self {
+        self.pending_budget = budget;
         self
     }
 
@@ -648,7 +660,7 @@ impl Reader {
             .args(["pending", goal, "--json"])
             .env("HYDRA_ROOT", self.layout.root())
             .env("HYDRA_PUPPETS_HOME", &self.puppets_home);
-        match super::bounded(command, PENDING_BUDGET)
+        match super::bounded(command, self.pending_budget)
             .with_context(|| format!("hydra-puppets pending {goal}"))?
         {
             (super::Bounded::Exited(status, _), out) if status.success() => parse_steps(goal, &out),
@@ -664,7 +676,7 @@ impl Reader {
                 let _ = child.wait();
                 anyhow::bail!(
                     "hydra-puppets pending {goal} did not answer in {}s",
-                    PENDING_BUDGET.as_secs()
+                    self.pending_budget.as_secs()
                 )
             }
         }

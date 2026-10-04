@@ -17,7 +17,8 @@ use hydra::approve::Pending;
 use hydra::cockpit::app::{App, Effect, Focus, Opened};
 use hydra::cockpit::goal::{self, TaskRow};
 use hydra::cockpit::snapshot::{
-    CallLine, Card, DETAIL_CALLS, Lane, Reader, RunInfo, Snapshot, Spend, lane_of, spend_text,
+    CallLine, Card, DETAIL_CALLS, Lane, PENDING_BUDGET, Reader, RunInfo, Snapshot, Spend, lane_of,
+    spend_text,
 };
 use hydra::cockpit::window::Budgets;
 use hydra::live::State;
@@ -3567,7 +3568,10 @@ fn steps_reader(name: &str, pending: &str, approve: &str) -> (Layout, PathBuf, R
         home,
         Some("g2".to_string()),
     )
-    .with_puppets(stub.clone());
+    .with_puppets(stub.clone())
+    // Production stays two seconds. Under load the stub can take longer
+    // to spawn, and these tests check the helper's answer, not the kill.
+    .with_pending_budget(Duration::from_secs(30));
     (layout, stub, reader)
 }
 
@@ -3622,7 +3626,8 @@ fn pending_runs_on_the_shown_goal_at_most_every_ten_seconds() {
 
 #[test]
 fn a_pending_that_hangs_is_given_up_after_two_seconds() {
-    let (layout, _, mut reader) = steps_reader("steps-hang", "sleep 10", "");
+    let (layout, _, reader) = steps_reader("steps-hang", "sleep 10", "");
+    let mut reader = reader.with_pending_budget(PENDING_BUDGET);
     let start = std::time::Instant::now();
     let snapshot = reader.read_at(None, noon());
     assert!(
