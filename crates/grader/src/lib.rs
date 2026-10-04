@@ -17,6 +17,9 @@
 //! (`baseline.rs`) and its two commands (`baseline_cli.rs`), which the binary runs as
 //! `hydra-grader baseline train` and `hydra-grader baseline score`.
 //!
+//! Build ticket 289 adds `hydra-grader system-one`: a logistic head over an embedding of
+//! the task plus the record features, with a temperature fitted on a later time slice.
+//!
 //! Build ticket 215 ported `monitor.py` whole (`monitor.rs`) and its three commands
 //! (`monitor_cli.rs`), which the binary runs as `hydra-grader monitor features`, `train`
 //! and `score`.
@@ -49,8 +52,9 @@ pub mod monitor_cli;
 pub mod originals;
 pub mod originals_cli;
 pub mod queue;
-pub mod triage;
-pub mod triage_cli;
-
 pub mod sheet;
 pub mod sheet_cli;
+pub mod system_one;
+pub mod system_one_cli;
+pub mod triage;
+pub mod triage_cli;

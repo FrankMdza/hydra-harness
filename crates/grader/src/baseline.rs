@@ -158,7 +158,7 @@ fn int_base16(codes: &[u32]) -> Option<u64> {
 
 /// `launched_at(row["run_id"])` as a moment: a run id is a UUIDv7, so its first 48 bits are
 /// the launch time in milliseconds.
-fn launched_at(row: &Value) -> Result<i128> {
+pub(crate) fn launched_at(row: &Value) -> Result<i128> {
     let Value::Str(run_id) = py::item(row, "run_id")? else {
         bail!(
             "AttributeError: '{}' object has no attribute 'replace'",
@@ -334,7 +334,7 @@ pub(crate) fn vector(
     Ok(out)
 }
 
-fn sigmoid(z: f64) -> f64 {
+pub(crate) fn sigmoid(z: f64) -> f64 {
     if z >= 0.0 {
         1.0 / (1.0 + math::exp(-z))
     } else {
@@ -345,7 +345,7 @@ fn sigmoid(z: f64) -> f64 {
 
 /// `bias + sum(w * v for w, v in zip(weights, x))`. `products` is the caller's buffer, so
 /// the fit does not allocate one per row per step.
-fn logit(weights: &[f64], bias: f64, x: &[f64], products: &mut Vec<f64>) -> f64 {
+pub(crate) fn logit(weights: &[f64], bias: f64, x: &[f64], products: &mut Vec<f64>) -> f64 {
     products.clear();
     products.extend(weights.iter().zip(x).map(|(w, v)| w * v));
     bias + fsum_like_python(products)
@@ -381,7 +381,7 @@ fn py_max(a: f64, b: f64) -> f64 {
     if b > a { b } else { a }
 }
 
-fn log_loss(ps: &[f64], ys: &[u8]) -> f64 {
+pub(crate) fn log_loss(ps: &[f64], ys: &[u8]) -> f64 {
     let eps = 1e-12;
     let terms: Vec<f64> = ps
         .iter()
@@ -394,7 +394,7 @@ fn log_loss(ps: &[f64], ys: &[u8]) -> f64 {
     -fsum_like_python(&terms) / ys.len() as f64
 }
 
-fn brier(ps: &[f64], ys: &[u8]) -> f64 {
+pub(crate) fn brier(ps: &[f64], ys: &[u8]) -> f64 {
     let terms: Vec<f64> = ps
         .iter()
         .zip(ys)
@@ -403,7 +403,7 @@ fn brier(ps: &[f64], ys: &[u8]) -> f64 {
     fsum_like_python(&terms) / ys.len() as f64
 }
 
-fn rank_auc(ps: &[f64], ys: &[u8]) -> Option<f64> {
+pub(crate) fn rank_auc(ps: &[f64], ys: &[u8]) -> Option<f64> {
     let of = |wanted: bool| -> Vec<f64> {
         ps.iter()
             .zip(ys)

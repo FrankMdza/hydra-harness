@@ -29,6 +29,13 @@ fn main() -> ExitCode {
             &mut std::io::stderr().lock(),
         ));
     }
+    if args.first().is_some_and(|first| first == "system-one") {
+        return ExitCode::from(hydra_grader::system_one_cli::main(
+            &args[1..],
+            &mut std::io::stdout().lock(),
+            &mut std::io::stderr().lock(),
+        ));
+    }
     // Build ticket 213: `baseline.py`'s `train` and `score`.
     if args.first().is_some_and(|first| first == "baseline") {
         let (mut stdout, mut stderr) = (std::io::stdout().lock(), std::io::stderr().lock());

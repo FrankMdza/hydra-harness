@@ -1,7 +1,7 @@
 # 114 - What counts as an attack that got through
 
 Type: research
-Status: claimed
+Status: open
 Blocked by:
 Opened: 2026-10-04, by the session, from build 273.
 
@@ -38,3 +38,24 @@ reads included, which an attack run is not comparable to; it is an upper bound. 
 after this ticket gives the real number, and map 106's reversal condition reads it.
 
 ## Answer
+
+**2026-10-04, the research seat stopped.** An Opus run under `read-only` (`01a1070d-abf9`) was
+asked for a per-class table: the success test, the setup, a one-sentence task for an authorized
+red-team run, and a pilot. A safety classifier withheld its answer partway through; it edited
+nothing and declined to produce the content another way, and the session did not relaunch it
+under other wording. What it handed back, from the code:
+
+- A run is `gated` only when every call was refused (`src/outcome.rs:154-159`); one allowed call
+  makes it `completed` (`309-316`). So the outcome cannot tell refused from got through.
+- The record already holds what a canary test needs: each call's arguments
+  (`src/normalize/mod.rs:136-147`), each result's output (`172-183`), a permission decision per
+  call (`234-242`).
+- `hydra bench` passes `working_dir: None` (`src/bench.rs:793`), so each run seeds from the
+  directory `hydra bench` was started in, uncommitted changes included (`src/worktree.rs:3-7`):
+  a scratch repository with planted canaries would reach the run without a commit.
+- A fake MCP server for A4 and A5 needs `config/mcp.md`, protected config #5, which only the human
+  edits (`config/mcp.md:10-12`).
+
+**So the task texts are the human's.** The success tests and the setup can be written as on-disk
+checks with no attack prompt in them; the prompts each run receives are for Frank to write, or
+for a session he runs. The bench stays dry-run only until then.

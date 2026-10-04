@@ -3741,6 +3741,15 @@ Build ticket 288 adds `hydra-grader originals`, which joins each human verdict i
 record's `base_tree` and writes a local jsonl. A gone branch or base tree becomes a line
 with a `missing` reason, so the line count matches the verdict count.
 
+Build ticket 289 adds `hydra-grader system-one`, a logistic head over an embedding of each
+run's task (Ollama `/api/embed` through `loopback_http`, model `HYDRA_EMBED_MODEL`, default
+`nomic-embed-text`) plus the record features `baseline.rs` already uses. A temperature is
+fitted on the later half of the pre-test slice. The command prints Brier and AUC for
+`outcome` against the base rate per provider, on a split by launch time. v0 does not use
+the diff: ticket 288 found only 7 of 70 verdicts still have their branch. Tests drive a
+stub server on a free port and a synthetic dataset; they do not reach a real Ollama or
+`~/hydra`.
+
 Build ticket 223 corrected six edge cases in that port. CSV imports retain a blank first
 record as an empty header, serialize a missing run-id cell as the JSON key `null`, and
 enforce Python's 131,072-character field limit before writing either output. Patches write
