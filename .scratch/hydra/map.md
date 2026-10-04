@@ -344,6 +344,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [107 - Orchestrator cost with variance, and one entry point](issues/107-orchestrator-cost-with-variance-and-one-entry-point.md): resolved 2026-10-03 by a panel. A fixed goal set plus real sessions; Master of Puppets the one entry point.
 - [109 - A System 1 of our own](issues/109-a-system-one-of-our-own.md): resolved 2026-10-04 by Fable research. Labels, not technique, are missing; a logistic head over embeddings first, JEPA later; Jev ranks diffs; one answer withheld.
 - [111 - Which small local model calls tools](issues/111-which-small-model-calls-tools.md): resolved 2026-10-04 by measurement. Qwen 2.5 3B and Ministral 3B 10 of 10, Llama 3.2 3B 8, Granite 4 micro 7; map 88 reopens as map 112.
+- [113 - Does the task cross into sft.jsonl](issues/113-does-the-task-cross-into-sft.md): resolved 2026-10-04 by a panel, 3 to 1. The whole task crosses as the first user turn, redacted, its paths counted toward eligibility.
 
 ## Not yet specified
 
