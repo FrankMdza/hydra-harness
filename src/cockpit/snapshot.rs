@@ -22,6 +22,7 @@ use chrono::{DateTime, Utc};
 
 use super::call_head::call_inputs;
 use super::goal::{self, Goal};
+use super::graph::{GraphLine, graph_of};
 use super::window;
 
 pub use super::call_head::REVEAL_SECONDS;
@@ -159,6 +160,9 @@ pub struct Snapshot {
     /// The last [`DETAIL_CALLS`] tool calls of the run the detail has open,
     /// oldest first. Build ticket 178.
     pub calls: Option<(String, Vec<CallLine>)>,
+    /// Every event of the same run as the run graph draws it, from the same
+    /// walk. Build ticket 271.
+    pub graph: Option<(String, Vec<GraphLine>)>,
     pub errors: Vec<String>,
     /// False only on the empty snapshot drawn before the first read lands.
     pub read: bool,
@@ -320,13 +324,14 @@ struct Ended {
     note: Option<String>,
 }
 
-/// The open run's calls as last read, kept while the file keeps its length
+/// The open run's calls and graph as last read, kept while the file keeps its length
 /// and its line 0. One slot: opening another run drops it.
 struct OpenCalls {
     run_id: String,
     len: u64,
     line_zero: Option<String>,
     calls: Vec<CallLine>,
+    graph: Vec<GraphLine>,
 }
 
 #[derive(Clone)]
@@ -474,7 +479,9 @@ impl Reader {
                 Ok(lines) => snapshot.tail = Some((run_id.to_string(), lines)),
                 Err(err) => snapshot.errors.push(format!("{err:#}")),
             }
-            snapshot.calls = Some((run_id.to_string(), self.open_calls(run_id)));
+            let (calls, graph) = self.open_calls(run_id);
+            snapshot.calls = Some((run_id.to_string(), calls));
+            snapshot.graph = Some((run_id.to_string(), graph));
         }
         snapshot
     }
@@ -855,12 +862,12 @@ impl Reader {
             .and_then(|usage| usage.counts);
     }
 
-    /// The open run's last calls, read again only when its file changed
+    /// The open run's last calls and its graph, read again only when its file changed
     /// length or line 0, as [`Self::count_live`] does for usage.
     ///
     /// **Off the walk, never the replay.** A decision is what the call's
     /// result says, which is why this needs no policy set: see [`calls_of`].
-    fn open_calls(&mut self, run_id: &str) -> Vec<CallLine> {
+    fn open_calls(&mut self, run_id: &str) -> (Vec<CallLine>, Vec<GraphLine>) {
         let path = self.layout.run_file(run_id);
         let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
         let line_zero = line_zero(&path);
@@ -869,18 +876,19 @@ impl Reader {
             && kept.len == len
             && kept.line_zero == line_zero
         {
-            return kept.calls.clone();
+            return (kept.calls.clone(), kept.graph.clone());
         }
-        let calls = std::fs::read_to_string(&path)
-            .map(|text| calls_of(&text))
+        let (calls, graph) = std::fs::read_to_string(&path)
+            .map(|text| open_run_of(&text))
             .unwrap_or_default();
         self.calls = Some(OpenCalls {
             run_id: run_id.to_string(),
             len,
             line_zero,
             calls: calls.clone(),
+            graph: graph.clone(),
         });
-        calls
+        (calls, graph)
     }
 
     /// The header's entries, one per provider with a live card.
@@ -1005,15 +1013,23 @@ impl Reader {
 /// call of its id still open, in file order, and a result with none is
 /// dropped. A call on a line the secret sweep flagged shows no input.
 pub fn calls_of(text: &str) -> Vec<CallLine> {
-    use crate::normalize::{Event, ResultStatus};
+    open_run_of(text).0
+}
+
+/// The open run's last calls and its graph, from one walk of `text`.
+pub(super) fn open_run_of(text: &str) -> (Vec<CallLine>, Vec<GraphLine>) {
+    use crate::normalize::Event;
     let flagged = flagged_seqs(text);
+    let events = crate::normalize::events_so_far(text);
     let mut calls: Vec<CallLine> = Vec::new();
-    let mut open: HashMap<String, Vec<usize>> = HashMap::new();
-    for event in crate::normalize::events_so_far(text) {
+    let mut open: HashMap<&str, Vec<usize>> = HashMap::new();
+    for event in &events {
         match event {
             Event::ToolCall(call) => {
                 if !call.call_id.is_empty() {
-                    open.entry(call.call_id).or_default().push(calls.len());
+                    open.entry(call.call_id.as_str())
+                        .or_default()
+                        .push(calls.len());
                 }
                 let (input, full_input) = if flagged.contains(&call.seq) {
                     (
@@ -1024,32 +1040,39 @@ pub fn calls_of(text: &str) -> Vec<CallLine> {
                     call_inputs(&call.name, &call.arguments)
                 };
                 calls.push(CallLine {
-                    name: call.name,
+                    name: call.name.clone(),
                     input,
                     full_input,
                     decision: None,
                 });
             }
             Event::ToolResult(result) => {
-                let Some(index) = open.get_mut(&result.call_id).and_then(Vec::pop) else {
+                let Some(index) = open.get_mut(result.call_id.as_str()).and_then(Vec::pop) else {
                     continue;
                 };
-                let decision = match crate::normalize::hydra_voice(&result.output) {
-                    Some(code) if code != "allow" => format!("refused {code}"),
-                    _ => match result.status {
-                        ResultStatus::Ok => "allowed",
-                        ResultStatus::Error => "error",
-                        ResultStatus::Unclassified => "unclassified",
-                    }
-                    .to_string(),
-                };
-                calls[index].decision = Some(decision);
+                calls[index].decision = Some(decision_of(result));
             }
             _ => {}
         }
     }
+    let graph = graph_of(&events, &flagged, decision_of);
     let from = calls.len().saturating_sub(DETAIL_CALLS);
-    calls.split_off(from)
+    (calls.split_off(from), graph)
+}
+
+/// What a result says of its call: `refused <code>` for a gate refusal,
+/// otherwise its status.
+fn decision_of(result: &crate::normalize::ToolResult) -> String {
+    use crate::normalize::ResultStatus;
+    match crate::normalize::hydra_voice(&result.output) {
+        Some(code) if code != "allow" => format!("refused {code}"),
+        _ => match result.status {
+            ResultStatus::Ok => "allowed",
+            ResultStatus::Error => "error",
+            ResultStatus::Unclassified => "unclassified",
+        }
+        .to_string(),
+    }
 }
 
 /// The `seq` of every line whose envelope carries a `secret_flag`.

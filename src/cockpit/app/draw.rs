@@ -90,6 +90,9 @@ impl App {
         if self.goal_table_open {
             self.draw_goal_table_page(main, buf);
         }
+        if self.graph_open.is_some() {
+            self.draw_graph_page(main, buf);
+        }
     }
 
     /// The policy pane: the five files, the set's sha now, and each live
@@ -849,6 +852,25 @@ impl App {
             .block(block)
             .wrap(Wrap { trim: false })
             .scroll((self.goal_table_scroll, 0))
+            .render(area, buf);
+    }
+
+    /// The run graph, opened with `c`, build ticket 271.
+    fn draw_graph_page(&mut self, area: Rect, buf: &mut Buffer) {
+        self.hits.graph_page = area;
+        self.graph_area = area;
+        Clear.render(area, buf);
+        let Some(id) = self.graph_open.as_deref() else {
+            return;
+        };
+        let title = format!(" graph of {} ", short(id));
+        let block = Block::bordered()
+            .title(title)
+            .title_style(Style::default().add_modifier(Modifier::BOLD));
+        Paragraph::new(self.graph_lines())
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .scroll((self.graph_scroll, 0))
             .render(area, buf);
     }
 

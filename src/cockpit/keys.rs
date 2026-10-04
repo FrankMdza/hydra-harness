@@ -40,6 +40,7 @@ pub enum MainKey {
     ToggleReveal,
     ToggleHelp,
     ToggleGoalTable,
+    ToggleGraph,
 }
 
 /// One line in the help overlay and the codes it dispatches.
@@ -95,6 +96,12 @@ pub const HELP: &[HelpEntry] = &[
         keys: "t",
         description: "open the shown goal's task table as a full page; t again or Esc returns",
         bindings: &[(KeyCode::Char('t'), MainKey::ToggleGoalTable)],
+    },
+    HelpEntry {
+        group: HelpGroup::Opening,
+        keys: "c",
+        description: "open the selected run's graph, every event with each call's result under it, as a full page; c again or Esc returns",
+        bindings: &[(KeyCode::Char('c'), MainKey::ToggleGraph)],
     },
     HelpEntry {
         group: HelpGroup::Views,
@@ -295,6 +302,7 @@ mod tests {
         MainKey::ToggleReveal,
         MainKey::ToggleHelp,
         MainKey::ToggleGoalTable,
+        MainKey::ToggleGraph,
     ];
 
     #[test]

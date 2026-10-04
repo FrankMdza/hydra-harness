@@ -231,8 +231,9 @@ fn subset(source: &Value, keys: &[&str]) -> Result<Dict> {
 }
 
 /// `facts`: read from the record's own lines. Refusals and the last assistant text are read
-/// from `claude`'s frame shape only, so other providers get none.
-fn facts(item: &Scanned, root: &Path) -> Result<Facts> {
+/// from `claude`'s frame shape only, so other providers get none. `current` is today's
+/// preamble, read once per build.
+fn facts(item: &Scanned, current: Option<&PyStr>) -> Result<Facts> {
     let (first, lines) = (&item.first, &item.lines);
     let start = or_empty(get(first, "hydra")?);
     let mut end = None;
@@ -328,16 +329,13 @@ fn facts(item: &Scanned, root: &Path) -> Result<Facts> {
     } else {
         Value::text("")
     };
-    // The preamble is read for every record, before the task is looked at, as the
-    // arguments of `strip_preamble` are.
-    let current = records::current_preamble(root)?;
     let Value::Str(task) = task else {
         bail!(
             "AttributeError: '{}' object has no attribute 'startswith'",
             py::type_name(&task)
         );
     };
-    let (task, _) = records::strip_preamble(&task, current.as_ref());
+    let (task, _) = records::strip_preamble(&task, current);
     let start_shown = subset(&start, &["command", "policy", "launch_mode", "task"])?;
     let end_shown = match &end {
         Some(end) => Some(subset(end, &["exit_code", "error", "refusal"])?),
@@ -571,23 +569,43 @@ fn spelled(prefix: &str, run_id: &Value) -> PyStr {
     out
 }
 
+/// SHA-256 of `apprentice-1:<template>:<run id>` as UTF-8. Lowercase hex of that digest
+/// sorts the same as the raw bytes, so the sort key is the digest itself.
+fn pick_digest(name: &str, run_id: &Value) -> Result<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(SEED.as_bytes());
+    hasher.update(b":");
+    hasher.update(name.as_bytes());
+    hasher.update(b":");
+    match run_id {
+        Value::Str(s) => {
+            let Some(text) = s.to_utf8() else {
+                bail!(
+                    "UnicodeEncodeError: 'utf-8' codec can't encode a surrogate: surrogates not allowed"
+                );
+            };
+            hasher.update(text.as_bytes());
+        }
+        other => {
+            let text = py::str(other);
+            let Some(text) = text.to_utf8() else {
+                bail!(
+                    "UnicodeEncodeError: 'utf-8' codec can't encode a surrogate: surrogates not allowed"
+                );
+            };
+            hasher.update(text.as_bytes());
+        }
+    }
+    Ok(hasher.finalize().into())
+}
+
 /// `_pick`: the facts of `pool` ordered by the hash of the seed, the template and the run id.
 fn pick<'a>(pool: Vec<&'a Facts>, name: &str) -> Result<Vec<&'a Facts>> {
     let mut keyed = Vec::with_capacity(pool.len());
     for f in pool {
-        let text = spelled(&format!("{SEED}:{name}:"), &f.run_id);
-        let Some(text) = text.to_utf8() else {
-            bail!(
-                "UnicodeEncodeError: 'utf-8' codec can't encode a surrogate: surrogates not allowed"
-            );
-        };
-        let hex: String = Sha256::digest(text.as_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        keyed.push((hex, f));
+        keyed.push((pick_digest(name, &f.run_id)?, f));
     }
-    keyed.sort_by(|a, b| a.0.cmp(&b.0));
+    keyed.sort_by_key(|a| a.0);
     Ok(keyed.into_iter().map(|(_, f)| f).collect())
 }
 
@@ -638,9 +656,10 @@ pub fn build_bank(
     stderr: &mut dyn Write,
 ) -> Result<Vec<Value>> {
     let n = bound(n);
+    let current = records::current_preamble(root)?;
     let mut all = Vec::new();
     for item in list_records(runs, stderr)? {
-        all.push(facts(&item, root)?);
+        all.push(facts(&item, current.as_ref())?);
     }
     let mut bank = Vec::new();
     for (class, templates) in [("verifiable", &VERIFIABLE[..]), ("open", &OPEN[..])] {
@@ -729,5 +748,132 @@ mod tests {
         let text = PyStr::from("é".repeat(5).as_str());
         assert_eq!(cut(&text, 3), PyStr::from("ééé\n[cut: 2 more characters]"));
         assert_eq!(cut(&text, 5), text);
+    }
+
+    /// A few hundred records sized like a live corpus: most small, many with tool
+    /// results, a handful over 1 MB. Ignored so debug tests stay cheap; the ticket
+    /// times this in release.
+    #[test]
+    #[ignore]
+    fn bank_build_times_a_synthetic_corpus() {
+        use std::time::Instant;
+
+        let root = std::env::temp_dir().join(format!(
+            "hydra-apprentice-bank-speed-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("runs")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
+        std::fs::write(
+            root.join("config/preamble.md"),
+            "Hydra launched this run and wrote its instructions at spawn.\n",
+        )
+        .unwrap();
+
+        let n_records = 250;
+        let mut bytes = 0usize;
+        for i in 0..n_records {
+            let id = format!("00000000-0000-7000-8000-{i:012}");
+            let body = synthetic_record(&id, i);
+            bytes += body.len();
+            std::fs::write(root.join("runs").join(format!("{id}.jsonl")), body).unwrap();
+        }
+        eprintln!(
+            "corpus: {n_records} records, {:.1} MB",
+            bytes as f64 / 1_000_000.0
+        );
+
+        let runs = root.join("runs");
+        let mut stderr = Vec::new();
+
+        let t0 = Instant::now();
+        let items = list_records(&runs, &mut stderr).unwrap();
+        let list_ms = t0.elapsed();
+
+        let t1 = Instant::now();
+        let mut all = Vec::new();
+        let current = records::current_preamble(&root).unwrap();
+        for item in &items {
+            all.push(facts(item, current.as_ref()).unwrap());
+        }
+        let facts_ms = t1.elapsed();
+
+        let t2 = Instant::now();
+        for _ in 0..items.len() {
+            let _ = records::current_preamble(&root).unwrap();
+        }
+        let preamble_ms = t2.elapsed();
+
+        let t3 = Instant::now();
+        for template in VERIFIABLE.iter().chain(OPEN.iter()) {
+            let pool: Vec<&Facts> = all.iter().filter(|f| (template.applies)(f)).collect();
+            let _ = pick(pool, template.name).unwrap();
+        }
+        let pick_ms = t3.elapsed();
+
+        let t4 = Instant::now();
+        let bank = build_bank(&runs, &root, &Value::Int(200), &mut stderr).unwrap();
+        let build_ms = t4.elapsed();
+
+        let t5 = Instant::now();
+        let out = root.join("bank.jsonl");
+        records::write_jsonl(&out, &bank).unwrap();
+        let write_ms = t5.elapsed();
+
+        eprintln!(
+            "list_records (scan) {list_ms:?}\nfacts {facts_ms:?}\ncurrent_preamble x{} {preamble_ms:?}\npick {pick_ms:?}\nbuild_bank {build_ms:?} ({} tasks)\nwrite_jsonl {write_ms:?}",
+            items.len(),
+            bank.len()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(!items.is_empty());
+        assert!(!bank.is_empty());
+    }
+
+    fn synthetic_record(id: &str, i: usize) -> String {
+        let task = format!("task {i}: do the work");
+        let start = format!(
+            r#"{{"hydra":{{"command":"run","launch_mode":"recorded","policy":"standard","task":"{task}","type":"run_start"}},"model":null,"provider":"claude","run_id":"{id}","seq":0,"ts":"2026-09-05T20:51:39.370Z"}}"#
+        );
+        let init = format!(
+            r#"{{"model":null,"provider":"claude","raw":{{"model":"claude-opus-5","type":"system"}},"run_id":"{id}","seq":1,"ts":"2026-09-05T20:51:39.370Z"}}"#
+        );
+        let end = format!(
+            r#"{{"hydra":{{"ended_at":"2026-09-05T20:52:01.905Z","error":null,"exit_code":0,"refusal":null,"type":"run_end"}},"model":null,"provider":"claude","run_id":"{id}","seq":99,"ts":"2026-09-05T20:51:39.370Z"}}"#
+        );
+        let mut lines = vec![start, init];
+        let (rounds, payload) = if i < 8 {
+            (12usize, 120_000usize)
+        } else if i.is_multiple_of(5) {
+            (8usize, 800usize)
+        } else {
+            (3usize, 40usize)
+        };
+        let blob = "x".repeat(payload);
+        for r in 0..rounds {
+            let tool = format!("toolu_{r}");
+            lines.push(format!(
+                r#"{{"model":null,"provider":"claude","raw":{{"message":{{"content":[{{"id":"{tool}","input":{{"command":"echo {r}"}},"name":"Bash","type":"tool_use"}}],"id":"msg_{r}","role":"assistant"}},"type":"assistant"}},"run_id":"{id}","seq":{},"ts":"2026-09-05T20:51:39.370Z"}}"#,
+                2 + r * 2
+            ));
+            let (is_error, content) = if r == 0 {
+                ("true", "hydra/capability: denied")
+            } else {
+                ("false", blob.as_str())
+            };
+            lines.push(format!(
+                r#"{{"model":null,"provider":"claude","raw":{{"message":{{"content":[{{"content":"{content}","is_error":{is_error},"tool_use_id":"{tool}","type":"tool_result"}}],"role":"user"}},"type":"user"}},"run_id":"{id}","seq":{},"ts":"2026-09-05T20:51:39.370Z"}}"#,
+                3 + r * 2
+            ));
+        }
+        lines.push(format!(
+            r#"{{"model":null,"provider":"claude","raw":{{"message":{{"content":[{{"text":"done {i}","type":"text"}}],"id":"msg_end","role":"assistant"}},"type":"assistant"}},"run_id":"{id}","seq":90,"ts":"2026-09-05T20:51:39.370Z"}}"#
+        ));
+        lines.push(end);
+        let mut out = lines.join("\n");
+        out.push('\n');
+        out
     }
 }

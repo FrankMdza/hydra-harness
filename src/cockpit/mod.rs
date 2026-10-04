@@ -42,6 +42,7 @@ pub mod app;
 pub mod call_head;
 pub mod chat;
 pub mod goal;
+pub mod graph;
 pub mod host;
 pub mod keys;
 pub mod mascot;

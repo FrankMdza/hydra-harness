@@ -44,6 +44,7 @@ Opening:
 | Enter, Esc | open the selected run as a full page, or a request or step in the detail pane; Esc closes or leaves the page |
 | Left, Backspace | on a full-page run, back one step; Esc returns to the cockpit |
 | t | open the shown goal's task table as a full page; t again or Esc returns |
+| c | open the selected run's graph, every event with each call's result under it, as a full page; c again or Esc returns |
 
 Scrolling the detail or a full-page run:
 
@@ -109,7 +110,9 @@ show even with no parent recorded. `m` then `y` on a live card stops that seat t
 `hydra stop` does. With `--session`, only runs launched as seats of this chat's session can be
 stopped from `m`; the cockpit leaves an unsent note in the chat when a stop succeeds. To read
 what a run did, open it and use `r` to switch between summarized tool calls and the raw tail of
-the record, and `i` to reveal a hidden input when the policy allows. Run rows show provider,
+the record, and `i` to reveal a hidden input when the policy allows. `c` shows the whole run
+in order: each event's record line and type, a refused call in red, and each call's result on
+the line under it. Run rows show provider,
 exact recorded model (or the provider's init model, then `default`), policy, tokens so far and
 elapsed seconds. At 80 columns the panes stack; narrower rows drop elapsed first, tokens next
 and policy last before clipping the identifying text. The run detail begins with its task,

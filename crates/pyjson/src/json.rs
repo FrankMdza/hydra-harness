@@ -43,7 +43,11 @@ impl PyStr {
     }
 
     pub fn push_str(&mut self, text: &str) {
-        self.0.extend(text.chars().map(u32::from));
+        if text.is_ascii() {
+            self.0.extend(text.as_bytes().iter().map(|&b| u32::from(b)));
+        } else {
+            self.0.extend(text.chars().map(u32::from));
+        }
     }
 
     pub fn push(&mut self, other: &PyStr) {
@@ -71,7 +75,11 @@ impl PyStr {
 
 impl From<&str> for PyStr {
     fn from(text: &str) -> PyStr {
-        PyStr(text.chars().map(u32::from).collect())
+        if text.is_ascii() {
+            PyStr(text.as_bytes().iter().map(|&b| u32::from(b)).collect())
+        } else {
+            PyStr(text.chars().map(u32::from).collect())
+        }
     }
 }
 
@@ -209,16 +217,7 @@ pub fn loads(text: &PyStr) -> Result<Value, ParseError> {
 /// where, as `Expecting value: line 1 column 1 (char 0)`. The messages and positions are
 /// those of CPython 3.14's C scanner.
 pub fn loads_explained(text: &PyStr) -> Result<Value, (ParseError, String)> {
-    let mut parser = Parser::new(text);
-    parser.ws();
-    let parsed = parser.value().and_then(|value| {
-        parser.ws();
-        if parser.i != parser.s.len() {
-            return parser.bad("Extra data", parser.i);
-        }
-        Ok(value)
-    });
-    parsed.map_err(|err| (err, parser.explain()))
+    parse_codes(text, false)
 }
 
 /// `json.JSONDecoder().raw_decode(str)`: one value from the first character, with no
@@ -234,7 +233,7 @@ pub fn raw_decode(text: &PyStr) -> Result<(Value, usize), (ParseError, String)> 
 
 /// `json.loads(str)` on text that is already a Rust string.
 pub fn loads_str(text: &str) -> Result<Value, ParseError> {
-    loads(&PyStr::from(text))
+    parse_utf8(text, false).map_err(|(err, _)| err)
 }
 
 /// Parse a document as `json.loads(bytes)` does: the encoding is the one
@@ -248,8 +247,7 @@ pub fn loads_bytes(raw: &[u8]) -> Result<Value, ParseError> {
 /// `'utf-8' codec can't decode byte 0xff in position 0: invalid start byte`. The grader
 /// names a record it skips with that text.
 pub fn loads_bytes_explained(raw: &[u8]) -> Result<Value, (ParseError, String)> {
-    let text = decode(raw).map_err(|message| (ParseError::Unicode, message))?;
-    loads_explained(&text)
+    loads_bytes_with(raw, false)
 }
 
 /// `json.loads(bytes, object_pairs_hook=...)` as far as the pairs go: every object keeps
@@ -257,9 +255,46 @@ pub fn loads_bytes_explained(raw: &[u8]) -> Result<Value, (ParseError, String)> 
 /// `Dict::get` finds the first. `Dict::set_key` over the pairs in order gives the dict
 /// Python builds from them. The errors are those of `loads_bytes_explained`.
 pub fn loads_bytes_pairs_explained(raw: &[u8]) -> Result<Value, (ParseError, String)> {
-    let text = decode(raw).map_err(|message| (ParseError::Unicode, message))?;
-    let mut parser = Parser::new(&text);
-    parser.pairs = true;
+    loads_bytes_with(raw, true)
+}
+
+/// Valid UTF-8 goes through a byte parser so a record line is not copied into a `PyStr`
+/// before it is walked. UTF-16, UTF-32 and a surrogate encoded as UTF-8 still decode to
+/// code points first, which is what `json.loads(bytes)` does under `surrogatepass`.
+fn loads_bytes_with(raw: &[u8], pairs: bool) -> Result<Value, (ParseError, String)> {
+    let (encoding, mark) = detect_encoding(raw);
+    match encoding {
+        Encoding::Utf8 | Encoding::Utf8Sig => match std::str::from_utf8(&raw[mark..]) {
+            Ok(text) => parse_utf8(text, pairs),
+            Err(_) => {
+                let text =
+                    decode_utf8(&raw[mark..]).map_err(|message| (ParseError::Unicode, message))?;
+                parse_codes(&text, pairs)
+            }
+        },
+        _ => {
+            let text = decode(raw).map_err(|message| (ParseError::Unicode, message))?;
+            parse_codes(&text, pairs)
+        }
+    }
+}
+
+fn parse_codes(text: &PyStr, pairs: bool) -> Result<Value, (ParseError, String)> {
+    let mut parser = Parser::new(text);
+    parser.pairs = pairs;
+    parser.ws();
+    let parsed = parser.value().and_then(|value| {
+        parser.ws();
+        if parser.i != parser.s.len() {
+            return parser.bad("Extra data", parser.i);
+        }
+        Ok(value)
+    });
+    parsed.map_err(|err| (err, parser.explain()))
+}
+
+fn parse_utf8(text: &str, pairs: bool) -> Result<Value, (ParseError, String)> {
+    let mut parser = Utf8Parser::new(text, pairs);
     parser.ws();
     let parsed = parser.value().and_then(|value| {
         parser.ws();
@@ -467,6 +502,335 @@ fn decode_utf32(raw: &[u8], mark: usize, big_endian: bool) -> Result<PyStr, Stri
     Ok(out)
 }
 
+/// JSON over a valid UTF-8 `&str`. `i` is a byte index; error positions are converted to
+/// code points in `explain`, which is what `json.loads` reports after decoding.
+struct Utf8Parser<'a> {
+    s: &'a str,
+    i: usize,
+    depth: usize,
+    fail: Option<(&'static str, usize)>,
+    pairs: bool,
+}
+
+impl<'a> Utf8Parser<'a> {
+    fn new(text: &'a str, pairs: bool) -> Utf8Parser<'a> {
+        Utf8Parser {
+            s: text,
+            i: 0,
+            depth: 0,
+            fail: None,
+            pairs,
+        }
+    }
+
+    fn bad<T>(&mut self, message: &'static str, at: usize) -> Result<T, ParseError> {
+        self.fail = Some((message, at));
+        Err(ParseError::Decode)
+    }
+
+    fn char_index(&self, byte: usize) -> usize {
+        self.s
+            .get(..byte.min(self.s.len()))
+            .map(|prefix| prefix.chars().count())
+            .unwrap_or_else(|| self.s.chars().count())
+    }
+
+    fn explain(&self) -> String {
+        let Some((message, at)) = self.fail else {
+            return String::new();
+        };
+        let at_chars = self.char_index(at);
+        let prefix = self.s.get(..at.min(self.s.len())).unwrap_or(self.s);
+        let line = bytecount_nl(prefix) + 1;
+        let column = match prefix.rfind('\n') {
+            Some(nl) => prefix[nl + 1..].chars().count() + 1,
+            None => at_chars + 1,
+        };
+        format!("{message}: line {line} column {column} (char {at_chars})")
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.s[self.i..].chars().next()
+    }
+
+    fn ws(&mut self) {
+        let bytes = self.s.as_bytes();
+        while matches!(bytes.get(self.i), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.i += 1;
+        }
+    }
+
+    fn starts_with(&self, word: &str) -> bool {
+        self.s[self.i..].starts_with(word)
+    }
+
+    fn eat(&mut self, word: &str) -> bool {
+        if self.starts_with(word) {
+            self.i += word.len();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn value(&mut self) -> Result<Value, ParseError> {
+        match self.peek() {
+            Some('"') => Ok(Value::Str(self.string()?)),
+            Some('{') => self.nested(Utf8Parser::object),
+            Some('[') => self.nested(Utf8Parser::array),
+            Some('n') if self.eat("null") => Ok(Value::Null),
+            Some('t') if self.eat("true") => Ok(Value::Bool(true)),
+            Some('f') if self.eat("false") => Ok(Value::Bool(false)),
+            Some('N') if self.eat("NaN") => Ok(Value::Float(f64::NAN)),
+            Some('I') if self.eat("Infinity") => Ok(Value::Float(f64::INFINITY)),
+            Some('-') if self.eat("-Infinity") => Ok(Value::Float(f64::NEG_INFINITY)),
+            Some('-' | '0'..='9') => self.number(),
+            _ => self.bad("Expecting value", self.i),
+        }
+    }
+
+    fn nested(
+        &mut self,
+        container: fn(&mut Self) -> Result<Value, ParseError>,
+    ) -> Result<Value, ParseError> {
+        if self.depth == MAX_NESTING {
+            return Err(ParseError::Recursion);
+        }
+        self.depth += 1;
+        let value = container(self);
+        self.depth -= 1;
+        value
+    }
+
+    fn digits(&mut self) -> usize {
+        let start = self.i;
+        let bytes = self.s.as_bytes();
+        while matches!(bytes.get(self.i), Some(b'0'..=b'9')) {
+            self.i += 1;
+        }
+        self.i - start
+    }
+
+    fn number(&mut self) -> Result<Value, ParseError> {
+        let start = self.i;
+        if self.peek() == Some('-') {
+            self.i += 1;
+        }
+        let int_digits = match self.peek() {
+            Some('0') => {
+                self.i += 1;
+                1
+            }
+            Some('1'..='9') => self.digits(),
+            _ => return self.bad("Expecting value", start),
+        };
+        let mut is_float = false;
+        let bytes = self.s.as_bytes();
+        if bytes.get(self.i) == Some(&b'.') && matches!(bytes.get(self.i + 1), Some(b'0'..=b'9')) {
+            self.i += 1;
+            self.digits();
+            is_float = true;
+        }
+        if matches!(self.peek(), Some('e' | 'E')) {
+            let mark = self.i;
+            self.i += 1;
+            if matches!(self.peek(), Some('+' | '-')) {
+                self.i += 1;
+            }
+            if self.digits() == 0 {
+                self.i = mark;
+            } else {
+                is_float = true;
+            }
+        }
+        let text = &self.s[start..self.i];
+        if is_float {
+            return match text.parse::<f64>() {
+                Ok(float) => Ok(Value::Float(float)),
+                Err(_) => self.bad("Expecting value", start),
+            };
+        }
+        if int_digits > MAX_INT_DIGITS {
+            return Err(ParseError::IntDigits);
+        }
+        Ok(match text.parse::<i128>() {
+            Ok(n) => Value::Int(n),
+            Err(_) => Value::BigInt(text.to_string()),
+        })
+    }
+
+    fn hex4(&mut self) -> Result<u32, ParseError> {
+        const MESSAGE: &str = "Invalid \\uXXXX escape";
+        let escape = self.i - 1;
+        let bytes = self.s.as_bytes();
+        if self.i + 4 > bytes.len() {
+            return self.bad(MESSAGE, escape);
+        }
+        let mut unit = 0;
+        for &b in &bytes[self.i..self.i + 4] {
+            let Some(hex) = char::from(b).to_digit(16) else {
+                return self.bad(MESSAGE, escape);
+            };
+            unit = unit * 16 + hex;
+        }
+        self.i += 4;
+        Ok(unit)
+    }
+
+    fn string(&mut self) -> Result<PyStr, ParseError> {
+        const UNTERMINATED: &str = "Unterminated string starting at";
+        let begin = self.i;
+        let bytes = self.s.as_bytes();
+        self.i += 1;
+        let start = self.i;
+        while let Some(&b) = bytes.get(self.i) {
+            match b {
+                b'"' => {
+                    let out = PyStr::from(&self.s[start..self.i]);
+                    self.i += 1;
+                    return Ok(out);
+                }
+                b'\\' | 0..=0x1f => break,
+                _ => {
+                    let Some(ch) = self.s[self.i..].chars().next() else {
+                        break;
+                    };
+                    self.i += ch.len_utf8();
+                }
+            }
+        }
+        self.i = start;
+        let mut out = PyStr::new();
+        loop {
+            let Some(ch) = self.s[self.i..].chars().next() else {
+                return self.bad(UNTERMINATED, begin);
+            };
+            let at = self.i;
+            self.i += ch.len_utf8();
+            match ch {
+                '"' => return Ok(out),
+                '\\' => {
+                    let Some(escape) = self.peek() else {
+                        return self.bad(UNTERMINATED, begin);
+                    };
+                    self.i += escape.len_utf8();
+                    match escape {
+                        '"' => out.push_code(0x22),
+                        '\\' => out.push_code(0x5c),
+                        '/' => out.push_code(0x2f),
+                        'b' => out.push_code(0x8),
+                        'f' => out.push_code(0xc),
+                        'n' => out.push_code(0xa),
+                        'r' => out.push_code(0xd),
+                        't' => out.push_code(0x9),
+                        'u' => {
+                            let unit = self.hex4()?;
+                            if (0xd800..0xdc00).contains(&unit)
+                                && self.i + 6 < self.s.len()
+                                && self.starts_with("\\u")
+                            {
+                                let mark = self.i;
+                                self.i += 2;
+                                let low = self.hex4()?;
+                                if (0xdc00..0xe000).contains(&low) {
+                                    out.push_code(
+                                        0x10000 + ((unit - 0xd800) << 10) + (low - 0xdc00),
+                                    );
+                                    continue;
+                                }
+                                self.i = mark;
+                            }
+                            out.push_code(unit);
+                        }
+                        _ => return self.bad("Invalid \\escape", at),
+                    }
+                }
+                _ if (ch as u32) < 0x20 => {
+                    return self.bad("Invalid control character at", at);
+                }
+                other => out.push_code(u32::from(other)),
+            }
+        }
+    }
+
+    fn object(&mut self) -> Result<Value, ParseError> {
+        self.i += 1;
+        let mut dict = Dict::new();
+        self.ws();
+        if self.peek() == Some('}') {
+            self.i += 1;
+            return Ok(Value::Dict(dict));
+        }
+        loop {
+            if self.peek() != Some('"') {
+                return self.bad("Expecting property name enclosed in double quotes", self.i);
+            }
+            let key = self.string()?;
+            self.ws();
+            if self.peek() != Some(':') {
+                return self.bad("Expecting ':' delimiter", self.i);
+            }
+            self.i += 1;
+            self.ws();
+            let value = self.value()?;
+            if self.pairs {
+                dict.push(key, value);
+            } else {
+                dict.set_key(key, value);
+            }
+            self.ws();
+            match self.peek() {
+                Some(',') => {
+                    let comma = self.i;
+                    self.i += 1;
+                    self.ws();
+                    if self.peek() == Some('}') {
+                        return self.bad("Illegal trailing comma before end of object", comma);
+                    }
+                }
+                Some('}') => {
+                    self.i += 1;
+                    return Ok(Value::Dict(dict));
+                }
+                _ => return self.bad("Expecting ',' delimiter", self.i),
+            }
+        }
+    }
+
+    fn array(&mut self) -> Result<Value, ParseError> {
+        self.i += 1;
+        let mut items = Vec::new();
+        self.ws();
+        if self.peek() == Some(']') {
+            self.i += 1;
+            return Ok(Value::List(items));
+        }
+        loop {
+            items.push(self.value()?);
+            self.ws();
+            match self.peek() {
+                Some(',') => {
+                    let comma = self.i;
+                    self.i += 1;
+                    self.ws();
+                    if self.peek() == Some(']') {
+                        return self.bad("Illegal trailing comma before end of array", comma);
+                    }
+                }
+                Some(']') => {
+                    self.i += 1;
+                    return Ok(Value::List(items));
+                }
+                _ => return self.bad("Expecting ',' delimiter", self.i),
+            }
+        }
+    }
+}
+
+fn bytecount_nl(text: &str) -> usize {
+    text.as_bytes().iter().filter(|b| **b == b'\n').count()
+}
+
 struct Parser<'a> {
     s: &'a [u32],
     i: usize,
@@ -656,6 +1020,19 @@ impl<'a> Parser<'a> {
         const UNTERMINATED: &str = "Unterminated string starting at";
         let begin = self.i;
         self.i += 1;
+        let start = self.i;
+        while let Some(&code) = self.s.get(self.i) {
+            match code {
+                0x22 => {
+                    let out = PyStr(self.s[start..self.i].to_vec());
+                    self.i += 1;
+                    return Ok(out);
+                }
+                0x5c | 0..0x20 => break,
+                _ => self.i += 1,
+            }
+        }
+        self.i = start;
         let mut out = PyStr::new();
         loop {
             let Some(&code) = self.s.get(self.i) else {
@@ -1085,6 +1462,12 @@ mod tests {
                 (ParseError::Decode, want),
                 "{text:?}"
             );
+            let (utf8_class, utf8_message) = parse_utf8(text, false).unwrap_err();
+            assert_eq!(
+                (utf8_class, utf8_message.as_str()),
+                (ParseError::Decode, want),
+                "utf8 {text:?}"
+            );
         }
         // `raw_decode` starts at the first character and stops after one value.
         let (value, end) = raw_decode(&PyStr::from("{\"a\": 1} and more")).unwrap();
@@ -1094,6 +1477,17 @@ mod tests {
         // An error of another class has no such message.
         let (class, message) = loads_explained(&PyStr::from("9".repeat(5000))).unwrap_err();
         assert_eq!((class, message.as_str()), (ParseError::IntDigits, ""));
+        let (class, message) = parse_utf8(&"9".repeat(5000), false).unwrap_err();
+        assert_eq!((class, message.as_str()), (ParseError::IntDigits, ""));
+    }
+
+    #[test]
+    fn a_large_unescaped_string_matches_the_code_point_parser() {
+        let blob = format!("{}{}", "é".repeat(1000), "x".repeat(20_000));
+        let text = format!(r#"{{"a":"{blob}","n":1}}"#);
+        let via_utf8 = parse_utf8(&text, false).unwrap();
+        let via_codes = parse_codes(&PyStr::from(text.as_str()), false).unwrap();
+        assert_eq!(dumps(&via_utf8, None), dumps(&via_codes, None));
     }
 
     #[test]

@@ -119,6 +119,8 @@ pub struct Hits {
     pub run_page: Rect,
     /// The full-page goal table, when `t` opened it.
     pub goal_table_page: Rect,
+    /// The run graph, when `c` opened it.
+    pub graph_page: Rect,
     /// The policy pane, while it is up, how many runs it had rows for, and
     /// the offset of its last page.
     pub policy_pane: Rect,
@@ -172,6 +174,10 @@ pub struct App {
     goal_table_scroll: u16,
     goal_table_place: Option<CockpitPlace>,
     goal_table_area: Rect,
+    /// The run whose graph is over the cockpit, build ticket 271.
+    graph_open: Option<String>,
+    graph_scroll: u16,
+    graph_area: Rect,
     /// The request the confirmation shows, while it is up.
     pub confirming: Option<Pending>,
     /// Whether that confirmation denies rather than approves, build ticket 170.
@@ -262,6 +268,9 @@ impl App {
             goal_table_scroll: 0,
             goal_table_place: None,
             goal_table_area: Rect::default(),
+            graph_open: None,
+            graph_scroll: 0,
+            graph_area: Rect::default(),
             confirming: None,
             denying: false,
             confirming_step: None,
@@ -456,8 +465,12 @@ impl App {
         });
     }
 
-    /// The run whose tail the reader should read.
+    /// The run whose tail the reader should read: the graph's while it is
+    /// up, then the one the detail has open.
     pub fn open_run_id(&self) -> Option<String> {
+        if let Some(id) = &self.graph_open {
+            return Some(id.clone());
+        }
         match &self.opened {
             Some(Opened::Run(id)) => Some(id.clone()),
             _ => None,
@@ -791,6 +804,14 @@ impl App {
         if self.policy_pane {
             return self.policy_key(key);
         }
+        if self.graph_open.is_some() {
+            if matches!(key.code, KeyCode::Left | KeyCode::Backspace) {
+                return self.close_graph();
+            }
+            if self.graph_scroll_key(key) {
+                return Effect::None;
+            }
+        }
         if self.goal_table_open {
             if matches!(key.code, KeyCode::Left | KeyCode::Backspace) {
                 return self.close_goal_table();
@@ -832,6 +853,9 @@ impl App {
             Some(MainKey::MoveDown) => self.move_selection(true),
             Some(MainKey::Open) => self.open_selected(),
             Some(MainKey::CloseOpened) => {
+                if self.graph_open.is_some() {
+                    return self.close_graph();
+                }
                 if self.goal_table_open {
                     return self.close_goal_table();
                 }
@@ -857,6 +881,7 @@ impl App {
             Some(MainKey::ToggleReveal) => self.toggle_reveal(),
             Some(MainKey::ToggleHelp) => Effect::None,
             Some(MainKey::ToggleGoalTable) => self.toggle_goal_table(),
+            Some(MainKey::ToggleGraph) => self.toggle_graph(),
             None => Effect::None,
         }
     }
@@ -1050,7 +1075,22 @@ impl App {
     }
 
     fn open_selected(&mut self) -> Effect {
-        let opened = match self.focus {
+        if self.focus == Focus::Detail {
+            return Effect::None;
+        }
+        match self.selected_item() {
+            Some(opened) => self.open(opened),
+            None => {
+                self.message = Some("nothing to open there".to_string());
+                Effect::None
+            }
+        }
+    }
+
+    /// What `Enter` would open from the focused panel; on the detail, what
+    /// it has open.
+    fn selected_item(&self) -> Option<Opened> {
+        match self.focus {
             Focus::Table => self
                 .snapshot
                 .goal
@@ -1066,14 +1106,7 @@ impl App {
                 })
                 .map(Opened::Run),
             focus @ (Focus::Lane(_) | Focus::Agent(_)) => self.item(focus, self.selected(focus)),
-            Focus::Detail => return Effect::None,
-        };
-        match opened {
-            Some(opened) => self.open(opened),
-            None => {
-                self.message = Some("nothing to open there".to_string());
-                Effect::None
-            }
+            Focus::Detail => self.opened.clone(),
         }
     }
 
@@ -1120,6 +1153,11 @@ impl App {
         if self.on_run_page() && self.hits.run_page.contains(at) {
             let step = if down { 3 } else { -3 };
             self.scroll_by(self.hits.run_page, Scrolled::RunPage, step);
+            return Effect::None;
+        }
+        if self.graph_open.is_some() && self.hits.graph_page.contains(at) {
+            let step = if down { 3 } else { -3 };
+            self.scroll_by(self.hits.graph_page, Scrolled::Graph, step);
             return Effect::None;
         }
         if self.goal_table_open && self.hits.goal_table_page.contains(at) {

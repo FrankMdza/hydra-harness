@@ -1,7 +1,7 @@
 # 291 - bank build is slower than the Python it replaced
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -31,3 +31,28 @@ Find where the time goes and make `bank build` faster without changing a byte of
   clippy over the workspace clean; the report has the before and after times and what moved them.
 
 ## Outcome
+
+Built 2026-10-04 by a Grok 4.6 run (`01a106b4-a233-70f0`), reviewed and measured by the session.
+
+**Where the time went, on a 250-record synthetic corpus:** `list_records` (the JSON scan) 92 of
+110 ms. Every line was decoded into a `PyStr` of code points before it was walked. The ticket's
+suspects were small: `current_preamble` per record 4 ms, `pick`'s copies 5 ms.
+
+**What changed:** `hydra-pyjson`'s `loads_bytes*` and `loads_str` parse valid UTF-8 with a new
+byte parser (`Utf8Parser`), copying an unescaped string in one slice; UTF-16, UTF-32 and a
+surrogate encoded as UTF-8 still take the code-point parser. `PyStr::from` and `push_str` map
+ASCII bytes directly. `bank.rs` reads the preamble once per build and sorts `pick` on the digest
+bytes. Two new pyjson tests; the 63 recorded bank cases pass unchanged.
+
+**Measured by the session**, since the parser sits under every crate:
+- The new parser against the old over every line of this machine's 826 records and four
+  truncations of each: 2,515,850 inputs, 0 disagreements in value or error text.
+- Old and new release binaries on the real corpus: `bank build --n 200` byte-identical, 9.3 s
+  to 7.5 s, which is where the deleted Python was (7.3 s); `hydra-otel --all` over 20 records
+  byte-identical; `hydra-grader rebuild` into scratch homes, 816 rows identical except
+  `collected_at`.
+
+**The 110 ms synthetic profile did not predict the real 9.3 s**: the real corpus is 811 MB with
+records up to 16 MB. And a session trap, recorded for the next one: `cargo build --release` at
+the root builds only the `hydra` package, so the first old-versus-new comparison ran the old
+apprentice twice. Build the crates with `--workspace` or `-p`.

@@ -5547,3 +5547,212 @@ fn ticket284_scroll_limits_saturate_and_clamp() {
     assert_eq!(screen_text(&draw_app(&mut pane, AREA)), end);
     std::fs::remove_dir_all(layout.root()).unwrap();
 }
+
+// --- the run graph, build ticket 271 ---------------------------------------
+
+/// One row the Python printed: its `seq`, its type, and the tool, status or
+/// role it began with.
+type GraphRow = (u64, &'static str, &'static str);
+
+/// What `integrations/herdr/bin/hydra-graph` printed for each fixture, from
+/// `hydra show <id> --events` over a scratch root on 2026-10-04: every row's
+/// `seq`, its type and whether it was a result under its call, and each
+/// call's tool with its result's status. The Python had the replay's
+/// `allow hydra_policy` on fixture 2's first call and an `error` result
+/// under it; the cockpit has no policy set and reads the refusal off that
+/// result instead.
+const GRAPH_REFERENCE: &[(u32, &[GraphRow])] = &[
+    (
+        2,
+        &[
+            (0, "run_start", ""),
+            (2, "tool_call", "Bash"),
+            (4, "tool_result", "error"),
+            (5, "tool_call", "Bash"),
+            (7, "tool_result", "ok"),
+            (8, "usage", ""),
+            (9, "run_end", ""),
+        ],
+    ),
+    (
+        11,
+        &[
+            (0, "run_start", ""),
+            (3, "tool_call", "Bash"),
+            (3, "tool_result", "ok"),
+            (4, "tool_call", "Bash"),
+            (4, "tool_result", "ok"),
+            (5, "message", "assistant"),
+            (6, "run_end", ""),
+        ],
+    ),
+    (
+        12,
+        &[
+            (0, "run_start", ""),
+            (2, "message", "user"),
+            (3, "tool_call", "WebSearch"),
+            (4, "tool_result", "ok"),
+            (5, "message", "assistant"),
+            (6, "usage", ""),
+            (7, "run_end", ""),
+        ],
+    ),
+    (
+        8,
+        &[
+            (0, "run_start", ""),
+            (3, "message", "assistant"),
+            (6, "run_end", ""),
+        ],
+    ),
+];
+
+fn graph_corpus(name: &str) -> Layout {
+    let layout = scratch(name);
+    for (label, n) in [
+        ("claude@2.1.261", 2),
+        ("codex@0.154.0", 11),
+        ("cursor-agent@2026.09.02-c22c1a3", 12),
+        ("agy@1.1.26", 8),
+    ] {
+        let from = fixture(label, n);
+        std::fs::copy(&from, layout.runs().join(from.file_name().unwrap())).unwrap();
+    }
+    layout
+}
+
+fn graph_reader(layout: &Layout) -> Reader {
+    Reader::new(
+        Layout::at(layout.root()),
+        Err(anyhow::anyhow!("no policies in this test")),
+        layout.root().join("puppets"),
+        None,
+    )
+}
+
+#[test]
+fn the_graph_draws_the_calls_results_and_order_hydra_graph_drew() {
+    let layout = graph_corpus("graph-reference");
+    let mut reader = graph_reader(&layout);
+    for (n, reference) in GRAPH_REFERENCE {
+        let id = format!("00000000-0000-7000-8000-{n:012}");
+        let snapshot = reader.read(Some(&id));
+        let (graph_id, graph) = snapshot.graph.expect("the open run's graph");
+        assert_eq!(graph_id, id);
+        let drawn: Vec<(u64, &str, bool)> = graph
+            .iter()
+            .map(|row| (row.seq, row.kind, row.under_call))
+            .collect();
+        let expected: Vec<(u64, &str, bool)> = reference
+            .iter()
+            .map(|(seq, kind, _)| (*seq, *kind, *kind == "tool_result"))
+            .collect();
+        assert_eq!(drawn, expected, "fixture {n}: {graph:#?}");
+        for (row, (_, kind, said)) in graph.iter().zip(reference.iter()) {
+            match *kind {
+                "tool_call" | "tool_result" => assert!(row.text.starts_with(said), "{row:?}"),
+                "message" => assert!(row.text.starts_with(&format!("{said}: ")), "{row:?}"),
+                _ => {}
+            }
+        }
+    }
+
+    let snapshot = reader.read(Some("00000000-0000-7000-8000-000000000002"));
+    let (_, graph) = snapshot.graph.unwrap();
+    let calls: Vec<(&str, bool)> = graph
+        .iter()
+        .filter(|row| row.kind == "tool_call")
+        .map(|row| (row.text.as_str(), row.refused))
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            ("Bash echo ...  refused protected-path", true),
+            ("Bash echo ...  allowed", false),
+        ]
+    );
+    assert_eq!(graph[0].text, "policy=standard mode=recorded depth=0");
+    assert_eq!(graph.last().unwrap().text, "exit_code=0 refusal=none");
+    std::fs::remove_dir_all(layout.root()).unwrap();
+}
+
+#[test]
+fn c_opens_the_selected_runs_graph_as_a_page_and_esc_returns() {
+    let layout = graph_corpus("graph-page");
+    let mut reader = graph_reader(&layout);
+    let id = "00000000-0000-7000-8000-000000000002";
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(reader.read(None));
+    let lane = app
+        .snapshot
+        .cards
+        .iter()
+        .find(|card| card.run_id == id)
+        .expect("fixture 2 has a card")
+        .lane();
+    let index = app
+        .lane_runs(lane)
+        .iter()
+        .position(|run| run == id)
+        .unwrap();
+    app.focus = Focus::Lane(lane);
+    app.lane_selected[lane.index()] = index;
+
+    assert_eq!(app.handle(&key(KeyCode::Char('c'))), Effect::Refresh);
+    assert_eq!(app.graph_run(), Some(id));
+    assert_eq!(app.open_run_id().as_deref(), Some(id));
+    app.set_snapshot(reader.read(app.open_run_id().as_deref()));
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(text.contains("graph of"), "{text}");
+    let at = |needle: &str| {
+        text.find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {text}"))
+    };
+    let refused = at("Bash echo ...  refused protected-path");
+    let error = at("│    4  tool_result  error");
+    let allowed = at("Bash echo ...  allowed");
+    let run_end = at("run_end      exit_code=0");
+    assert!(
+        refused < error && error < allowed && allowed < run_end,
+        "{text}"
+    );
+
+    app.handle(&key(KeyCode::End));
+    app.handle(&key(KeyCode::Home));
+    assert_eq!(app.handle(&key(KeyCode::Esc)), Effect::Refresh);
+    assert_eq!(app.graph_run(), None);
+    assert_eq!(app.open_run_id(), None);
+    assert_eq!(app.focus, Focus::Lane(lane));
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(!text.contains("graph of"), "{text}");
+
+    // Over a full-page run, `c` draws that run's graph and leaves the page
+    // under it.
+    app.handle(&key(KeyCode::Enter));
+    assert!(app.on_run_page());
+    assert_eq!(app.handle(&key(KeyCode::Char('c'))), Effect::Refresh);
+    assert_eq!(app.graph_run(), Some(id));
+    assert_eq!(app.handle(&key(KeyCode::Char('c'))), Effect::Refresh);
+    assert_eq!(app.graph_run(), None);
+    assert!(app.on_run_page());
+    assert_eq!(app.open_run_id().as_deref(), Some(id));
+    std::fs::remove_dir_all(layout.root()).unwrap();
+}
+
+#[test]
+fn c_with_no_run_selected_opens_nothing() {
+    let mut app = App::new(
+        Layout::at("/nonexistent/hydra"),
+        false,
+        Duration::from_secs(2),
+    );
+    app.set_snapshot(Snapshot {
+        read: true,
+        ..Snapshot::default()
+    });
+    assert_eq!(app.handle(&key(KeyCode::Char('c'))), Effect::None);
+    assert_eq!(app.graph_run(), None);
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(text.contains("no run selected"), "{text}");
+}

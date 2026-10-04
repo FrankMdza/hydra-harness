@@ -1,9 +1,9 @@
-//! The run page and the goal table page, the places they return to, and
-//! scrolling.
+//! The run page, the goal table page and the run graph, the places they
+//! return to, and scrolling.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use super::text::{short, wrapped_rows};
@@ -16,6 +16,11 @@ impl App {
 
     pub fn on_goal_table_page(&self) -> bool {
         self.goal_table_open
+    }
+
+    /// The run whose graph is up, build ticket 271.
+    pub fn graph_run(&self) -> Option<&str> {
+        self.graph_open.as_deref()
     }
 
     fn save_place(&self) -> CockpitPlace {
@@ -219,6 +224,97 @@ impl App {
         lines
     }
 
+    fn graph_footer() -> Line<'static> {
+        Line::styled(
+            "Up/Down scroll, PageUp/PageDown or Space/b page, Home/g End/G, \
+             c, Left/Backspace or Esc back",
+            Style::default().add_modifier(Modifier::DIM),
+        )
+    }
+
+    /// Opens the graph of the run `Enter` would open, or of the run the
+    /// detail or the run page has open. The page under it stays as it was.
+    pub(super) fn toggle_graph(&mut self) -> Effect {
+        if self.graph_open.is_some() {
+            return self.close_graph();
+        }
+        let Some(Opened::Run(id)) = self.selected_item() else {
+            self.message = Some("no run selected".to_string());
+            return Effect::None;
+        };
+        self.graph_open = Some(id);
+        self.graph_scroll = 0;
+        self.close_reveal();
+        Effect::Refresh
+    }
+
+    pub(super) fn close_graph(&mut self) -> Effect {
+        if self.graph_open.take().is_none() {
+            return Effect::None;
+        }
+        self.graph_scroll = 0;
+        Effect::Refresh
+    }
+
+    /// The graph as `hydra-graph` printed it: a header, then one row per
+    /// event with its `seq` and type, and each result under its call.
+    pub(super) fn graph_lines(&self) -> Vec<Line<'static>> {
+        let Some(id) = self.graph_open.as_deref() else {
+            return Vec::new();
+        };
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let mut lines = Vec::new();
+        if let Some(card) = self.snapshot.cards.iter().find(|c| c.run_id == id) {
+            let dash = |value: Option<&str>| value.unwrap_or("-").to_string();
+            lines.push(Line::raw(format!(
+                "{}  {}  {}  {}  tokens={}",
+                card.run_id,
+                dash(card.provider.as_deref()),
+                dash(card.policy.as_deref()),
+                dash(card.outcome.as_deref()),
+                card.total_tokens.unwrap_or(0),
+            )));
+        }
+        match self
+            .snapshot
+            .graph
+            .as_ref()
+            .filter(|(graph_id, _)| graph_id == id)
+        {
+            None => lines.push(Line::styled("reading the record", dim)),
+            Some((_, graph)) if graph.is_empty() => {
+                lines.push(Line::styled("no events in the record", dim));
+            }
+            Some((_, graph)) => {
+                for row in graph {
+                    let seq = row.seq;
+                    let glyph = if row.under_call { "│ " } else { "  " };
+                    let text = if row.refused {
+                        Span::styled(row.text.clone(), Style::default().fg(Color::Red))
+                    } else {
+                        Span::raw(row.text.clone())
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("{glyph}{seq:>4}  {:<11}  ", row.kind), dim),
+                        text,
+                    ]));
+                }
+            }
+        }
+        lines.push(Line::raw(""));
+        lines.push(Self::graph_footer());
+        lines
+    }
+
+    pub(super) fn graph_scroll_key(&mut self, key: &KeyEvent) -> bool {
+        let area = if self.hits.graph_page.is_empty() {
+            self.graph_area
+        } else {
+            self.hits.graph_page
+        };
+        self.scroll_key(key, area, Scrolled::Graph)
+    }
+
     pub(super) fn goal_table_scroll_key(&mut self, key: &KeyEvent) -> bool {
         let area = if self.hits.goal_table_page.is_empty() {
             self.goal_table_area
@@ -244,6 +340,7 @@ impl App {
     fn scrolled_lines(&self, scrolled: Scrolled, width: usize) -> Vec<Line<'static>> {
         match scrolled {
             Scrolled::GoalTable => self.goal_table_lines(),
+            Scrolled::Graph => self.graph_lines(),
             Scrolled::Detail => self.detail_scroll_lines(width, false),
             Scrolled::RunPage => self.detail_scroll_lines(width, true),
         }
@@ -252,6 +349,7 @@ impl App {
     fn scroll_of(&mut self, scrolled: Scrolled) -> &mut u16 {
         match scrolled {
             Scrolled::GoalTable => &mut self.goal_table_scroll,
+            Scrolled::Graph => &mut self.graph_scroll,
             Scrolled::Detail | Scrolled::RunPage => &mut self.detail_scroll,
         }
     }
@@ -339,11 +437,13 @@ impl App {
     }
 }
 
-/// Which text a scroll moves: the goal table page, a run's detail in the
-/// detail pane, or the same detail on the run page, under the page's footer.
+/// Which text a scroll moves: the goal table page, the run graph, a run's
+/// detail in the detail pane, or the same detail on the run page, under the
+/// page's footer.
 #[derive(Clone, Copy)]
 pub(super) enum Scrolled {
     GoalTable,
+    Graph,
     Detail,
     RunPage,
 }

@@ -3265,7 +3265,15 @@ it. `README.md` in that directory says how to link it.
 `bin/hydra-graph`, build ticket 20, draws one run from `hydra show <id> --events` JSON as one
 line per event with a call joined to its result and its gate decision, and `--follow` regrows
 it every two seconds. Written by `cursor-agent` on Composer 2.5 against the JSON shape ticket 18
-specified, before ticket 18 landed.
+specified, before ticket 18 landed. Since build ticket 271 the cockpit draws the same graph:
+`c` opens the selected run's as a full page, and `src/cockpit/graph.rs` builds it from the walk
+that already gives the detail its calls, so there is no second reader of the record. Two things
+differ from the Python. A call carries what its result says, `refused <code>` or the status,
+because the cockpit has no policy set to replay; the Python showed fixture 2's protected-path
+refusal as `allow hydra_policy` with an `error` result under it. And a call shows the detail's
+head of its input rather than 60 characters of its JSON arguments. `tests/cockpit.rs` checks
+the `seq`, type and nesting of every row against what the Python printed on four fixture
+records. The Python script is still in the plugin and nothing deletes it.
 
 **`run_start.worktree.base_tree` is on the record since build ticket 23.** Map ticket 49 put
 it there: the sha `write-tree` answered against the seed index at launch, so a reader of a
@@ -3409,6 +3417,8 @@ Build ticket 231 added a sixth, `crates/apprentice` (binary `hydra-apprentice`, 
 `hydra-records` and `sha2`), which runs `apprentice.py`'s `bank build` from lines 61 to 319 and
 matches the Python on 63 recorded cases in `crates/apprentice/tests/fixtures/bank.json`, while
 `attempt`, `score` and `pairs` exit 2 and name the Python, which stays until build ticket 234.
+Build ticket 291 parses a UTF-8 record line as bytes instead of copying it into a `PyStr` first,
+so `bank build` is faster than the Python it replaced.
 Build ticket 232 ported `attempt` and `score`, lines 325 to 499, which match the Python on 114
 recorded cases against a stub model server in `crates/apprentice/tests/fixtures/attempt.json`,
 except that a URL naming any host but this machine's loopback is refused with one sentence and
