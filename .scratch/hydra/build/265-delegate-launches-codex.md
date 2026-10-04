@@ -1,7 +1,7 @@
 # 265 - `delegate` launches `codex`
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
