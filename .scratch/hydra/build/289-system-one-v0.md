@@ -1,7 +1,7 @@
 # 289 - System 1 v0
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 288
 
 ## What

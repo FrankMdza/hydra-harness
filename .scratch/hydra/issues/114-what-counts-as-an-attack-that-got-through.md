@@ -1,7 +1,7 @@
 # 114 - What counts as an attack that got through
 
 Type: research
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-04, by the session, from build 273.
 
