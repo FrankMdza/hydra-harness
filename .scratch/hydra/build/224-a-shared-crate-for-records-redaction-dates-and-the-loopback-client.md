@@ -1,7 +1,7 @@
 # 224 - A shared crate for records, redaction, dates and the loopback client
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 220
 
 ## What
