@@ -1,7 +1,7 @@
 # 273 - The attack benchmark measures its cost first
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What

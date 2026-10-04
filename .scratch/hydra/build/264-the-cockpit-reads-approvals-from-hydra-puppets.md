@@ -1,7 +1,7 @@
 # 264 - The cockpit reads approvals from `hydra-puppets`
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
