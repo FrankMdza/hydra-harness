@@ -1,7 +1,7 @@
 # 260 - The walk and the outcome read a harvested `codex` error
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
