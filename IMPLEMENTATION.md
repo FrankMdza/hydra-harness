@@ -3409,6 +3409,13 @@ Build ticket 231 added a sixth, `crates/apprentice` (binary `hydra-apprentice`, 
 `hydra-records` and `sha2`), which runs `apprentice.py`'s `bank build` from lines 61 to 319 and
 matches the Python on 63 recorded cases in `crates/apprentice/tests/fixtures/bank.json`, while
 `attempt`, `score` and `pairs` exit 2 and name the Python, which stays until build ticket 234.
+Build ticket 232 ported `attempt` and `score`, lines 325 to 499, which match the Python on 114
+recorded cases against a stub model server in `crates/apprentice/tests/fixtures/attempt.json`,
+except that a URL naming any host but this machine's loopback is refused with one sentence and
+exit 1 where the Python connects, so only `pairs` still exits 2.
+Build ticket 237 added a seventh, `crates/local-llm` (binary `hydra-local-llm`, on `hydra-pyjson`
+and `hydra-records`), which is the MCP stdio server of `integrations/local-llm/hydra-local-llm`
+and matches the Python on 43 recorded request lines; the Python stays until build ticket 238.
 
 `crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
 the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a

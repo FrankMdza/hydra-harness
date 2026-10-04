@@ -1,8 +1,8 @@
-//! The command line of `apprentice.py`, as `argparse` reads it, for the one command ported.
+//! The command line of `apprentice.py`, as `argparse` reads it, for the commands ported.
 //!
-//! `bank build [--n N]` runs here. `attempt`, `score` and `pairs` are commands the parser
-//! knows and the Rust does not run yet: each exits 2 and names the Python that still does
-//! (build tickets 232 and 233). The rules where a caller can tell are `argparse`'s: an
+//! `bank build [--n N]`, `attempt [--limit N] [--minutes M]` and `score [--model NAME]` run
+//! here. `pairs` is a command the parser knows and the Rust does not run yet: it exits 2 and
+//! names the Python that still does (build ticket 233). The rules where a caller can tell are `argparse`'s: an
 //! option may be cut to any prefix that names one option and takes its value after a space
 //! or an `=`; an option a parser does not know waits and is reported, with any surplus
 //! argument, as unrecognized once the rest parsed; the first `--` ends the options. A wrong
@@ -15,7 +15,7 @@ use std::io::Write;
 use hydra_pyjson::json::Value;
 use hydra_pyjson::py;
 
-use crate::bank;
+use crate::{attempt, bank, score};
 
 const PROG: &str = "hydra-apprentice";
 const COMMANDS: [&str; 4] = ["bank", "attempt", "score", "pairs"];
@@ -55,6 +55,23 @@ const BUILD_HELP: &str = "usage: hydra-apprentice bank build [-h] [--n N]
 options:
   -h, --help  show this help message and exit
   --n N
+";
+const ATTEMPT_USAGE: &str =
+    "usage: hydra-apprentice attempt [-h] [--limit LIMIT] [--minutes MINUTES]";
+const ATTEMPT_HELP: &str =
+    "usage: hydra-apprentice attempt [-h] [--limit LIMIT] [--minutes MINUTES]
+
+options:
+  -h, --help         show this help message and exit
+  --limit LIMIT
+  --minutes MINUTES
+";
+const SCORE_USAGE: &str = "usage: hydra-apprentice score [-h] [--model MODEL]";
+const SCORE_HELP: &str = "usage: hydra-apprentice score [-h] [--model MODEL]
+
+options:
+  -h, --help     show this help message and exit
+  --model MODEL  print only this model's block
 ";
 
 /// `repr(text)`, which is how `argparse` quotes a value it refuses.
@@ -198,19 +215,53 @@ fn subcommand<'a>(
     }
 }
 
-/// `bank build`'s own options: `--n N`, the last one given winning. Positionals and
-/// unknown options go to `extras`.
-fn build_options(args: &[String], extras: &mut Vec<String>) -> Result<Value, Result<(), String>> {
-    let prog_longs = ["--help", "--n"];
-    let mut n = Value::Int(20);
+/// How a subcommand's option turns its text into a value, and the name `argparse` gives
+/// the type in its error.
+#[derive(Clone, Copy)]
+enum Type {
+    Int,
+    Float,
+    Text,
+}
+
+impl Type {
+    fn convert(self, text: &str) -> Option<Value> {
+        match self {
+            Type::Int => py::int_value(text),
+            Type::Float => py::float_literal(text).map(Value::Float),
+            Type::Text => Some(Value::text(text)),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Type::Int => "int",
+            Type::Float => "float",
+            Type::Text => "str",
+        }
+    }
+}
+
+/// A subcommand's own options, `--help` first: each is given or not, the last one given
+/// winning. Positionals and unknown options go to `extras`. `Err(Ok(()))` is a request for
+/// help and `Err(Err(message))` a refusal.
+fn options(
+    args: &[String],
+    longs: &[(&str, Type)],
+    extras: &mut Vec<String>,
+) -> Result<Vec<Option<Value>>, Result<(), String>> {
+    let names: Vec<&str> = std::iter::once("--help")
+        .chain(longs.iter().map(|(name, _)| *name))
+        .collect();
+    let mut given = vec![None; longs.len()];
     let mut only_positionals = false;
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
         i += 1;
         if !only_positionals && arg == "--" {
-            // `bank build` has no positional, so `argparse` keeps the separator among what
-            // it does not recognize.
+            // The subcommand has no positional, so `argparse` keeps the separator among
+            // what it does not recognize.
             only_positionals = true;
             extras.push(arg.to_string());
             continue;
@@ -218,33 +269,43 @@ fn build_options(args: &[String], extras: &mut Vec<String>) -> Result<Value, Res
         let found = if only_positionals {
             Kind::Positional
         } else {
-            kind(arg, &prog_longs)
+            kind(arg, &names)
         };
         match found {
             Kind::Positional | Kind::Unknown => extras.push(arg.to_string()),
             Kind::Help => return Err(Ok(())),
             Kind::Wrong(message) => return Err(Err(message)),
             Kind::Valued(explicit) => {
+                let head = arg.split_once('=').map_or(arg, |(head, _)| head);
+                let at = longs
+                    .iter()
+                    .position(|(name, _)| *name == head)
+                    .or_else(|| longs.iter().position(|(name, _)| name.starts_with(head)))
+                    .expect("kind matched one option");
+                let (name, of) = longs[at];
                 let value = match explicit {
                     Some(value) => value,
                     None => match args.get(i) {
                         Some(next)
-                            if next != "--"
-                                && matches!(kind(next, &prog_longs), Kind::Positional) =>
+                            if next != "--" && matches!(kind(next, &names), Kind::Positional) =>
                         {
                             i += 1;
                             next.clone()
                         }
-                        _ => return Err(Err("argument --n: expected one argument".into())),
+                        _ => return Err(Err(format!("argument {name}: expected one argument"))),
                     },
                 };
-                n = py::int_value(&value).ok_or_else(|| {
-                    Err(format!("argument --n: invalid int value: {}", repr(&value)))
-                })?;
+                given[at] = Some(of.convert(&value).ok_or_else(|| {
+                    Err(format!(
+                        "argument {name}: invalid {} value: {}",
+                        of.name(),
+                        repr(&value)
+                    ))
+                })?);
             }
         }
     }
-    Ok(n)
+    Ok(given)
 }
 
 /// `main`: the exit code of `apprentice.py` given `args`, the arguments after the program.
@@ -267,36 +328,50 @@ pub fn main(
         Ok(chosen) => chosen,
         Err(code) => return code,
     };
-    if command != "bank" {
-        let ticket = if command == "pairs" { 233 } else { 232 };
+    if command == "pairs" {
         let _ = writeln!(
             stderr,
-            "{PROG}: {command} is not ported yet (build ticket {ticket}); \
-             run integrations/apprentice/apprentice.py {command}"
+            "{PROG}: pairs is not ported yet (build ticket 233); \
+             run integrations/apprentice/apprentice.py pairs"
         );
         return 2;
     }
     let bank_prog = format!("{PROG} bank");
-    let (_, rest) = match subcommand(
-        rest,
-        (BANK_USAGE, BANK_HELP, &bank_prog),
-        "action",
-        &["build"],
-        &mut extras,
-        stdout,
-        stderr,
-    ) {
-        Ok(chosen) => chosen,
-        Err(code) => return code,
+    let (rest, longs, usage, help): (&[String], &[(&str, Type)], &str, &str) = match command {
+        "bank" => {
+            let (_, rest) = match subcommand(
+                rest,
+                (BANK_USAGE, BANK_HELP, &bank_prog),
+                "action",
+                &["build"],
+                &mut extras,
+                stdout,
+                stderr,
+            ) {
+                Ok(chosen) => chosen,
+                Err(code) => return code,
+            };
+            (rest, &[("--n", Type::Int)], BUILD_USAGE, BUILD_HELP)
+        }
+        "attempt" => (
+            rest,
+            &[("--limit", Type::Int), ("--minutes", Type::Float)],
+            ATTEMPT_USAGE,
+            ATTEMPT_HELP,
+        ),
+        _ => (rest, &[("--model", Type::Text)], SCORE_USAGE, SCORE_HELP),
     };
-    let n = match build_options(rest, &mut extras) {
-        Ok(n) => n,
+    let given = match options(rest, longs, &mut extras) {
+        Ok(given) => given,
         Err(Ok(())) => {
-            let _ = write!(stdout, "{BUILD_HELP}");
+            let _ = write!(stdout, "{help}");
             return 0;
         }
         Err(Err(message)) => {
-            return wrong(stderr, BUILD_USAGE, &format!("{bank_prog} build"), &message);
+            // The parser's own name is its usage line up to the first option.
+            let prog = usage.trim_start_matches("usage: ");
+            let prog = prog.split(" [").next().unwrap_or(prog);
+            return wrong(stderr, usage, prog, &message);
         }
     };
     if !extras.is_empty() {
@@ -307,8 +382,28 @@ pub fn main(
             &format!("unrecognized arguments: {}", extras.join(" ")),
         );
     }
-    match bank::bank_build(&n, env, stdout, stderr) {
-        Ok(()) => 0,
+    let ran = match command {
+        "bank" => {
+            let n = given[0].clone().unwrap_or(Value::Int(20));
+            bank::bank_build(&n, env, stdout, stderr).map(|()| 0)
+        }
+        "attempt" => {
+            let minutes = match given[1] {
+                Some(Value::Float(minutes)) => Some(minutes),
+                _ => None,
+            };
+            attempt::attempt(given[0].as_ref(), minutes, env, stdout, stderr)
+        }
+        _ => {
+            let only = match &given[0] {
+                Some(Value::Str(model)) => Some(model.lossy()),
+                _ => None,
+            };
+            score::score(only.as_deref(), env, stdout)
+        }
+    };
+    match ran {
+        Ok(code) => code,
         Err(err) => {
             let _ = writeln!(stderr, "{err}");
             1

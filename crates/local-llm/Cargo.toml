@@ -1,0 +1,19 @@
+[package]
+name = "hydra-local-llm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "MCP stdio server: one tool, ask, backed by a local Ollama generate call"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "hydra-local-llm"
+path = "src/main.rs"
+
+[dependencies]
+hydra-pyjson = { path = "../pyjson" }
+hydra-records = { path = "../records" }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"

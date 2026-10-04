@@ -579,6 +579,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydra-local-llm"
+version = "0.1.0"
+dependencies = [
+ "hydra-pyjson",
+ "hydra-records",
+]
+
+[[package]]
 name = "hydra-puppets"
 version = "0.1.0"
 dependencies = [

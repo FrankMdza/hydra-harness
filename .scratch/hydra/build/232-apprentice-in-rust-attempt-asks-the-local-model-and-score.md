@@ -1,7 +1,7 @@
 # 232 - apprentice in Rust: attempt asks the local model, and score
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 231
 
 ## What
@@ -30,3 +30,27 @@ as a stated difference.
 - Each test failed before the change, or the report says why it could not; fmt and clippy clean over
   the workspace; the tests of every crate the ticket touches pass; no dependency added without a
   reason in the report.
+
+## Outcome
+
+Built 2026-10-04 by an Opus run (`01a10644-6583`), reviewed and applied by the session.
+
+`crates/apprentice/src/attempt.rs` (lines 325 to 444: the URL and model, `prompt_sha`,
+`generate` through `hydra_records::loopback_http`, `parse_reply`, `_norm`, `grade`, `attempt`)
+and `score.rs` (lines 447 to 499); `cli.rs` parses `attempt [--limit] [--minutes]` and
+`score [--model]` as argparse does; only `pairs` still exits 2. `tests/record_attempt.py`
+recorded 114 cases against a stub server, with `PYTHONHASHSEED=0` because one `TypeError`'s
+wording changed between recordings without it; `tests/attempt.rs` replays them, 600
+comparisons. With the old dispatch 357 of 600 fail; with ASCII-only `\d` and `\s` 1 fails.
+Stated difference: a URL naming a host other than loopback is refused, exit 1, no request.
+
+**Measured by the session against a live Ollama and `gemma3:1b-it-qat`:** one bank of 20 tasks,
+`attempt --limit 6` from each into its own home. The six attempts match on every field but
+`seconds`, and `score` prints the same lines (2 of 6). Python 5.6 s, Rust 4.4 s, nearly all of
+it the model.
+
+**Found, a gate gap measured in the wild.** The run's first probe ran `env -i python3` with no
+`HYDRA_GRADER_HOME`, so the Python resolved the real grader home under `~/hydra` and read it.
+The gate did not stop it, because the shell check reads only the paths a command names, not
+the ones a program resolves. It read and wrote nothing else. This is the gap `CLAUDE.md`'s
+"Nothing here is enforced" section describes, now seen from an agent doing honest work.
