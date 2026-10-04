@@ -14,8 +14,8 @@ import random
 import re
 import sys
 
-OUT_CHARS = 1500
-PROMPT_CHARS = 6000
+OUT_CHARS = 600
+PROMPT_CHARS = 2000  # both cut so a trajectory's calls fit a T4's 2048-token training window
 WORKTREE = re.compile(r"/Users/USER/hydra/(?:skill-)?worktrees/[0-9a-f-]{36}/?")
 
 SYSTEM = ("You are a coding agent in a git repository. Act only through the tools, one call at "

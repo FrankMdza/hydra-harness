@@ -1,0 +1,181 @@
+{
+ "base": "mistralai/Ministral-3-3B-Instruct-2512-BF16",
+ "train_runs": 21,
+ "eval_runs": 3,
+ "before": {
+  "next_call": 1,
+  "next_of": 9,
+  "bakeoff": 10,
+  "bakeoff_of": 10,
+  "rows": [
+   {
+    "want": "Bash",
+    "got": "Read",
+    "ok": false
+   },
+   {
+    "want": "Bash",
+    "got": "Read",
+    "ok": false
+   },
+   {
+    "want": "Read",
+    "got": "Bash",
+    "ok": false
+   },
+   {
+    "want": "Read",
+    "got": "Read",
+    "ok": false
+   },
+   {
+    "want": "Write",
+    "got": "Bash",
+    "ok": false
+   },
+   {
+    "want": "Bash",
+    "got": null,
+    "ok": false
+   },
+   {
+    "want": "Bash",
+    "got": "Read",
+    "ok": false
+   },
+   {
+    "want": "Write",
+    "got": "Read",
+    "ok": false
+   },
+   {
+    "want": "Read",
+    "got": "Read",
+    "ok": true
+   }
+  ]
+ },
+ "before_secs": 48,
+ "train_tokens": 35156,
+ "train_label_tokens": 5761,
+ "train_secs": 341,
+ "losses": [
+  1.6653,
+  0.625,
+  0.3028,
+  1.0066,
+  2.3824,
+  0.9922,
+  1.965,
+  2.324,
+  0.0526,
+  0.2798,
+  0.9586,
+  0.9458,
+  1.1944,
+  0.0045,
+  1.6762,
+  0.8162,
+  0.6861,
+  1.1982,
+  1.745,
+  1.6437,
+  1.4058,
+  0.5143,
+  0.215,
+  0.0975,
+  0.3941,
+  1.6287,
+  0.4605,
+  1.3475,
+  1.5149,
+  0.0022,
+  0.209,
+  0.542,
+  0.4513,
+  0.4078,
+  0.0005,
+  0.875,
+  0.3545,
+  0.2789,
+  0.6001,
+  1.1675,
+  1.0069,
+  0.5324,
+  0.3264,
+  0.2087,
+  0.003,
+  0.1157,
+  1.0574,
+  0.2287,
+  0.8477,
+  0.687,
+  0.0002,
+  0.0239,
+  0.23,
+  0.2349,
+  0.1393,
+  0.0002,
+  0.4475,
+  0.3112,
+  0.1556,
+  0.2733,
+  0.6312,
+  0.4551,
+  0.2281
+ ],
+ "after": {
+  "next_call": 5,
+  "next_of": 9,
+  "bakeoff": 9,
+  "bakeoff_of": 10,
+  "rows": [
+   {
+    "want": "Bash",
+    "got": "Bash",
+    "ok": true
+   },
+   {
+    "want": "Bash",
+    "got": "Bash",
+    "ok": true
+   },
+   {
+    "want": "Read",
+    "got": "Bash",
+    "ok": false
+   },
+   {
+    "want": "Read",
+    "got": "Bash",
+    "ok": false
+   },
+   {
+    "want": "Write",
+    "got": "Bash",
+    "ok": false
+   },
+   {
+    "want": "Bash",
+    "got": "Bash",
+    "ok": true
+   },
+   {
+    "want": "Bash",
+    "got": "Bash",
+    "ok": true
+   },
+   {
+    "want": "Write",
+    "got": "Bash",
+    "ok": false
+   },
+   {
+    "want": "Read",
+    "got": "Read",
+    "ok": true
+   }
+  ]
+ },
+ "after_secs": 82
+}

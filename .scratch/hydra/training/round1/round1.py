@@ -20,6 +20,7 @@ from transformers import AutoModelForImageTextToText, AutoTokenizer, BitsAndByte
 
 BASE = "mistralai/Ministral-3-3B-Instruct-2512-BF16"
 MAX_TOKENS = 4096
+TRAIN_TOKENS = 2048  # 4096 ran a T4 out of memory: the fp32 logits alone are 2 GB
 EPOCHS = 3
 LR = 2e-4
 
@@ -59,7 +60,7 @@ def encode(tok, tok_train, messages, tools):
             raise ValueError("the chat template is not prefix-stable")
         labels += [-100] * (len(before) - len(done)) + after[len(before):]
         done = after
-    return done[:MAX_TOKENS], labels[:MAX_TOKENS]
+    return done[:TRAIN_TOKENS], labels[:TRAIN_TOKENS]
 
 
 CALL = re.compile(r"\[TOOL_CALLS\]\s*(\w+)\s*\[ARGS\]\s*(\{.*\})", re.S)
@@ -141,7 +142,8 @@ def main(data, out):
                       target_modules=r".*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)")
     model = get_peft_model(model, lora)
     model.print_trainable_parameters()
-    batches = [encode(tok, tok_train, r["messages"], tools) for r in train]
+    batches = [b for b in (encode(tok, tok_train, r["messages"], tools) for r in train)
+               if any(x != -100 for x in b[1])]  # a row cut before its first answer has no loss
     report["train_tokens"] = sum(len(b[0]) for b in batches)
     report["train_label_tokens"] = sum(sum(x != -100 for x in b[1]) for b in batches)
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=LR)
@@ -154,12 +156,16 @@ def main(data, out):
             y = torch.tensor([labels], device=model.device)
             with torch.autocast("cuda", dtype=torch.float16):
                 loss = model(input_ids=x, labels=y).loss
+            if not torch.isfinite(loss):
+                losses.append(None); opt.zero_grad(); continue
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             scaler.step(opt); scaler.update(); opt.zero_grad()
             losses.append(round(loss.item(), 4))
-        print(json.dumps({"epoch": epoch, "mean_loss": sum(losses[-len(batches):]) / len(batches)}), flush=True)
+        done = [l for l in losses[-len(batches):] if l is not None]
+        print(json.dumps({"epoch": epoch, "rows": len(batches), "finite": len(done),
+                          "mean_loss": sum(done) / max(1, len(done))}), flush=True)
     report["train_secs"] = round(time.time() - t)
     report["losses"] = losses
     model.save_pretrained(f"{out}/adapter")
