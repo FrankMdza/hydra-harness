@@ -348,6 +348,10 @@ fn session_id(first: &Value, directory: &Path) -> Result<String> {
         let Some(name) = parent_s.to_utf8() else {
             bail!("UnicodeEncodeError: 'utf-8' codec can't encode a surrogate in parent_run_id");
         };
+        // A parent id is joined into a sibling path too, so it takes the run id's rule.
+        if name.contains('/') || name.contains("..") {
+            bail!("ValueError: parent run id must not contain '/' or '..'");
+        }
         let path = directory.join(format!("{name}.jsonl"));
         if !path.is_file() {
             return Ok(name);
@@ -386,6 +390,9 @@ fn normalized(rows: &[Value], run_id: &Value) -> Result<Value> {
     };
     if id.contains('\0') {
         bail!("ValueError: embedded null byte");
+    }
+    if id.contains('/') || id.contains("..") {
+        bail!("ValueError: run id must not contain '/' or '..'");
     }
     let tmp = TempDir::new()?;
     let runs = tmp.0.join("runs");

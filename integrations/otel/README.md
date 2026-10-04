@@ -1,12 +1,16 @@
 # Local OpenTelemetry traces
 
-Run with Python 3 and an installed Hydra binary (or set `HYDRA_BIN`). No Python
-packages are required.
+The translator is `hydra-otel`, the Rust binary of `crates/otel`, built beside `hydra` by
+`cargo build --release --workspace`. Build ticket 236 deleted the Python it was ported from
+on 2026-10-04: `record_to_otlp.py` and its test. Before it went,
+`crates/otel/tests/record_otel.py` ran it on every input of the differential tests and wrote
+its output under `crates/otel/tests/fixtures/otel.json`, which `crates/otel/tests/otel.rs`
+compares the binary with. A run id that holds `/` or `..` is refused before it is joined
+into a path.
 
 ```sh
-python3 integrations/otel/record_to_otlp.py record.jsonl --out trace.json
-python3 integrations/otel/record_to_otlp.py --all fixture-runs --out-dir traces
-python3 -m unittest discover -s integrations/otel/tests -v
+hydra-otel record.jsonl --out trace.json
+hydra-otel --all fixture-runs --out-dir traces
 ```
 
 Without `--out`, a single request is printed to stdout. Each output is an OTLP JSON
@@ -14,9 +18,8 @@ Without `--out`, a single request is printed to stdout. Each output is an OTLP J
 instantaneous `hydra.seat_request` spans with links to the requested seat runs.
 Provider, recorded model, policy, derived outcome, token counts and usage provenance
 are root attributes when available. The task is redacted first and then cut to 2,000
-characters. Every string attribute and span name goes through
-`integrations/apprentice/redact.py`, the redactor the grader's Python had (build ticket 220
-moved it there).
+characters. Every string attribute and span name goes through the redactor in
+`hydra-records`.
 Missing values are omitted, not guessed.
 
 The translator calls `hydra show --events` on a temporary copy of just the input
