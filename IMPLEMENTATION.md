@@ -3126,9 +3126,8 @@ and a second harvest writes nothing. `normalize` reads the harvested shape by co
 
 Measured 2026-09-07 in a Herdr pane on haiku: Herdr detected the session as `claude idle` on
 its own, the first time any run Hydra launched registered with Herdr's detection, and the
-record ended at 24 lines with outcome `completed`. `codex` (build ticket 255) and `cursor-agent`
-(build ticket 266) launch interactively too, below; `agy` does not, and the launch refuses it by
-name. An interactive run may take a policy since map
+record ended at 24 lines with outcome `completed`. `codex` (build ticket 255), `cursor-agent`
+(build ticket 266) and `agy` (build ticket 267) launch interactively too, ungated, below. An interactive run may take a policy since map
 ticket 50, which is build ticket 28.
 
 **`codex` runs interactive too, ungated, since build ticket 255** (map 100).
@@ -3185,6 +3184,35 @@ own spelling, which the capability table does not map, so each is an unknown-too
 `cursor-agent` as their third argument, rendering `COPILOT.md` as `AGENTS.md`. The shapes were
 measured by the session on 2026-10-04; the tests build their stores by hand with `sqlite3`, and
 no real interactive `cursor-agent` has run through Hydra yet.
+
+**`agy` runs interactive the same way, ungated, since build ticket 267** (map 100). `hydra run
+--interactive --provider agy` starts the TUI as `agy [--model M] [--prompt-interactive=task]`,
+the flag `agy --help` names on 1.2.16, with the prompt inside it for the reason `-p=` carries
+one. It writes `provider_session_id` null, writes no MCP file and refuses `--policy`, as the
+other two do. An interactive run has no hook, so no hook reports the transcript path the way
+harness spec 10 describes; `agy::find_interactive_conversation` finds the conversation instead.
+Each `~/.gemini/antigravity-cli/conversations/<uuid>.db` began at the first `created_at` of
+`brain/<uuid>/.system_generated/logs/transcript_full.jsonl`, or at the store's file time when
+there is no transcript yet. Of the stores that began at or after the process's start, the
+earliest whose `trajectory_metadata_blob` names the run's cwd wins, read with `sqlite3 -readonly
+-json` as build 266 reads a chat. The path is plain bytes in protobuf, bare or as a `file://`
+URL, and counts only as the whole string: framed by its own protobuf length, or followed by a
+byte below 0x20 or the end of the blob, so `/repo` does not match `/repo-two`. That framing comes
+from the wire format and was not checked on a real blob. `conversation_summaries.db` is not read.
+The transcript's lines go under `raw` as written. Each `.system_generated/steps/<n>/output.txt`
+goes after the last line of step `n`, wrapped by Hydra as `{"step_output": {step_index, file,
+output}}`, the one line in an `agy` record Hydra composed. `normalize::agy` reads `USER_INPUT`
+and `PLANNER_RESPONSE` content as messages, `thinking` as thinking, and `tool_calls` as calls
+with the id `<step>.<n>`, since the transcript has none. An output answers the oldest
+unanswered call made at or before its step and stays `unclassified` unless a hook's marker is in
+it. `GENERIC`, `SYSTEM_MESSAGE` and `CHECKPOINT` lines derive nothing. `run_end.error` counts a
+later conversation, an unreadable store, an output with no step line and each step that made
+more than one call, where the join is a guess by order; the record's findings say the same. The
+transcript carries no tokens, so usage is `unavailable`. `hydra status` harvests a dead one, and
+`hydra-copilot` and `masterofpuppets` take `agy`, rendering `COPILOT.md` as `GEMINI.md` too.
+Which step's directory holds a call's output, the call's own or the `GENERIC` step after it, was
+not measured; the join works either way as long as outputs come in call order. No real
+interactive `agy` has run through Hydra yet.
 
 **With `--policy <name>`, since build ticket 28, an interactive `claude` run is gated.** The
 launch reuses the recorded pre-flight: worktree seeded with `base_tree`, snapshot linked, gate

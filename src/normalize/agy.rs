@@ -50,12 +50,21 @@
 //! `result.usage` agreed exactly on all five fields, which is the check
 //! `tests/normalize.rs` keeps.
 //!
-//! **`thinking` is never text on this provider** (contract 7.5). The count
-//! arrives as `usage.thinking_tokens` and there is no reasoning text on any
-//! frame, so nothing here constructs a [`Thinking`] event and the count rides on
-//! [`Usage`] where the other two providers' counts do.
+//! **`thinking` is never text on this provider's stream** (contract 7.5). The
+//! count arrives as `usage.thinking_tokens` and there is no reasoning text on
+//! any frame, so the stream constructs no [`Thinking`] event and the count rides
+//! on [`Usage`] where the other two providers' counts do.
+//!
+//! **A harvested interactive run is a transcript, not a stream** (build ticket
+//! 267). Its lines carry `type` and `step_index` and no `event`, and a step's
+//! tool output arrives on a line Hydra wrapped as `step_output`
+//! ([`crate::provider::agy::step_output_line`]). The transcript does carry
+//! `thinking` text, and no usage at all. A call has no id, so its `call_id` is
+//! `<step>.<n>`, and an output answers the oldest unanswered call at or before
+//! its step: order, as on the stream, and a guess where one step made several
+//! calls, which a finding says.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 
 use anyhow::Result;
@@ -63,7 +72,7 @@ use serde_json::Value;
 
 use super::{
     Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedStart,
-    ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, ToolCall, ToolResult, Usage,
+    ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage,
     UsageSource, hydra_voice, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
@@ -123,6 +132,19 @@ struct Walk {
     unknown_tools: Vec<String>,
     /// Contract 9.2: a resumed run's `result` usage covers earlier turns.
     resumed: bool,
+    /// A harvested transcript's calls with no output yet, oldest first, with
+    /// the step that made each. Build ticket 267.
+    unanswered: VecDeque<(String, u64)>,
+    /// Transcript steps already read, since a step's line may be written again
+    /// as its status moves.
+    transcript_steps: HashSet<u64>,
+    repeated_steps: usize,
+    /// Transcript steps that made more than one call.
+    multi_call_steps: usize,
+    /// Step outputs no call was waiting for.
+    orphan_outputs: usize,
+    /// Transcript line types this reader does not know, each named once.
+    unread_types: Vec<String>,
 }
 
 pub fn normalize(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
@@ -235,12 +257,119 @@ impl Walk {
                 // is how a resumed run announces itself.
                 self.emit_usage();
             }
+            // Build ticket 267: a harvested interactive run's lines carry no
+            // `event`.
+            None if raw.get("step_output").is_some() => self.step_output(seq, &raw["step_output"]),
+            None if raw.get("step_index").is_some() && raw["type"].is_string() => {
+                self.transcript_line(seq, raw)
+            }
             // `command_result` is one of the free read-only slash commands. It
             // cannot appear on a recorded run, since 6.7's argv carries a task
             // rather than a slash command, and it is named here so a reader who
             // finds one in a record knows it is not a frame the launch produced.
             _ => {}
         }
+    }
+
+    /// One line of a harvested transcript, build ticket 267.
+    /// `provider::agy` holds the measured shapes.
+    fn transcript_line(&mut self, seq: u64, raw: &Value) {
+        self.flush_response();
+        let step = raw["step_index"].as_u64().unwrap_or_default();
+        let kind = raw["type"].as_str().unwrap_or_default();
+        let role = match kind {
+            "USER_INPUT" => Role::User,
+            "PLANNER_RESPONSE" => Role::Assistant,
+            // A `GENERIC` step is the provider's own bookkeeping around a
+            // call, and its output arrives on the step's `step_output` line;
+            // the other two are the TUI's own instructions and its saves.
+            "GENERIC" | "SYSTEM_MESSAGE" | "CHECKPOINT" => return,
+            other => {
+                if !self.unread_types.iter().any(|seen| seen == other) {
+                    self.findings.push(Finding::Limit(format!(
+                        "a transcript line of type {other} is one this reader does not know, \
+                         so nothing was derived from it"
+                    )));
+                    self.unread_types.push(other.to_string());
+                }
+                return;
+            }
+        };
+        if !self.transcript_steps.insert(step) {
+            self.repeated_steps += 1;
+            return;
+        }
+        let block = step as usize;
+        if let Some(text) = raw["thinking"].as_str().filter(|text| !text.is_empty()) {
+            self.events.push(Event::Thinking(Thinking {
+                seq,
+                text: text.to_string(),
+                signature: None,
+                block,
+            }));
+        }
+        if let Some(text) = raw["content"].as_str().filter(|text| !text.is_empty()) {
+            self.events.push(Event::Message(Message {
+                seq,
+                role,
+                text: text.to_string(),
+                block,
+            }));
+        }
+        let calls = raw["tool_calls"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        if role != Role::Assistant || calls.is_empty() {
+            return;
+        }
+        if calls.len() > 1 {
+            self.multi_call_steps += 1;
+        }
+        for (n, call) in calls.iter().enumerate() {
+            let name = call["name"].as_str().unwrap_or_default().to_string();
+            let capability = agy_capability(&name);
+            if capability.is_none() {
+                self.note_unknown(&name);
+            }
+            let call_id = format!("{step}.{n}");
+            self.unanswered.push_back((call_id.clone(), step));
+            self.events.push(Event::ToolCall(ToolCall {
+                seq,
+                call_id,
+                name,
+                arguments: call["args"].clone(),
+                capability,
+            }));
+        }
+    }
+
+    /// One step's output, which the harvest wrapped, build ticket 267: the
+    /// answer to the oldest call still waiting that its step had made by then.
+    fn step_output(&mut self, seq: u64, body: &Value) {
+        self.flush_response();
+        let step = body["step_index"].as_u64().unwrap_or_default();
+        let output = body["output"].as_str().unwrap_or_default().to_string();
+        let call_id = match self.unanswered.front() {
+            Some((_, made_at)) if *made_at <= step => self
+                .unanswered
+                .pop_front()
+                .map(|(id, _)| id)
+                .unwrap_or_default(),
+            _ => {
+                self.orphan_outputs += 1;
+                format!("{step}.output")
+            }
+        };
+        self.events.push(Event::ToolResult(ToolResult {
+            seq,
+            call_id,
+            // The output file says nothing about success, so only a hook's own
+            // marker makes this an error.
+            status: classify(&output),
+            output,
+            truncated: false,
+        }));
     }
 
     /// One `step_update`, told apart by `step_type` and `state`.
@@ -450,6 +579,40 @@ impl Walk {
     fn close(&mut self) {
         self.flush_response();
         self.emit_usage();
+        self.note_transcript_join();
+    }
+
+    /// What a harvested transcript's join by order could not settle, build
+    /// ticket 267.
+    fn note_transcript_join(&mut self) {
+        if self.multi_call_steps > 0 {
+            self.findings.push(Finding::Limit(format!(
+                "{} transcript steps made more than one tool call, and the transcript carries \
+                 no call id, so which output answers which of those calls is a guess by order",
+                self.multi_call_steps
+            )));
+        }
+        if !self.unanswered.is_empty() {
+            self.findings.push(Finding::Limit(format!(
+                "{} tool calls in the transcript have no step output, so nothing says what they \
+                 returned",
+                self.unanswered.len()
+            )));
+        }
+        if self.orphan_outputs > 0 {
+            self.findings.push(Finding::Limit(format!(
+                "{} step outputs came with no call waiting for them, and carry the call id \
+                 <step>.output",
+                self.orphan_outputs
+            )));
+        }
+        if self.repeated_steps > 0 {
+            self.findings.push(Finding::Limit(format!(
+                "{} transcript lines repeat a step already read, and the first line of each \
+                 step is the one read",
+                self.repeated_steps
+            )));
+        }
     }
 
     fn finish(mut self, policies: &PolicySet, layout: &Layout) -> Result<Run> {
@@ -850,6 +1013,70 @@ fn refusal_in(status: ResultStatus, output: &str) -> Option<Refusal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build ticket 267: a repeated step is read once, an output with no call
+    /// waiting keeps its step, a call with no output is named, and an unknown
+    /// line type is named once.
+    #[test]
+    fn a_transcript_names_what_its_join_by_order_could_not_settle() {
+        let line = |seq: u64, raw: Value| {
+            serde_json::json!({"seq": seq, "run_id": "r", "provider": "agy", "raw": raw})
+                .to_string()
+        };
+        let call = serde_json::json!([{"name": "run_command", "args": {"CommandLine": "ls"}}]);
+        let text = [
+            line(
+                1,
+                serde_json::json!({"step_output": {"step_index": 0, "output": "early"}}),
+            ),
+            line(
+                2,
+                serde_json::json!({"type": "PLANNER_RESPONSE", "step_index": 1,
+                                       "status": "RUNNING", "tool_calls": call}),
+            ),
+            line(
+                3,
+                serde_json::json!({"type": "PLANNER_RESPONSE", "step_index": 1,
+                                       "status": "DONE", "tool_calls": call}),
+            ),
+            line(4, serde_json::json!({"type": "NEW_KIND", "step_index": 2})),
+            line(5, serde_json::json!({"type": "NEW_KIND", "step_index": 3})),
+        ]
+        .join("\n");
+        let walk = walk(&text);
+        let calls: Vec<&ToolCall> = walk
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                Event::ToolCall(call) => Some(call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.len(), 1, "the step written twice is read once");
+        assert_eq!(calls[0].call_id, "1.0");
+        let results: Vec<&str> = walk
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                Event::ToolResult(result) => Some(result.call_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(results, ["0.output"]);
+        let limits: Vec<&str> = walk
+            .findings
+            .iter()
+            .filter_map(|finding| match finding {
+                Finding::Limit(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(limits.len(), 4, "{limits:?}");
+        assert!(limits[0].contains("type NEW_KIND"));
+        assert!(limits[1].starts_with("1 tool calls in the transcript have no step output"));
+        assert!(limits[2].starts_with("1 step outputs came with no call waiting"));
+        assert!(limits[3].starts_with("1 transcript lines repeat a step"));
+    }
 
     #[test]
     fn a_permission_denial_and_a_missing_file_are_told_apart_by_the_markers_only() {

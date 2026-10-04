@@ -452,9 +452,434 @@ pub fn observe(raw: &str) -> Observed {
     Observed { model, session_id }
 }
 
+/// The interactive argv, harness spec 3's second mode, build ticket 267.
+///
+/// `agy` with no `--print` is the TUI. `agy --help` on 1.2.16 names the
+/// opening prompt `--prompt-interactive` and the model `--model`. The prompt
+/// rides inside the flag for the reason [`argv`]'s does. No `--add-dir` and no
+/// `--dangerously-skip-permissions`: an ungated interactive run is the human's
+/// own session in the human's own cwd, and the human answers its prompts.
+pub fn interactive_argv(task: Option<&str>, model: Option<&str>) -> Vec<String> {
+    let mut argv = Vec::new();
+    if let Some(model) = model {
+        argv.push("--model".to_string());
+        argv.push(model.to_string());
+    }
+    if let Some(task) = task {
+        argv.push(format!("--prompt-interactive={task}"));
+    }
+    argv
+}
+
+// What an interactive `agy` leaves on disk, measured by the session on
+// 2026-10-04 from this machine's `~/.gemini/antigravity-cli`, shapes only.
+// Build ticket 267.
+//
+// - `conversations/<uuid>.db` is SQLite with `trajectory_metadata_blob (id
+//   text default "main", data blob)`. The blob is protobuf and holds the
+//   workspace path as plain bytes, `/Users/...` or `file:///Users/...`; the
+//   30 newest all name one.
+// - `brain/<uuid>/` shares that uuid (139 of 139). 119 of them hold
+//   `.system_generated/logs/transcript_full.jsonl`; a conversation with no
+//   transcript yet is possible.
+// - A transcript line has `type`, `source`, `status`, `step_index`,
+//   `created_at`, and `content` (string or null), `thinking`, `tool_calls`,
+//   `error`. `type` is `PLANNER_RESPONSE`, `GENERIC`, `USER_INPUT`,
+//   `SYSTEM_MESSAGE` or `CHECKPOINT`.
+// - A tool call is `{name, args}` in a `PLANNER_RESPONSE`'s `tool_calls`, with
+//   no call id. Its output is in `.system_generated/steps/<step_index>/output.txt`,
+//   and a call meets its output by step order only.
+// - `conversation_summaries.db` would not open read only, so nothing here
+//   reads it.
+//
+// An interactive run has no hook, so no hook reports the transcript path the
+// way a recorded run's does: the finder matches the cwd and the start instead.
+
+/// Where `agy` keeps its conversations under `home`.
+pub fn data_dir(home: &Path) -> PathBuf {
+    home.join(".gemini/antigravity-cli")
+}
+
+/// The conversation an interactive run wrote, and how sure the match is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundConversation {
+    pub conversation_id: String,
+    /// `brain/<uuid>/`, which may not exist yet.
+    pub brain: PathBuf,
+    /// Conversations in the same directory that began after the run and later
+    /// than this one, which a human may have opened in another pane.
+    pub later: usize,
+    /// Conversation stores begun after the run that `sqlite3` could not read,
+    /// so whether one of them was this run's is unknown.
+    pub unreadable: usize,
+}
+
+/// The conversation `agy` wrote for a run that started at `since` in `cwd`,
+/// build ticket 267.
+///
+/// The rule of [`super::codex::find_interactive_session`]: of the
+/// conversations whose metadata names this `cwd` and that began at or after
+/// `since`, the **earliest**. A conversation began at its transcript's first
+/// `created_at`, or, with no transcript to read one from, at its store's
+/// file time. The time filter runs first because the cwd costs one `sqlite3`
+/// per store.
+pub fn find_interactive_conversation(
+    home: &Path,
+    cwd: &Path,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<FoundConversation>> {
+    let root = data_dir(home);
+    let stores = match std::fs::read_dir(root.join("conversations")) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(err).with_context(|| format!("reading {}/conversations", root.display()));
+        }
+    };
+    let mut found: Vec<(chrono::DateTime<chrono::Utc>, String)> = Vec::new();
+    let mut unreadable = 0;
+    for store in stores {
+        let store = store?.path();
+        if store.extension().is_none_or(|ext| ext != "db") {
+            continue;
+        }
+        let Some(id) = store.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let brain = root.join("brain").join(&id);
+        let Some(began) = conversation_began(&store, &brain) else {
+            continue;
+        };
+        if began < since {
+            continue;
+        }
+        match read_workspace_blobs(&store) {
+            Ok(blobs) if blobs.iter().any(|blob| names_workspace(blob, cwd)) => {
+                found.push((began, id));
+            }
+            Ok(_) => {}
+            Err(_) => unreadable += 1,
+        }
+    }
+    found.sort();
+    let later = found.len().saturating_sub(1);
+    Ok(found
+        .into_iter()
+        .next()
+        .map(|(_, conversation_id)| FoundConversation {
+            brain: root.join("brain").join(&conversation_id),
+            conversation_id,
+            later,
+            unreadable,
+        }))
+}
+
+/// The transcript inside a conversation's `brain/<uuid>/`.
+pub fn transcript_path(brain: &Path) -> PathBuf {
+    brain.join(".system_generated/logs/transcript_full.jsonl")
+}
+
+/// Where one step's tool output lands inside `brain/<uuid>/`.
+pub fn step_output_path(brain: &Path, step_index: u64) -> PathBuf {
+    brain.join(format!(".system_generated/steps/{step_index}/output.txt"))
+}
+
+/// When a conversation began: its transcript's first `created_at` when that
+/// reads as RFC 3339, else the store's creation time, else its mtime.
+fn conversation_began(store: &Path, brain: &Path) -> Option<chrono::DateTime<chrono::Utc>> {
+    let from_transcript = std::fs::read_to_string(transcript_path(brain))
+        .ok()
+        .and_then(|text| {
+            let first = text
+                .lines()
+                .find(|line| !line.trim().is_empty())?
+                .to_string();
+            let line: serde_json::Value = serde_json::from_str(&first).ok()?;
+            let at = chrono::DateTime::parse_from_rfc3339(line["created_at"].as_str()?).ok()?;
+            Some(at.with_timezone(&chrono::Utc))
+        });
+    if from_transcript.is_some() {
+        return from_transcript;
+    }
+    let meta = std::fs::metadata(store).ok()?;
+    let at = meta.created().or_else(|_| meta.modified()).ok()?;
+    Some(at.into())
+}
+
+/// Every `data` of `trajectory_metadata_blob` in `store`, read-only through
+/// the system's `sqlite3` for the reason [`super::cursor::read_chat`] gives.
+fn read_workspace_blobs(store: &Path) -> Result<Vec<Vec<u8>>> {
+    let out = std::process::Command::new("sqlite3")
+        .arg("-readonly")
+        .arg("-json")
+        .arg(store)
+        .arg("SELECT hex(data) AS data FROM trajectory_metadata_blob")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .context("running sqlite3, which the agy harvest reads conversations with")?;
+    if !out.status.success() {
+        bail!(
+            "sqlite3 could not read {}: {}",
+            store.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    // `-json` prints nothing at all for an empty table.
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&text)
+        .with_context(|| format!("sqlite3's answer for {} did not parse", store.display()))?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| super::cursor::from_hex(row["data"].as_str()?))
+        .collect())
+}
+
+/// Whether a metadata blob names `cwd` as its workspace, exactly.
+///
+/// The path is plain bytes inside protobuf, bare or as a `file://` URL. A
+/// substring is not enough, since `/repo` is inside `/repo-two`, so a hit
+/// counts only where the bytes before it are the protobuf length of exactly
+/// that string, or the byte after it ends the blob or is below 0x20, which no
+/// path character is and every tag of fields 1 to 3 is. That framing is read
+/// off the protobuf wire format, not measured on a blob.
+pub fn names_workspace(blob: &[u8], cwd: &Path) -> bool {
+    let mut paths = vec![cwd.to_path_buf()];
+    if let Ok(real) = cwd.canonicalize()
+        && real != cwd
+    {
+        paths.push(real);
+    }
+    paths.iter().any(|path| {
+        let bare = path.to_string_lossy().into_owned();
+        let url = format!("file://{bare}");
+        [bare, url]
+            .iter()
+            .any(|needle| holds_exactly(blob, needle.as_bytes()))
+    })
+}
+
+fn holds_exactly(blob: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() || blob.len() < needle.len() {
+        return false;
+    }
+    let prefix = varint(needle.len());
+    (0..=blob.len() - needle.len()).any(|at| {
+        if &blob[at..at + needle.len()] != needle {
+            return false;
+        }
+        let framed = at >= prefix.len() && blob[at - prefix.len()..at] == prefix[..];
+        let ends = blob.get(at + needle.len()).is_none_or(|&next| next < 0x20);
+        framed || ends
+    })
+}
+
+fn varint(mut value: usize) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    loop {
+        let low = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            bytes.push(low);
+            return bytes;
+        }
+        bytes.push(low | 0x80);
+    }
+}
+
+/// What a conversation's `brain/<uuid>/` gave up, as record lines.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Transcript {
+    /// The transcript's lines as written, each step's output after the last
+    /// line of its step, as [`step_output_line`] wraps it.
+    pub lines: Vec<String>,
+    /// Steps whose output has no transcript line, appended last in step order.
+    pub unplaced: usize,
+    /// `PLANNER_RESPONSE` lines that made more than one call, where which
+    /// output answers which call is a guess by order.
+    pub multi_call_steps: usize,
+}
+
+/// The record line for one step's output, build ticket 267.
+///
+/// The output file is the provider's and holds no JSON, so the harvest wraps
+/// it in one object that names the step and the file and keeps the text
+/// verbatim. This is the one shape in an `agy` record Hydra composed rather
+/// than copied, and the key `step_output` is how a reader tells it from a
+/// transcript line.
+pub fn step_output_line(step_index: u64, output: &str) -> String {
+    serde_json::json!({
+        "step_output": {
+            "step_index": step_index,
+            "file": format!(".system_generated/steps/{step_index}/output.txt"),
+            "output": output,
+        }
+    })
+    .to_string()
+}
+
+/// Reads `brain/<uuid>/`'s transcript and step outputs into record lines,
+/// build ticket 267. `None` when there is no transcript.
+pub fn read_transcript(brain: &Path) -> Result<Option<Transcript>> {
+    let path = transcript_path(brain);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+    };
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let parsed: Vec<Option<serde_json::Value>> = lines
+        .iter()
+        .map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let step_of = |at: usize| parsed[at].as_ref().and_then(|v| v["step_index"].as_u64());
+
+    let mut outputs = std::collections::BTreeMap::new();
+    if let Ok(steps) = std::fs::read_dir(brain.join(".system_generated/steps")) {
+        for step in steps.flatten() {
+            let Some(index) = step
+                .file_name()
+                .to_str()
+                .and_then(|n| n.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            if let Ok(output) = std::fs::read_to_string(step_output_path(brain, index)) {
+                outputs.insert(index, output);
+            }
+        }
+    }
+
+    // A step's output goes after the last line of that step, since a step
+    // may be written more than once as its status moves.
+    let mut last_line_of = std::collections::HashMap::new();
+    for at in 0..lines.len() {
+        if let Some(step) = step_of(at) {
+            last_line_of.insert(step, at);
+        }
+    }
+    let mut transcript = Transcript::default();
+    for (at, line) in lines.iter().enumerate() {
+        transcript.lines.push((*line).to_string());
+        let Some(step) = step_of(at) else {
+            continue;
+        };
+        if let Some(value) = &parsed[at]
+            && value["type"].as_str() == Some("PLANNER_RESPONSE")
+            && value["tool_calls"]
+                .as_array()
+                .is_some_and(|calls| calls.len() > 1)
+            && last_line_of.get(&step) == Some(&at)
+        {
+            transcript.multi_call_steps += 1;
+        }
+        if last_line_of.get(&step) == Some(&at)
+            && let Some(output) = outputs.remove(&step)
+        {
+            transcript.lines.push(step_output_line(step, &output));
+        }
+    }
+    transcript.unplaced = outputs.len();
+    for (step, output) in outputs {
+        transcript.lines.push(step_output_line(step, &output));
+    }
+    Ok(Some(transcript))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tui_argv_has_no_print_and_the_prompt_rides_inside_its_flag() {
+        let argv = interactive_argv(Some("look around"), Some("gemini-3.8-flash-low"));
+        assert_eq!(
+            argv,
+            [
+                "--model",
+                "gemini-3.8-flash-low",
+                "--prompt-interactive=look around"
+            ]
+        );
+        assert!(interactive_argv(None, None).is_empty());
+    }
+
+    /// Build ticket 267: the workspace matches only as the whole string, bare
+    /// or as a URL, framed by its protobuf length or ending a field.
+    #[test]
+    fn a_workspace_matches_exactly_and_not_as_a_prefix() {
+        let framed = |path: &str| {
+            let mut blob = vec![0x0a];
+            blob.extend(varint(path.len()));
+            blob.extend(path.as_bytes());
+            blob.extend([0x32, 0x01, 0x00]);
+            blob
+        };
+        let cwd = Path::new("/nowhere/repo");
+        assert!(names_workspace(&framed("/nowhere/repo"), cwd));
+        assert!(names_workspace(&framed("file:///nowhere/repo"), cwd));
+        assert!(!names_workspace(&framed("/nowhere/repo-two"), cwd));
+        assert!(!names_workspace(&framed("/nowhere/repo2"), cwd));
+        assert!(!names_workspace(&framed("/nowhere"), cwd));
+        // Unframed, it still counts where a field tag ends it.
+        assert!(names_workspace(b"xx/nowhere/repo\x12\x00", cwd));
+        assert!(!names_workspace(b"xx/nowhere/repo/sub\x12\x00", cwd));
+        // A path of 128 bytes or more takes a two-byte length.
+        let long = format!("/nowhere/{}", "d".repeat(200));
+        assert_eq!(varint(long.len()).len(), 2);
+        assert!(names_workspace(&framed(&long), Path::new(&long)));
+    }
+
+    /// Build ticket 267: an output goes after the last line of its step, one
+    /// with no line goes last, and a step that made two calls is counted.
+    #[test]
+    fn step_outputs_follow_their_step_and_the_rest_go_last() {
+        let brain =
+            std::env::temp_dir().join(format!("hydra-agy-transcript-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&brain);
+        let path = transcript_path(&brain);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let calls = serde_json::json!([
+            {"name": "run_command", "args": {}},
+            {"name": "view_file", "args": {}},
+        ]);
+        let lines = [
+            serde_json::json!({"type": "PLANNER_RESPONSE", "step_index": 1, "status": "RUNNING",
+                               "tool_calls": calls}),
+            serde_json::json!({"type": "PLANNER_RESPONSE", "step_index": 1, "status": "DONE",
+                               "tool_calls": calls}),
+            serde_json::json!({"type": "GENERIC", "step_index": 2, "status": "DONE"}),
+        ];
+        let text: String = lines.iter().map(|line| format!("{line}\n\n")).collect();
+        std::fs::write(&path, text).unwrap();
+        for (step, output) in [(1, "one"), (2, "two"), (9, "nine")] {
+            let out = step_output_path(&brain, step);
+            std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+            std::fs::write(out, output).unwrap();
+        }
+
+        let transcript = read_transcript(&brain).unwrap().unwrap();
+        let _ = std::fs::remove_dir_all(&brain);
+        assert_eq!(
+            transcript.lines,
+            [
+                lines[0].to_string(),
+                lines[1].to_string(),
+                step_output_line(1, "one"),
+                lines[2].to_string(),
+                step_output_line(2, "two"),
+                step_output_line(9, "nine"),
+            ]
+        );
+        assert_eq!(transcript.unplaced, 1);
+        assert_eq!(transcript.multi_call_steps, 1);
+        assert!(read_transcript(&brain).unwrap().is_none());
+    }
 
     #[test]
     fn the_prompt_rides_inside_the_flag_and_the_worktree_is_named() {

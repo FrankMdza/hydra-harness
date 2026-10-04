@@ -11,7 +11,7 @@
 //! calls on a dead run whose body nobody harvested yet (section 10, "harvest is
 //! idempotent and any process can do it").
 //!
-//! **`claude` and, ungated, `codex` and `cursor-agent`.** Harness spec 10: `claude` writes an
+//! **`claude` and, ungated, the other three.** Harness spec 10: `claude` writes an
 //! append-only transcript during the run, at a path Hydra predicts before the
 //! process starts off the same `--session-id` the pre-flight probe already
 //! mints ([`crate::provider::claude::transcript_path`]). `codex` takes no
@@ -19,6 +19,9 @@
 //! ([`crate::provider::codex::find_interactive_session`]), build ticket 255.
 //! `cursor-agent` is the same shape over a SQLite chat store
 //! ([`crate::provider::cursor::find_interactive_chat`]), build ticket 266.
+//! `agy` keeps one SQLite store per conversation and its transcript in a
+//! directory of the same uuid
+//! ([`crate::provider::agy::find_interactive_conversation`]), build ticket 267.
 //! The gated mode stays `claude` only: it compiles a `claude` gate and wraps a
 //! `claude` argv.
 
@@ -30,7 +33,7 @@ use uuid::Uuid;
 use crate::env::ChildEnv;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
-use crate::provider::{Provider, claude, codex, cursor};
+use crate::provider::{Provider, agy, claude, codex, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
 use crate::run::{SpawnFiles, inject_skills, write_spawn_config};
 
@@ -38,7 +41,7 @@ use crate::run::{SpawnFiles, inject_skills, write_spawn_config};
 /// launch compiles a gate, seeds a worktree and links the snapshot the way a
 /// recorded run does before the spawn.
 pub struct Request {
-    /// `claude`, or `codex` or `cursor-agent` when no policy is named.
+    /// `claude`, or any of the other three when no policy is named.
     pub provider: Provider,
     pub task: Option<String>,
     pub model: Option<String>,
@@ -310,21 +313,15 @@ pub fn run(request: Request) -> Result<RunResult> {
     }
 }
 
-/// The providers each interactive mode launches, build tickets 255 and 266:
-/// `claude` gated or not, `codex` and `cursor-agent` ungated, and `agy` not
-/// yet.
+/// The providers each interactive mode launches, build tickets 255, 266 and
+/// 267: `claude` gated or not, the other three ungated.
 pub fn refuse_provider(provider: Provider, gated: bool) -> Result<()> {
     match provider {
         Provider::Claude => Ok(()),
-        Provider::Codex | Provider::CursorAgent if !gated => Ok(()),
-        Provider::Codex | Provider::CursorAgent => anyhow::bail!(
+        _ if !gated => Ok(()),
+        other => anyhow::bail!(
             "hydra run --interactive --policy is claude only: the gated interactive mode \
              compiles a claude gate. Drop --policy to launch {} ungated",
-            provider.binary()
-        ),
-        other => anyhow::bail!(
-            "hydra run --interactive supports claude, codex and cursor-agent; {} is not \
-             launched interactively yet",
             other.binary()
         ),
     }
@@ -534,6 +531,13 @@ fn run_ungated(request: Request) -> Result<RunResult> {
             let argv = cursor::interactive_argv(request.task.as_deref(), request.model.as_deref());
             (None, argv)
         }
+        Provider::Agy => {
+            // The same again: `agy` mints its own conversation id, and its MCP
+            // config lives in `.agents/` of a checkout (6.5) this launch does
+            // not make.
+            let argv = agy::interactive_argv(request.task.as_deref(), request.model.as_deref());
+            (None, argv)
+        }
         _ => {
             // 6.5: the run's file, without `--strict-mcp-config` so the human's
             // own servers survive beside it. Nothing is admitted, because
@@ -592,8 +596,8 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         // Known before the child starts on `claude`, unlike a recorded run's:
         // it takes `--session-id` rather than minting its own, so line 0
         // carries it from the first write rather than arriving late on an init
-        // frame. Null on `codex` and `cursor-agent`, whose ids only their own
-        // files name.
+        // frame. Null on the other three, whose ids only their own files
+        // name.
         provider_session_id: session,
         // Verbatim, with no preamble: harness spec 3 gives an interactive run
         // none.
@@ -794,9 +798,9 @@ pub fn harvest_in(
         .with_context(|| format!("line 0 of {} did not parse", run_file.display()))?;
     let provider = envelope["provider"].as_str();
     anyhow::ensure!(
-        matches!(provider, Some("claude" | "codex" | "cursor-agent")),
-        "harvest reads only a claude, codex or cursor-agent transcript in this build, and run \
-         {run_id} is {provider:?}"
+        matches!(provider, Some("claude" | "codex" | "cursor-agent" | "agy")),
+        "harvest reads only a claude, codex, cursor-agent or agy transcript, and run {run_id} \
+         is {provider:?}"
     );
     let start = &envelope["hydra"];
     anyhow::ensure!(
@@ -809,10 +813,10 @@ pub fn harvest_in(
     let parent_run_id = envelope["parent_run_id"].as_str();
     let model = envelope["model"].as_str();
 
-    let found = if provider == Some("cursor-agent") {
-        cursor_chat(home, Path::new(cwd), started_at(&envelope, run_id)?)?
-    } else {
-        transcript_file(home, &envelope, run_id, cwd)?
+    let found = match provider {
+        Some("cursor-agent") => cursor_chat(home, Path::new(cwd), started_at(&envelope, run_id)?)?,
+        Some("agy") => agy_conversation(home, Path::new(cwd), started_at(&envelope, run_id)?)?,
+        _ => transcript_file(home, &envelope, run_id, cwd)?,
     };
     let (lines, note) = match found {
         Found::Lines { lines, note } => (lines, note),
@@ -996,6 +1000,67 @@ fn cursor_chat(home: &Path, cwd: &Path, since: chrono::DateTime<chrono::Utc>) ->
     })
 }
 
+/// The transcript of the `agy` conversation a run wrote, build ticket 267,
+/// one record line per transcript line and one per step output. The note
+/// says what the lines cannot: a later conversation, a store that would not
+/// read, an output with no step, and steps whose calls meet their outputs by
+/// order alone.
+fn agy_conversation(
+    home: &Path,
+    cwd: &Path,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Result<Found> {
+    let Some(found) = agy::find_interactive_conversation(home, cwd, since)? else {
+        return Ok(Found::Nothing(format!(
+            "the session wrote no agy conversation under {} that ran in {} and began after \
+             {since}, so there is nothing to harvest",
+            agy::data_dir(home).join("conversations").display(),
+            cwd.display()
+        )));
+    };
+    let Some(transcript) = agy::read_transcript(&found.brain)? else {
+        return Ok(Found::Nothing(format!(
+            "agy conversation {} has no transcript at {}, so there is nothing to harvest",
+            found.conversation_id,
+            agy::transcript_path(&found.brain).display()
+        )));
+    };
+    let mut notes = Vec::new();
+    if found.later > 0 {
+        notes.push(format!(
+            "harvested agy conversation {}, the first of {} that began in {} after the run \
+             started",
+            found.conversation_id,
+            found.later + 1,
+            cwd.display()
+        ));
+    }
+    if found.unreadable > 0 {
+        notes.push(format!(
+            "conversation stores begun after the run that sqlite3 could not read, so their \
+             workspace is unknown: {}",
+            found.unreadable
+        ));
+    }
+    if transcript.unplaced > 0 {
+        notes.push(format!(
+            "step outputs with no transcript line for their step are last, in step order: {}",
+            transcript.unplaced
+        ));
+    }
+    if transcript.multi_call_steps > 0 {
+        notes.push(format!(
+            "steps that made more than one tool call, whose outputs were joined to calls by \
+             step order because the transcript carries no call id: {}",
+            transcript.multi_call_steps
+        ));
+    }
+    Ok(Found::Lines {
+        lines: transcript.lines,
+        note: (!notes.is_empty()).then(|| notes.join("; ")),
+    })
+}
+
 /// The `run_end` of a session that left nothing to harvest, with `error`
 /// saying where the harvest looked.
 fn close_without_transcript(
@@ -1083,11 +1148,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Build tickets 255 and 266: `codex` and `cursor-agent` launch
-    /// interactively only without a policy, and the refusal says the gated
-    /// mode is `claude` only.
+    /// Build tickets 255, 266 and 267: `codex`, `cursor-agent` and `agy`
+    /// launch interactively only without a policy, and the refusal says the
+    /// gated mode is `claude` only.
     #[test]
-    fn codex_and_cursor_agent_are_interactive_only_ungated() {
+    fn the_other_three_are_interactive_only_ungated() {
         assert!(refuse_provider(Provider::Claude, true).is_ok());
         assert!(refuse_provider(Provider::Claude, false).is_ok());
         assert!(refuse_provider(Provider::Codex, false).is_ok());
@@ -1100,10 +1165,11 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(gated.contains("launch cursor-agent ungated"), "{gated}");
-        let other = refuse_provider(Provider::Agy, false)
+        assert!(refuse_provider(Provider::Agy, false).is_ok());
+        let gated = refuse_provider(Provider::Agy, true)
             .unwrap_err()
             .to_string();
-        assert!(other.contains("agy"), "{other}");
+        assert!(gated.contains("launch agy ungated"), "{gated}");
     }
 
     #[test]

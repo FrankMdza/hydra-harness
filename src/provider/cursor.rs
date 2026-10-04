@@ -721,7 +721,7 @@ fn message_line(data: &[u8]) -> Option<String> {
     }
 }
 
-fn from_hex(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn from_hex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) {
         return None;
     }

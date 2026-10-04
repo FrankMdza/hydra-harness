@@ -28,9 +28,9 @@ else
 fi
 
 case "$PROVIDER" in
-  claude|codex|cursor-agent) ;;
+  claude|codex|cursor-agent|agy) ;;
   *)
-    echo "hydra-copilot: provider must be claude, codex or cursor-agent" >&2
+    echo "hydra-copilot: provider must be claude, codex, cursor-agent or agy" >&2
     exit 1
     ;;
 esac
@@ -40,22 +40,23 @@ case "$HOME_DIR/" in
 esac
 mkdir -p "$HOME_DIR"
 
-# One source:destination pair per rendered file; map 100 D3 adds GEMINI.md later. `codex` and
-# `cursor-agent` take AGENTS.md: build 154 for `codex`, Cursor's own rules for
-# `cursor-agent`, not measured by Hydra (build 266).
+# One source:destination pair per rendered file, map 100 D3. `codex` and `cursor-agent` take
+# AGENTS.md: build 154 for `codex`, Cursor's own rules for `cursor-agent`, not measured by
+# Hydra (build 266). `agy` takes GEMINI.md, by map 100 D3 and not measured by Hydra (build 267).
 while IFS=: read -r src dst; do
   sed -e "s|{{REPO}}|$REPO|g" -e "s|{{HYDRA}}|$DEFAULT_REPO|g" "$DEFAULT_REPO/integrations/copilot/$src" > "$HOME_DIR/$dst"
 done <<'PAIRS'
 COPILOT.md:CLAUDE.md
 COPILOT.md:AGENTS.md
+COPILOT.md:GEMINI.md
 PAIRS
 
-# Master of Puppets: the mode's document and the skill's text go after the copilot's in both
-# files, and on `claude` the skill is also a project skill here, so `/puppets` exists.
+# Master of Puppets: the mode's document and the skill's text go after the copilot's in every
+# file, and on `claude` the skill is also a project skill here, so `/puppets` exists.
 if [[ "$MODE" == puppets ]]; then
   SKILL="$DEFAULT_REPO/.claude/skills/puppets/SKILL.md"
   render() { sed -e "s|{{REPO}}|$REPO|g" -e "s|{{HYDRA}}|$DEFAULT_REPO|g" -e "s|~/hydra/|$DEFAULT_REPO/|g" "$1"; }
-  for dst in CLAUDE.md AGENTS.md; do
+  for dst in CLAUDE.md AGENTS.md GEMINI.md; do
     { render "$DEFAULT_REPO/integrations/copilot/PUPPETS.md"; echo; awk 'n >= 2 { print } /^---$/ { n++ }' "$SKILL" | render /dev/stdin; } >> "$HOME_DIR/$dst"
   done
   mkdir -p "$HOME_DIR/.claude/skills/puppets"
@@ -67,7 +68,7 @@ cd "$HOME_DIR"
 HYDRA="${HYDRA_BIN:-hydra}"
 
 # The orchestrator also reviews, so it runs on the strongest model: Opus on `claude` by the
-# human's rule of 2026-10-03, over map 97's Sonnet. `codex` and `cursor-agent` keep their own.
+# human's rule of 2026-10-03, over map 97's Sonnet. The other three keep their own.
 if [[ -z "$MODEL" && "$PROVIDER" == claude ]]; then
   MODEL=claude-opus-5-5
 fi

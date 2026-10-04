@@ -1313,3 +1313,354 @@ fn a_cursor_agent_run_with_no_chat_derives_failed() {
         hydra::outcome::Outcome::Failed
     );
 }
+
+/// Line 0 of an ungated interactive `agy` run: no conversation id, because
+/// the TUI takes none, and the liveness pair of this test's own process.
+fn open_agy_interactive_run(layout: &Layout, run_id: &str, cwd: &Path) {
+    let mut start = unfilled_start(cwd);
+    let pid = std::process::id();
+    start.pid = Some(pid);
+    start.process_start_time = hydra::procinfo::start_time(pid)
+        .unwrap()
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Micros, true));
+    start.provider_version = Some("1.2.16".into());
+    start.provider_session_id = None;
+    start.subscription = Some("google".into());
+    let mut writer =
+        Writer::create(layout.run_file(run_id), run_id, None, Some("agy"), None).unwrap();
+    writer.hydra_line(&start).unwrap();
+}
+
+/// A protobuf-shaped metadata blob naming `workspace` as field 1, with a
+/// second field after it, the way the session measured the path: plain bytes
+/// inside the blob.
+fn workspace_blob(workspace: &str) -> Vec<u8> {
+    let mut bytes = vec![0x0a];
+    let mut len = workspace.len();
+    loop {
+        let low = (len & 0x7f) as u8;
+        len >>= 7;
+        if len == 0 {
+            bytes.push(low);
+            break;
+        }
+        bytes.push(low | 0x80);
+    }
+    bytes.extend(workspace.as_bytes());
+    bytes.extend([0x12, 0x02, 0x08, 0x01]);
+    bytes
+}
+
+/// One conversation in the shape `provider::agy` measured: a
+/// `conversations/<uuid>.db` made by the system's `sqlite3` holding
+/// `trajectory_metadata_blob`, and, when `transcript` is some, a
+/// `brain/<uuid>/` with the transcript and one `output.txt` per step in
+/// `outputs`. Every row and line is synthetic.
+fn write_agy_conversation(
+    home: &Path,
+    id: &str,
+    workspace: &str,
+    transcript: Option<&[Value]>,
+    outputs: &[(u64, &str)],
+) {
+    let root = hydra::provider::agy::data_dir(home);
+    let conversations = root.join("conversations");
+    std::fs::create_dir_all(&conversations).unwrap();
+    let hex: String = workspace_blob(workspace)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let sql = format!(
+        "CREATE TABLE trajectory_metadata_blob (id text default \"main\", data blob);\n\
+         INSERT INTO trajectory_metadata_blob (data) VALUES (X'{hex}');\n"
+    );
+    let mut child = std::process::Command::new("sqlite3")
+        .arg(conversations.join(format!("{id}.db")))
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(sql.as_bytes())
+            .unwrap();
+    }
+    assert!(child.wait().unwrap().success());
+
+    let Some(transcript) = transcript else {
+        return;
+    };
+    let brain = root.join("brain").join(id);
+    let path = hydra::provider::agy::transcript_path(&brain);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let text: String = transcript.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(&path, text).unwrap();
+    for (step, output) in outputs {
+        let path = hydra::provider::agy::step_output_path(&brain, *step);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, output).unwrap();
+    }
+}
+
+/// One transcript line in the measured shape.
+fn agy_line(step: u64, kind: &str, at: chrono::DateTime<chrono::Utc>, extra: Value) -> Value {
+    let source = match kind {
+        "USER_INPUT" => "USER_EXPLICIT",
+        "PLANNER_RESPONSE" => "MODEL",
+        _ => "SYSTEM",
+    };
+    let mut line = json!({
+        "type": kind,
+        "source": source,
+        "status": "DONE",
+        "step_index": step,
+        "created_at": at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+        "content": null,
+        "thinking": null,
+        "tool_calls": null,
+        "error": null,
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        line[key] = value.clone();
+    }
+    line
+}
+
+/// Build ticket 267. The conversation that began after the run, whose
+/// metadata names the run's cwd exactly, is the one harvested; one from
+/// before the run, one in a sibling directory whose path starts with the
+/// cwd's, and a later one in the same cwd are not. Each step's output lands
+/// after its step and answers the calls in order, the step that made two
+/// calls is named, and usage is unavailable.
+#[test]
+fn an_agy_conversation_harvests_with_its_step_outputs_joined_by_order() {
+    let (layout, home, cwd) = scratch("agy");
+    let run_id = "01a1073a-0000-7000-8000-000000000268";
+    open_agy_interactive_run(&layout, run_id, &cwd);
+    let now = chrono::Utc::now();
+    let cwd_text = cwd.display().to_string();
+
+    let transcript = vec![
+        agy_line(
+            0,
+            "SYSTEM_MESSAGE",
+            now,
+            json!({"content": "the TUI's own"}),
+        ),
+        agy_line(1, "USER_INPUT", now, json!({"content": "list the files"})),
+        agy_line(
+            2,
+            "PLANNER_RESPONSE",
+            now,
+            json!({
+                "content": "Looking.",
+                "thinking": "two calls will do",
+                "tool_calls": [
+                    {"name": "run_command", "args": {"CommandLine": "ls"}},
+                    {"name": "view_file", "args": {"AbsolutePath": "/x/a.txt"}},
+                ],
+            }),
+        ),
+        agy_line(3, "GENERIC", now, json!({})),
+        agy_line(4, "GENERIC", now, json!({})),
+        agy_line(
+            5,
+            "PLANNER_RESPONSE",
+            now,
+            json!({"content": "There is one file, a.txt."}),
+        ),
+        agy_line(6, "CHECKPOINT", now, json!({})),
+    ];
+    let mine = "0a1b2c3d-0000-4000-8000-000000000011";
+    write_agy_conversation(
+        &home,
+        mine,
+        &format!("file://{cwd_text}"),
+        Some(&transcript),
+        &[(3, "a.txt"), (4, "hello")],
+    );
+    let earlier = now - chrono::Duration::days(3);
+    write_agy_conversation(
+        &home,
+        "0a1b2c3d-0000-4000-8000-000000000012",
+        &cwd_text,
+        Some(&[agy_line(
+            0,
+            "USER_INPUT",
+            earlier,
+            json!({"content": "old"}),
+        )]),
+        &[],
+    );
+    let sibling = format!("{cwd_text}-two");
+    write_agy_conversation(
+        &home,
+        "0a1b2c3d-0000-4000-8000-000000000013",
+        &sibling,
+        Some(&[agy_line(
+            0,
+            "USER_INPUT",
+            now - chrono::Duration::milliseconds(1),
+            json!({"content": "elsewhere"}),
+        )]),
+        &[],
+    );
+    // A second TUI a human opened in the same directory while this one ran.
+    let later = now + chrono::Duration::seconds(5);
+    write_agy_conversation(
+        &home,
+        "0a1b2c3d-0000-4000-8000-000000000014",
+        &cwd_text,
+        Some(&[agy_line(
+            0,
+            "USER_INPUT",
+            later,
+            json!({"content": "later"}),
+        )]),
+        &[],
+    );
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(
+        outcome,
+        HarvestOutcome::Harvested { records: 9 },
+        "seven transcript lines and two step outputs"
+    );
+
+    let text = std::fs::read_to_string(layout.run_file(run_id)).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(
+        error.contains("000000000011, the first of 2"),
+        "the later conversation is counted, not taken: {error}"
+    );
+    assert!(
+        error
+            .contains("joined to calls by step order because the transcript carries no call id: 1"),
+        "{error}"
+    );
+    assert!(
+        !error.contains("no transcript line for their step"),
+        "{error}"
+    );
+
+    let said: Vec<(Role, &str)> = run.messages().map(|m| (m.role, m.text.as_str())).collect();
+    assert_eq!(
+        said,
+        [
+            (Role::User, "list the files"),
+            (Role::Assistant, "Looking."),
+            (Role::Assistant, "There is one file, a.txt."),
+        ]
+    );
+    let thought: Vec<&str> = run
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Thinking(thinking) => Some(thinking.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(thought, ["two calls will do"]);
+    let calls: Vec<(&str, &str)> = run
+        .tool_calls()
+        .map(|call| (call.call_id.as_str(), call.name.as_str()))
+        .collect();
+    assert_eq!(calls, [("2.0", "run_command"), ("2.1", "view_file")]);
+    let results: Vec<(&str, &str)> = run
+        .tool_results()
+        .map(|result| (result.call_id.as_str(), result.output.as_str()))
+        .collect();
+    assert_eq!(results, [("2.0", "a.txt"), ("2.1", "hello")]);
+    assert!(
+        run.findings.iter().any(|finding| matches!(
+            finding,
+            Finding::Limit(text) if text.contains("a guess by order")
+        )),
+        "{:?}",
+        run.findings
+    );
+
+    let usage = run.usage().expect("an ended run still says what it knows");
+    assert_eq!(usage.source, hydra::normalize::UsageSource::Unavailable);
+    assert!(usage.counts.is_none());
+    assert_eq!(
+        hydra::outcome::derive(&run).unwrap().outcome,
+        hydra::outcome::Outcome::Completed
+    );
+    assert_eq!(
+        harvest_in(&layout, run_id, None, &home).unwrap(),
+        HarvestOutcome::AlreadyDone
+    );
+}
+
+/// Build ticket 267. A session that left no conversation in its cwd closes
+/// the record failed, saying where the harvest looked.
+#[test]
+fn an_agy_run_with_no_conversation_derives_failed() {
+    let (layout, home, cwd) = scratch("agy-none");
+    let run_id = "01a1073a-0000-7000-8000-000000000269";
+    open_agy_interactive_run(&layout, run_id, &cwd);
+    // A conversation from before the run started is not this run's.
+    let earlier = chrono::Utc::now() - chrono::Duration::days(1);
+    write_agy_conversation(
+        &home,
+        "0a1b2c3d-0000-4000-8000-000000000015",
+        &cwd.display().to_string(),
+        Some(&[agy_line(
+            0,
+            "USER_INPUT",
+            earlier,
+            json!({"content": "old"}),
+        )]),
+        &[],
+    );
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(outcome, HarvestOutcome::Harvested { records: 0 });
+    let text = std::fs::read_to_string(layout.run_file(run_id)).unwrap();
+    hydra::record::validate::check(&text, Some(run_id)).assert_ok();
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(error.contains("no agy conversation"), "{error}");
+    assert_eq!(
+        hydra::outcome::derive(&run).unwrap().outcome,
+        hydra::outcome::Outcome::Failed
+    );
+}
+
+/// Build ticket 267. A conversation with no transcript yet is found by its
+/// store's file time and its cwd, and closes the record saying it holds no
+/// transcript rather than that there is no conversation.
+#[test]
+fn an_agy_conversation_with_no_transcript_yet_derives_failed() {
+    let (layout, home, cwd) = scratch("agy-empty");
+    let run_id = "01a1073a-0000-7000-8000-000000000270";
+    open_agy_interactive_run(&layout, run_id, &cwd);
+    write_agy_conversation(
+        &home,
+        "0a1b2c3d-0000-4000-8000-000000000016",
+        &cwd.display().to_string(),
+        None,
+        &[],
+    );
+
+    let outcome = harvest_in(&layout, run_id, Some(0), &home).unwrap();
+    assert_eq!(outcome, HarvestOutcome::Harvested { records: 0 });
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_file(&layout.run_file(run_id), &policies).unwrap();
+    let error = run.run_end().unwrap().body["error"].as_str().unwrap();
+    assert!(error.contains("000000000016 has no transcript"), "{error}");
+    assert_eq!(
+        hydra::outcome::derive(&run).unwrap().outcome,
+        hydra::outcome::Outcome::Failed
+    );
+}

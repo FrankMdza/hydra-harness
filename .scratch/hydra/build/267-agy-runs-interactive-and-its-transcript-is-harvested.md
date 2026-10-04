@@ -1,7 +1,7 @@
 # 267 - `agy` runs interactive, and its transcript is harvested
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 266
 
 ## What
@@ -40,3 +40,31 @@ only, no content read or copied** (a run cannot read it; build from this):
 Fixtures are built by hand in the test from these shapes. The live check is the session's.
 
 ## Outcome
+
+Built 2026-10-04 by an Opus run (`01a10767`), reviewed and applied by the session.
+
+`hydra run --interactive --provider agy` launches the TUI ungated
+(`[--model M] [--prompt-interactive=task]`, from `agy --help` 1.2.16). `provider/agy.rs` finds the
+conversation by start time, then an exact cwd match in `trajectory_metadata_blob`, reads it with
+`sqlite3 -readonly -json` as 266 does, and writes the transcript lines as they are, each step's
+`output.txt` after its step wrapped as `{"step_output": ...}`, the one composed line. The
+normalizer reads them; a `step_output` answers the oldest waiting call from a step at or before
+it; usage is `unavailable`. `hydra-copilot` renders `COPILOT.md` as `GEMINI.md` for `agy`.
+Three tests in `tests/harvest.rs` and one in `tests/copilot_repo_and_tools.rs` fail before.
+
+**The run's open questions, answered by the session on this machine's data (no content read):**
+- Outputs land under the following `GENERIC` step (924 of 927), never the planner step that
+  made the call; the oldest-waiting join covers that.
+- No step repeats its line (0 of 3,002); 53 steps make more than one call, which is where the
+  join by order is the only evidence, and the harvest says so.
+- `created_at` is RFC 3339 with `Z`.
+- The cwd framing: every one of the 30 newest blobs names its workspace twice as a
+  length-prefixed path, which the matcher accepts, and once as a `file://` URI, which it does not
+  need. All 30 name gated `--print` worktrees, so as with `cursor-agent`, nothing yet tells a TUI
+  conversation from a `--print` one started in the same cwd.
+
+**No change to existing records:** `hydra doctor --walk` identical, and `hydra show --events` on
+all 88 `agy` records identical with the marker token masked.
+
+Not done, the session's: one live interactive `agy` run and its harvest. `agy` is 1.2.16 now;
+the module docs still say 1.1.27.
