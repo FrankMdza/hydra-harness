@@ -1,7 +1,7 @@
 # 234 - apprentice in Rust: the cutover
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 232, 233
 
 ## What

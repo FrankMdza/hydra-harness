@@ -1,7 +1,7 @@
 # 236 - otel in Rust: the cutover
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 234, 235
 
 ## What
