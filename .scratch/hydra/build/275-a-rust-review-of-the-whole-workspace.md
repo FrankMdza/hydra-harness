@@ -1,7 +1,7 @@
 # 275 - A Rust review of the whole workspace
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -33,3 +33,12 @@ change a separate run can make with the suite as its net, none of which changes 
 - The report is the run's final answer; nothing in the worktree changes.
 
 ## Outcome
+
+Resolved 2026-10-03 by run `01a1050b-c1bf` (`claude` opus 5.5, `standard`, 11.2M tokens), a
+read-only review; the report is `.scratch/hydra/research/275-rust-review.md`. 24 findings ranked, eight behaviour-preserving refactor
+tickets (276 to 283), one ticket of fixes that change behaviour (284), one decision for the map
+(108). The biggest costs: `hydra doctor --walk` normalizes each record nine times, `hydra export`
+one plus repos plus two per eligible run, and the cockpit re-reads ended records every tick. The
+run found no panic reachable from user or provider input. `standard` refused its Agent tool, so
+it read everything in one context; the files it names under "Not confirmed" were swept, not read
+line by line.
