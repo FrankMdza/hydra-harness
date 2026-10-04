@@ -41,3 +41,27 @@ costs a gigabyte less; `ministral-3:3b` is a little faster. Read on Hugging Face
 License Agreement, non-commercial; `mistralai/Ministral-3-3B-Instruct-2512` under Apache 2.0. For a
 portfolio piece that may be fine-tuned and shipped, that points at `ministral-3:3b`. Map 112
 carries the choice with the harness's open decision.
+
+**Second pass, the same day: a real tool loop scored on the end state.** The first pass scored
+only the first call, so a model that reads a file before editing it failed; two of Granite's
+three misses were that. `111-tool-loop-bakeoff.py` gives each model the tools' results back for
+up to six turns in a scratch git repository, with Bash limited to `ls`, `wc`, `cat`, `head` and
+`git log`, and checks the files on disk or the final answer. Raw rows in
+`111-tool-loop-bakeoff-results.jsonl`.
+
+| Model | First call | Loop, end state | 10 tasks |
+|---|---|---|---|
+| `granite4:micro` | 7 / 10 | 8 / 10 | 30 s |
+| `ministral-3:3b` | 10 / 10 | 8 / 10 | 38 s |
+| `qwen2.5:3b` | 10 / 10 | 6 / 10 | 23 s |
+| `llama3.2:3b` | 8 / 10 | 6 / 10 | 27 s |
+
+Granite and Ministral miss the same two: counting `Cargo.toml`'s lines by reading it (12 and 1,
+where `wc -l` says 6), and appending a line to the README, where the check may be stricter than
+the task. Qwen answers without a tool where it needs one, reads an invented
+`commit_message.txt` instead of `git log`, and does not recover from a failed `Edit`. Loaded in
+Ollama with a 4,096-token context: Qwen 2.2 GB, Granite 2.5 GB, Ministral 2.7 GB.
+
+So the daily driver is Granite or Ministral, both Apache 2.0, and ten tasks do not separate them.
+Not yet done: a set of about 30 multi-step tasks, and Granite under llama.cpp with the chat
+template IBM ships in the GGUF, to rule out Ollama's.

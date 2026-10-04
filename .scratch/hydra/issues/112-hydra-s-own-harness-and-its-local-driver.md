@@ -16,7 +16,8 @@ tool calls on 7 of 10 tasks. Map 111 measured four that do.
    rewrite them picks its own model. (A) a protected config, human-written, like `panels.json`;
    (B) flags on `hydra run`, recorded in `run_start`, never read from the worktree; (C) both, the
    config as the allowlist and the flag as the choice within it.
-2. **The default local model**: `qwen2.5:3b` (smaller) or `ministral-3:3b` (faster). Map 111 read
+2. **The default local model**: after map 111's loop pass, `granite4:micro` or `ministral-3:3b`
+   (8 of 10 each end to end; `qwen2.5:3b` fell to 6). Map 111 read
    the licences: Qwen's is research-only, Ministral's is Apache 2.0, and the licence decides which
    one the training round of map 109 may fine-tune.
 3. **First use**: the apprentice's bank (map 87) through the harness, so its attempts act under
