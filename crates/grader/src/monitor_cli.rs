@@ -1,8 +1,7 @@
 //! `hydra-grader monitor features`, `train` and `score`: the arguments of `monitor.py` and
 //! its three commands (build ticket 215).
 //!
-//! The arguments follow `argparse` by the rules `baseline_cli.rs` spells out, and through
-//! its reader. A wrong command line exits 2 with a usage line and then
+//! The arguments follow `argparse` by the reading in `argparse.rs`. A wrong command line exits 2 with a usage line and then
 //! `PROG: error: MESSAGE`, and the message is the Python's. The usage line and the help are
 //! this binary's own, since its name is not `monitor.py`.
 
@@ -12,11 +11,10 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use hydra_pyjson::json::{self, Value};
 
+use crate::argparse::{self, Parsed, parse, quoted, repr, wrong};
 use crate::baseline::{Label, Refusal};
-use crate::baseline_cli::{
-    Kind, Parsed, TEST_FROM, day, finish, kind, load_aliases, parse, quoted, record_path, repr,
-    shown, wrong,
-};
+use crate::baseline_cli::{TEST_FROM, day, finish, record_path, shown};
+use crate::data::process_aliases;
 use crate::isotime::DateTime;
 use crate::monitor;
 use crate::records;
@@ -55,7 +53,7 @@ fn missing(positional: &str, given: usize, at: Option<f64>) -> Option<String> {
 
 fn features(record: &str, at: f64, stderr: &mut dyn Write) -> Result<String> {
     let path = record_path(record)?;
-    monitor::feature_view(&path, &shown(&path), at, &load_aliases, stderr)
+    monitor::feature_view(&path, &shown(&path), at, &process_aliases, stderr)
 }
 
 struct Train<'a> {
@@ -109,50 +107,16 @@ fn score(model_path: &Path, run: &str, stderr: &mut dyn Write) -> Result<String>
         .into());
     };
     let path = record_path(run)?;
-    monitor::score_line(&model, at, &path, &shown(&path), &load_aliases, stderr)
+    monitor::score_line(&model, at, &path, &shown(&path), &process_aliases, stderr)
 }
 
 /// `monitor.py`'s `main` on the arguments after `monitor`. Returns the exit code.
 pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
-    // The top parser: `-h`, then the command. An option it does not know waits until the
-    // command has parsed and is then unrecognized.
-    let mut top_extras = Vec::new();
-    let mut rest = args;
-    let command = loop {
-        let Some((first, after)) = rest.split_first() else {
-            return wrong(
-                stderr,
-                USAGE,
-                PROG,
-                "the following arguments are required: command",
-            );
+    let (command, rest, top_extras) =
+        match argparse::command(args, USAGE, PROG, &COMMANDS, stdout, stderr) {
+            Ok(read) => read,
+            Err(code) => return code,
         };
-        rest = after;
-        if first == "--" {
-            continue;
-        }
-        match kind(first, &["--help"]) {
-            Kind::Positional => {}
-            Kind::Help => {
-                let _ = writeln!(stdout, "{USAGE}");
-                return 0;
-            }
-            Kind::Wrong(message) => return wrong(stderr, USAGE, PROG, &message),
-            Kind::Option(..) | Kind::Unknown => {
-                top_extras.push(first.clone());
-                continue;
-            }
-        }
-        break first.as_str();
-    };
-    if !COMMANDS.contains(&command) {
-        let message = format!(
-            "argument command: invalid choice: {} (choose from {})",
-            repr(command),
-            quoted(&COMMANDS)
-        );
-        return wrong(stderr, USAGE, PROG, &message);
-    }
     let unrecognized = |stderr: &mut dyn Write, extras: Vec<String>| -> Option<u8> {
         let mut all = top_extras.clone();
         all.extend(extras);

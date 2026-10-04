@@ -35,7 +35,8 @@ pub struct Home {
 
 /// Where a checkout keeps the helper's data files: `vendors.json`, `priors.json`,
 /// `aliases.json` and `prompts/`.
-const DATA_DIR: &str = "integrations/puppets";
+#[cfg(test)]
+const DATA_DIR: &str = hydra_pyjson::data::DATA_DIR;
 
 /// The directory the data files are read from, found when the helper runs and never
 /// compiled in (build 196): `HYDRA_PUPPETS_DATA` when set, else `integrations/puppets`
@@ -82,29 +83,8 @@ fn data_dir_from(
     hydra_home: Option<PathBuf>,
     exe: Option<&Path>,
 ) -> PathBuf {
-    if let Some(data) = data {
-        return data;
-    }
-    if let Some(home) = hydra_home {
-        return home.join(DATA_DIR);
-    }
-    let exe = exe.map(|exe| exe.canonicalize().unwrap_or_else(|_| exe.to_path_buf()));
-    let above = exe
-        .as_deref()
-        .map(Path::ancestors)
-        .into_iter()
-        .flatten()
-        .skip(1);
-    for dir in above {
-        let found = dir.join(DATA_DIR);
-        if found.join("prompts").is_dir() {
-            return found;
-        }
-    }
-    match exe.as_deref().and_then(Path::parent) {
-        Some(beside) => beside.join(DATA_DIR),
-        None => PathBuf::from(DATA_DIR),
-    }
+    // The rule is `hydra-pyjson`'s, so `hydra-grader` finds the same directory (build 220).
+    hydra_pyjson::data::dir_from(data, hydra_home, exe)
 }
 
 /// The data files of the checkout the tests were built from.

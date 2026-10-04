@@ -1,12 +1,17 @@
-"""Map recorded provider and model spellings to one canonical pair."""
+"""Map recorded provider and model spellings to one canonical pair.
+
+This was `integrations/puppets/models.py`. Build ticket 220 moved it beside `records.py`, the
+one file that loads it. The table stays in `integrations/puppets/`, where `hydra-puppets` and
+`hydra-grader` read it.
+"""
 import json
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+DATA = Path(__file__).resolve().parents[1] / 'puppets'
 
 
 def load_aliases(path=None):
-    path = HERE / 'aliases.json' if path is None else Path(path)
+    path = DATA / 'aliases.json' if path is None else Path(path)
     rows = json.loads(path.read_text())
     table = {}
     for row in rows:

@@ -1,5 +1,15 @@
 """Record what `records.py` and `redact.py` give, so `differential.rs` can compare the Rust.
 
+**This script no longer runs from this checkout.** Build ticket 220 deleted the Python it
+records, `integrations/grader/*.py`, and three test files the recorders load
+(`test_monitor.py`, `test_triage.py` and, through them, their helpers). It and the
+`record_*.py` beside it are kept as the record of how `fixtures/` was made. To add a case,
+check out the commit before that ticket, add it there, record into a scratch directory, and
+copy the fixture across. The last recording made here, on 2026-10-01, gave the committed
+bytes of every fixture but three: `triage.json`, whose `triaged_at` stamps are wall clock,
+`jev.json`, which this script indents by one where the committed file has two, and `sheet/`,
+whose Python build ticket 219 had already deleted.
+
 Build ticket 212, the first of the grader's port. From the checkout's root:
 
     python3 crates/grader/tests/record.py

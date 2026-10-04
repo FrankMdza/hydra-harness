@@ -380,10 +380,11 @@ under `integrations/`. The
 Master of Puppets helper is Rust, `hydra-puppets`; the Python it was ported from was deleted on
 2026-10-01, after its output on every test input was recorded as the fixture the helper is now
 compared with. Since builds 252 and 262 the helper's judge and plan prompts differ from that
-Python on purpose, so the recorded comparison skips those cases and unit tests cover them.
-Still Python: the grader, the Herdr plugin, the apprentice, the OpenTelemetry converter and
-the local-LLM server under `integrations/`, and `integrations/puppets/models.py`, which the
-grader loads. The sheet builder moved to Rust as `hydra-grader sheet`. CI never walks the live corpus under
+Python on purpose, so the recorded comparison skips those cases and unit tests cover them. The
+grader is Rust too, `hydra-grader`, and its Python was deleted the same way (build ticket 220);
+it reads a goal by running `hydra-puppets show`. Still Python: the Herdr plugin, the apprentice,
+the OTLP translator and the local-LLM server under `integrations/`, with the record scan and the
+redactor the apprentice and the translator load. CI never walks the live corpus under
 `~/hydra/runs/`; that is `hydra doctor --walk` on the machine that launched the runs. The fixture
 walks in `cargo test` run the same assertions over `tests/fixtures/records/`, twelve synthetic
 records filed by the provider version whose shapes they reproduce, and the CI job summary prints

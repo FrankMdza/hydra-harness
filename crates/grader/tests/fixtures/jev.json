@@ -59,7 +59,7 @@
       },
       "code": 1,
       "stdout": "About thirty labelled build diffs make every number below loose; treat them as directional.\nquestion: needs_correction\nn: 1\n",
-      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 6, in <module>\n    raise SystemExit(m.main())\n                     ~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 410, in main\n    return cmd_score(args.answers)\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 367, in cmd_score\n    print(f\"brier: {brier_score(pairs):.6f}\")\n                    ~~~~~~~~~~~^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 292, in brier_score\n    return sum((p - y) ** 2 for p, y in pairs) / len(pairs)\n           ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 292, in <genexpr>\n    return sum((p - y) ** 2 for p, y in pairs) / len(pairs)\n               ~~~~~~~~^^~~\nOverflowError: (34, 'Result too large')\n",
+      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 6, in <module>\n    raise SystemExit(m.main())\n                     ~~~~~~^^\n  File \"<repo>/integrations/grader/jev_probe.py\", line 410, in main\n    return cmd_score(args.answers)\n  File \"<repo>/integrations/grader/jev_probe.py\", line 367, in cmd_score\n    print(f\"brier: {brier_score(pairs):.6f}\")\n                    ~~~~~~~~~~~^^^^^^^\n  File \"<repo>/integrations/grader/jev_probe.py\", line 292, in brier_score\n    return sum((p - y) ** 2 for p, y in pairs) / len(pairs)\n           ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/jev_probe.py\", line 292, in <genexpr>\n    return sum((p - y) ** 2 for p, y in pairs) / len(pairs)\n               ~~~~~~~~^^~~\nOverflowError: (34, 'Result too large')\n",
       "left": {
         "answers.jsonl": "{\"label\": \"changed\", \"answers\": {\"needs_correction\": 1e+200}}\n"
       }
@@ -305,7 +305,7 @@
       },
       "code": 1,
       "stdout": "",
-      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 6, in <module>\n    raise SystemExit(m.main())\n                     ~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 406, in main\n    return cmd_patches(args.labels, args.out)\n  File \"/Users/USER/hydra/worktrees/01a0f71b-ef9c-76f0-84d4-5a69200fc518/integrations/grader/jev_probe.py\", line 203, in cmd_patches\n    counts[row[\"label\"]] += 1\n    ~~~~~~^^^^^^^^^^^^^^\nKeyError: 'unknown'\n",
+      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 6, in <module>\n    raise SystemExit(m.main())\n                     ~~~~~~^^\n  File \"<repo>/integrations/grader/jev_probe.py\", line 406, in main\n    return cmd_patches(args.labels, args.out)\n  File \"<repo>/integrations/grader/jev_probe.py\", line 203, in cmd_patches\n    counts[row[\"label\"]] += 1\n    ~~~~~~^^^^^^^^^^^^^^\nKeyError: 'unknown'\n",
       "left": {
         "a.patch": "diff\n+caf\u00e9 \ud83d\ude00\r\n",
         "b.patch": "diff\n+two\n",

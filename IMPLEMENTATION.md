@@ -3603,16 +3603,19 @@ command starts from an empty environment, the data files are frozen copies under
 repository `review` and `new` read is committed at a fixed time. `sorted`, `str.isprintable`,
 `int()`, `math.lgamma` and `sheet.beta_lower` are recorded too, as CPython 3.14.7 answered, so
 no test starts `python3`. Each test fails when its group holds a fixture no case reads.
-`integrations/grader/tests/test_labels_recorded.py` is the gate above kept as a test: 147 logs
-equal with 291 labels, ten with a human verdict, and 17 that both refuse.
+`crates/puppets/tests/grader_labels.rs` is the gate above kept as a test: 147 logs equal with
+291 labels, ten with a human verdict, and 17 that both refuse. It was
+`integrations/grader/tests/test_labels_recorded.py` until build ticket 220 deleted the grader's
+Python; it now runs `hydra-grader`'s `labels.rs` against the `hydra-puppets` cargo builds for
+the test, and gave the same four numbers as the Python test did on the day it was deleted.
 
 - **What is left in Python, and why.** Build ticket 219 ports the sheet's `build`, `budget`
   and `show` to `hydra-grader sheet build|budget|show`, in `crates/grader/src/sheet.rs` and
   `sheet_cli.rs`. The existing committed-line reader and `hydra show` subprocess are reused;
   the sheet cache retains the full answer and hashes the complete record, including a torn
   tail, as the Python did. Ranking and `beta_lower` stay in `crates/puppets/src/sheet.rs`.
-  `sheet.py` and its tests are deleted. `models.py` stays because
-  `integrations/grader/records.py` still loads it. The sheet fixtures were recorded from
+  `sheet.py` and its tests are deleted. `models.py` outlived them because `records.py` loads
+  it; build ticket 220 moved both to `integrations/apprentice/`. The sheet fixtures were recorded from
   Python 3.14.7 with frozen data and a shell stub, and compare file bytes, output, exit codes
   and stub calls. Only scratch paths, budget history dates, help/usage and traceback details
   are normalized. `sheet_build.rs` builds fresh sheets and checks Python's recorded ranking
@@ -3639,8 +3642,10 @@ equal with 291 labels, ten with a human verdict, and 17 that both refuse.
 
 ### The grader in Rust, since build ticket 212
 
-Map ticket 94 ports `integrations/grader/` a ticket at a time, and the Python stays as the
-reference until the last one. Build ticket 212 added the workspace's fourth member, `crates/grader`
+Map ticket 94 ported `integrations/grader/` a ticket at a time, with the Python as the
+reference until the last one, build ticket 220, deleted it on 2026-10-01. That ticket's
+subsection, "The cutover", closes this section and says what is true now; the ones before it
+describe each port as it was made. Build ticket 212 added the workspace's fourth member, `crates/grader`
 (package and binary `hydra-grader`), which depends on `hydra-pyjson`, `anyhow` and `sha2` and on
 neither `hydra-puppets` nor `hydra`. It holds two of the Python's modules:
 
@@ -3660,7 +3665,8 @@ Build ticket 217 ported the verdict queue and the Jev probe's local half. `queue
 with CRLF endings, minimal quoting and doubled quotes; `label-import` folds a filled queue
 into `ticket-verdicts.json` and the dataset's `human_verdict`. CSV reading and writing and
 Outcome matching use handwritten code, with no new dependencies. `jev.rs` implements
-`hydra-grader jev build`, `patches` and `score`; `ask` stays Python, and no TLS is added.
+`hydra-grader jev build`, `patches` and `score`; `ask` is not ported (map 94), went with
+`jev_probe.py` in build 220, and no TLS is added.
 `hydra-pyjson` gained `json::dumps_unicode_default` for `ensure_ascii=False` with Python's
 default separators. Text reads translate CRLF and CR as Python does, while CSV preserves them.
 
@@ -3782,7 +3788,7 @@ the real grader home or its models.
 `monitor_cli.rs` is its three commands, which the binary runs as
 `hydra-grader monitor features RECORD --at F`,
 `hydra-grader monitor train DATASET [MODEL] --at F [--label L] [--test-from DAY] [--records DIR]`
-and `hydra-grader monitor score MODEL RUN`. The Python stays as the reference.
+and `hydra-grader monitor score MODEL RUN`. The Python stayed as the reference until build 220.
 
 The split, the floor, `fit`, the measures and the report are `baseline.rs`'s, called and not
 copied. For that, `baseline.rs` gained `pub(crate)` on what the monitor calls and three seams:
@@ -3836,7 +3842,7 @@ the real monitor models.
 
 `triage.rs` and `triage_cli.rs` port `triage.py` as `hydra-grader triage run`,
 `hydra-grader triage table` and `hydra-grader triage sample [--n N] [--seed SEED]`.
-The Python stays as the reference. The first matching rule wins: collision, quota, gate,
+The Python stayed as the reference until build 220. The first matching rule wins: collision, quota, gate,
 never_started, provider_crash, stall, then unknown. Completed and live dataset rows are
 left out. Triage uses the prefix walker in `monitor.rs`, exposed within the crate with
 the three counts it needs, rather than implementing refusal detection again. A successful
@@ -3878,8 +3884,8 @@ ran against the real grader home or run records.
 #### The local judge, since build ticket 218
 
 `judge.rs` and `judge_cli.rs` port `judge.py` whole as `hydra-grader judge label
-[--limit N] [--only-unlabelled]` and `hydra-grader judge agree`. The Python stays as the
-reference. `label` appends to `judge-labels.jsonl` one line per run it has not asked about
+[--limit N] [--only-unlabelled]` and `hydra-grader judge agree`. The Python stayed as the
+reference until build 220. `label` appends to `judge-labels.jsonl` one line per run it has not asked about
 under this model and this prompt, a rule writes the line of a `rate_limited` or `gated` run
 without a call, and `agree` prints the count of runs that hold a human verdict and a judge's.
 `show_projection` runs `hydra show <id>` with `HYDRA_ROOT` set to the directory above the
@@ -3942,7 +3948,8 @@ Two programs are still started. `hydra show <id> --events` is `HYDRA_BIN` or `hy
 builds 196 and 221: an absolute path and never `PATH`, from `HYDRA_PUPPETS_BIN`, else beside an
 absolute `HYDRA_BIN`, else `target/release/hydra-puppets` of the checkout. The Python took the
 checkout its own file was in. The Rust takes the first directory above the binary that holds
-`integrations/puppets`, and with none it is a `LabelsError` that asks for `HYDRA_PUPPETS_BIN`.
+`integrations/puppets`, and with none it is a `LabelsError` that names `HYDRA_PUPPETS_BIN` and
+`HYDRA_BIN` (build 220).
 
 `hydra-pyjson` gained `json::loads_bytes_pairs_explained`, the parse that keeps a key written
 twice, which is what `object_pairs_hook` hands `labels.py`. No dependency was added.
@@ -4006,10 +4013,102 @@ arrive, so every recorded command has one worker or one stale record; the Rust f
 order of the records. `watch` past its first pass was not recorded. The text after the class of
 a traceback is not compared, except where `watch` prints it as `grader: pass failed:`, and there
 it was recorded for a `LabelsError`, a `hydra show` that exits non-zero, one killed by a signal
-and one that is missing. `aliases.json`'s lookup, `str(Path)` and the reading of `argparse` are
-copied from `baseline_cli.rs` into `collect_cli.rs` and `labels.rs` rather than shared, because
-two other tickets were adding commands to the crate at the same time. Nothing ran on the real
-grader home, and the launchd job still runs the Python.
+and one that is missing. `str(Path)` is still in both `baseline_cli.rs` and `labels.rs`. The
+lookup of `aliases.json` and the reading of `argparse` were copied too, and build 220 made each
+one copy.
+
+#### The cutover, build ticket 220
+
+The grader's Python is deleted: `grader.py`, `baseline.py`, `monitor.py`, `triage.py`,
+`judge.py`, `labels.py`, `jev_probe.py`, nine test files and the helper they shared. `integrations/grader/` keeps
+its README, `SCHEMA.md` and the launchd template, which runs
+`target/release/hydra-grader once`. `records.py` and `redact.py` moved to
+`integrations/apprentice/` with their two test files, and `models.py` moved there from
+`integrations/puppets/`: `apprentice.py` loads all three and `integrations/otel/record_to_otlp.py`
+loads `redact.py`. They are the apprentice's now and nothing keeps them in step with the Rust.
+`aliases.json` stayed in `integrations/puppets/`, where both binaries read it, and
+`hydra-puppets` reads `scores.jsonl` from the grader home as it did.
+
+**A job installed before this ticket runs a file that no longer exists.** The plist in the
+repository is a template; the copy under `~/Library/LaunchAgents/` is the human's and names
+`/usr/bin/python3 integrations/grader/grader.py once`. `integrations/grader/README.md` has the
+two commands that replace it, a release build and one line that boots the old job out, writes
+the template with the home filled in and boots it in. Until they are run the old job fails
+every fifteen minutes and collects nothing.
+
+What changed in the binary before the Python went, each with a test that fails without it:
+
+- **One rule for the data directory** (`data.rs`, and `hydra_pyjson::data`, which
+  `hydra-puppets` now calls too): `HYDRA_PUPPETS_DATA`, else `integrations/puppets` under
+  `HYDRA_HOME`, else the first directory above the binary that holds
+  `integrations/puppets/prompts`. The Python read the file beside its own checkout and ignored
+  the environment, and a binary has no checkout. Three commands each had an older copy that
+  looked for `aliases.json` itself above the binary and fell back to a relative path. A
+  directory that is not there, or one with no `aliases.json`, ends the command with one line
+  naming the directory and both variables. Another table still changes the dataset's `model`
+  with no other sign, which is why the template names the directory. This is a departure from
+  the Python that no fixture can show, since the recorder hands the Python a table.
+- **The helper's error names `HYDRA_PUPPETS_BIN` and `HYDRA_BIN`.** A `hydra-grader` copied out
+  of its checkout with neither set to an absolute path has no helper, where the Python found
+  its checkout's. The template sets `HYDRA_BIN` to an absolute path.
+- **A `TMPDIR` that is not there is passed over**, as `tempfile.gettempdir()` passes over it:
+  `TMPDIR`, `TEMP`, `TMP`, then `/tmp`, `/var/tmp`, `/usr/tmp` and the working directory. Only
+  the library's path for a runs directory not named `runs` makes a scratch directory. The Rust
+  tries to make its directory in each place; the Python tries a file there first.
+- **The monitor's scaling raises `OverflowError`** when the spread of a scaled feature has no
+  square as a float, before any write, the model's parent directory included. The Rust's `pow`
+  gave infinity and failed later with `ValueError`. One new case in `monitor.json`, 90 of 180
+  records with a usage count of `10**200`.
+- **One pass at a time in a grader home.** `once`, `rebuild`, each turn of `watch` and
+  `backfill` take `flock(LOCK_EX | LOCK_NB)` on the home directory itself, so no lock file is
+  added to it, and hold it until they return. One that finds it taken prints `grader: another
+  pass is running in <home>; nothing done` on stderr and exits 0. Both implementations wrote
+  every file through one `.tmp` name, so two passes at once ended one of them in
+  `FileNotFoundError`. This is the one behaviour of a pass the Python never had. The lock makes
+  the home directory when it is not there, which a pass that had nothing to write did not do.
+  A home that cannot be made or opened is not locked and the pass fails where it always did.
+  `baseline train`, `label-import`, `triage run` and `judge label` write under the same home
+  and do not take it.
+- **One reading of `argparse`** (`argparse.rs`), with the top parser of `baseline`, `monitor`
+  and the pass in one function. Making it one copy found a difference between the copies that
+  the fixtures had not: `argparse` drops the first `--` while it is still filling positionals
+  and keeps it among the unrecognized once a surplus argument came before it, or when the
+  command has no positional. `baseline score m r x -- y` said `unrecognized arguments: x y`
+  and the Python says `x -- y`. Twelve cases were recorded for it.
+- With `--jobs` above 1 the two fill `show-cache.json` in different order, the Python as the
+  answers arrive and the Rust in the order of the records. Nothing reads the order, and the
+  dataset and the scores do not change. Left as it is.
+- `record_baseline.py`, `record_queue.py` and `record_triage.py` write the checkout's path in a
+  traceback as `<repo>`, as `record_monitor.py` did, and the committed fixtures were changed
+  to match. The tests read only the exception class of a traceback.
+
+Three more tests replaced Python ones. `crates/grader/tests/launchd.rs` is `test_launchd.py`:
+it reads the template with a reader of its own, since the crate takes no XML dependency for one
+file, lints it with `plutil` where there is one, and checks the program, both homes, the
+absolute `HYDRA_BIN`, the data directory and the README's commands.
+`crates/puppets/tests/grader_labels.rs` is `test_labels_recorded.py`, above.
+`crates/grader/tests/cutover.rs` runs the binary for the five changes a command can reach.
+`libc` is a new dependency of `crates/grader`, for `flock`; `crates/puppets` already had it.
+
+What is left open:
+
+- **The fixtures cannot be recorded again from this checkout.** `record*.py` are kept as the
+  record of how they were made, and they load the Python this ticket deleted and three of its
+  test files. A new differential case needs a checkout from before the ticket.
+- The fixtures were recorded and replayed on arm64 macOS with CPython 3.14.7 only.
+- The gate on the real grader home is the session's and a run cannot read that directory. The
+  ticket records what it measured after build 214: byte-identical with CPython 3.14.7 apart
+  from the two wall-clock stamps, and against the 3.9.6 the old job ran, the last digit of `p`
+  on 136 of 1,390 score lines, because 3.9's `sum()` is not compensated. `scores.jsonl` is
+  append-only and no old score is rewritten. Whether to retrain is the human's call.
+- `hydra-grader once` has not been run by launchd. The lock was tested with a lock held by the
+  test process, not with two real passes racing.
+- CI runs `test_records.py` and `test_redact.py` from their new place and no other Python of
+  `integrations/apprentice/` or `integrations/otel/`, as before.
+- `jev ask` is gone with `jev_probe.py`, as map 94 decided.
+- Outside `.scratch/`, `docs/` and the fixtures, `grader.py` is still named where a module says
+  which file it is the port of, in the comparator, which reads `grader.py` at the start of a
+  recorded usage line as `hydra-grader`, and in `record*.py`.
 
 ## `hydra cockpit`, since build ticket 150
 

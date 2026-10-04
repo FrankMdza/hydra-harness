@@ -7,28 +7,12 @@ use hydra_pyjson::file::read_text;
 use hydra_pyjson::json::{self, Value};
 use hydra_pyjson::py;
 
-use crate::baseline_cli::{Kind, Parsed, kind, parse, quoted, repr, wrong};
+use crate::argparse::{Kind, Parsed, kind, parse, quoted, repr, wrong};
 use crate::{labels::Env, records, sheet};
 const PROG: &str = "hydra-grader sheet";
 const COMMANDS: [&str; 3] = ["build", "budget", "show"];
 const USAGE: &str = "usage: hydra-grader sheet [-h] {build,budget,show} ...";
 
-fn data_dir() -> PathBuf {
-    if let Some(data) = std::env::var_os("HYDRA_PUPPETS_DATA") {
-        return data.into();
-    }
-    if let Some(home) = std::env::var_os("HYDRA_HOME") {
-        return PathBuf::from(home).join("integrations/puppets");
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| {
-            exe.ancestors()
-                .map(|p| p.join("integrations/puppets"))
-                .find(|p| p.join("aliases.json").is_file())
-        })
-        .unwrap_or_else(|| PathBuf::from("integrations/puppets"))
-}
 pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> u8 {
     let mut rest = args;
     let mut top_extras = Vec::new();
@@ -77,8 +61,7 @@ pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("puppets"));
     let mut runs = root.join("runs");
-    let data = data_dir();
-    let mut vendors = data.join("vendors.json");
+    let mut vendors: Option<PathBuf> = None;
     let mut weight = 1.0;
     let mut since = None;
     let options: &[&'static str] = match command {
@@ -96,7 +79,7 @@ pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         match option {
             "--home" => home = value.into(),
             "--runs" => runs = value.into(),
-            "--vendors" => vendors = value.into(),
+            "--vendors" => vendors = Some(value.into()),
             "--since" => since = Some(value.to_owned()),
             _ => {
                 weight = py::float_literal(value).ok_or_else(|| {
@@ -185,7 +168,10 @@ pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
     let hydra = std::env::var("HYDRA_BIN").unwrap_or_else(|_| "hydra".into());
     let env = Env::process();
     let done = (|| -> Result<Option<String>> {
-        let aliases = hydra_pyjson::models::load_aliases(&data.join("aliases.json"))?;
+        // The data directory `hydra-puppets` reads, by the one rule of `data.rs`.
+        let data = crate::data::dir(&env)?;
+        let aliases = crate::data::aliases_in(&data)?;
+        let vendors = vendors.unwrap_or_else(|| data.join("vendors.json"));
         if command == "build" {
             let vendors = records::read_json(&vendors)?.unwrap_or(Value::Null);
             let sheets = sheet::build(&runs, &home, &vendors, &hydra, weight, &aliases, &env)?;

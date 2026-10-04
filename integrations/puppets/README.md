@@ -4,7 +4,8 @@ The helper for the Master of Puppets mode: one append-only JSONL log per goal, s
 by folding the log, and task launches through the Hydra binary. Since build ticket 196 the helper
 is `hydra-puppets`, the Rust binary of `crates/puppets`, built by `cargo build --release
 --workspace` beside `hydra`. This directory holds what it reads, `vendors.json`, `priors.json`,
-`aliases.json` and `prompts/`, and the shared Python model alias loader. Approvals are lines
+`aliases.json` and `prompts/`. `hydra-grader` reads `aliases.json` from here too, by the same
+rule for finding this directory (`HYDRA_PUPPETS_DATA` below). Approvals are lines
 appended to the goal log that the CLI checks before acting; anything that can run the CLI can write one, and the
 helper does not verify that a human typed it.
 
@@ -15,9 +16,9 @@ input of the differential tests and wrote its output under `crates/puppets/tests
 
 Build ticket 219 ports the sheet builder to `hydra-grader sheet build|budget|show`.
 `rank` and `beta_lower` remain in `crates/puppets/src/sheet.rs`, where `assign` uses them.
-`models.py` stays because `integrations/grader/records.py` still loads it.
-
-`jev_probe.py` moved to `integrations/grader/`, which is the only thing that loads it.
+Build ticket 220 moved `models.py` to `integrations/apprentice/`, beside `records.py`, the one
+file that loads it, and deleted `jev_probe.py` with the rest of the grader's Python. No Python
+is left in this directory.
 
 Nothing under `src/` imports this directory. Hydra works with it stopped.
 
@@ -28,7 +29,7 @@ Nothing under `src/` imports this directory. Hydra works with it stopped.
 | `HYDRA_BIN` | `hydra` on `PATH` | Hydra binary, same as the Herdr scripts |
 | `HYDRA_PUPPETS_HOME` | `~/hydra/puppets` | Goal logs and per-goal plan copies |
 | `HYDRA_ROOT` | `~/hydra` | Run files polled by `wait` |
-| `HYDRA_PUPPETS_DATA` | `integrations/puppets` under `HYDRA_HOME`, else under the first directory above the binary that holds `integrations/puppets/prompts` | Where `hydra-puppets` reads `vendors.json`, `priors.json`, `aliases.json` and `prompts/` |
+| `HYDRA_PUPPETS_DATA` | `integrations/puppets` under `HYDRA_HOME`, else under the first directory above the binary that holds `integrations/puppets/prompts` | Where `hydra-puppets` reads `vendors.json`, `priors.json`, `aliases.json` and `prompts/`, and `hydra-grader` reads `aliases.json` |
 | `HYDRA_PUPPETS_VENDORS` | `vendors.json` in the data directory | The vendors file alone |
 
 The data directory has to exist. A `hydra-puppets` copied out of its checkout with neither

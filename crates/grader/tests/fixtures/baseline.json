@@ -729,7 +729,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '_1'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '_1'\n",
   "written": []
  },
  {
@@ -798,7 +798,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '1__2'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '1__2'\n",
   "written": []
  },
  {
@@ -821,7 +821,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '1_'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '1_'\n",
   "written": []
  },
  {
@@ -913,7 +913,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: ''\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: ''\n",
   "written": []
  },
  {
@@ -959,7 +959,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '\\x1c1'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '\\x1c1'\n",
   "written": []
  },
  {
@@ -1005,7 +1005,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '0x'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '0x'\n",
   "written": []
  },
  {
@@ -1074,7 +1074,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: 'zz'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: 'zz'\n",
   "written": []
  },
  {
@@ -1097,7 +1097,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 54, in launched_at\n    return datetime.fromtimestamp(millis / 1000, timezone.utc)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: year must be in 1..9999, not 10889\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 54, in launched_at\n    return datetime.fromtimestamp(millis / 1000, timezone.utc)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: year must be in 1..9999, not 10889\n",
   "written": []
  },
  {
@@ -1143,7 +1143,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 54, in launched_at\n    return datetime.fromtimestamp(millis / 1000, timezone.utc)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: year must be in 1..9999, not 10000\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 54, in launched_at\n    return datetime.fromtimestamp(millis / 1000, timezone.utc)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: year must be in 1..9999, not 10000\n",
   "written": []
  },
  {
@@ -1166,7 +1166,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '\\ud800'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '\\ud800'\n",
   "written": []
  },
  {
@@ -1212,7 +1212,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '1f g'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '1f g'\n",
   "written": []
  },
  {
@@ -1258,7 +1258,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '+'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '+'\n",
   "written": []
  },
  {
@@ -1281,7 +1281,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '0x+1'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '0x+1'\n",
   "written": []
  },
  {
@@ -1350,7 +1350,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: 'g'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: 'g'\n",
   "written": []
  },
  {
@@ -1442,7 +1442,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '0o17'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: '0o17'\n",
   "written": []
  },
  {
@@ -1511,7 +1511,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 173, in train\n    labelled = [r for r in rows if target(r, label) is not None]\n                                   ~~~~~~^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 61, in target\n    if row.get(\"outcome\") in (None, \"stopped\"):\n       ^^^^^^^\nAttributeError: 'list' object has no attribute 'get'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 173, in train\n    labelled = [r for r in rows if target(r, label) is not None]\n                                   ~~~~~~^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 61, in target\n    if row.get(\"outcome\") in (None, \"stopped\"):\n       ^^^^^^^\nAttributeError: 'list' object has no attribute 'get'\n",
   "written": []
  },
  {
@@ -1534,7 +1534,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 173, in train\n    labelled = [r for r in rows if target(r, label) is not None]\n                                   ~~~~~~^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 61, in target\n    if row.get(\"outcome\") in (None, \"stopped\"):\n       ^^^^^^^\nAttributeError: 'str' object has no attribute 'get'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 173, in train\n    labelled = [r for r in rows if target(r, label) is not None]\n                                   ~~~~~~^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 61, in target\n    if row.get(\"outcome\") in (None, \"stopped\"):\n       ^^^^^^^\nAttributeError: 'str' object has no attribute 'get'\n",
   "written": []
  },
  {
@@ -1557,7 +1557,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                               ~^^^^^^^^^^\nKeyError: 'run_id'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                               ~^^^^^^^^^^\nKeyError: 'run_id'\n",
   "written": []
  },
  {
@@ -1580,7 +1580,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\n                 ^^^^^^^^^^^^^^\nAttributeError: 'int' object has no attribute 'replace'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\n                 ^^^^^^^^^^^^^^\nAttributeError: 'int' object has no attribute 'replace'\n",
   "written": []
  },
  {
@@ -1603,7 +1603,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\n                 ^^^^^^^^^^^^^^\nAttributeError: 'NoneType' object has no attribute 'replace'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\n                 ^^^^^^^^^^^^^^\nAttributeError: 'NoneType' object has no attribute 'replace'\n",
   "written": []
  },
  {
@@ -1626,7 +1626,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: 'notarunid'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 53, in launched_at\n    millis = int(run_id.replace(\"-\", \"\")[:12], 16)\nValueError: invalid literal for int() with base 16: 'notarunid'\n",
   "written": []
  },
  {
@@ -1649,7 +1649,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 54, in launched_at\n    return datetime.fromtimestamp(millis / 1000, timezone.utc)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: year must be in 1..9999, not 10889\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 174, in train\n    parts = split(labelled, test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 167, in split\n    fit_rows = [r for r in rows if launched_at(r[\"run_id\"]) < test_from]\n                                   ~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 54, in launched_at\n    return datetime.fromtimestamp(millis / 1000, timezone.utc)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: year must be in 1..9999, not 10889\n",
   "written": []
  },
  {
@@ -1672,7 +1672,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 185, in train\n    vocab = vocabulary(fit_rows)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 86, in vocabulary\n    return sorted({name for row in rows for name in raw_features(row)})\n                                                    ~~~~~~~~~~~~^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'int' has no len()\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 185, in train\n    vocab = vocabulary(fit_rows)\n  File \"<repo>/integrations/grader/baseline.py\", line 86, in vocabulary\n    return sorted({name for row in rows for name in raw_features(row)})\n                                                    ~~~~~~~~~~~~^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'int' has no len()\n",
   "written": []
  },
  {
@@ -1695,7 +1695,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 250, in report\n    scored = [predict(model, r) for r in test_rows]\n              ~~~~~~~^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 90, in vector\n    feats = raw_features(row)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'float' has no len()\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 250, in report\n    scored = [predict(model, r) for r in test_rows]\n              ~~~~~~~^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 90, in vector\n    feats = raw_features(row)\n  File \"<repo>/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'float' has no len()\n",
   "written": [
    {
     "path": "model.json",
@@ -1723,7 +1723,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 250, in report\n    scored = [predict(model, r) for r in test_rows]\n              ~~~~~~~^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 90, in vector\n    feats = raw_features(row)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'bool' has no len()\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 250, in report\n    scored = [predict(model, r) for r in test_rows]\n              ~~~~~~~^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 90, in vector\n    feats = raw_features(row)\n  File \"<repo>/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'bool' has no len()\n",
   "written": [
    {
     "path": "model.json",
@@ -1751,7 +1751,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 251, in report\n    rate = provider_model_rates(fit_rows, label)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 229, in provider_model_rates\n    pairs.setdefault((row.get(\"provider\"), row.get(\"model\")), []).append(y)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 251, in report\n    rate = provider_model_rates(fit_rows, label)\n  File \"<repo>/integrations/grader/baseline.py\", line 229, in provider_model_rates\n    pairs.setdefault((row.get(\"provider\"), row.get(\"model\")), []).append(y)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n",
   "written": [
    {
     "path": "model.json",
@@ -1779,7 +1779,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 257, in report\n    bar = measures([rate(r) for r in test_rows])\n                    ~~~~^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 238, in rate\n    provider = shrunk(providers.get(row.get(\"provider\"), []), overall)\n                      ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 257, in report\n    bar = measures([rate(r) for r in test_rows])\n                    ~~~~^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 238, in rate\n    provider = shrunk(providers.get(row.get(\"provider\"), []), overall)\n                      ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n",
   "written": [
    {
     "path": "model.json",
@@ -1807,7 +1807,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 257, in report\n    bar = measures([rate(r) for r in test_rows])\n                    ~~~~^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 239, in rate\n    return shrunk(pairs.get((row.get(\"provider\"), row.get(\"model\")), []), provider)\n                  ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'tuple' as a dict key (unhashable type: 'dict')\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 428, in main\n    print(json.dumps(report(model, rows), indent=2))\n                     ~~~~~~^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 257, in report\n    bar = measures([rate(r) for r in test_rows])\n                    ~~~~^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 239, in rate\n    return shrunk(pairs.get((row.get(\"provider\"), row.get(\"model\")), []), provider)\n                  ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'tuple' as a dict key (unhashable type: 'dict')\n",
   "written": [
    {
     "path": "model.json",
@@ -1865,7 +1865,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 173, in train\n    labelled = [r for r in rows if target(r, label) is not None]\n                                   ~~~~~~^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 70, in target\n    return {\"fixed\": 1, \"applied\": 0}.get(row.get(\"human_verdict\"))\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 426, in main\n    model = train(rows, args.label, args.test_from)\n  File \"<repo>/integrations/grader/baseline.py\", line 173, in train\n    labelled = [r for r in rows if target(r, label) is not None]\n                                   ~~~~~~^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 70, in target\n    return {\"fixed\": 1, \"applied\": 0}.get(row.get(\"human_verdict\"))\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n",
   "written": []
  },
  {
@@ -1888,7 +1888,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 425, in main\n    rows = records.read_jsonl(args.dataset)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 72, in read_jsonl\n    return committed_lines(path.read_bytes())[0]\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 93, in committed_lines\n    lines.append(json.loads(line))\n                 ~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 352, in loads\n    return _default_decoder.decode(s)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 345, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 363, in raw_decode\n    raise JSONDecodeError(\"Expecting value\", s, err.value) from None\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 425, in main\n    rows = records.read_jsonl(args.dataset)\n  File \"<repo>/integrations/grader/records.py\", line 72, in read_jsonl\n    return committed_lines(path.read_bytes())[0]\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/records.py\", line 93, in committed_lines\n    lines.append(json.loads(line))\n                 ~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 352, in loads\n    return _default_decoder.decode(s)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 345, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 363, in raw_decode\n    raise JSONDecodeError(\"Expecting value\", s, err.value) from None\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)\n",
   "written": []
  },
  {
@@ -1911,7 +1911,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 425, in main\n    rows = records.read_jsonl(args.dataset)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 72, in read_jsonl\n    return committed_lines(path.read_bytes())[0]\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 93, in committed_lines\n    lines.append(json.loads(line))\n                 ~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 347, in loads\n    s = s.decode(detect_encoding(s), 'surrogatepass')\nUnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 15: invalid continuation byte\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 425, in main\n    rows = records.read_jsonl(args.dataset)\n  File \"<repo>/integrations/grader/records.py\", line 72, in read_jsonl\n    return committed_lines(path.read_bytes())[0]\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/records.py\", line 93, in committed_lines\n    lines.append(json.loads(line))\n                 ~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 347, in loads\n    s = s.decode(detect_encoding(s), 'surrogatepass')\nUnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 15: invalid continuation byte\n",
   "written": []
  },
  {
@@ -4924,7 +4924,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 375, in row_from_record\n    item = records.scan_record(path)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 175, in scan_record\n    data = path.read_bytes()\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 777, in read_bytes\n    with self.open(mode='rb', buffering=0) as f:\n         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 771, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: 'root/runs/0199d3f2.jsonl'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"<repo>/integrations/grader/baseline.py\", line 375, in row_from_record\n    item = records.scan_record(path)\n  File \"<repo>/integrations/grader/records.py\", line 175, in scan_record\n    data = path.read_bytes()\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 777, in read_bytes\n    with self.open(mode='rb', buffering=0) as f:\n         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 771, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: 'root/runs/0199d3f2.jsonl'\n",
   "written": []
  },
  {
@@ -4949,7 +4949,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 375, in row_from_record\n    item = records.scan_record(path)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 175, in scan_record\n    data = path.read_bytes()\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 777, in read_bytes\n    with self.open(mode='rb', buffering=0) as f:\n         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 771, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: 'root/runs/root.jsonl'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"<repo>/integrations/grader/baseline.py\", line 375, in row_from_record\n    item = records.scan_record(path)\n  File \"<repo>/integrations/grader/records.py\", line 175, in scan_record\n    data = path.read_bytes()\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 777, in read_bytes\n    with self.open(mode='rb', buffering=0) as f:\n         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pathlib/__init__.py\", line 771, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: 'root/runs/root.jsonl'\n",
   "written": []
  },
  {
@@ -5149,7 +5149,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 375, in row_from_record\n    item = records.scan_record(path)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 188, in scan_record\n    if not first.get(\"provider\") or not first.get(\"run_id\") or start.get(\"command\") not in (\"run\", \"resume\"):\n                                                               ^^^^^^^^^\nAttributeError: 'str' object has no attribute 'get'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"<repo>/integrations/grader/baseline.py\", line 375, in row_from_record\n    item = records.scan_record(path)\n  File \"<repo>/integrations/grader/records.py\", line 188, in scan_record\n    if not first.get(\"provider\") or not first.get(\"run_id\") or start.get(\"command\") not in (\"run\", \"resume\"):\n                                                               ^^^^^^^^^\nAttributeError: 'str' object has no attribute 'get'\n",
   "written": []
  },
  {
@@ -5224,7 +5224,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 90, in vector\n    feats = raw_features(row)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'int' has no len()\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 90, in vector\n    feats = raw_features(row)\n  File \"<repo>/integrations/grader/baseline.py\", line 80, in raw_features\n    \"log_task_chars\": math.log1p(len(text)),\n                                 ~~~^^^^^^\nTypeError: object of type 'int' has no len()\n",
   "written": []
  },
  {
@@ -5249,7 +5249,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 380, in row_from_record\n    _, model = records.canonical(first[\"provider\"], first.get(\"model\"), records.load_aliases())\n               ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/puppets/models.py\", line 21, in canonical\n    return aliases.get((provider, model), (provider, model))\n           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 449, in main\n    row = row_from_record(record_path(args.run))\n  File \"<repo>/integrations/grader/baseline.py\", line 380, in row_from_record\n    _, model = records.canonical(first[\"provider\"], first.get(\"model\"), records.load_aliases())\n               ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/puppets/models.py\", line 21, in canonical\n    return aliases.get((provider, model), (provider, model))\n           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n",
   "written": []
  },
  {
@@ -5345,7 +5345,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nTypeError: 'NoneType' object is not subscriptable\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nTypeError: 'NoneType' object is not subscriptable\n",
   "written": []
  },
  {
@@ -5370,7 +5370,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 448, in main\n    model = records.read_json(args.model)\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/records.py\", line 39, in read_json\n    return json.loads(path.read_text()) if path.exists() else default\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 352, in loads\n    return _default_decoder.decode(s)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 345, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 363, in raw_decode\n    raise JSONDecodeError(\"Expecting value\", s, err.value) from None\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 448, in main\n    model = records.read_json(args.model)\n  File \"<repo>/integrations/grader/records.py\", line 39, in read_json\n    return json.loads(path.read_text()) if path.exists() else default\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 352, in loads\n    return _default_decoder.decode(s)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 345, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 363, in raw_decode\n    raise JSONDecodeError(\"Expecting value\", s, err.value) from None\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)\n",
   "written": []
  },
  {
@@ -5395,7 +5395,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nTypeError: list indices must be integers or slices, not str\n",
   "written": []
  },
  {
@@ -5420,7 +5420,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nTypeError: 'NoneType' object is not subscriptable\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nTypeError: 'NoneType' object is not subscriptable\n",
   "written": []
  },
  {
@@ -5445,7 +5445,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 455, in main\n    \"model_version\": model[\"version\"],\n                     ~~~~~^^^^^^^^^^^\nKeyError: 'version'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 455, in main\n    \"model_version\": model[\"version\"],\n                     ~~~~~^^^^^^^^^^^\nKeyError: 'version'\n",
   "written": []
  },
  {
@@ -5470,7 +5470,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nKeyError: 'label'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 452, in main\n    \"label\": model[\"label\"],\n             ~~~~~^^^^^^^^^\nKeyError: 'label'\n",
   "written": []
  },
  {
@@ -5495,7 +5495,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                                     ~~~~~^^^^^^^^^\nKeyError: 'scale'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                                     ~~~~~^^^^^^^^^\nKeyError: 'scale'\n",
   "written": []
  },
  {
@@ -5520,7 +5520,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                         ~~~~~^^^^^^^^^^^\nKeyError: 'weights'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                         ~~~~~^^^^^^^^^^^\nKeyError: 'weights'\n",
   "written": []
  },
  {
@@ -5545,7 +5545,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                           ~~~~~^^^^^^^^\nKeyError: 'bias'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                           ~~~~~^^^^^^^^\nKeyError: 'bias'\n",
   "written": []
  },
  {
@@ -5570,7 +5570,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                                      ~~~~~^^^^^^^^^\nKeyError: 'vocab'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                                      ~~~~~^^^^^^^^^\nKeyError: 'vocab'\n",
   "written": []
  },
  {
@@ -5670,7 +5670,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                  ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in <genexpr>\n    return bias + sum(w * v for w, v in zip(weights, x))\n                      ~~^~~\nOverflowError: int too large to convert to float\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                  ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in <genexpr>\n    return bias + sum(w * v for w, v in zip(weights, x))\n                      ~~^~~\nOverflowError: int too large to convert to float\n",
   "written": []
  },
  {
@@ -5695,7 +5695,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                  ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in <genexpr>\n    return bias + sum(w * v for w, v in zip(weights, x))\n                      ~~^~~\nTypeError: can't multiply sequence by non-int of type 'float'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                  ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in <genexpr>\n    return bias + sum(w * v for w, v in zip(weights, x))\n                      ~~^~~\nTypeError: can't multiply sequence by non-int of type 'float'\n",
   "written": []
  },
  {
@@ -5870,7 +5870,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n           ~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nTypeError: can only concatenate str (not \"float\") to str\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n           ~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nTypeError: can only concatenate str (not \"float\") to str\n",
   "written": []
  },
  {
@@ -5895,7 +5895,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n           ~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nTypeError: unsupported operand type(s) for +: 'NoneType' and 'float'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n           ~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nTypeError: unsupported operand type(s) for +: 'NoneType' and 'float'\n",
   "written": []
  },
  {
@@ -5920,7 +5920,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n            ~~~~~~~~~~~~~~~^~~~~\nZeroDivisionError: division by zero\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n            ~~~~~~~~~~~~~~~^~~~~\nZeroDivisionError: division by zero\n",
   "written": []
  },
  {
@@ -5945,7 +5945,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n            ~~~~~~~~~~~~~~~^~~~~\nZeroDivisionError: division by zero\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n            ~~~~~~~~~~~~~~~^~~~~\nZeroDivisionError: division by zero\n",
   "written": []
  },
  {
@@ -5995,7 +5995,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 95, in vector\n    mean, std = scale[name]\n    ^^^^^^^^^\nValueError: too many values to unpack (expected 2, got 3)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 95, in vector\n    mean, std = scale[name]\n    ^^^^^^^^^\nValueError: too many values to unpack (expected 2, got 3)\n",
   "written": []
  },
  {
@@ -6020,7 +6020,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 95, in vector\n    mean, std = scale[name]\n    ^^^^^^^^^\nValueError: not enough values to unpack (expected 2, got 1)\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 95, in vector\n    mean, std = scale[name]\n    ^^^^^^^^^\nValueError: not enough values to unpack (expected 2, got 1)\n",
   "written": []
  },
  {
@@ -6045,7 +6045,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                ~~~~~^^^\nTypeError: 'float' object is not iterable\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                ~~~~~^^^\nTypeError: 'float' object is not iterable\n",
   "written": []
  },
  {
@@ -6070,7 +6070,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n             ~~~~~~^~~~~~\nTypeError: unsupported operand type(s) for -: 'float' and 'str'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n             ~~~~~~^~~~~~\nTypeError: unsupported operand type(s) for -: 'float' and 'str'\n",
   "written": []
  },
  {
@@ -6095,7 +6095,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n             ~~~~~~^~~~~~\nTypeError: unsupported operand type(s) for -: 'float' and 'str'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 96, in vector\n    value = (value - mean) / std\n             ~~~~~~^~~~~~\nTypeError: unsupported operand type(s) for -: 'float' and 'str'\n",
   "written": []
  },
  {
@@ -6120,7 +6120,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                                     ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'list' object has no attribute 'items'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                                     ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'list' object has no attribute 'items'\n",
   "written": []
  },
  {
@@ -6145,7 +6145,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                ~~~~~^^^\nTypeError: 'int' object is not iterable\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 210, in predict\n    scale = {k: tuple(v) for k, v in model[\"scale\"].items()}\n                ~~~~~^^^\nTypeError: 'int' object is not iterable\n",
   "written": []
  },
  {
@@ -6245,7 +6245,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 93, in vector\n    value = feats.get(name, 0.0)\nTypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 93, in vector\n    value = feats.get(name, 0.0)\nTypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n",
   "written": []
  },
  {
@@ -6320,7 +6320,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 92, in vector\n    for name in vocab:\n                ^^^^^\nTypeError: 'int' object is not iterable\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                                                          ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 92, in vector\n    for name in vocab:\n                ^^^^^\nTypeError: 'int' object is not iterable\n",
   "written": []
  },
  {
@@ -6345,7 +6345,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                                        ~~~^^^^^^^^^^^^\nTypeError: 'int' object is not iterable\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                                        ~~~^^^^^^^^^^^^\nTypeError: 'int' object is not iterable\n",
   "written": []
  },
  {
@@ -6370,7 +6370,7 @@
   ],
   "exit": 1,
   "stdout": "",
-  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                  ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/USER/hydra/worktrees/01a0f6d9-5449-7972-be5d-1302ee056478/integrations/grader/baseline.py\", line 109, in <genexpr>\n    return bias + sum(w * v for w, v in zip(weights, x))\n                      ~~^~~\nTypeError: can't multiply sequence by non-int of type 'float'\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 10, in <module>\n    raise SystemExit(module.main())\n                     ~~~~~~~~~~~^^\n  File \"<repo>/integrations/grader/baseline.py\", line 454, in main\n    \"p\": predict(model, row),\n         ~~~~~~~^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 211, in predict\n    return sigmoid(logit(model[\"weights\"], model[\"bias\"], vector(row, model[\"vocab\"], scale)))\n                   ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in logit\n    return bias + sum(w * v for w, v in zip(weights, x))\n                  ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/integrations/grader/baseline.py\", line 109, in <genexpr>\n    return bias + sum(w * v for w, v in zip(weights, x))\n                      ~~^~~\nTypeError: can't multiply sequence by non-int of type 'float'\n",
   "written": []
  },
  {
@@ -6471,6 +6471,229 @@
   "exit": 0,
   "stdout": "{\"run_id\": \"0199d3f2-a1b0-7000-8000-000000000001\", \"label\": \"outcome\", \"positive\": \"not completed\", \"p\": 1.0, \"model_version\": \"baseline-outcome-f4ac9dd867bb\"}\n",
   "stderr": "",
+  "written": []
+ },
+ {
+  "name": "the separator 00: score m r -- x",
+  "argv": [
+   "score",
+   "m",
+   "r",
+   "--",
+   "x"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: x\n",
+  "written": []
+ },
+ {
+  "name": "the separator 01: score m -- r x",
+  "argv": [
+   "score",
+   "m",
+   "--",
+   "r",
+   "x"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: x\n",
+  "written": []
+ },
+ {
+  "name": "the separator 02: score m r x -- y",
+  "argv": [
+   "score",
+   "m",
+   "r",
+   "x",
+   "--",
+   "y"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: x -- y\n",
+  "written": []
+ },
+ {
+  "name": "the separator 03: score x y z -- w",
+  "argv": [
+   "score",
+   "x",
+   "y",
+   "z",
+   "--",
+   "w"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: z -- w\n",
+  "written": []
+ },
+ {
+  "name": "the separator 04: score m -- r -- x",
+  "argv": [
+   "score",
+   "m",
+   "--",
+   "r",
+   "--",
+   "x"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: -- x\n",
+  "written": []
+ },
+ {
+  "name": "the separator 05: score -- -- m r",
+  "argv": [
+   "score",
+   "--",
+   "--",
+   "m",
+   "r"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: r\n",
+  "written": []
+ },
+ {
+  "name": "the separator 06: score m -- -- r",
+  "argv": [
+   "score",
+   "m",
+   "--",
+   "--",
+   "r"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: r\n",
+  "written": []
+ },
+ {
+  "name": "the separator 07: train d m -- --label",
+  "argv": [
+   "train",
+   "d",
+   "m",
+   "--",
+   "--label"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: --label\n",
+  "written": []
+ },
+ {
+  "name": "the separator 08: train -- d -- m",
+  "argv": [
+   "train",
+   "--",
+   "d",
+   "--",
+   "m"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: m\n",
+  "written": []
+ },
+ {
+  "name": "the separator 09: train --label task -- d m x",
+  "argv": [
+   "train",
+   "--label",
+   "task",
+   "--",
+   "d",
+   "m",
+   "x"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: x\n",
+  "written": []
+ },
+ {
+  "name": "the separator 10: train d x y -- z",
+  "argv": [
+   "train",
+   "d",
+   "x",
+   "y",
+   "--",
+   "z"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: y -- z\n",
+  "written": []
+ },
+ {
+  "name": "the separator 11: score m r --foo -- x",
+  "argv": [
+   "score",
+   "m",
+   "r",
+   "--foo",
+   "--",
+   "x"
+  ],
+  "env": {
+   "HYDRA_ROOT": "root"
+  },
+  "files": [],
+  "exit": 2,
+  "stdout": "",
+  "stderr": "usage: baseline.py [-h] {train,score,label-queue,label-import} ...\nbaseline.py: error: unrecognized arguments: --foo -- x\n",
   "written": []
  }
 ]

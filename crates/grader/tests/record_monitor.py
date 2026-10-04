@@ -1079,6 +1079,23 @@ def record(out: Path, repo: Path, scan_inputs: list[tuple[str, bytes]]) -> None:
         files = [plain] if data is None else [plain, {"path": "model.json"} | blob(data)]
         rec.case(f"score with {name}", ["score", "model.json", "record.jsonl"], files)
 
+    # Build 220, recorded last so no earlier case moves. Every second record carries a usage
+    # count of 10**200: each is a float, their mean is a float, and the square of a spread
+    # that large is not, so the scaling raises `OverflowError` and nothing is written. The
+    # model path is deep so a directory made before the raise would show.
+    huge = dump([{"raw": {"usage": {"output_tokens": 10**200}}}] * 3)
+    swollen = [main, runs] + [
+        {"path": f"runs/{name}", "hex": hexed(main_files[name].splitlines(keepends=True)[0].encode() + huge)}
+        for name in names[::2]
+    ]
+    assert len(swollen) - 2 >= 40, len(swollen)
+    case = rec.case(
+        "counts whose spread has no square",
+        ["train", "dataset.jsonl", "out/deep/model.json", "--at", "0.5", "--records", "runs"],
+        swollen,
+    )
+    assert case["exit"] == 1 and "OverflowError" in case["stderr"] and not case["written"], case["stderr"]
+
     directory = out / "monitor"
     directory.mkdir(exist_ok=True)
     for stale in directory.iterdir():

@@ -111,6 +111,7 @@ fn the_monitor_reads_trains_and_scores_as_the_python_did() {
     let scratch = Scratch::new("monitor");
     let mut tally = Tally::new();
     let (mut viewed, mut trained, mut scored) = (0, 0, 0);
+    let mut overflowed = 0;
     for (n, case) in items(&recorded).iter().enumerate() {
         let name = string(field(case, "name"));
         let root = scratch.0.join(format!("c{n}"));
@@ -190,6 +191,16 @@ fn the_monitor_reads_trains_and_scores_as_the_python_did() {
             left_behind(&root, &given),
             python,
         );
+        // Build 220: the scaling raises before anything is written, the model's parent
+        // directory included, which a list of files would not show.
+        if name == "counts whose spread has no square" {
+            overflowed += 1;
+            tally.check(
+                &format!("{name}: no directory was made for the model"),
+                root.join("out").exists(),
+                false,
+            );
+        }
         // A case's directory can hold a few hundred records, so it goes once compared.
         let _ = std::fs::remove_dir_all(&root);
 
@@ -209,5 +220,6 @@ fn the_monitor_reads_trains_and_scores_as_the_python_did() {
     assert!(viewed >= 150, "{viewed} feature views");
     assert!(trained >= 20, "{trained} trains");
     assert!(scored >= 80, "{scored} scores");
+    assert_eq!(overflowed, 1, "the case of build 220");
     tally.finish();
 }

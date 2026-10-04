@@ -14,7 +14,9 @@ Without `--out`, a single request is printed to stdout. Each output is an OTLP J
 instantaneous `hydra.seat_request` spans with links to the requested seat runs.
 Provider, recorded model, policy, derived outcome, token counts and usage provenance
 are root attributes when available. The task is redacted first and then cut to 2,000
-characters. Every string attribute and span name uses the grader's secret redactor.
+characters. Every string attribute and span name goes through
+`integrations/apprentice/redact.py`, the redactor the grader's Python had (build ticket 220
+moved it there).
 Missing values are omitted, not guessed.
 
 The translator calls `hydra show --events` on a temporary copy of just the input

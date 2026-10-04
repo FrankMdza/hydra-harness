@@ -43,7 +43,9 @@ python3 integrations/apprentice/apprentice.py pairs <graded.jsonl>
 directly and does not call `hydra show`, so it needs no binary. For each template the runs are
 ordered by a hash of the run id, and templates take turns, so the same records give the same
 bank in any listing order. With fewer matching records than `n` you get fewer tasks. Prompts are
-redacted with `integrations/grader/redact.py` and each record excerpt is cut to 3,000 characters.
+redacted with `redact.py` and each record excerpt is cut to 3,000 characters. `redact.py`,
+`records.py` and `models.py` were the grader's; build ticket 220 moved them here when it
+deleted the rest of the grader's Python.
 
 `attempt` appends to `attempts.jsonl`: task id, template, prompt sha, answer, reason, model,
 seconds and, for verifiable tasks, `correct`. The prompt asks for the reason first and the

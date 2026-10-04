@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 _spec = importlib.util.spec_from_file_location(
-    'otel_redact', Path(__file__).resolve().parents[1] / 'grader/redact.py'
+    'otel_redact', Path(__file__).resolve().parents[1] / 'apprentice/redact.py'
 )
 _redact = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_redact)

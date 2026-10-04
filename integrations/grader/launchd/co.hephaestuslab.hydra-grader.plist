@@ -4,6 +4,11 @@
   A template. Replace /Users/USER with your home before installing; integrations/grader/README.md
   has the commands. Runs one collect every 15 minutes, which also scores each new run with every
   model under $HYDRA_GRADER_HOME/models/.
+
+  The program is the release build of crates/grader, so build the workspace in release mode
+  first; the README has the command. HYDRA_BIN is an absolute path because the grader runs the
+  hydra-puppets beside it and never searches PATH for either. HYDRA_PUPPETS_DATA names the
+  directory aliases.json is read from, so the job does not depend on where the binary sits.
 -->
 <plist version="1.0">
 <dict>
@@ -11,8 +16,7 @@
   <string>co.hephaestuslab.hydra-grader</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
-    <string>/Users/USER/hydra/integrations/grader/grader.py</string>
+    <string>/Users/USER/hydra/target/release/hydra-grader</string>
     <string>once</string>
   </array>
   <key>EnvironmentVariables</key>
@@ -23,6 +27,8 @@
     <string>/Users/USER/hydra/grader</string>
     <key>HYDRA_BIN</key>
     <string>/Users/USER/hydra/target/release/hydra</string>
+    <key>HYDRA_PUPPETS_DATA</key>
+    <string>/Users/USER/hydra/integrations/puppets</string>
     <key>PATH</key>
     <string>/Users/USER/.local/bin:/Users/USER/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>

@@ -1,6 +1,6 @@
 //! The reference's argparse rules, through the existing shared parser.
 use crate::{
-    baseline_cli::{Kind, Parsed, kind, parse, quoted, repr, wrong},
+    argparse::{Kind, Parsed, kind, parse, quoted, repr, wrong},
     records, triage,
 };
 use anyhow::Result;

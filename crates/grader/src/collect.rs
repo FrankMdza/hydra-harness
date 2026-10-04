@@ -8,9 +8,16 @@
 //! The order of the writes is the Python's, so a pass that fails leaves what the Python
 //! leaves: nothing when a goal log cannot be shown or `hydra show` fails, the cache alone
 //! when a row cannot be built.
+//!
+//! One thing is not the Python's (build ticket 220). A pass holds an `flock` on the grader
+//! home from before it reads the cursor until it returns, and a pass that finds the lock
+//! taken does nothing and says so: [`Busy`]. Every file here is written through one `.tmp`
+//! name, so two passes at once, which launchd starts when one runs past its fifteen
+//! minutes, ended one of them in `FileNotFoundError` in both implementations.
 
 use std::collections::HashSet;
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -119,25 +126,40 @@ fn lookup(dict: &Value, key: &Value) -> Result<Option<Value>> {
 struct TempDir(PathBuf);
 
 impl TempDir {
+    /// A new directory in the first place `tempfile.gettempdir()` would use: `TMPDIR`,
+    /// `TEMP` and `TMP` where they are set, then `/tmp`, `/var/tmp`, `/usr/tmp` and the
+    /// working directory. A place that is not there, or cannot be written, is passed over
+    /// (build ticket 220: the first variable set used to be the only place tried).
     fn new(env: &Env) -> Result<TempDir> {
         static COUNT: AtomicUsize = AtomicUsize::new(0);
-        let base = ["TMPDIR", "TEMP", "TMP"]
+        let mut places: Vec<PathBuf> = ["TMPDIR", "TEMP", "TMP"]
             .iter()
-            .find_map(|name| env.named(name))
-            .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+            .filter_map(|name| env.named(name))
+            .map(PathBuf::from)
+            .collect();
+        places.extend(["/tmp", "/var/tmp", "/usr/tmp", "."].map(PathBuf::from));
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.subsec_nanos());
-        let path = base.join(format!(
+        let name = format!(
             "hydra-grader-{}-{}-{nanos}",
             std::process::id(),
             COUNT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&path)
-            .map_err(|err| io_error(&err, &path))?;
-        Ok(TempDir(path))
+        );
+        for base in &places {
+            let path = base.join(&name);
+            if std::fs::DirBuilder::new().mode(0o700).create(&path).is_ok() {
+                return Ok(TempDir(path));
+            }
+        }
+        let tried: Vec<Value> = places
+            .iter()
+            .map(|place| Value::text(&place.display().to_string()))
+            .collect();
+        bail!(
+            "FileNotFoundError: [Errno 2] No usable temporary directory found in {}",
+            py::repr(&Value::List(tried))
+        )
     }
 }
 
@@ -471,6 +493,49 @@ pub fn score_rows(home: &Path, rows: &[Value], scored_at: &str) -> Result<usize>
     Ok(fresh.len())
 }
 
+/// Another pass holds the grader home. Not a failure: the pass that is running will write
+/// what this one would have.
+#[derive(Debug)]
+pub struct Busy(pub PathBuf);
+
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "grader: another pass is running in {}; nothing done",
+            self.0.display()
+        )
+    }
+}
+
+impl std::error::Error for Busy {}
+
+/// The lock a pass holds on the grader home. It goes when this does, or when the process
+/// ends however it ends. The descriptor is close-on-exec, so no `hydra show` inherits it.
+#[derive(Debug)]
+pub struct HomeLock(#[allow(dead_code)] std::fs::File);
+
+/// Take the lock on `home` without waiting, making the directory if it is not there, which
+/// the first write of a pass would do anyway. [`Busy`] when another pass holds it. A home
+/// that cannot be made or opened is not locked, and the pass goes on to fail where the
+/// Python fails, on its first read or write there.
+pub fn lock_home(home: &Path) -> Result<Option<HomeLock>> {
+    if std::fs::create_dir_all(home).is_err() {
+        return Ok(None);
+    }
+    let Ok(dir) = std::fs::File::open(home) else {
+        return Ok(None);
+    };
+    // SAFETY: the descriptor is open and owned by `dir`, which outlives the call.
+    if unsafe { libc::flock(dir.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(Some(HomeLock(dir)));
+    }
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(libc::EWOULDBLOCK) => Err(Busy(home.to_path_buf()).into()),
+        _ => Ok(None),
+    }
+}
+
 /// What one pass is told. `None` is the Python's default: the runs under the root, the
 /// grader home, and `HYDRA_BIN` or `hydra`.
 #[derive(Clone, Debug, Default)]
@@ -610,6 +675,7 @@ pub fn collect(
     };
     let cursor_path = home.join("cursor.json");
     let dataset_path = home.join("dataset.jsonl");
+    let _lock = lock_home(&home)?;
 
     let mut cursor = empty();
     let mut dataset = Keyed::new();
@@ -738,6 +804,50 @@ mod tests {
         assert_eq!(now.len(), 20, "{now}");
         assert!(now.ends_with('Z') && now.as_bytes()[10] == b'T', "{now}");
         assert!(now.as_str() > "2026-01-01T00:00:00Z", "{now}");
+    }
+
+    /// Build 220: a `TMPDIR` that is not there is passed over, as Python passes over it.
+    #[test]
+    fn a_temporary_directory_is_made_in_the_first_place_that_can_hold_one() {
+        let here = std::env::temp_dir().join(format!("hydra-grader-tmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&here);
+        std::fs::create_dir_all(&here).unwrap();
+        let env = Env::from_pairs([
+            ("TMPDIR", here.join("gone").into_os_string()),
+            ("TEMP", "".into()),
+            ("TMP", here.clone().into_os_string()),
+        ]);
+        let made = TempDir::new(&env).unwrap();
+        assert_eq!(made.0.parent(), Some(here.as_path()));
+        assert!(made.0.is_dir());
+        let path = made.0.clone();
+        drop(made);
+        assert!(!path.exists());
+        // With no variable at all it is `/tmp`.
+        let made = TempDir::new(&Env::from_pairs([("TMPDIR", "/nowhere/at/all")])).unwrap();
+        assert_eq!(made.0.parent(), Some(Path::new("/tmp")));
+        drop(made);
+        std::fs::remove_dir_all(&here).unwrap();
+    }
+
+    /// Build 220: one pass at a time in a grader home.
+    #[test]
+    fn a_home_is_locked_by_one_pass_at_a_time_and_a_home_that_cannot_be_made_by_none() {
+        let here = std::env::temp_dir().join(format!("hydra-grader-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&here);
+        let home = here.join("deep/grader");
+        let first = lock_home(&home).unwrap();
+        assert!(first.is_some() && home.is_dir());
+        let err = lock_home(&home).unwrap_err();
+        let busy = err.downcast_ref::<Busy>().expect("the second pass is told");
+        assert!(busy.to_string().contains(home.to_str().unwrap()), "{busy}");
+        drop(first);
+        assert!(lock_home(&home).unwrap().is_some());
+        // A home that is a file is left for the pass to trip over.
+        std::fs::write(here.join("file"), "").unwrap();
+        assert!(lock_home(&here.join("file")).unwrap().is_none());
+        assert!(lock_home(&here.join("file/under")).unwrap().is_none());
+        std::fs::remove_dir_all(&here).unwrap();
     }
 
     #[test]

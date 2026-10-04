@@ -22,7 +22,7 @@ def case(name, argv, seed):
         env = dict(HYDRA_ROOT='root', HYDRA_GRADER_HOME='home', PYTHONDONTWRITEBYTECODE='1')
         ran = subprocess.run([sys.executable, str(SCRIPT), *argv], cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True)
         left = {str(p.relative_to(root)): p.read_text() for p in sorted(root.rglob('*')) if p.is_file()}
-        return dict(name=name, argv=argv, seed=seed, env=env, code=ran.returncode, stdout=ran.stdout.decode(), stderr=ran.stderr.decode(), left=left)
+        return dict(name=name, argv=argv, seed=seed, env=env, code=ran.returncode, stdout=ran.stdout.decode(), stderr=ran.stderr.decode().replace(str(REPO), '<repo>'), left=left)
 
 def record(out, repo, scans):
     spec = importlib.util.spec_from_file_location('triage_tests', repo / 'integrations/grader/tests/test_triage.py')

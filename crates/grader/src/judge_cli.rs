@@ -1,7 +1,7 @@
 //! `hydra-grader judge label` and `agree`: the arguments of `judge.py` and its two commands
 //! (build ticket 218).
 //!
-//! The arguments follow `argparse` by the rules `baseline_cli.rs` spells out. Neither
+//! The arguments follow `argparse` by the rules `argparse.rs` spells out. Neither
 //! command takes a positional, so `argparse` keeps a `--` and whatever follows it among the
 //! arguments it does not recognize, as it does for `triage`. `--only-unlabelled` is the
 //! crate's first option without a value, so `label` reads its own arguments here.
@@ -10,7 +10,7 @@ use std::io::Write;
 
 use hydra_pyjson::py;
 
-use crate::baseline_cli::{Kind, kind, quoted, repr, wrong};
+use crate::argparse::{Kind, kind, quoted, repr, wrong};
 use crate::judge;
 use crate::labels::Env;
 

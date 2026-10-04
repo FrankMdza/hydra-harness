@@ -1,7 +1,8 @@
 """Record queue command lines under CPython 3.14, with an empty child environment.
 
 Run: python3 crates/grader/tests/record_queue.py
-Paths and exception traceback frames are normalized by the Rust replay only.
+The checkout's path in a traceback is written as `<repo>` (build 220), so a recording made
+in another checkout gives the same bytes. The Rust replay reads only the exception's class.
 """
 import csv
 import io
@@ -39,7 +40,7 @@ def case(module, name, argv, seed, git=None):
                     subprocess.run([GIT, *step], cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True, check=True)
         ran = subprocess.run([sys.executable, '-c', CHILD, str(REPO / 'integrations/grader' / (module + '.py')), *argv], cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True)
         left = {str(p.relative_to(root)): p.read_bytes().decode() for p in sorted(root.rglob('*')) if p.is_file() and '.git' not in p.parts}
-        return dict(name=name, argv=argv, seed=seed, git=git or [], env=env, code=ran.returncode, stdout=ran.stdout.decode(), stderr=ran.stderr.decode(), left=left)
+        return dict(name=name, argv=argv, seed=seed, git=git or [], env=env, code=ran.returncode, stdout=ran.stdout.decode(), stderr=ran.stderr.decode().replace(str(REPO), '<repo>'), left=left)
 
 
 GIT = '/usr/bin/git'

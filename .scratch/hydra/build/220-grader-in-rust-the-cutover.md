@@ -1,7 +1,7 @@
 # 220 - grader in Rust: the cutover
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 213, 214, 215, 216, 217, 218, 219
 
 ## What
@@ -116,3 +116,20 @@ missing. `src/cockpit/window.rs` and `tests/cockpit.rs` still name `sheet.py` an
 comments. The apprentice's and otel's own tests are not in CI. `record_sheet.py` and `record.py`
 no longer run from this tree.
 
+## Outcome
+
+Applied 2026-10-03 by the session, at the human's word ("Sí, aplícalo tú"), from run
+`01a0f74f-70c5`'s diff (`builds/diff-220.patch`), with one conflict in `README.md` resolved to
+name both the grader's port and builds 252 and 262.
+
+Measured on master with the diff applied: `cargo test --workspace` 1,233 passed and none failed;
+`pty_tee` repeated alone after its first run hung under load, 4 of 4 in 422 s; clippy over the
+workspace and fmt clean. The launchd job was swapped the same evening with the two commands in
+`integrations/grader/README.md` "Schedule": the plist runs `target/release/hydra-grader once`,
+and its first pass started at load, so a pass typed by hand a moment later answered `grader:
+another pass is running in /Users/USER/hydra/grader; nothing done`, the new lock working.
+
+Not done: a line-by-line review of all 2,525 added lines; the session read item 0's code paths
+named in the ticket and trusted the run's own differential and recorded tests for the rest, as
+the gate of 2026-10-01 had already compared every command's output byte for byte. Builds 224 to
+238 are unblocked.

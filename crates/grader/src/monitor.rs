@@ -830,8 +830,20 @@ pub fn join(
     Ok(joined)
 }
 
-/// `scale_of`: the mean and deviation of each scaled name over the fit rows.
-fn scale_of(feats: &[Features]) -> Vec<(PyStr, Vec<Value>)> {
+/// `x ** 2` on a float: the square, or the `OverflowError` Python raises when a finite `x`
+/// has none. An `x` that is already infinite squares to infinity without one.
+fn squared(x: f64) -> Result<f64> {
+    let square = math::pow(x, 2.0);
+    if square.is_infinite() && x.is_finite() {
+        bail!("OverflowError: (34, 'Result too large')");
+    }
+    Ok(square)
+}
+
+/// `scale_of`: the mean and deviation of each scaled name over the fit rows. A count so
+/// large its spread has no square ends the training here, before anything is written, as
+/// it ends the Python's (build ticket 220).
+fn scale_of(feats: &[Features]) -> Result<Vec<(PyStr, Vec<Value>)>> {
     let n = feats.len() as f64;
     SCALE_NAMES
         .iter()
@@ -839,12 +851,15 @@ fn scale_of(feats: &[Features]) -> Vec<(PyStr, Vec<Value>)> {
             let name = PyStr::from(*name);
             let values: Vec<f64> = feats.iter().map(|f| f.value(&name)).collect();
             let mean = fsum_like_python(&values) / n;
-            let spread: Vec<f64> = values.iter().map(|v| math::pow(v - mean, 2.0)).collect();
+            let spread: Vec<f64> = values
+                .iter()
+                .map(|v| squared(v - mean))
+                .collect::<Result<_>>()?;
             let mut std = math::sqrt(fsum_like_python(&spread) / n);
             if std == 0.0 {
                 std = 1.0;
             }
-            (name, vec![Value::Float(mean), Value::Float(std)])
+            Ok((name, vec![Value::Float(mean), Value::Float(std)]))
         })
         .collect()
 }
@@ -879,7 +894,7 @@ pub fn train(rows: &[Value], label: Label, test_from: &DateTime, fraction: f64) 
     vocab.sort();
     vocab.dedup();
     let vocab: Vec<Value> = vocab.into_iter().map(Value::Str).collect();
-    let scale = scale_of(&feats);
+    let scale = scale_of(&feats)?;
     let xs: Vec<Vec<f64>> = feats
         .iter()
         .map(|f| baseline::vector(&|name| f.value(name), &vocab, &scale))
@@ -1015,6 +1030,15 @@ mod tests {
 
     fn denial(text: &str) -> bool {
         is_denial(PyStr::from(text).code_points())
+    }
+
+    #[test]
+    fn a_square_past_a_float_is_an_overflow_and_an_infinite_one_is_not() {
+        assert_eq!(squared(3.0).unwrap(), 9.0);
+        let err = squared(-5e199).unwrap_err().to_string();
+        assert_eq!(err, "OverflowError: (34, 'Result too large')");
+        assert_eq!(squared(f64::NEG_INFINITY).unwrap(), f64::INFINITY);
+        assert!(squared(f64::NAN).unwrap().is_nan());
     }
 
     #[test]

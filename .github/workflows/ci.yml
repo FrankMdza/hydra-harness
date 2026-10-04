@@ -23,10 +23,13 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # The workspace, so `hydra-puppets` lands beside `hydra`, where the cockpit looks for it.
       - run: cargo build --release --workspace
-      # Build ticket 196. The workspace, so the unit tests of `hydra-puppets` run here too, and
-      # its differential tests. Those compare the Rust with what the Python helper printed
-      # under CPython 3.14 before the ticket deleted it, recorded in
-      # `crates/puppets/tests/fixtures/`. No test starts `python3`, so no Python is pinned.
+      # Build tickets 196 and 220. The workspace, so the unit tests of `hydra-puppets` and
+      # `hydra-grader` run here too, and their differential tests. Those compare the Rust with
+      # what the Python printed under CPython 3.14 before each ticket deleted it, recorded in
+      # `crates/puppets/tests/fixtures/` and `crates/grader/tests/fixtures/`. No test starts
+      # `python3`, so no Python is pinned. `crates/puppets/tests/grader_labels.rs` runs the
+      # `hydra-puppets` cargo builds for it, and the launchd template's test is
+      # `crates/grader/tests/launchd.rs`.
       - run: cargo test --release --workspace --no-fail-fast -- --test-threads=1
       # Build ticket 101. The fixture walks read a synthetic corpus, one directory per provider
       # binary version, so this count is never zero on a green run.
@@ -35,7 +38,9 @@ jobs:
           cargo test --release --test record_contract every_fixture_meets_the_contract -- --nocapture 2>&1 \
             | { grep '^checked ' || echo "the fixture walk found no fixtures"; } \
             | tee -a "$GITHUB_STEP_SUMMARY"
-      # The grader integration has the same shape: stdlib unittest on the macOS runner. Its
-      # labels come from `hydra-puppets show` (map 93), so these tests run the helper the
-      # release build above left in `target/release/`, and fail without it.
-      - run: python3 -m unittest discover -s integrations/grader/tests -q
+      # Build ticket 220 deleted the grader's Python suite with the grader's Python. Two of
+      # its files outlived it, `records.py` and `redact.py`, moved beside `apprentice.py`,
+      # which still loads them. Their two test files moved with them and are what this step
+      # runs: stdlib unittest, no binary and no network. The apprentice's own tests were
+      # never part of CI and still are not.
+      - run: python3 -m unittest discover -s integrations/apprentice/tests -p 'test_re*.py' -q

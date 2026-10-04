@@ -1,5 +1,5 @@
 //! Argument parsing for the local commands of `jev_probe.py`.
-use crate::baseline_cli::{Parsed, parse, required, wrong};
+use crate::argparse::{Parsed, parse, required, wrong};
 use std::io::Write;
 use std::path::Path;
 
@@ -91,7 +91,7 @@ pub fn main(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> 
         _ => {
             let _ = writeln!(
                 stderr,
-                "{PROG}: ask is not ported yet; run integrations/grader/jev_probe.py ask"
+                "{PROG}: ask was dropped with jev_probe.py (map ticket 94): it posted to a remote API and its results stay recorded"
             );
             return 2;
         }

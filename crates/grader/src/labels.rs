@@ -9,10 +9,9 @@
 //! The environment is handed in as an `Env` and never read from the process, so a test
 //! names its own.
 //!
-//! Three things were copied here in build ticket 214 and are also private to
-//! `baseline_cli.rs`, because two other tickets were adding commands to this crate at the
-//! same time: how `pathlib` spells a path, where `aliases.json` is found (in
-//! `collect_cli.rs`), and the reading of `argparse` (there too).
+//! How `pathlib` spells a path is here and in `baseline_cli.rs`, copied in build ticket 214.
+//! Where `aliases.json` is found is `data.rs`, and the reading of `argparse` is
+//! `argparse.rs`, one copy of each since build ticket 220.
 
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -201,12 +200,11 @@ pub fn puppets_home(env: &Env) -> Result<PathBuf> {
     Ok(records::hydra_root_in(&|name| env.get(name))?.join("puppets"))
 }
 
-/// The checkout this binary was built in: the first directory above it that holds
+/// The checkout `exe` was built in: the first directory above it that holds
 /// `integrations/puppets`, which is the checkout for a binary under its `target/`. The
 /// Python used the checkout its own file was in.
-fn checkout() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    exe.ancestors()
+fn checkout(exe: Option<&Path>) -> Option<PathBuf> {
+    exe?.ancestors()
         .find(|dir| dir.join("integrations/puppets").is_dir())
         .map(Path::to_path_buf)
 }
@@ -216,7 +214,15 @@ fn checkout() -> Option<PathBuf> {
 /// is absolute, else the release build of the checkout this binary is in. The first that is
 /// configured is the answer, so a missing binary is an error and not a reason to try the
 /// next.
+///
+/// A binary installed outside a checkout, with neither variable naming an absolute path,
+/// has no helper, where the Python found its checkout's. The error names both variables
+/// (build ticket 220), and the launchd job sets `HYDRA_BIN` to an absolute path.
 pub fn helper_bin(env: &Env) -> Result<PathBuf> {
+    helper_bin_from(env, std::env::current_exe().ok().as_deref())
+}
+
+fn helper_bin_from(env: &Env, exe: Option<&Path>) -> Result<PathBuf> {
     if let Some(named) = env.named("HYDRA_PUPPETS_BIN") {
         let path = PathBuf::from(&named);
         if !path.is_absolute() {
@@ -235,10 +241,11 @@ pub fn helper_bin(env: &Env) -> Result<PathBuf> {
         let beside = hydra.parent().unwrap_or(Path::new("/"));
         return Ok(beside.join("hydra-puppets"));
     }
-    match checkout() {
+    match checkout(exe) {
         Some(checkout) => Ok(checkout.join("target/release/hydra-puppets")),
         None => Err(LabelsError(
-            "no checkout above this binary to find hydra-puppets in; set HYDRA_PUPPETS_BIN"
+            "no checkout above this binary to find hydra-puppets in; set HYDRA_PUPPETS_BIN to \
+             its absolute path, or HYDRA_BIN to the absolute path of the hydra it sits beside"
                 .to_string(),
         )
         .into()),
@@ -654,6 +661,29 @@ mod tests {
         assert!(!dict.contains(&text("1")).unwrap());
         let err = dict.get(&Value::List(Vec::new())).unwrap_err();
         assert!(err.to_string().starts_with("TypeError"), "{err}");
+    }
+
+    /// Build 220: a binary installed outside the checkout has no helper unless one of two
+    /// variables names it, and the error says which two.
+    #[test]
+    fn a_binary_outside_a_checkout_is_told_the_two_variables_that_name_the_helper() {
+        let exe = Path::new("/opt/hydra/bin/hydra-grader");
+        for env in [
+            Env::default(),
+            // A `HYDRA_BIN` that is not absolute names no directory to look in.
+            Env::from_pairs([("HYDRA_BIN", "hydra")]),
+        ] {
+            let err = helper_bin_from(&env, Some(exe)).unwrap_err();
+            let said = &err.downcast_ref::<LabelsError>().unwrap().0;
+            for name in ["HYDRA_PUPPETS_BIN", "HYDRA_BIN to"] {
+                assert!(said.contains(name), "{said}");
+            }
+        }
+        let env = Env::from_pairs([("HYDRA_BIN", "/opt/hydra/bin/hydra")]);
+        assert_eq!(
+            helper_bin_from(&env, Some(exe)).unwrap(),
+            Path::new("/opt/hydra/bin/hydra-puppets")
+        );
     }
 
     #[test]

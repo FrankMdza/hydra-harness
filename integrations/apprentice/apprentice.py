@@ -21,7 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-GRADER = HERE.parent / "grader"
 
 
 def _load(name: str, path: Path):
@@ -32,8 +31,10 @@ def _load(name: str, path: Path):
     return module
 
 
-records = _load("apprentice_records", GRADER / "records.py")
-redact = _load("apprentice_redact", GRADER / "redact.py")
+# The record scan and the redactor the grader's Python had. Build ticket 220 moved the two
+# files here when it deleted the rest, since this file and `integrations/otel/` still load them.
+records = _load("apprentice_records", HERE / "records.py")
+redact = _load("apprentice_redact", HERE / "redact.py")
 
 DEFAULT_MODEL = "gemma3:1b-it-qat"
 DEFAULT_URL = "http://127.0.0.1:11434/api/generate"

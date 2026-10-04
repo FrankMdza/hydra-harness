@@ -1,4 +1,5 @@
-//! `hydra-grader`: the commands of `integrations/grader/`, as they are ported.
+//! `hydra-grader`: the commands the Python of `integrations/grader/` had, which build ticket
+//! 220 deleted.
 //!
 //! Build ticket 213 ported `baseline.py`'s `train` and `score`, which run as
 //! `hydra-grader baseline train` and `hydra-grader baseline score`. Build ticket 215 ported

@@ -1,8 +1,18 @@
 # hydra-grader
 
 Collect a local grading dataset from Hydra run records and Puppets goal logs.
-Nothing under `src/` imports this directory. The package uses only the Python
-standard library and makes no network calls.
+
+The grader is `hydra-grader`, the Rust binary of `crates/grader`, built beside `hydra` by
+`cargo build --release --workspace`. Build ticket 220 deleted the Python it was ported from
+on 2026-10-01: `grader.py`, `baseline.py`, `monitor.py`, `triage.py`, `judge.py`, `labels.py`,
+`jev_probe.py` and their tests. Before it went, `crates/grader/tests/record*.py` ran it on
+every input of the differential tests and wrote its output under
+`crates/grader/tests/fixtures/`, which `crates/grader/tests/differential.rs` compares the
+binary with. This directory keeps what a human installs and reads: this file, `SCHEMA.md`
+and the launchd template.
+
+Nothing under `src/` imports this directory or depends on the binary. The only network call
+is the local judge's, to Ollama on this machine.
 
 ## Environment
 
@@ -12,7 +22,27 @@ standard library and makes no network calls.
 | `HYDRA_GRADER_HOME` | `$HYDRA_ROOT/grader` | Cursor, dataset, and `hydra show` cache |
 | `HYDRA_BIN` | `hydra` | Binary used for `hydra show <id> --events` |
 | `HYDRA_PUPPETS_HOME` | `$HYDRA_ROOT/puppets` | Goal logs for task labels |
-| `HYDRA_PUPPETS_BIN` | `hydra-puppets` beside `HYDRA_BIN` when that is an absolute path, else `target/release/hydra-puppets` of this checkout | The helper that folds a goal log. An absolute path; `PATH` is never searched |
+| `HYDRA_PUPPETS_BIN` | `hydra-puppets` beside `HYDRA_BIN` when that is an absolute path, else `target/release/hydra-puppets` of the checkout the binary is under | The helper that folds a goal log. An absolute path; `PATH` is never searched |
+| `HYDRA_PUPPETS_DATA` | `integrations/puppets` under `HYDRA_HOME`, else under the first directory above the binary that holds `integrations/puppets/prompts` | The directory `aliases.json` is read from |
+
+### Where the alias table and the helper are found
+
+`aliases.json` maps a recorded model spelling to the `model` written to the dataset. The
+Python read the file beside its own checkout and ignored the environment. A binary has no
+checkout of its own, so it follows the one rule `hydra-puppets` follows (build tickets 221
+and 220): `HYDRA_PUPPETS_DATA` when set, else `integrations/puppets` under `HYDRA_HOME`, else
+the first directory above the binary that holds `integrations/puppets/prompts`. A directory
+that is not there, or one with no `aliases.json` in it, ends the command with exit 1 and one
+line: `FileNotFoundError: no aliases.json in <dir>; set HYDRA_PUPPETS_DATA to the directory
+that holds aliases.json, or HYDRA_HOME to the checkout`. It is never read as an empty table.
+Point `HYDRA_PUPPETS_DATA` at another table and the dataset's `model` column changes with no
+other sign, so the launchd template names the directory.
+
+A `hydra-grader` copied out of its checkout finds no `hydra-puppets` unless
+`HYDRA_PUPPETS_BIN` names it or `HYDRA_BIN` is an absolute path with the helper beside it. A
+bare `HYDRA_BIN=hydra` is enough to run `hydra show` and not enough to find the helper. The
+pass then ends with a `LabelsError` that names both variables. The launchd template sets
+`HYDRA_BIN` to an absolute path for this reason.
 
 ## Dataset and cursor
 
@@ -35,7 +65,7 @@ The same directory holds `show-cache.json`, the memoized answers from
 ## Labels
 
 Task labels come from Puppets goal logs under `HYDRA_PUPPETS_HOME`. Each
-`*.jsonl` file is one goal. `labels.py` runs `hydra-puppets show <goal>` on it,
+`*.jsonl` file is one goal. The grader runs `hydra-puppets show <goal>` on it,
 reads the state that prints, and maps each `run_id` to task class, grade, human
 verdict, and task text. When a run id appears in more than one goal log, the
 last sorted goal id wins. Runs with no matching goal log keep the task text
@@ -44,14 +74,11 @@ from the record and leave the label fields null.
 There is one fold of a goal log, the helper's, and the grader does not carry a
 second (map ticket 93). The cost is that a pass fails where it used to guess. A
 missing helper, a `show` that exits non-zero, which a damaged goal log makes it
-do, or output without the fields `labels.py` reads raises `LabelsError` before
+do, or output without the fields the grader reads is a `LabelsError` before
 the dataset, the cursor, the show cache or the scores are written. `once` and
-`rebuild` exit with the traceback, and `watch` prints the failure and tries
+`rebuild` exit 1 with that one line, and `watch` prints the failure and tries
 again after its interval. Repair the log with `hydra-puppets repair <goal>` and
 the next pass collects what the failed one left.
-
-`labels.py` used to pass over a last line that was not JSON. The helper calls
-that damage, so the grader now does too.
 
 A model can fill those fields too. Every `task-classes-*.jsonl` under
 `HYDRA_GRADER_HOME` holds one JSON object per run: `run_id`, `task_class`,
@@ -63,32 +90,40 @@ file, gets `area` and `kind`, and `labels_source` is `"llm"`. `unsure: true`
 still fills the row and adds `label_unsure: true`. The cursor entry for such a
 run is the record fingerprint plus a digest of its line, so the next `once`
 rewrites the row when the file appears or changes. Nothing trains on `area` or
-`kind` yet, and `baseline.py` reads neither `task_class` nor `grade`.
+`kind` yet, and the classifier reads neither `task_class` nor `grade`.
 
 ## Commands
 
 ```
-python3 integrations/grader/grader.py once [--jobs N]
-python3 integrations/grader/grader.py watch --interval N [--jobs N]
-python3 integrations/grader/grader.py rebuild [--jobs N]
-python3 integrations/grader/grader.py backfill
+hydra-grader once [--jobs N]
+hydra-grader watch --interval N [--jobs N]
+hydra-grader rebuild [--jobs N]
+hydra-grader backfill
 ```
 
 | Command | Behavior |
 |---|---|
 | `once` | Collect every run whose fingerprint is new or changed since the cursor. Prints the count and exits 0, including when the count is 0. |
-| `watch` | Loop `once`, then sleep for `--interval` seconds. No daemon and no asyncio. |
+| `watch` | Loop `once`, then sleep for `--interval` seconds. No daemon and no async runtime. |
 | `rebuild` | Drop the cursor and rewrite the whole dataset. |
 | `backfill` | Score every row in `dataset.jsonl` with every model. Collects nothing, runs no `hydra show`, leaves the cursor and dataset alone. Prints the lines appended and exits 0, including when that is 0. |
 
 `--jobs` defaults to 4. Each new or changed record costs one `hydra show --events`
-subprocess; `once` and `rebuild` run those calls on a thread pool and apply
+subprocess; `once` and `rebuild` run those calls on worker threads and apply
 results in run-id order.
+
+One pass runs in a grader home at a time. A pass takes an `flock` on the home directory and
+holds it until it returns. A second `once`, `rebuild`, `backfill` or turn of `watch` that
+finds the lock taken prints `grader: another pass is running in <home>; nothing done` on
+stderr, writes nothing, and exits 0. launchd starts a pass every fifteen minutes and a slow
+one can run into the next. Before the lock, both wrote through the same `.tmp` names and one
+of them died with `FileNotFoundError`. `baseline train`, `baseline label-import`, `triage run`
+and `judge label` write under the same home and do not take the lock.
 
 ## The classifier
 
-`baseline.py` is a logistic regression over what a router knows before a launch: provider,
-model, policy and the task's length. There are three models, trained and scored apart:
+`hydra-grader baseline` is a logistic regression over what a router knows before a launch:
+provider, model, policy and the task's length. There are three models, trained and scored apart:
 
 | Label | Positive means | File |
 |---|---|---|
@@ -99,12 +134,13 @@ model, policy and the task's length. There are three models, trained and scored 
 `outcome` counts every run that did not complete, so a model can beat the bar by learning which
 provider is out of quota or which policy refuses. `task` removes that. It is 1 for `failed`,
 `crashed` and `timed_out`, 0 for `completed`, and the row is left out for `rate_limited`, `gated`,
-`skill_collision`, `auth_failed` and any other outcome. The list is `baseline.TASK_FAILURES`. The
-usual `MIN_MINORITY` floor applies, and `train` refuses when a slice has too few task failures.
+`skill_collision`, `auth_failed` and any other outcome. The list is `TASK_FAILURES` in
+`crates/grader/src/baseline.rs`. A floor of 10 rows of the rarer class applies, and `train`
+refuses when a slice has too few task failures.
 
 ```
-python3 integrations/grader/baseline.py train DATASET [MODEL] [--label outcome|verdict|task] [--test-from YYYY-MM-DD]
-python3 integrations/grader/baseline.py score MODEL RUN
+hydra-grader baseline train DATASET [MODEL] [--label outcome|verdict|task] [--test-from YYYY-MM-DD]
+hydra-grader baseline score MODEL RUN
 ```
 
 `train` splits by launch time into a fit slice and a test slice and refuses when either has fewer
@@ -115,10 +151,17 @@ slice: the fit slice's overall rate, and the fit slice's rate for each run's pro
 whether the model beats the second on log loss and on Brier. Most failures in the dataset are
 rate limits, so a model that only learned which provider is out of quota will not beat it.
 
+The numbers are CPython 3.14.7's to the byte: the sum is the compensated one Python has had
+since 3.12, and `x ** 2` is the C library's `pow`. A model trained by the Python under 3.14.7
+and one trained by the binary on the same dataset are the same file. The launchd job used to
+run `/usr/bin/python3`, which is 3.9.6 here, and its `sum()` is not compensated, so about one
+score in ten written before the cutover differs from the binary's in the last digit of `p`.
+`scores.jsonl` is append-only and no old line is rewritten.
+
 ## The monitor
 
-`monitor.py` predicts the same three labels from a prefix of the run's record, plus the
-pre-launch features `baseline.py` already computes. It calls `baseline.py`'s readers
+`hydra-grader monitor` predicts the same three labels from a prefix of the run's record, plus
+the pre-launch features the classifier already computes. It uses the classifier's readers
 for those fields, for the launch-time split and for the fit. It does not copy them.
 The prefix is the first `max(1, floor(fraction * lines))` lines of the record. The
 fractions are 0.1, 0.25 and 0.5. A record of ten lines is read as 1, 2 and 5 lines.
@@ -127,7 +170,7 @@ The prefix features are fixed names: events so far, tool calls so far, refusals 
 far, the first refused tool, distinct tools, output tokens so far when a usage frame
 in the prefix carries them, seconds from the first line of the prefix to the last,
 and whether a `seat_request` line has appeared. Provider, model, policy and the first
-refused tool are one-hot categories, the way the baseline's vocabulary works. Output
+refused tool are one-hot categories, the way the classifier's vocabulary works. Output
 tokens are the latest usage report in the prefix, not a sum, and the printed feature
 is null when the prefix has none. A refusal is a hook `permissionDecision` of `deny`,
 or a tool result whose text carries Hydra's refusal voice (`hydra/`, other than
@@ -141,40 +184,41 @@ seen in the prefix, and `longest_repeat_run` is the longest streak of consecutiv
 outcome AUC at every fraction (0.838, 0.860, 0.880 with them against 0.856, 0.867, 0.881 without, 576 rows).
 
 ```
-python3 integrations/grader/monitor.py features RECORD --at 0.1|0.25|0.5
-python3 integrations/grader/monitor.py train DATASET [MODEL] --at FRACTION [--label outcome|verdict|task] [--test-from YYYY-MM-DD] [--records DIR]
-python3 integrations/grader/monitor.py score MODEL RECORD
+hydra-grader monitor features RECORD --at 0.1|0.25|0.5
+hydra-grader monitor train DATASET [MODEL] --at FRACTION [--label outcome|verdict|task] [--test-from YYYY-MM-DD] [--records DIR]
+hydra-grader monitor score MODEL RECORD
 ```
 
 `train` joins each dataset row to `<run_id>.jsonl` under `--records` (default
 `$HYDRA_ROOT/runs`). A row with no record is left out. It uses the same logistic
 regression, the same launch-time split and the same per-provider base rate as
-`baseline.py`, and it refuses on the same floor of 10 rows of the rarer class. With
+the classifier, and it refuses on the same floor of 10 rows of the rarer class. With
 no `MODEL` it writes `$HYDRA_GRADER_HOME/models/monitor/monitor-<label>-<fraction>.json`.
-The report has the same shape as `baseline.py train`, including `rank_auc` on the
-model and on both bars.
+The report has the same shape as `baseline train`, including `rank_auc` on the
+model and on both bars. A usage count so large that its spread has no square as a float ends
+`train` with `OverflowError` before it writes anything, as it ended the Python.
 
 `score` prints `p` and the model version for one record, at the fraction stored on
 the model, and `events_read`, how many lines it used.
 
-`grader.py` scores every JSON file directly in `models/` with `baseline.predict`, which
+A collect scores every JSON file directly in `models/` with the classifier's `predict`, which
 does not read a prefix. That is why the monitor's default is the `models/monitor/`
 subfolder: a monitor file moved up into `models/` would be scored as a pre-launch
 model. Nothing stops a run on this score yet. Stopping is a decision for the map.
 
 ## Triage
 
-`triage.py run` reads every dataset row whose outcome is not `completed`, reads its record, and
-writes one line per run to `$HYDRA_GRADER_HOME/triage.jsonl`: `run_id`, `outcome`, `cause`,
-`evidence` (the deciding line, cut to 300 characters) and `triaged_at`. `table` prints counts per
-outcome and cause and per provider and cause. `sample --n 20 --seed S` prints runs for a human to
-check. The first rule that matches wins:
+`hydra-grader triage run` reads every dataset row whose outcome is not `completed`, reads its
+record, and writes one line per run to `$HYDRA_GRADER_HOME/triage.jsonl`: `run_id`, `outcome`,
+`cause`, `evidence` (the deciding line, cut to 300 characters) and `triaged_at`. `triage table`
+prints counts per outcome and cause and per provider and cause. `triage sample --n 20 --seed S`
+prints runs for a human to check. The first rule that matches wins:
 
 1. `collision`: `run_end.refusal` is `skill_collision`, or the outcome is.
 2. `quota`: a `result` frame with `api_error_status` 429, or the providers' "You've hit your ...
    limit" sentence anywhere in the record, or the outcome `rate_limited`. A `rate_limit_event`
    frame alone is not quota: `claude` sends one on healthy runs.
-3. `gate`: `run_end.refusal` is set, or a refusal by `monitor.Prefix`'s reading is the last tool
+3. `gate`: `run_end.refusal` is set, or a refusal by the monitor's reading is the last tool
    event, or the outcome is `gated` and the record holds a refusal.
 4. `never_started`: no provider frame (`raw`) at all, the shape build 147 writes.
 5. `provider_crash`: no `run_end`, a `run_end.error` starting "the child died on signal ", the
@@ -191,11 +235,12 @@ Every collect that writes new or changed rows scores each of those runs with eve
 `$HYDRA_GRADER_HOME/models/` and appends one line per run and model version to
 `$HYDRA_GRADER_HOME/scores.jsonl`: `run_id`, `label`, `p`, `model_version`, `scored_at`. A run
 already scored by that model version is skipped. With no model there, nothing is written.
-`hydra-puppets queue` and `board` read the verdict scores to order reviews. `sheet.py rank` does not
-read the file, so the model does not choose which agent is assigned.
+`hydra-puppets queue` and `board` read the verdict scores to order reviews, from the same file
+as before the cutover. The ranking of `hydra-puppets assign` does not read the file, so the
+model does not choose which agent is assigned.
 
 A collect scores only its own rows, so a model trained later never sees the older ones. Run
-`grader.py backfill` after `baseline.py train` writes a model. It scores every row in
+`hydra-grader backfill` after `baseline train` writes a model. It scores every row in
 `dataset.jsonl` that the model's version has not scored, so running it twice appends nothing the
 second time. With no model or no dataset it prints 0.
 
@@ -204,8 +249,8 @@ second time. With no model or no dataset it prints 0.
 Verdict labels come from the human reading the `## Outcome` of resolved build tickets.
 
 ```
-python3 integrations/grader/baseline.py label-queue OUT.csv [--tickets DIR] [--dataset PATH]
-python3 integrations/grader/baseline.py label-import OUT.csv [--home DIR] [--dataset PATH]
+hydra-grader baseline label-queue OUT.csv [--tickets DIR] [--dataset PATH]
+hydra-grader baseline label-import OUT.csv [--home DIR] [--dataset PATH]
 ```
 
 `label-queue` writes one row per dataset run an Outcome names, with the first 400 characters of
@@ -218,8 +263,8 @@ file too, so a rewritten line keeps its verdict, and it wins over a Puppets `hum
 ## The local judge
 
 ```
-python3 integrations/grader/judge.py label [--limit N] [--only-unlabelled]
-python3 integrations/grader/judge.py agree
+hydra-grader judge label [--limit N] [--only-unlabelled]
+hydra-grader judge agree
 ```
 
 `label` walks `dataset.jsonl` and asks a local Ollama model whether each run needed a human
@@ -247,43 +292,65 @@ two by two table and the number of unparsed answers. Under 50 runs it says the n
 
 Nothing reads the labels yet.
 
+## The Jev probe and the sheets
+
+`hydra-grader jev build|patches|score` is the local half of the Jev probe. `ask`, the one
+command that called a remote API, was not ported and went with `jev_probe.py`.
+`hydra-grader sheet build|budget|show` writes and prints the corpus sheets `hydra-puppets
+assign` ranks from (build ticket 219).
+
 ## Schedule
 
 Nothing collects on its own. `launchd/co.hephaestuslab.hydra-grader.plist` is a template that
-runs `grader.py once` every 15 minutes and logs to `$HYDRA_GRADER_HOME/launchd.log`. Replace
-`/Users/USER` with your home, and run `once` by hand first so the grader home exists. The
-template's `HYDRA_BIN` names `target/release/hydra`, and the grader runs the `hydra-puppets`
-beside it, so build both with `cargo build --release --workspace`. Neither needs a Hydra run
-alive. Then install it:
+runs `hydra-grader once` every 15 minutes and logs to `$HYDRA_GRADER_HOME/launchd.log`. Its
+paths assume the checkout is `~/hydra`. It names `target/release/hydra-grader` as the program,
+sets `HYDRA_BIN` to `target/release/hydra`, whose neighbour `hydra-puppets` the grader runs, and
+sets `HYDRA_PUPPETS_DATA` to `integrations/puppets`. None of the three needs a Hydra run alive.
+Run `once` by hand first so the grader home exists.
+
+Install it, or replace a copy already installed, with these two commands from the checkout.
+The first builds the three binaries. The second stops the old job if there is one, writes
+the template with your home in place of `/Users/USER`, and starts it:
 
 ```
-cp integrations/grader/launchd/co.hephaestuslab.hydra-grader.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/co.hephaestuslab.hydra-grader.plist
+cargo build --release --workspace
+launchctl bootout gui/$(id -u)/co.hephaestuslab.hydra-grader; sed "s|/Users/USER|$HOME|g" integrations/grader/launchd/co.hephaestuslab.hydra-grader.plist > ~/Library/LaunchAgents/co.hephaestuslab.hydra-grader.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/co.hephaestuslab.hydra-grader.plist
 ```
 
-and remove it:
+`bootout` prints an error when no job is loaded, and the rest still runs. **A job installed
+before build ticket 220 runs `/usr/bin/python3 integrations/grader/grader.py once`, a file
+that no longer exists.** Run the two commands before, or in the same sitting as, taking the
+change that deleted it. Until then every fifteen minutes the old job fails and writes a
+"can't open file" line to `launchd.log`, and nothing is collected.
+
+Remove it:
 
 ```
 launchctl bootout gui/$(id -u)/co.hephaestuslab.hydra-grader && rm ~/Library/LaunchAgents/co.hephaestuslab.hydra-grader.plist
 ```
 
-## Modules
+## Where the code is
 
-| File | Purpose |
+| File under `crates/grader/src/` | Purpose |
 |---|---|
-| `grader.py` | CLI, cursor, dataset writer, and scores on every collect |
-| `baseline.py` | The three classifiers, their report, and the verdict queue |
-| `monitor.py` | Prefix features, the same regression on a fraction of a record, and score |
-| `records.py` | Walk `runs/`, cache `hydra show`, and project usage |
-| `labels.py` | Per-run labels from what `hydra-puppets show` prints for each goal log |
-| `jev_probe.py` | The Jev probe, and the ticket reader `baseline.py` loads from it. Moved here from `integrations/puppets/` by build ticket 196 |
-| `judge.py` | The local judge: `label` and `agree` |
-| `redact.py` | Secret redaction ported from `src/export.rs` |
+| `collect.rs`, `collect_cli.rs` | The pass: cursor, dataset writer, scores on every collect, and the lock on the grader home |
+| `baseline.rs`, `baseline_cli.rs`, `queue.rs` | The three classifiers, their report, and the verdict queue |
+| `monitor.rs`, `monitor_cli.rs` | Prefix features, the same regression on a fraction of a record, and score |
+| `records.rs` | Walk `runs/`, read and write the grader's JSON files, and project usage |
+| `labels.rs` | Per-run labels from what `hydra-puppets show` prints for each goal log |
+| `triage.rs`, `judge.rs`, `jev.rs`, `sheet.rs` | Triage, the local judge, the Jev probe's local half, and the sheets |
+| `redact.rs` | Secret redaction ported from `src/export.rs` |
+| `data.rs`, `argparse.rs` | Where the data directory is found, and the one reading of `argparse` every command shares |
+
+Two Python files outlived the cutover because Python still loads them: `records.py` and
+`redact.py`, with `models.py`, are now in `integrations/apprentice/`, where `apprentice.py`
+loads all three and `integrations/otel/record_to_otlp.py` loads `redact.py`.
 
 ## Benchmark
 
 Measured by the session on 2026-09-24 over the 434 record files on this machine (424 collected,
 the ten harness runs excluded), `rebuild` after a clean `HYDRA_GRADER_HOME`, an M2 with 8 GB and
-two agent runs alive:
+two agent runs alive, with the Python the binary replaced:
 
 | `--jobs` | wall time |
 |---|---|
@@ -291,12 +358,19 @@ two agent runs alive:
 | 4 | 15.7 s |
 
 The cost is one `hydra show --events` subprocess per record, about 0.1 s each, and the four
-workers overlap them. A steady-state `once` after one new run costs one subprocess. The table the
-agent first wrote here named minutes it had never measured, because a gated run cannot read the
-corpus; the numbers above replaced it.
+workers overlap them. A steady-state `once` after one new run costs one subprocess. The binary
+has not been timed on the same corpus.
 
 ## Tests
 
 ```
-python3 -m unittest discover -s integrations/grader/tests
+cargo test -p hydra-grader
+cargo test -p hydra-puppets --test grader_labels
 ```
+
+The first runs the unit tests, the differential tests against the recorded Python, the tests
+of what build ticket 220 changed (`tests/cutover.rs`) and the launchd template's
+(`tests/launchd.rs`). The second runs the real `hydra-puppets` over every recorded goal log and
+compares the grader's labels with the ones the Python fold gave. No test starts `python3`, and
+the fixtures cannot be recorded again from this checkout: a new differential case needs a
+checkout from before build ticket 220.

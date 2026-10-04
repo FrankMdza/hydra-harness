@@ -293,7 +293,9 @@ class Recorder:
                 "files": list(files),
                 "exit": ran.returncode,
                 "stdout": ran.stdout.decode("utf-8"),
-                "stderr": ran.stderr.decode("utf-8"),
+                # A traceback names the files of this checkout. Its directory is the one thing
+                # replaced here, so a recording made elsewhere gives the same bytes (build 220).
+                "stderr": ran.stderr.decode("utf-8").replace(str(self.repo), "<repo>"),
                 "written": listing(root, given),
             }
         self.cases.append(case)
@@ -668,6 +670,20 @@ def record(out: Path, repo: Path, scan_inputs: list[tuple[str, bytes]]) -> None:
     ]:
         files = [plain] if data is None else [plain, {"path": "model.json", "hex": hexed(data)}]
         rec.case(f"score with {name}", ["score", "model.json", "record.jsonl"], files)
+
+    # Build 220, recorded last so no earlier case moves: where `argparse` keeps the first
+    # `--` and where it drops it. It drops it while it fills positionals, keeps it after a
+    # surplus argument, and a second one is an argument like any other.
+    for n, argv in enumerate(
+        [
+            ["score", "m", "r", "--", "x"], ["score", "m", "--", "r", "x"], ["score", "m", "r", "x", "--", "y"],
+            ["score", "x", "y", "z", "--", "w"], ["score", "m", "--", "r", "--", "x"], ["score", "--", "--", "m", "r"],
+            ["score", "m", "--", "--", "r"], ["train", "d", "m", "--", "--label"], ["train", "--", "d", "--", "m"],
+            ["train", "--label", "task", "--", "d", "m", "x"], ["train", "d", "x", "y", "--", "z"],
+            ["score", "m", "r", "--foo", "--", "x"],
+        ]
+    ):
+        rec.case(f"the separator {n:02d}: {' '.join(argv)}", argv)
 
     directory = out / "baseline"
     directory.mkdir(exist_ok=True)

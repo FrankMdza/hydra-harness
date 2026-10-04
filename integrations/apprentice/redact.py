@@ -1,4 +1,8 @@
-"""Secret redaction for the grader integration.
+"""Secret redaction for the Python that still reads run records.
+
+This was `integrations/grader/redact.py`. Build ticket 220 moved it beside `apprentice.py`;
+`integrations/otel/record_to_otlp.py` loads it from here too. The grader's own redactor is
+`crates/grader/src/redact.rs`.
 
 Ports the secret classes hydra export redacts from src/export.rs: known key
 prefixes, PEM blocks, and the OpenAI key span rule. No repo-name substitution.

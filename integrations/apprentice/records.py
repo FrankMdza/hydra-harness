@@ -1,4 +1,9 @@
-"""Walk Hydra run records for grading (stdlib only)."""
+"""Walk Hydra run records (stdlib only).
+
+This was `integrations/grader/records.py`. Build ticket 220 ported the grader to
+`crates/grader` and moved this file beside `apprentice.py`, the one caller left. The Rust in
+`crates/grader/src/records.rs` is the grader's copy now, and the two are not kept in step.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -13,8 +18,9 @@ import subprocess
 import sys
 import tempfile
 
-PUPPETS = Path(__file__).resolve().parents[1] / "puppets"
-_models_spec = importlib.util.spec_from_file_location("grader_models", PUPPETS / "models.py")
+_models_spec = importlib.util.spec_from_file_location(
+    "apprentice_models", Path(__file__).resolve().parent / "models.py"
+)
 _models = importlib.util.module_from_spec(_models_spec)
 _models_spec.loader.exec_module(_models)
 canonical = _models.canonical
