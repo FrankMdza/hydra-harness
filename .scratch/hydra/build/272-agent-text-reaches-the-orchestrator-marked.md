@@ -1,7 +1,7 @@
 # 272 - Agent text reaches the orchestrator marked
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
