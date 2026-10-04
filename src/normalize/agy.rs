@@ -55,14 +55,14 @@
 //! frame, so nothing here constructs a [`Thinking`] event and the count rides on
 //! [`Usage`] where the other two providers' counts do.
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::path::Path;
 
 use anyhow::Result;
 use serde_json::Value;
 
 use super::{
-    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedGate,
+    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedStart,
     ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, ToolCall, ToolResult, Usage,
     UsageSource, hydra_voice, policy_moved, splice, verdict_decision,
 };
@@ -104,17 +104,7 @@ struct Walk {
     run_id: String,
     parent_run_id: Option<String>,
     provider: Option<String>,
-    policy: Option<String>,
-    policy_sha: Option<String>,
-    /// `hydra.skills.store_sha` off line 0, for the `skill_snapshot` scope
-    /// contract 7.7's re-evaluation recomputes.
-    store_sha: Option<String>,
-    cwd: Option<PathBuf>,
-    worktree: Option<PathBuf>,
-    /// Contract 5.1's `scopes` and `floor_lifted`, the other two inputs to the
-    /// compile 7.7 re-runs. Absent on every record written before ticket 42,
-    /// which is what `RecordedGate` answers for.
-    gate: RecordedGate,
+    start: RecordedStart,
     events: Vec<Event>,
     findings: Vec<Finding>,
     result: Option<Value>,
@@ -205,13 +195,8 @@ impl Walk {
     fn hydra_line(&mut self, seq: u64, body: &Value) {
         match body["type"].as_str() {
             Some("run_start") => {
-                self.policy = body["policy"].as_str().map(str::to_string);
-                self.policy_sha = body["policy_sha"].as_str().map(str::to_string);
-                self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
-                self.cwd = body["cwd"].as_str().map(PathBuf::from);
-                self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
+                self.start = RecordedStart::of(body);
                 self.resumed = body["command"].as_str() == Some("resume");
-                self.gate = RecordedGate::of(body);
                 self.events.push(Event::RunStart(RunStart {
                     seq,
                     body: body.clone(),
@@ -471,8 +456,8 @@ impl Walk {
         super::note_missing_run_start(&self.events, &mut self.findings);
         super::note_capped_lines(&self.events, &mut self.findings);
         super::note_policy_sha(
-            self.policy.as_deref(),
-            self.policy_sha.as_deref(),
+            self.start.policy.as_deref(),
+            self.start.policy_sha.as_deref(),
             policies,
             &mut self.findings,
         );
@@ -494,7 +479,7 @@ impl Walk {
             run_id: self.run_id,
             parent_run_id: self.parent_run_id,
             provider: self.provider,
-            policy: self.policy,
+            policy: self.start.policy,
             events,
             findings: self.findings,
             result: self.result,
@@ -529,7 +514,7 @@ impl Walk {
     /// re-evaluate and `external` would presume a policy that could have allowed.
     fn decide(&mut self, policies: &PolicySet, layout: &Layout) -> Vec<Option<PermissionDecision>> {
         let mut decisions: Vec<Option<PermissionDecision>> = Vec::new();
-        let Some(name) = self.policy.clone() else {
+        let Some(name) = self.start.policy.clone() else {
             return decisions;
         };
         let calls: Vec<(u64, String, String, Value)> = self
@@ -553,14 +538,7 @@ impl Walk {
         // The three adapters build it the same way and differ in the provider.
         let spawn = ReplaySpawn::of(
             layout,
-            super::Recorded {
-                run_id: &self.run_id,
-                policy: &name,
-                cwd: self.cwd.as_deref(),
-                worktree: self.worktree.as_deref(),
-                store_sha: self.store_sha.as_deref(),
-                gate: &self.gate,
-            },
+            self.start.recorded(&self.run_id, &name),
             policies,
             Provider::Agy,
         );
@@ -577,7 +555,7 @@ impl Walk {
             }
         };
 
-        let results = self.results_by_call();
+        let results = super::results_by_call(&self.events);
         let replay_inputs: Vec<(&str, &Value, &Path)> = calls
             .iter()
             .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
@@ -681,7 +659,7 @@ impl Walk {
                             // derivation answered about two policies rather
                             // than one, so the difference is a limit and not a
                             // disagreement. See `policy_moved`.
-                            Some(_) if policy_moved(self.policy_sha.as_deref(), policies) => {
+                            Some(_) if policy_moved(self.start.policy_sha.as_deref(), policies) => {
                                 self.findings.push(Finding::Limit(format!(
                                     "the gate allowed step {call_id} ({tool}) and the \
                                      derivation denies it, under a policy_sha that is no \
@@ -738,7 +716,7 @@ impl Walk {
                     // error is the second source: it carries Hydra's reason
                     // verbatim.
                     Some(refusal) => {
-                        if policy_moved(self.policy_sha.as_deref(), policies) {
+                        if policy_moved(self.start.policy_sha.as_deref(), policies) {
                             self.findings.push(Finding::Limit(format!(
                                 "the gate denied step {call_id} ({tool}) and the derivation \
                                  allows it, under a policy_sha that is no longer today's, \
@@ -783,19 +761,6 @@ impl Walk {
             decisions.push(Some(derived));
         }
         decisions
-    }
-
-    fn results_by_call(&self) -> HashMap<String, (ResultStatus, String)> {
-        self.events
-            .iter()
-            .filter_map(|event| match event {
-                Event::ToolResult(result) => Some((
-                    result.call_id.clone(),
-                    (result.status, result.output.clone()),
-                )),
-                _ => None,
-            })
-            .collect()
     }
 }
 

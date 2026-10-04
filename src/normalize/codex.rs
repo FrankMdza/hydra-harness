@@ -20,13 +20,13 @@
 //! 01a0c223-9ec2, the four-step gate probe.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use serde_json::{Value, json};
 
 use super::{
-    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedGate,
+    Counts, Decider, Decision, Event, Finding, Message, PermissionDecision, RecordedStart,
     ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall, ToolResult, Usage,
     UsageSource, hydra_voice, policy_moved, splice, verdict_decision,
 };
@@ -48,12 +48,7 @@ struct Walk {
     run_id: String,
     parent_run_id: Option<String>,
     provider: Option<String>,
-    policy: Option<String>,
-    policy_sha: Option<String>,
-    store_sha: Option<String>,
-    cwd: Option<PathBuf>,
-    worktree: Option<PathBuf>,
-    gate: RecordedGate,
+    start: RecordedStart,
     events: Vec<Event>,
     findings: Vec<Finding>,
     result: Option<Value>,
@@ -177,12 +172,7 @@ impl Walk {
     fn hydra_line(&mut self, seq: u64, body: &Value) {
         match body["type"].as_str() {
             Some("run_start") => {
-                self.policy = body["policy"].as_str().map(str::to_string);
-                self.policy_sha = body["policy_sha"].as_str().map(str::to_string);
-                self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
-                self.cwd = body["cwd"].as_str().map(PathBuf::from);
-                self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
-                self.gate = RecordedGate::of(body);
+                self.start = RecordedStart::of(body);
                 self.events.push(Event::RunStart(RunStart {
                     seq,
                     body: body.clone(),
@@ -618,8 +608,8 @@ impl Walk {
         super::note_missing_run_start(&self.events, &mut self.findings);
         super::note_capped_lines(&self.events, &mut self.findings);
         super::note_policy_sha(
-            self.policy.as_deref(),
-            self.policy_sha.as_deref(),
+            self.start.policy.as_deref(),
+            self.start.policy_sha.as_deref(),
             policies,
             &mut self.findings,
         );
@@ -635,7 +625,7 @@ impl Walk {
             run_id: self.run_id,
             parent_run_id: self.parent_run_id,
             provider: self.provider,
-            policy: self.policy,
+            policy: self.start.policy,
             events,
             findings: self.findings,
             result: self.result,
@@ -645,7 +635,7 @@ impl Walk {
 
     fn decide(&mut self, policies: &PolicySet, layout: &Layout) -> Vec<Option<PermissionDecision>> {
         let mut decisions: Vec<Option<PermissionDecision>> = Vec::new();
-        let Some(name) = self.policy.clone() else {
+        let Some(name) = self.start.policy.clone() else {
             return decisions;
         };
         let calls: Vec<(u64, String, String, Value)> = self
@@ -667,14 +657,7 @@ impl Walk {
 
         let spawn = ReplaySpawn::of(
             layout,
-            super::Recorded {
-                run_id: &self.run_id,
-                policy: &name,
-                cwd: self.cwd.as_deref(),
-                worktree: self.worktree.as_deref(),
-                store_sha: self.store_sha.as_deref(),
-                gate: &self.gate,
-            },
+            self.start.recorded(&self.run_id, &name),
             policies,
             Provider::Codex,
         );
@@ -785,7 +768,7 @@ impl Walk {
                     },
                     Some(refusal) if refusal.by == Decider::External => {
                         if let Some(code) = hydra_voice(&refusal.reason) {
-                            if policy_moved(self.policy_sha.as_deref(), policies) {
+                            if policy_moved(self.start.policy_sha.as_deref(), policies) {
                                 self.findings.push(Finding::Limit(format!(
                                     "the gate allowed step {call_id} ({tool}) and the derivation \
                                      denies it, under a policy_sha that is no longer today's, so \
@@ -832,7 +815,7 @@ impl Walk {
                         reason: refusal.reason,
                     },
                     Some(refusal) => {
-                        if policy_moved(self.policy_sha.as_deref(), policies) {
+                        if policy_moved(self.start.policy_sha.as_deref(), policies) {
                             self.findings.push(Finding::Limit(format!(
                                 "the gate denied step {call_id} ({tool}) and the derivation \
                                  allows it, under a policy_sha that is no longer today's, so the \
@@ -886,6 +869,9 @@ impl Walk {
         result.and_then(|(status, output)| refusal_in(*status, output))
     }
 
+    /// Not [`super::results_by_call`], which drops a result with an empty id.
+    /// An item whose `id` is `""` gets that id from [`item_id`], and its call
+    /// joins its result here. Build 279 kept that join rather than decide it.
     fn results_by_call(&self) -> HashMap<String, (ResultStatus, String)> {
         self.events
             .iter()

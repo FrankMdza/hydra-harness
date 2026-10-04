@@ -18,14 +18,14 @@
 //! and is what the Cursor probe in 6.6 was about.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use serde_json::Value;
 
 use super::{
     Correction, Counts, Decider, Decision, Event, Finding, Message, PermissionDecision,
-    RecordedGate, ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall,
+    RecordedStart, ReplaySpawn, ResultStatus, Role, Run, RunEnd, RunStart, Thinking, ToolCall,
     ToolResult, Usage, UsageSource, policy_moved, splice, verdict_decision,
 };
 use crate::paths::Layout;
@@ -110,17 +110,7 @@ struct Walk {
     run_id: String,
     parent_run_id: Option<String>,
     provider: Option<String>,
-    policy: Option<String>,
-    policy_sha: Option<String>,
-    /// `hydra.skills.store_sha` off line 0. Contract 7.7's re-evaluation needs
-    /// the `skill_snapshot` scope, and this is the field it is recomputed from.
-    store_sha: Option<String>,
-    cwd: Option<PathBuf>,
-    worktree: Option<PathBuf>,
-    /// Contract 5.1's `scopes` and `floor_lifted`, the other two inputs to the
-    /// compile 7.7 re-runs. Absent on every record written before ticket 42,
-    /// which is what `RecordedGate` answers for.
-    gate: RecordedGate,
+    start: RecordedStart,
     events: Vec<Event>,
     findings: Vec<Finding>,
     hooks: Vec<HookAnswer>,
@@ -247,12 +237,7 @@ impl Walk {
     fn hydra_line(&mut self, seq: u64, body: &Value) {
         match body["type"].as_str() {
             Some("run_start") => {
-                self.policy = body["policy"].as_str().map(str::to_string);
-                self.policy_sha = body["policy_sha"].as_str().map(str::to_string);
-                self.store_sha = body["skills"]["store_sha"].as_str().map(str::to_string);
-                self.cwd = body["cwd"].as_str().map(PathBuf::from);
-                self.worktree = body["worktree"]["path"].as_str().map(PathBuf::from);
-                self.gate = RecordedGate::of(body);
+                self.start = RecordedStart::of(body);
                 self.events.push(Event::RunStart(RunStart {
                     seq,
                     body: body.clone(),
@@ -408,8 +393,8 @@ impl Walk {
         super::note_missing_run_start(&self.events, &mut self.findings);
         super::note_capped_lines(&self.events, &mut self.findings);
         super::note_policy_sha(
-            self.policy.as_deref(),
-            self.policy_sha.as_deref(),
+            self.start.policy.as_deref(),
+            self.start.policy_sha.as_deref(),
             policies,
             &mut self.findings,
         );
@@ -422,7 +407,7 @@ impl Walk {
             run_id: self.run_id,
             parent_run_id: self.parent_run_id,
             provider: self.provider,
-            policy: self.policy,
+            policy: self.start.policy,
             events,
             findings: self.findings,
             result: self.result,
@@ -452,7 +437,7 @@ impl Walk {
 
     /// 8.5's `subagent_stats`, read as the second instance of the gate-leak check.
     fn check_subagents(&mut self, policies: &PolicySet) {
-        let Some(name) = self.policy.clone() else {
+        let Some(name) = self.start.policy.clone() else {
             return;
         };
         let spawned = self
@@ -484,7 +469,7 @@ impl Walk {
         // to supply and a block without one would collide with every other
         // block without one.
         let mut decisions: Vec<Option<PermissionDecision>> = Vec::new();
-        let Some(name) = self.policy.clone() else {
+        let Some(name) = self.start.policy.clone() else {
             return decisions;
         };
         let calls: Vec<(u64, String, String, Value)> = self
@@ -508,14 +493,7 @@ impl Walk {
         // The three adapters build it the same way and differ in the provider.
         let spawn = ReplaySpawn::of(
             layout,
-            super::Recorded {
-                run_id: &self.run_id,
-                policy: &name,
-                cwd: self.cwd.as_deref(),
-                worktree: self.worktree.as_deref(),
-                store_sha: self.store_sha.as_deref(),
-                gate: &self.gate,
-            },
+            self.start.recorded(&self.run_id, &name),
             policies,
             Provider::Claude,
         );
@@ -532,7 +510,7 @@ impl Walk {
             }
         };
 
-        let results = self.results_by_call();
+        let results = super::results_by_call(&self.events);
         let replay_inputs: Vec<(&str, &Value, &Path)> = calls
             .iter()
             .map(|(_, _, tool, arguments)| (tool.as_str(), arguments, spawn.cwd()))
@@ -634,7 +612,7 @@ impl Walk {
                 // than resolved (7.7). Unless the policy directory moved between
                 // the run and the read, in which case the two sources answered
                 // about two policies and the difference says nothing.
-                if policy_moved(self.policy_sha.as_deref(), policies) {
+                if policy_moved(self.start.policy_sha.as_deref(), policies) {
                     self.findings.push(Finding::Limit(format!(
                         "the gate answered {:?} for {call_id} ({tool}) and the derivation \
                          says {:?}, under a policy_sha that is no longer today's, so the \
@@ -743,21 +721,6 @@ impl Walk {
             decisions.push(Some(derived));
         }
         decisions
-    }
-
-    /// The results, owned rather than borrowed, because deriving a decision
-    /// appends findings to the same struct the events live in.
-    fn results_by_call(&self) -> HashMap<String, (ResultStatus, String)> {
-        self.events
-            .iter()
-            .filter_map(|event| match event {
-                Event::ToolResult(result) if !result.call_id.is_empty() => Some((
-                    result.call_id.clone(),
-                    (result.status, result.output.clone()),
-                )),
-                _ => None,
-            })
-            .collect()
     }
 
     /// Every `hook_started` frame assigned to the call it belongs to.
@@ -1407,7 +1370,7 @@ mod harvest {
             if self.policy.is_none() {
                 return Vec::new();
             }
-            let results = self.results_by_call();
+            let results = super::super::results_by_call(&self.events);
             let mut decisions = Vec::new();
             for event in &self.events {
                 if let Event::ToolCall(call) = event {
@@ -1426,19 +1389,6 @@ mod harvest {
                 }
             }
             decisions
-        }
-
-        fn results_by_call(&self) -> HashMap<String, (ResultStatus, String)> {
-            self.events
-                .iter()
-                .filter_map(|event| match event {
-                    Event::ToolResult(result) if !result.call_id.is_empty() => Some((
-                        result.call_id.clone(),
-                        (result.status, result.output.clone()),
-                    )),
-                    _ => None,
-                })
-                .collect()
         }
 
         /// 7.9's rule, over every denial the transcript carries.

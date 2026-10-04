@@ -496,11 +496,7 @@ pub fn read(text: &str, policies: &PolicySet) -> Result<Run> {
 /// `claude`'s, which normalizes none of its frames, plus a finding that says so
 /// rather than a run that quietly has no events.
 pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Run> {
-    let provider = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find_map(|envelope| envelope["provider"].as_str().map(str::to_string));
-    match provider.as_deref() {
+    match provider_of(text).as_deref() {
         Some("cursor-agent") => cursor::normalize(text, policies, layout),
         Some("agy") => agy::normalize(text, policies, layout),
         Some("codex") => codex::normalize(text, policies, layout),
@@ -514,6 +510,14 @@ pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
             Ok(run)
         }
     }
+}
+
+/// The envelope's `provider`, off the first line that parses and names one. The
+/// three dispatchers above and below pick their adapter by it.
+fn provider_of(text: &str) -> Option<String> {
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find_map(|envelope| envelope["provider"].as_str().map(str::to_string))
 }
 
 /// The usage a record carries so far, read by the adapter [`read_with`] would
@@ -531,11 +535,7 @@ pub fn read_with(text: &str, policies: &PolicySet, layout: &Layout) -> Result<Ru
 /// adapter and for an interactive `claude` record, whose frames arrive with
 /// the harvest.
 pub fn usage_so_far(text: &str) -> Option<Usage> {
-    let provider = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find_map(|envelope| envelope["provider"].as_str().map(str::to_string));
-    match provider.as_deref() {
+    match provider_of(text).as_deref() {
         Some("cursor-agent") => cursor::usage_so_far(text),
         Some("agy") => agy::usage_so_far(text),
         Some("codex") => codex::usage_so_far(text),
@@ -553,11 +553,7 @@ pub fn usage_so_far(text: &str) -> Option<Usage> {
 /// code with [`hydra_voice`]. Empty for a provider with no adapter and for an
 /// interactive `claude` record.
 pub fn events_so_far(text: &str) -> Vec<Event> {
-    let provider = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find_map(|envelope| envelope["provider"].as_str().map(str::to_string));
-    match provider.as_deref() {
+    match provider_of(text).as_deref() {
         Some("cursor-agent") => cursor::events_so_far(text),
         Some("agy") => agy::events_so_far(text),
         Some("codex") => codex::events_so_far(text),
@@ -641,6 +637,66 @@ pub(crate) struct Recorded<'a> {
     /// recomputes from and from nothing else.
     pub store_sha: Option<&'a str>,
     pub gate: &'a RecordedGate,
+}
+
+/// The `run_start` fields every adapter's walk keeps for the replay and for
+/// `note_policy_sha`, read off line 0 the same way by all four.
+#[derive(Default)]
+pub(crate) struct RecordedStart {
+    pub policy: Option<String>,
+    pub policy_sha: Option<String>,
+    /// `hydra.skills.store_sha` off line 0. Contract 7.7's re-evaluation needs
+    /// the `skill_snapshot` scope, and this is the field it is recomputed from.
+    pub store_sha: Option<String>,
+    pub cwd: Option<PathBuf>,
+    pub worktree: Option<PathBuf>,
+    /// Contract 5.1's `scopes` and `floor_lifted`, the other two inputs to the
+    /// compile 7.7 re-runs. Absent on every record written before ticket 42,
+    /// which is what `RecordedGate` answers for.
+    pub gate: RecordedGate,
+}
+
+impl RecordedStart {
+    pub(crate) fn of(body: &Value) -> Self {
+        Self {
+            policy: body["policy"].as_str().map(str::to_string),
+            policy_sha: body["policy_sha"].as_str().map(str::to_string),
+            store_sha: body["skills"]["store_sha"].as_str().map(str::to_string),
+            cwd: body["cwd"].as_str().map(PathBuf::from),
+            worktree: body["worktree"]["path"].as_str().map(PathBuf::from),
+            gate: RecordedGate::of(body),
+        }
+    }
+
+    /// What a replay rebuilds the spawn from, under the policy `name`.
+    pub(crate) fn recorded<'a>(&'a self, run_id: &'a str, name: &'a str) -> Recorded<'a> {
+        Recorded {
+            run_id,
+            policy: name,
+            cwd: self.cwd.as_deref(),
+            worktree: self.worktree.as_deref(),
+            store_sha: self.store_sha.as_deref(),
+            gate: &self.gate,
+        }
+    }
+}
+
+/// Each tool result by the call id it answers, owned rather than borrowed,
+/// because deriving a decision appends findings to the same struct the events
+/// live in. A result with an empty id joins nothing and is left out.
+pub(crate) fn results_by_call(
+    events: &[Event],
+) -> std::collections::HashMap<String, (ResultStatus, String)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::ToolResult(result) if !result.call_id.is_empty() => Some((
+                result.call_id.clone(),
+                (result.status, result.output.clone()),
+            )),
+            _ => None,
+        })
+        .collect()
 }
 
 /// What a record says about the gate that answered for it, build ticket 49.

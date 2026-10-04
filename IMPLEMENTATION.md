@@ -2274,7 +2274,10 @@ the carve-out then owns, which is what the first version did until the spec revi
 it. A worktree `hydra reap` has taken answers nothing, which loses a `GateLeak` it could
 have reported and never invents one, and that is the case the stored path closes: ticket
 14 called `parent_git_dir` the one scope only the record can keep, and the record keeps it
-now.
+now. Since build ticket 279 all four adapters read line 0 through one `RecordedStart` beside
+it, which holds `RecordedGate` and builds the `Recorded` a replay starts from, and they share
+one `results_by_call` and one `provider_of`, except `codex`, which keeps its own
+`results_by_call` so a call with an empty id still joins its result.
 
 **A rebuilt key is one `Finding::Limit` per record and never a disagreement.**
 `ReplaySpawn::scope_limit` names the keys it stood in for, and adds that nothing answered
