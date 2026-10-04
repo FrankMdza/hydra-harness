@@ -71,10 +71,30 @@ own subscription. Hydra spawns the real binaries and never touches their credent
 the documented path for scripted use on all four, and `SECURITY.md` says what their terms
 still forbid.
 
+Hydra never handles an API key. You log in once with each vendor's own CLI, and that stored
+login is the only way a run authenticates. The child's environment is built from an allowlist,
+and a test in `src/env.rs` checks that `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `CURSOR_API_KEY`
+and `CURSOR_AUTH_TOKEN` do not reach it. The `run_start` line of every provider launch carries an `auth` block with
+`mechanism: subscription-oauth`, `source: keychain` and `allow_billed: false`. Hydra writes
+those three values itself, the same for all four providers, from the fact that it passed no
+key (`src/run.rs`). It does not ask the vendor where the login is stored or which pool the
+run bills to, so read the block as what Hydra did, not as what the vendor charged.
+
+| Provider | Login | What Hydra does about it |
+|---|---|---|
+| `claude` | its own login, read from the macOS keychain | passes the real `HOME` and never sets `CLAUDE_CONFIG_DIR`, which would lose the login |
+| `cursor-agent` | its own login; its init frame reports `apiKeySource: "login"` | passes no Cursor key or token |
+| `agy` | its Google login | never sets `AGY_ADC_AUTH` and passes no Google key |
+| `codex` | `codex login` on a ChatGPT plan | runs `codex login status` before the launch and refuses when it says logged out |
+
+The record's `subscription` field names who pays: `anthropic`, `cursor`, `google` or `openai`.
+
 ```
 git clone https://github.com/FrankMdza/hydra-harness ~/hydra && cd ~/hydra
 cargo build --release --workspace   # Rust 1.88 or newer; --workspace also builds hydra-puppets
 mkdir -p ~/.local/bin && ln -sf ~/hydra/target/release/hydra ~/.local/bin/hydra
+ln -sf ~/hydra/integrations/copilot/bin/hydra-copilot ~/.local/bin/suprema
+ln -sf ~/hydra/integrations/copilot/bin/masterofpuppets ~/.local/bin/masterofpuppets
 hydra doctor            # its "hydra on PATH" line should say "this binary"
 ```
 
@@ -106,8 +126,26 @@ hydra reap 01a09                                        # commit to hydra/<run-i
 ```
 
 `--policy` defaults to `standard`: reads, writes, shell and network reads inside the run's own
-worktree, plus the skills Hydra linked. `--timeout` degrades the call to a handle rather than
-killing the child; `hydra logs <id> --follow` tails it.
+worktree, plus the skills Hydra linked. `hydra run` prints one JSON object with the `run_id`.
+`--timeout` defaults to `10m` and degrades the call to a handle rather than killing the child;
+`hydra logs <id> --follow` tails it. `--timeout 0` launches and returns at once, so several
+agents can run side by side, and `hydra wait <id>...` blocks until they have all ended.
+
+```
+suprema "" ~/some-repo            # the copilot: a chat that launches gated agents on that repo
+masterofpuppets ~/some-repo       # the same chat, running a goal through plan, table and diffs
+hydra cockpit                     # the viewer: tasks, runs by state, one run's detail
+```
+
+All four providers take a recorded run. The interactive mode, where the vendor draws its own
+interface and Hydra harvests its transcript afterwards, is narrower.
+
+| Provider | Recorded run | `--interactive`, ungated | `--interactive --policy` | Copilot chat |
+|---|---|---|---|---|
+| `claude` | yes | yes, transcript harvested | yes | yes, with `Edit`, `Write` and `NotebookEdit` disallowed |
+| `codex` | yes, not under `read-only` | yes since build ticket 255, session file harvested | refused | yes, and it keeps its edit tools |
+| `cursor-agent` | yes | refused | refused | no |
+| `agy` | yes | refused | refused | no |
 
 ## What one run does
 
@@ -138,34 +176,45 @@ killing the child; `hydra logs <id> --follow` tails it.
 | `approve` | approve a seat request no shape covers; with no id, list what waits |
 | `deny` | deny one; the session hears `hydra/request-denied` and nothing launches |
 | `doctor` | the root, the binaries against the measured versions, the policy sha, which protected configs are missing |
-| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; answers seat requests, approves Puppets steps, stops seats; with `--session`, the chat in the left panel; `COCKPIT.md` at the repo root is the help file a session can read when you ask from the overlay |
+| `cockpit` | one goal's tasks, the runs in four lanes, one run's detail, in a full-screen view that refreshes itself; answers seat requests, approves Puppets steps, stops seats; with `--session claude` or `--session codex`, that provider's ungated chat in the left panel; `COCKPIT.md` at the repo root is the help file a session can read when you ask from the overlay |
 
-`hydra cockpit` is for the terminal beside an orchestrating session's chat, with run labels using the shortest unique prefix of at least eight characters across its table and lanes; ambiguous command prefixes list distinguishing labels, providers and policies. The left column is
+`hydra cockpit` has three views. The main one has three panels. The left one is
 the task table of a Master of Puppets goal (id, status, done, provider, model, run, grade and
 class, dropped from the right as the pane narrows; once a task's run ends, status shows the
 run's outcome). The middle one sorts every run into `live`, `waiting approval`, `ended ok` and
-`ended not ok`, with the seat requests and Puppets steps that wait on a human in the second. The
-right one shows what you open: a run's outcome, tokens and final text, then its last fifteen tool
-calls, with a secret-flagged call's input hidden and other calls shown as a short head until `i`
-reveals the whole input. The
-header's dragon counts the live seats of the watched session (every live run without one), and
-lists each live provider's tokens per minute and share of its window. It rereads the disk every
-two seconds and launches no provider.
+`ended not ok`, with the seat requests and Puppets steps that wait on a human in the second.
+A run's row carries its id, provider, model, goal task, role, policy, tokens and elapsed time, and
+the model is the recorded one, else the one the provider's init frame names, else `default`.
+The right one shows what you select: a run's task, or its question when it is a panel seat,
+then its outcome, tokens and final text, then its last fifteen tool calls, with a
+secret-flagged call's input hidden and other calls shown as a short head until `i` reveals the
+whole input. `Enter` opens a run as a full page, the second view. `t` opens the third, the
+goal's table as a full page: the revision, whether the plan and the table are approved, each
+panel's verdict and its source, every seat's provider, model, role and vote, and per task its
+text, class, grade, provider, model, policy, deps, status, run and launch approval. At 80
+columns or fewer the three panels stack. The header's dragon counts the live seats of the
+watched session (every live run without one), and lists each live provider's tokens per
+minute and share of its window. The cockpit rereads the disk every two seconds and, without
+`--session`, launches no provider. Run labels are the shortest unique prefix of at least eight
+characters.
 
 | Key | Does |
 |---|---|
 | arrows, `Tab`, `Shift-Tab` | move within a panel, or between panels |
 | `Enter`, `Esc` | open the selected run as a full page, or a request or step in the detail pane; `Esc` closes or leaves the page |
 | `Left`, `Backspace` | on a full-page run, back one step |
-| `PageUp`, `PageDown`, `Space`, `b`, `Home`, `g`, `End`, `G` | scroll the detail or full-page run |
+| `t` | open the shown goal's task table as a full page; `t` again or `Esc` returns |
+| `PageUp`, `PageDown`, `Space`, `b`, `Home`, `g`, `End`, `G` | scroll the detail or full-page run by a screen, or to either end |
 | `k` | swap the four lanes by state for one lane per agent, the waiting approvals last; with `--session`, only the session and its seats |
 | `r` | swap the detail between tool calls and the raw last twenty record lines |
+| `i` | reveal the whole input of the selected call or line |
 | `a`, `y` | approve the selected seat request, or run the argv `hydra-puppets pending` listed for a step |
 | `d`, `y` | deny the selected seat request; a step has no deny |
 | `v`, `y` | start `hydra-puppets review` on the selected task: three judge runs, which count against quota |
 | `m`, `y` | stop the selected live seat, the same stop as `hydra stop`; with `--session`, leave an unsent note about it in the chat |
 | `p` | policy pane: the set's sha and the live runs' shas; `e` opens the selected file in `$EDITOR` |
-| `?` | help: every key the cockpit answers; `Esc` closes |
+| `?` | help: every key the cockpit answers; `Esc` or `?` closes; with `--session`, `a` there types a question about `COCKPIT.md` into the chat, unsent |
+| `F2`, `Ctrl-q` | with `--session`: `F2` moves the keys between the chat and the cockpit; `Ctrl-q` quits once the chat has exited |
 | `q` | quit |
 
 Each write waits for a `y`: a seat approval or denial, which is what `hydra approve <id>` or
@@ -178,17 +227,18 @@ selects and scrolls.
 ```
 hydra cockpit                    # the goal log that changed last
 hydra cockpit --goal <goal-id> --interval 5
-hydra cockpit --session claude --policy standard
+hydra cockpit --session claude --model claude-opus-5-5
 ```
 
-With `--session <provider>` the chat moves inside: the cockpit runs `hydra run --interactive`
-for that provider, with `--model` and `--policy` passed on, and draws it in the left panel while
-the table, lanes and detail stack on the right. It is the same launch `hy` makes, so the run is
-recorded and gated the same way; `claude` is still the only provider `--interactive` takes. `F2`
-moves the keys between the chat and the cockpit, and with the chat focused every key goes to it,
-`q` included. `Ctrl-q` quits once the chat has exited; while it is alive the cockpit asks, and `y`
-hangs it up. When the chat exits, its last screen stays and the panel's border names the run and
-its outcome.
+With `--session claude` or `--session codex` the chat moves inside: the cockpit runs `hydra
+run --interactive` for that provider, with `--model` passed on, and draws it in the left panel
+while the table, lanes and detail stack on the right. The chat is ungated and recorded. Since
+build ticket 254 the cockpit takes no `--policy`: it exits 2 and names the replacement, `hydra
+run --interactive --provider <p> --policy <name>`, which is the gated chat and is `claude`
+only. `F2` moves the keys between the chat and the cockpit, and with the chat focused every
+key goes to it, `q` included. `Ctrl-q` quits once the chat has exited; while it is alive the
+cockpit asks, and `y` hangs it up. When the chat exits, its last screen stays and the panel's
+border names the run and its outcome.
 
 Two more exist and clap hides them: `watch`, the detached half, and `delegate-face`, an MCP
 server that gives Claude Code a typed `delegate` tool over `hydra run`.
@@ -210,6 +260,18 @@ authorizes each action before it runs and signs a record of the decision, and in
 adversarial testbed measured 0% attack success under a restrictive policy against 74.6%
 under a permissive one. Hydra's gate is that second idea carried down into the CLIs people
 already use, one compiled script per spawn in each vendor's hook dialect.
+
+A `claude` mod or plugin is JavaScript inside the `claude` process, and one that approves tool
+calls can approve a call the gate's hook refused. Build ticket 251 found no flag in `claude`
+2.1.288 that drops mods and keeps the hook, so the block has two halves. The human installs
+`/Library/Application Support/ClaudeCode/managed-settings.json`, root-owned, with
+`allowManagedModsOnly`, and `claude` then refuses every mod that is not the organization's.
+Hydra does not write or check that file. Hydra's half, build ticket 257, keeps a run from
+planting a plugin for a later launch. The gate refuses a file-tool write to
+`~/.claude/plugins`, `~/.claude/skills`, the worktree's `.claude/skills`,
+`.claude/settings.json`, `.claude/settings.local.json` and `.agents/plugins`, and to any path
+with a `.claude-plugin` component, under every policy. On macOS the seatbelt profile denies
+the same paths to every process of the run, shell included.
 
 ## What Hydra is not
 
@@ -256,17 +318,36 @@ did, which is the one thing Hydra was built around.
 
 ## Works with
 
-The ungated copilot is `integrations/copilot/bin/hydra-copilot`: it starts `hydra cockpit
---session claude` on Sonnet by default from `~/.hydra-copilot/`, outside the repository, where a
-short `CLAUDE.md` replaces this repository's build instructions. It launches gated agents with `hydra run`, waits
-with `hydra wait`, and reads them with `hydra show`. Map ticket 97 measured four Opus copilot
-sessions on 2026-10-02 spending far more tokens, mostly cache read, than the agents they
-launched; Sonnet and the shorter start document are the recorded answer, and whether that closes
-the gap is not measured in this repo.
+The copilot is `integrations/copilot/bin/hydra-copilot [model] [repo] [provider]`, linked as
+`suprema`. It starts `hydra cockpit --session` on `claude`, or on `codex` when asked, from
+`~/.hydra-copilot/`, outside any repository, where a short document rendered with the
+repository's path replaces that repository's own instructions. The repository is any git work
+tree, and this checkout when none is named. The chat is ungated and every agent it launches is
+gated. It launches them with `hydra run --timeout 0`, waits with `hydra wait`, and reads them
+with `hydra show`. On `claude` the chat runs with `Edit`, `Write` and `NotebookEdit`
+disallowed, so file changes go through `hydra run`; it keeps its shell. The default model on
+`claude` is Opus, and `codex` keeps its own default. Map ticket 97 measured one Opus copilot
+on 2026-10-03, 44 minutes and five agents: 12.5M tokens against the agents' 10.6M, 1.18 times,
+or 1.09 times with cache reads weighted at a tenth. The ticket's own bar, a copilot that costs
+less than its agents, is not met.
 
-- [Herdr](https://herdr.dev), an agent multiplexer that lives in your terminal, is the interactive layer: `integrations/herdr/` is a plugin that
-  launches `hydra run` in a pane and labels the pane from the record, and a graph of one run in
-  the terminal. Nothing under `src/` knows it exists.
+Master of Puppets runs on any repository as `masterofpuppets <repo> [model] [provider]`. It
+is the same copilot started from `~/.hydra-puppets-copilot/` with the `puppets` skill
+installed, and `hydra-puppets` (`crates/puppets/`) keeps the goal's log and refuses a step the
+human has not approved: the plan, the assignment table and each diff. The skill seats four
+planners, one per provider, and each gets its own stance appended to its brief: `minimal`,
+`risk`, `contrarian` or `builder`. `choose --judge` hands the proposals to the judges as
+`Proposal A`, `B` and so on, each seat reading them in a different order, and maps the answers
+back to providers afterwards. On a split, `claude` and `codex` break the tie under `judge`,
+the second reading in reverse order, and the verdict is theirs only when the two agree.
+
+- [Herdr](https://herdr.dev), an agent multiplexer that lives in your terminal, is optional:
+  `integrations/herdr/` is a plugin that launches `hydra run` in a pane and labels the pane
+  from the record, and a graph of one run in the terminal. Hydra runs with Herdr stopped, and
+  `hydra cockpit` shows the same runs without it. Two things in the Rust still name it:
+  `src/cockpit/mascot.rs` reads the dragon's frames from `integrations/herdr/mascot/frames/`,
+  and `hydra-puppets` opens a review in a Herdr pane when it runs inside one
+  (`crates/puppets/src/panel.rs`).
 - [Hunk](https://hunk.dev), a review-first diff viewer for agent-authored changes, is how you read a run: `hunk show hydra/<run-id>` opens what a run
   changed, and the record's `diff_stat.base_tree` separates that from what was seeded.
 
@@ -277,8 +358,11 @@ the gap is not measured in this repo.
   69 because the gate reads the paths out of the patch body. It has no read tool, so map ticket
   63 refuses `read-only` until a bounded shell read exists. Resume is supported since build
   ticket 71.
+- A gated interactive session on `codex`, `cursor-agent` and `agy`. Build ticket 130 is open,
+  and `integrations/herdr/interactive-gate-providers.txt` lists `claude` alone as measured.
 - More vendor CLIs that log in rather than take a key.
-- OpenTelemetry emission from the record, so existing viewers can read it.
+- OpenTelemetry emission from the binary. Today `integrations/otel/record_to_otlp.py` converts
+  a record to OTLP JSON by hand.
 - Linux.
 
 ## Ports wanted
@@ -292,13 +376,16 @@ first so the design map gets a ticket and the record contract does not fork with
 
 ## Status, in numbers
 
-Sixteen commands a human types on 2026-09-30, the command table above, and two hidden ones.
-33 Rust test files, green in CI on macOS, plus the Python suites under `integrations/`. The
+Seventeen commands a human types on 2026-10-03, the command table above, and two hidden ones.
+38 Rust test files under `tests/` and six under `crates/*/tests/`, plus the Python suites
+under `integrations/`. The
 Master of Puppets helper is Rust, `hydra-puppets`; the Python it was ported from was deleted on
 2026-10-01, after its output on every test input was recorded as the fixture the helper is now
-compared with. Still Python: the grader, which reads a goal by running `hydra-puppets show`,
-the Herdr plugin, and `integrations/puppets/sheet.py` with `models.py`, three hand-run
-commands that wait for the grader's port. CI never walks the live corpus under
+compared with. Since builds 252 and 262 the helper's judge and plan prompts differ from that
+Python on purpose, so the recorded comparison skips those cases and unit tests cover them.
+Still Python: the grader, the Herdr plugin, the apprentice, the OpenTelemetry converter and
+the local-LLM server under `integrations/`, and `integrations/puppets/models.py`, which the
+grader loads. The sheet builder moved to Rust as `hydra-grader sheet`. CI never walks the live corpus under
 `~/hydra/runs/`; that is `hydra doctor --walk` on the machine that launched the runs. The fixture
 walks in `cargo test` run the same assertions over `tests/fixtures/records/`, twelve synthetic
 records filed by the provider version whose shapes they reproduce, and the CI job summary prints
@@ -351,9 +438,9 @@ The design documents, the policies, the record contract and this README are the 
 together, and nothing crosses between the harness and the rungs except the run record and
 the skill store.
 
-`.scratch/hydra/map.md` is the design history: 89 decision and research tickets on
-2026-09-30, with the reasoning each document compressed. `.scratch/hydra/build/plan.md`
-indexes the build, 172 tickets on the same day, and every resolved one ends in an `## Outcome`
+`.scratch/hydra/map.md` is the design history: 103 decision and research tickets on
+2026-10-03, with the reasoning each document compressed. `.scratch/hydra/build/plan.md`
+indexes the build, 264 tickets on the same day, 245 of them resolved, and every resolved one ends in an `## Outcome`
 that says what the session changed in the agent's diff before applying it.
 `hydra-puppets frontier` and `hydra-puppets frontier build` print
 today's counts. `CLAUDE.md` is what an agent reads first.
