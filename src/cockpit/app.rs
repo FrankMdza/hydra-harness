@@ -1061,7 +1061,9 @@ impl App {
                     self.detail_call = step(self.detail_call, len);
                 } else {
                     self.detail_scroll = if down {
-                        self.detail_scroll.saturating_add(1)
+                        self.detail_scroll
+                            .saturating_add(1)
+                            .min(self.detail_content_metrics(self.hits.detail, false).2)
                     } else {
                         self.detail_scroll.saturating_sub(1)
                     };
@@ -1328,7 +1330,7 @@ impl App {
             .iter()
             .map(|line| wrapped_rows(line, width))
             .sum::<usize>();
-        let max_scroll = total.saturating_sub(visible) as u16;
+        let max_scroll = u16::try_from(total.saturating_sub(visible)).unwrap_or(u16::MAX);
         (width, visible, max_scroll)
     }
 
@@ -1338,7 +1340,10 @@ impl App {
             let step = (-delta) as u16;
             self.goal_table_scroll = self.goal_table_scroll.saturating_sub(step);
         } else {
-            self.goal_table_scroll = (self.goal_table_scroll + delta as u16).min(max_scroll);
+            self.goal_table_scroll = self
+                .goal_table_scroll
+                .saturating_add(delta as u16)
+                .min(max_scroll);
         }
     }
 
@@ -1397,7 +1402,7 @@ impl App {
             .iter()
             .map(|line| wrapped_rows(line, width))
             .sum::<usize>();
-        let max_scroll = total.saturating_sub(visible) as u16;
+        let max_scroll = u16::try_from(total.saturating_sub(visible)).unwrap_or(u16::MAX);
         (width, visible, max_scroll)
     }
 
@@ -1407,7 +1412,10 @@ impl App {
             let step = (-delta) as u16;
             self.detail_scroll = self.detail_scroll.saturating_sub(step);
         } else {
-            self.detail_scroll = (self.detail_scroll + delta as u16).min(max_scroll);
+            self.detail_scroll = self
+                .detail_scroll
+                .saturating_add(delta as u16)
+                .min(max_scroll);
         }
     }
 
@@ -1540,7 +1548,9 @@ impl App {
             }
             Some(Focus::Detail) => {
                 self.detail_scroll = if down {
-                    self.detail_scroll.saturating_add(3)
+                    self.detail_scroll
+                        .saturating_add(3)
+                        .min(self.detail_content_metrics(self.hits.detail, false).2)
                 } else {
                     self.detail_scroll.saturating_sub(3)
                 };

@@ -4211,7 +4211,7 @@ assignments or `sudo`, `env` or `time` were skipped, and ` ...` when anything wa
 including the rest of a pipeline or `&&` list. A second word shows only where it cannot be an
 argument: a bare subcommand after one of a fixed list of programs (`git`, `cargo`, `docker`,
 `npm`, `kubectl`, `aws`, `gh`, `hydra` and the like, per-program lists in
-`src/cockpit/call_head.rs`), or `-c` and `-lc` after a shell. So `echo hunter2` is `echo ...`.
+`src/cockpit/call_head.rs`), or `-c` and `-lc` after a shell. So `echo hunter2` is `echo ...`; since build ticket 284 shell heads preserve Unicode characters and detail and goal-table scrolling saturates at 65,535 rows and clamps to the content limit.
 A call that carries `command`, `cmd` or agy's `CommandLine` is read as a shell call whatever its
 tool is named. Other tools show the tool name and a `file_path`, `path` or `notebook_path` only; a
 `pattern`, URL, query, prompt or description stays behind the key, and the row reads `<tool> ...`.

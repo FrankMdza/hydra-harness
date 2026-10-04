@@ -439,32 +439,25 @@ fn is_script_flag(token: &str) -> bool {
 
 fn command_has_list(command: &str) -> bool {
     let mut quote = None;
-    let bytes = command.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let ch = bytes[i] as char;
+    for (_, ch) in command.char_indices() {
         if quote == Some('\'') {
             if ch == '\'' {
                 quote = None;
             }
-            i += 1;
             continue;
         }
         if quote == Some('"') {
             if ch == '"' {
                 quote = None;
             }
-            i += 1;
             continue;
         }
         if ch == '\'' {
             quote = Some('\'');
-            i += 1;
             continue;
         }
         if ch == '"' {
             quote = Some('"');
-            i += 1;
             continue;
         }
         if ch == '|' {
@@ -478,10 +471,6 @@ fn command_has_list(command: &str) -> bool {
         if ch == '&' {
             return true;
         }
-        if ch == '|' && i + 1 < bytes.len() && bytes[i + 1] == b'|' {
-            return true;
-        }
-        i += 1;
     }
     false
 }
@@ -492,16 +481,13 @@ fn shell_segments(command: &str) -> Vec<Vec<String>> {
     let mut word = String::new();
     let mut in_single = false;
     let mut in_double = false;
-    let mut i = 0;
-    let bytes = command.as_bytes();
-    while i < bytes.len() {
-        let ch = bytes[i] as char;
+    let mut chars = command.char_indices().peekable();
+    while let Some((_, ch)) = chars.next() {
         if in_single {
             if ch == '\'' {
                 in_single = false;
             }
             word.push(ch);
-            i += 1;
             continue;
         }
         if in_double {
@@ -509,19 +495,16 @@ fn shell_segments(command: &str) -> Vec<Vec<String>> {
                 in_double = false;
             }
             word.push(ch);
-            i += 1;
             continue;
         }
         if ch == '\'' {
             word.push(ch);
             in_single = true;
-            i += 1;
             continue;
         }
         if ch == '"' {
             word.push(ch);
             in_double = true;
-            i += 1;
             continue;
         }
         if ch.is_whitespace() {
@@ -529,13 +512,12 @@ fn shell_segments(command: &str) -> Vec<Vec<String>> {
                 current.push(word.clone());
                 word.clear();
             }
-            i += 1;
             continue;
         }
         if matches!(ch, ';' | '|' | '&' | '\n') {
-            let doubled =
-                matches!(ch, '|' | '&') && i + 1 < bytes.len() && bytes[i + 1] as char == ch;
-            i += if doubled { 2 } else { 1 };
+            if matches!(ch, '|' | '&') && chars.peek().is_some_and(|(_, next)| *next == ch) {
+                chars.next();
+            }
             if !word.is_empty() {
                 current.push(word.clone());
                 word.clear();
@@ -547,7 +529,6 @@ fn shell_segments(command: &str) -> Vec<Vec<String>> {
             continue;
         }
         word.push(ch);
-        i += 1;
     }
     if !word.is_empty() {
         current.push(word);

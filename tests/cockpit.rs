@@ -5458,3 +5458,87 @@ fn ticket268_session_keeps_new_ended_runs_and_old_live_runs_newest_first() {
             .any(|card| card.state == hydra::live::State::Ended)
     );
 }
+
+#[test]
+fn ticket284_shell_heads_preserve_unicode_program_names() {
+    for program in ["café", "voilà", "工具"] {
+        assert_eq!(shell_head(&format!("./{program}")), program);
+        assert_eq!(
+            shell_head(&format!("./{program} arg && echo hidden")),
+            format!("{program} ...")
+        );
+        assert_eq!(
+            shell_head(&format!("./{program} | echo hidden")),
+            format!("{program} ...")
+        );
+    }
+}
+
+#[test]
+fn ticket284_scroll_limits_saturate_and_clamp() {
+    let layout = scratch("ticket284-scroll");
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    let mut snapshot = fixed_snapshot();
+    snapshot.cards[2].result_text = Some(
+        (0..70_000)
+            .map(|i| format!("line-{i:05}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    app.set_snapshot(snapshot);
+    let area = Rect::new(0, 0, 80, 24);
+    app.focus = Focus::Lane(Lane::EndedOk);
+    app.lane_selected[Lane::EndedOk.index()] = 1;
+    draw_app(&mut app, area);
+    app.handle(&key(KeyCode::Enter));
+    draw_app(&mut app, area);
+    app.handle(&key(KeyCode::End));
+    let end = screen_text(&draw_app(&mut app, area));
+    assert!(end.contains("line-655"), "{end}");
+    app.handle(&key(KeyCode::PageDown));
+    assert_eq!(screen_text(&draw_app(&mut app, area)), end);
+
+    // A goal table with more than 65,535 rows must also saturate, then stay put.
+    let mut snapshot = fixed_snapshot();
+    let goal = snapshot.goal.as_mut().unwrap();
+    let row = goal.rows[0].clone();
+    goal.rows = (0..5_000)
+        .map(|i| {
+            let mut row = row.clone();
+            row.id = format!("task-{i:05}");
+            row
+        })
+        .collect();
+    let mut table = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    table.set_snapshot(snapshot);
+    table.handle(&key(KeyCode::Char('t')));
+    draw_app(&mut table, area);
+    table.handle(&key(KeyCode::End));
+    let end = screen_text(&draw_app(&mut table, area));
+    assert!(end.contains("task-04"), "{end}");
+    table.handle(&key(KeyCode::PageDown));
+    assert_eq!(screen_text(&draw_app(&mut table, area)), end);
+
+    // Wheel and keyboard movement on a short detail cannot move beyond its end.
+    let mut pane = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    pane.set_snapshot(fixed_snapshot());
+    pane.focus = Focus::Lane(Lane::EndedOk);
+    pane.lane_selected[Lane::EndedOk.index()] = 1;
+    draw_app(&mut pane, AREA);
+    let rect = pane.hits.lanes[Lane::EndedOk.index()];
+    pane.handle(&click(rect.x + 2, rect.y + 2));
+    draw_app(&mut pane, AREA);
+    pane.handle(&key(KeyCode::End));
+    let end = screen_text(&draw_app(&mut pane, AREA));
+    let detail = pane.hits.detail;
+    pane.handle(&mouse(
+        MouseEventKind::ScrollDown,
+        detail.x + 1,
+        detail.y + 1,
+    ));
+    assert_eq!(screen_text(&draw_app(&mut pane, AREA)), end);
+    pane.focus = Focus::Detail;
+    pane.handle(&key(KeyCode::Down));
+    assert_eq!(screen_text(&draw_app(&mut pane, AREA)), end);
+    std::fs::remove_dir_all(layout.root()).unwrap();
+}
