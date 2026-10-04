@@ -89,6 +89,38 @@
   },
   {
     "provider": "cursor-agent",
+    "recorded_model": "cursor-grok-4.6-high",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "cursor-grok-4.6-high"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "Grok 4.6",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "cursor-grok-4.6-high"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "grok-4.7-high",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "grok-4.7-high"
+    }
+  },
+  {
+    "provider": "cursor-agent",
+    "recorded_model": "Grok 4.7 High",
+    "canonical": {
+      "provider": "cursor-agent",
+      "model": "grok-4.7-high"
+    }
+  },
+  {
+    "provider": "cursor-agent",
     "recorded_model": "composer-2.5",
     "canonical": {
       "provider": "cursor-agent",

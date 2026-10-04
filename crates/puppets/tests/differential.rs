@@ -2579,6 +2579,20 @@ fn write_plans(shared: &Path) {
     }
 }
 
+// Ticket 270 changes default cursor assignments and the security panel model.
+// Keep the Python fixtures intact; pin the new tables in the Rust unit tests.
+const DIVERGED_SINCE_270_WRITE: &[&str] = &[
+    "five tasks: assign g1",
+    "a ranking: assign",
+    "sheets with no verdict behind them: assign",
+    "an agents directory with no sheet: assign",
+];
+const DIVERGED_SINCE_270_LAUNCH: &[&str] = &[
+    "review --no-open:",
+    "review: Hunk is opened in place of the command",
+    "review: inside Herdr the diff goes to a new pane",
+];
+
 #[test]
 fn the_write_commands_match_puppets_py_and_leave_the_same_goal_log() {
     let scratch = Scratch::new("write");
@@ -2587,6 +2601,11 @@ fn the_write_commands_match_puppets_py_and_leave_the_same_goal_log() {
     let mut crashes = Vec::new();
     let mut mismatches = Vec::new();
     visit_write(root, false, &mut |job, home| {
+        if DIVERGED_SINCE_270_WRITE.contains(&job.label.as_str()) {
+            eprintln!("not compared, changed by ticket 270: {}", job.label);
+            labels.push(job.label.clone());
+            return;
+        }
         let (class, problems) = compare_write(job, home, root);
         crashes.extend(class.map(|class| format!("{}: {class}", job.label)));
         if !problems.is_empty() {
@@ -3774,7 +3793,12 @@ fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
     let mut mismatches = Vec::new();
     let mut diverged = Vec::new();
     visit_launch(root, false, &mut |job, home| {
-        if job.label.starts_with(DIVERGED_SINCE_252) || job.label.starts_with(DIVERGED_SINCE_262) {
+        if job.label.starts_with(DIVERGED_SINCE_252)
+            || job.label.starts_with(DIVERGED_SINCE_262)
+            || DIVERGED_SINCE_270_LAUNCH
+                .iter()
+                .any(|prefix| job.label.starts_with(prefix))
+        {
             diverged.push(job.label.clone());
             labels.push(job.label.clone());
             return;
@@ -3792,7 +3816,7 @@ fn the_launch_commands_match_puppets_py_and_hand_the_stubs_the_same_calls() {
         eprintln!("  {label}");
     }
     eprintln!(
-        "not compared, changed on purpose by builds 252 and 262 ({}):",
+        "not compared, changed on purpose by builds 252, 262 and 270 ({}):",
         diverged.len()
     );
     for label in &diverged {

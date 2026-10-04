@@ -6,6 +6,24 @@
   "rules": [
     {
       "provider": "cursor-agent",
+      "model_contains": "cursor-grok-4.6-high",
+      "prior": [
+        4,
+        2
+      ],
+      "note": "Scripts and medium Rust; mechanism review required."
+    },
+    {
+      "provider": "cursor-agent",
+      "model_contains": "grok-4.7-high",
+      "prior": [
+        4,
+        2
+      ],
+      "note": "Scripts and medium Rust; mechanism review required."
+    },
+    {
+      "provider": "cursor-agent",
       "model_contains": "composer-2.5",
       "prior": [
         4,

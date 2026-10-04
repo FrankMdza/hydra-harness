@@ -68,7 +68,7 @@ const PANEL: [Seat; 3] = [
     },
     Seat {
         provider: "cursor-agent",
-        model: Some("composer-2.5"),
+        model: Some("grok-4.7-high"),
         policy: "judge",
         role: Role::Security,
         evidence: Evidence::DiffAndTests,
@@ -1771,6 +1771,22 @@ mod tests {
             r#"{"chosen":"codex"}"#,
         ]);
         assert!(choose_panel_verdict(&answers, &tie[..2]).is_err());
+    }
+
+    #[test]
+    fn grok_panel_seats_pin_providers_models_and_policies() {
+        let seats: Vec<_> = PANEL
+            .iter()
+            .map(|seat| (seat.provider, seat.model, seat.policy))
+            .collect();
+        assert_eq!(
+            seats,
+            vec![
+                ("claude", Some("opus"), "judge"),
+                ("codex", None, "standard"),
+                ("cursor-agent", Some("grok-4.7-high"), "judge"),
+            ]
+        );
     }
 
     #[test]

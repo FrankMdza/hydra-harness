@@ -34,13 +34,17 @@ const TASK_GRADES: [&str; 4] = ["low", "medium", "high", "agi"];
 /// `DEFAULT_ASSIGNMENTS`: a task class, then the provider and model it goes to when no
 /// ranking has a verdict behind it. The policy is `standard` for every row.
 const DEFAULT_ASSIGNMENTS: [(&str, &str, &str); 7] = [
-    ("batch_scripting", "cursor-agent", "composer-2.5"),
-    ("docs", "cursor-agent", "composer-2.5"),
-    ("rust_off_launch_path", "cursor-agent", "composer-2.5"),
+    ("batch_scripting", "cursor-agent", "cursor-grok-4.6-high"),
+    ("docs", "cursor-agent", "cursor-grok-4.6-high"),
+    (
+        "rust_off_launch_path",
+        "cursor-agent",
+        "cursor-grok-4.6-high",
+    ),
     ("rust_launch_path", "claude", "sonnet"),
     ("security_review", "codex", ""),
     ("probe", "agy", "gemini-3.1-pro-high"),
-    ("research", "cursor-agent", "composer-2.5"),
+    ("research", "cursor-agent", "cursor-grok-4.6-high"),
 ];
 
 /// A command-line argument as the Python string `sys.argv` holds: UTF-8, with each byte
@@ -855,6 +859,28 @@ pub fn reconcile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grok_defaults_pin_every_cursor_task_class() {
+        let rows: Vec<_> = DEFAULT_ASSIGNMENTS
+            .iter()
+            .copied()
+            .filter(|(_, provider, _)| *provider == "cursor-agent")
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("batch_scripting", "cursor-agent", "cursor-grok-4.6-high"),
+                ("docs", "cursor-agent", "cursor-grok-4.6-high"),
+                (
+                    "rust_off_launch_path",
+                    "cursor-agent",
+                    "cursor-grok-4.6-high"
+                ),
+                ("research", "cursor-agent", "cursor-grok-4.6-high"),
+            ]
+        );
+    }
 
     fn path(text: &str) -> String {
         String::from_utf8(normpath(text.as_bytes())).unwrap()
