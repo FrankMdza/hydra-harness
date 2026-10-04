@@ -468,8 +468,21 @@ fn export_events(
     own_repo: Option<&Path>,
 ) -> Vec<Value> {
     let names_to_redact = repo_names_to_redact(repos, own_repo);
-    run.events
-        .iter()
+    // Map 113: the task is the turn the trajectory answers, so it leads the
+    // line as one `user` message, preamble included, and takes the same
+    // redaction as every other message.
+    let task = run.run_start().and_then(|start| {
+        start.body["task"].as_str().map(|text| {
+            Event::Message(crate::normalize::Message {
+                seq: start.seq,
+                role: crate::normalize::Role::User,
+                text: text.to_string(),
+                block: 0,
+            })
+        })
+    });
+    task.iter()
+        .chain(&run.events)
         .filter_map(|event| export_event(event, &names_to_redact))
         .collect()
 }

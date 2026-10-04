@@ -222,6 +222,104 @@ fn a_planted_secret_aborts_with_nothing_written() {
     assert!(out.exists());
 }
 
+/// `read_in_repo` with its task replaced, map 113.
+fn tasked(fixture: &Fixture, run_id: &str, file: &Path, task: &str) -> String {
+    read_in_repo(fixture, run_id, None, file)
+        .replace(r#""task":"probe""#, &format!(r#""task":{}"#, json!(task)))
+}
+
+const TASK_INSIDE: &str = "01a08080-0000-7000-8000-00000000t001";
+const TASK_OUTSIDE: &str = "01a08080-0000-7000-8000-00000000t002";
+const TASK_HOME: &str = "01a08080-0000-7000-8000-00000000t003";
+
+#[test]
+fn a_path_the_task_names_counts_toward_eligibility() {
+    let fixture = Fixture::new("task-path");
+    fixture.write_allowlist();
+    let in_a = fixture.repo_a.join("in-repo.txt");
+    std::fs::write(&in_a, "hello\n").unwrap();
+    let outside = fixture.root.join("outside.txt");
+
+    fixture.write(
+        TASK_INSIDE,
+        &tasked(
+            &fixture,
+            TASK_INSIDE,
+            &in_a,
+            &format!(
+                "Don't rename `{}`. Keep <code>x</code>, // and / alone, and 2>/dev/null.",
+                in_a.display()
+            ),
+        ),
+    );
+    fixture.write(
+        TASK_OUTSIDE,
+        &tasked(
+            &fixture,
+            TASK_OUTSIDE,
+            &in_a,
+            &format!("Don't touch `{}`, it's private.", outside.display()),
+        ),
+    );
+    fixture.write(
+        TASK_HOME,
+        &tasked(&fixture, TASK_HOME, &in_a, "Read ~/notes.txt first."),
+    );
+
+    let verdicts = audit(&fixture.layout(), &fixture.allowlist(), &policies()).unwrap();
+    let reasons = |id: &str| {
+        verdicts
+            .iter()
+            .find(|v| v.run_id == id)
+            .unwrap()
+            .reasons
+            .clone()
+    };
+    assert_eq!(reasons(TASK_INSIDE), vec![]);
+    assert_eq!(reasons(TASK_OUTSIDE), vec![Reason::PathOutsideAllowlist]);
+    assert_eq!(reasons(TASK_HOME), vec![Reason::PathOutsideAllowlist]);
+}
+
+#[test]
+fn the_task_leads_the_line_redacted() {
+    let fixture = Fixture::new("task-line");
+    fixture.write_allowlist();
+    let in_a = fixture.repo_a.join("in-repo.txt");
+    std::fs::write(&in_a, "hello\n").unwrap();
+    let task = "Port the parser from repo-b, key sk-ant-planted-task-secret.";
+    fixture.write(ELIGIBLE, &tasked(&fixture, ELIGIBLE, &in_a, task));
+
+    let out = fixture.root.join("out.jsonl");
+    export(
+        &fixture.layout(),
+        &fixture.allowlist_path(),
+        Some(&out),
+        false,
+    )
+    .unwrap();
+
+    let text = std::fs::read_to_string(&out).unwrap();
+    let line: serde_json::Value = serde_json::from_str(text.lines().nth(1).unwrap()).unwrap();
+    let first = &line["events"][0];
+    assert_eq!(first["type"], "message");
+    assert_eq!(first["role"], "user");
+    assert_eq!(
+        first["text"],
+        "Port the parser from [REDACTED:repo_name], key [REDACTED:anthropic_api_key]"
+    );
+    assert!(!text.contains("repo-b"), "{text}");
+    assert!(!text.contains("sk-ant-"), "{text}");
+
+    // The scan reads the task slot too: the same line with the secret left in
+    // aborts.
+    let mut planted = line.clone();
+    planted["events"][0]["text"] = json!(task);
+    let err = hydra::export::verify_export_line(&planted.to_string())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("verification scan"), "{err}");
+}
+
 const PASS: &str = "01a0c5dd-0000-7000-8000-00000000p001";
 const PROPOSER: &str = "01a0c5dd-0000-7000-8000-00000000p002";
 const JUDGE: &str = "01a0c5dd-0000-7000-8000-00000000p003";

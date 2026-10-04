@@ -1443,7 +1443,8 @@ Two files from one traversal, in TRL's format and the explicit-prompt preference
 | `correction` | nothing | the pair: `rejected` and `chosen` |
 | `permission_decision` | nothing | nothing |
 | `usage` | nothing | nothing |
-| `run_start`, `run_end` | nothing | nothing |
+| `run_start` | its `task`, preamble included, as the first `user` message (map 113) | nothing |
+| `run_end` | nothing | nothing |
 | `run_id` | nothing | nothing |
 
 **TRL rather than the OpenAI or ShareGPT shapes, and the middle reason is the record's.** OpenAI's
@@ -1466,6 +1467,11 @@ it never leaves.
 **`permission_decision` does not cross**, and its effect does. The model saw a tool result carrying
 an error, and that result crosses as part of the trajectory. The decision event carries policy
 attribution, which is Hydra's bookkeeping rather than something the model experienced.
+
+**The task crosses, and its paths count.** `run_start.task` is the run's first user turn, what every
+provider received as its prompt, so a line without it has no request in front of its tool calls.
+Map 113 decided it crosses whole, through the same redaction pass and scan as every other value,
+and that any path it names counts toward eligibility (16.2) as if a tool had touched it.
 
 **The training line carries no run id.** The manifest holds the line-to-run map, so traceability
 survives and the UUIDv7's embedded timestamp stays in a file no training run reads.

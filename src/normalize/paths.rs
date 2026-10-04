@@ -1,4 +1,5 @@
-//! Every path a run's tool calls read or wrote, contract 16.2.
+//! Every path a run's tool calls read or wrote, contract 16.2, and every path
+//! its task names, map 113.
 //!
 //! Export eligibility keys on this adapter more than anything else does. A tool
 //! shape it cannot classify is a path nobody sees, so [`PathExtraction::Unclassified`]
@@ -19,10 +20,17 @@ pub enum PathExtraction {
 }
 
 /// Every path the run's tool calls touched, or [`PathExtraction::Unclassified`].
+///
+/// The task crosses into the export as the run's first `user` turn (map 113),
+/// so a path it names counts as if a tool had touched it.
 pub fn paths_touched(run: &crate::normalize::Run) -> PathExtraction {
     let provider = run.provider.as_deref().unwrap_or("");
     let cwd = cwd_of(run);
-    let mut paths = Vec::new();
+    let mut paths = run
+        .run_start()
+        .and_then(|start| start.body["task"].as_str())
+        .map(|task| paths_from_task(task, &cwd))
+        .unwrap_or_default();
     for call in run.tool_calls() {
         match paths_from_call(provider, call, &cwd) {
             PathExtraction::Paths(found) => paths.extend(found),
@@ -109,6 +117,34 @@ fn paths_from_shell(command: &str, cwd: &Path) -> Vec<PathBuf> {
     for segment in split_shell_segments(command) {
         for token in segment {
             for candidate in token_path_candidates(&token) {
+                paths.push(resolve(&candidate, cwd));
+            }
+        }
+    }
+    paths
+}
+
+/// The absolute and `~/` paths a task's prose names, through the shell
+/// extractor's own expansion and resolution.
+///
+/// Prose is not shell, so a lone apostrophe must not swallow the rest of the
+/// task as a quoted word. The task splits on whitespace and on the quotes,
+/// brackets and backticks prose wraps a path in, and trailing sentence
+/// punctuation comes off. A relative word is not taken: in prose it is far
+/// more often a word than a path. Neither is an absolute word with fewer than
+/// two components: on the real corpus `/code` and `/td` (closing HTML tags cut
+/// at `<`), a bare `/` and `//` dropped 150 runs that named no file. Nor is
+/// `/dev/`, which holds no content to leak.
+fn paths_from_task(task: &str, cwd: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let words = task.split(|c: char| {
+        c.is_whitespace() || matches!(c, '`' | '"' | '\'' | '(' | ')' | '[' | ']' | '<' | '>')
+    });
+    for word in words {
+        let word = word.trim_end_matches(['.', ',', ';', ':', '!', '?']);
+        for candidate in token_path_candidates(word) {
+            let components = candidate.split('/').filter(|part| !part.is_empty()).count();
+            if candidate.starts_with('/') && components >= 2 && !candidate.starts_with("/dev/") {
                 paths.push(resolve(&candidate, cwd));
             }
         }

@@ -4751,7 +4751,10 @@ that only export and the grader redact (AWS access keys, `aws_secret_access_key=
 Slack `xoxb-` tokens and webhooks, GitHub `github_pat_` and `gho_`), twelve in all; the user's own hook stdout
 dropped as the `hook_response` frames; and customer data inside a fixture named in the
 header as the residue no pattern reaches. Section 5.2's fields are dropped with
-`run_start`, `run_end`, `permission_decision` and `usage`. Every output line is then checked
+`run_start`, `run_end`, `permission_decision` and `usage`, except that since build ticket 290
+`run_start.task` leads each line as one `user` message, preamble included and redacted like any
+other message, and every absolute or `~/` path the task names counts toward eligibility as if a
+tool had touched it (map 113). Every output line is then checked
 again by `verify_export_line`, which since build ticket 85 has its own scan rather than the
 redactor's: it decodes the JSON, reads keys as well as values, and aborts the whole export with
 nothing written on a PEM header or one of the known prefixes. A long high-entropy token that no
