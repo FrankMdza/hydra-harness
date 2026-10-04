@@ -1,7 +1,7 @@
 # 237 - local-llm in Rust: the MCP server answers `ask`
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 224
 
 ## What

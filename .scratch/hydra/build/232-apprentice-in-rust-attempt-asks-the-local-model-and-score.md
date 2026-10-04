@@ -1,7 +1,7 @@
 # 232 - apprentice in Rust: attempt asks the local model, and score
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 231
 
 ## What
