@@ -39,11 +39,11 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use hydra_grader::records;
-use hydra_grader::redact;
 use hydra_pyjson::json::{self, PyStr, Value};
 use hydra_pyjson::models::{self, Pair};
 use hydra_pyjson::py;
+use hydra_records::records;
+use hydra_records::redact;
 
 const RUST: &str = env!("CARGO_BIN_EXE_hydra-grader");
 

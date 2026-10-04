@@ -29,8 +29,8 @@ use hydra_pyjson::models::{Pair, canonical};
 use hydra_pyjson::py;
 use sha2::{Digest, Sha256};
 
-use crate::isotime::{self, DateTime};
-use crate::records;
+use hydra_records::isotime::{self, DateTime};
+use hydra_records::records;
 
 const PREAMBLE: &str = "Hydra launched this run";
 /// Outcomes the `task` label counts as the task's own failure. `completed` is 0, and every

@@ -8,7 +8,8 @@ use hydra_pyjson::json::{self, Value};
 use hydra_pyjson::py;
 
 use crate::argparse::{Kind, Parsed, kind, parse, quoted, repr, wrong};
-use crate::{labels::Env, records, sheet};
+use crate::{labels::Env, sheet};
+use hydra_records::records;
 const PROG: &str = "hydra-grader sheet";
 const COMMANDS: [&str; 3] = ["build", "budget", "show"];
 const USAGE: &str = "usage: hydra-grader sheet [-h] {build,budget,show} ...";

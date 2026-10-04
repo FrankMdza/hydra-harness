@@ -563,6 +563,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hydra-pyjson",
+ "hydra-records",
  "libc",
  "sha2",
 ]
@@ -585,6 +586,15 @@ name = "hydra-pyjson"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "sha2",
+]
+
+[[package]]
+name = "hydra-records"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hydra-pyjson",
  "sha2",
 ]
 

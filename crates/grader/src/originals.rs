@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use hydra_pyjson::json::{Dict, Value};
 
 use crate::queue;
-use crate::records;
+use hydra_records::records;
 
 /// Paths a call of `hydra-grader originals` is told. Tests pass a scratch copy of each.
 pub struct Paths<'a> {

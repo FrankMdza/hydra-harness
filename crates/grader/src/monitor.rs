@@ -28,8 +28,8 @@ use hydra_pyjson::py;
 use sha2::{Digest, Sha256};
 
 use crate::baseline::{self, Label, Refusal};
-use crate::isotime::{self, DateTime};
-use crate::records;
+use hydra_records::isotime::{self, DateTime};
+use hydra_records::records;
 
 /// The three prefixes a model can be trained at.
 pub const FRACTIONS: [f64; 3] = [0.1, 0.25, 0.5];

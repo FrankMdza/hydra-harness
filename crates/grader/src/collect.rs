@@ -33,10 +33,10 @@ use hydra_pyjson::py;
 use sha2::{Digest, Sha256};
 
 use crate::baseline;
-use crate::isotime::DateTime;
 use crate::labels::{self, Env, Keyed, glob, os_error_text, return_code};
-use crate::records::{self, Scanned};
-use crate::redact;
+use hydra_records::isotime::DateTime;
+use hydra_records::records::{self, Scanned};
+use hydra_records::redact;
 
 /// The stack a thread that reads records gets: room for a line nested as deep as
 /// `json::MAX_NESTING`, which the reader recurses through once per level.

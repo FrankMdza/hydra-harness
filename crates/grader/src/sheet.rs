@@ -8,7 +8,8 @@ use hydra_pyjson::models::{self, Pair};
 use hydra_pyjson::py;
 use sha2::{Digest, Sha256};
 
-use crate::{collect, isotime, labels::Env, records};
+use crate::{collect, labels::Env};
+use hydra_records::{isotime, records};
 
 pub const POLICIES: [&str; 5] = ["judge", "read-only", "standard", "permissive", "curate"];
 const CHECKLIST: &str = "secrets_check security_issues tests_affected self_consistency code_quality cross_platform changelog_accuracy approved_patch_unreachable severity_ceiling_table reviewer_failure_fails_closed panel_size_unshrunk protected_path_set admission_gate_order baseline_test_provenance env_allowlist_intact hook_config_written_fresh hook_dialect_coverage billed_spend_gate delegation_depth_cap curator_write_surface evidence_is_read_only worktree_containment record_append_only record_source_fields raw_frame_preserved export_losslessness provider_claim_dated no_new_crossing no_daemon spec_matches_code";

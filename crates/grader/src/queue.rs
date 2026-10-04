@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use hydra_pyjson::json::{Dict, PyStr, Value};
 
 use crate::jev;
-use crate::records;
+use hydra_records::records;
 
 const QUEUE_FIELDS: [&str; 6] = [
     "ticket", "run_id", "provider", "model", "outcome", "verdict",

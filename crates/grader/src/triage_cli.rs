@@ -1,10 +1,11 @@
 //! The reference's argparse rules, through the existing shared parser.
 use crate::{
     argparse::{Kind, Parsed, kind, parse, quoted, repr, wrong},
-    records, triage,
+    triage,
 };
 use anyhow::Result;
 use hydra_pyjson::{json::Value, py};
+use hydra_records::records;
 use std::io::Write;
 const PROG: &str = "hydra-grader triage";
 const COMMANDS: [&str; 3] = ["run", "table", "sample"];

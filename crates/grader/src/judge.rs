@@ -6,7 +6,7 @@
 //! `judge-labels.jsonl`. A run that hit a quota or the gate gets a line from a rule and no
 //! call. `agree` counts the runs that hold both a human verdict and a judge's.
 //!
-//! The one network call is `judge_http::post_json`, which goes to this machine and nowhere
+//! The one network call is `loopback_http::post_json`, which goes to this machine and nowhere
 //! else. Everything the Python does with a row, an answer or a reply of the wrong shape is
 //! done here too: an error whose text starts with the class Python raises where the Python
 //! lets it through, and the Python's fallback where it catches.
@@ -25,10 +25,10 @@ use hydra_pyjson::py;
 use sha2::{Digest, Sha256};
 
 use crate::collect::{sorted_keys, utc_now};
-use crate::judge_http::{self, Failure};
 use crate::labels::{Env, Keyed};
-use crate::records;
-use crate::redact;
+use hydra_records::loopback_http::{self, Failure};
+use hydra_records::records;
+use hydra_records::redact;
 
 pub const DEFAULT_MODEL: &str = "gemma3:1b-it-qat";
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11434/api/generate";
@@ -249,12 +249,12 @@ pub fn request_body(model: &str, prompt: &str) -> String {
 pub fn generate(prompt: &str, model: &str, url: &str) -> Result<Value> {
     let body = request_body(model, prompt);
     let unavailable = |text: String| Err(Unavailable(text).into());
-    let raw = match judge_http::post_json(url, body.as_bytes(), TIMEOUT) {
+    let raw = match loopback_http::post_json(url, body.as_bytes(), TIMEOUT) {
         Ok(raw) => raw,
-        Err(Failure::Status(404)) => {
+        Err(Failure::Status(404, _)) => {
             return unavailable(format!("Ollama does not have the model {model}"));
         }
-        Err(Failure::Status(code)) => {
+        Err(Failure::Status(code, _)) => {
             return unavailable(format!("Ollama at {url} answered HTTP {code}"));
         }
         Err(Failure::NotAnswering) => {

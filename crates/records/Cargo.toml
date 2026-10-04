@@ -1,0 +1,16 @@
+[package]
+name = "hydra-records"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A run record read for grading, the redactor, Python's dates, and a client for this machine's model server"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+hydra-pyjson = { path = "../pyjson" }
+sha2 = "0.10"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"

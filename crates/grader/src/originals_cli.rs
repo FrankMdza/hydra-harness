@@ -8,7 +8,7 @@ use anyhow::Result;
 use crate::argparse::{Parsed, parse, required, wrong};
 use crate::originals::{self, Paths};
 use crate::queue;
-use crate::records;
+use hydra_records::records;
 
 const PROG: &str = "hydra-grader originals";
 const USAGE: &str = "usage: hydra-grader originals [-h] [--home HOME] [--dataset DATASET] \

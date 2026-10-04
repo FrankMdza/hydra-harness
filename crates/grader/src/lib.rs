@@ -6,7 +6,8 @@
 //! Build ticket 212 ported the two modules
 //! every other one loads: `records.py` without `refresh_show_answer` and `iter_records`
 //! (`records.rs`), and `redact.py` whole (`redact.rs`). `isotime.rs` is the part of
-//! Python's `datetime` that `duration_seconds` leans on.
+//! Python's `datetime` that `duration_seconds` leans on. Build ticket 224 moved all three,
+//! and the judge's client, to `crates/records`.
 //!
 //! `tests/differential.rs` calls these on the inputs `tests/record.py` gave the Python and
 //! requires what the Python returned, wrote and printed. Neither module has a command line,
@@ -23,7 +24,8 @@
 //! `records.refresh_show_answer` (`collect.rs`), and the four commands of `grader.py`
 //! (`collect_cli.rs`): `hydra-grader once`, `watch`, `rebuild` and `backfill`.
 //! Build ticket 218 ported `judge.py` whole (`judge.rs`, `judge_cli.rs`) as `hydra-grader judge
-//! label` and `agree`, over a client that calls this machine only (`judge_http.rs`).
+//! label` and `agree`, over a client that calls this machine only (`loopback_http.rs` in
+//! `crates/records`).
 //!
 //! Build ticket 220 made one copy of two things three commands each carried: the reading of
 //! `argparse` (`argparse.rs`) and where the data directory is (`data.rs`). It also gave a
@@ -37,20 +39,16 @@ pub mod baseline_cli;
 pub mod collect;
 pub mod collect_cli;
 pub mod data;
-pub mod isotime;
 pub mod jev;
 pub mod jev_cli;
 pub mod judge;
 pub mod judge_cli;
-pub mod judge_http;
 pub mod labels;
 pub mod monitor;
 pub mod monitor_cli;
 pub mod originals;
 pub mod originals_cli;
 pub mod queue;
-pub mod records;
-pub mod redact;
 pub mod triage;
 pub mod triage_cli;
 

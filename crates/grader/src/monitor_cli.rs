@@ -15,9 +15,9 @@ use crate::argparse::{self, Parsed, parse, quoted, repr, wrong};
 use crate::baseline::{Label, Refusal};
 use crate::baseline_cli::{TEST_FROM, day, finish, record_path, shown};
 use crate::data::process_aliases;
-use crate::isotime::DateTime;
 use crate::monitor;
-use crate::records;
+use hydra_records::isotime::DateTime;
+use hydra_records::records;
 
 const PROG: &str = "hydra-grader monitor";
 const COMMANDS: [&str; 3] = ["features", "train", "score"];

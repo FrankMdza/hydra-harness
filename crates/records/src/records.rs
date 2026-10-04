@@ -133,7 +133,7 @@ fn out_of_range(value: &Value) -> Option<f64> {
     }
 }
 
-pub(crate) fn refuse_nan(value: &Value) -> Result<()> {
+pub fn refuse_nan(value: &Value) -> Result<()> {
     match out_of_range(value) {
         Some(x) => bail!(
             "ValueError: Out of range float values are not JSON compliant: {}",

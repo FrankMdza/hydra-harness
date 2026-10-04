@@ -2,12 +2,13 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{isotime, monitor::Walk, records};
+use crate::monitor::Walk;
 use anyhow::{Result, bail};
 use hydra_pyjson::{
     json::{self, Dict, PyStr, Value},
     py,
 };
+use hydra_records::{isotime, records};
 
 fn get(v: &Value, key: &str) -> Result<Value> {
     py::get(v, key, Value::Null)

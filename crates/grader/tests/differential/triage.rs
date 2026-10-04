@@ -17,7 +17,7 @@ fn normalize(text: &str) -> String {
             let stamp = string(d.get("triaged_at").unwrap());
             assert!(stamp.ends_with("+00:00"), "{stamp}");
             assert!(
-                hydra_grader::isotime::fromisoformat(&PyStr::from(stamp.clone())).is_some(),
+                hydra_records::isotime::fromisoformat(&PyStr::from(stamp.clone())).is_some(),
                 "{stamp}"
             );
             if let Some((_, fraction)) = stamp.trim_end_matches("+00:00").split_once('.') {

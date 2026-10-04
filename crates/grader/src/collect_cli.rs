@@ -23,7 +23,7 @@ use crate::argparse::{self, Parsed, parse, repr, wrong};
 use crate::collect::{self, Busy, Pass};
 use crate::data;
 use crate::labels::{Env, LabelsError};
-use crate::records;
+use hydra_records::records;
 
 const PROG: &str = "hydra-grader";
 /// The commands `grader.py` has, which is what its error for an unknown one lists.

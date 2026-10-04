@@ -15,8 +15,8 @@ use hydra_pyjson::json::{self, PyStr, Value};
 use crate::argparse::{self, Parsed, parse, quoted, repr, required, wrong};
 use crate::baseline::{self, Label, Refusal};
 use crate::data::process_aliases;
-use crate::isotime::{self, DateTime};
-use crate::records;
+use hydra_records::isotime::{self, DateTime};
+use hydra_records::records;
 
 const PROG: &str = "hydra-grader baseline";
 const COMMANDS: [&str; 4] = ["train", "score", "label-queue", "label-import"];

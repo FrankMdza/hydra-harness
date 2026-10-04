@@ -3399,6 +3399,12 @@ five files moved too, which leaves 44 in `hydra-puppets`. The check that `hydra-
 Python is still `crates/puppets/tests/differential.rs`: printing `True` for `true` in `dumps`
 fails 3 of its 18 tests.
 
+Since build ticket 224 a fifth member, `crates/records` (package `hydra-records`, a library on
+`anyhow`, `hydra-pyjson` and `sha2`), holds the grader's `records.rs`, `redact.rs` and `isotime.rs`
+and its judge's client, renamed `loopback_http.rs`, because the apprentice, otel and `local-llm`
+need those four and not the grader, so wherever this file places one of them under
+`crates/grader/src/` it now lives in `crates/records/src/`.
+
 `crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
 the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a
 recording of it, described where that ticket is, below. The inputs are every goal log the Python
@@ -3669,7 +3675,8 @@ reference until the last one, build ticket 220, deleted it on 2026-10-01. That t
 subsection, "The cutover", closes this section and says what is true now; the ones before it
 describe each port as it was made. Build ticket 212 added the workspace's fourth member, `crates/grader`
 (package and binary `hydra-grader`), which depends on `hydra-pyjson`, `anyhow` and `sha2` and on
-neither `hydra-puppets` nor `hydra`. It holds two of the Python's modules:
+neither `hydra-puppets` nor `hydra`. It held two of the Python's modules, which build ticket 224
+moved to `crates/records` with `isotime.rs`:
 
 - `records.rs` is `records.py` without `refresh_show_answer` and `iter_records`, the two
   functions that run `hydra show`: `scan_record`, `committed_lines`, `record_row`,
@@ -3918,7 +3925,7 @@ without a call, and `agree` prints the count of runs that hold a human verdict a
 `show_projection` runs `hydra show <id>` with `HYDRA_ROOT` set to the directory above the
 resolved `runs`.
 
-`judge_http.rs` is the client, written over `std::net::TcpStream` as map ticket 94 decided.
+`judge_http.rs`, since build ticket 224 `crates/records/src/loopback_http.rs`, is the client, written over `std::net::TcpStream` as map ticket 94 decided.
 It speaks plain HTTP and reads `HYDRA_LOCAL_LLM_URL` as `http://HOST[:PORT][/PATH]`, where HOST
 is `127.0.0.1`, `localhost` or `[::1]`, compared as text. Any other host is refused before a
 name is resolved or a socket opened, and so are `https`, a user name in the URL and a port that

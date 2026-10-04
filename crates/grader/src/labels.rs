@@ -26,7 +26,7 @@ use hydra_pyjson::file::{os_error, read_text};
 use hydra_pyjson::json::{self, Dict, ParseError, PyStr, Value};
 use hydra_pyjson::py;
 
-use crate::records;
+use hydra_records::records;
 
 /// `LabelsError`: `hydra-puppets show` could not be run, failed, or printed something this
 /// module does not know how to read.

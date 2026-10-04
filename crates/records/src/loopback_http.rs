@@ -11,6 +11,10 @@
 //! before a status line or goes quiet for the timeout is "not answering"; a status line
 //! that is not one, or a body shorter than it was announced, is the exception `http.client`
 //! raises, which `judge.py` does not catch.
+//!
+//! A status outside 200 to 299 also carries the reply's body, which `local-llm` prints and
+//! the judge does not. A body that cannot be read is an empty one, so the judge's output
+//! does not change.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
@@ -29,8 +33,9 @@ pub enum Failure {
     NotLocal(String),
     /// `URLError` or `OSError`: nothing listens there, or it hung up or went quiet.
     NotAnswering,
-    /// `HTTPError`: a status outside 200 to 299.
-    Status(u16),
+    /// `HTTPError`: a status outside 200 to 299, and the reply's body, empty when it could
+    /// not be read.
+    Status(u16, Vec<u8>),
     /// What `http.client` raises and `judge.py` lets through, as `Class: message`.
     Raised(String),
 }
@@ -302,7 +307,8 @@ pub fn post_json(url: &str, content: &[u8], timeout: Duration) -> Result<Vec<u8>
     let mut reader = BufReader::new(stream);
     let (code, headers) = head(&mut reader)?;
     if !(200..300).contains(&code) {
-        return Err(Failure::Status(code));
+        let said = body(&mut reader, code, &headers).unwrap_or_default();
+        return Err(Failure::Status(code, said));
     }
     body(&mut reader, code, &headers)
 }
@@ -367,6 +373,37 @@ mod tests {
         ] {
             assert!(refused(url), "{url:?}");
         }
+    }
+
+    #[test]
+    fn a_status_outside_2xx_carries_the_body() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !request.ends_with(b"{}") {
+                let read = stream.read(&mut buf).unwrap();
+                assert!(read > 0, "the client hung up mid-request");
+                request.extend_from_slice(&buf[..read]);
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 14\r\n\r\n{\"error\":\"no\"}",
+                )
+                .unwrap();
+        });
+        let got = post_json(
+            &format!("http://127.0.0.1:{port}/api/generate"),
+            b"{}",
+            Duration::from_secs(5),
+        );
+        server.join().unwrap();
+        assert_eq!(
+            got,
+            Err(Failure::Status(404, b"{\"error\":\"no\"}".to_vec()))
+        );
     }
 
     #[test]
