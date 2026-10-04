@@ -1,7 +1,7 @@
 # 271 - The run graph is a cockpit view
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
