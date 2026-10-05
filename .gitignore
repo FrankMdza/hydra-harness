@@ -31,3 +31,6 @@ target/
 __pycache__/
 *.pyc
 approvals/
+# Build ticket 292: the model table `hydra models refresh` writes under the data root.
+/models.json
+/models.json.tmp
