@@ -18,6 +18,18 @@ fine-tuning on Hydra's records, and its API is Jev's shape (a document, question
 a probability each). Measure it on the 559 test outcomes beside `system-one` (AUC 0.787) before
 anything else. Not measured: its memory on 8 GB, and how it does on Hydra's records at all.
 
+**Why this is not JEPA, and why JEPA is not the next step** (the session, 2026-10-05, answering
+the human). Typesafe has not published Jev's method (RLCD). The open replicas that come close
+(OpenJev at 0.845 modal agreement against Jev's 0.883, mini-jev, Kev) are all a language model
+read as a classifier: one pass over the document and the question, the scores of the supplied
+options read instead of generated text, a temperature fitted on held-out data; Kev adds a pointer
+head and a fine-tune on about 146,000 examples. That Jev is of the same family is an inference
+from how close a frozen Qwen gets, not a confirmed fact. JEPA trains an encoder to predict one
+view's representation from another's; it yields representations, not typed answers or
+probabilities, so the head and the calibration would be needed anyway, and LLM-JEPA's results are
+on thousands of pairs where Hydra has a few hundred runs, 70 verdicts and 7 original diffs. The
+bottleneck is labels. JEPA stays a possible auxiliary loss for a later fine-tune.
+
 The run's report, as returned:
 
 ## Not confirmed
