@@ -34,6 +34,7 @@ pub mod live;
 pub mod logs;
 pub mod marker;
 pub mod mcp;
+pub mod models;
 pub mod normalize;
 pub mod outcome;
 pub mod panels;

@@ -5850,6 +5850,18 @@ next named orchestrator there), prints the ratio of `total_tokens` per run, and 
 spread. `--check` prints the same for real sessions. It launches nothing. Running a goal is the
 session's, one a night.
 
+**`hydra models` lists each harness's models from a file the CLIs wrote** (build 292). `hydra
+models refresh` runs `agy models`, `cursor-agent models` and `codex debug models` under the launch
+environment's allowlist, with a timeout each, parses the shapes those commands print, and writes
+`models.json` under the data root atomically. Claude has no listing command; its rows come from
+`integrations/puppets/aliases.json`, marked `source: aliases`, and are the unique canonical ids
+that file already holds. A provider whose command fails keeps its previous rows with the error and
+the old `fetched_at`, so one broken CLI does not empty the table. `hydra models [--provider P]
+[--json]` prints that file and its age and launches nothing; with no file it says to run `refresh`.
+`--model` validation is out of scope. A launchd template at
+`integrations/models/launchd/co.hephaestuslab.hydra-models.plist` runs refresh at 04:00 and 16:00;
+the human installs it.
+
 **A non-ASCII root is refused before launch** (build 78). The gate folds case ASCII only, and the
 macOS filesystem folds `É` too, so on a root with a cased non-ASCII letter every denial missed the
 other case. `paths::refuse_non_ascii_roots` checks the resolved form of the data root and of

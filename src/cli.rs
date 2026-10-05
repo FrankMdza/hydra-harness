@@ -28,6 +28,10 @@
 //! **`cost` is a further command a human types, build ticket 274.** It reports
 //! orchestrator tokens against the agents of each named run (started after it,
 //! in its repository), with the median and spread. It launches nothing.
+//!
+//! **`models` is a further command a human types, build ticket 292.** It prints
+//! the last refresh of each harness's models. `refresh` runs the three listing
+//! commands and reads Claude from aliases. The print launches nothing.
 
 use std::time::Duration;
 
@@ -378,6 +382,18 @@ pub enum Command {
         check: Vec<String>,
     },
 
+    /// The models each harness offers, from the last refresh. Launches nothing.
+    Models {
+        /// One provider. Without it, all four.
+        #[arg(long, value_parser = parse_provider)]
+        provider: Option<crate::provider::Provider>,
+        /// The file as JSON rather than a table.
+        #[arg(long)]
+        json: bool,
+        #[command(subcommand)]
+        command: Option<ModelsCommand>,
+    },
+
     /// The detached half of a launch. `hydra run` types this; a human does not.
     #[command(hide = true)]
     Watch {
@@ -403,6 +419,12 @@ pub enum UsageCommand {
         /// One run. Without it, every record under `~/hydra/runs/`.
         run_id: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ModelsCommand {
+    /// Run each CLI's listing command and write the table.
+    Refresh,
 }
 
 fn parse_provider(text: &str) -> Result<crate::provider::Provider, String> {

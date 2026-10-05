@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  A template. Replace /Users/USER with your home before installing; integrations/models/README.md
+  has the commands. Runs `hydra models refresh` at 04:00 and 16:00 local. It has no RunAtLoad,
+  so loading it does not start a refresh.
+
+  The program is the release build of hydra, so build in release mode first; the README has the
+  command. PATH names the places the three listing binaries live. HYDRA_HOME is the checkout so
+  aliases.json is found whatever directory launchd starts in.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>co.hephaestuslab.hydra-models</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USER/hydra/target/release/hydra</string>
+    <string>models</string>
+    <string>refresh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/USER</string>
+    <key>HYDRA_HOME</key>
+    <string>/Users/USER/hydra</string>
+    <key>PATH</key>
+    <string>/Users/USER/.local/bin:/Users/USER/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>4</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>16</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/USER/hydra/models-refresh.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USER/hydra/models-refresh.log</string>
+</dict>
+</plist>

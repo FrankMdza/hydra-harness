@@ -1,7 +1,7 @@
 # 292 - The models each harness offers, read from the CLIs twice a day
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## What
@@ -45,3 +45,22 @@ Build:
   `IMPLEMENTATION.md`: one paragraph.
 
 ## Outcome
+
+Built 2026-10-04 by a Grok 4.6 run (`01a109c7`), reviewed, applied and run by the session.
+
+`hydra models refresh` (`src/models.rs`) runs the three listing commands under the launch
+environment with a 60 s timeout each, reads `claude` from `aliases.json`, and writes
+`models.json` under the data root atomically; a provider whose command fails keeps its old rows
+and `fetched_at` with the error. `hydra models [--provider P] [--json]` prints the file and its
+age and launches nothing. The launchd template and its README are in `integrations/models/`,
+04:00 and 16:00, no `RunAtLoad`. 16 tests in `tests/models.rs`, none running a real CLI.
+
+**Run for real by the session:** `cursor-agent` 246 models, `agy` 18, `codex` 10, `claude` 3.
+The gated run could not write the file (its worktree may not write the data root), which is the
+design.
+
+**Assumed and false:** `cursor-agent models` ends with a line that is not `id - name`; the parser
+skips such lines once it has rows. **Left open:** `claude` shows only `haiku`, `sonnet` and
+`opus`, because `aliases.json` has no canonical row for Fable; adding one is a change to the
+alias table, which the grader and puppets also read. The launchd job is not installed; that is
+the human's.

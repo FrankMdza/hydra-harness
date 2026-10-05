@@ -3,7 +3,7 @@ mod wait;
 use anyhow::Result;
 use clap::Parser;
 
-use hydra::cli::{Cli, Command, UsageCommand};
+use hydra::cli::{Cli, Command, ModelsCommand, UsageCommand};
 use hydra::paths::Layout;
 use hydra::run::{Call, Request, run};
 
@@ -294,6 +294,28 @@ fn main() -> Result<()> {
             let layout = Layout::discover()?;
             let mut out = std::io::stdout().lock();
             hydra::cost::command(&layout, hydra::cost::CostRequest { runs, check }, &mut out)?;
+        }
+        Command::Models {
+            command,
+            provider,
+            json,
+        } => {
+            let layout = Layout::discover()?;
+            let mut out = std::io::stdout().lock();
+            match command {
+                Some(ModelsCommand::Refresh) => {
+                    let aliases =
+                        hydra::paths::hydra_home().join("integrations/puppets/aliases.json");
+                    hydra::models::refresh(
+                        &layout,
+                        &aliases,
+                        &hydra::models::CliListing::default(),
+                        chrono::Utc::now(),
+                        &mut out,
+                    )?;
+                }
+                None => hydra::models::show(&layout, provider, json, chrono::Utc::now(), &mut out)?,
+            }
         }
         Command::Watch { spec } => hydra::watch::watch(&spec)?,
         // Stdout belongs to the protocol from here on, so nothing below prints.
