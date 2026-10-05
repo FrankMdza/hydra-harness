@@ -16,7 +16,8 @@ Measured by the session the same day:
   (some names end in zero-width characters; strip them).
 - `codex debug models` prints JSON: `{"models":[{"slug", "display_name", "description",
   "default_reasoning_level", "supported_reasoning_levels":[{"effort", ...}]}]}`.
-- `claude` has no listing command. Its rows come from the aliases Hydra already knows
+- `claude` lists its models only through `/model` inside the TUI (Frank, 2026-10-04), which no
+  script can call; it has no listing command. Its rows come from the aliases Hydra already knows
   (`integrations/puppets/aliases.json`), marked `source: aliases`, never invented.
 
 Build:
