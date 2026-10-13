@@ -22,5 +22,6 @@ pub mod panel;
 use hydra_pyjson::py;
 pub use py::{int_literal, int_value};
 pub mod read;
+pub mod report;
 pub mod sheet;
 pub mod write;

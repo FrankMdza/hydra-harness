@@ -6020,3 +6020,16 @@ tests. The existing seatbelt skips, including `launch_phases`, remain in effect.
   is the case still open, and nothing checks at launch that the script runs. Adding
   such a check would be an eighth entry in 6.1's pre-flight list, which is a design
   decision rather than an implementation.
+
+**Builder report, build ticket 301.** `hydra-puppets report builders` folds every goal log
+under the puppets home and reports tasks, first-pass and eventual acceptance, rejected
+runs, attempts per task, total tokens, tokens per accepted task and tasks without a verdict,
+per class and provider/model, followed by provider/model totals. Exact `--class` and
+`--model` filters apply before totals; `--json` emits one object per row. Launches use the
+assignment in force at that point; assigned tasks without launches remain visible. The
+ranking and report share first-verdict deduplication and resumed-acceptance normalization
+in `sheet.rs`; numbered repeat attempts count as continuations. Only goal-log tokens are
+summed, once per ended run; absent tokens contribute zero, and undefined ratios are null.
+The existing reader keeps complete lines before a torn tail, reports its goal id on stderr
+and writes nothing. Three fixture logs check every text/JSON column, totals, filters,
+resumed applied verdicts and duplicate observations in `crates/puppets/tests/builders.rs`.

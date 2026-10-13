@@ -27,6 +27,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// summarize builder acceptance and cost across goals
+    Report {
+        #[command(subcommand)]
+        command: ReportCommand,
+    },
     /// the goal at a glance
     Board {
         /// goal id
@@ -244,9 +249,31 @@ fn helper_path() -> String {
         )
 }
 
+#[derive(Debug, Subcommand)]
+enum ReportCommand {
+    /// one row per task class and builder, followed by builder totals
+    Builders {
+        #[arg(long)]
+        class: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
 fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32> {
     let home = Home::from_env()?;
     match cli.command {
+        Command::Report {
+            command: ReportCommand::Builders { class, model, json },
+        } => hydra_puppets::report::builders(
+            &home,
+            class.as_deref(),
+            model.as_deref(),
+            json,
+            out,
+            err,
+        ),
         Command::Board { goal } => read::board(&home, &goal, out, err),
         Command::Show { goal } => read::show(&home, &goal, out),
         Command::Pending { goal, json: _ } => read::pending(&home, &goal, &helper_path(), out, err),

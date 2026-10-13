@@ -1,7 +1,7 @@
 # 301 - The builder report: acceptance, rejections and cost per task class and per model, from the goal logs
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from the map 117 panel (`117-synthesis.md`, question 4),
 where all three seats said the numbers that judge any builder tier come from goal-log events
@@ -42,3 +42,23 @@ how often its work stood.
 
 ## Outcome
 
+## Outcome
+
+Built by `codex` `gpt-6.1-sol` on Hydra run `01a13438-d161-7bb2-ac17-a6f4cd2e6398` under
+`standard`, 1.92M tokens, applied to master on 2026-10-13 after the diff was read whole.
+`hydra-puppets report builders` is `crates/puppets/src/report.rs`; the verdict rule moved out
+of `rank` into `sheet::builder_verdict` and `first_builder_verdict` so the ranking and the
+report count the same thing, and a numbered repeat attempt counts as a continuation. Three
+fixture logs pin every column, the totals, the filters and the torn tail. fmt, clippy and
+`cargo test -p hydra-puppets` green on master. One cost worth knowing: the report re-folds the
+goal up to each launch event to find the assignment in force, quadratic in a goal's events,
+which is nothing at today's sizes.
+
+Run on this machine's real goals the same night: two goal logs, eleven tasks. composer-2.5 on
+`batch_scripting`: 5 tasks, 3 first-pass, 5 eventually accepted, 4.55M tokens; claude opus on
+one `security_review`: accepted on a second attempt, 1.14M; grok 4.6 on four tasks and gemini
+on one: no verdict. That is the whole corpus `hydra-puppets` can see, because the builds of
+the last month, tonight's eight included, were launched with `hydra run` straight from a
+ticket and never through a goal log; their verdicts live in the grader's `ticket-verdicts.json`
+(build 288). The number the map 117 and 118 panels asked for is therefore eleven, and the
+report says so without anyone having to count by hand.

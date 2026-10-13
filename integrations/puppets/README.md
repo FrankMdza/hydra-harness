@@ -73,6 +73,29 @@ hydra-puppets reconcile <goal-id> <task> <attempt> --run-id <id> | --abandon
 hydra-puppets verdict <goal-id> <task> applied|fixed|rejected
 ```
 
+## Builder report
+
+`hydra-puppets report builders` reads every goal log directly under the puppets home.
+It prints tab-separated rows per task class and provider/model, followed by totals per
+provider/model. `--class docs` and `--model sonnet` select exact values before totals;
+`--json` prints the same rows as one JSON object per line (`total: true` and `class: null`
+mark totals). No harness records or agent sheets are needed.
+
+`tasks` counts distinct goal/task pairs for each builder that launched them; assigned
+but unlaunched tasks count too, with zero attempts. Reassignments attribute each launch,
+its tokens and its verdict to the assignment in force at launch. A task tried by two
+builders appears in both builders. `first_pass_accepted` uses the ranking rule: only
+the first known verdict per task counts, and an applied resumed attempt counts as fixed.
+An attempt numbered above one is a continuation for this purpose. `eventually_accepted`
+counts tasks with any applied or fixed verdict. `rejections` counts rejected runs once.
+Acceptance ratios use all counted tasks, including `no_verdict` tasks. Attempts count
+unique launched runs; total tokens sum recorded run_end counts once per run, including
+failed and rejected work. Missing token counts contribute zero. Tokens per accepted task
+use eventual acceptances; an empty denominator prints `-` in text and `null` in JSON.
+
+A torn tail is ignored after the last complete newline and its goal id is reported on
+stderr. The log stays unchanged. A damaged complete line refuses the report until repaired.
+
 ## Log events
 
 One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}`.

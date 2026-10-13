@@ -1,0 +1,5 @@
+{"event":"task","id":"t1","text":"pending","class":"docs","grade":"low"}
+{"event":"assignment","task":"t1","provider":"codex","model":"mini","policy":"standard","source":"human"}
+{"event":"run","task":"t1","attempt":1,"run_id":"r5"}
+{"event":"run_end","task":"t1","run_id":"r5","outcome":"completed","total_tokens":500}
+{"event":"human_verdict","result":"applied"

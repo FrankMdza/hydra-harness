@@ -413,24 +413,10 @@ pub fn rank(
             if !py::eq(&py::get(event, "task_class", own_class)?, task_class) {
                 continue;
             }
-            let run_task = py::item(run, "task_id")?.clone();
-            py::hashable(&run_task)?;
-            let task = Value::Str(py::str(if py::truthy(&event_task) {
-                &event_task
-            } else {
-                &run_task
-            }));
-            if seen
-                .iter()
-                .any(|s| py::same_key(s, &task) || py::same_key(s, &run_task))
-            {
+            let Some(result) = first_builder_verdict(&mut seen, event, run)? else {
                 continue;
-            }
-            seen.push(task);
-            seen.push(run_task);
-            // A resumed acceptance took another attempt, so it is not first-pass.
-            let resumed = py::truthy(&py::get(run, "parent_run_id", Value::Null)?);
-            if py::eq_str(&result, "applied") && !resumed {
+            };
+            if py::eq_str(&result, "applied") {
                 applied += 1;
             } else {
                 against += 1;
@@ -515,6 +501,49 @@ pub fn ranked_assignment(
     Ok(Some((best.provider.clone(), model)))
 }
 
+/// Normalize a known human verdict; accepting a resumed run needed another attempt.
+pub fn builder_verdict(event: &Value, run: &Value) -> Result<Option<Value>> {
+    let result = py::get(event, "result", Value::Null)?;
+    if !["applied", "fixed", "rejected"]
+        .iter()
+        .any(|known| py::eq_str(&result, known))
+    {
+        return Ok(None);
+    }
+    if py::eq_str(&result, "applied") && py::truthy(&py::get(run, "parent_run_id", Value::Null)?) {
+        Ok(Some(Value::text("fixed")))
+    } else {
+        Ok(Some(result))
+    }
+}
+
+/// The first known verdict per task, using the same task keys as the sheet ranking.
+pub fn first_builder_verdict(
+    seen: &mut Vec<Value>,
+    event: &Value,
+    run: &Value,
+) -> Result<Option<Value>> {
+    let Some(result) = builder_verdict(event, run)? else {
+        return Ok(None);
+    };
+    let event_task = py::get(event, "task", Value::Null)?;
+    let run_task = py::item(run, "task_id")?.clone();
+    py::hashable(&run_task)?;
+    let task = Value::Str(py::str(if py::truthy(&event_task) {
+        &event_task
+    } else {
+        &run_task
+    }));
+    if seen
+        .iter()
+        .any(|s| py::same_key(s, &task) || py::same_key(s, &run_task))
+    {
+        return Ok(None);
+    }
+    seen.push(task);
+    seen.push(run_task);
+    Ok(Some(result))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
