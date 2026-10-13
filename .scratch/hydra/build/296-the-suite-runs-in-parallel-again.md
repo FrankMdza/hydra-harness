@@ -1,7 +1,7 @@
 # 296 - The suite runs in parallel again: no test mutates the process environment
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from `~/cerebro/research/security-and-compile.md` section 2,
 change 3, which the human put on Hydra's list on 2026-10-12.
@@ -38,3 +38,18 @@ its own process. Then `--test-threads=1` goes and the suite runs in parallel wit
 
 ## Outcome
 
+## Outcome
+
+Built by `codex` `gpt-6.1-sol` on Hydra run `01a1340b-146a-7091-a15e-3b7ab34a5281` under
+`standard`, 3.13M tokens, applied to master on 2026-10-13 after the diff was read whole. The two
+test files re-execute the named test in a child of the test binary with `Command::env`, and the
+child asserts the test ran by name so a misspelled filter cannot pass silently; `evolve.rs`
+already used a child. `--test-threads=1` is gone from `ci.yml` and the PR template. The builder
+measured, warm, in its worktree: 318 s serial before, 198 s parallel after, and the parallel
+suite green three times (198, 208, 198 s). On master the session ran the parallel release suite
+twice with a panel seat on the machine: 284 s then 230 s, green both times, no `set_var` left
+outside a child. Both the builder and the session ran it with `env -u GIT_OBJECT_DIRECTORY -u
+GIT_ALTERNATE_OBJECT_DIRECTORIES` inside the run, because the allowlist hands every run those
+two and three tests in `src/run.rs` read them; on a plain shell on master they are not set and
+the tests pass as they are. That inherited pointer is now a known trap for any ticket whose
+suite must be green inside a run, and 295's Outcome says the same.

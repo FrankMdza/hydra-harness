@@ -62,7 +62,28 @@ fn a_post_worktree_handoff_failure_through_run_writes_never_started() {
         return;
     }
 
-    let root = scratch_root();
+    const CHILD: &str = "HYDRA_LAUNCH_PHASES_TEST_CHILD";
+    const TEST: &str = "a_post_worktree_handoff_failure_through_run_writes_never_started";
+    let root = if std::env::var_os(CHILD).is_some() {
+        PathBuf::from(std::env::var_os("HYDRA_ROOT").unwrap())
+    } else {
+        let root = scratch_root();
+        let out = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env(CHILD, "1")
+            .env("HYDRA_ROOT", &root)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "child failed:\n{stdout}\n{stderr}");
+        assert!(
+            stdout.contains(&format!("test {TEST} ... ok")),
+            "the child did not run the named test:\n{stdout}\n{stderr}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    };
     let _ = std::fs::remove_dir_all(&root);
     let layout = Layout::at(&root);
     layout.ensure().unwrap();
@@ -73,12 +94,6 @@ fn a_post_worktree_handoff_failure_through_run_writes_never_started() {
     git_init(&repo);
 
     std::fs::create_dir_all(layout.gate_script(run_id)).unwrap();
-
-    let prior = std::env::var_os("HYDRA_ROOT");
-    // SAFETY: this test owns the scratch root and restores `HYDRA_ROOT` before return.
-    unsafe {
-        std::env::set_var("HYDRA_ROOT", &root);
-    }
 
     let result = run(Request {
         provider: Provider::Claude,
@@ -96,14 +111,6 @@ fn a_post_worktree_handoff_failure_through_run_writes_never_started() {
         quiet: false,
         handed_off: None,
     });
-
-    // SAFETY: restores the prior `HYDRA_ROOT` so parallel tests are not affected.
-    unsafe {
-        match prior {
-            Some(value) => std::env::set_var("HYDRA_ROOT", value),
-            None => std::env::remove_var("HYDRA_ROOT"),
-        }
-    }
 
     assert!(
         result.is_err(),

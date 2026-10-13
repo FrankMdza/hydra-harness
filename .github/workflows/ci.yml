@@ -32,7 +32,7 @@ jobs:
       # `python3`, so no Python is pinned. `crates/puppets/tests/grader_labels.rs` runs the
       # `hydra-puppets` cargo builds for it, and the launchd template's test is
       # `crates/grader/tests/launchd.rs`.
-      - run: cargo test --release --workspace --no-fail-fast -- --test-threads=1
+      - run: cargo test --release --workspace --no-fail-fast
       # Build ticket 101. The fixture walks read a synthetic corpus, one directory per provider
       # binary version, so this count is never zero on a green run.
       - name: fixture count

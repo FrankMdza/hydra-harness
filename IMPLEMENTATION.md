@@ -5928,6 +5928,18 @@ job stays on `macos-latest` with `CARGO_INCREMENTAL=0`. CodeQL, secret scanning 
 remain off while the repository is private; enabling Dependency graph and Dependabot alerts
 in GitHub's Code security settings remains the human's task.
 
+**The suite runs in parallel again since build ticket 296.** `tests/git_config.rs` and
+`tests/launch_phases.rs` re-execute the named test in a child binary with `Command::env`
+and `Command::env_remove`, checking its exit status and output while preserving the original
+assertions. No test calls `std::env::set_var` or `std::env::remove_var`; the admission
+environment probe in `src/rungs/evolve.rs` already used a child. CI and the PR template no
+longer serialize the suite, and `CLAUDE.md` had no such flag to remove. On 2026-10-13,
+warm-build `cargo test --release --workspace -- --test-threads=1` took **318.21 s** before
+the change, and warm-build `cargo test --release --workspace` took **197.90 s** after it.
+Both ran with `env -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES`, removing
+this Hydra run's object-store environment rather than changing the affected `src/run.rs`
+tests. The existing seatbelt skips, including `launch_phases`, remain in effect.
+
 ## Rough edges worth knowing
 
 - **A test that launches the built binary with `HYDRA_ROOT`, or execs a setuid binary, has to
