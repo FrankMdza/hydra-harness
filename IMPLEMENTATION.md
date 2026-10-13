@@ -3,6 +3,13 @@
 `docs/` is the design, finished and checked. This file is the gap between it and the
 code, kept current by whoever narrows the gap.
 
+**The dev profile carries line tables only, build ticket 295.** `[profile.dev] debug =
+"line-tables-only"` and `[profile.dev.package."*"] debug = false` in the root `Cargo.toml`.
+Measured on 2026-10-13 with two clean `cargo build --all-targets`: 23 s and 1.3 GB of
+`target/debug` on the defaults, 22 s and 1.1 GB with the change, so the research note's
+link-time claim did not show and the disk one did. Panics still name file and line.
+`CARGO_PROFILE_DEV_DEBUG=2 cargo build` restores full debuginfo for a debugger session.
+
 Read it before trusting a run record written by this binary. **A record whose `policy`
 is null was written before the gate reached a provider.** Ticket 02 wired it, and every
 record written after that carries the policy that was in force and the sha of the

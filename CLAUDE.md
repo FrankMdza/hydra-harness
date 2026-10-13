@@ -47,6 +47,8 @@ the signal you have reached the edge of the map. Take a map ticket only when the
 
 ## The build
 
+The dev profile carries line tables only; `CARGO_PROFILE_DEV_DEBUG=2 cargo build` restores full debuginfo for a session that needs the debugger.
+
 `.scratch/hydra/build/plan.md` indexes the build and `.scratch/hydra/build/NN-slug.md` are its
 tickets, same format as the map's, `Type: build`. Start a session like this:
 

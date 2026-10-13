@@ -1,7 +1,7 @@
 # 296 - The suite runs in parallel again: no test mutates the process environment
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session, from `~/cerebro/research/security-and-compile.md` section 2,
 change 3, which the human put on Hydra's list on 2026-10-12.
