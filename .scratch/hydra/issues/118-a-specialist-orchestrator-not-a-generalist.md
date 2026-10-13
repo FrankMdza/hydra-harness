@@ -41,3 +41,5 @@ the session's synthesis and recommendation per question in `118-synthesis.md`. T
 decides; nothing is written under Answer by the session.
 
 ## Answer
+
+Map 121 (2026-10-13, the session) measured question 3: untuned Ministral 3B against Opus 5.5 on the five bench goals, blind judged. The 3B ties only on the one-line typo and fails the JSON format on 4 of 15; the table and the quotes are under `## Findings` of `121-an-untuned-3b-drafting-plans-for-the-bench-goals.md`.

@@ -344,6 +344,7 @@ it.
 - [304 - The slowest test binaries, measured and cut](304-the-slowest-test-binaries-measured-and-cut.md)
 - [305 - The suite under nextest, measured against cargo test](305-the-suite-under-nextest-measured.md)
 - [306 - A stop that fails raced its own render: the cockpit test that read `stopping` for `live`](306-a-stop-that-fails-raced-its-own-render.md)
+- [307 - A plan file checked without a goal: `hydra-puppets check <plan.md>`](307-a-plan-file-checked-without-a-goal.md)
 
 ## Out of scope
 
