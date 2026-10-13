@@ -1,7 +1,7 @@
 # 238 - local-llm in Rust: the cutover
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 237
 
 ## What
