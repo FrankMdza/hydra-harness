@@ -5067,7 +5067,11 @@ will not read, still waits for the session either way, and `derive` reads that e
   `tests/cleanup.rs::an_alternates_file_written_while_reap_imports_brings_nothing_in` pins it.
   The diff stat, rung two's read and `hydra status` stage from indexes
   under the spawn directory and need nothing from the run's store. Git inside a run, in any
-  repository, uses that store. Measured after the merge on 2026-09-24: under `standard` each of
+  repository, uses that store. Measured by the map 123 panel on 2026-10-13: a repository the run creates or
+  clones under its checkout gets a `.git` with no `objects/`, a reader that drops the two
+  variables, Hydra's own git included, finds no repository there and walks up to the checkout
+  with no error, and a sub-repository the run staged becomes a gitlink that reap's pointer-less
+  git refuses with exit 128; map 123 holds the decision. Measured after the merge on 2026-09-24: under `standard` each of
   the four providers ran `git add` in a real run, printed its own store as
   `GIT_OBJECT_DIRECTORY`, and `hydra reap` committed the file, `claude` 01a0d227-23ce, `codex`
   01a0d226-d533, `cursor-agent` 01a0d227-ef37 and `agy` 01a0d228-206c. None strips the variables
