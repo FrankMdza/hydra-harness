@@ -40,3 +40,7 @@ it is a new binary on every run's PATH, which is a seatbelt and allowlist questi
 is a build.
 
 ## Answer
+
+## Panel
+
+Two seats sat on 2026-10-13, Opus 5.5 and Gemini 3.8 Flash; the GPT seat died on codex's usage limit at its first turn and there is no Grok seat while Cursor is on the free plan. Memos: `research/123-seat-opus.md`, `123-seat-gemini.md`. The session's synthesis with a recommendation per question: `research/123-synthesis.md`. Its first finding: the leak is written down in `src/worktree.rs` as an accepted cost, and the half that breaks is `hydra reap` on a repository nested in a checkout, exit 128 when the run staged it. Nothing under Answer is written; the human answers.
