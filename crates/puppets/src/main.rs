@@ -256,6 +256,14 @@ fn helper_path() -> String {
 
 #[derive(Debug, Subcommand)]
 enum ReportCommand {
+    /// builder attribution from build tickets and harness records
+    Tickets {
+        #[arg(long, default_value = ".scratch/hydra/build")]
+        dir: std::path::PathBuf,
+        /// record directory; omit for a tickets-only report
+        #[arg(long)]
+        runs: Option<std::path::PathBuf>,
+    },
     /// one row per task class and builder, followed by builder totals
     Builders {
         #[arg(long)]
@@ -270,6 +278,12 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
     if let Command::Check { path } = &cli.command {
         return write::check(path, out, err);
     }
+    if let Command::Report {
+        command: ReportCommand::Tickets { dir, runs },
+    } = &cli.command
+    {
+        return hydra_puppets::report::tickets::run(dir, runs.as_deref(), out);
+    }
     let home = Home::from_env()?;
     match cli.command {
         Command::Report {
@@ -282,6 +296,9 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
             out,
             err,
         ),
+        Command::Report {
+            command: ReportCommand::Tickets { .. },
+        } => unreachable!("tickets dispatched before home"),
         Command::Board { goal } => read::board(&home, &goal, out, err),
         Command::Show { goal } => read::show(&home, &goal, out),
         Command::Pending { goal, json: _ } => read::pending(&home, &goal, &helper_path(), out, err),

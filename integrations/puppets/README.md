@@ -96,6 +96,25 @@ use eventual acceptances; an empty denominator prints `-` in text and `null` in 
 A torn tail is ignored after the last complete newline and its goal id is reported on
 stderr. The log stays unchanged. A damaged complete line refuses the report until repaired.
 
+`hydra-puppets report tickets --dir .scratch/hydra/build --runs <records directory>`
+reads numbered `Type: build` tickets and the text under `## Outcome`. Run prefixes
+of at least 13 characters resolve against record filenames; missing and ambiguous
+prefixes remain visible. It prints TSV totals per provider/model, then tickets in
+numeric order, with policy, normalized outcome, tokens, prose class and matched phrase.
+`HYDRA_BIN` selects the harness reader (`hydra show --events`), as for `wait`.
+A temporary layout in the current directory links the supplied records directory and
+is removed after reading; source records are unchanged. Unfinished records are marked
+`unfinished` without asking the harness to harvest them.
+
+Tickets and prose counts are distinct per builder; runs and their token costs count
+once per builder even if several tickets name the same run. Token median is per run;
+missing token counts make totals and median unavailable. `rest` includes every outcome
+except `completed` and `failed`. The fixed phrase list in `report/tickets.rs` is a
+heuristic: rejection wins over manual completion, correction and acceptance; unmatched
+prose is `unsaid`, counted plainly after the tables. Tickets tried by several builders
+appear in each builder's ticket count. Unresolved prefixes do not enter builder totals.
+Omit `--runs` for a tickets-only report with record columns marked `unavailable`.
+
 ## Log events
 
 One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}`.

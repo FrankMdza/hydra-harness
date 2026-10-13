@@ -1,0 +1,81 @@
+use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
+
+#[test]
+fn tickets_resolve_multiple_ambiguous_missing_and_all_prose_classes() {
+    let base =
+        std::path::PathBuf::from("tests").join(format!("ticket-report-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("tickets")).unwrap();
+    std::fs::create_dir_all(base.join("records")).unwrap();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let _cleanup = Cleanup(base.clone());
+    for (name, outcome) in [
+        (
+            "20-two.md",
+            "Applied as it was on 01a11111-1111-7000-8000-000000000001 and 01a11111-1111-7000-8000-000000000002; repeated 01a11111-1111-7000-8000-000000000001.",
+        ),
+        ("3-ambiguous.md", "Needed correction on 01a11111-1111."),
+        ("4-missing.md", "The session finished run 01a99999-9999."),
+        ("5-rejected.md", "Not applied: discarded 01a22222-2222."),
+    ] {
+        std::fs::write(base.join("tickets").join(name), format!("# Ticket\nType: build\nStatus: resolved\n\n## Outcome\n\n## Outcome\n{outcome}\n\n## Later\nrejected 01afffff-ffff\n")).unwrap();
+    }
+    for (id, outcome, count) in [
+        ("01a11111-1111-7000-8000-000000000001", "completed", 100),
+        ("01a11111-1111-7000-8000-000000000002", "failed", 201),
+        ("01a22222-2222-7000-8000-000000000003", "gated", 60),
+    ] {
+        // Fake records carry the precomputed normalized show answer on line one.
+        // The stub is a harness reader boundary; production uses hydra show.
+        std::fs::write(base.join("records").join(format!("{id}.jsonl")), format!("{{\"provider\":\"codex\",\"model\":\"requested-model\",\"projection\":{{\"outcome\":\"{outcome}\",\"usage\":{{\"counts\":{{\"total_tokens\":{count}}}}}}},\"events\":[{{\"type\":\"run_start\",\"body\":{{\"provider\":\"codex\",\"model\":\"test-model\",\"policy\":\"standard\"}}}}]}}\n{{\"provider\":\"codex\",\"model\":\"test-model\",\"hydra\":{{\"type\":\"run_end\"}}}}\n")).unwrap();
+    }
+    let stub = base.join("show-stub");
+    std::fs::write(&stub, "#!/bin/sh\n[ \"$1\" = show ] && [ \"$3\" = --events ] || exit 2\nhead -n 1 \"$HYDRA_ROOT/runs/$2.jsonl\"\n").unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let run = |records: bool| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_hydra-puppets"));
+        cmd.args(["report", "tickets", "--dir"])
+            .arg(base.join("tickets"))
+            .env("HYDRA_BIN", &stub);
+        if records {
+            cmd.arg("--runs").arg(base.join("records"));
+        }
+        let output = cmd.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let text = run(true);
+    let expected = concat!(
+        "provider\tmodel\ttickets\truns\ttotal_tokens\tmedian_tokens\tcompleted\tfailed\trest\tapplied as is\tcorrected\tfinished by hand\trejected\n",
+        "codex\ttest-model\t2\t3\t361\t100\t1\t1\t1\t1\t0\t0\t1\n",
+        "\nticket\truns\tmodel\ttokens\trecord outcome\tprose class\tmatched phrase\tpolicy\n",
+        "3\t01a11111-1111 (ambiguous)\tunavailable\tunavailable\tambiguous\tcorrected\tNeeded correction\tunavailable\n",
+        "4\t01a99999-9999 (missing)\tunavailable\tunavailable\tmissing\tfinished by hand\tThe session finished\tunavailable\n",
+        "5\t01a22222-2222-7000-8000-000000000003\ttest-model\t60\tgated\trejected\tNot applied\tstandard\n",
+        "20\t01a11111-1111-7000-8000-000000000001; 01a11111-1111-7000-8000-000000000002\ttest-model; test-model\t301\tcompleted; failed\tapplied as is\tApplied as it was\tstandard; standard\n",
+        "\nunsaid: 0 of 4 tickets\n"
+    );
+    assert_eq!(text, expected);
+    let alone = run(false);
+    assert!(alone.contains("01a11111-1111 (unavailable)"));
+    assert!(alone.contains("unavailable\tunavailable\t4\tunavailable"));
+    // Keep four tickets while checking unsaid and an even token median.
+    std::fs::write(
+        base.join("tickets/5-rejected.md"),
+        "Type: build\n\n## Outcome\nNo decision.\n",
+    )
+    .unwrap();
+    let text = run(true);
+    assert!(text.contains("codex\ttest-model\t1\t2\t301\t150.5\t1\t1\t0\t1\t0\t0\t0"));
+    assert!(text.contains("unsaid: 1 of 4 tickets"));
+}

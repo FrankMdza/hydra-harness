@@ -1,4 +1,6 @@
 //! Builder acceptance and token cost from goal logs.
+pub mod tickets;
+
 use crate::fold;
 use crate::json::{self, Dict, Value};
 use crate::log::{self, Home};

@@ -6127,3 +6127,17 @@ summed, once per ended run; absent tokens contribute zero, and undefined ratios 
 The existing reader keeps complete lines before a torn tail, reports its goal id on stderr
 and writes nothing. Three fixture logs check every text/JSON column, totals, filters,
 resumed applied verdicts and duplicate observations in `crates/puppets/tests/builders.rs`.
+
+
+**Ticket builder report, build ticket 312.** Alongside `report.rs`'s goal-log report,
+`report/tickets.rs` implements `hydra-puppets report tickets --dir .scratch/hydra/build
+--runs <records directory>`. It resolves Outcome run prefixes against record filenames,
+keeps missing and ambiguous references visible, reuses `launch.rs`'s `run_end` check and
+normalized show reader, and obtains envelope provider/model and start policy from the
+records. Two TSV tables give builder totals and numeric ticket rows, with deduplicated
+runs, total and median tokens, outcomes, prose class and matched phrase. The single
+fixed phrase list is explicitly heuristic, with an `unsaid` count. Without `--runs`,
+record columns are unavailable; no real-record access is needed. A four-ticket,
+three-record fixture checks the command, every class, ambiguity, absence, duplicate
+references, model backfill, numeric ordering, repeated Outcome headings, token median
+and the tickets-only view. No dependency was added.
