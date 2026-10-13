@@ -35,5 +35,12 @@ glob, hits the floor by accident, and the refusal reads like a policy violation 
    whatever the repository, so the answer should be no, but the attack corpus of map 68 should
    say whether any recorded attack relied on an absolute worktree path.
 
+5. The same floor refuses any shell command with a heredoc or substitution that names git, aws
+   or Slack. On 2026-10-13 it stopped build 238's first attempt (a `python3 - <<'PY'` edit) and
+   cost the GPT seat of the map 117 panel its memo file (a `cat <<'EOF'` whose body mentioned
+   git; the memo survived only in `result_text`). Both were the classifier working as written.
+   Should a heredoc whose body, not whose command, names git be refused, or should the gate
+   distinguish the command line from the data it feeds?
+
 ## Answer
 

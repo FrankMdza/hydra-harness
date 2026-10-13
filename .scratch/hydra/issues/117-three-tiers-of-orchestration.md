@@ -37,4 +37,11 @@ model read as a classifier (map 109).
 5. Is this the same thing as map 115 (the harness learns from its use) seen from the launch side,
    or a different ticket?
 
+## Panel
+
+Sat on 2026-10-13, degraded (no Grok seat, Gemini as flash): memos in
+`.scratch/hydra/research/117-seat-{opus,gemini,gpt}.md`, readings shared with 118 in
+`118-panel-readings.md`, the session's synthesis and recommendation per question in
+`117-synthesis.md`. The human decides; nothing is written under Answer by the session.
+
 ## Answer
