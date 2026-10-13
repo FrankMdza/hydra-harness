@@ -1,7 +1,7 @@
 # 313 - What `IMPLEMENTATION.md` says that the code no longer does
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session. `IMPLEMENTATION.md` is the file `CLAUDE.md` tells every
 session to read to know what is real, and on 2026-10-13 one of its sentences said `sheet build`
@@ -36,3 +36,31 @@ reviews leaves no trail.
 The file above, and nothing else changed. No build, no test run needed; this is a reading.
 
 ## Outcome
+
+Read by `codex` `gpt-6-astra` on Hydra run `01a13718-b0ec-7823-8f98-b3369ac9149f` under
+`standard`, read-only as asked, 2026-10-13. It checked 84 sentences and listed 57 as stale, each
+with line, quote, evidence and a replacement, in `research/313-stale-claims.md`, plus 27 it
+checked and kept and seven groups it could not check from a worktree (live corpus facts,
+measurements, the port equivalence claims).
+
+The session applied 45 of the 57 to `IMPLEMENTATION.md`, each after checking the evidence
+itself with `grep` or a read on master: 1, 2, 5 to 11, 13 to 18, 22 to 24, 26 to 29, 32 to 47,
+49 to 51, 54 to 57. The paragraphs that changed were reflowed to 95 columns, which is why the
+diff is 424 lines for 45 sentences. Ten were left as the file had them because the session did
+not confirm the evidence in the time it had: 3 and 4 (the counts of `protected_worktree_paths`
+and `write_denied_worktree_paths`), 12 and 19 (row counts in `src/policy/table.rs`), 21 (how
+`gate.py` keys the dialect; the file reads `argv[1]`, the memo says `HYDRA_CONFIG`), 25
+(`judge` skipping skill injection), 30 (`gate_sha`'s `skip_serializing_if`), 31 (the count of
+`Finding` variants), 52 and 53 (whether the run id is minted before the cap and the `PATH`
+check). Two the session confirmed but the script could not find in the file as quoted, 20 and
+48; they stay stale and are the first two lines of work for whoever reads this next.
+
+What the memo found that is not a sentence: `config/mcp.md`'s own prose (lines 41 and 42)
+still says `mcp_call` is granted by `permissive` alone, while `policies/standard.json` line 11
+grants it to the `hydra` server. That file is protected config, so the human changes it.
+
+The three sections with the most stale sentences were the policy set and the gate (6), reading
+a record back (5) and rung two (5). The pattern behind most of them is the same: a later
+ticket changed the code and amended the paragraph it was told to amend, and an earlier
+paragraph that stated the old fact in passing stayed. The file's size is the cost; a reread
+whole once a month is cheaper than the decisions a stale sentence costs.
