@@ -1,7 +1,7 @@
 # 303 - A plan proposal row carries whether it was chosen and what became of its tasks
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session, from the map 118 panel (`118-synthesis.md`, question 1),
 where the GPT seat read `labels.rs` and found that a plan proposer's row is a role label and

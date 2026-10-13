@@ -1,7 +1,7 @@
 # 302 - The suite is green inside a run: three tests stop reading the launcher's git pointers
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session, from the Outcomes of builds 295 and 296, which both had to
 prefix `cargo test` with `env -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES` to
