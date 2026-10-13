@@ -241,6 +241,25 @@ border names the run and its outcome.
 Two more exist and clap hides them: `watch`, the detached half, and `delegate-face`, an MCP
 server that gives Claude Code a typed `delegate` tool over `hydra run`.
 
+## Local model
+
+`hydra-local-llm` is a Rust stdio MCP server with one tool, `ask`, backed by local Ollama.
+The workspace release build above produces `target/release/hydra-local-llm`. To admit it,
+the human adds this block to the fenced TOML in `config/mcp.md`, adjusting `command` to
+the binary path on their machine:
+
+```toml
+[[server]]
+name = "local-llm"
+transport = "stdio"
+command = "/absolute/path/to/hydra/target/release/hydra-local-llm"
+args = []
+admit = ["permissive"]
+```
+
+See [the local model documentation](integrations/local-llm/README.md) for environment
+variables, tool arguments and tests.
+
 ## Policies
 
 `judge` < `read-only` < `standard` < `permissive`, and `judge` < `curate`, which grants a

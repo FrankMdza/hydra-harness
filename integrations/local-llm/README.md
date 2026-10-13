@@ -1,8 +1,8 @@
 # hydra-local-llm
 
 A stdio MCP server that exposes one tool, `ask`, backed by a local Ollama `generate` call.
-Nothing under `src/` imports this directory. A run reaches it only when a human adds the server
-to `config/mcp.md` and the run's policy admits it.
+The Rust implementation lives in `crates/local-llm`. A run reaches it only when a human
+adds the server to `config/mcp.md` and its policy admits it.
 
 ## Environment
 
@@ -28,7 +28,8 @@ never a crash of the server.
 ## Run
 
 ```
-python3 integrations/local-llm/hydra-local-llm
+cargo build --release -p hydra-local-llm
+target/release/hydra-local-llm
 ```
 
 ## Admit in `config/mcp.md`
@@ -42,16 +43,17 @@ gate would refuse every `mcp_call` anyway.
 [[server]]
 name = "local-llm"
 transport = "stdio"
-command = "python3"
-args = ["/absolute/path/to/hydra/integrations/local-llm/hydra-local-llm"]
+command = "/absolute/path/to/hydra/target/release/hydra-local-llm"
+args = []
 admit = ["permissive"]
 ```
 
 ## Tests
 
 ```
-python3 -m unittest integrations/local-llm/tests/test_local_llm.py
+cargo test -p hydra-local-llm
 ```
 
-The tests start a stub HTTP server on a free port and set `HYDRA_LOCAL_LLM_URL` to it. They never
-touch a real `~/hydra` layout or a live Ollama unless you run the server by hand.
+The tests replay 43 recorded cases against a stub HTTP server on a free port and set
+`HYDRA_LOCAL_LLM_URL` to it. They never touch a real `~/hydra` layout or a live Ollama
+unless you run the server by hand.

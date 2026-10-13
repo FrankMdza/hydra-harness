@@ -1,4 +1,4 @@
-//! `hydra-local-llm` must give what `integrations/local-llm/hydra-local-llm` gives.
+//! `hydra-local-llm` must match the recorded Python MCP server responses.
 //!
 //! `record_ask.py` ran the Python once per case of `fixtures/ask.json`, from a scratch
 //! directory and an empty environment, against a stub Ollama on a free port, and kept what

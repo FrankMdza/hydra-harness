@@ -1,4 +1,4 @@
-//! `hydra-local-llm`: `integrations/local-llm/hydra-local-llm`, a stdio MCP server.
+//! `hydra-local-llm`: a stdio MCP server backed by local Ollama.
 
 use std::io::{self, BufReader};
 use std::process::ExitCode;

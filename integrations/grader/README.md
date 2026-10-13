@@ -270,7 +270,7 @@ hydra-grader judge agree
 `label` walks `dataset.jsonl` and asks a local Ollama model whether each run needed a human
 correction. It sends the redacted task (cut at 3,000 characters) and the run's result text (cut at
 4,000) and diff stat, read from `hydra show` at the time and never cached. The URL and model come
-from `HYDRA_LOCAL_LLM_URL` and `HYDRA_LOCAL_MODEL`, the same defaults `integrations/local-llm/`
+from `HYDRA_LOCAL_LLM_URL` and `HYDRA_LOCAL_MODEL`, the same defaults `hydra-local-llm`
 uses, and that URL is the only network call. `--only-unlabelled` skips runs that already carry a
 human verdict. If Ollama is down or the model is not pulled, the pass stops with exit 1 and keeps
 the lines it wrote.

@@ -1,8 +1,8 @@
 //! MCP stdio server: one tool, `ask`, backed by a local Ollama generate call.
 //!
-//! Build ticket 237 ports `integrations/local-llm/hydra-local-llm`. The Python stays until
-//! build ticket 238. The one network call is `loopback_http::post_json`, which goes to this
-//! machine and nowhere else (map 95, question C).
+//! Build ticket 237 ported the Python MCP server; build ticket 238 deleted the script.
+//! The one network call is `loopback_http::post_json`, which goes to this machine and
+//! nowhere else (map 95, question C).
 
 use std::io::{self, BufRead, Write};
 use std::time::Duration;

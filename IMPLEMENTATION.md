@@ -3418,7 +3418,7 @@ event records the label map, seat orders, tie-break orders, run ids and answers,
 source (null chosen and source when unresolved). Down vendors need a live degraded approval;
 tie-break substitutes remain under `judge`.
 
-**A local model, since build ticket 121.** `integrations/local-llm/hydra-local-llm` is a stdio
+**A local model, since build ticket 121.** `target/release/hydra-local-llm` is a stdio
 MCP server with one tool, `ask`, over Ollama at `127.0.0.1:11434` (`gemma3:1b-it-qat` by
 default), prompts capped at 8,000 characters, Ollama down as a tool error. It reaches a run only
 when the human adds it to `config/mcp.md`, and its README carries the block to paste, admitting
@@ -3492,8 +3492,10 @@ Build ticket 234 deleted the Python: `apprentice.py`, `records.py`, `models.py`,
 against a checkout from before that ticket. A job installed earlier names the deleted script and
 fails until the human replaces it with the README's command; none is installed on this machine.
 Build ticket 237 added a seventh, `crates/local-llm` (binary `hydra-local-llm`, on `hydra-pyjson`
-and `hydra-records`), which is the MCP stdio server of `integrations/local-llm/hydra-local-llm`
-and matches the Python on 43 recorded request lines; the Python stays until build ticket 238.
+and `hydra-records`), which is the MCP stdio server and matches the Python on 43 recorded
+request lines. Since build ticket 238 the Rust binary is the only local-llm and the Python
+script and its test are deleted. The one deliberate difference is that a URL that is not
+`http://` is a tool error in Rust where the Python died.
 Build ticket 235 added an eighth, `crates/otel` (binary `hydra-otel`, on `hydra-pyjson`,
 `hydra-records` and `sha2`), which is the former `integrations/otel/record_to_otlp.py` and
 matches the Python on 65 recorded cases in `crates/otel/tests/fixtures/otel.json`. Build

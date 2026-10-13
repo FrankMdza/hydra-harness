@@ -1,6 +1,6 @@
 """Record what `hydra-local-llm` gives, so `ask.rs` can compare the Rust.
 
-Build ticket 237, the MCP server of `integrations/local-llm/`. From the checkout's root:
+Build ticket 237 recorded the Python MCP server. Run only in a checkout before build 238:
 
     python3 crates/local-llm/tests/record_ask.py
 
