@@ -336,3 +336,52 @@ fn a_launch_from_under_skill_worktrees_is_refused() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+// --- build ticket 309 ----------------------------------------------------
+
+/// A run's checkout starts with the parent's build cache, so the first build in
+/// it compiles the workspace's own crates rather than every dependency. Only
+/// `debug/`, `release/` and cargo's two marker files travel; a builder's
+/// scratch directory under `target/` stays behind.
+#[test]
+fn the_checkout_gets_the_parents_build_cache_and_nothing_else_under_target() {
+    let repo = a_repo("cache");
+    std::fs::write(repo.join(".gitignore"), "ignored/\ntarget/\n").unwrap();
+    git(&repo, &["commit", "-qam", "ignore target"]);
+    std::fs::create_dir_all(repo.join("target/release")).unwrap();
+    std::fs::write(repo.join("target/release/marker"), "warm\n").unwrap();
+    std::fs::create_dir_all(repo.join("target/hydra999")).unwrap();
+    std::fs::write(repo.join("target/hydra999/junk"), "scratch\n").unwrap();
+
+    let dest = repo.parent().unwrap().join("cache-wt");
+    let _ = std::fs::remove_dir_all(&dest);
+    let worktree =
+        hydra::worktree::create(&repo, &dest, "hydra/cache-run", &index(&repo, "cache-seed"))
+            .expect("the launch failed over its build cache");
+
+    assert!(
+        !dest.join("target/hydra999").exists(),
+        "a scratch directory under target/ travelled with the cache"
+    );
+    if cfg!(target_os = "macos") {
+        assert_eq!(
+            std::fs::read_to_string(dest.join("target/release/marker")).unwrap(),
+            "warm\n",
+            "the build cache was not cloned"
+        );
+    } else {
+        assert!(
+            !dest.join("target").exists(),
+            "a platform without clonefile grew a target/"
+        );
+    }
+
+    // The clone is ignored, so the diff stat does not count it as the run's.
+    let stat = hydra::worktree::diff_stat(
+        &dest,
+        &index(&repo, "cache-stat"),
+        &worktree.seed_tree.unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stat, hydra::worktree::Stat::default());
+}

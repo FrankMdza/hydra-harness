@@ -2812,6 +2812,24 @@ ticket 14, so a file-tool write or a shell command that names `seed-index` is
 `SECURITY.md` states, still can, and that costs the diff stat and nothing else.
 The record is what carries the truth about what a run wrote.
 
+**Since build ticket 309 the seed leaves one ignored thing behind and clones it instead: the
+parent's build cache.** After the seed and before the snapshot, `worktree::create` calls
+`clone_build_cache`, which on macOS clones `debug/`, `release/`, `.rustc_info.json` and
+`CACHEDIR.TAG` from the parent's `target/` into the checkout's with `clonefile(2)`, one call
+per entry, through the `libc` crate the build already used. Nothing else under `target/`
+travels, so a builder's `target/hydra305/` stays home. APFS shares the blocks until a side
+rewrites a file. On another platform, or with no `target/` in the parent, nothing happens,
+and a clone that fails prints one line on stderr and the launch goes on. `target/` is
+ignored, so the seed tree, the diff stat and reap's `commit_everything` never see the clone,
+and `git worktree remove` deletes it with the checkout. A repo that does not ignore `target/`
+has it copied by the seed as untracked work. The clone then finds the directory taken and
+says so on stderr. Measured on 2026-10-13 from a run's own worktree at load averages between
+10 and 58: a cold `cargo build --release --workspace` compiled 125 crates in 98 s; the same
+build in a checkout `create` made from a parent holding a 413 MB, 1,963-entry `target/`
+compiled the 8 workspace crates in 37.7 s, and again in 0.22 s. The clone did not show in
+`create`'s time, 0.91 s against 1.02 s without a `target/`. The parent's real `target/`, 15 GB
+with `debug/`, was not measured from inside a run.
+
 ## What a rate-limited run really looks like
 
 The first `hydra run` after ticket 04 landed hit the session limit, which measured

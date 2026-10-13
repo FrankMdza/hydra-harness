@@ -1092,6 +1092,10 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
         }
     };
 
+    if let Err(err) = clone_build_cache(repo, dest) {
+        eprintln!("hydra: this run builds without the parent's target/, the clone failed: {err:#}");
+    }
+
     // A snapshot that will not write costs the diff stat and nothing else, so it
     // does not refuse the run. It says so rather than losing the field quietly.
     let seed_tree = match seed_tree(&context, index) {
@@ -1247,7 +1251,8 @@ impl Stat {
 ///
 /// Ignored files are left behind on purpose: they are `target/`, `runs/` and the
 /// rest of what a build produces, and copying them would put a parent's run records
-/// inside a child's checkout.
+/// inside a child's checkout. The one exception is the build cache under
+/// `target/`, which [`clone_build_cache`] clones after the seed, outside git.
 fn seed(repo: &Path, dest: &CheckoutGit) -> Result<()> {
     // No external diff and no textconv: either turns the patch into something
     // `git apply` cannot read, and both are programs a configuration names.
@@ -1275,6 +1280,68 @@ fn seed(repo: &Path, dest: &CheckoutGit) -> Result<()> {
         }
         std::fs::copy(&from, &to)
             .with_context(|| format!("copying untracked {}", relative.display()))?;
+    }
+    Ok(())
+}
+
+/// What under the parent's `target/` is a build cache, and so what
+/// [`clone_build_cache`] clones. Anything else there, such as the measurement
+/// scripts builds 304 and 305 left in `target/hydra304/`, stays behind.
+const BUILD_CACHE: [&str; 4] = ["debug", "release", ".rustc_info.json", "CACHEDIR.TAG"];
+
+/// Clones the parent's build cache into the checkout's `target/`, build ticket
+/// 309, so a run on a Rust repo does not spend its first 13 minutes compiling
+/// dependencies the parent already compiled.
+///
+/// **`clonefile(2)`, so no block is copied.** APFS shares the blocks until one
+/// side rewrites a file, and the run's writes land in its own checkout, which
+/// `hydra reap` removes. `target/` is ignored, so the seed snapshot, the diff
+/// stat and reap's commit never see the clone.
+///
+/// Nothing at all on a platform without `clonefile`, when the parent has no
+/// `target/` directory, or for an entry of [`BUILD_CACHE`] that is not a real
+/// file or directory. A checkout that already holds `target/` is an error: in a
+/// repo that does not ignore it, the seed copied it as untracked work. The
+/// caller logs any error and launches anyway, since the run loses only time.
+#[cfg(target_os = "macos")]
+fn clone_build_cache(repo: &Path, dest: &Path) -> Result<()> {
+    let from = repo.join("target");
+    if !std::fs::symlink_metadata(&from).is_ok_and(|meta| meta.is_dir()) {
+        return Ok(());
+    }
+    let to = dest.join("target");
+    std::fs::create_dir(&to).with_context(|| format!("creating {}", to.display()))?;
+    for name in BUILD_CACHE {
+        let source = from.join(name);
+        let Ok(meta) = std::fs::symlink_metadata(&source) else {
+            continue;
+        };
+        if meta.is_dir() || meta.is_file() {
+            clonefile(&source, &to.join(name))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clone_build_cache(_repo: &Path, _dest: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// `clonefile(2)` of a file or a whole directory, never following a link.
+#[cfg(target_os = "macos")]
+fn clonefile(from: &Path, to: &Path) -> Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let source = CString::new(from.as_os_str().as_bytes()).context("a path with a NUL byte")?;
+    let target = CString::new(to.as_os_str().as_bytes()).context("a path with a NUL byte")?;
+    // `<sys/clonefile.h>`; libc 0.2.189 has the call and not the flag.
+    const CLONE_NOFOLLOW: u32 = 0x0001;
+    // SAFETY: both are valid C strings that outlive the call.
+    if unsafe { libc::clonefile(source.as_ptr(), target.as_ptr(), CLONE_NOFOLLOW) } != 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("cloning {} to {}", from.display(), to.display()));
     }
     Ok(())
 }
