@@ -757,3 +757,54 @@ fn two_stops_that_report_in_one_poll_paste_both_notes_in_order() {
     assert_eq!(host.side, Side::Chat);
     hang_up(&mut host);
 }
+
+// --- a refusal received during painting, build ticket 311 --------------------
+
+#[test]
+fn a_refusal_during_draw_paints_live_and_its_message_in_that_frame() {
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+
+    let layout = sandbox("refusal-during-draw");
+    let out = layout.root().join("pty-bytes");
+    let mut host = recording_chat(&layout, &out, false);
+    host.handle(&key(KeyCode::F(2)));
+    // A busy snapshot leaves a window for the controlled watcher to answer.
+    host.app.set_snapshot(Snapshot {
+        cards: vec![seat_card(); 10_000],
+        ..Snapshot::default()
+    });
+    let path = layout.run_file(SEAT);
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: name is a terminated path; mkfifo retains no pointer.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    host.handle(&key(KeyCode::Char('m')));
+    host.handle(&key(KeyCode::Char('y')));
+    // Opening the writer rendezvous with the stop's record reader. Keeping
+    // it open holds that reader until this fixture releases it for the draw.
+    let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    assert!(host.app.stopping());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let watcher = std::thread::spawn(move || {
+        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, b"refused\n").unwrap();
+        writer.write_all(b"refused\n").unwrap();
+        // The held reader gets its line; later opens see the refused record.
+    });
+    tx.send(()).unwrap();
+    let text = drawn(&mut host);
+    watcher.join().unwrap();
+    let settled = !host.app.stopping();
+    let said = host.app.message.clone().unwrap_or_default();
+    let side = host.side;
+    hang_up(&mut host);
+    assert!(settled, "the fixture did not answer during the draw");
+    assert!(!text.contains("01996d3c claude stub-1 stopping"), "{text}");
+    assert!(said.contains("01996d3c was not stopped"), "{said}");
+    assert!(text.contains("01996d3c claude stub-1 live"), "{text}");
+    assert!(text.contains("01996d3c was not stopped"), "{text}");
+    assert_eq!(side, Side::Cockpit);
+    assert_eq!(std::fs::read(&out).unwrap_or_default(), b"");
+}

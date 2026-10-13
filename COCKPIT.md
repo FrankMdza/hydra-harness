@@ -108,8 +108,10 @@ back through pages you opened. With `--session`, the dragon, the header seat cou
 by agent also count a run that started after this chat's run, so agents launched with `hydra run`
 show even with no parent recorded. `m` then `y` on a live card stops that seat the same way
 `hydra stop` does. With `--session`, only runs launched as seats of this chat's session can be
-stopped from `m`; the cockpit leaves an unsent note in the chat when a stop succeeds. To read
-what a run did, open it and use `r` to switch between summarized tool calls and the raw tail of
+stopped from `m`; the cockpit leaves an unsent note in the chat when a stop succeeds.
+When a stop is refused, the frame that consumes the refusal shows the seat as live and
+the refusal message together; it pastes no note and keeps the keys on the cockpit.
+To read what a run did, open it and use `r` to switch between summarized tool calls and the raw tail of
 the record, and `i` to reveal a hidden input when the policy allows. `c` shows the whole run
 in order: each event's record line and type, a refused call in red, and each call's result on
 the line under it. Run rows show provider,

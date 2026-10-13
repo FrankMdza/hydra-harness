@@ -15,7 +15,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout as Split, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::Block;
+use ratatui::widgets::{Block, Clear, Widget};
 
 use super::app::{App, Effect};
 use super::chat::Chat;
@@ -194,11 +194,12 @@ impl Host {
 
     /// Takes the stops that reported since the last look and pastes the note
     /// each left, in order, build tickets 186 and 187. A failed stop leaves none.
-    fn settle_stops(&mut self) {
-        self.app.poll_stops();
+    fn settle_stops(&mut self) -> bool {
+        let changed = self.app.poll_stops();
         for note in self.app.take_drafts() {
             self.draft(&note);
         }
+        changed
     }
 
     /// Pastes `note` into the chat's input and gives the chat the keys, build
@@ -264,9 +265,19 @@ impl Host {
         chat.draw(title, chat_area, buf, self.side == Side::Chat);
         self.app.has_keys = self.side == Side::Cockpit;
         self.app.draw(cockpit_area, buf);
-        // The cockpit's draw may have taken a stop's answer; its note goes in
-        // now rather than a loop later.
-        self.settle_stops();
+        // Keep answers received during painting and their notes in this turn.
+        // Settle before the final paint, which consumes no further answers.
+        let side = self.side;
+        let changed = self.settle_stops();
+        if changed || self.side != side {
+            Clear.render(chat_area, buf);
+            Clear.render(cockpit_area, buf);
+            if let Some((title, chat)) = &self.chat {
+                chat.draw(title, chat_area, buf, self.side == Side::Chat);
+            }
+            self.app.has_keys = self.side == Side::Cockpit;
+            self.app.paint(cockpit_area, buf);
+        }
         self.draw_status(status, buf);
     }
 

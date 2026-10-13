@@ -26,6 +26,11 @@ impl App {
     pub fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         self.poll_reviews();
         self.poll_stops();
+        self.paint(area, buf);
+    }
+
+    /// Paints the state already polled, without consuming another stop answer.
+    pub(crate) fn paint(&mut self, area: Rect, buf: &mut Buffer) {
         self.poll_reveal();
         self.hits = Hits::default();
         let area = self.draw_header(area, buf);

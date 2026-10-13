@@ -4615,6 +4615,10 @@ The task is `run_start.task` read off line 0 with the preamble cut when it is th
 loads now, flattened to one line and cut to 200 characters. Every field goes through a filter
 that turns whitespace and control characters into single spaces, so no `\r` or `\n` and no
 `ESC[201~` from a task or a model name can send the note or close the bracketed paste early.
+Since build ticket 311, a draw with a chat settles answers received during painting before
+the final paint. If that poll consumed a stop, or its note changed the keyboard side, the
+host clears and repaints both panels from the settled state without polling again. This keeps
+the card, refusal message and chat focus in the same frame while delivering notes in that turn.
 `tests/stop.rs` drives it on a real watcher over a stub seat and a raw-mode stub chat that
 writes every byte it gets to a file: after the human's `abc`, the file holds
 `ESC[200~<note>ESC[201~` with bracketed paste on and the bare note with it off, nothing after

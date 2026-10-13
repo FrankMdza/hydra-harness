@@ -120,7 +120,9 @@ impl App {
     /// Takes the answer of each stop that reported, [`mpsc::Receiver::try_recv`]
     /// and no wait. [`App::draw`] calls it, and so does
     /// [`super::super::host::Host`] before it looks for a note to paste.
-    pub fn poll_stops(&mut self) {
+    /// Returns whether an answer was consumed, so a host can repaint after settling.
+    pub fn poll_stops(&mut self) -> bool {
+        let before = self.stops.len();
         let mut i = 0;
         while i < self.stops.len() {
             let answer = match self.stops[i].answer.try_recv() {
@@ -136,6 +138,7 @@ impl App {
             let run = self.stops.remove(i);
             self.stop_reported(run.card, answer);
         }
+        before != self.stops.len()
     }
 
     /// What one stop's answer leaves: the outcome on its card and the status
