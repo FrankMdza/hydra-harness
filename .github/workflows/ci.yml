@@ -9,12 +9,14 @@ jobs:
     # measured there. HYDRA_ROOT points at an empty scratch root so no test reads a real
     # corpus; the fixture walks read tests/fixtures/records (build tickets 101 and 126).
     runs-on: macos-latest
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 (2.9.2)
       # The runner context is not readable from a job-level env block, so the root is set here.
       - run: |
           echo "HYDRA_ROOT=$RUNNER_TEMP/hydra-ci" >> "$GITHUB_ENV"

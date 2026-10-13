@@ -1,7 +1,7 @@
 # 297 - Security in CI for free: Dependabot, cargo-deny and OSV-Scanner on Linux, actions pinned by SHA
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session, from `~/cerebro/research/security-and-compile.md` section 1,
 "Recommended minimal stack", which the human put on Hydra's list on 2026-10-12.
@@ -126,3 +126,15 @@ there is pure cost.
 
 ## Outcome
 
+Built by `codex` `gpt-6.1-sol` on Hydra run `01a13405-c36a-7e30-b509-174ee94e03fa` under
+`standard`, 209k tokens, applied to master on 2026-10-13 after the diff was read whole. The three
+files are as the ticket gave them; `ci.yml` carries `CARGO_INCREMENTAL: 0` and three pins. The
+session checked every pin against GitHub with `gh api`: five were right, and the one the builder
+wrote for `Swatinem/rust-cache` named a commit that does not exist in that repository. It was
+replaced with the commit the `v2` tag points at on 2026-10-13, `6323deb`, release 2.9.2. A pin a
+builder resolves "by network" from inside a run is not verified until the session resolves it
+again. `cargo deny check` on master, with cargo-deny 0.20.2 installed by brew: advisories, bans,
+licenses and sources all ok; four duplicate-version warnings (`hashbrown`, `syn`, `thiserror`,
+`thiserror-impl`) and two licences in the allow list that no crate uses. The licence list was not
+changed. Enabling Dependency graph and Dependabot alerts in the repository settings is still the
+human's.

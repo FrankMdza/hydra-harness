@@ -5908,6 +5908,19 @@ Since build ticket 99 a failed injection still says what it left: `skills::injec
 `run::inject_skills` writes that list into the launch's `skills` group even on error, so the
 failure record names what reached the checkout and reap holds it back.
 
+## CI
+
+**Security checks join CI since build ticket 297.** `.github/workflows/security.yml` runs
+cargo-deny for advisories, bans, licenses and sources on `ubuntu-latest` for pull requests,
+pushes to `master` and the weekly schedule; OSV-Scanner checks `Cargo.lock` on pull requests,
+fails on vulnerabilities and uploads no SARIF. `.github/dependabot.yml` schedules weekly
+Cargo and GitHub Actions updates, grouping Cargo minor and patch updates with at most five
+open Cargo pull requests. All actions in the security and existing CI workflows are pinned
+to commit SHAs with their reference in a comment. The existing fmt, clippy, build and test
+job stays on `macos-latest` with `CARGO_INCREMENTAL=0`. CodeQL, secret scanning and Scorecard
+remain off while the repository is private; enabling Dependency graph and Dependabot alerts
+in GitHub's Code security settings remains the human's task.
+
 ## Rough edges worth knowing
 
 - **A test that launches the built binary with `HYDRA_ROOT`, or execs a setuid binary, has to
