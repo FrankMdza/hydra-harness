@@ -804,15 +804,42 @@ fn send_raw(socket: &Path, line: &str) -> Value {
     serde_json::from_str(&reply).unwrap()
 }
 
+#[test]
+fn a_buffered_reply_can_be_read_after_the_peer_has_closed() {
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let reply = json!({"is_error": true, "text": "hydra/seat-channel-busy"});
+    writeln!(server, "{reply}").unwrap();
+    drop(server);
+
+    assert_eq!(reply_within(&client, Duration::from_secs(2)), Some(reply));
+}
+
 /// Reads the one line the launcher answers on `stream`, or `None` when
 /// nothing came within `wait`.
 fn reply_within(stream: &UnixStream, wait: Duration) -> Option<Value> {
-    stream.set_read_timeout(Some(wait)).unwrap();
-    let mut reply = String::new();
-    match BufReader::new(stream).read_line(&mut reply) {
-        Ok(read) if read > 0 => Some(serde_json::from_str(&reply).unwrap()),
-        _ => None,
+    // On macOS, SO_RCVTIMEO returns EINVAL if the peer closed first, even
+    // with a complete reply buffered. Nonblocking reads still drain it.
+    stream.set_nonblocking(true).unwrap();
+    let deadline = Instant::now() + wait;
+    let mut reader = BufReader::new(stream);
+    let mut reply = Vec::new();
+    while Instant::now() < deadline {
+        match reader.read_until(b'\n', &mut reply) {
+            Ok(_) => {
+                return (!reply.is_empty()).then(|| serde_json::from_slice(&reply).unwrap());
+            }
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                std::thread::yield_now();
+            }
+            Err(_) => return None,
+        }
     }
+    None
 }
 
 #[test]
@@ -907,10 +934,28 @@ fn a_flood_and_a_slow_client_do_not_keep_a_request_from_its_answer() {
         .map(|_| UnixStream::connect(&socket).unwrap())
         .collect();
 
-    // The flood: every connection past four is refused at once.
-    for index in 0..10 {
-        let flood = UnixStream::connect(&socket).unwrap();
-        let reply = reply_within(&flood, Duration::from_secs(2))
+    // A successful connect only queues a stream. Observe a busy reply before
+    // starting the burst, so the listener has accepted all four occupants.
+    // The refused probe owns no slot and writes no request.
+    let ready = UnixStream::connect(&socket).unwrap();
+    let ready_reply = reply_within(&ready, Duration::from_secs(2))
+        .expect("the listener answered the full-channel probe");
+    assert!(
+        ready_reply["text"]
+            .as_str()
+            .unwrap()
+            .contains("hydra/seat-channel-busy"),
+        "{ready_reply}"
+    );
+    drop(ready);
+    // Queue the whole burst before reading any reply. Sequential round trips
+    // can otherwise outlive the four occupants' 500 ms deadlines under load,
+    // letting a later flood connection take a legitimately released slot.
+    let burst: Vec<UnixStream> = (0..10)
+        .map(|_| UnixStream::connect(&socket).unwrap())
+        .collect();
+    for (index, flood) in burst.iter().enumerate() {
+        let reply = reply_within(flood, Duration::from_secs(2))
             .unwrap_or_else(|| panic!("flood connection {index} held rather than refused"));
         let text = reply["text"].as_str().unwrap();
         assert!(text.contains("hydra/seat-channel-busy"), "{text}");
@@ -953,6 +998,7 @@ fn a_flood_and_a_slow_client_do_not_keep_a_request_from_its_answer() {
     // A flood still running when the session ends does not keep the
     // harvest from writing `run_end`.
     let flooding = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (flood_ready_tx, flood_ready) = mpsc::channel();
     let flood = {
         let flooding = flooding.clone();
         let socket = socket.clone();
@@ -961,12 +1007,29 @@ fn a_flood_and_a_slow_client_do_not_keep_a_request_from_its_answer() {
             while flooding.load(Ordering::SeqCst) {
                 if let Ok(stream) = UnixStream::connect(&socket) {
                     held.push(stream);
+                    // A busy reply proves the listener has accepted the
+                    // flood and filled its slots, rather than merely having
+                    // connections queued in the socket's backlog.
+                    if held.len() == limits.connections + 1 {
+                        let reply = reply_within(held.last().unwrap(), Duration::from_secs(2))
+                            .expect("the closing flood was answered");
+                        assert!(
+                            reply["text"]
+                                .as_str()
+                                .unwrap()
+                                .contains("hydra/seat-channel-busy"),
+                            "{reply}"
+                        );
+                        flood_ready_tx.send(()).unwrap();
+                    }
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }
         })
     };
-    std::thread::sleep(Duration::from_millis(100));
+    flood_ready
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the listener refused a connection from the closing flood");
     let stopping = Instant::now();
     assert!(served.stop().is_empty());
     assert!(

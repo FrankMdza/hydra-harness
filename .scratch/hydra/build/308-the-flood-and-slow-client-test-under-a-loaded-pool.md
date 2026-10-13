@@ -1,7 +1,7 @@
 # 308 - The flood-and-slow-client seats test failed once under nextest's full pool
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session. On the first `cargo nextest run --release --workspace`
 after build 307 was applied, `tests/seats.rs::a_flood_and_a_slow_client_do_not_keep_a_request_from_its_answer`
@@ -45,3 +45,62 @@ The Outcome names the assertion that fired, the window, both counts, and the cha
 `cargo nextest run --release --workspace` and `cargo test --release --workspace --doc` green.
 
 ## Outcome
+
+Resolved 2026-10-13. Changed only `tests/seats.rs` and this ticket. No product
+code or dependency changed, so `IMPLEMENTATION.md` is unchanged.
+
+The failure reproduced in invocation 178 of the initial 200, in 0.024 s.
+None of the four suspected assertions fired. The panic was in `reply_within`,
+at the original `tests/seats.rs:810:41`, before it read a reply:
+
+```text
+called `Result::unwrap()` on an `Err` value: Os { code: 22, kind: InvalidInput, message: "Invalid argument" }
+```
+
+The window is between `UnixStream::connect` and the helper's
+`stream.set_read_timeout(Some(wait))`. The listener can accept the flood
+connection, send `hydra/seat-channel-busy`, and close its peer before the helper
+sets `SO_RCVTIMEO`. On this macOS host, that option then fails with `EINVAL`,
+even though the complete reply is buffered and readable. This explains the
+early panic; the ticket's hypothesis about a busy-text or record assertion
+racing a listener that had not accepted yet was false for the captured failure.
+The same helper also reads the slow client's reply after its deadline, so it
+must support a peer that has already closed in either phase. The listener's
+refusal and close are expected behavior; no product finding required a stop.
+
+A separate `UnixStream::pair` probe confirmed that setting the timeout after
+closing the peer returns `EINVAL`, while setting nonblocking mode succeeds
+and reads the buffered line. Added
+`a_buffered_reply_can_be_read_after_the_peer_has_closed`, which writes a reply,
+closes the peer, and checks that the helper still returns that reply. It failed
+with the same `EINVAL` against the old helper and passed after the fix.
+
+`reply_within` now reads nonblocking bytes until a line or EOF, preserves partial
+bytes across `WouldBlock`, and yields while waiting, bounded by the original
+`wait` as a total deadline. It no longer sets an option on the closed peer.
+Every existing assertion and timeout remains. The test also observes a bounded
+busy reply before starting the ten-connection burst, queues that burst before
+reading replies, and observes every refusal before reading the slow reply.
+For the closing flood, a channel signals the first observed busy reply;
+`recv_timeout(2 s)` replaces the fixed 100 ms setup sleep. No sleep was added.
+
+The same eight `yes` workers writing to `/dev/null`, one per logical core,
+stayed alive throughout both measurement batches, all seven full suites,
+the doctest command and the release build. They were killed and waited for
+before the final format and clippy checks. No other worktree was inspected.
+Observed load averages included 60.38 / 31.00 / 15.10 initially and
+55.83 / 50.12 / 37.80 during final validation under load.
+
+- Before, full pool: **0 failing suites / 5**, each with 1,382 passed and 4 skipped; all five executions of the flood test passed.
+- Before, single test: **1 failure / 200**, invocation 178, the exact panic above. Every invocation's output was captured.
+- After, single test: **0 failures / 200**, with the same eight workers.
+- After, full pool: **0 failing suites / 2**, each with 1,383 passed and 4 skipped, including the new closed-peer regression.
+
+Commands: `cargo nextest run --release --workspace` for every full suite and
+`cargo nextest run --release --test seats a_flood_and_a_slow_client` for every
+single-test invocation. Logs are under `target/ticket308/`, including
+`before-single-178.log`, `regression-before.log` and `regression-after.log`.
+
+Final validation passed: `cargo test --release --workspace --doc`,
+`cargo build --release --workspace`, `cargo fmt --all --check`, and
+`cargo clippy --workspace --all-targets -- -D warnings`.
