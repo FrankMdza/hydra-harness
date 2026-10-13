@@ -188,6 +188,11 @@ enum Command {
         #[arg(long, value_name = "DIR")]
         dir: Option<std::path::PathBuf>,
     },
+    /// print a tracker index as Markdown
+    Index {
+        #[command(subcommand)]
+        command: IndexCommand,
+    },
     /// settle a launch intent that has no run
     #[command(args_override_self = true)]
     Reconcile {
@@ -209,6 +214,16 @@ enum Command {
         /// no run was ever started
         #[arg(long)]
         abandon: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum IndexCommand {
+    /// list every numbered ticket in the build directory
+    Build {
+        /// read tickets from another directory
+        #[arg(long, value_name = "DIR")]
+        dir: Option<std::path::PathBuf>,
     },
 }
 
@@ -305,6 +320,9 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
         Command::Frontier { tracker, dir } => {
             frontier::run(tracker.as_deref(), dir.as_deref(), out)
         }
+        Command::Index {
+            command: IndexCommand::Build { dir },
+        } => hydra_puppets::index::build(dir.as_deref(), out),
         Command::Reconcile {
             goal,
             task,

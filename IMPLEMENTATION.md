@@ -3584,6 +3584,11 @@ UUID alone on stdout. Since build ticket 207 the comparator also checks the UUID
 character, masks the id only when the log it names exists, and renames that log and no other, so
 a writer that prints one id and creates the log under another fails.
 
+Build ticket 300 added `hydra-puppets index build`, which prints the build tracker's
+`## The tickets` list from the ticket files in numeric order, one `- [NNN - title](file)` line
+each, and regenerated `plan.md`'s list, which had stopped at ticket 134; a test on a fixture
+directory of three tickets pins the form.
+
 Build ticket 299 validates the chosen plan's task array as a graph in `write.rs::tasks`,
 before writing any event. Repeated ids use the fold's key equality, dependencies must name
 a task in that plan, and the graph must have no cycles. A refusal exits 1, names every

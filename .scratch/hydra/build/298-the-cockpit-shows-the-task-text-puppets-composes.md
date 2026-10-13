@@ -1,7 +1,7 @@
 # 298 - The cockpit shows the task text `hydra-puppets` composes, not a copy of its wording
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session, from the review of build 293.
 

@@ -25,7 +25,7 @@ pub fn run(tracker: Option<&str>, dir: Option<&Path>, out: &mut dyn Write) -> an
     Ok(0)
 }
 
-fn issues_dir(tracker: Option<&str>, dir: Option<&Path>) -> anyhow::Result<PathBuf> {
+pub(crate) fn issues_dir(tracker: Option<&str>, dir: Option<&Path>) -> anyhow::Result<PathBuf> {
     if let Some(dir) = dir {
         return Ok(dir.to_path_buf());
     }

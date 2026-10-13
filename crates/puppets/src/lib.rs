@@ -15,6 +15,7 @@ pub use hydra_pyjson::{json, models, printable, pysort};
 
 pub mod fold;
 pub mod frontier;
+pub mod index;
 pub mod launch;
 pub mod log;
 pub mod panel;
