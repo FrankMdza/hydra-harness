@@ -1,7 +1,7 @@
 # 300 - The build index catches up: `plan.md` lists every ticket again
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session, which found `plan.md`'s `## The tickets` list ending at 134
 while the directory holds tickets to 300.
