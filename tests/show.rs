@@ -253,3 +253,72 @@ fn a_record_with_no_run_end_still_prints_what_it_has() {
          usage included since contract 7.8 gives it no bare null even here: {events:#?}"
     );
 }
+
+#[test]
+fn show_leaves_the_scratch_layout_unchanged_after_the_checkout_is_gone() {
+    use std::path::{Path, PathBuf};
+
+    fn contents(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
+        fn visit(root: &Path, directory: &Path, found: &mut Vec<(PathBuf, Option<Vec<u8>>)>) {
+            for entry in std::fs::read_dir(directory).unwrap() {
+                let path = entry.unwrap().path();
+                let directory = path.is_dir();
+                found.push((
+                    path.strip_prefix(root).unwrap().to_path_buf(),
+                    (!directory).then(|| std::fs::read(&path).unwrap()),
+                ));
+                if directory {
+                    visit(root, &path, found);
+                }
+            }
+        }
+        let mut found = Vec::new();
+        visit(root, root, &mut found);
+        found.sort();
+        found
+    }
+
+    let root = PathBuf::from(format!(".scratch/show-read-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("runs")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let id = "00000000-0000-7000-8000-000000000002";
+    let fixture =
+        std::fs::read_to_string(format!("tests/fixtures/records/claude@2.1.261/{id}.jsonl"))
+            .unwrap();
+    let mut lines: Vec<Value> = fixture
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    // A reaped checkout still has its base and trusted parent on the record.
+    // Computing its stat must not recreate its spawn directory on failure.
+    lines[0]["hydra"]["worktree"]["base_tree"] = json!("1111111111111111111111111111111111111111");
+    lines[0]["hydra"]["scopes"]["parent_git_dir"] = json!(root.join("missing-parent"));
+    lines[0]["hydra"]["worktree"]["path"] = json!(root.join("missing-checkout"));
+    let record: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(root.join("runs").join(format!("{id}.jsonl")), record).unwrap();
+    let before = contents(&root);
+    for events in [false, true] {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_hydra"));
+        command.args(["show", id]).env("HYDRA_ROOT", &root);
+        if events {
+            command.arg("--events");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if events {
+            assert!(!report["events"].as_array().unwrap().is_empty());
+        }
+        assert_eq!(contents(&root), before);
+    }
+}

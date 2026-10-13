@@ -2779,8 +2779,11 @@ anyone who does not know what it is measured from.
 checkout's own `.git/index` would leave the child looking at a fully staged tree, and a
 child asked to finish work in progress would see something the parent does not have.
 `GIT_INDEX_FILE` points at `~/hydra/spawn/<run-id>/seed-index` instead, with a second
-file for the closing pass so staging cannot destroy the base. `tests/worktree.rs` asserts
-the child's own `git status` still shows the seed as uncommitted work.
+file for the closing pass so staging cannot destroy the base. Since build ticket 314,
+`run::result` computes that closing stat through `worktree::diff_stat_for_reader`, using
+a unique temporary directory removed on success or error rather than writing into the
+run layout. `tests/worktree.rs` asserts the child
+still sees the seed as uncommitted work.
 
 Measured on this repo, 2026-09-05: a worktree seeded from nine dirty files, one file
 written into it afterwards. `diff_stat` reported one file and one insertion; `git diff
@@ -3125,6 +3128,10 @@ With it, one object: `run_id`, `projection`, `events` with every normalized even
 `type` and that type's fields, and `findings`. `run_start` and `run_end` carry the body the
 record holds under `body`. A parent that wants more than contract 17's nine fields asks here,
 which is what section 9 meant by explicitly.
+Since build ticket 314, show uses a projection that does not harvest abandoned
+interactive runs, and its diff-stat index lives in a temporary directory removed on
+return. Reading a record, including one whose checkout is gone, creates no spawn
+directory. `tests/show.rs` checks both show modes against a scratch layout snapshot.
 
 **`HYDRA_ROOT` overrides `Layout::discover`, and it was read for one test file until build
 ticket 51.** Most tests build a `Layout::at` a temporary directory and call the library;
@@ -6125,3 +6132,7 @@ record columns are unavailable; no real-record access is needed. A four-ticket,
 three-record fixture checks the command, every class, ambiguity, absence, duplicate
 references, model backfill, numeric ordering, repeated Outcome headings, token median
 and the tickets-only view. No dependency was added.
+
+Since build ticket 314, the ticket report removes the temporary layout recursively,
+first unlinking its `runs` symlink. Its regression test plants nested directories from
+show and checks that the report leaves no `.puppets-report-*` root or changes to records.

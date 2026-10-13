@@ -36,7 +36,7 @@ pub fn show(layout: &Layout, run_id: &str, events: bool, out: &mut dyn Write) ->
     let run_id = &crate::resolver::resolve(layout, run_id)?;
     // One token per call, drawn now: every word below was on disk before it existed.
     let token = crate::marker::token();
-    let mut projection = crate::status::projection(layout, run_id)?;
+    let mut projection = crate::status::read_projection(layout, run_id)?;
     if let Some(text) = projection["result_text"].as_str() {
         projection["result_text"] = Value::String(mark(text, &token));
     }

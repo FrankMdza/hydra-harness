@@ -166,7 +166,7 @@ pub fn result(
     run_file: &std::path::Path,
     worktree: Option<&WorktreeRef>,
     seed_tree: Option<&str>,
-    layout: &Layout,
+    _layout: &Layout,
 ) -> RunResult {
     let derived = crate::outcome::derive(run);
     let end = run.run_end();
@@ -198,9 +198,7 @@ pub fn result(
             std::path::Path::new(&worktree.path),
             run.run_start().map(|start| &start.body),
         )
-        .and_then(|context| {
-            crate::worktree::diff_stat(&context, &layout.stat_index(&run.run_id), base)
-        })
+        .and_then(|context| crate::worktree::diff_stat_for_reader(&context, base))
         .inspect_err(|err| {
             // The record is already whole at this point, so a failed stat is a
             // missing field rather than a failed run. It is said out loud because

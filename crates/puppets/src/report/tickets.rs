@@ -177,7 +177,7 @@ impl ShowRoot {
 impl Drop for ShowRoot {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(self.0.join("runs"));
-        let _ = std::fs::remove_dir(&self.0);
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 fn record(root: &ShowRoot, id: &str) -> Result<Record> {

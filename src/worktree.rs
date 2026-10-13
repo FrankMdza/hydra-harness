@@ -1205,6 +1205,20 @@ pub fn diff_stat<G: GitLocation + ?Sized>(worktree: &G, index: &Path, base: &str
     diff_tree_stat(worktree, base, &head)
 }
 
+/// Measures changes with an index owned by this reader, removed on every return.
+pub fn diff_stat_for_reader<G: GitLocation + ?Sized>(worktree: &G, base: &str) -> Result<Stat> {
+    let directory = std::env::temp_dir().join(format!("hydra-diff-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir(&directory)?;
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let scratch = Scratch(directory);
+    diff_stat(worktree, &scratch.0.join("index"), base)
+}
+
 /// Measures two captured trees without staging the worktree again.
 pub fn diff_tree_stat<G: GitLocation + ?Sized>(
     worktree: &G,

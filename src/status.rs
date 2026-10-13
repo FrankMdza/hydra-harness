@@ -3,10 +3,8 @@
 //! It reconciles live pids against open run files and reports the worktrees left
 //! behind. **It appends to no run file**, not even one it finds abandoned:
 //! contract 6 gives a file one writer at a time and ownership transfers only to a
-//! process that takes over the writing, which this never does. The one thing it
-//! does write is the diff stat's scratch index in the run's own spawn directory,
-//! the same file `hydra run` stages through, and that is a git index rather than
-//! anything a reader of the record can see.
+//! process that takes over the writing, which this never does. Diff stats use
+//! a temporary index owned and removed by the reader, outside the run layout.
 //!
 //! **The worked scenario of harness spec 10 is what this command is for.** You
 //! close the Ghostty window on a session with two children in flight. Hydra dies,
@@ -140,7 +138,7 @@ pub fn one(layout: &Layout, run_id: &str) -> Result<String> {
 /// [`one`], against the home directory named rather than discovered. See
 /// [`all_in`]'s doc comment for why a test needs this.
 pub fn one_in(layout: &Layout, run_id: &str, home: &Path) -> Result<String> {
-    let report = build(layout, run_id, home)?;
+    let report = build(layout, run_id, home, true)?;
     Ok(serde_json::to_string_pretty(&report)?)
 }
 
@@ -148,19 +146,26 @@ pub fn one_in(layout: &Layout, run_id: &str, home: &Path) -> Result<String> {
 /// `result`. `hydra show <id>` prints exactly this, with no `--events`.
 pub fn projection(layout: &Layout, run_id: &str) -> Result<serde_json::Value> {
     let home = crate::env::real_home()?;
-    let report = build(layout, run_id, &home)?;
+    let report = build(layout, run_id, &home, true)?;
+    Ok(serde_json::to_value(report.result)?)
+}
+
+/// The projection for a read command, without harvesting an abandoned run.
+pub fn read_projection(layout: &Layout, run_id: &str) -> Result<serde_json::Value> {
+    let home = crate::env::real_home()?;
+    let report = build(layout, run_id, &home, false)?;
     Ok(serde_json::to_value(report.result)?)
 }
 
 /// The full report `one` prints, built once so `projection` can take the
 /// field it wants rather than parsing the string back apart.
-fn build(layout: &Layout, run_id: &str, home: &Path) -> Result<Report> {
+fn build(layout: &Layout, run_id: &str, home: &Path, harvest: bool) -> Result<Report> {
     let path = layout.run_file(run_id);
     if !path.is_file() {
         bail!("no run record at {}", path.display());
     }
     let mut view = crate::live::read_view(&path)?;
-    if is_abandoned_interactive(&view) {
+    if harvest && is_abandoned_interactive(&view) {
         match crate::interactive::harvest_in(layout, run_id, None, home) {
             Ok(_) => view = crate::live::read_view(&path)?,
             Err(err) => eprintln!("hydra: could not harvest {run_id}: {err:#}"),

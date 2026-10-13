@@ -1,7 +1,7 @@
 # 314 - `hydra show` writes a `spawn/<run-id>/` directory for every run it reads
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session. Build 312's `report tickets` points `HYDRA_ROOT` at a
 temporary layout whose `runs/` is a symlink to the real records and calls `hydra show <id>
@@ -47,3 +47,43 @@ the two tests; `cargo nextest run --release --workspace` and `cargo test --relea
 --doc` green. Amend `IMPLEMENTATION.md` where `show` or the replay is described.
 
 ## Outcome
+
+Built in this run. The writer was `worktree::seed_tree`, `src/worktree.rs:1163`:
+its `create_dir_all(parent)` ran before the checkout could be opened. The call
+came from `status::projection` through `run::result` and the closing diff stat,
+not from gate replay or the trusted checkout reader, both already read-only.
+The fixture copied into `.scratch/hydra/314-repro/runs` was Claude fixture 2,
+with `base_tree` and the trusted parent scope supplied to exercise an ended run
+whose checkout has gone. Before the fix, show succeeded but find showed one
+empty spawn directory; after the fix, only the runs directory and record
+remained. An unmodified fixture without a base did not reproduce the issue, so
+it affects records for which the closing stat is attempted rather than every
+record unconditionally. Reproduction artifacts were removed.
+
+`run::result` now computes the stat with a unique temporary index directory owned
+by the reader and removed by Drop on success or error. Show also uses a projection
+that does not harvest abandoned interactive runs. Other projection callers keep
+their harvest behavior. The ticket report unlinks its runs symlink before
+`remove_dir_all` removes its scratch layout, including anything left by show.
+No dependency was added. IMPLEMENTATION.md documents these changes.
+
+Added two regression tests without modifying existing tests: both show modes
+preserve a recursive snapshot of a scratch root and its record after a checkout
+is gone; report tickets removes its root even when a stub show plants nested
+spawn directories, while the linked record remains unchanged.
+
+Validation: `cargo fmt --all --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` passed;
+`cargo nextest run --release --workspace` passed 1,388 tests, with 4 skipped;
+`cargo test --release --workspace --doc` passed for all eight crates.
+
+Step 5 was skipped as instructed: this run cannot inspect the real machine's
+spawn directory outside its own worktree. The session must count the empty
+spawn directories without matching worktree or record activity. None were deleted.
+
+Step 5, counted by the session on master on 2026-10-13 after the diff above was applied:
+`~/hydra/spawn` held 822 directories and 775 of them were empty. 913 records exist, so most
+spawn directories on this machine were made by reads (`hydra show`, `hydra doctor --walk`,
+the cockpit's projection), not by launches, and `hydra reap`'s sweep has been listing them.
+Nothing was deleted; whether the empty ones go is the human's call, and from here on no read
+makes a new one.

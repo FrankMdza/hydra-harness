@@ -79,3 +79,51 @@ fn tickets_resolve_multiple_ambiguous_missing_and_all_prose_classes() {
     assert!(text.contains("codex\ttest-model\t1\t2\t301\t150.5\t1\t1\t0\t1\t0\t0\t0"));
     assert!(text.contains("unsaid: 1 of 4 tickets"));
 }
+
+#[test]
+fn tickets_removes_its_temporary_root_even_when_show_leaves_directories() {
+    use std::path::PathBuf;
+
+    let base = PathBuf::from("tests").join(format!("ticket-cleanup-{}", std::process::id()));
+    std::fs::create_dir_all(base.join("tickets")).unwrap();
+    std::fs::create_dir_all(base.join("records")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let _cleanup = Cleanup(base.clone());
+    let base = base.canonicalize().unwrap();
+    let id = "01a11111-1111-7000-8000-000000000001";
+    std::fs::write(
+        base.join("tickets/1-cleanup.md"),
+        format!("Type: build\nStatus: resolved\n\n## Outcome\nApplied as it was on {id}.\n"),
+    )
+    .unwrap();
+    let record = base.join("records").join(format!("{id}.jsonl"));
+    let text = "{\"provider\":\"codex\",\"hydra\":{\"type\":\"run_end\"}}\n";
+    std::fs::write(&record, text).unwrap();
+    let stub = base.join("show-stub");
+    std::fs::write(&stub, "#!/bin/sh\nmkdir -p \"$HYDRA_ROOT/spawn/$2/nested\"\nprintf '%s\\n' '{\"projection\":{\"outcome\":\"completed\"},\"events\":[]}'\n").unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_hydra-puppets"))
+        .current_dir(&base)
+        .args(["report", "tickets", "--dir", "tickets", "--runs", "records"])
+        .env("HYDRA_BIN", &stub)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(std::fs::read_dir(&base).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".puppets-report-")
+    }));
+    assert_eq!(std::fs::read_to_string(record).unwrap(), text);
+}
