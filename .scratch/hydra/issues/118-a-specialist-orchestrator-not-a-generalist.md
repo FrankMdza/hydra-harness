@@ -33,4 +33,11 @@ delegation, not of building.
 5. Does this ticket close the "Fine-tuning" line under `## Out of scope` in the map, which the
    training directory already contradicts?
 
+## Panel
+
+Sat on 2026-10-13, degraded (no Grok seat, Gemini as flash): memos in
+`.scratch/hydra/research/118-seat-{opus,gemini,gpt}.md`, readings in `118-panel-readings.md`,
+the session's synthesis and recommendation per question in `118-synthesis.md`. The human
+decides; nothing is written under Answer by the session.
+
 ## Answer
