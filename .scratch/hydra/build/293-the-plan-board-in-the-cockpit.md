@@ -1,7 +1,7 @@
 # 293 - The plan board in the cockpit: who has what, before and after launch
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 
 ## What
