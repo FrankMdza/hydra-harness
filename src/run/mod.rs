@@ -1321,6 +1321,31 @@ fn take_model_flag(argv: &mut Vec<String>) -> Option<String> {
 mod tests {
     use super::*;
 
+    // Re-execute repository fixtures without the object pointers of the launching run.
+    // An explicit composition map would not isolate their setup commands.
+    fn isolated_object_store_test(name: &str) -> bool {
+        const CHILD: &str = "HYDRA_RUN_OBJECT_STORE_TEST_CHILD";
+        let name = format!("run::tests::{name}");
+        if std::env::var(CHILD).as_deref() == Ok(name.as_str()) {
+            return true;
+        }
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env(CHILD, &name)
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "child failed:\n{stdout}\n{stderr}");
+        assert!(
+            stdout.contains(&format!("test {name} ... ok")),
+            "the child did not run the named test:\n{stdout}\n{stderr}"
+        );
+        false
+    }
+
     #[test]
     fn every_name_hydra_sets_travels_to_the_detached_half() {
         // The watcher rebuilds the allowlist from its own environment, so a name
@@ -1345,6 +1370,17 @@ mod tests {
                 Some(run_id),
                 "{provider:?}: the containment marker does not reach the child"
             );
+            for name in ["GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"] {
+                assert!(
+                    !hydra_env.contains_key(name),
+                    "{provider:?}: {name} set without a repo"
+                );
+                assert!(
+                    child_env.vars().all(|(key, _)| key != name),
+                    "{provider:?}: {name} reached a child without a repo"
+                );
+            }
+
             let rebuilt = ChildEnv::build(provider).unwrap().names();
             for name in child_env.names() {
                 assert!(
@@ -1358,6 +1394,10 @@ mod tests {
 
     #[test]
     fn a_run_with_a_repo_is_handed_its_own_object_directory() {
+        if !isolated_object_store_test("a_run_with_a_repo_is_handed_its_own_object_directory") {
+            return;
+        }
+
         // Map ticket 74. The seatbelt denies the parent's `objects/`, so a run
         // whose git is not pointed at its own store cannot `git add` at all.
         let root = std::env::temp_dir().join(format!("hydra-run-objects-{}", std::process::id()));
@@ -1493,6 +1533,12 @@ mod tests {
 
     #[test]
     fn inject_skills_does_not_treat_a_codex_copy_as_a_collision_with_itself() {
+        if !isolated_object_store_test(
+            "inject_skills_does_not_treat_a_codex_copy_as_a_collision_with_itself",
+        ) {
+            return;
+        }
+
         use std::process::Command;
 
         use crate::paths::Layout;
@@ -1571,6 +1617,12 @@ mod tests {
 
     #[test]
     fn a_failed_injection_leaves_the_names_it_wrote_where_the_failure_record_reads_them() {
+        if !isolated_object_store_test(
+            "a_failed_injection_leaves_the_names_it_wrote_where_the_failure_record_reads_them",
+        ) {
+            return;
+        }
+
         // Build ticket 99, H40. `phase_handoff` passes `recording.injected` as
         // the slot and `PostWorktree::fail` composes line 0 from it, so what the
         // slot holds after an error is what the `never_started` record says.

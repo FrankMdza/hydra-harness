@@ -46,3 +46,42 @@ still check that a run with a repo gets its own store and that a run without one
 pointer.
 
 ## Outcome
+
+2026-10-13: partial implementation. Status remains claimed because the suite fails.
+
+Reproduced with cargo test --lib run:: and the inherited object pointers. Three failures:
+- a_run_with_a_repo_is_handed_its_own_object_directory
+- inject_skills_does_not_treat_a_codex_copy_as_a_collision_with_itself
+- a_failed_injection_leaves_the_names_it_wrote_where_the_failure_record_reads_them
+
+The three tests now re-execute themselves in a child test binary with Command::env_remove
+for GIT_OBJECT_DIRECTORY and GIT_ALTERNATE_OBJECT_DIRECTORIES. The parent verifies exit
+status and output showing that the exact named test ran. All original assertions remain.
+The no-repo composition test also checks both maps omit both pointers for all providers.
+No production code or dependency changed. IMPLEMENTATION.md records the remaining failure.
+
+Chose re-execution because compose_child_env and ChildEnv::build take no env source, and
+the actual failures occur in repository setup subprocesses. An explicit composition map
+would not isolate those commands. Contrary to the ticket description, inherited pointers
+did not leak into composition comparisons: setup metadata and commits were missing when
+Hydra read the fixtures after removing those pointers.
+
+The whole-workspace search found no direct std::env::var or var_os reads of the two names
+in test code. Other occurrences inspect export lists or command removals, or remove the
+pointers already. Subprocess inheritance extends beyond the direct reads named by the ticket.
+
+Verification:
+- cargo test --lib run:: passes: all six pass after the fix.
+- cargo build, cargo fmt --all --check, and
+  cargo clippy --workspace --all-targets -- -D warnings: pass.
+- cargo test --release --workspace, twice with the run environment intact: 256 library
+  tests and 11 apprentice tests pass, then cleanup has 12 passing and 34 failing tests
+  each time. Both commands exit 101. Cargo stops at that integration binary.
+- The release workspace command with both pointers set to nonexistent relative paths:
+  256 library tests and 11 apprentice tests pass; all 46 cleanup tests fail, exit 101.
+  No env -u prefix was used in any verification command.
+
+The done condition remains unmet: cleanup repository fixtures also inherit the pointers
+through setup subprocesses. Further integration-fixture isolation and verification beyond
+that first failing binary are needed to make the full workspace green. The requested
+three-test fix is insufficient; this run does not claim two green suites or resolve the ticket.
