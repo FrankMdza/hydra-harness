@@ -468,6 +468,40 @@ fn iterate(value: &Value) -> Result<Vec<Value>> {
     })
 }
 
+/// Whether the verdict `named` picked `plan`. A verdict with a path picked the plan whose
+/// file it names: the panel records the proposer's own `path`, and `choose <file>` the
+/// file's absolute path. One without a path was `choose <provider>`. A composed plan's path
+/// is a file no proposer wrote, so it picks none of them.
+fn picked(plan: &Value, verdict: &Value, named: &Value) -> Result<bool> {
+    let path = py::get(verdict, "path", Value::Null)?;
+    if py::truthy(&path) {
+        return Ok(py::eq(&py::get(plan, "path", Value::Null)?, &path));
+    }
+    Ok(py::eq(&py::get(plan, "provider", Value::Null)?, named))
+}
+
+/// What became of a goal's tasks: how many the human applied, fixed and rejected, and how
+/// many have no verdict yet.
+fn tally(tasks: &Keyed) -> Result<Value> {
+    let mut counts = [0i128; 4];
+    for (_, task) in tasks.iter() {
+        let result = py::item(task, "human_result")?;
+        let at = ["applied", "fixed", "rejected"]
+            .iter()
+            .position(|name| py::eq_str(result, name))
+            .unwrap_or(3);
+        counts[at] += 1;
+    }
+    let mut out = Dict::new();
+    for (name, count) in ["applied", "fixed", "rejected", "pending"]
+        .iter()
+        .zip(counts)
+    {
+        out.set(name, Value::Int(count));
+    }
+    Ok(Value::Dict(out))
+}
+
 /// `labels_for_goal`: run id to label fields, from the state `show_goal` returned and the
 /// log's events.
 pub fn labels_for_goal(shown: &Shown, events: &[Value]) -> Result<Keyed> {
@@ -509,8 +543,30 @@ pub fn labels_for_goal(shown: &Shown, events: &[Value]) -> Result<Keyed> {
             goal_text.clone(),
         )
     };
+    // Build ticket 303: a proposer's row says whether its plan was chosen and, when it was,
+    // how the tasks ended. Two labels on one row, never merged into one.
+    let verdict = py::get(&shown.state, "chosen_plan", Value::Null)?;
+    let named = match &verdict {
+        Value::Null => Value::Null,
+        verdict => py::get(verdict, "chosen", Value::Null)?,
+    };
+    let outcome = tally(&tasks)?;
     for plan in py::list(py::item(&shown.state, "plans")?)? {
-        labels.set(py::item(&plan, "run_id")?.clone(), role("plan_proposer"))?;
+        let chosen = if matches!(named, Value::Null) {
+            Value::Null
+        } else {
+            Value::Bool(picked(&plan, &verdict, &named)?)
+        };
+        let ended = match chosen {
+            Value::Bool(true) => outcome.clone(),
+            _ => Value::Null,
+        };
+        let mut row = role("plan_proposer");
+        if let Value::Dict(fields) = &mut row {
+            fields.set("chosen", chosen);
+            fields.set("outcome", ended);
+        }
+        labels.set(py::item(&plan, "run_id")?.clone(), row)?;
     }
 
     let nothing = || Value::List(Vec::new());
@@ -573,6 +629,40 @@ pub fn collect(home: &Path, env: &Env, stderr: &mut dyn Write) -> Result<Keyed> 
     Ok(labels)
 }
 
+/// `hydra-grader labels count` (build ticket 303): one line per class with its number of
+/// rows, in the order the classes were first met, and for `plan_proposer` how many were
+/// chosen, not chosen, and had no verdict.
+pub fn count(labels: &Keyed, out: &mut dyn Write) -> Result<()> {
+    let mut classes: Vec<(String, usize)> = Vec::new();
+    let mut split = [0usize; 3];
+    for (_, row) in labels.iter() {
+        let class = py::str(&py::get(row, "class", Value::Null)?).lossy();
+        match classes.iter_mut().find(|(name, _)| *name == class) {
+            Some((_, rows)) => *rows += 1,
+            None => classes.push((class.clone(), 1)),
+        }
+        if class == "plan_proposer" {
+            split[match py::get(row, "chosen", Value::Null)? {
+                Value::Bool(true) => 0,
+                Value::Bool(false) => 1,
+                _ => 2,
+            }] += 1;
+        }
+    }
+    for (class, rows) in &classes {
+        write!(out, "{class}\t{rows}")?;
+        if class == "plan_proposer" {
+            let [chosen, not_chosen, none] = split;
+            write!(
+                out,
+                "\tchosen {chosen}\tnot chosen {not_chosen}\tno verdict {none}"
+            )?;
+        }
+        writeln!(out)?;
+    }
+    Ok(())
+}
+
 /// `collect_llm`: every `task-classes-*.jsonl` under the grader home, oldest name first, so
 /// a later file wins on the same run id. A model wrote these, not a human.
 pub fn collect_llm(home: &Path) -> Result<Keyed> {
@@ -606,6 +696,93 @@ mod tests {
 
     fn text(value: &str) -> Value {
         Value::text(value)
+    }
+
+    fn shown(state: &str) -> Shown {
+        let state = json::loads_str(state).unwrap();
+        let tasks = match py::get(&state, "tasks", Value::Null).unwrap() {
+            Value::Dict(tasks) => tasks.iter().map(|(_, task)| task.clone()).collect(),
+            _ => Vec::new(),
+        };
+        Shown { state, tasks }
+    }
+
+    fn row<'a>(labels: &'a Keyed, run_id: &str) -> &'a Value {
+        labels.get(&text(run_id)).unwrap().unwrap()
+    }
+
+    fn task(id: &str, run_id: &str, result: &str) -> String {
+        format!(
+            r#""{id}":{{"id":"{id}","class":"build","grade":"m","text":"t","run_id":"{run_id}","human_result":{result}}}"#
+        )
+    }
+
+    /// Build ticket 303: the proposal whose file the verdict names is chosen and carries the
+    /// tasks' ends; the other is not chosen and carries nothing.
+    #[test]
+    fn a_proposer_row_says_whether_it_was_chosen_and_how_its_tasks_ended() {
+        let tasks = [
+            task("t1", "b1", r#""applied""#),
+            task("t2", "b2", r#""fixed""#),
+            task("t3", "b3", r#""rejected""#),
+            task("t4", "", "null"),
+        ]
+        .join(",");
+        let state = format!(
+            r#"{{"goal_id":"g","goal":{{"text":"the goal"}},"tasks":{{{tasks}}},
+            "plans":[{{"provider":"claude","run_id":"p1","path":"/h/a.md"}},
+                     {{"provider":"codex","run_id":"p2","path":"/h/b.md"}}],
+            "chosen_plan":{{"chosen":"codex","path":"/h/b.md"}}}}"#
+        );
+        let labels = labels_for_goal(&shown(&state), &[]).unwrap();
+        let p1 = row(&labels, "p1");
+        assert!(matches!(
+            py::item(p1, "chosen").unwrap(),
+            Value::Bool(false)
+        ));
+        assert!(matches!(py::item(p1, "outcome").unwrap(), Value::Null));
+        let p2 = row(&labels, "p2");
+        assert!(matches!(py::item(p2, "chosen").unwrap(), Value::Bool(true)));
+        assert_eq!(
+            json::dumps_default(py::item(p2, "outcome").unwrap()),
+            r#"{"applied": 1, "fixed": 1, "rejected": 1, "pending": 1}"#
+        );
+        // A builder's row is what it was.
+        assert!(!matches!(row(&labels, "b1"), Value::Dict(d) if d.get("chosen").is_some()));
+
+        let mut out = Vec::new();
+        count(&labels, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "build\t3\nplan_proposer\t2\tchosen 1\tnot chosen 1\tno verdict 0\n"
+        );
+    }
+
+    /// No verdict, a verdict that failed, `choose <provider>` and a composed plan.
+    #[test]
+    fn chosen_is_null_without_a_verdict_and_false_for_every_proposer_of_a_composed_plan() {
+        let plans = r#"[{"provider":"claude","run_id":"p1","path":"/h/a.md"},
+                        {"provider":"codex","run_id":"p2","path":"/h/b.md"}]"#;
+        let chosen = |verdict: &str| -> Vec<String> {
+            let state = format!(
+                r#"{{"goal_id":"g","goal":null,"tasks":{{}},"plans":{plans},"chosen_plan":{verdict}}}"#
+            );
+            let labels = labels_for_goal(&shown(&state), &[]).unwrap();
+            ["p1", "p2"]
+                .iter()
+                .map(|id| py::repr(py::item(row(&labels, id), "chosen").unwrap()))
+                .collect()
+        };
+        assert_eq!(chosen("null"), ["None", "None"]);
+        assert_eq!(chosen(r#"{"chosen":null,"path":null}"#), ["None", "None"]);
+        assert_eq!(
+            chosen(r#"{"chosen":"claude","path":null}"#),
+            ["True", "False"]
+        );
+        assert_eq!(
+            chosen(r#"{"chosen":"composed","path":"/h/g/plans/composed.md"}"#),
+            ["False", "False"]
+        );
     }
 
     #[test]

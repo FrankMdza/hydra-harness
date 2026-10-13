@@ -34,6 +34,9 @@
 //! `argparse` (`argparse.rs`) and where the data directory is (`data.rs`). It also gave a
 //! pass a lock on the grader home (`collect.rs`).
 //!
+//! Build ticket 303 gives a plan proposer's label whether it was chosen and what became of
+//! its tasks, and counts the rows per class as `hydra-grader labels count` (`labels_cli.rs`).
+//!
 //! There is no `serde_json` here, for the reason `hydra-pyjson` gives.
 
 pub mod argparse;
@@ -47,6 +50,7 @@ pub mod jev_cli;
 pub mod judge;
 pub mod judge_cli;
 pub mod labels;
+pub mod labels_cli;
 pub mod monitor;
 pub mod monitor_cli;
 pub mod originals;

@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use hydra_grader::collect::STACK_BYTES;
 use hydra_grader::labels::{self, Env, LabelsError};
-use hydra_pyjson::json::{self, Value};
+use hydra_pyjson::json::{self, Dict, Value};
 
 const HELPER: &str = env!("CARGO_BIN_EXE_hydra-puppets");
 
@@ -31,6 +31,20 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
 
 fn has(value: &Value, key: &str) -> bool {
     matches!(value, Value::Dict(dict) if dict.get(key).is_some())
+}
+
+/// A label row without the two fields build ticket 303 gave a plan proposer.
+fn before_303(row: &Value) -> Value {
+    let Value::Dict(fields) = row else {
+        return row.clone();
+    };
+    let mut kept = Dict::new();
+    for (key, value) in fields.iter() {
+        if *key != "chosen" && *key != "outcome" {
+            kept.push(key.clone(), value.clone());
+        }
+    }
+    Value::Dict(kept)
 }
 
 fn items(value: &Value) -> &[Value] {
@@ -83,6 +97,7 @@ fn compare() {
     let _ = std::fs::remove_dir_all(&scratch);
 
     let (mut compared, mut refused, mut count, mut verdicts) = (0, 0, 0, 0);
+    let (mut chosen, mut not_chosen) = (0, 0);
     let mut differing = Vec::new();
     for (n, path) in paths.iter().enumerate() {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
@@ -123,10 +138,25 @@ fn compare() {
         let shown = shown.unwrap_or_else(|err| panic!("{label}: {err}"));
         let events = labels::committed_events(&home.join(format!("{goal}.jsonl"))).unwrap();
         let found = labels::labels_for_goal(&shown, &events).unwrap();
-        // As `record.py` wrote them: every pair in order, as text, so NaN equals NaN.
+        // As `record.py` wrote them: every pair in order, as text, so NaN equals NaN. Build
+        // ticket 303 added `chosen` and `outcome` to a proposer's row and to no other; the
+        // Python never had them, so the comparison is over the fields it had.
+        for (_, row) in found.iter() {
+            let proposer =
+                matches!(field(row, "class"), Value::Str(class) if *class == "plan_proposer");
+            assert_eq!(has(row, "chosen"), proposer, "{label}: {row:?}");
+            assert_eq!(has(row, "outcome"), proposer, "{label}: {row:?}");
+            if proposer {
+                match field(row, "chosen") {
+                    Value::Bool(true) => chosen += 1,
+                    Value::Bool(false) => not_chosen += 1,
+                    _ => assert!(matches!(field(row, "outcome"), Value::Null), "{label}"),
+                }
+            }
+        }
         let pairs: Vec<Value> = found
             .iter()
-            .map(|(run_id, row)| Value::List(vec![run_id.clone(), row.clone()]))
+            .map(|(run_id, row)| Value::List(vec![run_id.clone(), before_303(row)]))
             .collect();
         let ours = json::dumps_default(&Value::List(pairs));
         let theirs = string(field(field(&recorded, "labels"), "pairs"));
@@ -144,7 +174,8 @@ fn compare() {
     let _ = std::fs::remove_dir_all(&scratch);
     println!(
         "labels: {compared} goal logs equal with {count} labels, {verdicts} of them with a \
-         human verdict; {refused} logs refused by both"
+         human verdict; {refused} logs refused by both; proposers {chosen} chosen and \
+         {not_chosen} not"
     );
     assert!(
         differing.is_empty(),
@@ -157,4 +188,8 @@ fn compare() {
     assert!(count > 200, "{count} labels");
     assert!(verdicts >= 10, "{verdicts} verdicts");
     assert!(refused > 10, "{refused} refused");
+    assert!(
+        chosen >= 1 && not_chosen >= 1,
+        "{chosen} chosen, {not_chosen} not"
+    );
 }
