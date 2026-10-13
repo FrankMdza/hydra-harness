@@ -3592,6 +3592,14 @@ Build ticket 300 added `hydra-puppets index build`, which prints the build track
 each, and regenerated `plan.md`'s list, which had stopped at ticket 134; a test on a fixture
 directory of three tickets pins the form.
 
+Build ticket 307 adds `hydra-puppets check <path>`, dispatched before resolving a home.
+It shares `write.rs::validated_tasks` with `tasks`: fenced JSON extraction, required keys,
+class and grade names, then graph offences, with the same stderr and exit 1 on refusal.
+A valid file prints its task count and the count with empty `done` on one stdout line.
+It reads only the plan and writes no goal log. The integration test covers clean and empty
+plans, raw newlines, comments, missing keys, unknown classes, duplicate ids, unknown deps
+and cycles, and checks that no home files are written.
+
 Build ticket 299 validates the chosen plan's task array as a graph in `write.rs::tasks`,
 before writing any event. Repeated ids use the fold's key equality, dependencies must name
 a task in that plan, and the graph must have no cycles. A refusal exits 1, names every

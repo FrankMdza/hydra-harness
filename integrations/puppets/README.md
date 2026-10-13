@@ -120,6 +120,8 @@ One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}
 `class` is one of `batch_scripting`, `rust_off_launch_path`, `rust_launch_path`,
 `security_review`, `research`, `docs`, `probe`. `grade` is `low`, `medium`, `high` or `agi`.
 
+`hydra-puppets check <path>` runs the same import checks as `tasks` without a goal or home, prints offences to stderr and exits 1, or prints the task count and count with empty `done` and exits 0.
+
 `tasks` validates the chosen plan as a dependency graph before appending any `task` event.
 Repeated ids, dependencies naming no task in that plan, and dependency cycles refuse the
 import with exit 1; stderr names every duplicate, unknown dependency and task in a cycle,

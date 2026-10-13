@@ -749,6 +749,50 @@ fn task_graph_offences(tasks: &[Value]) -> Result<Vec<PyStr>> {
     Ok(offences)
 }
 
+/// The import checks shared by `tasks` and `check`, in import order.
+fn validated_tasks(plan: &str, err: &mut dyn Write) -> Result<Option<Vec<Value>>> {
+    let tasks = extract_tasks_json(plan)?;
+    for task in &tasks {
+        let missing = missing_keys(task)?;
+        if !missing.is_empty() {
+            let id = py::str(&py::get(task, "id", Value::text("?"))?);
+            eprint(err, &text!("task ", id, " lacks ", missing.join(", ")))?;
+            return Ok(None);
+        }
+        let known = named(py::item(task, "class")?, &TASK_CLASSES)?
+            && named(py::item(task, "grade")?, &TASK_GRADES)?;
+        if !known {
+            let id = py::str(py::item(task, "id")?);
+            eprint(err, &text!("task ", id, " has an unknown class or grade"))?;
+            return Ok(None);
+        }
+    }
+    let offences = task_graph_offences(&tasks)?;
+    if !offences.is_empty() {
+        for offence in offences {
+            eprint(err, &offence)?;
+        }
+        return Ok(None);
+    }
+    Ok(Some(tasks))
+}
+
+/// Check a plan without resolving a home or writing a goal log.
+pub fn check(path: &std::path::Path, out: &mut dyn Write, err: &mut dyn Write) -> Result<i32> {
+    let plan = read_text(path)?;
+    let Some(tasks) = validated_tasks(&plan, err)? else {
+        return Ok(1);
+    };
+    let mut empty_done = 0;
+    for task in &tasks {
+        if !py::truthy(&py::get(task, "done", Value::Null)?) {
+            empty_done += 1;
+        }
+    }
+    writeln!(out, "{} tasks, {empty_done} with empty done", tasks.len())?;
+    Ok(0)
+}
+
 /// `tasks`: import the chosen plan's task array, one `task` event each. Every task is
 /// checked before the first is written.
 pub fn tasks(home: &Home, goal_id: &str, err: &mut dyn Write) -> Result<i32> {
@@ -776,29 +820,9 @@ pub fn tasks(home: &Home, goal_id: &str, err: &mut dyn Write) -> Result<i32> {
         );
     };
     let plan = read_text(&fs_path(path)?)?;
-    let tasks = extract_tasks_json(&plan)?;
-    for task in &tasks {
-        let missing = missing_keys(task)?;
-        if !missing.is_empty() {
-            let id = py::str(&py::get(task, "id", Value::text("?"))?);
-            eprint(err, &text!("task ", id, " lacks ", missing.join(", ")))?;
-            return Ok(1);
-        }
-        let known = named(py::item(task, "class")?, &TASK_CLASSES)?
-            && named(py::item(task, "grade")?, &TASK_GRADES)?;
-        if !known {
-            let id = py::str(py::item(task, "id")?);
-            eprint(err, &text!("task ", id, " has an unknown class or grade"))?;
-            return Ok(1);
-        }
-    }
-    let offences = task_graph_offences(&tasks)?;
-    if !offences.is_empty() {
-        for offence in offences {
-            eprint(err, &offence)?;
-        }
+    let Some(tasks) = validated_tasks(&plan, err)? else {
         return Ok(1);
-    }
+    };
     for task in &tasks {
         append_event(
             home,

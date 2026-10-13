@@ -133,6 +133,11 @@ enum Command {
         #[arg(long)]
         judge: bool,
     },
+    /// validate a plan file without a goal
+    Check {
+        /// plan file
+        path: std::path::PathBuf,
+    },
     /// import tasks from chosen plan
     Tasks {
         /// goal id
@@ -262,6 +267,9 @@ enum ReportCommand {
     },
 }
 fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32> {
+    if let Command::Check { path } = &cli.command {
+        return write::check(path, out, err);
+    }
     let home = Home::from_env()?;
     match cli.command {
         Command::Report {
@@ -342,6 +350,7 @@ fn run(cli: Cli, out: &mut dyn Write, err: &mut dyn Write) -> anyhow::Result<i32
             no_open,
         } => panel::review(&home, &goal, &arg(&task), no_open, out, err),
         Command::PushHunkComments { repo } => panel::push_comments(&repo),
+        Command::Check { .. } => unreachable!("check was dispatched before resolving home"),
         Command::Tasks { goal } => write::tasks(&home, &goal, err),
         Command::Assign { goal } => write::assign(&home, &goal, out, err),
         Command::Frontier { tracker, dir } => {

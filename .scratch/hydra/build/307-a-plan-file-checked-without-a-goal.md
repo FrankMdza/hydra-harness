@@ -1,7 +1,7 @@
 # 307 - A plan file checked without a goal: `hydra-puppets check <plan.md>`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from map 121's measurement: to score thirty plan drafts
 the session had to copy the import rules of `crates/puppets/src/write.rs::tasks` into a
@@ -44,3 +44,29 @@ code; the test above; `cargo fmt --all --check`, `cargo clippy --workspace --all
 -D warnings`, `cargo nextest run --release -p hydra-puppets` green.
 
 ## Outcome
+
+Built `hydra-puppets check <path>` and split the validation half of `write.rs::tasks`
+into `validated_tasks`, which both commands call. The extraction, required-key checks,
+class/grade checks and graph checks stay in their original order, with their original
+messages and early returns. No helpers needed wider visibility. `check` is dispatched
+before `Home::from_env`; it reads the plan and writes no goal log. Success prints
+`N tasks, M with empty done`; missing or false/empty `done` values count as empty.
+
+Added one integration test in `crates/puppets/tests/check.rs` covering the five requested
+inputs, plus missing keys, unknown class, duplicate numeric ids and an empty plan. It
+asserts exact stderr, stdout and exit codes, unchanged plan/home contents, and no new
+home files. Existing tests were left unchanged. Added the command beside `tasks` in the
+puppets README and documented the shared validation in `IMPLEMENTATION.md`.
+
+Ran the command over all thirty proposer Markdown drafts: `ministral/` refused 5 of 15,
+`opus/` refused 0 of 15. The ticket's expected 4 for Ministral was false with the graph
+checks included: four drafts fail JSON parsing (`l1-cli-3.md`, `m1-chars-1.md`,
+`m1-chars-3.md`, `s2-one-test-2.md`), and `l1-cli-2.md` also has three unknown deps.
+It uses `add-chars-to-library` where the id is `add_chars_to_library`, and twice uses
+`json-output-in-cli` where the id is `json_output_in_cli`. Confirmed `tasks` prints the
+same three offences for that real draft and leaves the two-line seeded log unchanged.
+
+Validation green: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`cargo nextest run --release -p hydra-puppets` (97 passed, 1 skipped).
+No dependency added.
