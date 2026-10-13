@@ -34,3 +34,7 @@ outcome label, and count how many goals compose before paying for a share. If mo
 compose, the outcome label is empty and question 2 becomes a build.
 
 ## Answer
+
+## Panel
+
+Two seats sat on 2026-10-13, Opus 5.5 and Gemini 3.8 Flash; the GPT seat died on codex's usage limit at its first turn and there is no Grok seat while Cursor is on the free plan. Memos: `research/122-seat-opus.md`, `122-seat-gemini.md`. The session's synthesis with a recommendation per question: `research/122-synthesis.md`. Its first finding, confirmed in the review of 2026-09-24: no panel composed `ea69da1f`, the session chose a file; and the live panel cannot compose on its own prompt, which never asks for the task array the verdict requires. Nothing under Answer is written; the human answers.
