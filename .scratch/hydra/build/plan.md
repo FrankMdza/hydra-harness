@@ -338,6 +338,10 @@ it.
 - [298 - The cockpit shows the task text `hydra-puppets` composes, not a copy of its wording](298-the-cockpit-shows-the-task-text-puppets-composes.md)
 - [299 - A plan is validated as a graph at import: unique ids, deps that resolve, no cycles](299-a-plan-is-validated-as-a-graph-at-import.md)
 - [300 - The build index catches up: `plan.md` lists every ticket again](300-the-build-index-catches-up.md)
+- [301 - The builder report: acceptance, rejections and cost per task class and per model, from the goal logs](301-the-builder-report-from-the-goal-logs.md)
+- [302 - The suite is green inside a run: three tests stop reading the launcher's git pointers](302-the-suite-is-green-inside-a-run.md)
+- [303 - A plan proposal row carries whether it was chosen and what became of its tasks](303-a-plan-proposal-row-carries-what-became-of-its-tasks.md)
+- [304 - The slowest test binaries, measured and cut](304-the-slowest-test-binaries-measured-and-cut.md)
 
 ## Out of scope
 

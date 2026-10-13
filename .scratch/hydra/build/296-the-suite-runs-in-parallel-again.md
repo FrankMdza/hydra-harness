@@ -38,8 +38,6 @@ its own process. Then `--test-threads=1` goes and the suite runs in parallel wit
 
 ## Outcome
 
-## Outcome
-
 Built by `codex` `gpt-6.1-sol` on Hydra run `01a1340b-146a-7091-a15e-3b7ab34a5281` under
 `standard`, 3.13M tokens, applied to master on 2026-10-13 after the diff was read whole. The two
 test files re-execute the named test in a child of the test binary with `Command::env`, and the
