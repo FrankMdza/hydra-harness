@@ -20,6 +20,8 @@ use serde_json::Value;
 pub struct TaskRow {
     pub id: String,
     pub text: String,
+    /// Worker instructions composed by the helper's `show`.
+    pub task_text: Option<String>,
     pub class: String,
     pub grade: String,
     pub deps: Vec<String>,
@@ -172,9 +174,10 @@ pub struct Approvals {
     /// The table revision the helper folded to.
     pub revision: i64,
     pub approvals: Vec<Approval>,
+    pub task_texts: std::collections::BTreeMap<String, String>,
 }
 
-/// Reads the approvals out of what `show` printed. The rest of the state is
+/// Reads approvals and composed task text out of what `show` printed. The rest is
 /// the cockpit's own fold and is not read here.
 pub fn parse_show(bytes: &[u8]) -> Result<Approvals> {
     let state: Value = serde_json::from_slice(bytes).context("reading what show printed")?;
@@ -202,6 +205,12 @@ pub fn parse_show(bytes: &[u8]) -> Result<Approvals> {
     Ok(Approvals {
         revision,
         approvals,
+        task_texts: state["tasks"]
+            .as_object()
+            .into_iter()
+            .flat_map(|tasks| tasks.iter())
+            .filter_map(|(id, task)| Some((id.clone(), task["task_text"].as_str()?.to_string())))
+            .collect(),
     })
 }
 
@@ -248,6 +257,7 @@ impl Goal {
         self.table_approved = Some(answer.approvals.iter().any(|a| live(a, "table")));
         self.plan_approved = Some(answer.approvals.iter().any(|a| live(a, "plan")));
         for row in &mut self.rows {
+            row.task_text = answer.task_texts.get(&row.id).cloned();
             let given = answer.approvals.iter().any(|approval| {
                 approval.reference.as_deref() == Some(row.id.as_str())
                     && ((approval.kind == "launch" && approval.yes && approval.consumed)
@@ -262,6 +272,7 @@ impl Goal {
         self.table_approved = None;
         self.plan_approved = None;
         for row in &mut self.rows {
+            row.task_text = None;
             row.launch_approved = None;
         }
     }
@@ -381,6 +392,7 @@ fn apply(goal: &mut Goal, event: &Value) -> Option<()> {
                 id: text("id")?,
                 // A log written before a task carried text still shows the task.
                 text: text("text").unwrap_or_default(),
+                task_text: None,
                 class: text("class")?,
                 grade: text("grade")?,
                 deps: deps_of(event),
@@ -463,6 +475,7 @@ fn row_or_default<'a>(goal: &'a mut Goal, task: &str) -> &'a mut TaskRow {
             goal.rows.push(TaskRow {
                 id: task.to_string(),
                 text: String::new(),
+                task_text: None,
                 class: "batch_scripting".to_string(),
                 grade: "low".to_string(),
                 deps: Vec::new(),

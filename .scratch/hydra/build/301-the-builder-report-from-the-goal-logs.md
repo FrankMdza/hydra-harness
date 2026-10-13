@@ -1,7 +1,7 @@
 # 301 - The builder report: acceptance, rejections and cost per task class and per model, from the goal logs
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session, from the map 117 panel (`117-synthesis.md`, question 4),
 where all three seats said the numbers that judge any builder tier come from goal-log events

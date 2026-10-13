@@ -151,11 +151,25 @@ fn join(parts: &[PyStr]) -> PyStr {
 /// `show`: the folded state as indented JSON. An unknown goal prints its empty state.
 pub fn show(home: &Home, goal_id: &str, out: &mut dyn Write) -> Result<i32> {
     let state = fold::fold(goal_id, &log::read_log(home, goal_id)?)?;
-    writeln!(
-        out,
-        "{}",
-        json::dumps(&fold::state_to_value(&state), Some(2))
-    )?;
+    let Value::Dict(mut shown) = fold::state_to_value(&state) else {
+        unreachable!();
+    };
+    let mut tasks = json::Dict::new();
+    if let Some(Value::Dict(folded)) = shown.get("tasks") {
+        for ((key, body), task) in folded.iter().zip(&state.tasks) {
+            let Value::Dict(mut body) = body.clone() else {
+                unreachable!();
+            };
+            body.set(
+                "task_text",
+                Value::Str(crate::launch::worker_task_text(task)),
+            );
+            tasks.push(key.clone(), Value::Dict(body));
+        }
+    }
+    shown.set("tasks", Value::Dict(tasks));
+    let shown = Value::Dict(shown);
+    writeln!(out, "{}", json::dumps(&shown, Some(2)))?;
     Ok(0)
 }
 
@@ -650,4 +664,44 @@ pub fn queue(home: &Home, goal_id: &str, out: &mut dyn Write, err: &mut dyn Writ
         )?;
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod task_text_tests {
+    use super::*;
+
+    #[test]
+    fn show_composes_each_tasks_worker_text() {
+        let dir = std::path::PathBuf::from(format!("show-task-text-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fixture = std::fs::read("tests/fixtures/task-text.jsonl").unwrap();
+        std::fs::write(dir.join("fixture.jsonl"), fixture).unwrap();
+        let home = Home {
+            puppets: dir.clone(),
+            grader: dir.clone(),
+            root: dir.clone(),
+            vendors: None,
+        };
+        let state = fold::fold("fixture", &log::read_log(&home, "fixture").unwrap()).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(show(&home, "fixture", &mut out).unwrap(), 0);
+        let Value::Dict(shown) = json::loads_bytes(&out).unwrap() else {
+            panic!("show must print an object");
+        };
+        let Some(Value::Dict(tasks)) = shown.get("tasks") else {
+            panic!("show must print tasks");
+        };
+        assert_eq!(tasks.len(), 3);
+        for ((_, value), task) in tasks.iter().zip(&state.tasks) {
+            let Value::Dict(value) = value else {
+                panic!("task must be an object");
+            };
+            let Some(Value::Str(task_text)) = value.get("task_text") else {
+                panic!("task text must be a string");
+            };
+            assert_eq!(task_text, &crate::launch::worker_task_text(task));
+            assert!(py::eq(value.get("run_id").unwrap(), &task.run_id));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

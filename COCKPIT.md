@@ -129,6 +129,9 @@ launch approval and state: planned, waiting approval, live, done or failed. Appr
 come from `hydra-puppets show`; an unavailable answer stays `unknown`. Cards flow across
 the terminal, with one column below 100 cells.
 
+Planned instructions come from the `task_text` field of `hydra-puppets show`, composed by
+the launch function; an older helper shows `task text not available from this hydra-puppets`.
+
 Up/Down or Tab/Shift-Tab selects a card and keeps it visible. PageUp/PageDown, Space/b,
 Home/g and End/G scroll the board. Enter or a click opens the task's detail: the full
 planned instructions, or the exact recorded task once launched, then its outcome,

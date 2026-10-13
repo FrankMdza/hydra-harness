@@ -122,6 +122,7 @@ fn row(
     TaskRow {
         id: id.to_string(),
         text: String::new(),
+        task_text: None,
         class: class.to_string(),
         grade: grade.to_string(),
         deps: Vec::new(),
@@ -5896,11 +5897,14 @@ fn ticket293_snapshot() -> Snapshot {
         "{\"event\":\"assignment\",\"task\":\"beta\",\"provider\":\"codex\",\"model\":\"gpt-5.5\",\"policy\":\"standard\"}\n",
         "{\"event\":\"task\",\"id\":\"gamma\",\"text\":\"Third task\",\"class\":\"docs\",\"grade\":\"low\",\"deps\":[]}\n",
     );
-    Snapshot {
+    let mut snapshot = Snapshot {
         goal: Some(goal::fold("g293", log.as_bytes())),
         read: true,
         ..Snapshot::default()
-    }
+    };
+    let shown = goal::parse_show(br#"{"revision":5,"approvals":[],"tasks":{"alpha":{"task_text":"First task\nFull instructions from the helper"}}}"#).unwrap();
+    snapshot.goal.as_mut().unwrap().fill_approvals(&shown);
+    snapshot
 }
 
 #[test]
@@ -6021,5 +6025,50 @@ fn ticket293_board_tracks_runs_and_selection_through_scrolling() {
     assert!(screen_text(&buf).contains("Third task"));
     app.handle(&click(rect.x + 1, rect.y + 1));
     assert_eq!(app.open_run_id().as_deref(), Some("run-2"));
+    std::fs::remove_dir_all(layout.root()).unwrap();
+}
+
+#[test]
+fn ticket298_detail_reads_show_text_and_reports_an_older_helper() {
+    let layout = scratch("298-task-text");
+    let mut snapshot = ticket293_snapshot();
+    let goal = snapshot.goal.as_mut().unwrap();
+    let shown = goal::parse_show(br#"{"revision":5,"approvals":[],"tasks":{"alpha":{"task_text":"Composed by the worker prompt\nIncluding its current reporting instructions"}}}"#).unwrap();
+    goal.fill_approvals(&shown);
+    assert_eq!(
+        goal.rows[0].task_text.as_deref(),
+        Some("Composed by the worker prompt\nIncluding its current reporting instructions")
+    );
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot.clone());
+    app.handle(&key(KeyCode::Char('t')));
+    app.handle(&key(KeyCode::Enter));
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(text.contains("Composed by the worker prompt"), "{text}");
+    assert!(
+        text.contains("Including its current reporting instructions"),
+        "{text}"
+    );
+    assert!(!text.contains("Full instructions"), "{text}");
+
+    let old = goal::parse_show(
+        br#"{"revision":5,"approvals":[],"tasks":{"alpha":{"text":"First task"}}}"#,
+    )
+    .unwrap();
+    snapshot.goal.as_mut().unwrap().fill_approvals(&old);
+    app.set_snapshot(snapshot.clone());
+    let text = screen_text(&draw_app(&mut app, AREA));
+    assert!(
+        text.contains("task text not available from this hydra-puppets"),
+        "{text}"
+    );
+    assert!(!text.contains("Full instructions"), "{text}");
+
+    let stale = goal::parse_show(
+        br#"{"revision":4,"approvals":[],"tasks":{"alpha":{"task_text":"Outdated prompt"}}}"#,
+    )
+    .unwrap();
+    snapshot.goal.as_mut().unwrap().fill_approvals(&stale);
+    assert_eq!(snapshot.goal.as_ref().unwrap().rows[0].task_text, None);
     std::fs::remove_dir_all(layout.root()).unwrap();
 }

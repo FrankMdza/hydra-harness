@@ -12,6 +12,7 @@
 //! read back with `show` and `pending --json`, and those must be equal too.
 //!
 //! These are normalized, and only these:
+//! - Build 298 adds `task_text` to `show`; only that field is removed for comparison.
 //! - `pending --json` prints an `argv` that starts with the command that records the
 //!   approval. For the Python that is two elements, its `sys.executable` and its own path;
 //!   since build 196 the Rust prints one, its own path. Only that pair is replaced, by the
@@ -703,6 +704,9 @@ fn compare_read(job: &Job, home: &Path, root: &Path, report: &mut Report) {
     {
         let mut py = py.masked(&rec.home, &rec.root);
         let mut rs = rs.masked(home, root);
+        if args[0] == "show" && rs.code == 0 {
+            rs.stdout = historical_show(&rs.stdout);
+        }
         if args[0] == "pending" {
             py.stdout = mask_argv0(&py.stdout, &rec.python, &script, &helper());
         }
@@ -3987,4 +3991,25 @@ fn write_the_jobs_record_py_runs() {
     visit_symlink(&root, true, &mut |job, home| job.write(home, &root));
     std::fs::create_dir_all(jobs.join("python")).unwrap();
     std::fs::write(jobs.join("python/sort-cases.jsonl"), sort_cases_text()).unwrap();
+}
+
+// Build 298's new field is checked against the composer in read's unit test.
+fn historical_show(stdout: &str) -> String {
+    // Keep duplicate object keys (numeric and string task ids can print the same key).
+    // Indented dumps puts the new string field on one line, after human_result.
+    let mut lines = stdout.split_inclusive('\n').peekable();
+    let mut historical = String::new();
+    while let Some(line) = lines.next() {
+        if lines
+            .peek()
+            .is_some_and(|next| next.starts_with("      \"task_text\": "))
+        {
+            historical.push_str(line.strip_suffix(",\n").unwrap());
+            historical.push('\n');
+            lines.next();
+        } else {
+            historical.push_str(line);
+        }
+    }
+    historical
 }

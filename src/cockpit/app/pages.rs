@@ -224,19 +224,13 @@ impl App {
                 .run_id
                 .as_ref()
                 .and_then(|id| self.snapshot.cards.iter().find(|c| &c.run_id == id));
-            let planned = format!(
-                "{}\n\nDone means: {}\n\nWhen you report back, start with a section headed \"Not confirmed\": every claim you could not check yourself, and where you looked. Then say what changed.",
-                row.text,
-                row.done.as_deref().filter(|d| !d.is_empty()).unwrap_or(
-                    "not stated by the plan; say in your report what you took it to be."
-                )
-            );
             let task = row
                 .run_id
                 .as_ref()
                 .and_then(|id| self.snapshot.run_info.get(id))
                 .and_then(|info| info.task.as_deref())
-                .unwrap_or(&planned);
+                .or(row.task_text.as_deref())
+                .unwrap_or("task text not available from this hydra-puppets");
             let mut lines = vec![
                 Line::raw(format!("task {}", row.id)),
                 Line::raw("task text"),

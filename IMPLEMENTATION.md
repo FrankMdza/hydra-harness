@@ -4314,6 +4314,9 @@ the task detail. That detail shows the full planned worker instructions (includi
 definition of done), or the recorded launch text, then outcome, tokens and `result_text` marked
 with `marker::mark` and a delimiter minted when the detail opened (map 105). `c` opens the run
 graph over it; Left, Backspace or Esc returns from the detail to the board, and `t` closes both.
+Since build ticket 298, planned instructions come from the `task_text` field of `show`,
+composed by `worker_task_text` in Puppets; an older helper leaves the detail saying
+`task text not available from this hydra-puppets`.
 The board retains the goal text, revision, table and plan approvals, panel verdict lines, and
 each task's class, policy, deps, status and run id. Board and detail read only the existing
 snapshot, with no new reader. The rows are folded in

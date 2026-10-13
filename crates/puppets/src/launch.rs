@@ -756,7 +756,7 @@ fn next_attempt(home: &Home, goal_id: &str, task: &Value) -> Result<Value> {
 /// `worker_task_text`: what a worker run is launched with. The task text, the plan's own
 /// definition of done or an admission that it stated none, and a standing ask to report
 /// what the run could not confirm before what it changed.
-fn worker_task_text(task: &TaskState) -> PyStr {
+pub(crate) fn worker_task_text(task: &TaskState) -> PyStr {
     let done = if py::truthy(&task.done) {
         py::str(&task.done)
     } else {

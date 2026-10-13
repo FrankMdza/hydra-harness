@@ -1,0 +1,5 @@
+{"event":"goal","text":"Task text fixture","repo":".","base_sha":"fixture"}
+{"event":"task","id":"planned","text":"Build the fixture","done":"the fixture passes","class":"docs","grade":"low","deps":[],"paths":[]}
+{"event":"task","id":"no-done","text":"Inspect the fixture","class":"docs","grade":"low","deps":[],"paths":[]}
+{"event":"task","id":"launched","text":"Already launched","done":"reviewed","class":"docs","grade":"low","deps":[],"paths":[]}
+{"event":"run","task":"launched","attempt":1,"run_id":"fixture-run"}

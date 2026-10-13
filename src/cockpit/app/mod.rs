@@ -1525,6 +1525,7 @@ mod tests {
             .map(|(i, id)| TaskRow {
                 id: format!("task{i}"),
                 text: String::new(),
+                task_text: None,
                 class: String::new(),
                 grade: String::new(),
                 deps: Vec::new(),
