@@ -10,6 +10,15 @@ Measured on 2026-10-13 with two clean `cargo build --all-targets`: 23 s and 1.3 
 link-time claim did not show and the disk one did. Panics still name file and line.
 `CARGO_PROFILE_DEV_DEBUG=2 cargo build` restores full debuginfo for a debugger session.
 
+**Release disables local thin LTO since build ticket 310.** The root `[profile.release]`
+sets only `lto = "off"`. Three warm `touch src/lib.rs` workspace release builds had a
+15.313 s median on defaults and 12.342 s with off, a 19.4% reduction; a restored-default/off
+pair confirmed 15.822 s against 12.369 s (21.8%). One-minute loads were 12-13 for the
+original defaults, 16-19 for off, and 9-10 for the confirmation. Explicit codegen-units 16
+saved nothing (15.447 s median); release already has no debuginfo and `ld64.lld` was absent.
+The ticket records all repetitions and three load averages. Runtime throughput was not
+benchmarked. The dev profile remains as above.
+
 Read it before trusting a run record written by this binary. **A record whose `policy`
 is null was written before the gate reached a provider.** Ticket 02 wired it, and every
 record written after that carries the policy that was in force and the sha of the
@@ -2829,6 +2838,20 @@ build in a checkout `create` made from a parent holding a 413 MB, 1,963-entry `t
 compiled the 8 workspace crates in 37.7 s, and again in 0.22 s. The clone did not show in
 `create`'s time, 0.91 s against 1.02 s without a `target/`. The parent's real `target/`, 15 GB
 with `debug/`, was not measured from inside a run.
+
+**Build ticket 310 measured the first real launched worktree with the cloned cache.**
+Before building, its `target/` already held `debug/`, `release/`, and `CACHEDIR.TAG`.
+The first workspace release build took 22.008 s at one-minute loads 4.86 to 6.68.
+Touching hydra rebuilt its library and binary in 15.696 s (load 6.35 to 6.88), with
+14.66 s in the library, of which 10.52 s was codegen. Touching pyjson rebuilt twelve units
+in 7.679 s (6.10 to 6.57), with grader on the critical path. The first nextest no-run
+was 69.832 s (6.02 to 10.29); a warm hydra edit took 51.678 s (16.45 to 13.33),
+including 43.67 s of Cargo compilation. Only hydra's 43 Cargo test-harness units relink
+on that edit; the rest stay cached. A supplementary system-cc instrument measured 5.044 s
+summed across those links at loads 24.06 to 17.71, with the toolchain stripping warning
+and the limits documented in the ticket. These are overlapping unit sums, not wall-clock
+link time. The Outcome carries the unit tables, critical chains, load triples, and
+profile comparisons; the release setting and its gain are recorded beside build 295.
 
 ## What a rate-limited run really looks like
 

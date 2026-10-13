@@ -49,7 +49,7 @@ the signal you have reached the edge of the map. Take a map ticket only when the
 
 Since build 305 the session runs `cargo nextest run --release --workspace` and then `cargo test --release --workspace --doc`, which together take half of what `cargo test --release --workspace` takes; that one still works and is what CI runs.
 
-The dev profile carries line tables only; `CARGO_PROFILE_DEV_DEBUG=2 cargo build` restores full debuginfo for a session that needs the debugger.
+The dev profile carries line tables only; `CARGO_PROFILE_DEV_DEBUG=2 cargo build` restores full debuginfo for a session that needs the debugger. Since build 310 the release profile sets `lto = "off"`, which cut the warm edit build from 15.3 s to 12.3 s.
 
 `.scratch/hydra/build/plan.md` indexes the build and `.scratch/hydra/build/NN-slug.md` are its
 tickets, same format as the map's, `Type: build`. Start a session like this:
