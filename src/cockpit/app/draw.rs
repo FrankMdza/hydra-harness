@@ -844,14 +844,49 @@ impl App {
             return;
         };
         let title = format!(" tasks of {} ", goal.id);
-        let body = self.goal_table_lines();
+        self.hits.goal_cards.clear();
+        let width = area.width.saturating_sub(2).max(1) as usize;
+        if self.goal_task.is_none() {
+            let header = self
+                .goal_header()
+                .iter()
+                .map(|line| super::text::wrapped_rows(line, width))
+                .sum::<usize>();
+            let columns = Self::board_columns(width);
+            let cell_width = width / columns;
+            for index in 0..goal.rows.len() {
+                let top = header + index / columns * 14;
+                let start = top.max(self.goal_table_scroll as usize);
+                let end = (top + 13)
+                    .min(self.goal_table_scroll as usize + area.height.saturating_sub(2) as usize);
+                if start < end {
+                    self.hits.goal_cards.push((
+                        Rect::new(
+                            area.x + 1 + (index % columns * cell_width) as u16,
+                            area.y + 1 + (start - self.goal_table_scroll as usize) as u16,
+                            cell_width as u16,
+                            (end - start) as u16,
+                        ),
+                        index,
+                    ));
+                }
+            }
+        }
+        let body = self.goal_table_lines(width);
         let block = Block::bordered()
             .title(title)
             .title_style(Style::default().add_modifier(Modifier::BOLD));
         Paragraph::new(body)
             .block(block)
             .wrap(Wrap { trim: false })
-            .scroll((self.goal_table_scroll, 0))
+            .scroll((
+                if self.goal_task.is_some() {
+                    self.goal_task_scroll
+                } else {
+                    self.goal_table_scroll
+                },
+                0,
+            ))
             .render(area, buf);
     }
 

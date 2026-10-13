@@ -121,6 +121,8 @@ pub struct Hits {
     pub goal_table_page: Rect,
     /// The run graph, when `c` opened it.
     pub graph_page: Rect,
+    /// Visible plan cards and their task indices.
+    pub goal_cards: Vec<(Rect, usize)>,
     /// The policy pane, while it is up, how many runs it had rows for, and
     /// the offset of its last page.
     pub policy_pane: Rect,
@@ -171,6 +173,9 @@ pub struct App {
     run_page_area: Rect,
     /// The goal's table over the cockpit, build ticket 263.
     goal_table_open: bool,
+    goal_task: Option<String>,
+    goal_task_scroll: u16,
+    goal_task_token: String,
     goal_table_scroll: u16,
     goal_table_place: Option<CockpitPlace>,
     goal_table_area: Rect,
@@ -265,6 +270,9 @@ impl App {
             page_stack: Vec::new(),
             run_page_area: Rect::default(),
             goal_table_open: false,
+            goal_task: None,
+            goal_task_scroll: 0,
+            goal_task_token: String::new(),
             goal_table_scroll: 0,
             goal_table_place: None,
             goal_table_area: Rect::default(),
@@ -470,6 +478,9 @@ impl App {
     pub fn open_run_id(&self) -> Option<String> {
         if let Some(id) = &self.graph_open {
             return Some(id.clone());
+        }
+        if let Some(row) = self.goal_task_row() {
+            return row.run_id.clone();
         }
         match &self.opened {
             Some(Opened::Run(id)) => Some(id.clone()),
@@ -812,9 +823,31 @@ impl App {
                 return Effect::None;
             }
         }
-        if self.goal_table_open {
+        if self.goal_table_open && self.graph_open.is_none() {
+            if matches!(key.code, KeyCode::Left | KeyCode::Backspace | KeyCode::Esc)
+                && self.goal_task.take().is_some()
+            {
+                return Effect::Refresh;
+            }
             if matches!(key.code, KeyCode::Left | KeyCode::Backspace) {
                 return self.close_goal_table();
+            }
+            if self.goal_task.is_none() {
+                match key.code {
+                    KeyCode::Enter => return self.open_goal_task(),
+                    KeyCode::Tab | KeyCode::Down => {
+                        self.move_goal_card(true);
+                        return Effect::None;
+                    }
+                    KeyCode::BackTab | KeyCode::Up => {
+                        self.move_goal_card(false);
+                        return Effect::None;
+                    }
+                    _ => {}
+                }
+            }
+            if key.code == KeyCode::Enter {
+                return Effect::None;
             }
             if self.goal_table_scroll_key(key) {
                 return Effect::None;
@@ -1090,6 +1123,13 @@ impl App {
     /// What `Enter` would open from the focused panel; on the detail, what
     /// it has open.
     fn selected_item(&self) -> Option<Opened> {
+        if self.goal_table_open {
+            return self
+                .goal_task_row()
+                .or_else(|| self.snapshot.goal.as_ref()?.rows.get(self.table_selected))
+                .and_then(|row| row.run_id.clone())
+                .map(Opened::Run);
+        }
         match self.focus {
             Focus::Table => self
                 .snapshot
@@ -1129,6 +1169,16 @@ impl App {
         {
             return Effect::None;
         }
+        if self.goal_table_open {
+            if self.graph_open.is_none()
+                && self.goal_task.is_none()
+                && let Some((_, index)) = self.hits.goal_cards.iter().find(|(r, _)| r.contains(at))
+            {
+                self.table_selected = *index;
+                return self.open_goal_task();
+            }
+            return Effect::None;
+        }
         if let Some((_, index)) = self.hits.table_rows.iter().find(|(r, _)| r.contains(at)) {
             self.focus = Focus::Table;
             self.table_selected = *index;
@@ -1150,7 +1200,11 @@ impl App {
     }
 
     fn wheel(&mut self, at: Position, down: bool) -> Effect {
-        if self.on_run_page() && self.hits.run_page.contains(at) {
+        if self.on_run_page()
+            && !self.goal_table_open
+            && self.graph_open.is_none()
+            && self.hits.run_page.contains(at)
+        {
             let step = if down { 3 } else { -3 };
             self.scroll_by(self.hits.run_page, Scrolled::RunPage, step);
             return Effect::None;
@@ -1162,7 +1216,15 @@ impl App {
         }
         if self.goal_table_open && self.hits.goal_table_page.contains(at) {
             let step = if down { 3 } else { -3 };
-            self.scroll_by(self.hits.goal_table_page, Scrolled::GoalTable, step);
+            self.scroll_by(
+                self.hits.goal_table_page,
+                if self.goal_task.is_some() {
+                    Scrolled::GoalTask
+                } else {
+                    Scrolled::GoalTable
+                },
+                step,
+            );
             return Effect::None;
         }
         if self.policy_pane {

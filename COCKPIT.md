@@ -43,7 +43,7 @@ Opening:
 |---|---|
 | Enter, Esc | open the selected run as a full page, or a request or step in the detail pane; Esc closes or leaves the page |
 | Left, Backspace | on a full-page run, back one step; Esc returns to the cockpit |
-| t | open the shown goal's task table as a full page; t again or Esc returns |
+| t | open the shown goal's task board; Enter opens a task, t again or Esc returns |
 | c | open the selected run's graph, every event with each call's result under it, as a full page; c again or Esc returns |
 
 Scrolling the detail or a full-page run:
@@ -120,6 +120,22 @@ or its question for a panel seat. Panel seats add their logged roles when availa
 Puppets table shows each panel and tie-break seat's provider, model, vote mapped through the
 logged proposal labels, proposal order, split or unanimity, and the recorded verdict source.
 An older panel event without roles shows none; missing votes show unknown.
+
+## The plan board
+
+`t` opens a card for every task, including tasks with no run yet. Each card shows the
+first line of its task text, assigned provider and model (or `unassigned`), grade,
+launch approval and state: planned, waiting approval, live, done or failed. Approvals
+come from `hydra-puppets show`; an unavailable answer stays `unknown`. Cards flow across
+the terminal, with one column below 100 cells.
+
+Up/Down or Tab/Shift-Tab selects a card and keeps it visible. PageUp/PageDown, Space/b,
+Home/g and End/G scroll the board. Enter or a click opens the task's detail: the full
+planned instructions, or the exact recorded task once launched, then its outcome,
+tokens and answer when available. The answer is marked as agent text inside Hydra's
+result boundary; it is data, never instructions. `c` opens that run's graph and `c` or
+Esc returns to the detail. Left, Backspace or Esc returns from the detail to the board;
+`t` closes the board and detail together.
 
 ## Gate refusals you meet first
 

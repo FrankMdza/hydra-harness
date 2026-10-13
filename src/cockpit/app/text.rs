@@ -117,7 +117,7 @@ pub(super) fn wrap_plain(text: &str, width: usize) -> Vec<String> {
 /// `text` in at most `room` terminal columns. Text that does not fit ends in
 /// `~`, counted inside `room`, and a wide character that would straddle the
 /// edge is left out rather than split.
-fn cut_to_columns(text: &str, room: usize) -> String {
+pub(super) fn cut_to_columns(text: &str, room: usize) -> String {
     if text.width() <= room {
         return text.to_string();
     }

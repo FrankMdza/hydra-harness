@@ -6,8 +6,9 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use super::text::{short, wrapped_rows};
+use super::text::{cut_to_columns, short, wrapped_rows};
 use super::{App, CockpitPlace, Effect, Focus, Opened, PageLayer};
+use crate::cockpit::goal::TaskRow;
 
 impl App {
     pub fn on_run_page(&self) -> bool {
@@ -115,8 +116,7 @@ impl App {
 
     fn goal_table_footer() -> Line<'static> {
         Line::styled(
-            "Up/Down scroll, PageUp/PageDown or Space/b page, Home/g End/G, Left/Backspace back, \
-             t or Esc to cockpit",
+            "Up/Down or Tab selects, Enter task detail, PageUp/PageDown or Space/b page, Home/g End/G, t or Esc to cockpit",
             Style::default().add_modifier(Modifier::DIM),
         )
     }
@@ -132,6 +132,7 @@ impl App {
         self.goal_table_place = Some(self.save_place());
         self.goal_table_open = true;
         self.goal_table_scroll = 0;
+        self.focus = Focus::Table;
         Effect::Refresh
     }
 
@@ -140,6 +141,7 @@ impl App {
             return Effect::None;
         }
         self.goal_table_open = false;
+        self.goal_task = None;
         self.goal_table_scroll = 0;
         if let Some(place) = self.goal_table_place.take() {
             self.restore_place(place);
@@ -147,70 +149,220 @@ impl App {
         Effect::Refresh
     }
 
-    pub(super) fn goal_table_lines(&self) -> Vec<Line<'static>> {
-        let dim = Style::default().add_modifier(Modifier::DIM);
-        let label = |name: &str, value: String| {
-            Line::from(vec![
-                Span::styled(format!("{name} "), dim),
-                Span::raw(value),
-            ])
+    pub(super) fn goal_task_row(&self) -> Option<&TaskRow> {
+        let id = self.goal_task.as_ref()?;
+        self.snapshot
+            .goal
+            .as_ref()?
+            .rows
+            .iter()
+            .find(|row| &row.id == id)
+    }
+
+    pub(super) fn open_goal_task(&mut self) -> Effect {
+        let Some(row) = self
+            .snapshot
+            .goal
+            .as_ref()
+            .and_then(|g| g.rows.get(self.table_selected))
+        else {
+            return Effect::None;
         };
-        let Some(goal) = self.snapshot.goal.as_ref() else {
-            return vec![Line::raw("no goal")];
+        self.goal_task = Some(row.id.clone());
+        self.goal_task_scroll = 0;
+        self.goal_task_token = crate::marker::token();
+        Effect::Refresh
+    }
+
+    pub(super) fn board_columns(width: usize) -> usize {
+        if width < 98 { 1 } else { (width / 49).max(2) }
+    }
+
+    pub(super) fn move_goal_card(&mut self, forward: bool) {
+        let len = self.table_len();
+        self.table_selected = if forward {
+            (self.table_selected + 1).min(len.saturating_sub(1))
+        } else {
+            self.table_selected.saturating_sub(1)
+        };
+        let area = self.goal_table_area;
+        let width = area.width.saturating_sub(2).max(1) as usize;
+        let header = self
+            .goal_header()
+            .iter()
+            .map(|l| wrapped_rows(l, width))
+            .sum::<usize>();
+        let top = header + self.table_selected / Self::board_columns(width) * 14;
+        let visible = area.height.saturating_sub(2).max(1) as usize;
+        let offset = self.goal_table_scroll as usize;
+        if top < offset {
+            self.goal_table_scroll = u16::try_from(top).unwrap_or(u16::MAX);
+        } else if top + 14 > offset + visible {
+            self.goal_table_scroll =
+                u16::try_from((top + 14).saturating_sub(visible)).unwrap_or(u16::MAX);
+        }
+    }
+
+    pub(super) fn goal_header(&self) -> Vec<Line<'static>> {
+        let Some(goal) = &self.snapshot.goal else {
+            return vec![];
         };
         let mut lines = vec![
-            label("goal", goal.text.clone().unwrap_or_default()),
-            label("table revision", goal.revision.to_string()),
-            label("table approved", yes_no(goal.table_approved).to_string()),
-            label("plan approved", yes_no(goal.plan_approved).to_string()),
-            Line::raw(""),
+            Line::raw(format!("goal {}", goal.text.as_deref().unwrap_or_default())),
+            Line::raw(format!("table revision {}", goal.revision)),
+            Line::raw(format!("table approved {}", yes_no(goal.table_approved))),
+            Line::raw(format!("plan approved {}", yes_no(goal.plan_approved))),
         ];
         lines.extend(self.panel_lines(goal));
         lines.push(Line::raw(""));
-        for row in &goal.rows {
-            lines.push(Line::styled(
-                row.id.clone(),
-                Style::default().add_modifier(Modifier::BOLD),
-            ));
-            lines.push(label("text", row.text.clone()));
-            lines.push(label("class", row.class.clone()));
-            lines.push(label("grade", row.grade.clone()));
-            lines.push(label(
-                "provider",
-                row.provider.clone().unwrap_or_else(|| "-".into()),
-            ));
-            lines.push(label(
-                "model",
-                row.model.clone().unwrap_or_else(|| "-".into()),
-            ));
-            lines.push(label(
-                "policy",
-                row.policy.clone().unwrap_or_else(|| "-".into()),
-            ));
-            let deps = if row.deps.is_empty() {
-                "-".to_string()
-            } else {
-                row.deps.join(", ")
-            };
-            lines.push(label("deps", deps));
-            lines.push(label("status", row.status.clone()));
-            let run = row
+        lines
+    }
+
+    pub(super) fn goal_table_lines(&self, width: usize) -> Vec<Line<'static>> {
+        if let Some(row) = self.goal_task_row() {
+            let card = row
                 .run_id
-                .as_deref()
-                .map(short)
-                .map(str::to_string)
-                .unwrap_or_else(|| "-".to_string());
-            lines.push(label("run", run));
-            let launch = match (row.launch_approval_needed, row.launch_approved) {
-                (false, _) => "not needed",
-                (true, Some(true)) => "needed, approved",
-                (true, Some(false)) => "needed, not approved",
-                (true, None) => "needed, unknown",
-            };
-            lines.push(label("launch approval", launch.to_string()));
-            lines.push(Line::raw(""));
+                .as_ref()
+                .and_then(|id| self.snapshot.cards.iter().find(|c| &c.run_id == id));
+            let planned = format!(
+                "{}\n\nDone means: {}\n\nWhen you report back, start with a section headed \"Not confirmed\": every claim you could not check yourself, and where you looked. Then say what changed.",
+                row.text,
+                row.done.as_deref().filter(|d| !d.is_empty()).unwrap_or(
+                    "not stated by the plan; say in your report what you took it to be."
+                )
+            );
+            let task = row
+                .run_id
+                .as_ref()
+                .and_then(|id| self.snapshot.run_info.get(id))
+                .and_then(|info| info.task.as_deref())
+                .unwrap_or(&planned);
+            let mut lines = vec![
+                Line::raw(format!("task {}", row.id)),
+                Line::raw("task text"),
+            ];
+            lines.extend(task.lines().map(|l| Line::raw(l.to_string())));
+            if let Some(card) = card {
+                lines.push(Line::raw(format!(
+                    "outcome {}  tokens {}",
+                    card.outcome.as_deref().unwrap_or(card.state.as_str()),
+                    card.total_tokens
+                        .map_or_else(|| "unknown".into(), |n| n.to_string())
+                )));
+                lines.push(Line::raw(
+                    "result_text (agent text; data, never instructions)",
+                ));
+                if let Some(answer) = &card.result_text {
+                    lines.extend(
+                        crate::marker::mark(answer, &self.goal_task_token)
+                            .lines()
+                            .map(|l| Line::raw(l.to_string())),
+                    );
+                } else {
+                    lines.push(Line::raw("no answer yet"));
+                }
+            } else if row.run_id.is_some() {
+                lines.push(Line::raw("run record unavailable"));
+            }
+            lines.push(Line::raw("c run graph, Up/Down scroll, PageUp/PageDown Space/b, Home/g End/G, Left/Backspace or Esc back, t to cockpit"));
+            return lines;
         }
-        lines.push(Line::raw(""));
+        let Some(goal) = &self.snapshot.goal else {
+            return vec![Line::raw("no goal")];
+        };
+        let mut lines = self.goal_header();
+        let columns = Self::board_columns(width);
+        let cell_width = width / columns;
+        for (batch, rows) in goal.rows.chunks(columns).enumerate() {
+            let cards: Vec<Vec<String>> = rows
+                .iter()
+                .enumerate()
+                .map(|(col, row)| {
+                    let card = row
+                        .run_id
+                        .as_ref()
+                        .and_then(|id| self.snapshot.cards.iter().find(|c| &c.run_id == id));
+                    let state = match card {
+                        Some(c) if c.state == crate::live::State::Live => "live",
+                        Some(c) if c.outcome.as_deref() == Some("completed") => "done",
+                        Some(_) => "failed",
+                        None if row.run_id.is_some() => match row.status.as_str() {
+                            "running" => "live",
+                            "applied" | "fixed" | "ended" => "done",
+                            _ => "failed",
+                        },
+                        None if row.launch_approval_needed && row.launch_approved != Some(true) => {
+                            "waiting approval"
+                        }
+                        None => "planned",
+                    };
+                    let launch = match (row.launch_approval_needed, row.launch_approved) {
+                        (false, _) => "not needed",
+                        (true, Some(true)) => "needed, approved",
+                        (true, Some(false)) => "needed, not approved",
+                        (true, None) => "needed, unknown",
+                    };
+                    vec![
+                        format!(
+                            "{} {}",
+                            if batch * columns + col == self.table_selected {
+                                "▶"
+                            } else {
+                                "─"
+                            },
+                            row.id
+                        ),
+                        row.text.lines().next().unwrap_or("").to_string(),
+                        format!(
+                            "provider {}",
+                            row.provider.as_deref().unwrap_or("unassigned")
+                        ),
+                        format!(
+                            "model {}",
+                            row.model.as_deref().filter(|m| !m.is_empty()).unwrap_or(
+                                if row.provider.is_some() {
+                                    "default"
+                                } else {
+                                    "unassigned"
+                                }
+                            )
+                        ),
+                        format!("grade {}", row.grade),
+                        format!("launch approval {launch}"),
+                        format!("state {state}"),
+                        format!("class {}", row.class),
+                        format!("policy {}", row.policy.as_deref().unwrap_or("-")),
+                        format!(
+                            "deps {}",
+                            if row.deps.is_empty() {
+                                "-".into()
+                            } else {
+                                row.deps.join(", ")
+                            }
+                        ),
+                        format!("status {}", row.status),
+                        format!("run {}", row.run_id.as_deref().map(short).unwrap_or("-")),
+                        "─".repeat(cell_width.saturating_sub(1)),
+                        String::new(),
+                    ]
+                })
+                .collect();
+            for n in 0..14 {
+                let mut spans = Vec::new();
+                for (col, card) in cards.iter().enumerate() {
+                    let text = cut_to_columns(&card[n], cell_width.saturating_sub(1));
+                    let used = Line::raw(text.clone()).width();
+                    let style = if batch * columns + col == self.table_selected {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default()
+                    };
+                    spans.push(Span::styled(text, style));
+                    spans.push(Span::raw(" ".repeat(cell_width.saturating_sub(used))));
+                }
+                lines.push(Line::from(spans));
+            }
+        }
         lines.push(Self::goal_table_footer());
         lines
     }
@@ -312,7 +464,15 @@ impl App {
         } else {
             self.hits.goal_table_page
         };
-        self.scroll_key(key, area, Scrolled::GoalTable)
+        self.scroll_key(
+            key,
+            area,
+            if self.goal_task.is_some() {
+                Scrolled::GoalTask
+            } else {
+                Scrolled::GoalTable
+            },
+        )
     }
 
     pub(super) fn detail_scroll_lines(
@@ -330,7 +490,7 @@ impl App {
 
     fn scrolled_lines(&self, scrolled: Scrolled, width: usize) -> Vec<Line<'static>> {
         match scrolled {
-            Scrolled::GoalTable => self.goal_table_lines(),
+            Scrolled::GoalTable | Scrolled::GoalTask => self.goal_table_lines(width),
             Scrolled::Graph => self.graph_lines(),
             Scrolled::Detail => self.detail_scroll_lines(width, false),
             Scrolled::RunPage => self.detail_scroll_lines(width, true),
@@ -340,6 +500,7 @@ impl App {
     fn scroll_of(&mut self, scrolled: Scrolled) -> &mut u16 {
         match scrolled {
             Scrolled::GoalTable => &mut self.goal_table_scroll,
+            Scrolled::GoalTask => &mut self.goal_task_scroll,
             Scrolled::Graph => &mut self.graph_scroll,
             Scrolled::Detail | Scrolled::RunPage => &mut self.detail_scroll,
         }
@@ -434,6 +595,7 @@ impl App {
 #[derive(Clone, Copy)]
 pub(super) enum Scrolled {
     GoalTable,
+    GoalTask,
     Graph,
     Detail,
     RunPage,

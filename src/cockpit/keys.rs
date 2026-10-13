@@ -94,7 +94,7 @@ pub const HELP: &[HelpEntry] = &[
     HelpEntry {
         group: HelpGroup::Opening,
         keys: "t",
-        description: "open the shown goal's task table as a full page; t again or Esc returns",
+        description: "open the shown goal's task board; Enter opens a task, t again or Esc returns",
         bindings: &[(KeyCode::Char('t'), MainKey::ToggleGoalTable)],
     },
     HelpEntry {

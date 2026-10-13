@@ -4284,10 +4284,17 @@ model, policy, state, outcome, total tokens, `result_text` and its last fifteen 
 with `r` the last twenty record lines. `Enter` on a task row or lane card opens that run as a
 full page over the cockpit (build ticket 245), with `Left` or `Backspace` stepping back through
 pages and `Esc` returning to the cockpit; the detail pane still scrolls with `PageUp`, `PageDown`,
-`Home` and `End`. `t` opens the shown goal's full task table the same way when a goal is on
-screen: goal text, table revision, whether `approve --table` and the plan still cover that
-revision, the panel verdict lines, and every task's text, class, grade, provider, model, policy,
-deps, status, run id and launch approval. The rows are folded in
+`Home` and `End`. Since build ticket 293, `t` opens the goal as a board of task cards showing
+title, provider, model, grade, launch approval and state before and after launch, with an explicit
+`unassigned` for missing assignments. Cards flow into columns, one below 100 terminal cells;
+Up/Down and Tab/Shift-Tab select, the usual page and end keys scroll, and Enter or a click opens
+the task detail. That detail shows the full planned worker instructions (including the plan's
+definition of done), or the recorded launch text, then outcome, tokens and `result_text` marked
+with `marker::mark` and a delimiter minted when the detail opened (map 105). `c` opens the run
+graph over it; Left, Backspace or Esc returns from the detail to the board, and `t` closes both.
+The board retains the goal text, revision, table and plan approvals, panel verdict lines, and
+each task's class, policy, deps, status and run id. Board and detail read only the existing
+snapshot, with no new reader. The rows are folded in
 [`src/cockpit/goal.rs`](src/cockpit/goal.rs); the three approvals are not. Since build ticket 264
 the reader asks `hydra-puppets show <goal>` beside `pending --json`, at the same ten seconds and
 under the same two-second kill, and reads `revision` and each approval's `kind`, `ref`, `yes`,

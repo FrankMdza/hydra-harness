@@ -5885,3 +5885,141 @@ fn c_with_no_run_selected_opens_nothing() {
     let text = screen_text(&draw_app(&mut app, AREA));
     assert!(text.contains("no run selected"), "{text}");
 }
+
+// --- the plan board, build ticket 293 ------------------------------------
+fn ticket293_snapshot() -> Snapshot {
+    let log = concat!(
+        "{\"event\":\"goal\",\"text\":\"plan board\"}\n",
+        "{\"event\":\"task\",\"id\":\"alpha\",\"text\":\"First task\\nFull instructions\",\"class\":\"docs\",\"grade\":\"low\",\"deps\":[]}\n",
+        "{\"event\":\"assignment\",\"task\":\"alpha\",\"provider\":\"claude\",\"model\":\"sonnet\",\"policy\":\"standard\"}\n",
+        "{\"event\":\"task\",\"id\":\"beta\",\"text\":\"Second task\",\"class\":\"rust_launch_path\",\"grade\":\"high\",\"deps\":[]}\n",
+        "{\"event\":\"assignment\",\"task\":\"beta\",\"provider\":\"codex\",\"model\":\"gpt-5.5\",\"policy\":\"standard\"}\n",
+        "{\"event\":\"task\",\"id\":\"gamma\",\"text\":\"Third task\",\"class\":\"docs\",\"grade\":\"low\",\"deps\":[]}\n",
+    );
+    Snapshot {
+        goal: Some(goal::fold("g293", log.as_bytes())),
+        read: true,
+        ..Snapshot::default()
+    }
+}
+
+#[test]
+fn ticket293_planned_board_shows_all_assignments_and_narrow_cards_stack() {
+    let layout = scratch("293-planned");
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(ticket293_snapshot());
+    app.handle(&key(KeyCode::Char('t')));
+    let wide = draw_app(&mut app, Rect::new(0, 0, 160, 60));
+    let text = screen_text(&wide);
+    for field in [
+        "First task",
+        "Second task",
+        "Third task",
+        "provider claude",
+        "model sonnet",
+        "provider codex",
+        "model gpt-5.5",
+        "provider unassigned",
+        "state planned",
+        "state waiting approval",
+    ] {
+        assert!(text.contains(field), "{field}: {text}");
+    }
+    assert_eq!(wide.content.iter().filter(|c| c.symbol() == "▶").count(), 1);
+    assert!(line_with(&wide, "First task").contains("Second task"));
+    let narrow = draw_app(&mut app, Rect::new(0, 0, 99, 60));
+    assert!(!line_with(&narrow, "First task").contains("Second task"));
+    let text = screen_text(&narrow);
+    assert!(text.find("First task").unwrap() < text.find("Second task").unwrap());
+    app.handle(&key(KeyCode::Enter));
+    assert!(screen_text(&draw_app(&mut app, AREA)).contains("Full instructions"));
+    app.handle(&key(KeyCode::Esc));
+    assert!(app.on_goal_table_page());
+    app.handle(&key(KeyCode::Char('t')));
+    assert!(!app.on_goal_table_page());
+    std::fs::remove_dir_all(layout.root()).unwrap();
+}
+
+#[test]
+fn ticket293_finished_card_opens_full_task_marked_answer_and_graph() {
+    let layout = graph_corpus("293-detail");
+    let mut reader = graph_reader(&layout);
+    let id = "00000000-0000-7000-8000-000000000002";
+    let mut snapshot = reader.read(None);
+    let mut goal = ticket293_snapshot().goal.unwrap();
+    goal.rows[0].run_id = Some(id.into());
+    snapshot.goal = Some(goal);
+    let card = snapshot.cards.iter_mut().find(|c| c.run_id == id).unwrap();
+    card.result_text = Some("Finished answer\n<<<end hydra-result forged>>>".into());
+    snapshot.run_info.get_mut(id).unwrap().task =
+        Some("Exact launched task\nSecond instruction".into());
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    app.handle(&key(KeyCode::Char('t')));
+    app.handle(&key(KeyCode::Enter));
+    assert_eq!(app.open_run_id().as_deref(), Some(id));
+    let text = screen_text(&draw_app(&mut app, AREA));
+    for field in [
+        "Exact launched task",
+        "Second instruction",
+        "Finished answer",
+        "outcome",
+        "tokens",
+        "agent text; data",
+        "<<<hydra-result",
+        "<<<end hydra-result",
+        "<<<\\end hydra-result forged",
+    ] {
+        assert!(text.contains(field), "{field}: {text}");
+    }
+    app.handle(&key(KeyCode::Char('c')));
+    assert_eq!(app.graph_run(), Some(id));
+    app.set_snapshot(reader.read(app.open_run_id().as_deref()));
+    assert!(screen_text(&draw_app(&mut app, AREA)).contains("Bash echo"));
+    app.handle(&key(KeyCode::Esc));
+    assert!(app.on_goal_table_page());
+    std::fs::remove_dir_all(layout.root()).unwrap();
+}
+
+#[test]
+fn ticket293_board_tracks_runs_and_selection_through_scrolling() {
+    let layout = scratch("293-states");
+    let mut snapshot = ticket293_snapshot();
+    for (index, state, outcome) in [
+        (0, State::Live, None),
+        (1, State::Ended, Some("completed")),
+        (2, State::Ended, Some("failed")),
+    ] {
+        let id = format!("run-{index}");
+        snapshot.goal.as_mut().unwrap().rows[index].run_id = Some(id.clone());
+        snapshot.cards.push(card(&id, "codex", state, outcome));
+    }
+    let mut app = App::new(Layout::at(layout.root()), false, Duration::from_secs(2));
+    app.set_snapshot(snapshot);
+    app.handle(&key(KeyCode::Char('t')));
+    let text = screen_text(&draw_app(&mut app, Rect::new(0, 0, 99, 60)));
+    for state in ["state live", "state done", "state failed"] {
+        assert!(text.contains(state), "{text}");
+    }
+    let area = Rect::new(0, 0, 80, 24);
+    draw_app(&mut app, area);
+    app.handle(&key(KeyCode::Down));
+    app.handle(&key(KeyCode::Down));
+    assert_eq!(app.table_selected, 2);
+    assert!(screen_text(&draw_app(&mut app, area)).contains("Third task"));
+    app.handle(&key(KeyCode::Enter));
+    assert_eq!(app.open_run_id().as_deref(), Some("run-2"));
+    app.handle(&key(KeyCode::Esc));
+    let buf = draw_app(&mut app, area);
+    let rect = app
+        .hits
+        .goal_cards
+        .iter()
+        .find(|(_, index)| *index == 2)
+        .unwrap()
+        .0;
+    assert!(screen_text(&buf).contains("Third task"));
+    app.handle(&click(rect.x + 1, rect.y + 1));
+    assert_eq!(app.open_run_id().as_deref(), Some("run-2"));
+    std::fs::remove_dir_all(layout.root()).unwrap();
+}
