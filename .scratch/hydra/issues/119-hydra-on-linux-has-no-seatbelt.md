@@ -27,3 +27,7 @@ enforced"); without it the VM population gets the gate of 2026-09-14 before the 
    `base_tree` enough to tell them apart?
 
 ## Answer
+
+## Panel
+
+Three seats sat on 2026-10-13, Opus 5.5, Gemini 3.8 Flash and GPT Astra; no Grok seat while Cursor is on the free plan. Memos: `research/119-seat-opus.md`, `119-seat-gemini.md`, `119-seat-gpt.md`. The session's synthesis with a recommendation per question: `research/119-synthesis.md`. One finding comes before the questions: Hydra does not build on Linux today (`src/procinfo.rs` is Darwin-only with no cfg gate). Nothing under Answer is written; the human answers.
