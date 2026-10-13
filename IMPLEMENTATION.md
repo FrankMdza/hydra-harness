@@ -5957,6 +5957,17 @@ failure record names what reached the checkout and reap holds it back.
 
 ## CI
 
+**Sessions use nextest since build ticket 305.** `.config/nextest.toml` pins the default
+profile to eight concurrent test processes and zero retries, matching the measurement on
+this eight-core machine. Three warm release workspace runs passed all 1,381 active tests
+across 76 binaries, with the same four ignored tests as cargo test. Including the separate
+`cargo test --release --workspace --doc`, the median was 42.56 s against cargo test
+81.63 s, a 47.9% reduction. The session command is `cargo nextest run --release --workspace`
+followed by that doctest command; `cargo test --release --workspace` remains available.
+Cargo runs test binaries sequentially, although tests within a binary run in parallel.
+CI remains on cargo test; changing its runner is left to the human. The ticket records
+the load averages and an initial cargo-test-only intermittent stop-screen failure.
+
 **Security checks join CI since build ticket 297.** `.github/workflows/security.yml` runs
 cargo-deny for advisories, bans, licenses and sources on `ubuntu-latest` for pull requests,
 pushes to `master` and the weekly schedule; OSV-Scanner checks `Cargo.lock` on pull requests,
