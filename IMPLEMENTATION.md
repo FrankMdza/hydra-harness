@@ -3742,7 +3742,8 @@ repository `review` and `new` read is committed at a fixed time. `sorted`, `str.
 `int()`, `math.lgamma` and `sheet.beta_lower` are recorded too, as CPython 3.14.7 answered, so
 no test starts `python3`. Each test fails when its group holds a fixture no case reads.
 `crates/puppets/tests/grader_labels.rs` is the gate above kept as a test: 147 logs equal with
-291 labels, ten with a human verdict, and 17 that both refuse. It was
+291 labels, ten with a human verdict, and 17 that both refuse. Since build ticket 303 the
+equality is over the fields `labels.py` had, and the 12 proposer rows split 4 chosen, 8 not. It was
 `integrations/grader/tests/test_labels_recorded.py` until build ticket 220 deleted the grader's
 Python; it now runs `hydra-grader`'s `labels.rs` against the `hydra-puppets` cargo builds for
 the test, and gave the same four numbers as the Python test did on the day it was deleted.
@@ -4095,6 +4096,20 @@ binary runs them as `hydra-grader once [--jobs N]`, `watch --interval S [--jobs 
 a thread with a 1 GiB stack, as `hydra-puppets` does, because a record line or a goal log line
 nested thousands deep is read by recursion. `records.iter_records` has no caller in the grader and
 is not ported.
+
+Since build ticket 303, `labels.rs` is no longer `labels.py` alone: a `plan_proposer` row also
+carries `chosen` and `outcome`, and no other class carries either. `chosen` is `null` when the goal
+has no `panel_verdict`, or one whose `chosen` is null. Otherwise it is `true` for the proposal the
+verdict picked and `false` for the rest. A verdict with a `path` picks the proposal whose `path` is
+that file. One without a path, `choose <provider>`, picks by provider. A composed plan picks none,
+so every proposer of a composed goal is `false`. `outcome` is `null` unless `chosen` is `true`.
+Then it holds the counts `applied`, `fixed`, `rejected` and `pending` over the goal's tasks as the
+fold keeps them. `hydra-grader labels count` runs `collect` over the puppets home and prints one
+line per class with its rows, and for `plan_proposer` the split chosen, not chosen, no verdict. The
+dataset row in `collect.rs` picks label fields by name, so neither field reaches the dataset. Both
+equivalence tests, `crates/puppets/tests/grader_labels.rs` and `collect/labels.json` in the
+grader's differential test, compare the rows with the two fields taken off, and check that the
+two are on proposer rows and nowhere else.
 
 Two programs are still started. `hydra show <id> --events` is `HYDRA_BIN` or `hydra`, with
 `HYDRA_ROOT` set to the directory above the runs. `hydra-puppets show -- <goal>` keeps the rule of
@@ -5954,9 +5969,15 @@ environment probe in `src/rungs/evolve.rs` already used a child. CI and the PR t
 longer serialize the suite, and `CLAUDE.md` had no such flag to remove. On 2026-10-13,
 warm-build `cargo test --release --workspace -- --test-threads=1` took **318.21 s** before
 the change, and warm-build `cargo test --release --workspace` took **197.90 s** after it.
-Both ran with `env -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES`, removing
-this Hydra run's object-store environment rather than changing the affected `src/run.rs`
-tests. The existing seatbelt skips, including `launch_phases`, remain in effect.
+Those build 296 measurements removed the object-store environment inherited from Hydra. Since
+build ticket 302, the three affected tests in `src/run/mod.rs` re-execute themselves with
+`Command::env_remove` for both object pointers, isolating their repository setup while
+preserving every assertion. The no-repo composition test also checks both pointers are
+absent. Full-suite verification for build 302 still fails in `tests/cleanup.rs`: 34
+repository fixtures inherit the launching object pointers through their setup commands; with nonsense pointers all 46 fail.
+The three corrected unit tests pass, but making the complete suite independent of those
+pointers needs a broader fixture change than the three tests the ticket identified.
+The existing seatbelt skips, including `launch_phases`, remain in effect.
 
 ## Rough edges worth knowing
 
