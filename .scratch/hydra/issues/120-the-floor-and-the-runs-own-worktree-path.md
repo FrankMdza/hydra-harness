@@ -44,3 +44,7 @@ glob, hits the floor by accident, and the refusal reads like a policy violation 
 
 ## Answer
 
+
+## Panel
+
+Two seats sat on 2026-10-13, Opus 5.5 and Gemini 3.8 Flash; the GPT seat died on codex's usage limit at its first turn and there is no Grok seat while Cursor is on the free plan. Memos: `research/120-seat-opus.md`, `120-seat-gemini.md`. The session's synthesis with a recommendation per question: `research/120-synthesis.md`. Its first finding: the ticket's premise does not hold, the own worktree is already carved out and measured allowed; run `01a1332c` was refused for a heredoc body that named `~/hydra/runs`, and the record does not carry the command. Nothing under Answer is written; the human answers.
