@@ -1,7 +1,7 @@
 # 302 - The suite is green inside a run: three tests stop reading the launcher's git pointers
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from the Outcomes of builds 295 and 296, which both had to
 prefix `cargo test` with `env -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES` to
@@ -85,3 +85,33 @@ The done condition remains unmet: cleanup repository fixtures also inherit the p
 through setup subprocesses. Further integration-fixture isolation and verification beyond
 that first failing binary are needed to make the full workspace green. The requested
 three-test fix is insufficient; this run does not claim two green suites or resolve the ticket.
+
+2026-10-13: second run, resolved. Added tests/common/git.rs, a small command
+constructor that removes GIT_OBJECT_DIRECTORY and GIT_ALTERNATE_OBJECT_DIRECTORIES
+from fixture subprocesses without mutating the parallel test runner environment.
+Twelve integration files use it: tests/cleanup.rs, tests/copilot_repo_and_tools.rs,
+tests/curate.rs, tests/drift.rs, tests/evolve.rs, tests/git_config.rs,
+tests/launch_phases.rs, tests/outcome.rs, tests/record_contract.rs, tests/skills.rs,
+tests/spawn.rs and tests/worktree.rs. The shared helper is a standalone module
+under tests/common/, included directly so fixtures need not import the larger
+record/corpus helpers in tests/common/mod.rs. Explicit fixture object stores are
+still applied after construction in cleanup::run_git. The single constructors
+in crates/grader/tests/originals.rs and crates/puppets/tests/differential.rs remove
+the pointers locally; both already used env_clear. tests/export.rs and
+tests/sandbox_copilot.rs already remove both pointers, and the grader differential
+queue fixture already clears its environment. No production code, assertions or
+dependencies changed. Also updated this ticket and replaced the build ticket 302
+paragraph in IMPLEMENTATION.md with the final subprocess-inheritance mechanism.
+The first nonsense-path pass additionally exposed six copilot failures: its
+fixture script launches git internally. The shared helper now also isolates that
+script command. After this final adjustment, repeated the requested sequence:
+cargo test --release --workspace with the run environment intact, twice, then
+once with GIT_OBJECT_DIRECTORY=.scratch/ticket-302-nonexistent-objects and
+GIT_ALTERNATE_OBJECT_DIRECTORIES=.scratch/ticket-302-nonexistent-alternates
+exported. All three exited 0; each reported 1381 passed, zero failed and four
+ignored across 84 test summaries, including doctests. cleanup passed all 46 in
+each. No env -u prefix was used. cargo build, cargo fmt --all --check and
+cargo clippy --workspace --all-targets -- -D warnings passed. Existing seatbelt
+skips remain. The two inherited git pointers redirected fixture objects into
+the launching run store; Hydra's isolated readers then could not find those
+fixture commits. Cleaning the fixture subprocess environment fixes that mismatch.

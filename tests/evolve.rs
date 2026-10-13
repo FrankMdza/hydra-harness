@@ -3,6 +3,9 @@
 //! Nothing here launches a provider. Every test builds a scratch [`Layout`] under
 //! a temporary directory and calls the library directly.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -885,7 +888,7 @@ fn one_fence_comes_off_and_everything_else_still_blocks() {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(args)
         .current_dir(dir)
         .output()

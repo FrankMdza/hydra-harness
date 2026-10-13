@@ -21,6 +21,9 @@
 //! reason on stdout, because a machine without the binary has nothing to say
 //! about the binary.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -439,7 +442,7 @@ fn a_codex_hook_that_dies_without_answering_lets_the_call_run() {
             "root",
         ][..],
     ] {
-        let out = Command::new("git")
+        let out = fixture_git::command()
             .args(args)
             .current_dir(&repo)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")

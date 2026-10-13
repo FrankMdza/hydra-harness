@@ -3,11 +3,13 @@
 //! A clean checkout would hide exactly the work most delegations are about, so the
 //! seeding is the part worth testing rather than the `git worktree add`.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(args)
         .current_dir(dir)
         .output()

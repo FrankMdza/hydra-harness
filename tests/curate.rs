@@ -9,6 +9,9 @@
 //! machine's own corpus grows while the suite runs, and a test that asserted a
 //! count over it would be a test about the day it was written.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -90,7 +93,7 @@ impl Drop for Fixture {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(args)
         .current_dir(dir)
         .output()

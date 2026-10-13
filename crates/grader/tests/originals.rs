@@ -32,6 +32,8 @@ impl Drop for Scratch {
 
 fn git(repo: &Path, args: &[&str]) -> Output {
     let out = Command::new("git")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
         .args(args)
         .current_dir(repo)
         .env_clear()

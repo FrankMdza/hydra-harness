@@ -9,6 +9,9 @@
 //! **Nothing here reads an exit status to expect an outcome.** Where a test sets
 //! one it is checking that the derivation ignored it.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::Path;
 
 use hydra::outcome::{Outcome, Source, derive};
@@ -860,7 +863,7 @@ fn a_record_with_no_run_id_writes_no_shared_scratch_index() {
         &["config", "user.email", "test@example.invalid"][..],
         &["config", "user.name", "hydra tests"][..],
     ] {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(args)
             .current_dir(&worktree)
             .output()
@@ -915,7 +918,7 @@ fn git_repo_with_untracked_file(worktree: &std::path::Path) {
         &["config", "user.name", "hydra tests"][..],
         &["commit", "--allow-empty", "-qm", "empty base"][..],
     ] {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(args)
             .current_dir(&parent)
             .output()

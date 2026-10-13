@@ -6,6 +6,9 @@
 
 mod common;
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -114,7 +117,7 @@ fn a_written_records_base_tree_is_what_seed_tree_answered_at_launch() {
         &["config", "user.name", "hydra tests"][..],
         &["commit", "--allow-empty", "-q", "-m", "root"][..],
     ] {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(args)
             .current_dir(&repo)
             .output()
@@ -492,7 +495,7 @@ fn a_record_carries_the_paths_its_gate_was_compiled_against() {
     // `git rev-parse --git-common-dir` and git answers that for one alone.
     let repo = root.join("parent");
     std::fs::create_dir_all(&repo).unwrap();
-    let out = std::process::Command::new("git")
+    let out = fixture_git::command()
         .args(["init", "-q", "-b", "main"])
         .current_dir(&repo)
         .output()

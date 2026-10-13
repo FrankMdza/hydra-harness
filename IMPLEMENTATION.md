@@ -5970,14 +5970,17 @@ longer serialize the suite, and `CLAUDE.md` had no such flag to remove. On 2026-
 warm-build `cargo test --release --workspace -- --test-threads=1` took **318.21 s** before
 the change, and warm-build `cargo test --release --workspace` took **197.90 s** after it.
 Those build 296 measurements removed the object-store environment inherited from Hydra. Since
-build ticket 302, the three affected tests in `src/run/mod.rs` re-execute themselves with
-`Command::env_remove` for both object pointers, isolating their repository setup while
-preserving every assertion. The no-repo composition test also checks both pointers are
-absent. Full-suite verification for build 302 still fails in `tests/cleanup.rs`: 34
-repository fixtures inherit the launching object pointers through their setup commands; with nonsense pointers all 46 fail.
-The three corrected unit tests pass, but making the complete suite independent of those
-pointers needs a broader fixture change than the three tests the ticket identified.
-The existing seatbelt skips, including `launch_phases`, remain in effect.
+build ticket 302, fixture git subprocesses strip GIT_OBJECT_DIRECTORY and
+GIT_ALTERNATE_OBJECT_DIRECTORIES at command construction, through
+tests/common/git.rs or the single fixture command in each affected crate test.
+The copilot fixture also strips them before launching its script, which runs git internally.
+The inherited pointers redirected fixture writes into the launching object store;
+Hydra then removed the pointers when reading those repositories and could not find their
+commits. This was subprocess inheritance, not leakage into composition comparisons.
+The three affected tests in src/run/mod.rs still re-execute themselves with both pointers
+removed, preserving every assertion, and the no-repo composition test checks both are absent.
+Fixture commands can still apply their own explicit object stores after construction.
+The existing seatbelt skips, including launch_phases, remain in effect.
 
 ## Rough edges worth knowing
 

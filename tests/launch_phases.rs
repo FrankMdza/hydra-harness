@@ -1,6 +1,9 @@
 //! Build ticket 92, G4: a post-worktree handoff failure through [`hydra::run::run`]
 //! writes `never_started` rather than leaving only an orphan checkout.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,7 +23,7 @@ fn scratch_root() -> PathBuf {
 }
 
 fn git_init(dir: &std::path::Path) {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(["init", "-q", "-b", "main"])
         .current_dir(dir)
         .output()
@@ -30,17 +33,17 @@ fn git_init(dir: &std::path::Path) {
         "git init failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    Command::new("git")
+    fixture_git::command()
         .args(["config", "user.email", "test@example.invalid"])
         .current_dir(dir)
         .status()
         .unwrap();
-    Command::new("git")
+    fixture_git::command()
         .args(["config", "user.name", "hydra tests"])
         .current_dir(dir)
         .status()
         .unwrap();
-    Command::new("git")
+    fixture_git::command()
         .args(["commit", "-q", "--allow-empty", "-m", "seed"])
         .current_dir(dir)
         .status()

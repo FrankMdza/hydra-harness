@@ -13,6 +13,9 @@
 //! stages nothing, verified by ticket 24 on all three builds. That is the kind of
 //! claim that quietly stops being true, so it is asserted here.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -24,7 +27,7 @@ use serde_json::{Value, json};
 // --- the fixture ---------------------------------------------------------
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(args)
         .current_dir(dir)
         .output()

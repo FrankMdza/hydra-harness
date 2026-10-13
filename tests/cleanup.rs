@@ -10,6 +10,9 @@
 //! written in a doc comment is worth what Hermes' was. So the assertions read the
 //! branch back and look for the bytes.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -23,7 +26,7 @@ use serde_json::{Value, json};
 // --- the fixture ---------------------------------------------------------
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(args)
         .current_dir(dir)
         .output()
@@ -1405,7 +1408,7 @@ fn reap_without_trusted_git_metadata_leaves_checkout_untouched() {
 /// `git` in a run's checkout the way the run's own git runs there: with the
 /// object directory `hydra run` hands the child.
 fn run_git(checkout: &Path, env: &[(&'static str, String)], args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(args)
         .current_dir(checkout)
         .envs(env.iter().map(|(name, value)| (*name, value)))
@@ -1421,7 +1424,7 @@ fn run_git(checkout: &Path, env: &[(&'static str, String)], args: &[&str]) -> St
 }
 
 fn has_object(repo: &Path, sha: &str) -> bool {
-    Command::new("git")
+    fixture_git::command()
         .args(["cat-file", "-e", sha])
         .current_dir(repo)
         .status()
@@ -1449,7 +1452,7 @@ fn forge_pack(scratch: &Path, bytes: &str, claimed: &str, store: &Path) {
     let real = git(scratch, &["hash-object", "-w", "evil"])
         .trim()
         .to_string();
-    let mut pack = Command::new("git")
+    let mut pack = fixture_git::command()
         .args(["pack-objects", "-q", "forged"])
         .current_dir(scratch)
         .stdin(std::process::Stdio::piped())
@@ -1615,7 +1618,7 @@ fn other_repository(dir: &Path, content: &str) -> (PathBuf, String) {
 /// Puts in the run's store a pack index naming `sha` and no pack beside it:
 /// a name for reap to list that the store itself cannot serve.
 fn index_naming(repo: &Path, sha: &str, store: &Path) {
-    let mut pack = Command::new("git")
+    let mut pack = fixture_git::command()
         .args(["pack-objects", "-q", "named"])
         .current_dir(repo)
         .stdin(std::process::Stdio::piped())

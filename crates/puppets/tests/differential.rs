@@ -3080,6 +3080,8 @@ fn compare_launch(job: &Job, home: &Path, root: &Path) -> (Option<String>, Vec<S
 fn review_repo(repo: &Path) -> String {
     let git = |args: &[&str]| -> String {
         let out = Command::new("git")
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
             .current_dir(repo)
             .env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())

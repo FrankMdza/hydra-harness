@@ -1,8 +1,10 @@
 //! Copilot repository argument and ungated tool block, build ticket 253.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use hydra::provider::claude::{InteractiveLaunch, interactive_argv};
 
@@ -21,7 +23,7 @@ fn run_copilot(
     repo: Option<&Path>,
     provider: Option<&str>,
 ) -> std::process::Output {
-    let mut cmd = Command::new(copilot_bin());
+    let mut cmd = fixture_git::isolated_command(copilot_bin());
     cmd.env("HYDRA_COPILOT_HOME", home)
         .env("HYDRA_BIN", hydra_stub)
         .arg(model);
@@ -41,7 +43,7 @@ fn hydra_copilot_renders_the_repository_and_hands_off_to_cockpit() {
     let home = scratch.join("copilot-home");
     let other_repo = scratch.join("other-repo");
     std::fs::create_dir(&other_repo).expect("other repo dir");
-    Command::new("git")
+    fixture_git::command()
         .args(["init", "-q"])
         .current_dir(&other_repo)
         .output()
@@ -84,7 +86,7 @@ fn hydra_copilot_renders_the_repository_and_hands_off_to_cockpit() {
         String::from_utf8_lossy(&out.stderr)
     );
     let rendered = std::fs::read_to_string(home.join("CLAUDE.md")).expect("rendered CLAUDE.md");
-    let top = Command::new("git")
+    let top = fixture_git::command()
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(&other_repo)
         .output()
@@ -329,7 +331,7 @@ fn hydra_copilot_in_puppets_mode_installs_the_skill_and_the_loop() {
     std::fs::set_permissions(&stub, perms).expect("chmod stub");
     let repo = manifest().canonicalize().expect("manifest path");
 
-    let out = Command::new(copilot_bin())
+    let out = fixture_git::isolated_command(copilot_bin())
         .env("HYDRA_COPILOT_HOME", &home)
         .env("HYDRA_BIN", &stub)
         .env("HYDRA_COPILOT_MODE", "puppets")
@@ -358,7 +360,7 @@ fn hydra_copilot_in_puppets_mode_installs_the_skill_and_the_loop() {
         .expect("the skill is installed as a project skill");
     assert!(skill.starts_with("---\nname: puppets"));
 
-    let out = Command::new(copilot_bin())
+    let out = fixture_git::isolated_command(copilot_bin())
         .env("HYDRA_COPILOT_HOME", scratch.join("other"))
         .env("HYDRA_BIN", &stub)
         .env("HYDRA_COPILOT_MODE", "nope")

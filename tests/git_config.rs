@@ -11,6 +11,9 @@
 //! Build ticket 105 added four, one per item of the review of build ticket 99
 //! that changed what Hydra's git reads.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -75,7 +78,7 @@ fn committed_repo(base: &Path) -> PathBuf {
 /// Git for the test's own setup, reading neither of the planted files and
 /// using the real ownership while the safe-directory probe assumes another.
 fn clean_git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -348,7 +351,7 @@ fn an_attributes_file_under_xdg_config_home_changes_nothing_reap_commits() {
     let committed = hydra::worktree::commit_everything(&context, "reap", &[]);
 
     let commit = committed.unwrap().expect("the checkout held work");
-    let out = Command::new("git")
+    let out = fixture_git::command()
         .args(["cat-file", "-p", &format!("{commit}:crlf.txt")])
         .current_dir(&repo)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")

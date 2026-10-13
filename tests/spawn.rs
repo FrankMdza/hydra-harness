@@ -7,6 +7,9 @@
 //! canonical document generates into `mcp.json` and what the launch check does
 //! with it.
 
+#[path = "common/git.rs"]
+mod fixture_git;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,7 +40,7 @@ fn layout() -> (Layout, PathBuf) {
 /// An empty repository at `dir`. One `git init` is enough: nothing here commits,
 /// and `--git-common-dir` answers as soon as the directory is a repository.
 fn git_init(dir: &Path) {
-    let out = std::process::Command::new("git")
+    let out = fixture_git::command()
         .args(["init", "-q", "-b", "main"])
         .current_dir(dir)
         .output()
@@ -965,7 +968,7 @@ fn an_interactive_policy_launch_writes_a_gate_and_settings() {
     std::fs::create_dir_all(&repo).unwrap();
     git_init(&repo);
     let config = |key: &str, value: &str| {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(["config", key, value])
             .current_dir(&repo)
             .output()
@@ -975,13 +978,13 @@ fn an_interactive_policy_launch_writes_a_gate_and_settings() {
     config("user.email", "test@example.invalid");
     config("user.name", "hydra tests");
     std::fs::write(repo.join("README"), "seed\n").unwrap();
-    let out = std::process::Command::new("git")
+    let out = fixture_git::command()
         .args(["add", "README"])
         .current_dir(&repo)
         .output()
         .unwrap();
     assert!(out.status.success(), "git add failed");
-    let out = std::process::Command::new("git")
+    let out = fixture_git::command()
         .args(["commit", "-qm", "seed", "README"])
         .current_dir(&repo)
         .output()
@@ -1029,7 +1032,7 @@ fn a_gated_interactive_launch_that_fails_after_its_checkout_leaves_none_behind()
     std::fs::create_dir_all(&repo).unwrap();
     git_init(&repo);
     let git = |args: &[&str]| {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(args)
             .current_dir(&repo)
             .output()
@@ -1089,7 +1092,7 @@ fn a_gated_interactive_launch_wraps_claude_in_the_seatbelt() {
     std::fs::create_dir_all(&repo).unwrap();
     git_init(&repo);
     let config = |key: &str, value: &str| {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(["config", key, value])
             .current_dir(&repo)
             .output()
@@ -1099,13 +1102,13 @@ fn a_gated_interactive_launch_wraps_claude_in_the_seatbelt() {
     config("user.email", "test@example.invalid");
     config("user.name", "hydra tests");
     std::fs::write(repo.join("README"), "seed\n").unwrap();
-    let out = std::process::Command::new("git")
+    let out = fixture_git::command()
         .args(["add", "README"])
         .current_dir(&repo)
         .output()
         .unwrap();
     assert!(out.status.success(), "git add failed");
-    let out = std::process::Command::new("git")
+    let out = fixture_git::command()
         .args(["commit", "-qm", "seed", "README"])
         .current_dir(&repo)
         .output()
@@ -1489,7 +1492,7 @@ fn a_profile_with_a_parent_git_dir_names_the_private_git_carve_out() {
     git_init(&repo);
     std::fs::write(repo.join("README"), "hello\n").unwrap();
     let git = |args: &[&str]| {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(args)
             .current_dir(&repo)
             .output()
@@ -1561,7 +1564,7 @@ fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
     git_init(&repo);
     std::fs::write(repo.join("README"), "hello\n").unwrap();
     let git = |args: &[&str]| {
-        let out = std::process::Command::new("git")
+        let out = fixture_git::command()
             .args(args)
             .current_dir(&repo)
             .output()
@@ -1687,7 +1690,7 @@ fn the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory() {
     );
     assert!(staged.contains("changed.txt"), "nothing staged: {staged}");
     let blob = String::from_utf8(
-        std::process::Command::new("git")
+        fixture_git::command()
             .args(["hash-object", "changed.txt"])
             .current_dir(&worktree)
             .output()
