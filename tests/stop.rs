@@ -491,16 +491,18 @@ fn ended(layout: &Layout, run_id: &str, watcher: &mut std::process::Child) {
     assert_eq!(waited, Waited::Ended, "the seat was not stopped");
 }
 
-/// Pumps and draws, as the cockpit's loop does, until no stop is in flight,
-/// and returns the last screen.
+/// Pumps and draws until the stop has reported and set its message, then
+/// captures a fresh screen of that settled state.
 fn reported(host: &mut Host) -> String {
     let deadline = Instant::now() + stop::GRACE + stop::CLOSE_BUDGET + Duration::from_secs(5);
     loop {
         host.pump();
-        let text = drawn(host);
-        if !host.app.stopping() {
-            return text;
+        // Host::draw polls stops again after painting the card. Checking
+        // after that draw can accept a screen painted before the answer.
+        if !host.app.stopping() && host.app.message.is_some() {
+            return drawn(host);
         }
+        let text = drawn(host);
         assert!(
             Instant::now() < deadline,
             "the stop never reported:\n{text}"
