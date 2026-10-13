@@ -1,7 +1,7 @@
 # 304 - The slowest test binaries, measured and cut
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-13, by the session. Build 296 took the suite from 318 s serial to 198 s
 parallel in a warm worktree, and the session measured 230 to 284 s on master with another run
