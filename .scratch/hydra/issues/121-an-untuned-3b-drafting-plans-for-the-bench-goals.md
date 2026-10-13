@@ -54,21 +54,25 @@ the shuffled copies the judge saw, `blind-scores.md` the judge's table, `blind-m
 key. The static check is the session's copy of the rules `write.rs::tasks` applies at import
 (fenced array, four keys, known class and grade, unique ids, deps that resolve, no cycles).
 
-| Goal | Proposer | Static offences, median (range) | Rubric of 6, median (range) |
-|---|---|---|---|
-| s1-readme-typo | Ministral 3B | 0 (0 to 0) | 6 (6 to 6) |
-| s1-readme-typo | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) |
-| s2-one-test | Ministral 3B | 0 (0 to 1) | 4 (1 to 4) |
-| s2-one-test | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) |
-| m1-chars | Ministral 3B | 1 (0 to 1) | 2 (2 to 3) |
-| m1-chars | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) |
-| m2-saturating-bump | Ministral 3B | 0 (0 to 0) | 3 (3 to 3) |
-| m2-saturating-bump | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) |
-| l1-cli | Ministral 3B | 1 (0 to 3) | 3 (1 to 3) |
-| l1-cli | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) |
+| Goal | Proposer | Static offences, median (range) | Rubric of 6, Flash seat, median (range) | Rubric of 6, GPT seat, median (range) |
+|---|---|---|---|---|
+| s1-readme-typo | Ministral 3B | 0 (0 to 0) | 6 (6 to 6) | 6 (6 to 6) |
+| s1-readme-typo | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) | 6 (6 to 6) |
+| s2-one-test | Ministral 3B | 0 (0 to 1) | 4 (1 to 4) | 6 (2 to 6) |
+| s2-one-test | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) | 6 (6 to 6) |
+| m1-chars | Ministral 3B | 1 (0 to 1) | 2 (2 to 3) | 2 (2 to 4) |
+| m1-chars | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) | 6 (5 to 6) |
+| m2-saturating-bump | Ministral 3B | 0 (0 to 0) | 3 (3 to 3) | 4 (4 to 5) |
+| m2-saturating-bump | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) | 6 (6 to 6) |
+| l1-cli | Ministral 3B | 1 (0 to 3) | 3 (1 to 3) | 4 (1 to 4) |
+| l1-cli | Opus 5.5 | 0 (0 to 0) | 6 (6 to 6) | 6 (5 to 6) |
 
-Over all 15: Ministral passes the static check on 10 and scores a median 3 of 6 on the rubric;
-Opus passes 15 and scores 6 on every draft. The judge matched every blind draft to its goal.
+Over all 15: Ministral passes the static check on 10 and scores a median 3 of 6 with the Flash
+seat and 4 with the GPT seat; Opus passes 15 and scores 6 on every draft with Flash and a mean
+of 5.9 with GPT. Both judges matched every blind draft to its goal. The second seat was added
+after the first table was written, `blind-scores-gpt.md`, `gpt-6-astra` on `codex`, same
+rubric, same blind files, told not to read the first table; 3 of 30 rows differ by more than
+one point between the seats, all three Ministral drafts the GPT seat read more kindly.
 The only goal where the 3B ties is the one-line typo. On the two mediums and the large it
 loses on every draft, and the spread inside one goal (1 to 4 on `s2`, 1 to 3 on `l1`) says
 three samples of the 3B are three different plans.
@@ -100,8 +104,8 @@ other model up. Opus: fifteen recorded runs of about 30 s each. The judge, one G
 3.8 Flash seat on `agy`, read-only: 394k tokens.
 
 What this does not say. The rubric has a ceiling and Opus sits on it, so the measurement
-cannot rank frontier planners, only say the untuned 3B is not one. One judge seat, not three;
-a second seat would move single rows, not the table. The bench goals are small by design, and
+cannot rank frontier planners, only say the untuned 3B is not one. Two judge seats, not three, and they moved
+three rows and no conclusion. The bench goals are small by design, and
 the 3B already fails the format on them, so a harder set would not help it. Untuned means
 untuned: a fine-tune on plan rows is exactly what map 118 is deciding, and the first reason
 there are no plan rows is map 122.
