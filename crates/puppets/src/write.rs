@@ -694,6 +694,61 @@ fn named(value: &Value, names: &[&str]) -> Result<bool> {
     Ok(names.iter().any(|name| py::eq_str(value, name)))
 }
 
+/// Validate keys with the fold's equality, including numeric aliases and NaN. Walk
+/// iteratively so a long dependency chain cannot exhaust the call stack.
+fn task_graph_offences(tasks: &[Value]) -> Result<Vec<PyStr>> {
+    let mut offences = Vec::new();
+    let mut ids = Vec::new();
+    for task in tasks {
+        let id = py::item(task, "id")?;
+        py::hashable(id)?;
+        if ids.iter().any(|other| py::same_key(other, id)) {
+            offences.push(text!("duplicate task id ", py::repr(id)));
+        } else {
+            ids.push(id.clone());
+        }
+    }
+    let mut edges = vec![Vec::new(); ids.len()];
+    for task in tasks {
+        let id = py::item(task, "id")?;
+        let from = ids
+            .iter()
+            .position(|other| py::same_key(other, id))
+            .unwrap();
+        for dep in py::list(&py::get(task, "deps", Value::List(Vec::new()))?)? {
+            py::hashable(&dep)?;
+            if let Some(to) = ids.iter().position(|other| py::same_key(other, &dep)) {
+                edges[from].push(to);
+            } else {
+                offences.push(text!(
+                    "task ",
+                    py::repr(id),
+                    " has unknown dep ",
+                    py::repr(&dep)
+                ));
+            }
+        }
+    }
+    // A task is in a cycle exactly when following its deps can reach itself.
+    // Checking each root reports every cyclic task, without blaming tasks that
+    // merely depend on a cycle or enumerating exponentially many cycle paths.
+    for (root, id) in ids.iter().enumerate() {
+        let mut seen = vec![false; ids.len()];
+        let mut pending = edges[root].clone();
+        while let Some(next) = pending.pop() {
+            if next == root {
+                offences.push(text!("dependency cycle includes task ", py::repr(id)));
+                break;
+            }
+            if !seen[next] {
+                seen[next] = true;
+                pending.extend(&edges[next]);
+            }
+        }
+    }
+    Ok(offences)
+}
+
 /// `tasks`: import the chosen plan's task array, one `task` event each. Every task is
 /// checked before the first is written.
 pub fn tasks(home: &Home, goal_id: &str, err: &mut dyn Write) -> Result<i32> {
@@ -736,6 +791,13 @@ pub fn tasks(home: &Home, goal_id: &str, err: &mut dyn Write) -> Result<i32> {
             eprint(err, &text!("task ", id, " has an unknown class or grade"))?;
             return Ok(1);
         }
+    }
+    let offences = task_graph_offences(&tasks)?;
+    if !offences.is_empty() {
+        for offence in offences {
+            eprint(err, &offence)?;
+        }
+        return Ok(1);
     }
     for task in &tasks {
         append_event(

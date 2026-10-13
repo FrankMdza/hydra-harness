@@ -3582,6 +3582,14 @@ UUID alone on stdout. Since build ticket 207 the comparator also checks the UUID
 character, masks the id only when the log it names exists, and renames that log and no other, so
 a writer that prints one id and creates the log under another fails.
 
+Build ticket 299 validates the chosen plan's task array as a graph in `write.rs::tasks`,
+before writing any event. Repeated ids use the fold's key equality, dependencies must name
+a task in that plan, and the graph must have no cycles. A refusal exits 1, names every
+duplicate, unknown dependency and cyclic task on stderr, and leaves the goal log unchanged.
+The iterative graph walk does not recurse; `paths` are not checked against disk because a
+plan may name files it will create. Tests cover each refusal, combined offences and valid
+imports, including forward dependencies and files that do not yet exist.
+
 Build ticket 195 added the commands that launch: `plan`, `plans`, `launch` and `wait` in
 `launch.rs`, and `review`, `review --no-open` and `choose --judge` in `panel.rs`. The binary now
 has all nineteen of the Python helper's commands, including `frontier` for the map and build

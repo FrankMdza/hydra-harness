@@ -97,6 +97,12 @@ One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}
 `class` is one of `batch_scripting`, `rust_off_launch_path`, `rust_launch_path`,
 `security_review`, `research`, `docs`, `probe`. `grade` is `low`, `medium`, `high` or `agi`.
 
+`tasks` validates the chosen plan as a dependency graph before appending any `task` event.
+Repeated ids, dependencies naming no task in that plan, and dependency cycles refuse the
+import with exit 1; stderr names every duplicate, unknown dependency and task in a cycle,
+and the goal log stays unchanged. Ids use the fold's key equality (so `1` and `1.0` repeat).
+`paths` are not checked against disk, since tasks may create the files they name.
+
 Approvals bind to a plan revision (the count of `task` and `assignment` events). The CLI checks
 for an unconsumed `yes` line at the current revision before each gated step:
 

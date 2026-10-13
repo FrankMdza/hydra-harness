@@ -1,7 +1,7 @@
 # 299 - A plan is validated as a graph at import: unique ids, deps that resolve, no cycles
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from the map 118 panel (`118-synthesis.md`, question 4),
 which found that `crates/puppets/src/write.rs::tasks` checks each task's class and grade and
@@ -33,3 +33,11 @@ the frontier proposers are large models and still produce such plans.
 
 ## Outcome
 
+Built by `codex` `gpt-6.1-sol` on Hydra run `01a1342d-0a38-7f12-9347-e448463988ae` under
+`standard`, 607k tokens, applied to master on 2026-10-13 after the diff was read whole.
+`task_graph_offences` in `write.rs` walks the deps iteratively, reports every duplicate id,
+unknown dep and cyclic task, and `tasks` exits 1 without writing when any is found; ids compare
+with the fold's key equality, so `1` and `1.0` are one id, which the builder found and the test
+pins. Four tests in `crates/puppets/tests/task_graph.rs` drive the built binary on a seeded goal
+log and check the log is byte-identical after a refusal. fmt, clippy and `cargo test -p
+hydra-puppets` green on master. Nothing the ticket assumed turned out false.
