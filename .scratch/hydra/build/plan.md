@@ -347,6 +347,7 @@ it.
 - [307 - A plan file checked without a goal: `hydra-puppets check <plan.md>`](307-a-plan-file-checked-without-a-goal.md)
 - [308 - The flood-and-slow-client seats test failed once under nextest's full pool](308-the-flood-and-slow-client-test-under-a-loaded-pool.md)
 - [309 - A run's worktree is born with a cloned `target/`: the first build drops from 13 minutes to seconds](309-a-runs-worktree-is-born-with-a-cloned-target.md)
+- [310 - The warm build timed crate by crate: what holds the 38 seconds a run now pays](310-the-warm-build-timed-crate-by-crate.md)
 
 ## Out of scope
 
