@@ -3671,10 +3671,9 @@ provider and no real `hydra` was started, so the Rust has never launched a real 
 
 Not ported, and where the Rust differs:
 
-- `sheet.py`'s `build`, `budget` and `corpus_records` are not ported. They call `hydra show` once
-  per run and no command reaches them, the launch commands included, so the sheets under
-  `<puppets home>/agents/` are still written by `sheet.py build`. `models.rs` has no caller until
-  they are.
+- `sheet.py`'s `build`, `budget` and `corpus_records` were not ported by this ticket; build 219
+  ported them to `hydra-grader sheet build|budget|show` (the paragraph "What is left in Python"
+  below), so this line stood stale from 2026-10-01 until 2026-10-13.
 - `review` leaves a second process behind to hand the findings to Hunk. The Python forks. The
   Rust starts its own binary again as the hidden `push-hunk-comments <repo>` command with the
   payload on stdin. Like the fork, it keeps the caller's stdout and stderr open until a Hunk
