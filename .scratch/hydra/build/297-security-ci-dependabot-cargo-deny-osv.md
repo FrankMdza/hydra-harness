@@ -1,7 +1,7 @@
 # 297 - Security in CI for free: Dependabot, cargo-deny and OSV-Scanner on Linux, actions pinned by SHA
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from `~/cerebro/research/security-and-compile.md` section 1,
 "Recommended minimal stack", which the human put on Hydra's list on 2026-10-12.
