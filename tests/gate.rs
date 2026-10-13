@@ -2400,34 +2400,39 @@ impl Gate {
 fn a_run_cannot_rewrite_its_own_hook_or_provider_config_under_any_policy() {
     // Every provider's files on every provider's gate: a `claude` run has no
     // `.cursor/hooks.json`, and one it writes lands on the branch `hydra reap`
-    // commits all the same.
-    for provider in [
-        Provider::Claude,
-        Provider::CursorAgent,
-        Provider::Agy,
-        Provider::Codex,
-    ] {
-        for policy in MATRIX_POLICIES {
-            let gate = Gate::compile_for(provider, policy, false);
-            for rel in OWN_CONFIG_FILES {
-                let decision = gate.write_as(provider, &gate.worktree.join(rel));
-                assert!(
-                    decision.denied_for("hydra/protected-path"),
-                    "{provider} under {policy} let a write reach {rel}: {}",
-                    decision.reason
-                );
-            }
-            for root in OWN_SKILL_ROOTS {
-                let target = gate.worktree.join(root).join("planted/SKILL.md");
-                let decision = gate.write_as(provider, &target);
-                assert!(
-                    decision.denied_for("hydra/protected-path"),
-                    "{provider} under {policy} let a write reach {root}: {}",
-                    decision.reason
-                );
-            }
+    // commits all the same. That is 260 gate calls, so each provider asks on its
+    // own thread (build ticket 304).
+    std::thread::scope(|scope| {
+        for provider in [
+            Provider::Claude,
+            Provider::CursorAgent,
+            Provider::Agy,
+            Provider::Codex,
+        ] {
+            scope.spawn(move || {
+                for policy in MATRIX_POLICIES {
+                    let gate = Gate::compile_for(provider, policy, false);
+                    for rel in OWN_CONFIG_FILES {
+                        let decision = gate.write_as(provider, &gate.worktree.join(rel));
+                        assert!(
+                            decision.denied_for("hydra/protected-path"),
+                            "{provider} under {policy} let a write reach {rel}: {}",
+                            decision.reason
+                        );
+                    }
+                    for root in OWN_SKILL_ROOTS {
+                        let target = gate.worktree.join(root).join("planted/SKILL.md");
+                        let decision = gate.write_as(provider, &target);
+                        assert!(
+                            decision.denied_for("hydra/protected-path"),
+                            "{provider} under {policy} let a write reach {root}: {}",
+                            decision.reason
+                        );
+                    }
+                }
+            });
         }
-    }
+    });
 }
 
 #[test]

@@ -78,16 +78,41 @@ fn models() -> BTreeMap<String, String> {
     models
 }
 
-/// What a fixture plants: the two stubs and the models.
+/// What a fixture plants: the two stubs, linked from `linked` where executable, and the
+/// models.
 struct Planted {
     stubs: BTreeMap<String, String>,
+    linked: Stubs,
     models: BTreeMap<String, String>,
 }
 
 impl Planted {
+    fn new(fixture: &Value, scratch: &Scratch, models: BTreeMap<String, String>) -> Planted {
+        let stubs = texts(field(fixture, "stubs"));
+        let linked = Stubs::new(
+            scratch.0.join("stubs"),
+            stubs
+                .iter()
+                .map(|(name, text)| (name.as_str(), text.as_str())),
+        );
+        Planted {
+            stubs,
+            linked,
+            models,
+        }
+    }
+
     /// Write one file of a case under `root` and return its path and bytes.
     fn plant(&self, root: &Path, spec: &Value) -> (String, Vec<u8>) {
         let path = string(field(spec, "path"));
+        let target = root.join(&path);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&target);
+        if has(spec, "stub") && has(spec, "exec") {
+            let name = string(field(spec, "stub"));
+            self.linked.link(&name, &target);
+            return (path, self.stubs[&name].clone().into_bytes());
+        }
         let data = if has(spec, "stub") {
             self.stubs[&string(field(spec, "stub"))]
                 .clone()
@@ -103,8 +128,6 @@ impl Planted {
         } else {
             unhex(&string(field(spec, "hex")))
         };
-        let target = root.join(&path);
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(&target, &data).unwrap();
         let mode = if has(spec, "exec") { 0o755 } else { 0o644 };
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode)).unwrap();
@@ -196,11 +219,8 @@ fn the_labels_are_what_the_python_gave() {
 
 fn compare_the_labels() {
     let fixture = fixture("collect/labels.json");
-    let planted = Planted {
-        stubs: texts(field(&fixture, "stubs")),
-        models: BTreeMap::new(),
-    };
     let scratch = Scratch::new("labels");
+    let planted = Planted::new(&fixture, &scratch, BTreeMap::new());
     let mut tally = Tally::new();
     let (mut labelled, mut refused) = (0, 0);
 
@@ -491,11 +511,8 @@ fn call_collect(lib: &Value, env: &[(String, String)], root: &Path) -> Ran {
 #[test]
 fn collect_writes_what_the_python_wrote() {
     let fixture = fixture("collect/scenarios.json");
-    let planted = Planted {
-        stubs: texts(field(&fixture, "stubs")),
-        models: models(),
-    };
     let scratch = Scratch::new("collect");
+    let planted = Planted::new(&fixture, &scratch, models());
     let mut tally = Tally::new();
     let (mut steps, mut stamps, mut passes) = (0, 0, 0);
     for (n, scenario) in items(field(&fixture, "scenarios")).iter().enumerate() {

@@ -240,9 +240,16 @@ fn pairs(value: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
-fn plant(root: &Path, path: &str, data: &[u8], exec: bool) {
+/// Where `plant` puts a file, made empty.
+fn planting(root: &Path, path: &str) -> PathBuf {
     let path = root.join(path);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+fn plant(root: &Path, path: &str, data: &[u8], exec: bool) {
+    let path = planting(root, path);
     std::fs::write(&path, data).unwrap();
     if exec {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -255,6 +262,7 @@ fn the_judge_gives_what_the_python_gave() {
     assert!(string(field(&recorded, "version")).starts_with("3.14.7 "));
     let stub = string(field(&recorded, "stub"));
     let scratch = Scratch::new("judge");
+    let stubs = Stubs::new(scratch.0.join("stubs"), [("hydra", stub.as_str())]);
     let mut tally = Tally::new();
     let mut calls = 0;
     for (n, case) in items(field(&recorded, "cases")).iter().enumerate() {
@@ -268,7 +276,7 @@ fn the_judge_gives_what_the_python_gave() {
                 };
                 let path = string(field(put, "path"));
                 match (spec.get("stub"), spec.get("hex")) {
-                    (Some(_), _) => plant(&root, &path, stub.as_bytes(), true),
+                    (Some(_), _) => stubs.link("hydra", &planting(&root, &path)),
                     (_, Some(hex)) => plant(&root, &path, &unhex(&string(hex)), false),
                     _ => plant(&root, &path, string(field(put, "text")).as_bytes(), false),
                 }

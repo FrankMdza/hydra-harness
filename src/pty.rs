@@ -197,6 +197,9 @@ impl Spawned {
         self.pty_still_held = false;
         set_nonblocking(self.pty_fd)?;
         let mut pending: Vec<u8> = Vec::new();
+        // How much of `pending` is known to hold no newline. Bytes only ever go on
+        // its end between flushes, so a scan resumes here rather than from zero.
+        let mut scanned = 0usize;
         let mut chunk = [0u8; 65536];
         let mut child_dead_since: Option<std::time::Instant> = None;
 
@@ -266,7 +269,7 @@ impl Spawned {
                 }
                 let n = read as usize;
                 pending.extend_from_slice(&chunk[..n]);
-                self.flush_pending(&mut pending, &mut on_line)?;
+                self.flush_pending(&mut pending, &mut scanned, &mut on_line)?;
             }
 
             if self.child_exited(&mut child_dead_since)? {
@@ -290,22 +293,33 @@ impl Spawned {
     }
 
     /// Emits complete lines and any prefix that has hit [`LINE_CAP`] with no
-    /// newline. Leftover bytes stay in `pending` for the next read.
+    /// newline. Leftover bytes stay in `pending` for the next read, and `scanned`
+    /// says how many of them were searched. Searching from zero on every read made a
+    /// 20 MB line without a newline cost 52 s of CPU (build ticket 304).
     fn flush_pending(
         &mut self,
         pending: &mut Vec<u8>,
+        scanned: &mut usize,
         on_line: &mut impl FnMut(&str) -> Result<()>,
     ) -> Result<()> {
         loop {
-            match pending.iter().position(|b| *b == b'\n') {
+            let newline = pending[*scanned..]
+                .iter()
+                .position(|b| *b == b'\n')
+                .map(|at| at + *scanned);
+            match newline {
                 Some(at) if at >= LINE_CAP => self.emit_capped(pending, on_line)?,
                 Some(at) => {
                     let line: Vec<u8> = pending.drain(..=at).collect();
                     self.deliver(&line[..line.len() - 1], on_line)?;
                 }
                 None if pending.len() >= LINE_CAP => self.emit_capped(pending, on_line)?,
-                None => return Ok(()),
+                None => {
+                    *scanned = pending.len();
+                    return Ok(());
+                }
             }
+            *scanned = 0;
         }
     }
 

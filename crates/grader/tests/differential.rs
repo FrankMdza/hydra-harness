@@ -93,6 +93,31 @@ impl Drop for Scratch {
     }
 }
 
+/// Executable stubs, each written once per test into `dir` and hard-linked where a case
+/// plants it. macOS checks a file the first time it runs, about 170 ms for each new file
+/// and nothing for a new name of a file it already ran, and these tests plant hundreds
+/// (build ticket 304). A planter removes its path before writing, so no write reaches a
+/// stub through a link.
+struct Stubs(PathBuf);
+
+impl Stubs {
+    fn new<'a>(dir: PathBuf, stubs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Stubs {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, text) in stubs {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        Stubs(dir)
+    }
+
+    /// Plant the stub `name` at `target`, which must not exist.
+    fn link(&self, name: &str, target: &Path) {
+        std::fs::hard_link(self.0.join(name), target).unwrap();
+    }
+}
+
 /// The comparisons of one test: every one runs, and the test fails at the end with how many
 /// differed, so breaking the Rust on purpose gives a count.
 struct Tally {

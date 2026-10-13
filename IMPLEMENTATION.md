@@ -2517,7 +2517,10 @@ when nothing was capped; a piece that is not JSON normalizes as `noise` the way 
 non-JSON line does, and every adapter pushes one `Finding::Limit` naming how many frames
 the tee split. `tests/pty_tee.rs` drives a 20 MiB line from a `dd | tr` stub, since a
 payload that size cannot ride argv the way the 200 KB one does, and gets two frames, one
-capped line named on `run_end`, and a record that validates.
+capped line named on `run_end`, and a record that validates. Until build ticket 304 the
+search for a newline started from the front of `pending` on every read, so that line cost
+52 s of CPU, and a provider printing a frame of several MB paid the same in the watcher;
+it now resumes where the last search ended, and the test takes 1 s.
 
 **The final assistant text is the final turn, not the final block.** Contract 7.3 gives
 one `message` event per content block, which is what `Message::block` numbers, so a frame
@@ -4126,6 +4129,10 @@ twice, which is what `object_pairs_hook` hands `labels.py`. No dependency was ad
 `fixtures/collect/labels.json` and `fixtures/collect/scenarios.json`, and
 `tests/differential/collect.rs` replays both. `hydra` and `hydra-puppets` are stubs the fixtures
 carry: shell scripts that write down their arguments and environment and print a planted answer.
+Since build ticket 304 each test writes a stub once and hard-links it wherever a case plants
+it executable, as `judge.rs` and `crates/otel/tests/otel.rs` do with theirs: macOS checks a new
+file the first time it runs, about 170 ms each, and the labels test planted 239 of them. The
+grader's `differential` binary went from 97 s to 9 s.
 
 - `labels.json`, 552 comparisons: `show_goal`, `committed_events` and `labels_for_goal` on 239
   goals, the 164 logs of `crates/puppets/tests/fixtures/read/` with what `puppets.py show`

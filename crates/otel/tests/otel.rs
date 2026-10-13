@@ -114,7 +114,32 @@ struct Ran {
     written: Vec<(String, String)>,
 }
 
-fn run(case: &Value, root: &Path) -> Ran {
+/// The stub `hydra`, written once per content into `dir` and hard-linked into each case.
+/// macOS checks a file the first time it runs, about 170 ms for each new file and nothing
+/// for a new name of a file it already ran (build ticket 304).
+struct Stubs {
+    dir: PathBuf,
+    written: Vec<Vec<u8>>,
+}
+
+impl Stubs {
+    fn plant(&mut self, data: &[u8], target: &Path) {
+        let n = match self.written.iter().position(|known| known == data) {
+            Some(n) => n,
+            None => {
+                std::fs::create_dir_all(&self.dir).unwrap();
+                let path = self.dir.join(self.written.len().to_string());
+                std::fs::write(&path, data).unwrap();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+                self.written.push(data.to_vec());
+                self.written.len() - 1
+            }
+        };
+        std::fs::hard_link(self.dir.join(n.to_string()), target).unwrap();
+    }
+}
+
+fn run(case: &Value, root: &Path, stubs: &mut Stubs) -> Ran {
     let _ = std::fs::remove_dir_all(root);
     std::fs::create_dir_all(root).unwrap();
     std::fs::create_dir_all(root.join("tmp")).unwrap();
@@ -125,11 +150,10 @@ fn run(case: &Value, root: &Path) -> Ran {
             None => std::fs::create_dir_all(&path).unwrap(),
             Some(data) => {
                 std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                std::fs::write(&path, &data).unwrap();
                 if name == "bin/hydra" {
-                    let mut perm = std::fs::metadata(&path).unwrap().permissions();
-                    perm.set_mode(0o755);
-                    std::fs::set_permissions(&path, perm).unwrap();
+                    stubs.plant(&data, &path);
+                } else {
+                    std::fs::write(&path, &data).unwrap();
                 }
                 originals.push((name.clone(), data));
             }
@@ -198,10 +222,14 @@ fn otel_gives_what_the_python_gave() {
         panic!("no cases");
     };
     let root = std::env::temp_dir().join(format!("hydra-otel-{}", std::process::id()));
+    let mut stubs = Stubs {
+        dir: std::env::temp_dir().join(format!("hydra-otel-stubs-{}", std::process::id())),
+        written: Vec::new(),
+    };
     let mut failures = Vec::new();
     for case in cases {
         let name = string(field(case, "name"));
-        let ran = run(case, &root);
+        let ran = run(case, &root, &mut stubs);
         let Value::Int(exit) = field(case, "exit") else {
             panic!("{name}: no exit code");
         };
@@ -265,6 +293,7 @@ fn otel_gives_what_the_python_gave() {
         }
     }
     let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&stubs.dir);
     println!("{} cases compared", cases.len());
     assert!(
         failures.is_empty(),
