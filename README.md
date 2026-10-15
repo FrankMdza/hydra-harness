@@ -92,7 +92,7 @@ interface and Hydra harvests the transcript afterwards, is `claude` and `codex` 
 | `status` | live pids against open records; worktrees waiting for a reap |
 | `wait <run>... [--any] [--timeout 30m]` | block until selected runs end; exit 2 on timeout |
 | `logs` | tail a record |
-| `show` | the full record, normalized; `--events` for the stream |
+| `show` | the full record, normalized; `--events` for the stream; `--verdict` for the puppets goal-log verdict |
 | `resume` | continue a finished run's vendor session under a fresh run id |
 | `stop` | end a live run, `--all` of them, or `--session` and its seats |
 | `reap` | commit a worktree to its branch, remove it |

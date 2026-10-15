@@ -666,6 +666,96 @@ pub fn queue(home: &Home, goal_id: &str, out: &mut dyn Write, err: &mut dyn Writ
     Ok(0)
 }
 
+/// What a goal log recorded as a verdict on one run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunVerdict {
+    pub goal_id: String,
+    pub task_id: String,
+    pub value: String,
+    pub by: String,
+    pub at: String,
+}
+
+fn field_text(event: &Value, key: &str) -> Option<String> {
+    let Value::Dict(dict) = event else {
+        return None;
+    };
+    dict.get(key).map(|value| py::str(value).lossy())
+}
+
+fn names_run(event: &Value, run_id: &str) -> bool {
+    let Value::Dict(dict) = event else {
+        return false;
+    };
+    dict.get("run_id").is_some_and(|id| py::eq_str(id, run_id))
+}
+
+fn is_verdict_event(event: &Value) -> bool {
+    let Value::Dict(dict) = event else {
+        return false;
+    };
+    dict.get("event")
+        .is_some_and(|name| py::eq_str(name, "human_verdict") || py::eq_str(name, "verdict"))
+}
+
+fn given_by(event: &Value) -> String {
+    if let Some(by) = field_text(event, "by").filter(|by| !by.is_empty()) {
+        return by;
+    }
+    match field_text(event, "event").as_deref() {
+        Some("human_verdict") => "human".into(),
+        Some("panel_verdict") | Some("review") => {
+            let judges = match event {
+                Value::Dict(dict) => dict.get("judge_run_ids"),
+                _ => None,
+            };
+            match judges {
+                Some(Value::List(items)) if !items.is_empty() => "panel".into(),
+                Some(value) if py::truthy(value) => "panel".into(),
+                _ => "session".into(),
+            }
+        }
+        _ => "session".into(),
+    }
+}
+
+fn verdict_value(event: &Value) -> String {
+    field_text(event, "result")
+        .filter(|value| !value.is_empty())
+        .or_else(|| field_text(event, "verdict"))
+        .unwrap_or_default()
+}
+
+/// The latest verdict event that names `run_id`, walking every goal log under
+/// `home` the way [`crate::report::goal_ids`] and [`log::read_log`] do. A
+/// damaged log is skipped so one torn file does not hide another goal's
+/// verdict. Nothing is written.
+pub fn verdict_for_run(home: &Home, run_id: &str) -> Result<Option<RunVerdict>> {
+    let mut found = None;
+    for goal_id in crate::report::goal_ids(home)? {
+        if goal_id.is_empty() {
+            continue;
+        }
+        let events = match log::read_log(home, &goal_id) {
+            Ok(events) => events,
+            Err(_) => continue,
+        };
+        for event in events {
+            if !is_verdict_event(&event) || !names_run(&event, run_id) {
+                continue;
+            }
+            found = Some(RunVerdict {
+                goal_id: goal_id.clone(),
+                task_id: field_text(&event, "task").unwrap_or_default(),
+                value: verdict_value(&event),
+                by: given_by(&event),
+                at: field_text(&event, "ts").unwrap_or_default(),
+            });
+        }
+    }
+    Ok(found)
+}
+
 #[cfg(test)]
 mod task_text_tests {
     use super::*;

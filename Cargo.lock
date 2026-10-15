@@ -544,6 +544,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossterm",
+ "hydra-puppets",
  "libc",
  "portable-pty",
  "ratatui",

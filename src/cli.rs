@@ -151,6 +151,11 @@ pub enum Command {
         /// beside the same projection printed alone without this flag.
         #[arg(long)]
         events: bool,
+
+        /// What the puppets goal logs recorded about this run, and any judge
+        /// label. Not the record's outcome: `completed` is not a verdict.
+        #[arg(long)]
+        verdict: bool,
     },
 
     /// Continue a finished run's provider session under a fresh run id.

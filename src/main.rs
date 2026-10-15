@@ -77,9 +77,13 @@ fn main() -> Result<()> {
             let mut out = std::io::stdout().lock();
             hydra::logs::logs(&Layout::discover()?, &run_id, follow, &mut out)?;
         }
-        Command::Show { run_id, events } => {
+        Command::Show {
+            run_id,
+            events,
+            verdict,
+        } => {
             let mut out = std::io::stdout().lock();
-            hydra::show::show(&Layout::discover()?, &run_id, events, &mut out)?;
+            hydra::show::show_flags(&Layout::discover()?, &run_id, events, verdict, &mut out)?;
         }
         Command::Resume {
             run_id,

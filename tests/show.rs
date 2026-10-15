@@ -386,3 +386,76 @@ fn show_leaves_the_scratch_layout_unchanged_after_the_checkout_is_gone() {
         assert_eq!(contents(&root), before);
     }
 }
+
+/// The pretty JSON object, then the `--verdict` block that follows it.
+fn projection_and_rest(out: &[u8]) -> (Value, String) {
+    let text = std::str::from_utf8(out).unwrap();
+    let at = text.find("\n}\n").expect(text);
+    let json_end = at + 3;
+    let printed: Value = serde_json::from_str(&text[..json_end]).unwrap();
+    (printed, text[json_end..].to_string())
+}
+
+#[test]
+fn verdict_prints_the_goal_log_event() {
+    let sandbox = Sandbox::new("show-verdict");
+    let layout = write_fixture(&sandbox, true);
+    std::fs::create_dir_all(layout.puppets()).unwrap();
+    std::fs::write(
+        layout.puppets().join("goal-one.jsonl"),
+        format!(
+            "{{\"seq\":1,\"ts\":\"2026-10-15T12:00:00.000Z\",\"event\":\"human_verdict\",\
+             \"task\":\"t1\",\"run_id\":\"{RUN_ID}\",\"result\":\"applied\",\"note\":\"\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let mut out = Vec::new();
+    hydra::show::show_flags(&layout, RUN_ID, false, true, &mut out).unwrap();
+    let (printed, rest) = projection_and_rest(&out);
+    assert_eq!(printed["run_id"], RUN_ID);
+    assert_eq!(
+        rest,
+        "goal goal-one  task t1  applied  by: human  2026-10-15T12:00:00.000Z\n"
+    );
+}
+
+#[test]
+fn verdict_prints_a_judge_label_when_present() {
+    let sandbox = Sandbox::new("show-verdict-judge");
+    let layout = write_fixture(&sandbox, true);
+    let grader = layout.root().join("grader");
+    std::fs::create_dir_all(&grader).unwrap();
+    std::fs::write(
+        grader.join("judge-labels.jsonl"),
+        format!(
+            "{{\"run_id\":\"{RUN_ID}\",\"needs_correction\":true,\"failure_class\":null,\
+             \"reason\":\"r\",\"judge_model\":\"llama3.1\",\"prompt_sha256\":null,\
+             \"judged_at\":\"2026-10-15T12:00:00.000Z\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let mut out = Vec::new();
+    hydra::show::show_flags(&layout, RUN_ID, false, true, &mut out).unwrap();
+    let (printed, rest) = projection_and_rest(&out);
+    assert_eq!(printed["run_id"], RUN_ID);
+    assert_eq!(
+        rest,
+        "no verdict on record\njudge llama3.1  needs_correction\n"
+    );
+}
+
+#[test]
+fn verdict_without_a_goal_event_or_label_says_so() {
+    let sandbox = Sandbox::new("show-verdict-neither");
+    let layout = write_fixture(&sandbox, true);
+
+    let mut out = Vec::new();
+    hydra::show::show_flags(&layout, RUN_ID, false, true, &mut out).unwrap();
+    let (printed, rest) = projection_and_rest(&out);
+    assert_eq!(printed["run_id"], RUN_ID);
+    assert_eq!(rest, "no verdict on record\n");
+    assert_ne!(printed["outcome"], "completed");
+    assert!(!rest.contains("completed"));
+}

@@ -1,7 +1,7 @@
 # 335 - `hydra show --verdict` prints what the puppets goal logs say about a run
 
 Type: build
-Status: open
+Status: claimed
 Blocked by:
 Opened: 2026-10-15, by the session, from map 130's answer, question 9. Research 129 suggested
 `hydra show --verdict` so a reader does not open the events to learn how a run was judged. Grok's
@@ -38,3 +38,16 @@ output for one judged run of this machine pasted in the Outcome.
 Rules inside the run: relative paths only, never look outside your own worktree, write files with
 your file tool and not with shell heredocs, and the test suite is green inside a run since build
 302 without any `env -u`.
+
+Measured by the session on the Mac after applying, 2026-10-15, on the first goal's `redact` run
+(`01a0d588-ebc8`), the two lines after the projection:
+
+```
+goal ea69da1f-0114-40fd-8a1d-bed411894331  task redact  fixed  by: human  2026-09-24T22:32:58.038Z
+judge gemma3:1b-it-qat  ok
+```
+
+A proposer run of the same goal (`01a0d57e-4cf7`) prints `no verdict on record` and
+`judge rule  quota`. Applying this build beside 334 conflicted in `src/show.rs`; the session kept
+335's file and put 334's three edits (`finding_json` takes the token and prints
+`rejected_before_hook`) back by hand. Suite after both: 1443 passed.
