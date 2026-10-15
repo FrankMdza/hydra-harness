@@ -3444,12 +3444,15 @@ fn a_payload_whose_cwd_is_not_a_string_is_answered_rather_than_crashed() {
 }
 
 #[test]
-fn a_single_call_whose_cwd_holds_a_nul_is_answered_as_before_the_batch_entry() {
+fn a_single_call_whose_cwd_holds_a_nul_is_refused_as_a_bad_payload() {
     // The single-call entry is the live hook's. It reads PWD from the
     // environment the provider handed it and never from the payload, so a cwd
-    // `os.environ` would refuse cannot reach `os.environ` on this path.
-    // Measured 2026-09-22 on master's gate before build ticket 86: this payload
-    // was answered, allowed, exit 0.
+    // `os.environ` would refuse cannot reach `os.environ` on this path. It
+    // did reach `os.path.realpath`, which Python 3.9 tolerated (measured
+    // 2026-09-22: allowed, exit 0) and Python 3.11 and later refuse with
+    // ValueError, so the same payload was allowed on this Mac and
+    // `hydra/gate-error` on `ubuntu-latest`. Since build 331 the gate refuses
+    // a NUL in `cwd` before any path call, on every Python, as `bad-payload`.
     let gate = Gate::new("standard");
     let decision = gate.ask_with_dialect(
         Some("claude"),
@@ -3462,8 +3465,13 @@ fn a_single_call_whose_cwd_holds_a_nul_is_answered_as_before_the_batch_entry() {
     );
     assert_eq!(decision.exit, 0, "the gate died: {}", decision.reason);
     assert!(
-        decision.allowed && decision.reason.starts_with("hydra/allow"),
-        "the single-call answer changed: {}",
+        !decision.allowed && decision.reason.starts_with("hydra/bad-payload"),
+        "a NUL in cwd was not refused as a bad payload: {}",
+        decision.reason
+    );
+    assert!(
+        decision.reason.contains("NUL"),
+        "the refusal does not say what was wrong with the cwd: {}",
         decision.reason
     );
 }

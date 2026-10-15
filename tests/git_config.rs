@@ -346,6 +346,17 @@ fn an_attributes_file_under_xdg_config_home_changes_nothing_reap_commits() {
     std::fs::create_dir_all(xdg.join("git")).unwrap();
     std::fs::write(xdg.join("git/attributes"), "*.txt text\n").unwrap();
     std::fs::write(dest.join("crlf.txt"), b"one\r\ntwo\r\n").unwrap();
+    // The reap commit's author comes from `identity()`, which reads the
+    // repository's configuration as data; `commit_everything` itself runs with
+    // `GIT_CONFIG_GLOBAL=/dev/null`. On the author's Mac the global config
+    // supplied a name and the test passed on it; on a runner with no
+    // `~/.gitconfig` the commit failed with "Author identity unknown". The
+    // fixture pins the identity in the repository, where reap reads it
+    // (build 331). Hydra invents no author when none is configured: the human
+    // decided against it on map 130, since `identity()` also returns nothing
+    // when the global read times out.
+    clean_git(&repo, &["config", "user.name", "setup"]);
+    clean_git(&repo, &["config", "user.email", "setup@example.invalid"]);
     let common = hydra::worktree::git_common_dir(&repo).unwrap();
     let context = hydra::worktree::CheckoutGit::new(&dest, &common).unwrap();
     let committed = hydra::worktree::commit_everything(&context, "reap", &[]);

@@ -658,8 +658,9 @@ pub fn refused(out: &str) -> bool {
 
 /// Whether `/usr/bin/sandbox-exec` is present for a live seatbelt probe.
 ///
-/// When it is absent, the probe prints that it skipped and returns false. On CI
-/// the absence is a failure, because macOS runners are expected to carry it.
+/// When it is absent, the probe prints that it skipped and returns false. On a
+/// macOS CI runner the absence is a failure, because those are expected to
+/// carry it; on any other OS under CI it is a skip.
 pub fn seatbelt_exec_or_skip(test_name: &str) -> bool {
     // Nested `sandbox-exec` is refused, so every `refused(..)` assertion would
     // pass on a probe that never ran. Not a CI failure: CI is never nested.
@@ -671,7 +672,10 @@ pub fn seatbelt_exec_or_skip(test_name: &str) -> bool {
         return true;
     }
     eprintln!("skipped {test_name}: sandbox-exec is not available");
-    if std::env::var_os("CI").is_some() {
+    // Only a macOS runner is expected to carry it. GitHub sets `CI` on Linux
+    // too, where there is no seatbelt and the skip is the honest answer
+    // (build 331).
+    if std::env::var_os("CI").is_some() && cfg!(target_os = "macos") {
         panic!("sandbox-exec is required on CI (macOS)");
     }
     false

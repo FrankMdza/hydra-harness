@@ -3,8 +3,11 @@
 One command runs `claude`, `cursor-agent`, `agy` or `codex` in its own git worktree, behind a
 deny-by-default policy, and leaves one JSONL record per run that says what actually happened.
 
-Measured on macOS. It compiles on Linux since build ticket 315 and is untested at runtime there:
-no sandbox wraps a Linux launch yet, so recorded runs stay on the Mac (map 119, `docs/roadmap.md`).
+Measured on macOS. On Linux it compiles and the test suite runs on `ubuntu-latest` since build
+ticket 331, minus the seatbelt tests and nine tests skipped by name in `.github/workflows/ci.yml`:
+two pty tests and seven bit-exact CPython arithmetic tests whose fixtures were recorded on an arm64
+Mac. No sandbox wraps a Linux launch yet, so recorded runs stay on the Mac (map 119,
+`docs/roadmap.md`).
 
 ![hydra run on agy: the vendor reports SUCCESS, the record says gated](docs/demo/hydra.gif)
 

@@ -11,7 +11,9 @@
 //!
 //! **Roots live under `/private/tmp` with short names.** `sun_path` is 104
 //! bytes, and a root under `$TMPDIR` plus `spawn/<uuid>/seats.sock` overflows
-//! it. Measured 2026-09-28 by the session that wrote the ticket.
+//! it. Measured 2026-09-28 by the session that wrote the ticket. On any other
+//! OS the root is `/tmp`: `/private` is macOS's, and a non-root user cannot
+//! create it on Linux (build 331, measured on `ubuntu-latest`).
 //!
 //! The tests that need a live `sandbox-exec` skip inside a seatbelt, which
 //! cannot nest, and say so on stderr.
@@ -43,8 +45,13 @@ const OTHER: &str = "01a0e7ae-0000-7000-8000-000000000141";
 /// A scratch root short enough for a socket path, one per test.
 fn root() -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let short_tmp = if cfg!(target_os = "macos") {
+        "/private/tmp"
+    } else {
+        "/tmp"
+    };
     let root = PathBuf::from(format!(
-        "/private/tmp/hs{}-{}",
+        "{short_tmp}/hs{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));

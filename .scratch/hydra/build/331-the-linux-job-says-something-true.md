@@ -1,7 +1,7 @@
 # 331 - The Linux job says something true: four test groups fixed on a real Linux, two decided, two skipped by name
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 130's answer, question 1. Build 315's `linux` job ran
 the whole suite minus `sandbox` on `ubuntu-latest` and came back with 51 red tests in ten test
@@ -73,3 +73,64 @@ The job command green in the container as a non-root user, the four checks green
 README's Linux sentence naming the skipped tests and the same command the job runs, and the
 Outcome holding the before and after lists. Amend `IMPLEMENTATION.md` where the Linux paragraph of
 build 315 is, saying what runs on Linux and what is skipped and why.
+
+## Outcome
+
+Resolved on 2026-10-15 by the session, verified in a Docker container on this machine:
+`rust:1-bookworm` (rustc 1.99.0, glibc, linux/aarch64, Python 3.11.2, `sqlite3` and `procps`
+installed as the runner has them), with an init process, the repository at
+`/home/ci/hydra-harness` as user `ci`, `LANG=C.UTF-8`, `CI=true`, `HYDRA_ROOT` set as the job
+sets it. The `ubuntu-latest` job on the next push is the x86-64 check.
+
+### Measured
+
+- Baseline, the job's command as it stood: 53 red tests. 50 of the CI's 51 (the one missing is
+  `lgamma_is_cpythons_and_not_the_c_librarys`, which passes on arm64 because `c_mul_add` takes
+  the fused branch there), plus three harvest tests and one normalize test that spawn `sqlite3`,
+  absent from the image until installed. Two wrong setups came first and are worth knowing: as
+  root the permission tests pass for the wrong reason (37 red, a different set), and a checkout at
+  `/work` makes the gate's raw pass refuse every path under `worktrees/` because `/work` is a
+  substring of it (674 red).
+- After this ticket, the job's command with the nine skips: `passed 1401 failed 0 ignored 4
+  filtered 14`, exit 0. On the Mac, `cargo nextest run --release --workspace` 1427 passed, 4
+  skipped; fmt, clippy and the doctests green.
+
+### What changed
+
+- a: `tests/seats.rs` spells the scratch root `/private/tmp` on macOS and `/tmp` elsewhere.
+- b: `tests/corpus/mod.rs` panics on a missing `sandbox-exec` under `CI` only on macOS.
+- c: `tests/git_config.rs` pins `user.name` and `user.email` in the fixture repository, where
+  `identity()` reads them. No fallback author in `commit_everything`. Measured on this Mac with a
+  clean `HOME`, `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`: git's own guess is
+  `Francisco Mendoza <frank@laptop.local>` and the commit succeeds, so a laptop
+  without a git identity reaps; a container does not.
+- d: `src/policy/gate.py` refuses a `cwd` holding a NUL as `hydra/bad-payload` before any
+  `os.path` call; the test is renamed `a_single_call_whose_cwd_holds_a_nul_is_refused_as_a_bad_payload`
+  and asserts the deny and that the reason names the NUL.
+- f: `tests/detached.rs` writes a whole `RunStart` (`held_slave_run_start`) instead of a
+  hand-written object with `kind` for `type` and no version fields.
+- h: `crates/puppets/tests/differential.rs` drops `__CF_USER_TEXT_ENCODING=`, `LC_CTYPE=C.UTF-8`
+  and `_=` lines from `.env` captures on both sides before comparing; the last because `env |
+  sort` places `_` first under macOS's `en_US.UTF-8` collation and last under glibc's C fallback.
+  `crates/grader/tests/differential/collect.rs` folds GNU `cat`'s `/bin/cat:` into `cat:`.
+- The job's command in `.github/workflows/ci.yml` skips nine tests by name with a comment each;
+  `README.md`'s Linux sentence and the Linux paragraph of `IMPLEMENTATION.md` name the same list.
+
+### What the ticket assumed that turned out false
+
+- Group f was not one bug but two. With `type` fixed, the test's Linux path ran for the first time
+  and failed at its last assertion: `pgrep -f "sleep 300"` finds nothing, so the orphan holding the
+  slave died when the master closed. On Linux closing a pty master sends SIGHUP to the slave's
+  session, and `sleep` dies of it; macOS never reached this path because it closes the master when
+  the leader exits. The test asserts the orphan must survive ("Hydra killed the grandchild still
+  holding the slave"). Whether Hydra wants an orphan to outlive a run on Linux is a decision, not a
+  fix, so the test joins the skip list with that sentence and the question goes to map 119's
+  follow-up (build 318) rather than being answered here.
+- Group g on arm64 glibc: the unit `lgamma` passes, the fixture-hash tests fail. The difference the
+  CI saw on x86-64 is fused multiply-add plus libm; on arm64 it is libm alone.
+- `crates/grader/tests/cutover.rs` `a_marked_show_is_read_bare` went red once in the full
+  container run (`result_text: Null`) and passed three of three alone and in the final run. Flaky
+  under load; not touched, noted here.
+- The job's own comment said `--skip sandbox` drops the `tests/spawn.rs` profile tests. It did
+  not: those names carry no `sandbox`, and only the guard's panic made them red. The guard change
+  is what skips them now.

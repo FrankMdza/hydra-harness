@@ -3061,6 +3061,31 @@ fn visit_launch(root: &Path, recording: bool, visit: Visit) {
 
 /// Run one launch case and compare it, and the calls its stubs wrote down, with what the
 /// Python gave.
+/// A stub's `.env` capture without the lines that are the recording machine's and
+/// not the launcher's: `__CF_USER_TEXT_ENCODING` (macOS only) and `LC_CTYPE=C.UTF-8`
+/// (PEP 538), which CPython adds to its own environment and every child inherits,
+/// and `_=`, the shell's last-argument variable, which `env | sort` places first
+/// under macOS's `en_US.UTF-8` collation and last under glibc's C fallback. The
+/// fixtures were recorded on a Mac and the Rust runs wherever the suite runs.
+/// `crates/grader/tests/record_collect.py` drops the same lines at record time;
+/// here they are dropped at compare time so the recorded files stand (build 331).
+fn platform_free(name: &str, bytes: &[u8]) -> Vec<u8> {
+    if !name.ends_with(".env") {
+        return bytes.to_vec();
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    for line in bytes.split_inclusive(|b| *b == b'\n') {
+        if line.starts_with(b"__CF_USER_TEXT_ENCODING=")
+            || line.starts_with(b"LC_CTYPE=C.UTF-8")
+            || line.starts_with(b"_=")
+        {
+            continue;
+        }
+        out.extend_from_slice(line);
+    }
+    out
+}
+
 fn compare_launch(job: &Job, home: &Path, root: &Path) -> (Option<String>, Vec<String>) {
     let rec = recorded("launch", job, root);
     let seed: Vec<(String, Vec<u8>)> = kept(home, &["puppets"])
@@ -3084,6 +3109,8 @@ fn compare_launch(job: &Job, home: &Path, root: &Path) -> (Option<String>, Vec<S
         ));
     } else {
         for ((name, py_bytes), (_, rs_bytes)) in py_files.iter().zip(&rs_files) {
+            let py_bytes = &platform_free(name, py_bytes);
+            let rs_bytes = &platform_free(name, rs_bytes);
             if py_bytes != rs_bytes {
                 problems.push(format!(
                     "{name} differs\npython:\n{}\nrust:\n{}",

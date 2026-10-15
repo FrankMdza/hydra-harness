@@ -370,6 +370,41 @@ fn a_binary_that_is_not_there_still_writes_a_record() {
     assert!(text.contains("run_end"));
 }
 
+/// The smallest `run_start` the contract accepts, for the held-slave harness.
+fn held_slave_run_start(pid: u32, start: String) -> RunStart {
+    RunStart {
+        kind: "run_start",
+        schema_version: SCHEMA_VERSION,
+        hydra_version: "0.1.0".into(),
+        command: "run".into(),
+        launch_mode: Some("recorded".into()),
+        provider_version: Some("stub".into()),
+        provider_session_id: None,
+        task: Some("stub".into()),
+        policy: None,
+        policy_sha: None,
+        floor_lifted: None,
+        gate_sha: None,
+        sandbox: None,
+        sandbox_kind: None,
+        host: None,
+        scopes: None,
+        cwd: "/tmp".into(),
+        worktree: None,
+        depth: 0,
+        parent_policy: None,
+        pid: Some(pid),
+        process_start_time: Some(start),
+        skills: None,
+        mcp: None,
+        auth: None,
+        env_allowlist: Some(vec!["PATH".into()]),
+        subscription: Some("none".into()),
+        resumed_from: None,
+        may_edit: None,
+    }
+}
+
 #[test]
 fn a_grandchild_holding_the_slave_closes_the_record_within_the_deadline() {
     // A provider that backgrounds an MCP stdio server and exits leaves a
@@ -399,15 +434,15 @@ fn a_grandchild_holding_the_slave_closes_the_record_within_the_deadline() {
 
     let mut writer =
         hydra::record::Writer::create(&run_file, RUN_ID, None, Some("claude"), None).unwrap();
+    // A whole `run_start`, as the validator reads it. Until build 331 this line
+    // was a hand-written object with `kind` for `type` and no version fields:
+    // the macOS path returns before `check`, so the record was never read back
+    // here, and Linux, where the slave stays held, failed on the test's own JSON.
     writer
-        .hydra_line(&serde_json::json!({
-            "kind": "run_start",
-            "pid": spawned.pid,
-            "process_start_time": process_start.to_rfc3339_opts(
-                chrono::SecondsFormat::Micros,
-                true,
-            ),
-        }))
+        .hydra_line(&held_slave_run_start(
+            spawned.pid,
+            process_start.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+        ))
         .unwrap();
 
     let began = std::time::Instant::now();

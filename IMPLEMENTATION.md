@@ -27,7 +27,20 @@ one error, `libc::KERN_PROC_PID` in `procinfo.rs`. Linux reads a pid's start tim
 false there, so a launch runs bare and nothing confines a shell. `clone_build_cache` does
 nothing there either, so a Linux run compiles its dependencies from cold. Recorded runs stay on the Mac
 (map 119). CI's `linux` job builds the workspace on `ubuntu-latest` and runs the suite with
-`--skip sandbox`; the first push decides whether that job is green.
+`--skip sandbox`. Its first run, on 2026-10-15, was red on 51 tests in eight groups, all
+assumptions the suite made about the machine it grew up on (map 130, item 1). Build 331 fixed
+four groups on a Linux container as a non-root user (a scratch root spelled `/private/tmp`, a
+guard that demanded `sandbox-exec` under `CI` on any OS, a `run_start` line written with `kind`
+for `type` that macOS never validated, fixtures carrying `__CF_USER_TEXT_ENCODING` and GNU
+`cat`'s program name), decided two (the gate refuses a NUL in `cwd` as `hydra/bad-payload` on
+every Python; the reap test pins its git identity, and Hydra invents no author when none is
+configured), and skips nine tests by name until a Linux machine measures them: the 200,000-byte
+pty frame test; the held-slave test, whose Linux path showed that the orphan holding the slave dies
+when the master closes, the opposite of what the test asserts, and whether Hydra wants orphans to
+outlive a run on Linux is undecided; and the bit-exact CPython ports (`lgamma`, the ranking
+arithmetic, the pyjson hashes, the grader's baseline and monitor differentials), whose fixtures were
+recorded on an arm64 Mac and differ on glibc in the last bit. The job's skip list and the README's
+Linux sentence name the same tests.
 
 Read it before trusting a run record written by this binary. A null `policy` can name a
 pre-gate record, an ungated interactive run or a harness pass; read `launch_mode` and the

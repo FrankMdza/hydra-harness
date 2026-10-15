@@ -201,10 +201,14 @@ fn gave(got: anyhow::Result<Keyed>, root: &Path) -> Gave {
             (Some(json::dumps_default(&Value::List(pairs))), None, None)
         }
         Err(err) => match err.downcast_ref::<LabelsError>() {
+            // A stub's `exec /bin/cat` of a missing file prints the program as
+            // the shell named it: GNU cat says `/bin/cat:`, the BSD cat the
+            // fixtures were recorded with says `cat:`. The name is the
+            // coreutils' and not the grader's, so it is folded here (build 331).
             Some(labels) => (
                 None,
                 Some("LabelsError".to_string()),
-                Some(plain(&labels.0, root)),
+                Some(plain(&labels.0, root).replace("/bin/cat: ", "cat: ")),
             ),
             None => (None, Some(class(&err)), None),
         },

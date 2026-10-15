@@ -1423,6 +1423,15 @@ def evaluate(payload):
             "object.".format(tool)
         )
     cwd = payload.get("cwd")
+    if isinstance(cwd, str) and "\0" in cwd:
+        # No POSIX path holds a NUL, so no real call carries one. Python 3.9
+        # let it through `os.path.realpath` and the call was allowed; 3.11 and
+        # later raise ValueError there and the gate answered `gate-error`.
+        # One answer on every Python, decided on map 130 (build 331): refuse.
+        return False, (
+            "hydra/bad-payload: {} carries a cwd with a NUL byte in it, which "
+            "no path can hold.".format(tool)
+        )
     if not isinstance(cwd, str) or not cwd:
         cwd = HYDRA_CONFIG["scopes"].get("worktree") or os.getcwd()
 
