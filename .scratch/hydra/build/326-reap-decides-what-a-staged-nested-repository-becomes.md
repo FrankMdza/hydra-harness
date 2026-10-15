@@ -1,7 +1,7 @@
 # 326 - `hydra reap` decides what a staged nested repository becomes: the files committed and the gitlink dropped, or a refusal naming the path
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 123's answer, question 2. The panel put the fix in
 reap, outside the seatbelt, where Hydra already rewrites the index before it commits
@@ -53,3 +53,42 @@ decision named in the Outcome.
 Rules inside the run: relative paths only, never look outside your own worktree, write files with
 your file tool and not with shell heredocs, and the test suite is green inside a run since build
 302 without any `env -u`.
+
+## Outcome
+
+Implemented the human's decision: refuse by name before any commit; flattening is not offered.
+`src/reap.rs` reads the trusted checkout index with NUL-delimited `ls-files --stage`, gathers
+every mode 160000 entry, and walks the checkout for nested `.git` entries, including ignored
+paths and gitdir files. It skips the checkout's own pointer, Git metadata contents and directory
+symlinks. Sorted, deduplicated repository paths are escaped onto one report line each. The scan
+runs before pointer repair, private-log removal, injected-ignore removal, object import and
+index repair, so a refusal leaves the checkout and its index untouched.
+
+Updated build 325's two tests deliberately: staged and unstaged nested repositories now return
+`Reaped::Failed` by name before importing or committing, rather than pinning the old git-status
+failure or the old gitlink commit followed by removal failure. Added four tests: two nested
+repositories (one ignored and deeper), a gitdir file, a legitimate submodule staged with the
+run's object pointers, and an index-only gitlink with no on-disk marker. All six check the exact
+report paths, unchanged branch SHA, byte-identical index and checkout pointer, surviving nested
+markers and injected ignore, retained spawn directory, and status's waiting checkout list.
+
+Measurements: the cleanup suite passed 52/52 tests. `git count-objects -v` before and after
+each refusal was identical: count 4, size 16 KiB in five cases; count 5, size 20 KiB in the
+legitimate-submodule case; in-pack, packs, size-pack, prune-packable, garbage and size-garbage
+all 0 in every case. Newly unreachable objects: 0 in all six. One path is reported in five
+cases, two in the two-repository case; failures() is 1, which the CLI maps to exit 1.
+
+No new false assumption in the decided ticket. The earlier flattening suggestion and build
+325's unstaged-files expectation are superseded by the recorded human decision. Reap has no
+run-record event to extend: it does not append to another process's record, as harness spec 10
+requires. `IMPLEMENTATION.md` now records the refusal and measurements beside the object-store
+paragraph. No gate refusal occurred.
+
+Required validation, all exit 0:
+- `cargo fmt --all --check`: no output.
+- `cargo clippy --workspace --all-targets -- -D warnings`: Finished `dev` profile
+  [unoptimized + debuginfo] target(s) in 29.46s.
+- `cargo nextest run --release --workspace`: Summary [47.332s] 1431 tests run:
+  1431 passed, 4 skipped.
+- `cargo test --release --workspace --doc`: test result: ok. 0 passed; 0 failed;
+  0 ignored; 0 measured; 0 filtered out; finished in 0.00s.

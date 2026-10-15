@@ -5207,8 +5207,19 @@ will not read, still waits for the session either way, and `derive` reads that e
   repository, uses that store. Measured by the map 123 panel on 2026-10-13: a repository the run creates or
   clones under its checkout gets a `.git` with no `objects/`, a reader that drops the two
   variables, Hydra's own git included, finds no repository there and walks up to the checkout
-  with no error, and a sub-repository the run staged becomes a gitlink that reap's pointer-less
-  git refuses with exit 128; map 123 holds the decision. Measured after the merge on 2026-09-24: under `standard` each of
+  with no error. Since build ticket 326, reap refuses every index gitlink (including legitimate
+  submodules) and every nested `.git` file or directory, before importing objects, rewriting
+  metadata, removing injected files or committing. It lists each checkout-relative repository
+  path once, leaves the checkout and index intact, and exits 1; status still lists the checkout
+  as waiting for reap. The scan includes ignored paths, skips the checkout's own `.git`, and
+  follows neither directory symlinks nor nested Git metadata. Flattening is not offered.
+  Six cases in `tests/cleanup.rs` pin staged and unstaged repositories, two repositories,
+  a `gitdir:` file, a legitimate staged submodule and an index-only gitlink. Parent
+  `count-objects -v` stays identical: 4 loose objects before/after in five cases and 5 in the
+  submodule case, with 0 packs and 0 newly unreachable objects throughout. This supersedes
+  build 325's staged failure after import and unstaged commit of a gitlink followed by a
+  failed removal; map 123 and build 326 hold the refusal decision. Reap writes no run-record
+  event, consistent with the single-writer rule. Measured after the merge on 2026-09-24: under `standard` each of
   the four providers ran `git add` in a real run, printed its own store as
   `GIT_OBJECT_DIRECTORY`, and `hydra reap` committed the file, `claude` 01a0d227-23ce, `codex`
   01a0d226-d533, `cursor-agent` 01a0d227-ef37 and `agy` 01a0d228-206c. None strips the variables

@@ -47,7 +47,7 @@ use anyhow::Result;
 
 use crate::live::{RunView, State};
 use crate::paths::Layout;
-use crate::worktree::{CheckoutGit, commit_everything, git};
+use crate::worktree::{CheckoutGit, GitLocation, commit_everything, git};
 
 /// What one run's reap did.
 pub enum Reaped {
@@ -480,6 +480,7 @@ fn commit_then_remove(
             checkout.display()
         );
     }
+    refuse_nested_repositories(checkout, &context)?;
     context.restore_pointer()?;
     context.clear_private_logs()?;
     let mut swept = Checkout {
@@ -525,6 +526,60 @@ fn commit_then_remove(
         Err(gentle) => swept.branch_kept = Some(gentle),
     }
     Ok(swept)
+}
+
+/// Refuse before rewriting any checkout metadata or importing run objects.
+/// Gitlinks include legitimate submodules: neither they nor an unstaged nested
+/// repository can be flattened without a separate decision from the human.
+fn refuse_nested_repositories(checkout: &Path, context: &CheckoutGit) -> Result<()> {
+    use std::collections::BTreeSet;
+    use std::os::unix::ffi::OsStrExt;
+
+    let listing = context
+        .command()
+        .args(["ls-files", "--stage", "-z"])
+        .output()?;
+    anyhow::ensure!(
+        listing.status.success(),
+        "git ls-files --stage failed: {}",
+        String::from_utf8_lossy(&listing.stderr).trim()
+    );
+    let mut paths = BTreeSet::new();
+    for entry in listing.stdout.split(|byte| *byte == 0) {
+        if entry.starts_with(b"160000 ")
+            && let Some(tab) = entry.iter().position(|byte| *byte == b'\t')
+        {
+            paths.insert(PathBuf::from(std::ffi::OsStr::from_bytes(
+                &entry[tab + 1..],
+            )));
+        }
+    }
+
+    // Include ignored/untracked paths, but never follow directory symlinks or
+    // descend into Git metadata. The checkout's own pointer is expected.
+    let mut directories = vec![PathBuf::new()];
+    while let Some(relative) = directories.pop() {
+        for entry in std::fs::read_dir(checkout.join(&relative))? {
+            let entry = entry?;
+            if entry.file_name() == ".git" {
+                if !relative.as_os_str().is_empty() {
+                    paths.insert(relative.clone());
+                }
+            } else if entry.file_type()?.is_dir() {
+                directories.push(relative.join(entry.file_name()));
+            }
+        }
+    }
+    anyhow::ensure!(
+        paths.is_empty(),
+        "refusing to reap nested repositories or gitlinks; leaving the checkout untouched:\n{}",
+        paths
+            .iter()
+            .map(|path| format!("  {:?}", path))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    Ok(())
 }
 
 /// `git branch -d`, or `-D` when the human typed the flag, with git's reason.
