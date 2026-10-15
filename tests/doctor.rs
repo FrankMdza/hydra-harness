@@ -9,6 +9,181 @@ use serde_json::json;
 use common::{Record, Sandbox, Shape, policies};
 
 #[test]
+fn every_provider_skips_replay_when_any_host_leaf_differs() {
+    let sandbox = Sandbox::new("doctor-host-leaves");
+    let layout = sandbox.layout();
+    let agy = Record::shaped(Shape {
+        provider: Some("agy"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        ..Shape::default()
+    })
+    .agy_init(&["view_file"])
+    .agy_tool_ok(
+        1,
+        "view_file",
+        json!({"AbsolutePath": "/foreign/file"}),
+        "ok",
+    )
+    .agy_result("SUCCESS", "ok", None)
+    .closed();
+    let templates = [
+        include_str!("fixtures/records/claude@2.1.261/00000000-0000-7000-8000-000000000001.jsonl"),
+        include_str!(
+            "fixtures/records/cursor-agent@2026.09.02-c22c1a3/00000000-0000-7000-8000-000000000007.jsonl"
+        ),
+        agy.as_str(),
+        include_str!("fixtures/records/codex@0.154.0/00000000-0000-7000-8000-000000000009.jsonl"),
+    ];
+    for template in templates {
+        let (first, rest) = template.split_once('\n').unwrap();
+        let envelope: serde_json::Value = serde_json::from_str(first).unwrap();
+        for leaf in ["os", "arch", "machine"] {
+            let mut stamped = envelope.clone();
+            let mut host = serde_json::to_value(hydra::record::Host::here().unwrap()).unwrap();
+            host[leaf] = json!(format!("{}-foreign", host[leaf].as_str().unwrap()));
+            stamped["hydra"]["host"] = host;
+            let text = format!("{stamped}\n{rest}");
+            let run = hydra::normalize::read_with(&text, &policies(), &layout).unwrap();
+            assert!(run.tool_calls().count() > 0);
+            assert_eq!(
+                run.permission_decisions().count(),
+                0,
+                "{:?} {leaf}",
+                run.provider
+            );
+            assert!(
+                !run.findings.iter().any(|finding| matches!(
+                    finding,
+                    hydra::normalize::Finding::GateLeak { .. }
+                        | hydra::normalize::Finding::Disagreement { .. }
+                        | hydra::normalize::Finding::Ungated { .. }
+                )),
+                "{:?} {leaf}: {:?}",
+                run.provider,
+                run.findings
+            );
+        }
+        let mut local = envelope;
+        local["hydra"]["host"] =
+            serde_json::to_value(hydra::record::Host::here().unwrap()).unwrap();
+        let run =
+            hydra::normalize::read_with(&format!("{local}\n{rest}"), &policies(), &layout).unwrap();
+        assert!(run.permission_decisions().count() > 0, "{:?}", run.provider);
+        if run.provider.as_deref() == Some("claude") {
+            assert!(
+                run.permission_decisions()
+                    .all(|decision| decision.decision == hydra::normalize::Decision::Deny)
+            );
+            assert_eq!(
+                hydra::outcome::derive(&run).unwrap().outcome,
+                hydra::outcome::Outcome::Gated
+            );
+        }
+    }
+}
+
+#[test]
+fn a_local_host_has_zero_foreign_counts_and_foreign_records_still_need_the_contract() {
+    let sandbox = Sandbox::new("doctor-host-contract");
+    let layout = sandbox.layout();
+    let id = "00000000-0000-7000-8000-000000000337";
+    let host = hydra::record::Host::here().unwrap();
+    let mut record = Record::shaped(Shape {
+        run_id: id,
+        ..Shape::default()
+    });
+    let text = record
+        .host(&host)
+        .result(json!({"subtype": "success", "is_error": false}))
+        .closed();
+    let path = layout.run_file(id);
+    std::fs::write(&path, &text).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    assert!(stdout.contains("foreign hosts: 0"), "{stdout}");
+    assert!(
+        stdout.contains(&format!("host {}: 1 record(s)", host.label())),
+        "{stdout}"
+    );
+
+    let (first, rest) = text.split_once('\n').unwrap();
+    let mut first: serde_json::Value = serde_json::from_str(first).unwrap();
+    first["hydra"]["host"]["machine"] = json!(format!("{}-foreign", host.machine));
+    first["seq"] = json!(99);
+    std::fs::write(&path, format!("{first}\n{rest}")).unwrap();
+    let report = hydra::walk::walk_paths(&[path], &|_| panic!("foreign replay"));
+    assert_eq!(report.foreign_hosts.values().sum::<usize>(), 1);
+    assert!(!report.findings.is_empty());
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|finding| finding.assertion.contains("contract"))
+    );
+}
+
+#[test]
+fn walk_counts_foreign_hosts_without_replaying_their_calls() {
+    let sandbox = Sandbox::new("doctor-other-host");
+    let layout = sandbox.layout();
+    let mut foreign = hydra::record::Host::here().unwrap();
+    foreign.machine.push_str("-foreign");
+    let id = "00000000-0000-7000-8000-000000000336";
+    let mut record = Record::shaped(Shape {
+        run_id: id,
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        ..Shape::default()
+    });
+    let text = record
+        .host(&foreign)
+        .tool_use(
+            "foreign-call",
+            "Write",
+            json!({"file_path": "/foreign/file", "content": "x"}),
+        )
+        .tool_result("foreign-call", "ok", false)
+        .result(json!({"subtype": "success", "is_error": false}))
+        .closed();
+    std::fs::write(layout.run_file(id), &text).unwrap();
+    let run = hydra::normalize::read_with(&text, &policies(), &layout).unwrap();
+    assert_eq!(run.tool_calls().count(), 1);
+    assert_eq!(run.permission_decisions().count(), 0);
+    assert!(run.findings.iter().any(|finding| matches!(
+        finding, hydra::normalize::Finding::Limit(said) if said.contains(&foreign.label())
+    )));
+    // Foreign records must not even reach the walk's replay reader.
+    let report = hydra::walk::walk_paths(&[layout.run_file(id)], &|_| {
+        panic!("a foreign record reached the replay reader")
+    });
+    assert!(report.findings.is_empty(), "{:?}", report.findings);
+    assert_eq!(report.foreign_hosts[&foreign.label()], 1);
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    assert!(
+        stdout.contains(&format!("foreign host {}: 1 record(s)", foreign.label())),
+        "{stdout}"
+    );
+    assert!(stdout.contains("foreign hosts: 1"), "{stdout}");
+    assert!(
+        stdout.contains("RejectedBeforeHook: 0; Ungated: 0"),
+        "{stdout}"
+    );
+    assert_eq!(std::fs::read_to_string(layout.run_file(id)).unwrap(), text);
+}
+
+#[test]
 fn walk_counts_an_edit_rejected_before_the_hook_separately() {
     let sandbox = Sandbox::new("doctor-rejected-before-hook");
     let layout = sandbox.layout();

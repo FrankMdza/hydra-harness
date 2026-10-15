@@ -460,8 +460,12 @@ fn finish(fixture: &Fixture) -> String {
 }
 
 /// The fixtures that carry build ticket 316's `host`, one per provider and
-/// the harness pass. The provider ones carry `sandbox_kind` too.
-const HOSTED: &[u32] = &[1, 7, 8, 9, 10];
+/// the harness pass. The provider ones carry `sandbox_kind` too. Not fixture 1:
+/// since build 336 a record from another host is never replayed, and fixture 1
+/// is the one stream-gated fixture, whose Write denial the outcome, normalize
+/// and cockpit tests rely on replaying. A hosted fixture has to be one with
+/// nothing to replay.
+const HOSTED: &[u32] = &[6, 7, 8, 9, 10];
 
 /// The `machine` every hosted fixture names. Never this machine's: these files
 /// go public.

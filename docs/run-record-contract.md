@@ -748,6 +748,20 @@ tried, so a silently corrected trajectory would teach the curator that the agent
 
 ### 7.7 `permission_decision`
 
+**2026-10-15, build 336: a record from another host is never replayed.** Before
+compiling a gate or rebuilding its scopes, the reader compares `run_start.host`'s
+`os`, `arch` and `machine` with `record::Host::here()`. A difference is
+`GateMark::OtherHost`, with a limit naming the recorded host and no derived
+`permission_decision`. The walk validates the contract, counts these records per
+foreign host, and excludes them from replay assertions. `GateMark::Foreign` still
+means different gate bytes on this host. A record without `host` keeps its previous
+behavior; if the reader cannot determine its own host, stamped records cannot be
+identified as local and are counted apart. No stored path is replaced to make a
+foreign record replayable. Rungs refuses a corpus carrying more than one distinct
+host before normalization, names each host and count, and directs the human to
+point `HYDRA_ROOT` at a data root containing one host until build 318 supplies the
+Linux wrapper. It assigns no special weight to hook-only records.
+
 **2026-10-15, build 321: stored `gate_refusal` evidence accompanies shell denials.**
 The live hook appends to `gate-refusals.jsonl` beside its compiled gate. At process exit,
 the watcher (or interactive harvest) copies each entry into a Hydra line before `run_end`.

@@ -59,6 +59,7 @@ struct Walk {
     provider: Option<String>,
     policy: Option<String>,
     policy_sha: Option<String>,
+    gate: super::super::RecordedGate,
     events: Vec<Event>,
     findings: Vec<super::Finding>,
     noise: Vec<String>,
@@ -97,6 +98,7 @@ impl Walk {
                         }))
                 }
                 Some("run_start") => {
+                    self.gate = super::super::RecordedGate::of(hydra);
                     self.policy = hydra["policy"].as_str().map(str::to_string);
                     self.policy_sha = hydra["policy_sha"].as_str().map(str::to_string);
                     self.events.push(Event::RunStart(RunStart {
@@ -244,7 +246,11 @@ impl Walk {
         self.emit_usage();
         let corrections = self.derive_corrections();
         self.splice_corrections(corrections);
-        let decisions = self.derive_policy_decisions();
+        let decisions = if self.gate.skip_other_host(&mut self.findings) {
+            Vec::new()
+        } else {
+            self.derive_policy_decisions()
+        };
         if self.policy.is_some() {
             self.findings.push(super::Finding::Limit(
                 "allows were not recorded on this launch mode".to_string(),

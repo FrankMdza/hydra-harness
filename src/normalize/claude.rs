@@ -441,6 +441,15 @@ impl Walk {
 
     /// 8.5's `subagent_stats`, read as the second instance of the gate-leak check.
     fn check_subagents(&mut self, policies: &PolicySet) {
+        if self
+            .start
+            .gate
+            .host
+            .as_ref()
+            .is_some_and(|host| host.is_other())
+        {
+            return;
+        }
         let Some(name) = self.start.policy.clone() else {
             return;
         };
@@ -473,6 +482,9 @@ impl Walk {
         // to supply and a block without one would collide with every other
         // block without one.
         let mut decisions: Vec<Option<PermissionDecision>> = Vec::new();
+        if self.start.gate.skip_other_host(&mut self.findings) {
+            return decisions;
+        }
         let Some(name) = self.start.policy.clone() else {
             return decisions;
         };

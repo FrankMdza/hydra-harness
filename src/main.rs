@@ -236,8 +236,14 @@ fn main() -> Result<()> {
                     report.refusals.no_call_id
                 );
                 for (host, records) in &report.hosts {
-                    println!("host {host}: {records} record(s)");
+                    let kind = if report.foreign_hosts.contains_key(host) {
+                        "foreign host"
+                    } else {
+                        "host"
+                    };
+                    println!("{kind} {host}: {records} record(s)");
                 }
+                println!("foreign hosts: {}", report.foreign_hosts.len());
                 println!("checked {} record(s)", report.records_read);
                 println!(
                     "RejectedBeforeHook: {}; Ungated: {}",

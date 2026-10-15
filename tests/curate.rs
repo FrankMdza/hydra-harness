@@ -162,6 +162,43 @@ const F: &str = "01a07340-67a3-7c41-8c69-8d1e28bb58a7";
 // --- which runs the curator is told about --------------------------------
 
 #[test]
+fn mixed_hosts_are_refused_before_normalizing_and_one_host_reads_as_before() {
+    let fixture = Fixture::new("mixed-hosts");
+    let host = hydra::record::Host::here().unwrap();
+    let mut other = host.clone();
+    other.machine.push_str("-other");
+    let text = |id, host: &hydra::record::Host| {
+        Record::shaped(Shape {
+            run_id: id,
+            policy: Some("standard"),
+            policy_sha: Some(policies().sha()),
+            ..Shape::default()
+        })
+        .host(host)
+        .result(json!({"subtype": "success", "is_error": false}))
+        .closed()
+    };
+    fixture.write(A, &text(A, &host));
+    fixture.write(B, &text(B, &host));
+    assert_eq!(fixture.select().learn.len(), 2);
+    fixture.write(C, &text(C, &other));
+    let err = corpus::select(&fixture.layout(), &policies())
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        err.contains(&format!("{}: 2 record(s)", host.label())),
+        "{err}"
+    );
+    assert!(
+        err.contains(&format!("{}: 1 record(s)", other.label())),
+        "{err}"
+    );
+    assert!(err.contains("HYDRA_ROOT"), "{err}");
+    assert!(err.contains("318"), "{err}");
+}
+
+#[test]
 fn a_harness_run_is_skipped_on_its_kind_rather_than_on_its_outcome() {
     // Contract 8.6, and the case that decides it: a pass killed with Ctrl-C is a
     // dead pid with no `run_end`, which is exactly rung one's abandoned class.

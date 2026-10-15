@@ -231,6 +231,14 @@ pub struct Record {
 }
 
 impl Record {
+    /// Stamp a synthetic record with a host without changing legacy defaults.
+    pub fn host(&mut self, host: &hydra::record::Host) -> &mut Self {
+        let mut first: Value = serde_json::from_str(&self.lines[0]).unwrap();
+        first["hydra"]["host"] = serde_json::to_value(host).unwrap();
+        self.lines[0] = first.to_string();
+        self
+    }
+
     /// Opens with a `run_start` under the named policy, `None` for a pre-gate run.
     ///
     /// No `scopes`, which is what every record on this machine looks like.

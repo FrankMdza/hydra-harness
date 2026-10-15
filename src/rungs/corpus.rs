@@ -223,6 +223,21 @@ impl Selection {
 /// a batch mode on the gate rather than a second implementation of the rules in
 /// Rust.
 pub fn select(layout: &Layout, policies: &PolicySet) -> Result<Selection> {
+    // Inspect line zero across the whole corpus before liveness filtering or
+    // normalization, shared by curate and evolve. Unstamped legacy records
+    // retain their existing behavior and do not invent another host.
+    let hosts = crate::walk::host_counts(&crate::walk::records_in(&layout.runs()));
+    if hosts.len() > 1 {
+        let counts = hosts
+            .iter()
+            .map(|(host, count)| format!("{}: {count} record(s)", host.label()))
+            .collect::<Vec<_>>()
+            .join("; ");
+        anyhow::bail!(
+            "Rungs refuses a mixed-host corpus: {counts}. Point HYDRA_ROOT at a data root \
+             containing records from just one host until the Linux wrapper (build 318) exists"
+        );
+    }
     let mut learn = Vec::new();
     let mut skipped = Vec::new();
     // Every run that was itself a curator pass, so the pass below can drop the

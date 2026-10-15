@@ -2462,11 +2462,25 @@ the digest's bytes rather than leaning on `sha2`'s `LowerHex`, so the `sha2` 0.1
 move a string and turn old records `Foreign`; it lives twice, in `src/hex.rs` and in
 `crates/records/src/hex.rs`, because the `hydra` crate depends on no workspace crate.
 
-Three marks come out of that, in `GateMark`. `Todays` is the record whose sha is the sha
+For records on this host, three marks come out of that, in `GateMark`. `Todays` is the record whose sha is the sha
 this build compiles, and only that record can report a `GateLeak` or a `Disagreement`.
 `Foreign` names a gate whose code has changed since. `Unnamed` is every record written
 before the field, which is all 207 on this machine today, and every run that compiled no
 gate. The last two downgrade the finding to a `Limit` that says which mark is missing.
+
+**Build 336 counts another host apart before replay.** `GateMark::OtherHost` compares
+all three `host` leaves with `Host::here()` before scopes are rebuilt or either gate
+is compiled. The four adapters and Claude's interactive harvest derive no permission
+decisions for that record; its limit names the host. The walk still validates its
+contract, counts it in `Report::foreign_hosts`, and excludes it from replay-based
+assertions. Doctor labels those counts `foreign host` and prints the number of foreign
+hosts. Unstamped records keep the old behavior. If the local hostname is unavailable,
+stamped records are counted apart. `Foreign` retains its meaning of another gate
+build on this machine. Rungs' shared corpus loader for curate and evolve inspects line
+zero before normalization or liveness filtering and refuses more than one distinct
+host, naming every host and count and explaining how to select a single-host data
+root with `HYDRA_ROOT` until build 318. Legacy unstamped records add no host identity;
+there is no hook-only weighting rule.
 
 **A matching `gate_sha` does not make the replay a pure function of the record.** The gate
 resolves each path with `realpath` against the disk as it is when the record is read, not as it
@@ -2488,9 +2502,9 @@ profile wrapped the launch and absent otherwise; `sandbox` is still the sha-or-n
 the schema is still 1 (contract 15). The validator rejects a null `host`, a `host` missing a
 leaf, and a kind beside no sha. `hydra doctor --walk` prints one `host <machine> <os>/<arch>: N
 record(s)` line per host before its count, and `hydra show --events` prints the host on the
-`run_start` body because that body is verbatim. Nothing reads either field yet: map 126's
-replay carve-out and Rungs' split by enforcement population are builds 336 and later, and a
-Linux writer's kind is build 318's. Every record on this machine before 2026-10-15 has neither.
+`run_start` body because that body is verbatim. Build 336 reads `host` for replay
+separation and Rungs' mixed-host refusal as described above; a Linux writer's kind
+is build 318's. Every record on this machine before 2026-10-15 has neither.
 
 `ReplaySpawn::cannot_back` is the one door all seven call sites in the three normalizers go
 through, so the adapters cannot drift apart on which question they ask, which is one axis of

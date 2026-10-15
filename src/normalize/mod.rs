@@ -618,6 +618,7 @@ pub(crate) struct RecordedGate {
     /// Contract 5.1's `gate_sha`, build ticket 49. `None` on every record
     /// written before the field existed.
     gate_sha: Option<String>,
+    host: Option<crate::record::Host>,
 }
 
 impl RecordedGate {
@@ -634,6 +635,7 @@ impl RecordedGate {
             // means: the floor was in force, which is the shape ticket 03 left.
             floor_lifted: body["floor_lifted"].as_bool().unwrap_or(false),
             gate_sha: body["gate_sha"].as_str().map(str::to_string),
+            host: crate::record::Host::of(body),
         }
     }
 
@@ -654,6 +656,18 @@ impl RecordedGate {
     /// `docs/reviews/2026-09-14-the-gate-under-attack.md`.
     fn named_gate(&self) -> Option<&str> {
         self.gate_sha.as_deref()
+    }
+
+    /// Stop before rebuilding scopes or compiling either replay gate.
+    pub(crate) fn skip_other_host(&self, findings: &mut Vec<Finding>) -> bool {
+        let Some(mark) = GateMark::other_host(self.host.as_ref()) else {
+            return false;
+        };
+        findings.push(Finding::Limit(format!(
+            "{}; no permission_decision derived and no gate replayed",
+            mark.why_not().expect("OtherHost has a clause")
+        )));
+        true
     }
 }
 
@@ -739,9 +753,8 @@ pub(crate) fn results_by_call(
 /// The sha is of the compiled script's bytes, which carry the policy, the deny
 /// list, the scopes this spawn resolved and the Python the gate runs. So it
 /// moves when any of those move, and `policy_sha` beside it moves only when a
-/// policy does. Two marks and no third: either this build compiles the same
-/// bytes the run was launched with or it does not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// policy does. Host identity is checked before either gate is compiled.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum GateMark {
     /// No `gate_sha` on `run_start`. Every record written before build ticket
     /// 49, and every run that compiled no gate.
@@ -750,9 +763,19 @@ enum GateMark {
     Todays,
     /// The record names a gate whose bytes are not the ones compiled here.
     Foreign,
+    /// Another machine's record must never be replayed here.
+    OtherHost(String),
 }
 
 impl GateMark {
+    fn other_host(host: Option<&crate::record::Host>) -> Option<Self> {
+        host.filter(|host| host.is_other()).map(|host| {
+            Self::OtherHost(format!(
+                "the record's host {} is not this host",
+                host.label()
+            ))
+        })
+    }
     /// Compiles the gate this build would write for `spawn` and compares.
     ///
     /// A policy that will not compile is `Foreign` rather than `Todays`: the
@@ -770,11 +793,12 @@ impl GateMark {
     }
 
     /// Why this mark leaves a finding unbacked, as one clause, or `None`.
-    fn why_not(self) -> Option<&'static str> {
+    fn why_not(&self) -> Option<&str> {
         match self {
             Self::Todays => None,
             Self::Unnamed => Some("the record does not say which gate answered for it"),
             Self::Foreign => Some("the gate it names is not the one compiled here"),
+            Self::OtherHost(clause) => Some(clause),
         }
     }
 }

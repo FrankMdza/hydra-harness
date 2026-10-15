@@ -115,7 +115,7 @@ pub struct RunStart {
 
 /// `run_start.host`: the platform pair the binary was built for and the
 /// hostname, never the user name.
-#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Host {
     /// `std::env::consts::OS`.
     pub os: String,
@@ -126,6 +126,20 @@ pub struct Host {
 }
 
 impl Host {
+    /// A host carried by a run_start body, absent on older records.
+    pub fn of(body: &serde_json::Value) -> Option<Self> {
+        serde_json::from_value(body.get("host")?.clone()).ok()
+    }
+
+    pub fn label(&self) -> String {
+        format!("{} {}/{}", self.machine, self.os, self.arch)
+    }
+
+    /// Without a local hostname, no recorded host can be identified as local.
+    pub fn is_other(&self) -> bool {
+        Self::here().as_ref() != Some(self)
+    }
+
     /// This machine, or `None` when the hostname did not answer. All three
     /// leaves or none, because the validator requires all three when `host`
     /// is present.

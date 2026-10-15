@@ -31,6 +31,8 @@ pub struct Report {
     /// How many records each host wrote, keyed `machine os/arch`, build
     /// ticket 316. A record from before the field counts under no key.
     pub hosts: BTreeMap<String, usize>,
+    /// Records excluded from replay assertions, counted under their own host.
+    pub foreign_hosts: BTreeMap<String, usize>,
     /// Build ticket 332: each stored `gate_refusal` row read against its call.
     pub refusals: RefusalCounts,
     /// The rows that matched no failed call. A limit of the record, printed
@@ -91,13 +93,27 @@ pub fn walk_corpus(layout: &Layout) -> Result<Report> {
 
 /// Runs every walk assertion over an explicit list of records.
 pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Report {
+    let records_read = paths.len();
+    let hosts = hosts_of(paths);
+    let foreign_hosts = host_counts(paths)
+        .into_iter()
+        .filter(|(host, _)| host.is_other())
+        .map(|(host, count)| (host.label(), count))
+        .collect();
+    let contract = check_contract(paths);
+    let local: Vec<_> = paths
+        .iter()
+        .filter(|path| !host_of(path).is_some_and(|host| host.is_other()))
+        .cloned()
+        .collect();
+    let paths = local.as_slice();
     let cache = RefCell::new(HashMap::<PathBuf, Result<Run, String>>::new());
     let read = |path: &Path| cached_read(&cache, path, read);
     // The write-nothing snapshot has to bracket the first (and, with the cache,
     // only) normalize. Findings stay in the order the checks used to run.
     let writes_nothing = check_normalizing_writes_nothing(paths, &read);
     let mut findings = Vec::new();
-    findings.extend(check_contract(paths));
+    findings.extend(contract);
     findings.extend(check_normalizes(paths, &read).0);
     findings.extend(check_write_denials(paths, &read).0);
     findings.extend(check_gate_leaks(paths, &read));
@@ -122,10 +138,11 @@ pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Rep
     }
     Report {
         findings,
-        records_read: paths.len(),
+        records_read,
         rejected_before_hook,
         ungated,
-        hosts: hosts_of(paths),
+        hosts,
+        foreign_hosts,
         refusals,
         uncorroborated,
     }
@@ -135,28 +152,29 @@ pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Rep
 /// `machine os/arch`; a record whose line 0 does not parse or has no host is
 /// left out, and the contract walk names the first case already.
 pub fn hosts_of(paths: &[PathBuf]) -> BTreeMap<String, usize> {
+    host_counts(paths)
+        .into_iter()
+        .map(|(host, count)| (host.label(), count))
+        .collect()
+}
+
+/// Typed identities keep host boundaries independent of display formatting.
+pub fn host_counts(paths: &[PathBuf]) -> BTreeMap<record::Host, usize> {
     let mut hosts = BTreeMap::new();
     for path in paths {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        let Some(Ok(first)) = text
-            .lines()
-            .next()
-            .map(serde_json::from_str::<serde_json::Value>)
-        else {
-            continue;
-        };
-        let host = &first["hydra"]["host"];
-        if let (Some(machine), Some(os), Some(arch)) = (
-            host["machine"].as_str(),
-            host["os"].as_str(),
-            host["arch"].as_str(),
-        ) {
-            *hosts.entry(format!("{machine} {os}/{arch}")).or_insert(0) += 1;
+        if let Some(host) = host_of(path) {
+            *hosts.entry(host).or_insert(0) += 1;
         }
     }
     hosts
+}
+
+fn host_of(path: &Path) -> Option<record::Host> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(path).ok()?;
+    let first = std::io::BufReader::new(file).lines().next()?.ok()?;
+    let envelope: serde_json::Value = serde_json::from_str(&first).ok()?;
+    record::Host::of(&envelope["hydra"])
 }
 
 fn cached_read(
@@ -194,8 +212,7 @@ fn push(findings: &mut Vec<Finding>, path: &Path, assertion: impl Into<String>) 
 
 /// Validates each record, naming the file and every problem when one fails.
 ///
-/// Multi-machine use is a non-goal, so the corpus this checks is the one on the
-/// laptop Hydra runs on. Nothing here fails on a machine that has run nothing.
+/// Includes foreign records: host separation does not relax the contract.
 pub fn check_contract(paths: &[PathBuf]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in paths {
@@ -284,7 +301,15 @@ pub fn check_normalizes(
             }
             Some(_) => {
                 let decisions = run.permission_decisions().count();
-                let calls = run.tool_calls().count();
+                let other_host = run
+                    .run_start()
+                    .and_then(|start| record::Host::of(&start.body))
+                    .is_some_and(|host| host.is_other());
+                let calls = if other_host {
+                    0
+                } else {
+                    run.tool_calls().count()
+                };
                 if decisions != calls {
                     push(
                         &mut findings,
@@ -318,7 +343,12 @@ pub fn check_write_denials(
                 continue;
             }
         };
-        if run.policy.as_deref() != Some("read-only") {
+        if run.policy.as_deref() != Some("read-only")
+            || run
+                .run_start()
+                .and_then(|start| record::Host::of(&start.body))
+                .is_some_and(|host| host.is_other())
+        {
             continue;
         }
         for call in run.tool_calls().filter(|call| call.name == "Write") {

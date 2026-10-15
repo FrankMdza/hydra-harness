@@ -639,6 +639,9 @@ impl Walk {
 
     fn decide(&mut self, policies: &PolicySet, layout: &Layout) -> Vec<Option<PermissionDecision>> {
         let mut decisions: Vec<Option<PermissionDecision>> = Vec::new();
+        if self.start.gate.skip_other_host(&mut self.findings) {
+            return decisions;
+        }
         let Some(name) = self.start.policy.clone() else {
             return decisions;
         };
