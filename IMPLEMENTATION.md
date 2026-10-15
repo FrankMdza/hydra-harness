@@ -2427,6 +2427,20 @@ nothing else, so a `Disagreement` on today's gate can come from either. Recordin
 path with each live decision would close the first; it is not built. The third hiring panel's
 H42.
 
+**Nothing but `host` says which machine wrote a record.** `policy_sha` and `base_tree` hash
+content, so two machines at one commit write the same bytes in both. Build ticket 316 put
+`run_start.host` on every line 0 a launch writes, recorded, interactive, refused and the
+`evolve` harness pass alike: `os` and `arch` from `std::env::consts`, `machine` from
+`gethostname(3)` through `record::hostname`, never the user name, and the whole group absent
+if the hostname does not answer. Beside `sandbox` sits `sandbox_kind`, `"seatbelt"` when a
+profile wrapped the launch and absent otherwise; `sandbox` is still the sha-or-null it was, and
+the schema is still 1 (contract 15). The validator rejects a null `host`, a `host` missing a
+leaf, and a kind beside no sha. `hydra doctor --walk` prints one `host <machine> <os>/<arch>: N
+record(s)` line per host before its count, and `hydra show --events` prints the host on the
+`run_start` body because that body is verbatim. Nothing reads either field yet: map 126's
+replay carve-out and Rungs' split by enforcement population are builds 336 and later, and a
+Linux writer's kind is build 318's. Every record on this machine before 2026-10-15 has neither.
+
 `ReplaySpawn::cannot_back` is the one door all seven call sites in the three normalizers go
 through, so the adapters cannot drift apart on which question they ask, which is one axis of
 build ticket 55 closed. It names every reason rather than the first: a record can lack the

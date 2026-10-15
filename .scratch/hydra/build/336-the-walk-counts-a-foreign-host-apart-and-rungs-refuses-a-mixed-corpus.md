@@ -19,7 +19,11 @@ After 316 lands `host` and `sandbox_kind`:
    `GateMark::OtherHost`, whose clause names the record's host; no gate is compiled for it. A
    record without `host` is treated as today.
 2. `src/walk.rs` and `hydra doctor --walk`: one count per foreign host (`linux/x86_64/vm-1: N`),
-   printed with the summary, never as a leak.
+   printed with the summary, never as a leak. **Build 316 left half of this:** `walk::hosts_of`
+   counts every record's host keyed `machine os/arch`, `walk::Report::hosts` carries it, and
+   `doctor --walk` prints `host <machine> <os>/<arch>: N record(s)` per host, this machine's
+   included. What is left is telling the reader's own host apart and marking the rest foreign.
+   `record::Host::here()` is the comparison side.
 3. `src/rungs/corpus.rs` (or wherever the corpus is loaded for `curate` and `evolve`): if the
    records carry more than one distinct `host`, refuse before any reading with one message naming
    each host and its count, and say how to point `HYDRA_ROOT` at one of them.

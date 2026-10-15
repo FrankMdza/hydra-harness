@@ -41,7 +41,7 @@ pub fn lock_exclusive(path: &std::path::Path) -> anyhow::Result<std::fs::File> {
     }
 }
 
-pub use lines::{Auth, Refusal, RunEnd, RunStart, WorktreeRef};
+pub use lines::{Auth, Host, Refusal, RunEnd, RunStart, WorktreeRef, hostname};
 
 use std::fs::File;
 use std::io::Write;

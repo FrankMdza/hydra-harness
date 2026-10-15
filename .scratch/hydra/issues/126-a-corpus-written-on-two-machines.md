@@ -23,7 +23,7 @@ open, both found by the 119 panel when it asked what happens to a Linux record r
    replay with the record's layout, mark `Foreign` and count them, or refuse to walk them?
 2. Rungs reads the corpus for `hydra curate` and `hydra evolve`. Until bubblewrap wraps a Linux
    launch (build 318), a Linux record is hook-only evidence. Does Rungs split its evidence by
-   enforcement population (`sandbox.kind`), weigh hook-only records less, or exclude them from
+   enforcement population (`sandbox_kind`), weigh hook-only records less, or exclude them from
    proposals that touch the gate?
 
 The session's own view, which is not an answer: `Foreign` and counted for question 1, excluded

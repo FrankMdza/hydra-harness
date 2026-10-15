@@ -435,6 +435,8 @@ fn run_gated(request: Request) -> Result<RunResult> {
         floor_lifted: Some(false),
         gate_sha: Some(prep.spawn.gate_sha.clone()),
         sandbox: prep.spawn.sandbox_sha.clone(),
+        sandbox_kind: prep.spawn.sandbox_sha.as_ref().map(|_| "seatbelt"),
+        host: crate::record::Host::here(),
         scopes: Some(prep.scopes.clone()),
         cwd: prep.cwd.display().to_string(),
         worktree: Some(prep.worktree.clone()),
@@ -591,6 +593,8 @@ fn run_ungated(request: Request) -> Result<RunResult> {
         // unmarked rather than as a leak.
         gate_sha: None,
         sandbox: None,
+        sandbox_kind: None,
+        host: crate::record::Host::here(),
         launch_mode: Some("interactive".to_string()),
         provider_version: Some(provider_version),
         // Known before the child starts on `claude`, unlike a recorded run's:

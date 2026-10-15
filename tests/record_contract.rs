@@ -48,6 +48,8 @@ fn a_run_start() -> RunStart {
         floor_lifted: None,
         gate_sha: None,
         sandbox: None,
+        sandbox_kind: None,
+        host: None,
         scopes: None,
         cwd: "/Users/USER/hydra/worktrees/x".into(),
         worktree: Some(WorktreeRef {
@@ -331,6 +333,106 @@ fn the_validator_catches_null_scopes() {
         "{:?}",
         problems(&format!("{text}\n"))
     );
+}
+
+/// `start_line` with `extra` spliced in after `worktree`, as one closed record.
+fn start_with(extra: &str) -> String {
+    let start = start_line(0).replace(r#""worktree":null"#, &format!(r#""worktree":null,{extra}"#));
+    format!("{start}\n{}\n", end_line(1))
+}
+
+const A_SHA: &str = "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b";
+
+#[test]
+fn host_and_sandbox_kind_are_additive() {
+    // Build ticket 316 under contract 15: a record from before either field and
+    // one carrying both are valid under schema version 1.
+    let host = r#""host":{"os":"macos","arch":"aarch64","machine":"stub-host"}"#;
+    let kind = format!(r#""sandbox":"{A_SHA}","sandbox_kind":"seatbelt""#);
+    for extra in [
+        String::new(),
+        host.to_string(),
+        kind.clone(),
+        format!("{host},{kind}"),
+    ] {
+        let text = if extra.is_empty() {
+            format!("{}\n{}\n", start_line(0), end_line(1))
+        } else {
+            start_with(&extra)
+        };
+        assert_eq!(problems(&text), Vec::<String>::new(), "{extra}");
+    }
+}
+
+#[test]
+fn the_validator_refuses_a_null_host_and_a_host_missing_a_leaf() {
+    for (extra, expected) in [
+        (r#""host":null"#, "host is not an object"),
+        (
+            r#""host":{"os":"macos","arch":"aarch64"}"#,
+            "host is missing machine",
+        ),
+        (
+            r#""host":{"arch":"aarch64","machine":"stub-host"}"#,
+            "host is missing os",
+        ),
+        (
+            r#""host":{"os":"macos","arch":7,"machine":"stub-host"}"#,
+            "host.arch is not a string",
+        ),
+    ] {
+        let found = problems(&start_with(extra));
+        assert!(
+            found.iter().any(|p| p.contains(expected)),
+            "{extra}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn the_validator_refuses_a_kind_beside_no_sandbox() {
+    for extra in [
+        r#""sandbox":null,"sandbox_kind":"seatbelt""#,
+        r#""sandbox_kind":"seatbelt""#,
+    ] {
+        let found = problems(&start_with(extra));
+        assert!(
+            found.iter().any(|p| p.contains("sandbox holds no sha")),
+            "{extra}: {found:?}"
+        );
+    }
+    let found = problems(&start_with(&format!(
+        r#""sandbox":"{A_SHA}","sandbox_kind":null"#
+    )));
+    assert!(
+        found.iter().any(|p| p.contains("sandbox_kind is null")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn the_writer_puts_this_host_on_line_zero_and_the_validator_takes_it() {
+    let path = scratch("with-host.jsonl");
+    let _ = std::fs::remove_file(&path);
+    let mut start = a_run_start();
+    start.host = hydra::record::Host::here();
+    start.sandbox = Some(A_SHA.into());
+    start.sandbox_kind = Some("seatbelt");
+    let mut writer = Writer::create(&path, RUN_ID, None, Some("claude"), None).unwrap();
+    writer.hydra_line(&start).unwrap();
+    writer.hydra_line(&RunEnd::streamed(Some(0), None)).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    check(&text, Some(RUN_ID)).assert_ok();
+    let first: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    let host = &first["hydra"]["host"];
+    assert_eq!(host["os"], std::env::consts::OS);
+    assert_eq!(host["arch"], std::env::consts::ARCH);
+    assert_eq!(
+        host["machine"].as_str(),
+        hydra::record::hostname().as_deref()
+    );
+    assert_eq!(first["hydra"]["sandbox_kind"], "seatbelt");
+    assert_eq!(first["hydra"]["sandbox"], A_SHA);
 }
 
 #[test]

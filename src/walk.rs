@@ -3,7 +3,7 @@
 //! in `tests/record_contract.rs`, `tests/normalize.rs` and `tests/outcome.rs`.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -26,6 +26,9 @@ pub struct Finding {
 pub struct Report {
     pub findings: Vec<Finding>,
     pub records_read: usize,
+    /// How many records each host wrote, keyed `machine os/arch`, build
+    /// ticket 316. A record from before the field counts under no key.
+    pub hosts: BTreeMap<String, usize>,
 }
 
 /// Counts the three normalization buckets the walk tracks.
@@ -86,7 +89,36 @@ pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Rep
     Report {
         findings,
         records_read: paths.len(),
+        hosts: hosts_of(paths),
     }
+}
+
+/// The `run_start.host` of each record that carries one, counted. The label is
+/// `machine os/arch`; a record whose line 0 does not parse or has no host is
+/// left out, and the contract walk names the first case already.
+pub fn hosts_of(paths: &[PathBuf]) -> BTreeMap<String, usize> {
+    let mut hosts = BTreeMap::new();
+    for path in paths {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Some(Ok(first)) = text
+            .lines()
+            .next()
+            .map(serde_json::from_str::<serde_json::Value>)
+        else {
+            continue;
+        };
+        let host = &first["hydra"]["host"];
+        if let (Some(machine), Some(os), Some(arch)) = (
+            host["machine"].as_str(),
+            host["os"].as_str(),
+            host["arch"].as_str(),
+        ) {
+            *hosts.entry(format!("{machine} {os}/{arch}")).or_insert(0) += 1;
+        }
+    }
+    hosts
 }
 
 fn cached_read(

@@ -504,6 +504,36 @@ fn a_run_with_no_parent_is_depth_zero_and_bound_by_nothing() {
         line_zero.get("parent_policy").is_none(),
         "absent rather than null: with no parent there is no policy to name"
     );
+    // Build ticket 316: every line 0 names its host, and no seatbelt means no
+    // kind, with `sandbox` still the null it was.
+    assert_eq!(line_zero["host"]["os"], std::env::consts::OS);
+    assert_eq!(
+        line_zero["host"]["machine"].as_str(),
+        hydra::record::hostname().as_deref()
+    );
+    assert!(line_zero.get("sandbox_kind").is_none());
+    assert!(line_zero["sandbox"].is_null());
+
+    let wrapped = serde_json::to_value(hydra::run::run_start(
+        &request("permissive", None),
+        hydra::run::RunStartRequest {
+            task: "t",
+            policy_sha: policies.sha(),
+            provider_version: None,
+            cwd: std::path::Path::new("/tmp"),
+            worktree: None,
+            env_allowlist: None,
+            skills: None,
+            mcp: None,
+            lineage: &lineage,
+            scopes: None,
+            gate_sha: None,
+            sandbox: Some("5b".repeat(32)),
+        },
+    ))
+    .unwrap();
+    assert_eq!(wrapped["sandbox_kind"], "seatbelt");
+    assert_eq!(wrapped["sandbox"], "5b".repeat(32));
 }
 
 // --- containment, build ticket 57 -----------------------------------------

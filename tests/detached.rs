@@ -55,6 +55,8 @@ fn line_zero(cwd: &Path) -> serde_json::Value {
         floor_lifted: Some(false),
         gate_sha: None,
         sandbox: None,
+        sandbox_kind: None,
+        host: None,
         scopes: None,
         cwd: cwd.display().to_string(),
         worktree: None,

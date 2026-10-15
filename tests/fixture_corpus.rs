@@ -419,7 +419,75 @@ fn finish(fixture: &Fixture) -> String {
         start["cwd"] = json!(format!("{FIXTURE_ROOT}/repo"));
         start["may_edit"] = json!(["src/normalize", "src/show.rs"]);
     }
+    let run_id = lines[0]["run_id"].as_str().unwrap_or_default().to_string();
+    if HOSTED.iter().any(|n| fixture_id(*n) == run_id) {
+        let start = &mut lines[0]["hydra"];
+        start["host"] = json!({"os": "macos", "arch": "aarch64", "machine": STUB_HOST});
+        if fixture.label != HARNESS {
+            start["sandbox"] = json!(FIXTURE_SANDBOX_SHA);
+            start["sandbox_kind"] = json!("seatbelt");
+        }
+    }
     lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
+/// The fixtures that carry build ticket 316's `host`, one per provider and
+/// the harness pass. The provider ones carry `sandbox_kind` too.
+const HOSTED: &[u32] = &[1, 7, 8, 9, 10];
+
+/// The `machine` every hosted fixture names. Never this machine's: these files
+/// go public.
+const STUB_HOST: &str = "stub-host";
+
+const FIXTURE_SANDBOX_SHA: &str =
+    "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b";
+
+#[test]
+fn the_fixture_corpus_on_disk_is_what_the_builders_write() {
+    for fixture in fixtures() {
+        let expected = finish(&fixture);
+        let first: Value = serde_json::from_str(expected.lines().next().unwrap()).unwrap();
+        let path = fixture_dir()
+            .join(fixture.label)
+            .join(format!("{}.jsonl", first["run_id"].as_str().unwrap()));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            expected,
+            "{} is stale; rerun write_the_fixture_corpus",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn one_fixture_per_provider_names_a_stub_host_and_never_this_one() {
+    let here = hydra::record::hostname();
+    let mut hosted = Vec::new();
+    for path in fixture_corpus() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let first: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        let start = &first["hydra"];
+        let Some(machine) = start["host"]["machine"].as_str() else {
+            continue;
+        };
+        assert_ne!(
+            Some(machine),
+            here.as_deref(),
+            "{} names this machine",
+            path.display()
+        );
+        assert_eq!(machine, STUB_HOST, "{}", path.display());
+        if first["provider"].is_string() {
+            assert_eq!(start["sandbox_kind"], "seatbelt", "{}", path.display());
+        }
+        hosted.push(label_of(&first));
+    }
+    for prefix in ["claude@", "cursor-agent@", "agy@", "codex@", HARNESS] {
+        assert!(
+            hosted.iter().any(|label| label.starts_with(prefix)),
+            "no hosted fixture under {prefix}: {hosted:?}"
+        );
+    }
 }
 
 #[test]

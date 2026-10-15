@@ -52,6 +52,18 @@ pub struct RunStart {
     /// The sha256 of the macOS seatbelt profile, null where no sandbox wrapped
     /// the launch, build ticket 68.
     pub sandbox: Option<String>,
+    /// Which kind of profile `sandbox` hashed: `"seatbelt"` when one wrapped
+    /// the launch, absent otherwise, build ticket 316. Absent means unknown
+    /// rather than none, so a Linux writer can add its own kind beside it
+    /// without a reader mistaking an older record for an unsandboxed one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_kind: Option<&'static str>,
+    /// The machine that wrote the record, build ticket 316. `policy_sha` and
+    /// `base_tree` name content, so two machines at one commit write the same
+    /// bytes in both, and only this says which one ran. Absent on a record
+    /// written before the field and where the hostname did not answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<Host>,
     /// The absolute paths the gate resolved its scopes to, keyed by scope name
     /// (contract 5.1). Absent, never null, on a run that compiled no gate, and a
     /// key the run had no path for is absent from the object.
@@ -99,6 +111,45 @@ pub struct RunStart {
     /// none, as repository-relative paths.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub may_edit: Option<Vec<String>>,
+}
+
+/// `run_start.host`: the platform pair the binary was built for and the
+/// hostname, never the user name.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct Host {
+    /// `std::env::consts::OS`.
+    pub os: String,
+    /// `std::env::consts::ARCH`.
+    pub arch: String,
+    /// What `gethostname(3)` answered.
+    pub machine: String,
+}
+
+impl Host {
+    /// This machine, or `None` when the hostname did not answer. All three
+    /// leaves or none, because the validator requires all three when `host`
+    /// is present.
+    pub fn here() -> Option<Self> {
+        Some(Self {
+            os: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+            machine: hostname()?,
+        })
+    }
+}
+
+/// `gethostname(3)`, lossy on a name that is not UTF-8, and `None` on an error
+/// or an empty answer.
+pub fn hostname() -> Option<String> {
+    let mut buf = [0u8; 256];
+    // SAFETY: the pointer and length describe `buf`, which outlives the call.
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+    if rc != 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    let name = String::from_utf8_lossy(&buf[..len]).into_owned();
+    (!name.is_empty()).then_some(name)
 }
 
 #[derive(Serialize, Clone, Debug)]

@@ -52,6 +52,8 @@ fn line_zero(depth: u32) -> serde_json::Value {
         floor_lifted: Some(false),
         gate_sha: None,
         sandbox: None,
+        sandbox_kind: None,
+        host: None,
         scopes: None,
         cwd: "/tmp".into(),
         worktree: None,

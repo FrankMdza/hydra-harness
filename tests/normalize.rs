@@ -1646,6 +1646,42 @@ fn assert_no_walk_findings(findings: &[hydra::walk::Finding]) {
 }
 
 #[test]
+fn every_provider_reads_sandbox_kind_back_beside_the_sandbox_it_was_written_with() {
+    // Build ticket 316. The normalizers pass line 0 through verbatim, so the
+    // kind arrives as written and `sandbox` keeps its sha on all four.
+    let policies = policies();
+    let read = fixture_read(&policies);
+    let mut providers = Vec::new();
+    for path in common::fixture_corpus() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let first: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        let Some(kind) = first["hydra"].get("sandbox_kind") else {
+            continue;
+        };
+        let run = read(&path).unwrap();
+        let body = &run.run_start().unwrap().body;
+        assert_eq!(&body["sandbox_kind"], kind, "{}", path.display());
+        assert_eq!(
+            body["sandbox"],
+            first["hydra"]["sandbox"],
+            "{}",
+            path.display()
+        );
+        assert!(body["sandbox"].is_string(), "{}", path.display());
+        assert_eq!(body["host"]["machine"], "stub-host", "{}", path.display());
+        providers.push(first["provider"].as_str().unwrap().to_string());
+    }
+    providers.sort();
+    assert_eq!(providers, ["agy", "claude", "codex", "cursor-agent"]);
+    assert_eq!(
+        hydra::walk::hosts_of(&common::fixture_corpus())
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [("stub-host macos/aarch64".to_string(), 5)]
+    );
+}
+
+#[test]
 fn every_fixture_normalizes() {
     let policies = policies();
     let fixtures = common::fixture_corpus();

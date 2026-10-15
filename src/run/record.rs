@@ -302,7 +302,11 @@ pub fn run_start(request: &Request, start: RunStartRequest<'_>) -> RunStart {
         // a compile that may not have happened.
         floor_lifted: Some(request.floor_lifted),
         gate_sha,
+        // A recorded run's profile is only ever a seatbelt one today, so the
+        // kind follows the sha. Build 318 adds Linux's.
+        sandbox_kind: sandbox.as_ref().map(|_| "seatbelt"),
         sandbox,
+        host: crate::record::Host::here(),
         scopes,
         cwd: cwd.display().to_string(),
         worktree,

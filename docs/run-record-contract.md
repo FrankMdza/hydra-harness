@@ -194,6 +194,8 @@ A refused spawn writes this line and then `run_end`, and nothing between them (s
 | `floor_lifted` | boolean, whether `--allow-floor-escape` was typed on this run (harness spec 16) |
 | `gate_sha` | the sha256 of the compiled gate script this run was launched with, absent on a run that compiled no gate and on every record written before build ticket 49 closed on 2026-09-15 under section 15's rule for a new field; see below |
 | `sandbox` | the sha256 of the macOS seatbelt profile the launch was wrapped in, null where no sandbox wrapped it, absent on every record written before build ticket 68 closed on 2026-09-21 under section 15's rule for a new field. The profile is written beside the gate as `sandbox.sb` |
+| `sandbox_kind` | the kind of profile `sandbox` hashed, `"seatbelt"` when a seatbelt profile wrapped the launch, absent otherwise. Absent means unknown rather than unsandboxed, and a present kind beside a `sandbox` that holds no sha is an error. Added 2026-10-15 for build ticket 316 under section 15's rule for a new field |
+| `host` | the machine that wrote the record: `os` and `arch` as the binary was built for (`std::env::consts`), `machine` as `gethostname(3)` answered, all three strings and all three required when `host` is present, never null. Never the user name. `policy_sha` and `base_tree` name content and read the same on two machines at one commit, so this is the one field that says which wrote it. Absent on a record before 2026-10-15 and where the hostname did not answer. Added for build ticket 316 under section 15's rule for a new field |
 | `scopes` | the absolute paths the gate was compiled against, keyed by scope name; see below |
 | `cwd` | the directory the child was launched in |
 | `worktree` | `path`, `branch` and `base_tree`, or null under `--shared-tree`. `base_tree` is the sha `git write-tree` answered against the seed index the moment the checkout was seeded from the parent's uncommitted work, before the provider started; map ticket 49 put it here on 2026-09-07 so a reader can tell a reaped run's seed from the run's own edits. It is a name and not a guarantee: the tree hangs from no ref, a `git gc --prune` may delete it, and a record written before build ticket 23 does not carry it |
@@ -405,10 +407,10 @@ Hydra lines" holds without an exception.
 
 | Field | On a harness run |
 |---|---|
-| `command`, `cwd`, `depth`, `pid`, `process_start_time`, `schema_version`, `hydra_version` | filled |
-| `provider_version`, `provider_session_id`, `launch_mode`, `task`, `policy`, `policy_sha`, `worktree`, `subscription`, `floor_lifted` | null |
+| `command`, `cwd`, `depth`, `pid`, `process_start_time`, `schema_version`, `hydra_version`, `host` | filled |
+| `provider_version`, `provider_session_id`, `launch_mode`, `task`, `policy`, `policy_sha`, `worktree`, `subscription`, `floor_lifted`, `sandbox` | null |
 | `provider` and `model` | null too, and on the envelope rather than in the body (section 4) |
-| `skills`, `mcp`, `auth`, `env_allowlist`, `scopes`, `gate_sha`, `parent_policy`, `resumed_from` | **absent**, not null |
+| `skills`, `mcp`, `auth`, `env_allowlist`, `scopes`, `gate_sha`, `parent_policy`, `resumed_from`, `sandbox_kind` | **absent**, not null |
 
 No gate is compiled, so `floor_lifted` is null and `gate_sha` is absent. `subscription` is null
 because nothing was spent by the pass itself.
@@ -419,11 +421,12 @@ default set, as the pass normalized them. A pass written before that ticket has 
 fresh review reads its absence as the default set. It is not counted in the paragraph below, which
 counts the keys every `run_start` body carries.
 
-**Seven fields of twenty-four are filled, and that number belongs in the contract rather than in a
-reader's discovery.** The twenty-four are the keys of a `run_start` body, the `type` discriminator
-left out: eight of them absent, nine null, seven filled. The count was twenty-eight when this
-paragraph was written and has moved three times since, as `scopes`, `resumed_from` and `gate_sha`
-landed; whoever adds the next field moves it again. Seven of twenty-four is the strongest argument
+**Eight fields of twenty-seven are filled, and that number belongs in the contract rather than in a
+reader's discovery.** The twenty-seven are the keys of a `run_start` body, the `type` discriminator
+left out: nine of them absent, ten null, eight filled. The count was twenty-eight when this
+paragraph was written and has moved four times since, as `scopes`, `resumed_from` and `gate_sha`
+landed and then, on 2026-10-15, as build ticket 316 counted `sandbox`, which build 68 had added
+without moving it, beside `host` and `sandbox_kind`; whoever adds the next field moves it again. Seven of twenty-four is the strongest argument
 anyone will ever make for reversing this decision, so it should be in front of whoever makes it. What bought it: the proposer and the judges need a
 parent that exists. Without one they are four unrelated runs at depth 0, and a human who hits Ctrl-C
 on `hydra evolve` leaves detached children that nothing can group. The alternatives were parenting
@@ -1401,6 +1404,11 @@ their text is at least on the stream.
 **2026-10-15: `gate_refusal` is additive (build 321).** Its stored command fields and event
 type do not remove or repurpose any existing field; schema version remains 1. Old records do
 not acquire evidence the provider never recorded, and absence remains valid.
+
+**2026-10-15: `run_start.host` and `run_start.sandbox_kind` are additive (build 316).** Two new
+fields, neither re-typing `sandbox`, which stays the sha-or-null it was; schema version remains 1.
+The validator checks both for shape when present and never for presence, and checks `host`'s three
+leaves the way it checks `auth`'s four.
 
 **`schema_version` is an integer on `run_start`**, and it versions the normalized vocabulary rather
 than the file format. The envelope's shape has not changed and is not expected to.

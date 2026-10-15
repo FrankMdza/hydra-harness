@@ -82,6 +82,7 @@ const LATER_RUN_START_FIELDS: &[(&str, Shape, bool)] = &[
     ("floor_lifted", Shape::Bool, true),
     ("gate_sha", Shape::Sha, false),
     ("sandbox", Shape::Sha, true),
+    ("sandbox_kind", Shape::Text, false),
     ("scopes", Shape::PathMap, false),
     ("env_allowlist", Shape::Names, false),
     ("parent_policy", Shape::Text, false),
@@ -98,6 +99,11 @@ const AUTH_LEAVES: &[(&str, Shape)] = &[
     ("allow_billed", Shape::Bool),
     ("gated", Shape::Bool),
 ];
+
+/// The three leaves inside `host`, build ticket 316. All required when the
+/// group is there: an `os` without a `machine` says which platform and not
+/// which of two machines on it wrote the record.
+const HOST_LEAVES: &[&str] = &["os", "arch", "machine"];
 
 /// What a field looks like when it is there.
 #[derive(Clone, Copy)]
@@ -489,6 +495,33 @@ fn check_run_start(body: &serde_json::Map<String, Value>, at: &str, say: &mut im
                 Some(_) => {}
             }
         }
+    }
+
+    // Build ticket 316. Absent on every record before it, and an object of
+    // three strings when present; a null host is a writer that knew the field
+    // and wrote nothing.
+    match body.get("host") {
+        None => {}
+        Some(Value::Object(host)) => {
+            for leaf in HOST_LEAVES {
+                match host.get(*leaf) {
+                    None => say(format!("{at}: host is missing {leaf}")),
+                    Some(value) if !value.is_string() => {
+                        say(format!("{at}: host.{leaf} is not a string"))
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        Some(_) => say(format!("{at}: host is not an object")),
+    }
+
+    // A kind names the profile `sandbox` hashed, so a kind beside no sha names
+    // nothing.
+    if body.contains_key("sandbox_kind") && !body.get("sandbox").is_some_and(Value::is_string) {
+        say(format!(
+            "{at}: sandbox_kind is set and sandbox holds no sha"
+        ));
     }
 
     match (body.get("pid"), body.get("process_start_time")) {

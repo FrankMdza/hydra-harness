@@ -63,6 +63,35 @@ fn inside(marked: &Value) -> &str {
 }
 
 #[test]
+fn events_prints_the_host_a_record_carries() {
+    // Build ticket 316: the host rides on the `run_start` body verbatim, and a
+    // record without one prints without one.
+    let sandbox = Sandbox::new("show-host");
+    let layout = write_fixture(&sandbox, true);
+    let path = layout.run_file(RUN_ID);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut lines: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let host = json!({"os": "macos", "arch": "aarch64", "machine": "stub-host"});
+
+    let mut out = Vec::new();
+    hydra::show::show(&layout, RUN_ID, true, &mut out).unwrap();
+    let report: Value = serde_json::from_slice(&out).unwrap();
+    assert!(report["events"][0]["body"].get("host").is_none());
+
+    lines[0]["hydra"]["host"] = host.clone();
+    let rewritten: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(&path, rewritten).unwrap();
+    let mut out = Vec::new();
+    hydra::show::show(&layout, RUN_ID, true, &mut out).unwrap();
+    let report: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(report["events"][0]["type"], "run_start");
+    assert_eq!(report["events"][0]["body"]["host"], host);
+}
+
+#[test]
 fn events_lists_every_event_in_file_order_with_its_type_name() {
     let sandbox = Sandbox::new("show-events");
     let layout = write_fixture(&sandbox, true);

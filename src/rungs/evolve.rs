@@ -1756,6 +1756,8 @@ pub fn write_harness_start(
         // (build ticket 49).
         gate_sha: None,
         sandbox: None,
+        sandbox_kind: None,
+        host: crate::record::Host::here(),
         provider_version: None,
         provider_session_id: None,
         task: None,

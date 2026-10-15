@@ -222,6 +222,9 @@ fn main() -> Result<()> {
                 for finding in &report.findings {
                     println!("{}: {}", finding.path.display(), finding.assertion);
                 }
+                for (host, records) in &report.hosts {
+                    println!("host {host}: {records} record(s)");
+                }
                 println!("checked {} record(s)", report.records_read);
                 if !report.findings.is_empty() {
                     std::process::exit(1);
