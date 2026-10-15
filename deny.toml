@@ -17,7 +17,9 @@ multiple-versions = "warn"
 wildcards = "deny"
 # The workspace crates depend on each other by path with no version, which cargo-deny calls a
 # wildcard. Every one of them is `publish = false`, which is the case this switch exists for.
-# Found by the first `security` run that got past startup, 2026-10-15 (map 130).
+# Found by the first `security` run that got past startup, 2026-10-15 (map 130). The switch
+# does not cover `hydra` itself, which is not `publish = false`: its path dependency on
+# `hydra-puppets` (build 335) carries a `version` in Cargo.toml for that reason.
 allow-wildcard-paths = true
 
 [sources]
