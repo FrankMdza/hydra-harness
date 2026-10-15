@@ -96,3 +96,7 @@ while a second cargo run competed for the CPU. It passed alone, and so did the n
     cargo clippy --workspace --all-targets -- -D warnings: Finished `dev` profile in 0.79s
     cargo nextest run --release --workspace: Summary [85.031s] 1408 tests run: 1408 passed, 4 skipped
     cargo test --release --workspace --doc: test result: ok. 0 passed; 0 failed; 0 ignored
+
+The session ran `hydra-grader labels count` on the real puppets home after 323 and 324 landed:
+`plan_proposer 7, chosen 1, not chosen 5, no verdict 0, no draft 1` and `plan_composed 1, by panel 0,
+by session 1`, which is what the Outcome above predicted for `ea69da1f`.
