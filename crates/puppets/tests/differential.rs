@@ -27,9 +27,11 @@
 //!
 //! The commands that write (`new`, `set`, `approve`, `verdict`, `choose`, `tasks`, `assign`,
 //! `reconcile`) each run on the starting home the Python ran on, and the goal logs left
-//! behind must be equal line by line. Two more things are normalized there:
+//! behind must be equal line by line. Three more things are normalized there:
 //! - the `ts` of each line the command appended, and of no line the input already held;
-//! - the goal id `new` generates, in its stdout and in the name of the log it creates.
+//! - the goal id `new` generates, in its stdout and in the name of the log it creates;
+//! - the `rank_prior` line build 327 has `assign` append after ranking, which is dropped
+//!   from the Rust's log.
 //!
 //! The commands that launch (`plan`, `plans`, `launch`, `wait`, `review`, `choose --judge`)
 //! run with a stub in place of `hydra`, `hunk` and `herdr`. The stub writes down each call,
@@ -1832,6 +1834,28 @@ fn mask_new_stdout(stdout: &str, files: &[(String, Vec<u8>)]) -> String {
     }
 }
 
+/// The goal logs with every `rank_prior` line dropped. Build 327 has `assign` append one
+/// after its assignments when it ranked, and the Python never wrote it.
+fn without_rank_prior(files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
+    files
+        .into_iter()
+        .map(|(name, bytes)| {
+            let kept = bytes
+                .split_inclusive(|b| *b == b'\n')
+                .filter(|line| {
+                    !json::loads_str(&String::from_utf8_lossy(line)).is_ok_and(|event| {
+                        matches!(&event, Value::Dict(d)
+                            if d.get("event").is_some_and(|e| matches!(e, Value::Str(s) if s.lossy() == "rank_prior")))
+                    })
+                })
+                .flatten()
+                .copied()
+                .collect();
+            (name, kept)
+        })
+        .collect()
+}
+
 /// The goal logs a write command left, from the files of its home: each file directly
 /// under `puppets/`, by name, its root masked and then the stamps of its appended lines.
 /// `seed` is the home the command started from, its root already masked. Under `new` the
@@ -1949,7 +1973,7 @@ fn compare_write(job: &Job, home: &Path, root: &Path) -> (Option<String>, Vec<St
     }
     let (py_files, rs_files) = (
         written(py_left, &seed, py_goal.as_deref(), &rec.root),
-        written(&rs_left, &seed, rs_goal.as_deref(), root),
+        without_rank_prior(written(&rs_left, &seed, rs_goal.as_deref(), root)),
     );
     if py_files != rs_files {
         let show = |files: &[(String, Vec<u8>)]| {

@@ -848,6 +848,11 @@ pub fn tasks(home: &Home, goal_id: &str, err: &mut dyn Write) -> Result<i32> {
 pub fn assign(home: &Home, goal_id: &str, out: &mut dyn Write, err: &mut dyn Write) -> Result<i32> {
     let events = log::read_log(home, goal_id)?;
     let state = fold::fold(goal_id, &events)?;
+    let others = other_goal_logs(home, goal_id, err)?;
+    let mut logs: Vec<&[Value]> = others.iter().map(Vec::as_slice).collect();
+    logs.push(&events);
+    let mut weighed: Vec<(Value, sheet::Standing)> = Vec::new();
+    let mut priors = None;
     for task in &state.tasks {
         if task.assignment.is_some() {
             continue;
@@ -858,7 +863,21 @@ pub fn assign(home: &Home, goal_id: &str, out: &mut dyn Write, err: &mut dyn Wri
             continue;
         }
         let mut source = "ranking";
-        let mut row = sheet::ranked_assignment(home, task, &events)?;
+        let mut row = None;
+        if let Some(ranking) = sheet::ranked_assignment(home, task, &logs)? {
+            for standing in ranking.standings {
+                let known = weighed.iter().any(|(class, s)| {
+                    py::eq(class, &task.task_class)
+                        && py::eq(&s.provider, &standing.provider)
+                        && py::eq(&s.model, &standing.model)
+                });
+                if !known {
+                    weighed.push((task.task_class.clone(), standing));
+                }
+            }
+            priors = Some(ranking.priors);
+            row = ranking.best;
+        }
         if row.is_none() {
             source = "default";
             py::hashable(&task.task_class)?;
@@ -890,7 +909,102 @@ pub fn assign(home: &Home, goal_id: &str, out: &mut dyn Write, err: &mut dyn Wri
             &text!(id, ": ", py::str(&provider), " ", shown, " (", source, ")"),
         )?;
     }
+    if let Some(priors) = priors
+        && !prior_stated_since_import(&events)?
+    {
+        append_event(home, goal_id, rank_prior(&priors, &logs, &weighed)?)?;
+    }
     Ok(0)
+}
+
+/// Every goal log under the home but `goal_id`'s, for the ranking to read verdicts from.
+/// Without sheets nothing ranks, so nothing is read. A log that cannot be read is named on
+/// stderr and passed over: another goal's damage does not stop this one's assignment.
+fn other_goal_logs(home: &Home, goal_id: &str, err: &mut dyn Write) -> Result<Vec<Vec<Value>>> {
+    if !home.puppets.join("agents").is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut logs = Vec::new();
+    for other in crate::report::goal_ids(home)? {
+        if other == goal_id {
+            continue;
+        }
+        match log::read_log(home, &other) {
+            Ok(events) => logs.push(events),
+            Err(error) => writeln!(
+                err,
+                "goal log {other}: {error}; its verdicts are not ranked"
+            )?,
+        }
+    }
+    Ok(logs)
+}
+
+/// Whether a `rank_prior` event follows the last `task` event, so this import has one.
+fn prior_stated_since_import(events: &[Value]) -> Result<bool> {
+    for event in events.iter().rev() {
+        let name = py::get(event, "event", Value::Null)?;
+        if py::eq_str(&name, "rank_prior") {
+            return Ok(true);
+        }
+        if py::eq_str(&name, "task") {
+            return Ok(false);
+        }
+    }
+    Ok(false)
+}
+
+/// The `rank_prior` event (build 327): the priors file the ranking started from, how many
+/// verdicts across how many goal logs it read, and for every agent it weighed on each task
+/// class the prior and the verdicts counted against it. Once the counted verdicts outweigh
+/// the prior's two numbers, the prior has stopped deciding the ranking.
+fn rank_prior(
+    priors: &std::path::Path,
+    logs: &[&[Value]],
+    weighed: &[(Value, sheet::Standing)],
+) -> Result<Dict> {
+    let mut verdicts = 0i128;
+    for event in logs.iter().flat_map(|log| log.iter()) {
+        if py::eq_str(&py::get(event, "event", Value::Null)?, "human_verdict") {
+            verdicts += 1;
+        }
+    }
+    let goals = logs.len() as i128;
+    let priors_text = priors.display().to_string();
+    let mut said = format!(
+        "rank read {verdicts} verdicts across {goals} goals, starting from the priors in {priors_text}"
+    );
+    let mut rows = Vec::new();
+    for (i, (class, standing)) in weighed.iter().enumerate() {
+        let (a, b) = standing.prior;
+        let model = if py::truthy(&standing.model) {
+            py::str(&standing.model).lossy()
+        } else {
+            String::new()
+        };
+        said.push_str(if i == 0 { ": " } else { "; " });
+        said.push_str(&format!(
+            "{} {} {model} Beta({a}, {b}) and {} verdicts",
+            py::str(class).lossy(),
+            py::str(&standing.provider).lossy(),
+            standing.verdicts
+        ));
+        rows.push(Value::Dict(body(vec![
+            ("class", class.clone()),
+            ("provider", standing.provider.clone()),
+            ("model", standing.model.clone()),
+            ("prior", Value::List(vec![Value::Int(a), Value::Int(b)])),
+            ("verdicts", Value::Int(standing.verdicts as i128)),
+        ])));
+    }
+    Ok(body(vec![
+        ("event", Value::text("rank_prior")),
+        ("priors", Value::text(&priors_text)),
+        ("goals", Value::Int(goals)),
+        ("verdicts", Value::Int(verdicts)),
+        ("rows", Value::List(rows)),
+        ("text", Value::text(&said)),
+    ]))
 }
 
 /// `reconcile`: settle a launch intent no run followed, with the run id the human found or

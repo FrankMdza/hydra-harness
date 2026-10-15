@@ -11,7 +11,7 @@ use anyhow::{Result, anyhow, bail};
 
 use crate::fold::TaskState;
 use crate::json::{self, PyStr, Value};
-use crate::log::{self, Home};
+use crate::log::Home;
 use crate::write::read_text;
 use crate::{py, pysort};
 
@@ -338,8 +338,35 @@ pub fn rank(
     policy: &str,
     priors: &Path,
 ) -> Result<Vec<Ranked>> {
+    Ok(rank_goals(sheets, task_class, grade, &[verdicts], policy, priors)?.0)
+}
+
+/// One agent `rank_goals` weighed, qualified or not: the prior it started from and the
+/// verdicts that moved it.
+#[derive(Clone, Debug)]
+pub struct Standing {
+    pub provider: Value,
+    pub model: Value,
+    /// The Beta prior from `priors.json`, before any verdict.
+    pub prior: (i128, i128),
+    /// The verdicts counted across every goal log read, one per task per goal.
+    pub verdicts: usize,
+}
+
+/// `rank` over several goal logs, each one goal's events. A task id names a task within
+/// its own goal only, so each log keeps its own task classes and its own one verdict per
+/// task: `t1` in two goals is two tasks. With one log this is `rank`. The second list is
+/// every agent that was available under `policy`, with its prior and its verdict count.
+pub fn rank_goals(
+    sheets: &[Value],
+    task_class: &Value,
+    grade: &Value,
+    logs: &[&[Value]],
+    policy: &str,
+    priors: &Path,
+) -> Result<(Vec<Ranked>, Vec<Standing>)> {
     if py::eq_str(grade, "agi") {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     py::hashable(grade)?;
     let threshold = if py::eq_str(grade, "low") {
@@ -356,19 +383,24 @@ pub fn rank(
     } else {
         Value::Null
     };
-    let mut task_classes = Table(Vec::new());
-    for event in verdicts {
-        let name = py::get(event, "event", py::get(event, "type", Value::Null)?)?;
-        if !py::eq_str(&name, "task") {
-            continue;
+    let mut classes_per_log = Vec::with_capacity(logs.len());
+    for verdicts in logs {
+        let mut task_classes = Table(Vec::new());
+        for event in *verdicts {
+            let name = py::get(event, "event", py::get(event, "type", Value::Null)?)?;
+            if !py::eq_str(&name, "task") {
+                continue;
+            }
+            if let Value::Dict(fields) = event
+                && let (Some(id), Some(class)) = (fields.get("id"), fields.get("class"))
+            {
+                task_classes.insert(id.clone(), class.clone())?;
+            }
         }
-        if let Value::Dict(fields) = event
-            && let (Some(id), Some(class)) = (fields.get("id"), fields.get("class"))
-        {
-            task_classes.insert(id.clone(), class.clone())?;
-        }
+        classes_per_log.push(task_classes);
     }
     let mut result = Vec::new();
+    let mut standings = Vec::new();
     for agent in sheets {
         if !py::truthy(&py::get(agent, "available", Value::Bool(false))?)
             || !contains(
@@ -384,44 +416,53 @@ pub fn rank(
         for run in py::list(&py::get(agent, "runs", Value::List(Vec::new()))?)? {
             runs.insert(py::item(&run, "run_id")?.clone(), run)?;
         }
-        let mut seen: Vec<Value> = Vec::new();
         let (mut applied, mut against) = (0i128, 0i128);
-        for event in verdicts {
-            let name = py::get(
-                event,
-                "event",
-                py::get(event, "type", Value::text("human_verdict"))?,
-            )?;
-            if !py::eq_str(&name, "human_verdict") {
-                continue;
-            }
-            let Some(run) = runs.get(&py::get(event, "run_id", Value::Null)?)? else {
-                continue;
-            };
-            let result = py::get(event, "result", Value::Null)?;
-            if !["applied", "fixed", "rejected"]
-                .iter()
-                .any(|known| py::eq_str(&result, known))
-            {
-                continue;
-            }
-            let event_task = py::get(event, "task", Value::Null)?;
-            let own_class = task_classes
-                .get(&event_task)?
-                .cloned()
-                .unwrap_or_else(|| task_class.clone());
-            if !py::eq(&py::get(event, "task_class", own_class)?, task_class) {
-                continue;
-            }
-            let Some(result) = first_builder_verdict(&mut seen, event, run)? else {
-                continue;
-            };
-            if py::eq_str(&result, "applied") {
-                applied += 1;
-            } else {
-                against += 1;
+        for (verdicts, task_classes) in logs.iter().zip(&classes_per_log) {
+            let mut seen: Vec<Value> = Vec::new();
+            for event in *verdicts {
+                let name = py::get(
+                    event,
+                    "event",
+                    py::get(event, "type", Value::text("human_verdict"))?,
+                )?;
+                if !py::eq_str(&name, "human_verdict") {
+                    continue;
+                }
+                let Some(run) = runs.get(&py::get(event, "run_id", Value::Null)?)? else {
+                    continue;
+                };
+                let result = py::get(event, "result", Value::Null)?;
+                if !["applied", "fixed", "rejected"]
+                    .iter()
+                    .any(|known| py::eq_str(&result, known))
+                {
+                    continue;
+                }
+                let event_task = py::get(event, "task", Value::Null)?;
+                let own_class = task_classes
+                    .get(&event_task)?
+                    .cloned()
+                    .unwrap_or_else(|| task_class.clone());
+                if !py::eq(&py::get(event, "task_class", own_class)?, task_class) {
+                    continue;
+                }
+                let Some(result) = first_builder_verdict(&mut seen, event, run)? else {
+                    continue;
+                };
+                if py::eq_str(&result, "applied") {
+                    applied += 1;
+                } else {
+                    against += 1;
+                }
             }
         }
+        let sample_size = usize::try_from(applied + against).unwrap_or(usize::MAX);
+        standings.push(Standing {
+            provider: py::get(agent, "provider", Value::Null)?,
+            model: py::get(agent, "model", Value::Null)?,
+            prior: (a, b),
+            verdicts: sample_size,
+        });
         let bound = beta_lower(a + applied, b + against)?;
         if bound < threshold {
             continue;
@@ -434,26 +475,39 @@ pub fn rank(
             model: py::get(agent, "model", Value::Null)?,
             bound,
             score: as_float(p50)?.map(|cost| cost / bound),
-            sample_size: usize::try_from(applied + against).unwrap_or(usize::MAX),
+            sample_size,
         });
     }
     let order = pysort::sorted(result.len(), |i, j| ranked_less(&result[i], &result[j]))?;
-    Ok(order.into_iter().map(|i| result[i].clone()).collect())
+    Ok((
+        order.into_iter().map(|i| result[i].clone()).collect(),
+        standings,
+    ))
+}
+
+/// What `ranked_assignment` found: the agent to assign, if the ranking settles one, and
+/// every agent it weighed with the prior it started from.
+pub struct Ranking {
+    pub best: Option<(Value, Value)>,
+    pub standings: Vec<Standing>,
+    /// The `priors.json` the priors were read from.
+    pub priors: std::path::PathBuf,
 }
 
 /// `ranked_assignment`: the cheapest capable agent for a task, as a provider and a model,
-/// from the sheets under the puppets home and this goal's own verdicts. `None` when there
-/// is no sheet, nobody qualifies, or the first row has no verdict behind it. In each case
-/// the caller falls back to the default table, which is the human's own memory of each
-/// agent and wins until this goal has taught the sheet something.
+/// from the sheets under the puppets home and the verdicts of every goal log in `logs`,
+/// the assigning goal's own last. `None` when there is no sheet, so nothing was ranked.
+/// `best` is `None` when nobody qualifies or the first row has no verdict behind it. In
+/// each case the caller falls back to the default table, which is the human's own memory
+/// of each agent and wins until some goal has taught the sheet something.
 ///
 /// The Python also returns `None` when `sheet.py` is missing. This crate does not need
 /// that file, so its absence is not consulted here.
 pub fn ranked_assignment(
     home: &Home,
     task: &TaskState,
-    events: &[Value],
-) -> Result<Option<(Value, Value)>> {
+    logs: &[&[Value]],
+) -> Result<Option<Ranking>> {
     let agents = home.puppets.join("agents");
     if !agents.is_dir() {
         return Ok(None);
@@ -479,26 +533,31 @@ pub fn ranked_assignment(
     if sheets.is_empty() {
         return Ok(None);
     }
-    let rows = rank(
+    let priors = crate::log::data_dir()?.join("priors.json");
+    let (rows, standings) = rank_goals(
         &sheets,
         &task.task_class,
         &task.grade,
-        events,
+        logs,
         "standard",
-        &log::data_dir()?.join("priors.json"),
+        &priors,
     )?;
-    let Some(best) = rows.first() else {
-        return Ok(None);
-    };
-    if best.sample_size == 0 {
-        return Ok(None);
-    }
-    let model = if py::truthy(&best.model) {
-        best.model.clone()
-    } else {
-        Value::text("")
-    };
-    Ok(Some((best.provider.clone(), model)))
+    let best = rows
+        .first()
+        .filter(|best| best.sample_size > 0)
+        .map(|best| {
+            let model = if py::truthy(&best.model) {
+                best.model.clone()
+            } else {
+                Value::text("")
+            };
+            (best.provider.clone(), model)
+        });
+    Ok(Some(Ranking {
+        best,
+        standings,
+        priors,
+    }))
 }
 
 /// Normalize a known human verdict; accepting a resumed run needed another attempt.
@@ -547,6 +606,7 @@ pub fn first_builder_verdict(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log;
 
     fn close(got: f64, want: f64) {
         assert!((got - want).abs() < 1e-12, "{got} is not {want}");
@@ -707,5 +767,77 @@ mod tests {
         close(first[0].bound, beta_lower(6, 1).unwrap());
         assert!(rows(r#"[{"run_id":"r2","task_id":"r1","parent_run_id":"r1"}]"#).is_empty());
         close(beta_lower(5, 2).unwrap(), 0.4896836934485084);
+    }
+
+    /// Build 327. Goal b alone leaves composer at Beta(5, 2), under a `low` task's 0.5.
+    /// Goal a's verdict on composer lifts it to Beta(6, 2), and being cheaper it ranks
+    /// first. Both goals call their task `t1`, and each counts once.
+    #[test]
+    fn a_verdict_in_another_goal_moves_this_goals_ranking() {
+        let priors = log::checkout_data_dir().join("priors.json");
+        let sheets = [
+            sheet(
+                "claude",
+                "sonnet",
+                "0.02",
+                r#"[{"run_id":"r1","task_id":"t1"},{"run_id":"r3","task_id":"t1"}]"#,
+            ),
+            sheet(
+                "cursor-agent",
+                "composer-2.5",
+                "0.001",
+                r#"[{"run_id":"r2","task_id":"t1"},{"run_id":"r4","task_id":"t1"}]"#,
+            ),
+        ];
+        let a = events(&[
+            r#"{"event":"task","id":"t1","class":"docs"}"#,
+            r#"{"event":"human_verdict","task":"t1","run_id":"r2","result":"applied"}"#,
+            r#"{"event":"human_verdict","task":"t1","run_id":"r1","result":"applied"}"#,
+        ]);
+        let b = events(&[
+            r#"{"event":"task","id":"t1","class":"docs"}"#,
+            r#"{"event":"human_verdict","task":"t1","run_id":"r4","result":"applied"}"#,
+            r#"{"event":"human_verdict","task":"t1","run_id":"r3","result":"applied"}"#,
+        ]);
+        let ranked = |logs: &[&[Value]]| {
+            rank_goals(
+                &sheets,
+                &Value::text("docs"),
+                &Value::text("low"),
+                logs,
+                "standard",
+                &priors,
+            )
+            .unwrap()
+        };
+        let (alone, standings) = ranked(&[&b]);
+        let models: Vec<String> = alone.iter().map(|r| py::str(&r.model).lossy()).collect();
+        assert_eq!(models, ["sonnet"]);
+        assert_eq!(
+            standings
+                .iter()
+                .map(|s| (s.prior, s.verdicts))
+                .collect::<Vec<_>>(),
+            [((5, 1), 1), ((4, 2), 1)]
+        );
+        // One log is `rank` on that log.
+        let single = rank(
+            &sheets,
+            &Value::text("docs"),
+            &Value::text("low"),
+            &b,
+            "standard",
+            &priors,
+        )
+        .unwrap();
+        assert_eq!(single[0].bound.to_bits(), alone[0].bound.to_bits());
+
+        let (across, standings) = ranked(&[&a, &b]);
+        let models: Vec<String> = across.iter().map(|r| py::str(&r.model).lossy()).collect();
+        assert_eq!(models, ["composer-2.5", "sonnet"]);
+        close(across[0].bound, beta_lower(6, 2).unwrap());
+        close(across[1].bound, beta_lower(7, 1).unwrap());
+        assert!(across.iter().all(|r| r.sample_size == 2));
+        assert!(standings.iter().all(|s| s.verdicts == 2));
     }
 }

@@ -367,6 +367,7 @@ it.
 - [327 - `sheet.rs::rank` reads verdicts across goals, with the prior it starts from stated](327-rank-reads-verdicts-across-goals-with-the-prior-stated.md)
 - [328 - The ticket report counts build 312's pasted table as a ticket, and leaves 299 of 327 Outcomes `unsaid`](328-the-ticket-report-counts-a-pasted-table-as-a-ticket.md)
 - [329 - The floor reads `then`, `do` and `else` as the binary, so `if true; then git push --force; fi` passes](329-the-floor-reads-the-binary-of-a-compound-command.md)
+- [330 - The cockpit's two-second bound fails under load: `a_pending_that_hangs_is_given_up_after_two_seconds`](330-the-cockpits-two-second-bound-fails-under-load.md)
 
 ## Out of scope
 

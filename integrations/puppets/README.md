@@ -135,6 +135,7 @@ One JSON object per line: `{"seq": n, "ts": "<iso utc>", "event": "<name>", ...}
 | `review` | `task`, `judge_run_ids`, `verdict`; optional `degraded`, `substitutions` |
 | `human_verdict` | `task`, `run_id`, `result`, `note` |
 | `intent_abandoned` | `task`, `attempt` |
+| `rank_prior` | `priors`, `goals`, `verdicts`, `rows` (`class`, `provider`, `model`, `prior`, `verdicts`), `text` |
 
 `class` is one of `batch_scripting`, `rust_off_launch_path`, `rust_launch_path`,
 `security_review`, `research`, `docs`, `probe`. `grade` is `low`, `medium`, `high` or `agi`.
@@ -327,9 +328,12 @@ To undo one revision, remove the last `budget_history` entry on that vendor row 
 set `window_budget_tokens` back to that entry's `previous` value.
 
 `hydra-puppets` uses its Rust `sheet::rank` function when assigning tasks. It reads
-these sheets and the goal log's `event: task` definitions and `event: human_verdict`
-events. There is no separate ranking CLI. Outcome completion never supplies acceptance.
-The first verdict per task is counted once, and an applied resumed run counts as fixed.
+these sheets and the `event: task` definitions and `event: human_verdict` events of every
+goal log under the home, the assigning goal's last. There is no separate ranking CLI.
+Outcome completion never supplies acceptance. The first verdict per task in each goal is
+counted once, and an applied resumed run counts as fixed. After an import's first ranking
+`assign` appends one `rank_prior` event naming the priors file, the verdicts and goals it
+read, and each agent's prior beside the verdicts counted for it.
 
 Priors live in `priors.json`. The bound is the beta posterior's 10th percentile, a
 one-sided 90% bound, computed without third-party libraries. Low, medium and high

@@ -131,15 +131,9 @@ fn print_row(row: &Row, total: bool, as_json: bool, out: &mut dyn Write) -> Resu
     }
     Ok(())
 }
-/// Read every top-level goal log, including complete lines before a torn tail.
-pub fn builders(
-    home: &Home,
-    class: Option<&str>,
-    model: Option<&str>,
-    as_json: bool,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> Result<i32> {
+/// The id of every top-level goal log under the home, sorted by file name. `report` and
+/// `assign`'s ranking (build 327) both walk this list.
+pub fn goal_ids(home: &Home) -> Result<Vec<String>> {
     let mut names = Vec::new();
     match std::fs::read_dir(&home.puppets) {
         Ok(entries) => {
@@ -156,13 +150,27 @@ pub fn builders(
         Err(e) => return Err(e.into()),
     }
     names.sort();
+    Ok(names
+        .iter()
+        .map(|name| {
+            name.to_string_lossy()
+                .strip_suffix(".jsonl")
+                .unwrap()
+                .to_string()
+        })
+        .collect())
+}
+/// Read every top-level goal log, including complete lines before a torn tail.
+pub fn builders(
+    home: &Home,
+    class: Option<&str>,
+    model: Option<&str>,
+    as_json: bool,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<i32> {
     let mut rows = Vec::new();
-    for name in names {
-        let goal = name
-            .to_string_lossy()
-            .strip_suffix(".jsonl")
-            .unwrap()
-            .to_string();
+    for goal in goal_ids(home)? {
         let events = log::read_log(home, &goal)?;
         if log::torn_tail(&std::fs::read(home.goal_log_path(&goal))?).is_some() {
             writeln!(

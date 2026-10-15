@@ -2255,23 +2255,12 @@ with no `usage`, and one whose `usage` holds none of section 9's four count fiel
 produce `source: unavailable` with no counts. Zeroes there would be 7.8's
 null-against-zero confusion arriving through the other door.
 
-Ten of the eleven event types have a producer; only `message_delta` remains without one.
+Nine of the ten event types have a producer; only `message_delta` remains without one.
 `message`, `thinking`, `tool_call`, `tool_result`, `permission_decision` and `usage`, plus the
-two envelope lines and stored `gate_refusal` evidence. `message_delta` needs `--include-partial-messages` and 7.4 keeps it off
+two stored Hydra lines. `message_delta` needs `--include-partial-messages` and 7.4 keeps it off
 in v1. `correction` comes from an interactive harvest, built since ticket 27 and read by the
 interactive section below. Both types are in the enum, because a type the reader cannot name is
 a type nobody knows is missing.
-
-**Shell refusals carry hook evidence since build 321 (2026-10-15).** The hook writes
-`gate-refusals.jsonl` beside the gate; the watcher and interactive harvest copy its entries
-before `run_end` as stored `gate_refusal` events, read by all four normalizers and printed
-by `hydra show --events`. The command is capped at 65,536 UTF-8 bytes with an explicit
-`command_truncated` flag and a character-safe cut. Provider log truncation no longer loses
-the refused heredoc. Derived permission decisions keep their existing meaning and counts.
-Replay writes no evidence. The sidecar is a kernel write exception even for bounded shells;
-the gate still refuses tool calls naming it. Evidence write failures leave the deny intact
-and report on hook stderr. Evidence is copied at close, not streamed live, and is not
-tamper-proof against a process using that kernel write exception. Older records remain valid.
 
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a
@@ -3504,7 +3493,15 @@ vendor budget elsewhere, null when the budget is null. `rank` orders agents by c
 10th percentile of a beta posterior on first-pass acceptance, seeded from `priors.json` and
 moved only by `human_verdict` events. `assign` takes the ranking only when it rests on
 at least one verdict, and falls back to a default table, recorded as `source: default`, until
-then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
+then. Since build ticket 327 those verdicts come from every goal log under the puppets home,
+the walk `report builders` makes, with the assigning goal's own last, so a goal starts from
+what earlier goals taught the sheet and not from `priors.json` alone. A task id names a task
+within its goal, so each log keeps its own task classes and its own one verdict per task, and
+with a single log `rank` gives what it gave before. A log that cannot be read is named on
+stderr and passed over. Once per `tasks` import, after its assignments, `assign` appends a
+`rank_prior` event: the priors file, how many verdicts across how many goal logs it read, and
+per task class and agent the Beta prior and the verdicts counted, so the log shows when the
+prior stopped deciding. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
 (`sonnet`, `Sonnet 5`, `claude-sonnet-5`), which the sheet keeps apart on purpose.
 
 **The judged steps, since build ticket 111.** `choose --judge` and `review` launch three seats,
