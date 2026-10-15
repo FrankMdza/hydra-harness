@@ -354,6 +354,9 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [124 - What each provider and model is good for](issues/124-what-each-provider-and-model-is-good-for.md): resolved 2026-10-15 by an Opus research agent over 932 records. Opus for Rust with a suite, Sol for scripts, Flash for small read-only probes, Astra as closed-shape judge, Fable only when a panel splits; the table is in research/124.
 - [125 - The new agy seats measured](issues/125-the-new-agy-seats-measured-on-what-we-already-know.md): resolved 2026-10-15 by measurement. Flash 12 of 12 facts and both false premises; GPT-OSS 120B 9 of 12, two invented, none caught, two launches in five lost to capacity. The agy seat stays Flash; GPT-OSS only for bounded code with tests.
 - [129 - What stands between Hydra and a public repository](issues/129-what-stands-between-hydra-and-a-public-repository.md): resolved 2026-10-15 by the session's reading. A real secret scan, green CI, a release and the README rewrite come first; the differentiator is the derived outcome, which Omnigent, Scion, OpenCode and ghostex do not claim.
+- 126, resolved 2026-10-15 by the human on the session's recommendation from panel 130. No carve-out in 7.7; a foreign host is counted apart and never replayed; Rungs refuses a mixed-host corpus until a Linux wrapper exists.
+- 127, resolved 2026-10-15 by the human on the session's recommendation from panel 130. No shell exemption for the pinned snapshot now; revisit when `sandbox_kind` exists, own snapshot only, preamble untouched.
+- 130, resolved 2026-10-15 by the human: the docket. The Linux job narrows honestly and is fixed on a real Linux; 316 additive; 326 refuses; 321 and 320 stand; publication in the panel's order; three tickets opened.
 
 ## Not yet specified
 

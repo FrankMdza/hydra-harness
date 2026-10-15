@@ -159,3 +159,21 @@ which is what Hydra's README already does for its 2026-09-12 table.
 Nothing. Items 1, 2 and 9 of the flip list and the `security` workflow are the human's; the
 README rewrite is in the same commit as this file; builds for the `--verdict` command and the
 OpenCode provider would be opened only if the human wants them.
+
+## Step 1 done, 2026-10-15
+
+`gitleaks` 8.30.1 installed with Homebrew on the human's word and run as `gitleaks git
+--log-opts=--all` over 1034 commits (135 MB, 1 min 40 s): 56 findings, all planted fixtures. 24 are
+the RSA fixture of `src/export.rs` (`MIIEowIBAAKCAQEAplanted`) inside a run record copied under
+`.scratch/hydra/research/286-records/` by three reap commits of 2026-10-04 and deleted since; 13 are
+this document quoting the fixture strings; the rest are the redaction fixtures under
+`crates/grader/tests/`, `crates/apprentice/tests/`, `integrations/grader/tests/`, `src/export.rs`,
+`tests/export.rs`, and a gitleaks documentation example quoted in research 19. Nothing real. The
+report is not committed; rerun the command before the flip.
+
+Panel 130 corrected this document the same day: the next release is 0.3.0, not 0.1.0
+(`CHANGELOG.md` already carries 0.2.0 of 2026-09-08); `.github/` is not protected ground, and the
+`security` failure is the reusable workflow's job asking `security-events: write` that the caller
+did not grant, fixed in the workflow file; the `sha2` fix is eleven sites across the workspace (build
+337), not a grader change; and two labeling files sat beside `pendintes_hydra.md` one `git add -A`
+from publication, all three now in `.gitignore`.

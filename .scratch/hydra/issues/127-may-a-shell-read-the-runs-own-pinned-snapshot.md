@@ -1,7 +1,7 @@
 # 127 - May a shell under `standard` read the run's own pinned skill snapshot
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 120's answer, as the question 6 the two seats never
 got to vote on. Grilling: the human answers, the session only asks and brings what it measured.
@@ -29,3 +29,22 @@ for the wrong reason (build 320 fixes the tests, not the rule).
    preamble (protected) say "use your file tool, not the shell" for skills?
 
 ## Answer
+
+Resolved 2026-10-15 by the human, who took the session's recommendation from the panel 130 synthesis as it stands ("me gustan tus recomendaciones", "sigue tus recomendaciones para el resto").
+
+1. Not now. The file tools already read a linked skill on `claude`, `cursor-agent` and `agy`
+   (`tests/gate.rs` asserts the allow under `read-only`, `standard` and `curate`), so what the
+   floor costs is a shell `cat`, and what an exemption costs is the floor's one property, that it
+   is a deny list of strings the token pass cannot tell `cat` from `cp` on. The panel split two to
+   two (Opus and Gemini for the exemption when wrapped, Grok against, GPT only once a field says
+   which wrapper is in force). Revisit when 316's `sandbox_kind` exists, so an exemption can be
+   conditioned on `seatbelt` and not on a non-null sha, and then only with five tests: allowed
+   when wrapped, refused when not, a sibling sha refused, `spawn/` refused, and a write through the
+   link failing at the kernel.
+2. If it ever comes, the own snapshot only. The run's spawn directory holds the gate's source and
+   `launch.json`; it stays out.
+3. The preamble stays as it is. The sentence "a shell command naming the root is how `cursor-agent`
+   and `agy` read a skill" in the harness spec is true of `ls` and false of `cat`, and the spec gets
+   amended with 316's follow-up, not the preamble.
+
+Tickets: none opened; the revisit is written here. Panel memos and synthesis under `research/130-*`.

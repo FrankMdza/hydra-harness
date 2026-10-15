@@ -90,3 +90,7 @@ What the ticket assumed that turned out false:
   allowed are refused. The ticket kept the refusal, so the tests now assert it. Whether a shell read
   of the run's own pinned snapshot should be carved out (research 120, seat Opus, section 1) is
   still open and not this ticket's.
+
+**Decision, 2026-10-15, the human on panel 130:** the three facts stay in the reason text and no
+drift probe is spent. If a consumer of structured fields ever appears, they go on the `gate_refusal`
+sidecar row of build 321, which Hydra writes and reads and no provider parses, not on the hook reply.

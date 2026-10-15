@@ -79,3 +79,10 @@ Validation, without `env -u`:
 - `cargo test --release --workspace --doc`:
   `test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s`
 - `cargo build --release`: green, 0.27s. `git diff --check`: green.
+
+**Decision, 2026-10-15, the human on panel 130:** the standing already written in contract 7.7,
+hook evidence and not tamper-proof provenance, is accepted; the sidecar is not signed, because the
+hook runs under the run's own profile and any secret it could read the run's shell can read. Build
+332 adds what the panel asked for instead: a forged row planted mid-run and read back, a damaged
+sidecar, and a corroboration check in `hydra doctor --walk` for a `gate_refusal` whose `call_id`
+matches no call or matches one that succeeded.

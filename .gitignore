@@ -34,3 +34,9 @@ approvals/
 # Build ticket 292: the model table `hydra models refresh` writes under the data root.
 /models.json
 /models.json.tmp
+
+# Map 130, 2026-10-15: the author's own pending list and two labeling shards of a session's
+# work, untracked on this machine and one `git add -A` away from the public repository.
+/pendintes_hydra.md
+/.scratch/hydra/labeling/*/shard-*.jsonl
+/.scratch/hydra/labeling/*/classes-*.jsonl

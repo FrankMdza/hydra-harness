@@ -25,9 +25,13 @@ jobs:
           rust-version: "1.88"
   osv-pr:
     if: github.event_name == 'pull_request'
+    # The reusable workflow's job asks `security-events: write` (its own file, job `osv-scan`),
+    # and a caller that grants less fails at startup on every event, pushes included, because
+    # GitHub validates the nested permissions before it reads the `if`. Map 130, 2026-10-15.
     permissions:
       contents: read
       actions: read
+      security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
     with:
       scan-args: --lockfile=Cargo.lock

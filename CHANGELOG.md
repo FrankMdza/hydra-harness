@@ -4,6 +4,16 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 
 ## Unreleased
 
+## 0.3.0, 2026-10-15
+
+- 2026-10-15, later. Map 130 sat a four-seat panel on every decision still open and the human took
+  the session's recommendations: build 316 goes additive (`host` and `sandbox_kind`, schema version
+  stays 1), reap refuses a nested repository by name (326), the refusal sidecar stays unsigned with a
+  corroboration check in the walk (332), the three refusal facts stay in text (320), maps 126 and
+  127 answered. The `linux` CI job's first run was red on 51 tests in eight groups; build 331 fixes
+  four groups on a real Linux, decides two, and skips two by name. `security` workflow repaired
+  (`security-events: write`), three stray files ignored, `gitleaks` over the whole history clean.
+
 - 2026-10-15. Six grillings closed with the human on the panels' recommendations (maps 117 to
   123) and thirteen builds opened from them. Landed the same day: Hydra compiles on Linux, with a
   `/proc` start-time reader and an `ubuntu-latest` CI job (build 315, run 01a13dff-46f9); the

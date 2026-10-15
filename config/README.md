@@ -7,7 +7,7 @@ earns it.
 | File | Config | Exists |
 |---|---|---|
 | `env-allowlist.json` | #2, the environment allowlist | no, it is Rust in `src/env.rs` by design, and `hydra doctor` reports it as in code rather than missing |
-| `export-allowlist.json` | #3, the export allowlist | no. `hydra export` has been built since build ticket 34 and refuses to run without this file. `export-allowlist.json.example` beside it is the shape: a JSON array of absolute repository paths, one per repo whose work may leave this machine. A relative path is refused |
+| `export-allowlist.json` | #3, the export allowlist | no. `hydra export` has been built since build ticket 34 and refuses to run without this file. `export-allowlist.json.example` beside it is the shape: a JSON array of absolute repository paths, one per repo whose work may leave this machine. A relative path is refused. The file is per machine: the checked-in one names this author's checkout, and a clone writes its own before `hydra export` runs (map 130, 2026-10-15) |
 | `export-signoff.json` | beside #3, the export sign-off manifest, since build ticket 65 | no. A JSON array of `{pass_id, judge_run_id, finding_item}`, one per judge finding a human confirmed; a judge-derived preference pair leaves only when its pass is listed. `export-signoff.json.example` is the shape. Denied to runs the way the allowlist is |
 | `preamble.md` | #4, the instruction preamble | yes |
 | `mcp.md` | #5, the canonical MCP document | yes, and it declares one server, the delegate face of harness spec 9, admitted under `standard` and `permissive` since build ticket 26 |
