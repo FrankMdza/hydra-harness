@@ -36,4 +36,6 @@ closed, if the one in the readings is not enough.
 
 ## Panel
 
+Four seats sat on 2026-10-15, all under `standard`, none ran cargo: Opus 5.5 (`research/130-seat-opus.md`), Grok 4.7 (`130-seat-grok.md`), Gemini 3.8 Flash (`130-seat-gemini.md`) and GPT 6.1 Sol (`130-seat-gpt.md`). Gemini's and GPT's worktrees were seeded with the earlier memos already copied into master, so Grok is the one fully independent second reading. The session's synthesis with a recommendation per question: `research/130-synthesis.md`. Its first finding: eight claims in the readings were wrong and all eight corrections checked out, among them that group f of the Linux job is a test bug visible on the Mac, that the next release is 0.3.0 and not 0.1.0, and that `.github/` is not protected ground. The seats split two to two on 326 and 127; the session recommends refusing by name on 326 and waiting on 127. Nothing under Answer is written; the human answers.
+
 ## Answer
