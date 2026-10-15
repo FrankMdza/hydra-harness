@@ -29,7 +29,7 @@ sleep 0.6
 note "no daemon, no database: the records under ~/hydra/runs are the whole state"
 say 'hydra status | head -6'
 note "one record, normalized. The vendor exited 0; the record derives its own outcome"
-say "hydra show $SHORT --events | head -1 | grep -o '\"\(provider\|model\|policy\)\": \"[^\"]*\"'" 2
+say "hydra show $SHORT --events | grep -m4 -E '\"(launch_mode|policy|provider_version|subscription)\"'" 2
 say "hydra show $SHORT | grep -E '\"(exit_code|outcome|outcome_source)\"'" 2.5
 note "the refused calls are on the record, with the gate's reason"
 say "hydra show $SHORT --events | grep -o '\"decision\": \"[a-z]*\"' | sort | uniq -c" 2.5
