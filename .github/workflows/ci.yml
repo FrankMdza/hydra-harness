@@ -40,3 +40,21 @@ jobs:
           cargo test --release --test record_contract every_fixture_meets_the_contract -- --nocapture 2>&1 \
             | { grep '^checked ' || echo "the fixture walk found no fixtures"; } \
             | tee -a "$GITHUB_STEP_SUMMARY"
+  linux:
+    # Build ticket 315, from map 119. Linux compiles and is untested at runtime: there is no
+    # seatbelt, so `wraps_launches()` is false and recorded runs stay on the Mac. The four
+    # `tests/sandbox_*.rs` files are `cfg(target_os = "macos")` and compile to nothing here;
+    # `--skip sandbox` drops the profile tests in `src/sandbox.rs` and `tests/spawn.rs`, which
+    # describe a wrapper this platform does not apply.
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 (2.9.2)
+      - run: |
+          echo "HYDRA_ROOT=$RUNNER_TEMP/hydra-ci" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/hydra-ci/runs"
+      - run: cargo build --release --workspace
+      - run: cargo test --release --workspace --no-fail-fast -- --skip sandbox

@@ -19,6 +19,16 @@ saved nothing (15.447 s median); release already has no debuginfo and `ld64.lld`
 The ticket records all repetitions and three load averages. Runtime throughput was not
 benchmarked. The dev profile remains as above.
 
+**Hydra runs on macOS. It compiles on Linux since build ticket 315, and is untested at
+runtime there.** `cargo check --workspace --all-targets --target x86_64-unknown-linux-gnu`
+passes, and so does clippy with `-D warnings` for that target. Before the ticket it failed on
+one error, `libc::KERN_PROC_PID` in `procinfo.rs`. Linux reads a pid's start time from
+`/proc/<pid>/stat` field 22 plus `btime` from `/proc/stat`. `sandbox::wraps_launches()` is
+false there, so a launch runs bare and nothing confines a shell. `clone_build_cache` does
+nothing there either, so a Linux run compiles its dependencies from cold. Recorded runs stay on the Mac
+(map 119). CI's `linux` job builds the workspace on `ubuntu-latest` and runs the suite with
+`--skip sandbox`; the first push decides whether that job is green.
+
 Read it before trusting a run record written by this binary. A null `policy` can name a
 pre-gate record, an ungated interactive run or a harness pass; read `launch_mode` and the
 envelope's provider before deciding which. Ticket 02 wired it, and every record written after
@@ -2674,7 +2684,9 @@ already built and tested; `live::read_view` is what feeds it a record's pid and 
 time. Three states come out: a file with a closing line has ended, one without whose pid
 still matches is live, one without whose pid is gone is contract 6's abandoned class.
 `tests/status.rs` builds all three by hand, because the reconciliation is what is under
-test rather than the launch that produced the files.
+test rather than the launch that produced the files. On Linux, since build ticket 315,
+`procinfo::start_time` reads `/proc` instead of `sysctl`, and its stat-line parser is unit
+tested on macOS with sample lines; the kernel read itself has never run.
 
 **A status pass reads line 0 and the last 64 KiB and nothing between.** `run_end` is
 always the last line and is always small, so a fixed tail either holds it whole or the

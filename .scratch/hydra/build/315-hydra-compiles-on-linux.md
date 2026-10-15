@@ -1,7 +1,7 @@
 # 315 - Hydra compiles on Linux: a `/proc` start-time reader and a CI job that proves it
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 119's answer. The panel found that Hydra has never
 been built for Linux and does not build there: `src/procinfo.rs` line 24 calls `sysctl` with
@@ -55,3 +55,48 @@ at runtime, `wraps_launches()` is false there, and recorded runs stay on the Mac
 Rules inside the run: relative paths only, never look outside your own worktree, write files with
 your file tool and not with shell heredocs, and the test suite is green inside a run since build
 302 without any `env -u`.
+
+## Outcome
+
+**The list was one error.** `rustup target add x86_64-unknown-linux-gnu`, then `cargo check
+--workspace --all-targets --target x86_64-unknown-linux-gnu`: `E0425, cannot find value
+KERN_PROC_PID in crate libc` at `src/procinfo.rs:24`, in the lib and the lib test. With that
+fixed, the next check surfaced a single dead-code warning, `BUILD_CACHE` in `worktree.rs`, now
+gated `macos` like the two functions that read it. The end state is a clean cross check, and
+`cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`
+is clean too. No site needed the `bail!("not built on linux yet, map 119")` body.
+
+**`procinfo.rs`.** The Darwin `start_time`, its two sysctl constants and `TimeVal` sit behind
+`cfg(target_os = "macos")`. The Linux `start_time` reads `/proc/<pid>/stat` (NotFound or ESRCH
+is `Ok(None)`), `btime` from `/proc/stat` and `sysconf(_SC_CLK_TCK)`, then calls
+`start_from_stat(line, btime, hz)`, a pure function compiled on Linux and under `test`. It
+splits at the last `)` and takes index 19 of what follows. `is_alive` is shared. Three unit
+tests run on macOS: a `sleep` line at 100 Hz giving `btime + 8123 s + 450 ms`, the same line
+with the command name `(a b) S 1 2 3 (x))`, and refusals for an unclosed name, a short line
+and a non-numeric field 22. `btime` is whole seconds and the tick count is fixed, so two reads
+of one process give the same instant, which `is_alive`'s exact equality needs.
+
+**`clonefile` was already handled.** Build 309 left a `cfg(not(target_os = "macos"))`
+`clone_build_cache` that returns `Ok(())`, meaning no clone at all, and I kept it. A recursive
+copy of `target/` would cost gigabytes of real writes per run on a filesystem without reflinks,
+which is more than what it saves, and `cp --reflink` on btrfs or XFS is a later ticket if a
+Linux VM ever runs builds.
+
+**CI.** `.github/workflows/ci.yml` gained a `linux` job on `ubuntu-latest`: the same
+`HYDRA_ROOT` scratch root, `cargo build --release --workspace`, then `cargo test --release
+--workspace --no-fail-fast -- --skip sandbox`. The macOS job is unchanged. Excluded: every
+test whose path holds `sandbox`, which is the profile unit tests in `src/sandbox.rs` and
+`tests/spawn.rs::a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths`, because they
+describe a wrapper Linux does not apply. The four `tests/sandbox_*.rs` files were already
+`#![cfg(target_os = "macos")]` and compile to nothing there. The launchd template tests skip
+on their own without `plutil`, and the evolve admission tests skip without `exec_available()`.
+
+**Measured on macOS, arm64, Darwin 25.2.0.** `cargo nextest run --release --workspace`:
+1391 passed, 4 skipped, 63.6 s. The six `procinfo` tests pass, `our_own_start_time_matches_ps`
+included, so the Darwin body still reads what `ps` reads.
+
+**What the ticket assumed that was false.** It expected `worktree.rs` to be a second error site;
+it was already gated and compiles. And the job's test step has never run: nothing in this
+session ran a Linux binary, so whether `--skip sandbox` is a sufficient filter is unmeasured.
+The step fails hard, so the first push to GitHub gives the answer, and any test that fails
+there is this ticket's unfinished list rather than a reason to widen the filter blind.

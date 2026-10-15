@@ -9,17 +9,25 @@
 //! `kp_proc`, `extern_proc` opens with a union whose second arm is that `timeval`.
 //! Verified on Darwin 25.2.0 against `ps -o lstart=`, and the test below keeps it
 //! verified.
+//!
+//! On Linux the same answer comes from `/proc`: field 22 of `/proc/<pid>/stat`
+//! counts clock ticks since boot, and `btime` in `/proc/stat` is the boot in
+//! seconds since the epoch. Build ticket 315, which compiles it and has not run
+//! it against a live Linux kernel.
 
 use anyhow::{Result, bail};
 use chrono::{DateTime, TimeZone, Utc};
 
+#[cfg(target_os = "macos")]
 const CTL_KERN: libc::c_int = 1;
+#[cfg(target_os = "macos")]
 const KERN_PROC: libc::c_int = 14;
 
 /// Reads the start time the kernel recorded for `pid`.
 ///
 /// Returns `Ok(None)` when no such process exists, which is the answer a liveness
 /// check wants rather than an error.
+#[cfg(target_os = "macos")]
 pub fn start_time(pid: u32) -> Result<Option<DateTime<Utc>>> {
     let mut mib = [CTL_KERN, KERN_PROC, libc::KERN_PROC_PID, pid as libc::c_int];
     let mut len: libc::size_t = 0;
@@ -81,6 +89,69 @@ pub fn start_time(pid: u32) -> Result<Option<DateTime<Utc>>> {
     }
 }
 
+/// Reads the start time the kernel recorded for `pid`, from `/proc`.
+///
+/// A missing `/proc/<pid>` is `Ok(None)`, the answer the Darwin body gives for
+/// a pid that is gone. `btime` has whole-second resolution and the tick count
+/// does not change, so two reads for one process give the same instant, which
+/// is what [`is_alive`]'s equality needs.
+#[cfg(target_os = "linux")]
+pub fn start_time(pid: u32) -> Result<Option<DateTime<Utc>>> {
+    use anyhow::Context;
+
+    let line = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(line) => line,
+        Err(err)
+            if err.kind() == std::io::ErrorKind::NotFound
+                || err.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return Ok(None);
+        }
+        Err(err) => return Err(err).with_context(|| format!("reading /proc/{pid}/stat")),
+    };
+    let stat = std::fs::read_to_string("/proc/stat").context("reading /proc/stat")?;
+    let Some(btime) = stat
+        .lines()
+        .find_map(|l| l.strip_prefix("btime "))
+        .and_then(|v| v.trim().parse::<i64>().ok())
+    else {
+        bail!("/proc/stat has no btime line");
+    };
+    // SAFETY: `sysconf` reads a configuration value and touches no memory of ours.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    if hz <= 0 {
+        bail!("sysconf(_SC_CLK_TCK) answered {hz}");
+    }
+    start_from_stat(&line, btime, hz)
+        .with_context(|| format!("parsing /proc/{pid}/stat"))
+        .map(Some)
+}
+
+/// The start time a `/proc/<pid>/stat` line names, given the boot time in
+/// seconds since the epoch and the clock ticks per second.
+///
+/// Field 2 is the command name in parentheses and may itself hold spaces and
+/// `)`, so the fields are counted from the right of the last `)`. Field 3, the
+/// state, is the first one there, which puts field 22 at index 19.
+#[cfg(any(target_os = "linux", test))]
+fn start_from_stat(line: &str, btime: i64, hz: i64) -> Result<DateTime<Utc>> {
+    let Some((_, rest)) = line.rsplit_once(')') else {
+        bail!("no `)` closes the command name");
+    };
+    let Some(field) = rest.split_whitespace().nth(22 - 3) else {
+        bail!("fewer than 22 fields");
+    };
+    let ticks: i64 = field
+        .parse()
+        .map_err(|_| anyhow::anyhow!("field 22 is not a tick count: {field:?}"))?;
+    let secs = btime + ticks / hz;
+    let nanos = (ticks % hz) * 1_000_000_000 / hz;
+    match Utc.timestamp_opt(secs, nanos as u32) {
+        chrono::LocalResult::Single(t) => Ok(t),
+        _ => bail!("start time {secs}s {nanos}ns is not a valid instant"),
+    }
+}
+
 /// Whether a process matching both the pid and the recorded start time exists.
 ///
 /// This is contract 5.2's liveness test, and nothing else in Hydra is allowed to
@@ -89,6 +160,7 @@ pub fn is_alive(pid: u32, recorded_start: DateTime<Utc>) -> Result<bool> {
     Ok(start_time(pid)? == Some(recorded_start))
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Debug)]
 #[repr(C)]
 struct TimeVal {
@@ -96,6 +168,7 @@ struct TimeVal {
     usec: i32,
 }
 
+#[cfg(target_os = "macos")]
 impl TimeVal {
     fn from_prefix(buf: &[u8]) -> Self {
         let sec = i64::from_ne_bytes(buf[0..8].try_into().expect("sized above"));
@@ -154,6 +227,34 @@ mod tests {
         child.wait().unwrap();
         assert_eq!(start_time(pid).unwrap(), None);
         assert!(!is_alive(pid, start).unwrap());
+    }
+
+    // A line from Linux 6.8 for `sleep 5`, its tick count 812345 at 100 Hz.
+    const SLEEP_STAT: &str = "4242 (sleep) S 4100 4242 4100 34816 4242 4194304 98 0 0 0 0 0 \
+                              0 0 20 0 1 0 812345 5640192 256 18446744073709551615 1 1 0 0 0 \
+                              0 0 0 0 0 0 0 17 3 0 0 0 0 0";
+
+    #[test]
+    fn the_stat_parser_adds_ticks_to_the_boot_time() {
+        let start = start_from_stat(SLEEP_STAT, 1_760_000_000, 100).unwrap();
+        assert_eq!(start.timestamp(), 1_760_000_000 + 8123);
+        assert_eq!(start.timestamp_subsec_nanos(), 450_000_000);
+    }
+
+    #[test]
+    fn the_stat_parser_counts_from_the_last_paren() {
+        // A command name may hold spaces and `)`, and the kernel does not escape them.
+        let line = SLEEP_STAT.replace("(sleep)", "(a b) S 1 2 3 (x))");
+        let start = start_from_stat(&line, 1_760_000_000, 100).unwrap();
+        assert_eq!(start.timestamp(), 1_760_000_000 + 8123);
+    }
+
+    #[test]
+    fn the_stat_parser_refuses_a_short_or_unclosed_line() {
+        assert!(start_from_stat("4242 (sleep S 4100", 0, 100).is_err());
+        assert!(start_from_stat("4242 (sleep) S 4100 4242", 0, 100).is_err());
+        let garbled = SLEEP_STAT.replace(" 812345 ", " soon ");
+        assert!(start_from_stat(&garbled, 0, 100).is_err());
     }
 
     #[test]

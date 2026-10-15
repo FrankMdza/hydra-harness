@@ -1301,6 +1301,7 @@ fn seed(repo: &Path, dest: &CheckoutGit) -> Result<()> {
 /// What under the parent's `target/` is a build cache, and so what
 /// [`clone_build_cache`] clones. Anything else there, such as the measurement
 /// scripts builds 304 and 305 left in `target/hydra304/`, stays behind.
+#[cfg(target_os = "macos")]
 const BUILD_CACHE: [&str; 4] = ["debug", "release", ".rustc_info.json", "CACHEDIR.TAG"];
 
 /// Clones the parent's build cache into the checkout's `target/`, build ticket
