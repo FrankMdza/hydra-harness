@@ -141,6 +141,7 @@ pub struct App {
     /// the suite, which may itself run inside one, names it.
     seatbelted: bool,
     interval: Duration,
+    approve_budget: Duration,
     pub snapshot: Snapshot,
     pub focus: Focus,
     pub table_selected: usize,
@@ -250,6 +251,7 @@ impl App {
             layout,
             seatbelted,
             interval,
+            approve_budget: APPROVE_BUDGET,
             snapshot: Snapshot::default(),
             focus: Focus::Table,
             table_selected: 0,
@@ -306,6 +308,13 @@ impl App {
             session: None,
             preamble: None,
         }
+    }
+
+    /// How long a step's confirmation waits for the helper. Production
+    /// keeps [`APPROVE_BUDGET`].
+    pub fn with_approve_budget(mut self, budget: Duration) -> Self {
+        self.approve_budget = budget;
+        self
     }
 
     /// Names the policy directory the pane shows and loads it once.
@@ -1362,8 +1371,8 @@ impl App {
     }
 
     /// `y` on a step's confirmation: runs the argv `pending` listed, as a
-    /// child, and waits at most [`APPROVE_BUDGET`]. `hydra-puppets` writes the
-    /// goal log; the cockpit never does.
+    /// child, and waits at most the approve budget (normally [`APPROVE_BUDGET`]).
+    /// `hydra-puppets` writes the goal log; the cockpit never does.
     fn approve_step(&mut self) -> Effect {
         let Some(step) = self.confirming_step.take() else {
             return Effect::None;
@@ -1396,7 +1405,7 @@ impl App {
         if let Some((_, home)) = &self.reviewer {
             command.env("HYDRA_PUPPETS_HOME", home);
         }
-        self.message = Some(match super::bounded(command, APPROVE_BUDGET) {
+        self.message = Some(match super::bounded(command, self.approve_budget) {
             Ok((super::Bounded::Exited(status, line), _)) => match status.code() {
                 Some(0) => {
                     self.approved_steps
@@ -1420,9 +1429,9 @@ impl App {
                 // log, so it is left to finish and reaped off this thread.
                 std::thread::spawn(move || child.wait());
                 format!(
-                    "{label}: the helper did not answer in {}s and is still running; \
+                    "{label}: the helper did not answer in {:?} and is still running; \
                      the next read shows what it did",
-                    APPROVE_BUDGET.as_secs()
+                    self.approve_budget
                 )
             }
             Err(err) => format!("{label} was not approved: {err:#}"),

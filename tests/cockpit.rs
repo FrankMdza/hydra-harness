@@ -14,7 +14,7 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use hydra::approve::Pending;
-use hydra::cockpit::app::{App, Effect, Focus, Opened};
+use hydra::cockpit::app::{APPROVE_BUDGET, App, Effect, Focus, Opened};
 use hydra::cockpit::goal::{self, TaskRow};
 use hydra::cockpit::snapshot::{
     CallLine, Card, DETAIL_CALLS, Lane, PENDING_BUDGET, Reader, RunInfo, Snapshot, Spend, lane_of,
@@ -3626,7 +3626,7 @@ fn pending_runs_on_the_shown_goal_at_most_every_ten_seconds() {
 }
 
 /// How long a hanging stub sleeps, and the budget the hang tests hand the
-/// reader in place of [`PENDING_BUDGET`]. Build ticket 330: a two-second
+/// reader or app in place of the production budgets. Build ticket 330: a two-second
 /// bound read against the wall clock failed on a loaded machine. Elapsed
 /// time is only checked against the hang, which a give-up that never fires
 /// waits out whole.
@@ -3862,19 +3862,30 @@ fn parse_steps_takes_the_expect_run_and_expect_plan_that_pending_prints() {
 }
 
 #[test]
-fn a_helper_that_hangs_on_approve_is_waited_on_five_seconds() {
-    let (layout, stub, mut reader) = steps_reader("steps-slow", "", "sleep 8");
-    let mut app = steps_app(&layout, &stub, &mut reader, false);
+fn a_helper_that_hangs_on_approve_is_given_up_at_the_budget() {
+    assert_eq!(APPROVE_BUDGET, Duration::from_secs(5));
+    let (layout, stub, mut reader) =
+        steps_reader("steps-slow", "", &format!("sleep {}", HANG.as_secs()));
+    let mut app = steps_app(&layout, &stub, &mut reader, false).with_approve_budget(SHORT_BUDGET);
     app.handle(&key(KeyCode::Char('a')));
+    assert!(app.confirming_step.is_some());
     let start = std::time::Instant::now();
-    app.handle(&key(KeyCode::Char('y')));
+    assert_eq!(app.handle(&key(KeyCode::Char('y'))), Effect::Refresh);
     let waited = start.elapsed();
-    assert!(
-        waited >= Duration::from_secs(5) && waited < Duration::from_secs(7),
-        "{waited:?}"
-    );
+    assert!(waited >= SHORT_BUDGET && waited < HANG / 2, "{waited:?}");
     let said = app.message.clone().unwrap();
-    assert!(said.contains("did not answer in 5s"), "{said}");
+    assert!(
+        said.contains("did not answer in 100ms and is still running"),
+        "{said}"
+    );
+    assert!(app.confirming_step.is_none());
+    // A late helper's result is unknown: neither step is hidden as approved.
+    assert_eq!(app.snapshot.steps.len(), 2);
+    let mut buf = Buffer::empty(AREA);
+    app.draw(AREA, &mut buf);
+    let screen = screen_text(&buf);
+    assert!(screen.contains("g2 launch a"), "{screen}");
+    assert!(screen.contains("did not answer in 100ms"), "{screen}");
 }
 
 #[test]

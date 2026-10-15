@@ -4593,10 +4593,14 @@ end in `--expect-revision` and its own revision is refused rather than shown. `a
 a confirmation with the exact argv, and `y` runs it as a child with the cockpit's `HYDRA_ROOT` and
 puppets home, waits at most 5 seconds, and shows the helper's last line. Exit 2 reads `the goal
 moved on; nothing approved`. A helper still running at 5 seconds is left to finish rather than
-killed halfway through a log line, and the next read shows what it did. `d` on a step denies
-nothing: leaving it is the no. Inside a seatbelt `a` refuses before the confirmation, as for
-seats. `hydra-puppets` is the only writer of its log. `tests/cockpit.rs` drives all of it on a stub
-helper that prints a fixed `pending` and records its argv, and the listing of the puppets home is
+killed halfway through a log line, and the next read shows what it did.
+Since build ticket 333, `App::with_approve_budget` lets the approve hang test use 100 ms
+against a 30 second stub, checking the give-up message, the still waiting steps and drawing,
+with elapsed time between the budget and half the hang. An assertion pins the production
+`APPROVE_BUDGET` to five seconds; the message formats the injected duration with `{:?}`.
+`d` on a step denies nothing: leaving it is the no. Inside a seatbelt `a` refuses before the
+confirmation, as for seats. `hydra-puppets` is the only writer of its log. `tests/cockpit.rs` drives
+all of it on a stub helper that prints a fixed `pending` and records its argv, and the listing of the puppets home is
 the same after `y` as before. An approval does not move the goal's revision, so the
 reader's list, up to 10 seconds old, would offer a step just approved again, and `--expect-revision`
 would not stop a second approval. The cockpit keeps each step it approved out of the lane until a
