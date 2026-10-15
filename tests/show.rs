@@ -11,6 +11,41 @@ use serde_json::{Value, json};
 mod common;
 use common::{RUN_ID, Record, Sandbox, policies};
 
+#[test]
+fn events_prints_a_rejection_before_hook_with_its_error_first_line() {
+    let sandbox = Sandbox::new("show-rejected-before-hook");
+    let layout = sandbox.layout();
+    let id = "00000000-0000-7000-8000-000000000334";
+    std::fs::write(
+        layout.run_file(id),
+        include_str!("fixtures/records/claude@2.1.261/00000000-0000-7000-8000-000000000334.jsonl"),
+    )
+    .unwrap();
+    let mut out = Vec::new();
+    hydra::show::show(&layout, id, true, &mut out).unwrap();
+    let report: Value = serde_json::from_slice(&out).unwrap();
+    let rejected: Vec<_> = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|finding| finding["type"] == "rejected_before_hook")
+        .collect();
+    assert_eq!(rejected.len(), 1);
+    assert_eq!(rejected[0]["tool"], "Edit");
+    assert_eq!(rejected[0]["call_id"], "toolu_334");
+    assert_eq!(
+        inside(&rejected[0]["error"]),
+        "<tool_use_error>String to replace not found in file."
+    );
+    assert!(
+        !report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["type"] == "ungated")
+    );
+}
+
 /// Writes the fixture record to the sandbox's run file and returns its layout.
 ///
 /// `closed` chooses between a run that ended and one Hydra was killed during,

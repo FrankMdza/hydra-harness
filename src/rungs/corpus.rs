@@ -399,6 +399,9 @@ fn signals(run: &Run, abandoned: bool) -> Signals {
             Finding::Ungated { call_id, tool } => signals.disagreements.push(format!(
                 "{tool} (call {call_id}) reached the model with no gate answer behind it"
             )),
+            Finding::RejectedBeforeHook { call_id, tool, error } => signals.limits.push(format!(
+                "{tool} (call {call_id}) was rejected before a hook decision: {error}"
+            )),
             Finding::UnknownTool { name } => signals.limits.push(format!(
                 "the capability table does not know the tool {name}"
             )),

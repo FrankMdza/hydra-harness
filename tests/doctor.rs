@@ -9,6 +9,29 @@ use serde_json::json;
 use common::{Record, Sandbox, Shape, policies};
 
 #[test]
+fn walk_counts_an_edit_rejected_before_the_hook_separately() {
+    let sandbox = Sandbox::new("doctor-rejected-before-hook");
+    let layout = sandbox.layout();
+    let id = "00000000-0000-7000-8000-000000000334";
+    let text =
+        include_str!("fixtures/records/claude@2.1.261/00000000-0000-7000-8000-000000000334.jsonl");
+    std::fs::write(layout.run_file(id), text).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    println!("{stdout}");
+    assert!(out.status.success(), "{stdout}");
+    assert!(
+        stdout.contains("RejectedBeforeHook: 1; Ungated: 0"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("checked 1 record(s)"), "{stdout}");
+}
+
+#[test]
 fn walk_reports_a_failed_run_with_a_terminator_and_exit_zero() {
     let sandbox = Sandbox::new("doctor-walk-bad");
     let layout = sandbox.layout();

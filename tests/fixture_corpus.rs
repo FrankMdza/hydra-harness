@@ -71,6 +71,34 @@ fn fixtures() -> Vec<Fixture> {
     };
     let mut out = Vec::new();
 
+    // Build 334: Edit validation returns an error without running PreToolUse.
+    // Synthetic stand-ins for build 327's call/result; no build text or paths.
+    let id = fixture_id(334);
+    let worktree = layout.worktree(&id);
+    out.push(claude(
+        Record::shaped(Shape {
+            run_id: &id,
+            policy: Some("standard"),
+            policy_sha: Some(&sha),
+            worktree: Some(&worktree),
+            ..Shape::default()
+        })
+        .tool_use(
+            "toolu_334",
+            "Edit",
+            json!({
+                "file_path": "probe.txt", "old_string": "before", "new_string": "after"
+            }),
+        )
+        .tool_result(
+            "toolu_334",
+            "<tool_use_error>String to replace not found in file.\nString: before</tool_use_error>",
+            true,
+        )
+        .result(usage_frame())
+        .closed(),
+    ));
+
     // Hook evidence is independent of a provider's possibly truncated command.
     let id = fixture_id(321);
     let mut evidence = Record::shaped(Shape {

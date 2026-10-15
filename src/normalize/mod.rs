@@ -375,6 +375,13 @@ pub enum Finding {
     /// like this. The innocent reading is that `--include-hook-events` was off,
     /// which is why it is a finding rather than a leak.
     Ungated { call_id: String, tool: String },
+    /// Claude returned an error without a hook decision. The error's first
+    /// line is retained separately from calls that may have run ungated.
+    RejectedBeforeHook {
+        call_id: String,
+        tool: String,
+        error: String,
+    },
     /// 7.1's run-time table check. The provider offered a name Hydra's
     /// capability table does not know, so the gate denied it all run and the
     /// table is stale.

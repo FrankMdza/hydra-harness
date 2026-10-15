@@ -51,7 +51,7 @@ pub fn show(layout: &Layout, run_id: &str, events: bool, out: &mut dyn Write) ->
         "run_id": run_id,
         "projection": projection,
         "events": run.events.iter().map(|e| event_json(e, &token)).collect::<Vec<Value>>(),
-        "findings": run.findings.iter().map(finding_json).collect::<Vec<Value>>(),
+        "findings": run.findings.iter().map(|f| finding_json(f, &token)).collect::<Vec<Value>>(),
     });
     writeln!(out, "{}", serde_json::to_string_pretty(&report)?)?;
     Ok(())
@@ -154,7 +154,7 @@ fn counts_json(counts: Counts) -> Value {
 
 /// One finding, its own type name and its fields by name, the same shape
 /// [`event_json`] gives an event.
-fn finding_json(finding: &Finding) -> Value {
+fn finding_json(finding: &Finding, token: &str) -> Value {
     match finding {
         Finding::GateLeak {
             call_id,
@@ -178,6 +178,13 @@ fn finding_json(finding: &Finding) -> Value {
         }),
         Finding::Ungated { call_id, tool } => {
             json!({"type": "ungated", "call_id": call_id, "tool": tool})
+        }
+        Finding::RejectedBeforeHook {
+            call_id,
+            tool,
+            error,
+        } => {
+            json!({"type": "rejected_before_hook", "call_id": call_id, "tool": tool, "error": mark(error, token)})
         }
         Finding::UnknownTool { name } => json!({"type": "unknown_tool", "name": name}),
         Finding::StalePolicy { recorded, current } => {

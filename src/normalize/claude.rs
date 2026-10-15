@@ -611,11 +611,24 @@ impl Walk {
                             "Not run: the response that made this tool call was stopped",
                         ))
             });
-            if !hydra_spoke && !refused_on_input {
-                self.findings.push(Finding::Ungated {
-                    call_id: call_id.clone(),
-                    tool: tool.clone(),
-                });
+            let rejected_before_hook = !hydra_spoke
+                && results
+                    .get(&call_id)
+                    .is_some_and(|(status, _)| *status == ResultStatus::Error);
+            if !hydra_spoke {
+                if rejected_before_hook {
+                    let (_, output) = &results[&call_id];
+                    self.findings.push(Finding::RejectedBeforeHook {
+                        call_id: call_id.clone(),
+                        tool: tool.clone(),
+                        error: output.lines().next().unwrap_or_default().to_string(),
+                    });
+                } else {
+                    self.findings.push(Finding::Ungated {
+                        call_id: call_id.clone(),
+                        tool: tool.clone(),
+                    });
+                }
             }
 
             if let Some((decision, reason)) = &gate_said
@@ -669,7 +682,7 @@ impl Walk {
                             "{call_id} ({tool}) is the last thing the record says, so \
                              whether the gate refused a call the policy denies is unknown"
                         )));
-                    } else if refused_on_input {
+                    } else if refused_on_input || rejected_before_hook {
                         // The provider refused the call on its own, so the gate
                         // never spoke and its verdict is about a call that never
                         // ran. An invented tool name lands here, denied

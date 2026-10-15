@@ -235,6 +235,10 @@ fn main() -> Result<()> {
                     println!("host {host}: {records} record(s)");
                 }
                 println!("checked {} record(s)", report.records_read);
+                println!(
+                    "RejectedBeforeHook: {}; Ungated: {}",
+                    report.rejected_before_hook, report.ungated
+                );
                 if !report.findings.is_empty() {
                     std::process::exit(1);
                 }

@@ -2267,6 +2267,24 @@ the machine's corpus.
 
 ## Reading a record back
 
+**Build 334 separates `RejectedBeforeHook` from `Ungated` on Claude.** An error
+tool result without a gate decision carries its tool, call id and first error
+line as a finding; it produces no gate leak. Missing and non-error results
+still raise `Ungated`. `hydra show --events` prints `rejected_before_hook`
+with the provider's error line inside the usual untrusted-text boundary,
+and `hydra doctor --walk` counts both classes separately; only `Ungated` fails
+the walk. Rungs carries the rejection as a limit, without disagreement weight.
+On the same one-record synthetic corpus, the original binary reported one
+`Ungated` and exited 1; the patched binary reports `RejectedBeforeHook: 1;
+Ungated: 0` and exits 0. The other
+fixtures provide no evidence for extending the class: Cursor has two successful
+tool results across two records, agy has one record with no tool call, and Codex
+has three successful command results across two records. Their adapters are
+unchanged. The machine-wide before/after walk requires the driving session:
+this run's instructions forbid reading outside its worktree, including the
+machine's records. The fixture reconstructs the ticket's reported call/result
+shape with stand-ins; it is not a copy of inaccessible seq 326/327.
+
 **Four providers, since build tickets 10 and 48.** `src/normalize/` turns a stored
 `claude`, `cursor-agent`, `agy` or `codex` run into
 contract 7's events, one adapter per column of 7.2, picked by the envelope's `provider`.

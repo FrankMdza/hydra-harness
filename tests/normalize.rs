@@ -2060,6 +2060,59 @@ fn a_gated_call_the_gate_never_answered_is_a_finding() {
 }
 
 #[test]
+fn only_an_error_without_a_gate_answer_is_rejected_before_hook() {
+    let sandbox = Sandbox::new("claude-rejected-before-hook");
+    for (status, hook) in [
+        (Some(true), None),
+        (Some(false), None),
+        (None, None),
+        (Some(true), Some("allow")),
+        (Some(true), Some("deny")),
+    ] {
+        let mut record = Record::opened(
+            &sandbox.worktree(),
+            Some("standard"),
+            Some(policies().sha()),
+        );
+        record.tool_use(
+            "edit",
+            "Edit",
+            json!({
+                "file_path": sandbox.worktree().join("probe.txt"),
+                "old_string": "before", "new_string": "after",
+            }),
+        );
+        if let Some(hook) = hook {
+            record.hook_response("Edit", hook, &format!("hydra/{hook}: decision"));
+        }
+        if let Some(status) = status {
+            record.tool_result("edit", "first line\nsecond line", status);
+        }
+        let run =
+            hydra::normalize::read_with(&record.closed(), &policies(), &sandbox.layout()).unwrap();
+        let rejected = status == Some(true) && hook.is_none();
+        assert_eq!(
+            run.findings.contains(&Finding::RejectedBeforeHook {
+                call_id: "edit".into(),
+                tool: "Edit".into(),
+                error: "first line".into(),
+            }),
+            rejected,
+            "{:?}",
+            run.findings
+        );
+        assert_eq!(
+            run.findings
+                .iter()
+                .any(|finding| matches!(finding, Finding::Ungated { .. })),
+            hook.is_none() && !rejected,
+            "{:?}",
+            run.findings
+        );
+    }
+}
+
+#[test]
 fn a_torn_line_costs_its_own_frames_and_nothing_else() {
     // The writer syncs per line, so a killed run can leave half a line at the
     // tail. Contract 6 calls that an abandoned run rather than a corrupt file.

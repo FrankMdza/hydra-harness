@@ -26,6 +26,8 @@ pub struct Finding {
 pub struct Report {
     pub findings: Vec<Finding>,
     pub records_read: usize,
+    pub rejected_before_hook: usize,
+    pub ungated: usize,
     /// How many records each host wrote, keyed `machine os/arch`, build
     /// ticket 316. A record from before the field counts under no key.
     pub hosts: BTreeMap<String, usize>,
@@ -105,9 +107,24 @@ pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Rep
     findings.extend(check_gated_write_denials(paths, &read).0);
     findings.extend(check_unknown_sources(paths, &read));
     let (uncorroborated, refusals) = check_gate_refusals(paths, &read);
+    let mut rejected_before_hook = 0;
+    let mut ungated = 0;
+    for path in paths {
+        if let Ok(run) = read(path) {
+            for finding in run.findings {
+                match finding {
+                    NormalizeFinding::RejectedBeforeHook { .. } => rejected_before_hook += 1,
+                    NormalizeFinding::Ungated { .. } => ungated += 1,
+                    _ => {}
+                }
+            }
+        }
+    }
     Report {
         findings,
         records_read: paths.len(),
+        rejected_before_hook,
+        ungated,
         hosts: hosts_of(paths),
         refusals,
         uncorroborated,

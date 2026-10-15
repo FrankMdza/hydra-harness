@@ -795,6 +795,8 @@ differences is a choice: each is what that provider's record lets a reader ask.
 | `Ungated` is raised | on every allowed call carrying no Hydra voice | only where another hook refused | only where another hook refused |
 | A `GateLeak` needs | the call's fate to be known | a result present, a call naming no path excused | a result whose status is `Ok` |
 
+On `claude`, an error tool result with no hook decision is `RejectedBeforeHook` (tool, call id and first error line), counted separately from `Ungated`; a missing or non-error result with no hook decision stays `Ungated`.
+
 `cursor-agent`'s init frame carries no tool list, so a renamed tool stays invisible until something
 calls it: that count is a floor and `claude`'s is not. `agy` reports a leak only on the one status
 that is evidence, which makes its count a floor too. **A reader comparing counts across providers is
