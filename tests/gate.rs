@@ -1917,6 +1917,92 @@ fn the_floor_checks_every_segment_of_a_chained_command() {
     }
 }
 
+// Build ticket 329: these are payloads to a compiled gate, never executed.
+#[test]
+fn the_floor_reads_past_compound_commands_and_wrappers() {
+    let gate = Gate::new("standard");
+    let mut misses = Vec::new();
+    for command in [
+        "if true; then git push --force; fi",
+        "if git push --force; then :; fi",
+        "if false; then :; elif git push --force; then :; fi",
+        "if false; then :; else git push --force; fi",
+        "if true; then :; fi; git push --force",
+        "for x in one; do git push --force; done",
+        "while :; do git push --force; done",
+        "until git push --force; do :; done",
+        "while git push --force; do :; done",
+        "for x in one; do :; done; git push --force",
+        "case x in x) git push --force;; esac",
+        "case x in x) :;; esac; git push --force",
+        "{ git push --force; }",
+        "{ :; }; git push --force",
+        "! git push --force",
+        "time git push --force",
+        "function f { git push --force; }; f",
+        "f() { git push --force; }; f",
+        "MODE=one git push --force",
+        "command git push --force",
+        "builtin exec git push --force",
+        "exec git push --force",
+        "nohup git push --force",
+        "env MODE=one git push --force",
+        "nice git push --force",
+        "timeout 10 git push --force",
+        "xargs git push --force",
+        "if true; then command env MODE=one nice -n 5 timeout -k 2 10 git push --force; fi",
+        "exec -a worker git push --force",
+        "env -u MODE -- git push --force",
+        "xargs -I ITEM -n 1 git push --force ITEM",
+        "time -p command -- aws configure",
+    ] {
+        let decision = gate.shell(command);
+        println!("{command} => {}", decision.reason);
+        if !decision.denied_for("hydra/floor") {
+            misses.push(command);
+        }
+    }
+    assert!(misses.is_empty(), "the floor missed: {misses:?}");
+}
+
+#[test]
+fn compound_commands_keep_ordinary_programs_and_arguments() {
+    let gate = Gate::new("standard");
+    for command in [
+        "if true; then git status; else git log; fi",
+        "for x in one; do command env MODE=one git status; done",
+        "case x in x) git status;; esac",
+        "function f { git status; }; f",
+        "echo then git push --force",
+        "printf '%s' 'git push --force'",
+        "env MODE=one nice -n 5 timeout 10 git status",
+        "command -v git",
+    ] {
+        let decision = gate.shell(command);
+        assert!(decision.allowed, "{command}: {}", decision.reason);
+    }
+}
+
+#[test]
+fn command_prefixes_still_name_protected_paths() {
+    let gate = Gate::new("standard");
+    // Relative spelling exercises the token pass rather than the raw pass.
+    for command in [
+        "if true; then cat ../../runs/x; fi",
+        "env FILE=../../runs/x git status",
+        "env -C ../../runs git status",
+        "xargs -a ../../runs/x git status",
+        "FILE=../../runs/x command git status",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "{command}: {}",
+            decision.reason
+        );
+    }
+}
+
 // Build ticket 319: the seven probes map 120's Opus seat measured on a live
 // gate, then the cases the fix had to keep refused.
 

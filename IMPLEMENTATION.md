@@ -1028,10 +1028,24 @@ newline probe went from allow to `hydra/floor`; a `cat <<'EOF'` body holding a b
 `git status`, or `${price}` beside "aws", went from `hydra/floor` to allow; the shape that
 stopped run `01a1332c`, `cat > f <<'EOF'` whose body spells the runs directory, went from
 `hydra/protected-path` to allow; `git push origin topic#x --force` went from allow to
-`hydra/floor`, because shlex no longer reads the `#` inside a word as a comment. Two holes
-stay open: `cat > x.sh <<'EOF'` then `sh x.sh` runs a body the gate never read, the same as
-writing `x.sh` with the Write tool; and a shell keyword in front of the binary hides it,
-`if true; then git push --force; fi` passed both templates.
+`hydra/floor`, because shlex no longer reads the `#` inside a word as a comment.
+`cat > x.sh <<'EOF'` then `sh x.sh` still runs a body the gate never read, the same as
+writing `x.sh` with the Write tool.
+
+**Since build ticket 329 the floor reads past shell keywords and command wrappers.**
+`shell_command_words` is shared by the floor and the protected-path token pass. It skips
+leading reserved words, function declarations, assignments, and `command`, `builtin`,
+`exec`, `nohup`, `env`, `nice`, `timeout` and `xargs`. Wrapper options with separate values
+are consumed before reading the program, as is `timeout`'s duration; nested wrappers use
+the same walk. Prefix tokens remain subject to protected-path checks, including assignment
+values and paths supplied to wrapper options. Words in an ordinary program's arguments are
+left alone. The bounded shell's `shell_hazard` checks expansions and operators, and has no
+keyword/wrapper list to share; the new list lives in the shared reader. This remains a
+spelling check, not a shell grammar or a complete interpreter of wrapper options (for example,
+`env -S` strings are not unpacked). On a compiled `standard` gate, 27 of 32 compound/wrapper
+probes changed from allow to `hydra/floor`; five already refused and still do. The eight
+ordinary-command controls stayed allowed and five relative protected-path probes stayed
+refused. In particular `if true; then git push --force; fi` is now refused.
 
 **`git push` with no arguments is not checked against the protected branches.** The
 floor cannot know the current branch from argv. It is the failure mode 7.4 names out
@@ -2255,12 +2269,23 @@ with no `usage`, and one whose `usage` holds none of section 9's four count fiel
 produce `source: unavailable` with no counts. Zeroes there would be 7.8's
 null-against-zero confusion arriving through the other door.
 
-Nine of the ten event types have a producer; only `message_delta` remains without one.
+Ten of the eleven event types have a producer; only `message_delta` remains without one.
 `message`, `thinking`, `tool_call`, `tool_result`, `permission_decision` and `usage`, plus the
-two stored Hydra lines. `message_delta` needs `--include-partial-messages` and 7.4 keeps it off
+two envelope lines and stored `gate_refusal` evidence. `message_delta` needs `--include-partial-messages` and 7.4 keeps it off
 in v1. `correction` comes from an interactive harvest, built since ticket 27 and read by the
 interactive section below. Both types are in the enum, because a type the reader cannot name is
 a type nobody knows is missing.
+
+**Shell refusals carry hook evidence since build 321 (2026-10-15).** The hook writes
+`gate-refusals.jsonl` beside the gate; the watcher and interactive harvest copy its entries
+before `run_end` as stored `gate_refusal` events, read by all four normalizers and printed
+by `hydra show --events`. The command is capped at 65,536 UTF-8 bytes with an explicit
+`command_truncated` flag and a character-safe cut. Provider log truncation no longer loses
+the refused heredoc. Derived permission decisions keep their existing meaning and counts.
+Replay writes no evidence. The sidecar is a kernel write exception even for bounded shells;
+the gate still refuses tool calls naming it. Evidence write failures leave the deny intact
+and report on hook stderr. Evidence is copied at close, not streamed live, and is not
+tamper-proof against a process using that kernel write exception. Older records remain valid.
 
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a

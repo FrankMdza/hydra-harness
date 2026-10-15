@@ -439,7 +439,10 @@ def protected_path_named_by(command, cwd):
         if not doc["data"]:
             segments.append([w.strip("'\"`") for w in doc["text"].split()])
     for argv in segments:
-        for token in argv:
+        prefix, words = shell_command_words(argv)
+        # Prefixes still name paths: `env FILE=../runs/x cat f` and
+        # `xargs -a ../runs/x cat` must not lose their assignment/option values.
+        for token in prefix + words:
             for candidate in path_candidates(token):
                 folded, shown, _ = resolved_pair(candidate, cwd)
                 protected = protected_root(folded)
@@ -601,6 +604,84 @@ def first_word(text):
     except ValueError:
         return None
     return None
+
+
+SHELL_RESERVED_WORDS = frozenset((
+    "if", "then", "elif", "else", "fi", "for", "while", "until", "do", "done",
+    "case", "esac", "{", "}", "!", "time", "function",
+))
+
+# Wrapper options whose next word is a value rather than the program. Equals
+# forms and attached short values are one token and need no extra consumption.
+SHELL_WRAPPERS = {
+    "command": (),
+    "builtin": (),
+    "exec": ("-a",),
+    "nohup": (),
+    "env": ("-u", "--unset", "-C", "--chdir"),
+    "nice": ("-n", "--adjustment"),
+    "timeout": ("-s", "--signal", "-k", "--kill-after"),
+    "xargs": (
+        "-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "-n",
+        "-P", "-s", "--eof", "--replace", "--max-lines", "--max-args",
+        "--max-procs", "--max-chars", "--process-slot-var",
+    ),
+}
+
+
+def shell_command_words(argv):
+    """(prefix, simple command) for the floor and the protected-path pass.
+
+    Build ticket 329. This reads spellings, not shell state: separators have
+    already been split, so `do` starts a loop body and `then` an if body. The
+    reserved words are skipped only at the head, never in a program's arguments.
+    Function names are declarations; their bodies are checked even if never
+    called. `shell_hazard` handles expansions/operators for a bounded shell,
+    but has no keyword or wrapper list; that list lives only here.
+
+    The prefix is returned too because assignments and wrapper options can name
+    protected paths. Neither consumer evaluates the words or reads a script.
+    This remains a pattern floor, not a shell grammar or wrapper interpreter.
+    """
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        name, equals, _ = token.partition("=")
+        if equals and name and name.replace("_", "a").isalnum() and not name[0].isdigit():
+            i += 1
+            continue
+        if argv[i + 1:i + 2] == ["()"]:
+            i += 2  # `name()` declares a function without `function`.
+            continue
+        if token in SHELL_RESERVED_WORDS:
+            i += 1
+            if token == "function" and i < len(argv):
+                i += 1  # the declared name, not an executable
+                if argv[i:i + 1] == ["()"]:
+                    i += 1
+            if token == "time" and argv[i:i + 1] == ["-p"]:
+                i += 1
+            continue
+        wrapper = os.path.basename(token)
+        if wrapper not in SHELL_WRAPPERS:
+            break
+        i += 1
+        while i < len(argv):
+            option = argv[i]
+            if option == "--":
+                i += 1
+                break
+            if not option.startswith("-") or option == "-":
+                break
+            if wrapper == "command" and option in ("-v", "-V"):
+                # These inspect a name rather than execute it.
+                i = len(argv)
+                break
+            i += 2 if option in SHELL_WRAPPERS[wrapper] else 1
+        if wrapper == "timeout" and i < len(argv):
+            i += 1  # duration, after options and before the program
+    i = min(i, len(argv))
+    return argv[:i], argv[i:]
 
 
 def shell_layout(command):
@@ -957,7 +1038,8 @@ def floor_violation(command):
     if hit:
         return hit
 
-    for argv in segments:
+    for segment in segments:
+        _, argv = shell_command_words(segment)
         if not argv:
             continue
         binary = os.path.basename(argv[0])
