@@ -34,6 +34,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::hex::hex_lower;
 use crate::paths::Layout;
 use crate::provider::{Provider, agy, claude, codex, cursor};
 
@@ -120,7 +121,7 @@ impl Document {
     /// the same one, and a sha that covers only part of a file is a sha nobody
     /// can recompute by hand.
     pub fn parse(text: &str) -> Result<Self> {
-        let sha = format!("{:x}", Sha256::digest(text.as_bytes()));
+        let sha = hex_lower(&Sha256::digest(text.as_bytes()));
         let block = fenced_toml(text)?;
         let parsed: Toml =
             toml::from_str(&block).context("the document's toml block does not parse")?;
@@ -618,7 +619,7 @@ Prose below it too.
         let doc = Document::parse("```toml\n```\n").unwrap();
         assert_eq!(
             doc.sha,
-            format!("{:x}", Sha256::digest(b"```toml\n```\n")),
+            hex_lower(&Sha256::digest(b"```toml\n```\n")),
             "the sha must be of the bytes on disk"
         );
         // Prose is inside the hash, so an edit to it moves the value.

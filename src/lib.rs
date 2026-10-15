@@ -29,6 +29,7 @@ pub mod env;
 pub mod export;
 pub mod export_preference;
 pub mod face;
+pub mod hex;
 pub mod interactive;
 pub mod live;
 pub mod logs;

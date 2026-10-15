@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::hex::hex_lower;
 use crate::live::State;
 use crate::normalize::paths::{PathExtraction, cwd_of, inside, paths_touched};
 use crate::normalize::{Event, Run};
@@ -39,7 +40,7 @@ impl Allowlist {
         }
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let sha = format!("{:x}", Sha256::digest(text.as_bytes()));
+        let sha = hex_lower(&Sha256::digest(text.as_bytes()));
         let repos: Vec<PathBuf> =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         for repo in &repos {

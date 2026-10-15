@@ -70,8 +70,9 @@ impl SignoffManifest {
 }
 
 fn sha_of(text: &str) -> String {
+    use crate::hex::hex_lower;
     use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    hex_lower(&Sha256::digest(text.as_bytes()))
 }
 
 /// One TRL explicit-prompt preference line, contract 16.1 and 16.3.

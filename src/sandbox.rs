@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
+use crate::hex::hex_lower;
 use crate::policy::{self, PolicySet, Spawn};
 use crate::provider::Provider;
 
@@ -97,7 +98,7 @@ pub fn write_profile(set: &PolicySet, spawn: &Spawn<'_>, path: &Path) -> Result<
             .with_context(|| format!("creating {}", parent.display()))?;
     }
     std::fs::write(path, &text).with_context(|| format!("writing {}", path.display()))?;
-    Ok(format!("{:x}", Sha256::digest(text.as_bytes())))
+    Ok(hex_lower(&Sha256::digest(text.as_bytes())))
 }
 
 /// The SBPL text: allow default, deny writes to Hydra's paths, deny corpus reads,
@@ -303,7 +304,7 @@ pub fn narrow_for_copilot(profile: &Path, worktree: &Path) -> Result<String> {
         .with_context(|| format!("reading {}", profile.display()))?;
     let text = insert_after_tiocsti(&text, &block)?;
     std::fs::write(profile, &text).with_context(|| format!("writing {}", profile.display()))?;
-    Ok(format!("{:x}", Sha256::digest(text.as_bytes())))
+    Ok(hex_lower(&Sha256::digest(text.as_bytes())))
 }
 
 /// The deny on the home directory and the allows after it.
@@ -541,5 +542,68 @@ mod tests {
             )),
             "profile denies the run's own worktree"
         );
+    }
+
+    /// The sha of `file` as the system's own tool prints it, which shares no code
+    /// with `sha2` or with [`crate::hex::hex_lower`].
+    fn system_sha256(file: &Path) -> String {
+        for (tool, args) in [("sha256sum", &[][..]), ("shasum", &["-a", "256"][..])] {
+            let Ok(out) = std::process::Command::new(tool)
+                .args(args)
+                .arg(file)
+                .output()
+            else {
+                continue;
+            };
+            if out.status.success() {
+                let text = String::from_utf8(out.stdout).unwrap();
+                return text.split_whitespace().next().unwrap().to_string();
+            }
+        }
+        panic!("neither sha256sum nor shasum ran on this machine");
+    }
+
+    /// Build ticket 337. `GateMark` compares the `gate_sha` an old record carries
+    /// with the one compiled today, and `run_start.sandbox` is the profile's sha.
+    /// Both must stay the lowercase hex the system tool prints for the bytes on
+    /// disk, whatever `sha2` version formats them, or every old record reads back
+    /// `Foreign`.
+    #[test]
+    fn gate_sha_and_profile_sha_are_the_system_tools_hex_of_the_files_written() {
+        let (layout, root) = scratch_layout();
+        let set = PolicySet::discover().unwrap();
+        let worktree = root.join("worktree");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let gate = layout.gate_script("r1");
+        let spawn = Spawn {
+            provider: Provider::Claude,
+            policy: "standard",
+            layout: &layout,
+            worktree: &worktree,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
+            skill_snapshot: &layout.skill_snapshot_scope("r1", None),
+            skill_checkout: None,
+            parent_git_dir: None,
+            gate_script: &gate,
+            floor_lifted: false,
+        };
+        policy::write_gate(&set, &spawn).unwrap();
+        let gate_sha = policy::gate_sha(&set, &spawn).unwrap();
+        assert_eq!(gate_sha, system_sha256(&gate));
+
+        let profile = profile_path(&layout.spawn("r1"));
+        let profile_sha = write_profile(&set, &spawn, &profile).unwrap();
+        assert_eq!(profile_sha, system_sha256(&profile));
+
+        for sha in [&gate_sha, &profile_sha] {
+            assert_eq!(sha.len(), 64, "{sha}");
+            assert!(
+                sha.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                "{sha}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -6,6 +6,7 @@ use anyhow::{Result, anyhow, bail};
 use hydra_pyjson::json::{Dict, Value};
 use hydra_pyjson::models::{self, Pair};
 use hydra_pyjson::py;
+use hydra_records::hex::hex_lower;
 use sha2::{Digest, Sha256};
 
 use crate::{collect, labels::Env};
@@ -198,7 +199,7 @@ pub fn corpus_records(runs: &Path, home: &Path, hydra: &str, env: &Env) -> Resul
         let Value::Str(id_text) = id else {
             bail!("TypeError: run id must be text")
         };
-        let fingerprint = Value::text(&format!("{:x}", Sha256::digest(&data)));
+        let fingerprint = Value::text(&hex_lower(&Sha256::digest(&data)));
         let mut entry = py::get(&cache, &id_text.lossy(), empty())?;
         if !py::eq(&get(&entry, "fingerprint")?, &fingerprint) {
             let answer = collect::refresh_full_show_answer(id, runs, hydra, env)?;

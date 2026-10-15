@@ -134,8 +134,9 @@ pub fn write_spawn_config(
     let written =
         std::fs::read(&gate).with_context(|| format!("reading back {}", gate.display()))?;
     let gate_sha = {
+        use crate::hex::hex_lower;
         use sha2::{Digest, Sha256};
-        format!("{:x}", Sha256::digest(&written))
+        hex_lower(&Sha256::digest(&written))
     };
 
     let config = match provider {

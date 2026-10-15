@@ -7,6 +7,7 @@
 //! `crates/pyjson`, so the apprentice, otel and `local-llm` can use them without the grader.
 //! `crates/grader/tests/differential.rs` is still the check that they match the Python.
 
+pub mod hex;
 pub mod isotime;
 pub mod loopback_http;
 pub mod records;

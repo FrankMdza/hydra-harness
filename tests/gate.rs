@@ -24,6 +24,7 @@ use corpus::{Decision, Gate, OTHER, RUN, SHEBANG_PYTHON};
 
 #[test]
 fn refused_shell_commands_survive_the_hook_record_and_show_with_a_byte_cap() {
+    use hydra::hex::hex_lower;
     use hydra::policy::{Dialect, PolicySet, hook_source};
     use hydra::record::{RunEnd, Writer};
     use sha2::{Digest, Sha256};
@@ -38,7 +39,7 @@ fn refused_shell_commands_survive_the_hook_record_and_show_with_a_byte_cap() {
     writer
         .hydra_line(&json!({"type": "run_start", "policy": null}))
         .unwrap();
-    let sha = format!("{:x}", Sha256::digest(std::fs::read(&gate.script).unwrap()));
+    let sha = hex_lower(&Sha256::digest(std::fs::read(&gate.script).unwrap()));
     let source = hook_source(&gate.script, &sha, Dialect::Claude);
     let prefix = "exit 0; cat > probe.txt <<'EOF'\n";
     let command = format!("{prefix}{}\nEOF", "x".repeat(200 - prefix.len() - 4));
@@ -131,6 +132,7 @@ fn refused_shell_commands_survive_the_hook_record_and_show_with_a_byte_cap() {
 
 #[test]
 fn watcher_records_refusals_from_each_live_hook_dialect() {
+    use hydra::hex::hex_lower;
     use hydra::provider::Provider;
     use sha2::{Digest, Sha256};
     for (provider, tool, field) in [
@@ -141,7 +143,7 @@ fn watcher_records_refusals_from_each_live_hook_dialect() {
     ] {
         let gate = Gate::compile_for(provider, "read-only", false);
         let command = format!("cat > probe.txt <<'EOF'\n{}\nEOF", "x".repeat(200));
-        let sha = format!("{:x}", Sha256::digest(std::fs::read(&gate.script).unwrap()));
+        let sha = hex_lower(&Sha256::digest(std::fs::read(&gate.script).unwrap()));
         let source = hydra::policy::hook_source(&gate.script, &sha, provider.dialect());
         let input = json!({field: command});
         let payload = if provider == Provider::Agy {

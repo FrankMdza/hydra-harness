@@ -602,7 +602,7 @@ fn sha_of(dir: &Path) -> Result<String> {
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(crate::hex::hex_lower(&hasher.finalize()))
 }
 
 /// The response shape the gate speaks, passed on the command line and never
@@ -1257,10 +1257,9 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
 /// compile is the gate that answered, build ticket 49.
 pub fn gate_sha(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
     use sha2::{Digest, Sha256};
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(compile(set, spawn)?.as_bytes())
-    ))
+    Ok(crate::hex::hex_lower(&Sha256::digest(
+        compile(set, spawn)?.as_bytes(),
+    )))
 }
 
 /// Compiles the gate and writes it to `spawn.gate_script`, executable.

@@ -22,6 +22,7 @@ use hydra_pyjson::file::os_error;
 use hydra_pyjson::json::{self, Dict, ParseError, PyStr, Value};
 use hydra_pyjson::marker;
 use hydra_pyjson::py;
+use hydra_records::hex::hex_lower;
 use sha2::{Digest, Sha256};
 
 use crate::collect::{sorted_keys, utc_now};
@@ -428,10 +429,6 @@ fn reached(written: usize, limit: &Value) -> bool {
     }
 }
 
-fn hex(digest: &[u8]) -> String {
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 /// The class a rule gives a run the agent did not fail: `RULE_CLASS[outcome]`.
 fn rule_class(outcome: &Value) -> Result<Option<&'static str>> {
     py::hashable(outcome)?;
@@ -505,7 +502,7 @@ pub fn label(
             let Some(prompt) = prompt.to_utf8() else {
                 bail!("UnicodeEncodeError: 'utf-8' codec can't encode a surrogate in the prompt");
             };
-            let sha = hex(&Sha256::digest(prompt.as_bytes()));
+            let sha = hex_lower(&Sha256::digest(prompt.as_bytes()));
             if done.holds(run_id, &model, Some(&sha))? {
                 skipped += 1;
                 continue;

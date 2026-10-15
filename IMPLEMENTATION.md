@@ -2456,7 +2456,11 @@ ticket 49 put `gate_sha` on `run_start`: the sha256 of the compiled script's byt
 carry the policy, the deny list, the scopes the spawn resolved and the Python itself.
 `src/run.rs` hashes the file it wrote; `policy::gate_sha` compiles the same bytes without
 writing them, and contract 7.7's re-evaluation calls it once per record to ask whether the
-gate it is about to compile is the gate that answered.
+gate it is about to compile is the gate that answered. Since build ticket 337 every sha the
+workspace writes, `gate_sha` and `sandbox` among them, goes through `hex_lower`, which formats
+the digest's bytes rather than leaning on `sha2`'s `LowerHex`, so the `sha2` 0.11 bump cannot
+move a string and turn old records `Foreign`; it lives twice, in `src/hex.rs` and in
+`crates/records/src/hex.rs`, because the `hydra` crate depends on no workspace crate.
 
 Three marks come out of that, in `GateMark`. `Todays` is the record whose sha is the sha
 this build compiles, and only that record can report a `GateLeak` or a `Disagreement`.

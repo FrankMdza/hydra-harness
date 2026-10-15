@@ -93,8 +93,9 @@ fn the_copilot_profile_is_the_headless_one_with_the_home_deny_and_its_allows_aft
     let sha = hydra::sandbox::narrow_for_copilot(&profile, &scratch.worktree).unwrap();
     let copilot = std::fs::read_to_string(&profile).unwrap();
     {
+        use hydra::hex::hex_lower;
         use sha2::{Digest, Sha256};
-        assert_eq!(sha, format!("{:x}", Sha256::digest(copilot.as_bytes())));
+        assert_eq!(sha, hex_lower(&Sha256::digest(copilot.as_bytes())));
     }
 
     let block =
@@ -187,10 +188,11 @@ fn a_gated_interactive_launch_records_the_narrowed_profile() {
     let at = lines.iter().position(|line| *line == TIOCSTI).unwrap();
     assert_eq!(lines[at + 1], home_deny(), "{text}");
     {
+        use hydra::hex::hex_lower;
         use sha2::{Digest, Sha256};
         assert_eq!(
             prep.spawn.sandbox_sha.as_deref(),
-            Some(format!("{:x}", Sha256::digest(text.as_bytes())).as_str()),
+            Some(hex_lower(&Sha256::digest(text.as_bytes())).as_str()),
             "run_start.sandbox is not the sha of the profile the launch runs under"
         );
     }

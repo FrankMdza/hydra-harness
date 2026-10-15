@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::hex::hex_lower;
 use crate::outcome::RunResult;
 use crate::paths::Layout;
 use crate::policy::PolicySet;
@@ -1224,7 +1225,7 @@ fn admission_profile_sha(profile_path: &Path) -> Option<String> {
     }
     std::fs::read(profile_path)
         .ok()
-        .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+        .map(|bytes| hex_lower(&Sha256::digest(bytes)))
 }
 
 fn apply_admission_env(
