@@ -1,7 +1,7 @@
 # 320 - A floor refusal names the longest matching deny entry, the token that resolved to it and the link it went through
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 120's answer, question 2. Today the refusal names
 the first deny entry that matched, which on this machine is always `/users/user/hydra` because
@@ -45,3 +45,48 @@ nextest run --release --workspace`, `cargo test --release --workspace --doc` gre
 Rules inside the run: relative paths only, never look outside your own worktree, write files with
 your file tool and not with shell heredocs, and the test suite is green inside a run since build
 302 without any `env -u`.
+
+## Outcome
+
+Built, all in `src/policy/gate.py`:
+
+- `protected_root`, the raw pass of the shell check and `protected_path_named_in` return the
+  longest deny entry that matches, through one helper, `longest`.
+- `resolved_pair` carries the path as the call wrote it as a third element. `link_crossed` walks a
+  path one component at a time and returns the first symlink whose own location is outside the
+  denied (or out-of-scope) set and whose target is inside it. A relative path is walked from the
+  resolved cwd and its link printed relative, so `.claude/skills/unslop` rather than the absolute
+  form; an absolute path crosses macOS's `/var` link, which the predicate rejects.
+- The `hydra/protected-path` refusal of the shell check and of a file write, and the
+  `hydra/out-of-scope` refusal of a file tool, append one sentence:
+  `` `<token>` resolves to <path> through the link <link> to <target>. `` The link clause appears
+  only when a link was crossed. The raw pass resolves nothing and appends
+  `` `<word>` spells it out. ``, the whitespace-delimited word around the match. Newlines print
+  as `\n` and a token past 200 characters is cut, so the reason stays one line for `codex`.
+- The code before the colon is unchanged, so `reason_code` and `hydra doctor --walk` read the same.
+
+Tests, `tests/gate.rs`: the two skill tests now link the skill (`.claude`, `.agents` and
+`.cursor` roots) before asserting. The roots themselves stay allowed, and a `cat` or `head` of a
+`SKILL.md` under a link is asserted refused, naming `skills-snapshots`, the token and the link.
+Three new cases, one per fact: `a_refusal_names_the_longest_deny_entry_that_matched` (a gate whose
+deny list and spellings carry its root first, as `hydra_home()` is first in production; shell
+token pass, raw pass and `Write`), `a_refusal_quotes_the_token_as_the_command_wrote_it` (token
+pass, raw pass, `Write` with a relative path, a newline in the token), and
+`a_refusal_names_the_link_a_path_went_through` (`Write` through a skill link, an out-of-scope
+`Read` through a link to elsewhere, no link clause when none was crossed).
+
+Measured: `tests/gate.rs` 125 of 125 pass. Reverting `longest` to first-match fails exactly one
+test, the longest-entry case. Workspace: 1406 passed, 4 skipped.
+
+What the ticket assumed that turned out false:
+
+- "The three facts as separate fields in the hook's JSON reply where the reply is JSON." Not
+  done. No provider's tolerance of an extra key in its hook reply is measured, and harness spec
+  6.6 records that `claude` allows a call whose reply shape it does not recognise. An unmeasured
+  key on a deny could turn it into an allow, and `codex` reads the same `claude` shape. The facts
+  are in the reason text in every dialect. Whether to add the fields, and the probe that would
+  measure each provider first, is a decision for the session.
+- The skill tests were not only passing for the wrong reason: once linked, the reads they asserted
+  allowed are refused. The ticket kept the refusal, so the tests now assert it. Whether a shell read
+  of the run's own pinned snapshot should be carved out (research 120, seat Opus, section 1) is
+  still open and not this ticket's.

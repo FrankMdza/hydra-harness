@@ -327,6 +327,25 @@ refused. Since build ticket 242 the fold is for comparing only: a `hydra/out-of-
 call gave, where it used to print `/users/user/...` for `/Users/USER/...`. The script changed, so
 `gate_sha` changed with it.
 
+**A refusal names the longest deny entry, the token and the link, since build ticket 320.**
+`protected_root` and both raw passes used to return the first entry that matched, and
+`denied_write_paths` puts `hydra_home()` ahead of `runs/` and `skills-snapshots/`, so on this
+machine every shell refusal under `~/hydra` read "the command names /users/user/hydra". Run
+`01a1332c` spent 146k tokens unable to tell its own linked skill from a sibling's record. Now the
+`hydra/protected-path` refusal of the shell check and of a file write, and the `hydra/out-of-scope`
+refusal of a file tool, carry three facts in the reason text: the longest entry that holds the path,
+the token or path as the call wrote it with where it resolved, and the symlink it crossed when one
+took it there: `` `.claude/skills/unslop/SKILL.md` resolves to <snapshot>/unslop/SKILL.md through
+the link .claude/skills/unslop to <snapshot>/unslop. `` The raw pass resolves nothing, so it quotes
+the whitespace-delimited word that spells the entry. A newline in any of these prints as `\n`,
+because `codex` shows the reason as one stderr line. The code before the colon is unchanged, which is
+what `reason_code` and `hydra doctor --walk` read. **The facts are in the text only, not in separate
+JSON fields**, which the ticket asked for where the reply is JSON: no provider's tolerance of an
+extra key in its hook reply is measured, and `claude` allows a call whose reply it does not
+recognise, so an unmeasured key on a deny could turn it into an allow. The two `tests/gate.rs` tests
+that asserted `cat .claude/skills/unslop/SKILL.md` is allowed never linked the skill; linked, as on
+every real run, the read is refused, and the test now asserts that refusal and its link.
+
 **The shell check reads the command twice since build ticket 56.** The token pass resolves each
 `shlex` token, which is what catches a relative path and a symlink, and it sees whole tokens
 only. So a denied path spelled in full inside a larger one walked through: `sh -c 'cat

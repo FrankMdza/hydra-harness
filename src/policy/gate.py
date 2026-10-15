@@ -152,9 +152,74 @@ def resolve_shown(path, cwd):
 
 
 def resolved_pair(path, cwd):
-    """(folded, shown) for one path: the first is compared, the second printed."""
+    """(folded, shown, written) for one path: the first is compared, the second
+    printed, the third is the path as the tool call spelled it, which a refusal
+    quotes beside the resolution (build ticket 320)."""
     shown = resolve_shown(path, cwd)
-    return fold_ascii(shown), shown
+    return fold_ascii(shown), shown, path
+
+
+def link_crossed(path, cwd, lands):
+    """(link, target) for the first symlink `path` resolves through whose own
+    location `lands` rejects and whose target it accepts, or None.
+
+    `lands` takes a folded, resolved path. A refusal uses this to say how a
+    path written inside the worktree ended up somewhere else: the skill links
+    `inject` makes point into `skills-snapshots/`, and a refusal that named the
+    snapshot without the link read as the gate looking at another file (build
+    ticket 320). A relative path is walked from the resolved cwd, so the
+    `/var` to `/private/var` link macOS puts under every temp directory is
+    crossed only by an absolute path, and `lands` rejects it there.
+
+    The link is printed relative to the cwd when the path was relative and the
+    link sits under it, which is how the tool call spelled it.
+    """
+    relative = not os.path.isabs(path)
+    base = os.path.realpath(cwd) if relative else os.sep
+    current = base
+    for name in path.split(os.sep):
+        if name in ("", "."):
+            continue
+        if name == "..":
+            current = os.path.dirname(current)
+            continue
+        step = os.path.join(current, name)
+        if os.path.islink(step):
+            target = os.path.realpath(step)
+            if not lands(fold_ascii(step)) and lands(fold_ascii(target)):
+                if relative and inside(step, base):
+                    step = os.path.relpath(step, base)
+                return step, target
+            current = target
+        else:
+            current = step
+    return None
+
+
+def quoted(token):
+    """A token as a refusal prints it: on one line, and cut at 200 characters.
+
+    One line because `codex` shows the reason as a single stderr line, and a
+    cap because a shell token can be a whole `python3 -c` program.
+    """
+    text = one_line(token)
+    if len(text) > 200:
+        text = text[:200] + "..."
+    return "`{}`".format(text)
+
+
+def one_line(text):
+    """`text` with each newline written as `\\n`."""
+    return text.replace("\n", "\\n")
+
+
+def resolution_facts(written, shown, link):
+    """The sentence a refusal adds after naming the denied entry: the path as
+    the call wrote it, where it resolved, and the link it went through."""
+    text = " {} resolves to {}".format(quoted(written), one_line(shown))
+    if link is not None:
+        text += " through the link {} to {}".format(one_line(link[0]), one_line(link[1]))
+    return text + "."
 
 
 def inside(path, root):
@@ -201,7 +266,8 @@ def paths_from_changes(tool_input, cwd):
 def target_paths(tool, tool_input, cwd):
     """Every path a tool call acts on, or an empty list when it names none.
 
-    Each entry is a `resolved_pair`, folded to compare and unfolded to print.
+    Each entry is a `resolved_pair`: folded to compare, unfolded to print, and
+    the path as the call wrote it.
     """
     patch_tools = HYDRA_CONFIG.get("patch_path_tools", {})
     if tool in patch_tools:
@@ -267,6 +333,12 @@ def protected_root(path):
     rewrite the file that points at this script. The Rust side names them in
     `protected_worktree_paths`, and the same default covers a gate compiled
     before the key existed.
+
+    **The longest entry that holds the path, not the first**, since build
+    ticket 320. The list nests: `hydra_home()` comes before `runs/` and
+    `skills-snapshots/`, and on a machine where the checkout is the runtime
+    root every refusal under it named `~/hydra`. A run reading its own linked
+    skill could not tell that from a sibling's record.
     """
     for protected in HYDRA_CONFIG.get("protected_worktree_paths", []):
         if inside(path, protected):
@@ -274,14 +346,20 @@ def protected_root(path):
     for own in HYDRA_CONFIG.get("own_write_paths", []):
         if inside(path, own):
             return None
-    for protected in HYDRA_CONFIG["deny_write_paths"]:
-        if inside(path, protected):
-            return protected
-    return None
+    return longest(p for p in HYDRA_CONFIG["deny_write_paths"] if inside(path, p))
+
+
+def longest(entries):
+    """The longest of `entries`, or None when there are none."""
+    return max(entries, key=len, default=None)
 
 
 def protected_path_named_by(command, cwd):
-    """The first protected path a shell command names, or None.
+    """(entry, facts) for the protected path a shell command names, or None.
+
+    `entry` is the longest deny entry that matched, and `facts` the sentence a
+    refusal carries after it: the token as the command wrote it, where it
+    resolved, and the symlink it crossed, if one (build ticket 320).
 
     **`shell` carries no path for the gate to read**, so the deny list of 7.5
     cannot be applied to it the way it is applied to `Write`. Without this, a
@@ -336,10 +414,18 @@ def protected_path_named_by(command, cwd):
     # heredoc bodies cut out: `cat > f <<'EOF'` writes a body, it does not run
     # one. Single quotes stay in, and `shell_layout` says why.
     layout = shell_layout(command)
-    lowered = fold_ascii(layout["raw"])
-    for protected in denied_prefixes():
-        if protected in lowered:
-            return protected
+    raw = layout["raw"]
+    lowered = fold_ascii(raw)
+    protected = longest(p for p in denied_prefixes() if p in lowered)
+    if protected is not None:
+        # The word around the match, cut on whitespace. `fold_ascii` keeps
+        # every character in place, so an index into `lowered` is one into
+        # `raw`.
+        at = lowered.index(protected)
+        start = max(raw.rfind(c, 0, at) for c in " \t\n") + 1
+        ends = [i for i in (raw.find(c, at) for c in " \t\n") if i != -1]
+        word = raw[start : min(ends) if ends else len(raw)]
+        return protected, " {} spells it out.".format(quoted(word))
 
     try:
         segments = split_segments(command, layout)
@@ -355,9 +441,13 @@ def protected_path_named_by(command, cwd):
     for argv in segments:
         for token in argv:
             for candidate in path_candidates(token):
-                protected = protected_root(resolve(candidate, cwd))
+                folded, shown, _ = resolved_pair(candidate, cwd)
+                protected = protected_root(folded)
                 if protected is not None:
-                    return protected
+                    link = link_crossed(
+                        candidate, cwd, lambda p: protected_root(p) is not None
+                    )
+                    return protected, resolution_facts(token, shown, link)
     return None
 
 
@@ -373,10 +463,7 @@ def protected_path_named_in(value):
     """
     if isinstance(value, str):
         lowered = fold_ascii(value)
-        for protected in denied_prefixes():
-            if protected in lowered:
-                return protected
-        return None
+        return longest(p for p in denied_prefixes() if p in lowered)
     if isinstance(value, dict):
         value = value.values()
     if isinstance(value, (list, tuple)) or hasattr(value, "__iter__"):
@@ -1268,9 +1355,15 @@ def evaluate(payload):
         )
 
     pairs = target_paths(tool, tool_input, cwd)
-    paths = [folded for folded, _ in pairs]
-    shown = dict(pairs)
+    paths = [folded for folded, _, _ in pairs]
+    shown = {folded: printed for folded, printed, _ in pairs}
+    written = {folded: raw for folded, _, raw in pairs}
     path = paths[0] if paths else None
+
+    def facts(folded, lands):
+        """What a path refusal adds after its entry, build ticket 320."""
+        link = link_crossed(written[folded], cwd, lands)
+        return resolution_facts(written[folded], shown[folded], link)
 
     # Own-read carve-out, before the denied-parent check. A Cursor run's
     # `cursor-data/` sits under the spawn directory, a denied parent since
@@ -1310,6 +1403,7 @@ def evaluate(payload):
                     "every policy by harness spec 7.5.".format(
                         tool, shown[write_path], protected
                     )
+                    + facts(write_path, lambda p: protected_root(p) is not None)
                 )
             # Where a later launch would load a plugin from, build ticket 257.
             # A plugin is code the provider runs in its own process, and on
@@ -1395,13 +1489,14 @@ def evaluate(payload):
                 "to read.".format(tool)
             )
         if raw_command:
-            protected = protected_path_named_by(raw_command, cwd)
-            if protected is not None:
+            named = protected_path_named_by(raw_command, cwd)
+            if named is not None:
+                protected, named_facts = named
                 return False, (
                     "hydra/protected-path: the command names {}, denied under "
-                    "every policy by harness spec 7.5. A shell command carries no "
-                    "path for the gate to check, so one that names a protected "
-                    "path is refused whole.".format(protected)
+                    "every policy by harness spec 7.5.{} A shell command carries "
+                    "no path for the gate to check, so one that names a protected "
+                    "path is refused whole.".format(protected, named_facts)
                 )
 
     allowed_scopes = scopes_for(capability)
@@ -1427,8 +1522,11 @@ def evaluate(payload):
                 for name in allowed_scopes
                 if name in HYDRA_CONFIG["scopes"]
             ]
+            def in_scope(p):
+                return any(inside(p, root) for root in roots)
+
             for scoped_path in paths:
-                if not any(inside(scoped_path, root) for root in roots):
+                if not in_scope(scoped_path):
                     return False, (
                         "hydra/out-of-scope: policy {} allows {} inside {} and "
                         "{} is outside it.".format(
@@ -1437,6 +1535,7 @@ def evaluate(payload):
                             " or ".join(allowed_scopes),
                             shown[scoped_path],
                         )
+                        + facts(scoped_path, lambda p: not in_scope(p))
                     )
 
     # An `mcp_call` the policy scopes to a list of servers, build ticket 140.

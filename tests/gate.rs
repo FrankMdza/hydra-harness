@@ -2706,12 +2706,17 @@ fn the_raw_pass_leaves_an_ordinary_command_alone() {
     // The coarseness has a bound: the raw pass looks for denied paths and
     // nothing else, so the ordinary working day still passes, and so does a
     // command naming the run's own worktree, which the own carve-out covers.
+    //
+    // A file under a linked skill is not on this list. Build ticket 320: the
+    // command used to be here without the link `inject` makes, so `realpath`
+    // stayed in the worktree and the test passed where every real run with a
+    // skill linked is refused. The test after this one reads that refusal.
     let gate = Gate::new("standard");
     let worktree = gate.worktree.display().to_string();
     for command in [
         "cargo test --release".to_string(),
         "git status --short".to_string(),
-        "cat .claude/skills/unslop/SKILL.md".to_string(),
+        "ls -la .claude/skills/".to_string(),
         format!("ls -la {worktree}/src"),
         format!("rg TODO {worktree}"),
     ] {
@@ -2731,20 +2736,207 @@ fn a_shell_command_naming_the_skill_root_is_how_two_providers_read_a_skill() {
     // corpus walk caught the difference. The roots are denied to writes only.
     // `Gate::shell` speaks the claude dialect, which is the one the run in
     // question ran under; the other two dialects share the floor code path.
+    //
+    // The root, yes. A file under a linked skill resolves into
+    // `skills-snapshots/`, which is denied, so the shell read is refused. Build
+    // ticket 320 links the skill the way `inject` does before asking, which
+    // the first version of this test never did, and reads the refusal: it
+    // names the snapshot entry, the token and the link.
     let gate = Gate::new("standard");
-    for command in [
-        "ls -la .claude/skills/",
-        "cat .claude/skills/unslop/SKILL.md",
-        "cat .cursor/skills/unslop/SKILL.md",
-        "head -20 .agents/skills/unslop/SKILL.md",
-    ] {
+    gate.link_skill("unslop");
+    gate.link_agy_skill("unslop");
+    let cursor_root = gate.worktree.join(".cursor/skills");
+    std::fs::create_dir_all(&cursor_root).unwrap();
+    std::os::unix::fs::symlink(gate.snapshot.join("unslop"), cursor_root.join("unslop")).unwrap();
+    for command in ["ls -la .claude/skills/", "ls .cursor/skills .agents/skills"] {
         let decision = gate.shell(command);
         assert!(
             decision.allowed,
-            "standard refused a skill read, {command}: {}",
+            "standard refused a skill root, {command}: {}",
             decision.reason
         );
     }
+    let snapshots = folded(&gate.layout().snapshots());
+    let target = std::fs::canonicalize(gate.snapshot.join("unslop")).unwrap();
+    for (command, token, link) in [
+        (
+            "cat .claude/skills/unslop/SKILL.md",
+            ".claude/skills/unslop/SKILL.md",
+            ".claude/skills/unslop",
+        ),
+        (
+            "cat .cursor/skills/unslop/SKILL.md",
+            ".cursor/skills/unslop/SKILL.md",
+            ".cursor/skills/unslop",
+        ),
+        (
+            "head -20 .agents/skills/unslop/SKILL.md",
+            ".agents/skills/unslop/SKILL.md",
+            ".agents/skills/unslop",
+        ),
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "{command}: {}",
+            decision.reason
+        );
+        assert!(
+            decision
+                .reason
+                .contains(&format!("the command names {snapshots},")),
+            "{command} did not name the snapshot entry: {}",
+            decision.reason
+        );
+        assert!(
+            decision.reason.contains(&format!(
+                "`{token}` resolves to {}/SKILL.md through the link {link} to {}.",
+                target.display(),
+                target.display()
+            )),
+            "{command} did not name its token and link: {}",
+            decision.reason
+        );
+    }
+}
+
+/// A path as the compiled gate holds it: resolved and ASCII-folded.
+fn folded(path: &Path) -> String {
+    std::fs::canonicalize(path)
+        .unwrap()
+        .to_string_lossy()
+        .to_ascii_lowercase()
+}
+
+/// A `standard` gate whose deny list also carries `gate.root` ahead of every
+/// other entry, the way `denied_write_paths` puts `hydra_home()` ahead of
+/// `runs/` on a machine where the checkout is the runtime root.
+fn gate_denying_its_root() -> Gate {
+    let gate = Gate::new("standard");
+    let mut config = compiled_config(&gate.script);
+    for key in ["deny_write_paths", "denied_spellings"] {
+        let mut entries = vec![json!(folded(&gate.root))];
+        entries.extend(config[key].as_array().unwrap().iter().cloned());
+        config[key] = json!(entries);
+    }
+    rewrite_compiled_config(&gate.script, &config);
+    gate
+}
+
+#[test]
+fn a_refusal_names_the_longest_deny_entry_that_matched() {
+    // Build ticket 320. The first match was the root, which holds every other
+    // entry, so every refusal under it named the root.
+    let gate = gate_denying_its_root();
+    let runs = folded(&gate.runs);
+    let shell = gate.shell("cat ../../runs/x.jsonl");
+    assert!(
+        shell.reason.contains(&format!("the command names {runs},")),
+        "the shell check named another entry: {}",
+        shell.reason
+    );
+    let write = gate.write_to(&gate.runs.join("x.jsonl"));
+    assert!(
+        write.reason.contains(&format!(", under {runs}, ")),
+        "the write check named another entry: {}",
+        write.reason
+    );
+    // The raw pass searches for spellings, and the root's is on that list here
+    // too, so it matches twice.
+    let raw = gate.shell(&format!("sh -c 'cat {runs}/x.jsonl'"));
+    assert!(
+        raw.reason.contains(&format!("the command names {runs},")),
+        "the raw pass named another entry: {}",
+        raw.reason
+    );
+}
+
+#[test]
+fn a_refusal_quotes_the_token_as_the_command_wrote_it() {
+    let gate = Gate::new("standard");
+    let resolved = std::fs::canonicalize(&gate.runs).unwrap().join("x.jsonl");
+    let token = gate.shell("cat ../../runs/x.jsonl");
+    assert!(
+        token.reason.contains(&format!(
+            "`../../runs/x.jsonl` resolves to {}.",
+            resolved.display()
+        )),
+        "the token pass did not quote its token: {}",
+        token.reason
+    );
+    // The raw pass resolves nothing, so it quotes the word that spells the
+    // entry, quote and all.
+    let runs = gate.runs.display();
+    let raw = gate.shell(&format!("sh -c 'cat {runs}/x.jsonl'"));
+    assert!(
+        raw.reason
+            .contains(&format!("`{runs}/x.jsonl'` spells it out.")),
+        "the raw pass did not quote its word: {}",
+        raw.reason
+    );
+    let write = gate.ask(
+        "Write",
+        json!({ "file_path": "../../runs/x.jsonl", "content": "x" }),
+    );
+    assert!(
+        write.reason.contains(&format!(
+            "`../../runs/x.jsonl` resolves to {}.",
+            resolved.display()
+        )),
+        "the write check did not quote its path: {}",
+        write.reason
+    );
+    // On one line, because `codex` shows the reason as one stderr line.
+    let multiline = gate.shell("cat '../../runs/a\nb'");
+    assert!(
+        multiline.denied_for("hydra/protected-path") && !multiline.reason.contains('\n'),
+        "{:?}",
+        multiline.reason
+    );
+}
+
+#[test]
+fn a_refusal_names_the_link_a_path_went_through() {
+    let gate = Gate::new("standard");
+    let link = gate.link_skill("hydra-sentinel");
+    let target = std::fs::canonicalize(gate.snapshot.join("hydra-sentinel")).unwrap();
+    let write = gate.write_to(&link.join("SKILL.md"));
+    assert!(
+        write.denied_for("hydra/protected-path")
+            && write.reason.contains(&format!(
+                " through the link {} to {}.",
+                std::fs::canonicalize(&gate.worktree)
+                    .unwrap()
+                    .join(".claude/skills/hydra-sentinel")
+                    .display(),
+                target.display()
+            )),
+        "the write refusal did not name the link: {}",
+        write.reason
+    );
+    // The scope check names it too, when a link inside the worktree points
+    // out of every scope the policy reads.
+    let elsewhere = gate.root.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, gate.worktree.join("away")).unwrap();
+    let read = gate.ask("Read", json!({ "file_path": "away/secret.md" }));
+    assert!(
+        read.denied_for("hydra/out-of-scope")
+            && read.reason.contains(&format!(
+                "`away/secret.md` resolves to {}/secret.md through the link away to {}.",
+                std::fs::canonicalize(&elsewhere).unwrap().display(),
+                std::fs::canonicalize(&elsewhere).unwrap().display()
+            )),
+        "the scope refusal did not name the link: {}",
+        read.reason
+    );
+    // A path that crosses no link says so by saying nothing about one.
+    let plain = gate.shell("cat ../../runs/x.jsonl");
+    assert!(
+        !plain.reason.contains("through the link"),
+        "{}",
+        plain.reason
+    );
 }
 
 #[test]
