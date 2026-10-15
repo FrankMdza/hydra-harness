@@ -472,6 +472,7 @@ fn prompt_event(event: &Event, repo_names: &[String]) -> Option<Value> {
             "content": redact_string(&result.output, repo_names),
         })),
         Event::RunStart(_)
+        | Event::GateRefusal(_)
         | Event::RunEnd(_)
         | Event::MessageDelta(_)
         | Event::PermissionDecision(_)

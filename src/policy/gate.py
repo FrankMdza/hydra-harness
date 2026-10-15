@@ -1688,8 +1688,54 @@ def main_single(dialect):
         return
 
     answer = decide_payload(dialect, payload)
+    if "--record-refusals" in sys.argv[2:]:
+        try:
+            record_refusal(payload, answer)
+        except Exception as err:  # noqa: BLE001, evidence must never break a deny
+            sys.stderr.write("hydra: cannot record refused command: {}\n".format(err))
     sys.stdout.write(json.dumps(answer))
     sys.stdout.write("\n")
+
+
+def record_refusal(payload, answer):
+    # Only the live hook writes evidence; replay/batch must remain read-only.
+    normalized = as_tool_call(payload) if isinstance(payload, dict) else {}
+    specific = answer.get("hookSpecificOutput", {})
+    denied = (
+        specific.get("permissionDecision") == "deny"
+        or answer.get("permission") == "deny"
+        or answer.get("decision") == "deny"
+    )
+    tool = normalized.get("tool_name")
+    inputs = normalized.get("tool_input", {})
+    command = (
+        inputs.get(HYDRA_CONFIG["command_field"])
+        if isinstance(inputs, dict) else None
+    )
+    if (denied and isinstance(tool, str) and capability_of(tool) == "shell"
+            and isinstance(command, str)):
+        encoded = command.encode("utf-8", errors="replace")
+        call_id = normalized.get("tool_use_id") or normalized.get("tool_call_id")
+        row = {
+            "type": "gate_refusal",
+            "tool": tool,
+            "call_id": call_id if isinstance(call_id, str) else None,
+            "command": encoded[:65536].decode("utf-8", errors="ignore"),
+            "command_truncated": len(encoded) > 65536,
+            "reason": (specific.get("permissionDecisionReason")
+                       or answer.get("reason") or answer.get("user_message")),
+        }
+        fd = os.open(
+            HYDRA_CONFIG["refusals_file"],
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+        )
+        try:
+            data = (json.dumps(row) + "\n").encode("utf-8")
+            if os.write(fd, data) != len(data):
+                raise OSError("short refusal write")
+        finally:
+            os.close(fd)
 
 
 def main_batch(dialect):

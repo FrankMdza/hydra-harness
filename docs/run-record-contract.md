@@ -107,10 +107,10 @@ wider than the stream's, so some records normalize to none of the ten types and 
 (7.2.1). A reader must not assume `raw` holds a shape from section 7.2's table without first reading
 `run_end.body_source`.
 
-**A Hydra line** carries an event body Hydra authored and has no `raw` field. There are exactly two,
-the opening and the closing of a run, and they exist because a launcher knows things no provider
-frame contains. Everything else is derived, including the permission decisions and the corrections,
-which surprises people and is the subject of section 11.
+**A Hydra line** carries an event body Hydra authored and has no `raw` field. The opening and
+closing lines exist because a launcher knows things no provider frame contains. Stored seat events
+and hook evidence are described below; permission decisions and corrections remain derived
+(section 11).
 
 **One exception since map ticket 82, `seat_request`.** A gated interactive session may ask its own
 launcher for seats (harness spec 9 and 10). The launcher, which is Hydra and not the provider,
@@ -121,6 +121,9 @@ the same reason the other two exist. It appears only on an interactive run's fil
 A request that matched no shape and that the human approved with `hydra approve` (map 82, build
 141) adds one more, `seat_approval`, carrying only `request_id`; its time is the envelope's `ts`.
 The human is always the approver, so the line names nobody.
+
+**Since build 321 (2026-10-15), `gate_refusal` stores hook evidence.** Its command and truncation
+fields preserve what a provider stream may shorten. Section 7.7 defines its body and collection.
 
 ```jsonc
 // provider line
@@ -551,9 +554,9 @@ do not survive being read side by side.
 09 put none of them in the file, which under D10 means the JSON carried facts the source of truth
 did not have. Section 17 makes the JSON a projection of this line instead.
 
-## 7. The ten normalized event types
+## 7. The eleven normalized event types
 
-Ten, versioned, with the version in `run_start`. The list stays small on purpose: raw frames survive
+Eleven, versioned, with the version in `run_start`. The list stays small on purpose: raw frames survive
 under section 3, so adding a type later is cheap and getting one wrong is recoverable.
 
 ### 7.1 The producer column
@@ -593,6 +596,7 @@ run's field presence and 7.2.1 says which rows change.
 |---|---|---|---|---|
 | `run_start` | Hydra | always | always | always |
 | `run_end` | Hydra | on exit | on exit | on exit |
+| `gate_refusal` | Hydra | shell denial evidence at close | same | same |
 | `message` | derived | `assistant` and `user` frames, text content blocks | `assistant` frames, plus the echoed `user` frame | `step_update`, `step_type` `agent_response` or `user_input` |
 | `message_delta` | derived | **none in v1**, lit by `--include-partial-messages` | **none in v1**, lit by `--stream-partial-output` | **none in v1**, and no flag would light it |
 | `thinking` | derived | `thinking` content blocks, with `signature` | `thinking/delta` frames, no flag needed | **never text**, count only, see `usage` |
@@ -740,6 +744,22 @@ record no longer shows what the model actually asked for, and rung one learns fr
 tried, so a silently corrected trajectory would teach the curator that the agent got it right.
 
 ### 7.7 `permission_decision`
+
+**2026-10-15, build 321: stored `gate_refusal` evidence accompanies shell denials.**
+The live hook appends to `gate-refusals.jsonl` beside its compiled gate. At process exit,
+the watcher (or interactive harvest) copies each entry into a Hydra line before `run_end`.
+The normalizers preserve it as a `gate_refusal` event and `hydra show --events` prints its
+body. It supplements the derived permission decision without changing its count or attribution.
+The fields are `tool`, `call_id` (string or null when the hook supplies none), `reason`,
+`command` and `command_truncated` (boolean). `command` is the command string the hook received,
+including newlines and heredoc bodies, capped at 65,536 UTF-8 bytes, cut at a character boundary;
+`command_truncated: true` means bytes were omitted. The cap applies before JSON escaping.
+Unpaired JSON surrogates become replacement bytes. Show marks command text as untrusted content.
+These events are copied at close, so their envelope timestamps describe copying, not hook order
+relative to provider frames. They need no spawn artifact to be read. Older records have no such
+evidence and remain valid. Replay never writes it. Failure to write evidence is reported on hook
+stderr and does not change the denial. This is hook evidence, not tamper-proof provenance against
+a process that can write the sidecar through the kernel's necessary write allowance.
 
 One per `tool_call` **on a recorded run**, derived, carrying `call_id`, `decision` of `allow` or
 `deny`, `decider` and `reason`.
@@ -1267,12 +1287,13 @@ record's job is that `parent_run_id` makes it computable.
 
 ## 11. Stored against derived
 
-**Normalization is a read-time library function.** The ten event types in section 7 exist in the
+**Normalization is a read-time library function.** The eleven event types in section 7 exist in the
 reader, not on disk. Nothing writes a normalized field into a run file, with the exceptions below.
 
 **The two Hydra lines are not an exception to this.** `run_start` and `run_end` carry facts no
 provider frame holds, so there is nothing to derive them from and storing them is the only option.
-Nothing else qualifies. `permission_decision` looks like it should, because Hydra authors the
+Stored seat events and `gate_refusal` evidence also qualify: provider frames cannot reconstruct
+a launcher's seat decision or the command bytes a provider truncated. `permission_decision` looks like it should, because Hydra authors the
 decision, and it does not: the policy is in `run_start` and the call is in `raw`, so the decision is
 a function of two things already on disk. `correction` looks like it should, because a human made
 it, and it does not: the vendor's transcript recorded it and harvest stores those frames verbatim.
@@ -1376,6 +1397,10 @@ delegated `claude` child therefore cannot use `Task`, which is a real capability
 their text is at least on the stream.
 
 ## 15. Versioning
+
+**2026-10-15: `gate_refusal` is additive (build 321).** Its stored command fields and event
+type do not remove or repurpose any existing field; schema version remains 1. Old records do
+not acquire evidence the provider never recorded, and absence remains valid.
 
 **`schema_version` is an integer on `run_start`**, and it versions the normalized vocabulary rather
 than the file format. The envelope's shape has not changed and is not expected to.

@@ -22,9 +22,182 @@ use serde_json::{Value, json};
 mod corpus;
 use corpus::{Decision, Gate, OTHER, RUN, SHEBANG_PYTHON};
 
+#[test]
+fn refused_shell_commands_survive_the_hook_record_and_show_with_a_byte_cap() {
+    use hydra::policy::{Dialect, PolicySet, hook_source};
+    use hydra::record::{RunEnd, Writer};
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let gate = Gate::new("read-only");
+    let layout = hydra::paths::Layout::at(&gate.root);
+    let run_id = "01a00000-0000-7000-8000-000000000321";
+    let record = layout.run_file(run_id);
+    let mut writer = Writer::create(&record, run_id, None, Some("claude"), None).unwrap();
+    writer
+        .hydra_line(&json!({"type": "run_start", "policy": null}))
+        .unwrap();
+    let sha = format!("{:x}", Sha256::digest(std::fs::read(&gate.script).unwrap()));
+    let source = hook_source(&gate.script, &sha, Dialect::Claude);
+    let prefix = "exit 0; cat > probe.txt <<'EOF'\n";
+    let command = format!("{prefix}{}\nEOF", "x".repeat(200 - prefix.len() - 4));
+    assert_eq!(command.len(), 200);
+    let capped = format!("{prefix}{}\nEOF", "é".repeat(40000));
+    for (id, text) in [("short", command.as_str()), ("long", capped.as_str())] {
+        let mut child = Command::new(SHEBANG_PYTHON)
+            .args(["-c", &source, "claude"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                json!({
+                    "tool_name": "Bash", "tool_use_id": id,
+                    "tool_input": {"command": text}, "cwd": gate.worktree,
+                })
+                .to_string()
+                .as_bytes(),
+            )
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            out.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny");
+    }
+    hydra::watch::copy_gate_refusals(
+        &gate.script.with_file_name("gate-refusals.jsonl"),
+        &mut writer,
+    )
+    .unwrap();
+    writer.hydra_line(&RunEnd::streamed(Some(0), None)).unwrap();
+    drop(writer);
+    // The spawn evidence can disappear; the record remains self-contained.
+    std::fs::remove_file(gate.script.with_file_name("gate-refusals.jsonl")).unwrap();
+    let policies = PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_with(
+        &std::fs::read_to_string(&record).unwrap(),
+        &policies,
+        &layout,
+    )
+    .unwrap();
+    let refusals: Vec<_> = run
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            hydra::normalize::Event::GateRefusal(e) => Some(&e.body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(refusals.len(), 2);
+    assert_eq!(refusals[0]["command"], command);
+    assert_eq!(refusals[0]["command_truncated"], false);
+    assert_eq!(refusals[0]["call_id"], "short");
+    let kept = refusals[1]["command"].as_str().unwrap();
+    assert!(kept.len() <= 65536 && kept.len() >= 65535);
+    assert!(capped.starts_with(kept));
+    assert_eq!(refusals[1]["command_truncated"], true);
+    let mut shown = Vec::new();
+    hydra::show::show(&layout, run_id, true, &mut shown).unwrap();
+    let shown: Value = serde_json::from_slice(&shown).unwrap();
+    let events = shown["events"].as_array().unwrap();
+    let evidence = events.iter().find(|e| e["type"] == "gate_refusal").unwrap();
+    assert!(
+        evidence["body"]["command"]
+            .as_str()
+            .unwrap()
+            .contains(&command)
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The dialect
 // ---------------------------------------------------------------------------
+
+#[test]
+fn watcher_records_refusals_from_each_live_hook_dialect() {
+    use hydra::provider::Provider;
+    use sha2::{Digest, Sha256};
+    for (provider, tool, field) in [
+        (Provider::Claude, "Bash", "command"),
+        (Provider::CursorAgent, "Shell", "command"),
+        (Provider::Agy, "run_command", "CommandLine"),
+        (Provider::Codex, "Bash", "command"),
+    ] {
+        let gate = Gate::compile_for(provider, "read-only", false);
+        let command = format!("cat > probe.txt <<'EOF'\n{}\nEOF", "x".repeat(200));
+        let sha = format!("{:x}", Sha256::digest(std::fs::read(&gate.script).unwrap()));
+        let source = hydra::policy::hook_source(&gate.script, &sha, provider.dialect());
+        let input = json!({field: command});
+        let payload = if provider == Provider::Agy {
+            gate.agy_payload(tool, input, &gate.worktree)
+        } else {
+            json!({"tool_name": tool, "tool_input": input, "cwd": gate.worktree})
+        };
+        let spec = gate.script.with_file_name("watch.json");
+        let run_file = gate.runs.join("probe.jsonl");
+        let stub = "import subprocess, sys\nr = subprocess.run([sys.executable, '-c', sys.argv[1], sys.argv[2]], input=sys.argv[3], text=True, capture_output=True)\nassert r.returncode == 0, r.stderr\nassert not r.stderr, r.stderr\nprint('provider truncated command: ' + sys.argv[3][:63])";
+        hydra::watch::write_spec(
+            &spec,
+            &hydra::watch::Launch {
+                run_id: "probe".into(),
+                parent_run_id: None,
+                provider: provider.to_string(),
+                binary: SHEBANG_PYTHON.into(),
+                argv: vec![
+                    "-c".into(),
+                    stub.into(),
+                    source,
+                    provider.dialect().as_str().into(),
+                    payload.to_string(),
+                ],
+                cwd: gate.worktree.clone(),
+                run_file: run_file.clone(),
+                model: None,
+                hydra_env: Default::default(),
+                sandbox_profile: None,
+                skill_snapshot: None,
+                run_start: json!({"type": "run_start", "policy": null}),
+            },
+        )
+        .unwrap();
+        hydra::watch::watch(&spec).unwrap();
+        let text = std::fs::read_to_string(&run_file).unwrap();
+        let run = hydra::normalize::read_with(
+            &text,
+            &hydra::policy::PolicySet::discover().unwrap(),
+            &hydra::paths::Layout::at(&gate.root),
+        )
+        .unwrap();
+        assert!(run.run_end().is_some(), "{provider}: {text}");
+        let evidence: Vec<_> = run
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                hydra::normalize::Event::GateRefusal(e) => Some(&e.body),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(evidence.len(), 1, "{provider}: {text}");
+        assert_eq!(evidence[0]["command"], command);
+        assert_eq!(evidence[0]["command_truncated"], false);
+        assert_eq!(evidence[0]["call_id"], Value::Null);
+    }
+}
 
 #[test]
 fn the_batch_entry_answers_like_the_single_call_entry_on_every_dialect() {

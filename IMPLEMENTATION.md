@@ -2255,12 +2255,23 @@ with no `usage`, and one whose `usage` holds none of section 9's four count fiel
 produce `source: unavailable` with no counts. Zeroes there would be 7.8's
 null-against-zero confusion arriving through the other door.
 
-Nine of the ten event types have a producer; only `message_delta` remains without one.
+Ten of the eleven event types have a producer; only `message_delta` remains without one.
 `message`, `thinking`, `tool_call`, `tool_result`, `permission_decision` and `usage`, plus the
-two stored Hydra lines. `message_delta` needs `--include-partial-messages` and 7.4 keeps it off
+two envelope lines and stored `gate_refusal` evidence. `message_delta` needs `--include-partial-messages` and 7.4 keeps it off
 in v1. `correction` comes from an interactive harvest, built since ticket 27 and read by the
 interactive section below. Both types are in the enum, because a type the reader cannot name is
 a type nobody knows is missing.
+
+**Shell refusals carry hook evidence since build 321 (2026-10-15).** The hook writes
+`gate-refusals.jsonl` beside the gate; the watcher and interactive harvest copy its entries
+before `run_end` as stored `gate_refusal` events, read by all four normalizers and printed
+by `hydra show --events`. The command is capped at 65,536 UTF-8 bytes with an explicit
+`command_truncated` flag and a character-safe cut. Provider log truncation no longer loses
+the refused heredoc. Derived permission decisions keep their existing meaning and counts.
+Replay writes no evidence. The sidecar is a kernel write exception even for bounded shells;
+the gate still refuses tool calls naming it. Evidence write failures leave the deny intact
+and report on hook stderr. Evidence is copied at close, not streamed live, and is not
+tamper-proof against a process using that kernel write exception. Older records remain valid.
 
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a

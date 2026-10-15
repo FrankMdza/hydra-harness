@@ -230,6 +230,14 @@ pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
     // under the parent's deny its first `mkdir` failed with EPERM, measured
     // 2026-09-21 on run 01a0c6a5-be8c. The gate script beside it stays denied,
     // because the allow names the data root and not the spawn directory.
+    // The live hook appends evidence here even under a bounded shell policy.
+    // The gate still denies tool calls naming its spawn directory.
+    lines.push(format!(
+        r#"(allow file-write* (literal "{}"))"#,
+        escape(&canonical(
+            &spawn.gate_script.with_file_name("gate-refusals.jsonl")
+        ))
+    ));
     for path in policy::own_read_paths(spawn) {
         let own = canonical(&path);
         lines.push(format!(

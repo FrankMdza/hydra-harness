@@ -71,6 +71,25 @@ fn fixtures() -> Vec<Fixture> {
     };
     let mut out = Vec::new();
 
+    // Hook evidence is independent of a provider's possibly truncated command.
+    let id = fixture_id(321);
+    let mut evidence = Record::shaped(Shape {
+        run_id: &id,
+        policy: Some("judge"),
+        policy_sha: Some(&sha),
+        ..Shape::default()
+    });
+    evidence.line(
+        "hydra",
+        json!({
+            "type": "gate_refusal", "tool": "Bash", "call_id": "toolu_321",
+            "command": "exit 0; cat > probe.txt <<'EOF'\nwhole heredoc body\nEOF",
+            "command_truncated": false,
+        "reason": "hydra/capability: policy judge does not allow shell (Bash).",
+        }),
+    );
+    out.push(claude(evidence.result(usage_frame()).closed()));
+
     // A read-only run asks for one `Write` and the gate refuses it: the shape
     // ticket 02 measured, and the one gated run the corpus holds.
     let id = fixture_id(1);
@@ -416,6 +435,21 @@ fn write_the_fixture_corpus() {
         std::fs::create_dir_all(&label).unwrap();
         std::fs::write(label.join(format!("{run_id}.jsonl")), text).unwrap();
     }
+}
+
+#[test]
+fn the_fixture_corpus_preserves_hook_refusal_evidence() {
+    let expected = finish(
+        &fixtures()
+            .into_iter()
+            .find(|fixture| fixture.text.contains("\"gate_refusal\""))
+            .unwrap(),
+    );
+    let path = fixture_dir()
+        .join(CLAUDE)
+        .join(format!("{}.jsonl", fixture_id(321)));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), expected);
+    hydra::record::validate::check(&expected, None).assert_ok();
 }
 
 /// The label a record's own line 0 says it belongs under.

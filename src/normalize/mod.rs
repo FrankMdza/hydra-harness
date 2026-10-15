@@ -1,4 +1,4 @@
-//! The ten normalized event types, contract section 7.
+//! The eleven normalized event types, contract section 7.
 //!
 //! **Nothing here writes anything.** Contract 11 makes normalization a read-time
 //! library function, and the reason is worth keeping in front of whoever edits
@@ -11,7 +11,7 @@
 //! column of contract 7.2's table, and [`read_with`] picks one by the envelope's
 //! `provider`, which every line carries (contract 4).
 //!
-//! One of the ten has no producer here and is on the list anyway, because a
+//! One has no producer here and is on the list anyway, because a
 //! type the reader cannot name is a type nobody knows is missing.
 //! [`MessageDelta`] needs `--include-partial-messages`, which contract 7.4 keeps
 //! off in v1. [`Correction`] comes from an interactive harvest (7.9), which
@@ -32,7 +32,7 @@ use crate::paths::Layout;
 use crate::policy::{Capability, PolicySet, Spawn, keys};
 use crate::provider::Provider;
 
-/// One normalized event. Ten variants, contract 7.2.
+/// One normalized event. Eleven variants, contract 7.2.
 #[derive(Debug, Clone)]
 pub enum Event {
     RunStart(RunStart),
@@ -43,6 +43,7 @@ pub enum Event {
     ToolCall(ToolCall),
     ToolResult(ToolResult),
     PermissionDecision(PermissionDecision),
+    GateRefusal(GateRefusal),
     Usage(Usage),
     Correction(Correction),
 }
@@ -60,6 +61,7 @@ impl Event {
             Event::ToolCall(_) => "tool_call",
             Event::ToolResult(_) => "tool_result",
             Event::PermissionDecision(_) => "permission_decision",
+            Event::GateRefusal(_) => "gate_refusal",
             Event::Usage(_) => "usage",
             Event::Correction(_) => "correction",
         }
@@ -73,6 +75,13 @@ impl Event {
 /// it here would be a second place to keep in sync for no reader's benefit.
 #[derive(Debug, Clone)]
 pub struct RunStart {
+    pub seq: u64,
+    pub body: Value,
+}
+
+/// Stored hook evidence, independent of the provider's command log.
+#[derive(Debug, Clone)]
+pub struct GateRefusal {
     pub seq: u64,
     pub body: Value,
 }

@@ -317,6 +317,11 @@ pub fn watch(spec: &Path) -> Result<()> {
         }
     }
 
+    tee_error = gate_refusals_at_close(
+        &spec.with_file_name("gate-refusals.jsonl"),
+        &mut writer,
+        tee_error,
+    );
     writer.hydra_line(&RunEnd::streamed(exit_code, tee_error))?;
     // After the closing line, so the record does not wait on it, and before
     // this process exits, so a descendant still in the group gets its SIGKILL.
@@ -324,6 +329,57 @@ pub fn watch(spec: &Path) -> Result<()> {
         let _ = stopping.join();
     }
     Ok(())
+}
+
+/// Copy hook evidence before run_end so interpreting a record needs no spawn
+/// artifact. A bounded read prevents a damaged sidecar allocating without limit.
+pub fn copy_gate_refusals(path: &Path, writer: &mut Writer) -> Result<()> {
+    use std::io::{BufRead, BufReader, Read};
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err.into()),
+    };
+    anyhow::ensure!(
+        file.metadata()?.is_file(),
+        "gate refusals is not a regular file"
+    );
+    let mut reader = BufReader::new(file);
+    loop {
+        let mut line = String::new();
+        let read = reader.by_ref().take(1024 * 1024).read_line(&mut line)?;
+        if read == 0 {
+            break;
+        }
+        anyhow::ensure!(line.ends_with('\n'), "incomplete or oversized gate refusal");
+        let body: serde_json::Value = serde_json::from_str(&line)?;
+        anyhow::ensure!(
+            crate::record::validate::valid_gate_refusal(&body),
+            "invalid gate refusal"
+        );
+        writer.hydra_line(&body)?;
+    }
+    Ok(())
+}
+
+/// An interrupted or damaged evidence write must not prevent run_end.
+pub(crate) fn gate_refusals_at_close(
+    path: &Path,
+    writer: &mut Writer,
+    error: Option<String>,
+) -> Option<String> {
+    match copy_gate_refusals(path, writer) {
+        Ok(()) => error,
+        Err(err) => Some(match error {
+            Some(error) => format!("{error}; gate refusal evidence: {err:#}"),
+            None => format!("gate refusal evidence: {err:#}"),
+        }),
+    }
 }
 
 /// The marker `hydra stop` writes for `parent`, beside this run's own spawn

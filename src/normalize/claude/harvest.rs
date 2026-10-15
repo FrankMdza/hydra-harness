@@ -89,6 +89,13 @@ impl Walk {
 
         if let Some(hydra) = envelope.get("hydra") {
             match hydra["type"].as_str() {
+                Some("gate_refusal") => {
+                    self.events
+                        .push(Event::GateRefusal(super::super::GateRefusal {
+                            seq,
+                            body: hydra.clone(),
+                        }))
+                }
                 Some("run_start") => {
                     self.policy = hydra["policy"].as_str().map(str::to_string);
                     self.policy_sha = hydra["policy_sha"].as_str().map(str::to_string);

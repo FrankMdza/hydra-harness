@@ -538,6 +538,7 @@ fn export_event(event: &Event, repo_names: &[String]) -> Option<Value> {
             "words": e.words.as_ref().map(|w| redact_string(w, repo_names)),
         })),
         Event::RunStart(_)
+        | Event::GateRefusal(_)
         | Event::RunEnd(_)
         | Event::MessageDelta(_)
         | Event::PermissionDecision(_)

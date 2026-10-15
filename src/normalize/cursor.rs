@@ -242,6 +242,10 @@ impl Walk {
 
     fn hydra_line(&mut self, seq: u64, body: &Value) {
         match body["type"].as_str() {
+            Some("gate_refusal") => self.events.push(Event::GateRefusal(super::GateRefusal {
+                seq,
+                body: body.clone(),
+            })),
             Some("run_start") => {
                 self.start = RecordedStart::of(body);
                 self.events.push(Event::RunStart(RunStart {

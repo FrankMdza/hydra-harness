@@ -1219,6 +1219,7 @@ pub fn compile(set: &PolicySet, spawn: &Spawn<'_>) -> Result<String> {
         "cwd_default_tools": cwd_default_tools,
         "patch_path_tools": patch_path_tools,
         "command_field": table.command_field,
+        "refusals_file": spawn.gate_script.with_file_name("gate-refusals.jsonl"),
         "mcp_prefix": table.mcp_prefix,
         "floor": set.floor(),
         "floor_lifted": spawn.floor_lifted,
@@ -1365,6 +1366,7 @@ except OSError:
 if body is None or hashlib.sha256(body).hexdigest() != SHA:
     sys.stdout.write({refusal})
     sys.exit(0)
+sys.argv.append("--record-refusals")
 exec(compile(body, GATE, "exec"))
 "#
     )

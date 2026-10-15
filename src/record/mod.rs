@@ -2,10 +2,10 @@
 //!
 //! Contract sections 2 to 6. Every line is a Hydra envelope. A provider line
 //! wraps one provider frame verbatim in `raw`; a Hydra line carries a body Hydra
-//! authored and has no `raw` field. There are exactly two Hydra lines, `run_start`
-//! and `run_end`, and everything else in the file came off the provider's stream.
+//! authored and has no `raw` field. `run_start` and `run_end` enclose provider
+//! frames, session seat requests/approvals and stored `gate_refusal` evidence.
 //!
-//! Nothing normalized is written here. The ten event types in contract section 7
+//! Nothing derived is written here. The event types in contract section 7
 //! are derived at read time by `src/normalize/`, which is why an adapter bug found
 //! next month fixes last month's records.
 
@@ -172,7 +172,7 @@ impl Writer {
         self.model = Some(model);
     }
 
-    /// One Hydra line: `run_start` or `run_end`, nothing else.
+    /// One Hydra-authored body, including stored hook refusal evidence.
     pub fn hydra_line(&mut self, body: &impl Serialize) -> Result<u64> {
         let body = serde_json::value::to_raw_value(body)?;
         self.append(None, Some(&body))

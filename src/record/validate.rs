@@ -170,6 +170,18 @@ const SEAT_REQUEST_FIELDS: &[&str] = &[
     "runs",
 ];
 
+/// Additive hook evidence, build 321. Absence on old records is valid.
+pub fn valid_gate_refusal(body: &Value) -> bool {
+    body["type"].as_str() == Some("gate_refusal")
+        && body["tool"].is_string()
+        && body
+            .get("call_id")
+            .is_some_and(|id| id.is_null() || id.is_string())
+        && body["command"].as_str().is_some_and(|s| s.len() <= 65536)
+        && body["command_truncated"].is_boolean()
+        && body["reason"].is_string()
+}
+
 pub fn check_file(path: &Path) -> Result<Report> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -295,6 +307,11 @@ pub fn check(text: &str, expected_run_id: Option<&str>) -> Report {
                     }
                     check_later_run_end_fields(body, &at, &mut say);
                 }
+                "gate_refusal" => {
+                    if index == 0 || !valid_gate_refusal(&Value::Object(body.clone())) {
+                        say(format!("{at}: invalid gate_refusal"));
+                    }
+                }
                 "seat_request" => {
                     if index == 0 {
                         say(format!("{at}: a seat_request before run_start"));
@@ -327,7 +344,7 @@ pub fn check(text: &str, expected_run_id: Option<&str>) -> Report {
                 }
                 other => say(format!(
                     "{at}: a Hydra line of type {other:?}; the contract allows run_start, \
-                     run_end and a session's seat_request and seat_approval"
+                     run_end, gate_refusal and a session's seat_request and seat_approval"
                 )),
             }
         } else if has_hydra {

@@ -71,6 +71,13 @@ fn event_json(event: &Event, token: &str) -> Value {
     match event {
         Event::RunStart(e) => json!({"seq": e.seq, "type": type_name, "body": e.body}),
         Event::RunEnd(e) => json!({"seq": e.seq, "type": type_name, "body": e.body}),
+        Event::GateRefusal(e) => {
+            let mut body = e.body.clone();
+            if let Some(command) = body["command"].as_str() {
+                body["command"] = Value::String(mark(command, token));
+            }
+            json!({"seq": e.seq, "type": type_name, "body": body})
+        }
         Event::Message(e) => json!({
             "seq": e.seq,
             "type": type_name,

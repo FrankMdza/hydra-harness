@@ -64,7 +64,7 @@ pub fn graph_of(
     let mut lines = Vec::new();
     for (index, event) in events.iter().enumerate() {
         let (seq, text) = match event {
-            Event::ToolResult(_) | Event::PermissionDecision(_) => continue,
+            Event::ToolResult(_) | Event::PermissionDecision(_) | Event::GateRefusal(_) => continue,
             Event::ToolCall(call) => {
                 let head = if flagged.contains(&call.seq) {
                     HIDDEN.to_string()

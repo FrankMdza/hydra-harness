@@ -855,6 +855,11 @@ pub fn harvest_in(
         (unobserved, note) => unobserved.or(note),
     };
     let error = stop_noted(layout, run_id, error);
+    let error = crate::watch::gate_refusals_at_close(
+        &layout.spawn(run_id).join("gate-refusals.jsonl"),
+        &mut writer,
+        error,
+    );
     writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, error))?;
 
     Ok(HarvestOutcome::Harvested { records })
@@ -1084,6 +1089,11 @@ fn close_without_transcript(
         return Ok(HarvestOutcome::AlreadyDone);
     }
     let error = stop_noted(layout, run_id, Some(error));
+    let error = crate::watch::gate_refusals_at_close(
+        &layout.spawn(run_id).join("gate-refusals.jsonl"),
+        &mut writer,
+        error,
+    );
     writer.hydra_line(&crate::record::RunEnd::harvested(exit_code, error))?;
     Ok(HarvestOutcome::Harvested { records: 0 })
 }
