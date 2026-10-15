@@ -365,6 +365,8 @@ it.
 - [325 - `hydra reap` on a checkout where the run staged a nested repository, measured and pinned in `tests/cleanup.rs`](325-reap-on-a-checkout-with-a-staged-nested-repository.md)
 - [326 - `hydra reap` decides what a staged nested repository becomes: the files committed and the gitlink dropped, or a refusal naming the path](326-reap-decides-what-a-staged-nested-repository-becomes.md)
 - [327 - `sheet.rs::rank` reads verdicts across goals, with the prior it starts from stated](327-rank-reads-verdicts-across-goals-with-the-prior-stated.md)
+- [328 - The ticket report counts build 312's pasted table as a ticket, and leaves 299 of 327 Outcomes `unsaid`](328-the-ticket-report-counts-a-pasted-table-as-a-ticket.md)
+- [329 - The floor reads `then`, `do` and `else` as the binary, so `if true; then git push --force; fi` passes](329-the-floor-reads-the-binary-of-a-compound-command.md)
 
 ## Out of scope
 

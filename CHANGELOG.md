@@ -4,6 +4,20 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 
 ## Unreleased
 
+- 2026-10-15. Six grillings closed with the human on the panels' recommendations (maps 117 to
+  123) and thirteen builds opened from them. Landed the same day: Hydra compiles on Linux, with a
+  `/proc` start-time reader and an `ubuntu-latest` CI job (build 315, run 01a13dff-46f9); the
+  drift table is keyed by provider, OS and arch and `hydra doctor` says unmeasured where a platform
+  has no row (317, 01a13dff-478b); the pattern floor splits commands on a real newline, reads a
+  quoted heredoc body fed to `cat` or `tee` as data, and exempts single quotes from the
+  substitution rule only (319, 01a13e0a-87ca); a plan proposer that never produced a draft is
+  labelled `chosen: null` rather than rejected (323, 01a13e0e-fe45); the live judge panel can write
+  a `composed` verdict because its prompt now asks for the task array (322, 01a13e0e-c767). Map
+  124 read 932 records for what each provider is good for; map 125 measured GPT-OSS 120B against
+  Gemini 3.8 Flash and kept Flash in the `agy` seat; map 129 is what stands between the repository
+  and a public one. The README was rewritten to a third of its length, with the install, roadmap
+  and authorship moved under `docs/`.
+
 - Map ticket 64 closed with the human: the delegate face is not available under the seatbelt, and
   since build ticket 76 a `delegate` call from inside a macOS run is refused as
   `hydra/seatbelt-delegation` before any corpus read, so the parent's record carries Hydra's words

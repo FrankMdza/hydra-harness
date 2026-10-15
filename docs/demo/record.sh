@@ -2,6 +2,7 @@
 # Records the demo. Needs asciinema on PATH, and agg and tmux for the scripted part.
 #
 #   bash docs/demo/record.sh                  scripted: demo.sh into hydra.cast and hydra.gif
+#   bash docs/demo/record.sh corpus [run-id]  scripted, no launch: corpus.sh into corpus.cast and corpus.gif
 #   bash docs/demo/record.sh copilot [repo]   by hand: the copilot, into copilot.cast
 #   bash docs/demo/record.sh puppets <repo>   by hand: Master of Puppets, into puppets.cast
 #
@@ -28,6 +29,13 @@ case "${1:-scripted}" in
     agg --cols 118 --rows 30 --font-size 15 --idle-time-limit 2.5 --theme monokai docs/demo/hydra.cast docs/demo/hydra.gif
     ls -la docs/demo/hydra.gif
     ;;
+  corpus)
+    need agg
+    # Reads the corpus and launches nothing. An optional run id names the gated record to show.
+    asciinema rec --overwrite --window-size 118x30 --command "bash docs/demo/corpus.sh ${2:-}" docs/demo/corpus.cast
+    agg --cols 118 --rows 30 --font-size 15 --idle-time-limit 2.5 --theme monokai docs/demo/corpus.cast docs/demo/corpus.gif
+    ls -la docs/demo/corpus.gif
+    ;;
   copilot)
     need suprema
     # hydra-copilot takes [model] [repo] [provider]. An empty model keeps its default.
@@ -44,7 +52,7 @@ case "${1:-scripted}" in
     asciinema rec --overwrite --window-size 118x30 --command "masterofpuppets '$2'" docs/demo/puppets.cast
     ;;
   *)
-    echo "usage: record.sh [scripted | copilot [repo] | puppets <repo>]" >&2
+    echo "usage: record.sh [scripted | corpus [run-id] | copilot [repo] | puppets <repo>]" >&2
     exit 1
     ;;
 esac
