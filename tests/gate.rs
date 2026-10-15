@@ -1744,6 +1744,133 @@ fn the_floor_checks_every_segment_of_a_chained_command() {
     }
 }
 
+// Build ticket 319: the seven probes map 120's Opus seat measured on a live
+// gate, then the cases the fix had to keep refused.
+
+#[test]
+fn a_newline_separates_commands_for_the_floor_the_way_a_semicolon_does() {
+    // shlex folds a newline into whitespace, so before 319 the second line was
+    // read as arguments to `exit` and `git push --force` on line two passed.
+    let gate = Gate::new("standard");
+    for command in [
+        "exit 0\ngit gc",
+        "exit 0; git gc",
+        "echo starting\ngit push --force",
+        "cargo test\r\ngit reset --hard",
+        "true &&\ngit clean -fdx",
+    ] {
+        assert!(
+            gate.shell(command).denied_for("hydra/floor"),
+            "the floor read a second line as arguments: {command:?}"
+        );
+    }
+    // A newline inside quotes is part of the argument, not a separator.
+    let decision = gate.shell("git commit -m 'first line\ngit push --force'");
+    assert!(decision.allowed, "{}", decision.reason);
+}
+
+#[test]
+fn a_quoted_heredoc_body_written_by_cat_is_data_to_the_floor() {
+    let gate = Gate::new("standard");
+    for command in [
+        "cat > /dev/null <<'EOF'\nthe git log\nEOF",
+        "cat > /dev/null <<'EOF'\nrun `git status` first\nEOF",
+        "cat > /dev/null <<'EOF'\nan aws bill costs ${price}\nEOF",
+        "cat > /dev/null <<'EOF'\ngit reset --hard\nEOF",
+        "cat > /dev/null <<\"EOF\"\nrun $(git status) first\nEOF",
+        "cat > /dev/null <<\\EOF\nrun `git status` first\nEOF",
+        "tee memo.md > /dev/null <<-'EOF'\n\trun `git log`, don't guess\n\tEOF",
+        "mkdir -p notes; cat > notes/m.md <<'EOF'\nit's `git` again\nEOF\ngit status",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.allowed,
+            "a quoted body was read as a command: {command:?}: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn what_the_shell_expands_or_runs_stays_under_the_floor() {
+    let gate = Gate::new("standard");
+    for command in [
+        // Double quotes and an unquoted delimiter expand, so both stay refused.
+        // `${USER}` rather than Opus's `${PWD}`: the gate expands variables
+        // from its own environment, and when the suite runs inside a Hydra run
+        // PWD is a worktree this scratch gate does not own.
+        "echo \"${USER}\" > /dev/null; ls .gitignore",
+        "cat > /dev/null <<EOF\nrun $(git status) first\nEOF",
+        // A quoted body handed to something that runs it is code.
+        "sh <<'EOF'\n$(echo git) push --force\nEOF",
+        "cat <<'EOF' | sh\n$(echo git) push --force\nEOF",
+        // A line after the terminator is a command again.
+        "cat > /dev/null <<'EOF'\nthe git log\nEOF\ngit push --force",
+        // A body inside a substitution becomes the command word.
+        "$(cat <<'EOF'\ngit\nEOF\n) push --force",
+        // `<<` inside arithmetic is a shift, not a heredoc.
+        "echo $((1<<'X'))\ngit push --force\nX",
+        // An apostrophe in a comment or in `$'\''` opens no quote.
+        "echo hi # don't\n$(echo git) push --force # '",
+        "echo $'\\'' ; $(echo git) push --force ; echo '",
+        // shlex reads `#` inside a word as a comment, the shell does not.
+        "git push origin topic#x --force",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "the floor let through: {command:?}: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn single_quoted_text_is_data_to_the_substitution_rule() {
+    let gate = Gate::new("standard");
+    for command in [
+        "echo '$(date) and ${HOME}' && git status",
+        "grep -n '`git`' README.md",
+    ] {
+        let decision = gate.shell(command);
+        assert!(decision.allowed, "{command}: {}", decision.reason);
+    }
+    // A single-quoted word a substitution reads is still read.
+    assert!(
+        gate.shell("$(echo 'git') push --force")
+            .denied_for("hydra/floor")
+    );
+}
+
+#[test]
+fn a_quoted_heredoc_body_written_by_cat_may_spell_a_protected_path() {
+    // Run 01a1332c died here: `cat > src/sources/mod.rs <<'EOF'` whose body
+    // was a reader of `~/hydra/runs`. The body is a file's contents.
+    let gate = Gate::new("standard");
+    let runs = gate.runs.display().to_string();
+    let decision = gate.shell(&format!(
+        "mkdir -p src/sources; cat > src/sources/mod.rs <<'EOF'\n// reads {runs}/x.jsonl\nEOF"
+    ));
+    assert!(decision.allowed, "{}", decision.reason);
+
+    // Everything else that spells it is refused as before: single quotes, an
+    // unquoted body, a body something runs, a body a substitution reads, and
+    // a line after the terminator.
+    for command in [
+        format!("sh -c 'cat {runs}/x.jsonl'"),
+        format!("cat <<EOF\n{runs}/x.jsonl\nEOF"),
+        format!("sh <<'EOF'\ncat {runs}/x.jsonl\nEOF"),
+        format!("cat <<'EOF' | sh\ncat {runs}/x.jsonl\nEOF"),
+        format!("cat $(cat <<'EOF'\n{runs}/x.jsonl\nEOF\n)"),
+        format!("cat > /dev/null <<'EOF'\nx\nEOF\ncat {runs}/x.jsonl"),
+    ] {
+        assert!(
+            gate.shell(&command).denied_for("hydra/protected-path"),
+            "a protected path walked through: {command:?}"
+        );
+    }
+}
+
 #[test]
 fn the_floor_refuses_the_aws_forms() {
     let gate = Gate::new("standard");

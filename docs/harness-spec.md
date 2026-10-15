@@ -842,7 +842,11 @@ The initial patterns, which are spec work rather than a decision inherited from 
 | Slack | any `hooks.slack.com` URL, and the API methods `chat.*`, `files.upload`, `conversations.create` |
 
 Each pattern consumes `-C` and `--git-dir` before reading the subcommand, and refuses a subcommand
-that arrives from a shell substitution rather than trying to evaluate it.
+that arrives from a shell substitution rather than trying to evaluate it. A newline outside quotes
+separates commands the way `;` does. Text the shell does not expand is not a substitution: a marker
+inside single quotes, or inside the body of a heredoc whose delimiter is quoted and which feeds `cat`
+or `tee` with no pipe and no substitution elsewhere on the command, does not trigger the refusal
+(build ticket 319).
 
 The last three git forms arrived with ticket 40, which measured a `standard` run's shell allowed to
 run all of them. `gc` and `prune` delete unreachable objects in the parent repo, and the tree a run's

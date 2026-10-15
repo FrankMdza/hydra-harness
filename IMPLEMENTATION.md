@@ -99,14 +99,10 @@ sandbox is nowhere in the spec. The base case no longer waits on that answer, so
 remains at risk is a write to the policy directory or the corpus through a path the
 command assembles.
 
-Provider versions this build has been measured against. `provider::MEASURED_VERSIONS` is keyed
-by provider, OS and arch, each row carrying the date the version string entered the file and
-the `tests/drift.rs` probe that re-measures it. The live rows are macos aarch64, `claude` 2.1.268
-and `cursor-agent` 2026.09.18-9a7762b and `agy` 1.2.8 on 2026-09-22, `codex` 0.154.0 on
-2026-09-21; `hydra doctor` looks up `consts::OS` and `consts::ARCH` and prints "unmeasured on
-{os} {arch}; run tests/drift.rs there" where no row matches, which is not drift. The 2026-09-06
-reading the provider sections cite, plus `codex`'s from when it was routed, is the history
-below. The founding measurement was repeated on the 2026-09-22 reading: one-step `judge` runs
+Provider versions this build has been measured against. The table is the 2026-09-06 reading
+the provider sections cite, plus `codex`'s from when it was routed; `provider::MEASURED_VERSIONS`, `README.md` and `hydra doctor` name
+the 2026-09-22 reading, `claude` 2.1.268, `cursor-agent` 2026.09.18-9a7762b, `agy` 1.2.8 and
+`codex` 0.154.0, on which the founding measurement was repeated that day: one-step `judge` runs
 01a0c790-8a9d on `claude` (`subtype: success`, `is_error: false`, exit 0) and 01a0c790-9157 on
 `agy` (`status: SUCCESS`, exit 0), both `gated`, beside 01a0c4c5-650b on `cursor-agent` and
 01a0c62b-d005 on `codex` from the day before. `agy` self-updated from 1.2.7 to 1.2.8 between
@@ -340,6 +336,11 @@ against the real compiled gate of run `01a0a07b-e8a6`, where the bare `cat` was 
 denied path as a substring. `denied_spellings` in `src/policy/mod.rs` emits two forms per path,
 resolved and literal, because on macOS `/var/folders/...` and the `/private/var/folders/...` it
 resolves to are both things a command can write down and a substring search resolves nothing.
+Since build ticket 319 the raw pass skips a data heredoc body, as defined under the pattern
+floor below, so `cat > f <<'EOF'` may write a file that spells a denied path. Single quotes do
+not exempt it: `sh -c '<corpus>/x'` hands its quoted word to a shell as code, and the gate
+cannot tell that word from `echo '<corpus>/x'` without knowing what every program does with
+its arguments. A heredoc's consumer is named on its line, which is why a body can be data.
 
 The residual is written down in `gate.py` beside the code. A denied path with one of the
 spawn's own paths under it cannot go on the raw list: `~/hydra/worktrees` is denied while the
@@ -991,6 +992,27 @@ substitution feeds is not decidable without running it, so a command carrying `$
 `${` or a backtick **and** naming git, aws or Slack anywhere in it is refused whole.
 `echo $(date) && git status` is refused. That is a false positive on purpose, and
 `--allow-floor-escape` is the human's way past it.
+
+**Since build ticket 319 the floor reads quotes, heredoc bodies and newlines the way bash
+does.** `shell_layout` in `gate.py` walks the command once with the quote state kept. A
+newline outside quotes separates commands, as `;` does: before 319 `shlex` folded it into
+whitespace, so `exit 0` newline `git push --force` was one segment whose binary was `exit`
+and passed a live gate. A substitution marker inside single quotes, or inside a data heredoc
+body, no longer counts; the target is still searched for in the whole command, because
+`$(echo 'git') push` takes its word out of single quotes. A body is data when its delimiter
+is quoted, it feeds `cat` or `tee`, its line has no pipe, and the command holds no
+substitution outside single quotes. A quoted body fed to `sh`, or through `| sh`, is code
+and is read as before. When the walk is unsure (`((`, where `<<` may be a shift, an
+unbalanced quote, a delimiter with `$` in it) nothing is data and body lines are checked as
+command lines. Measured on one compiled `standard` config, old template against new: the
+newline probe went from allow to `hydra/floor`; a `cat <<'EOF'` body holding a backquoted
+`git status`, or `${price}` beside "aws", went from `hydra/floor` to allow; the shape that
+stopped run `01a1332c`, `cat > f <<'EOF'` whose body spells the runs directory, went from
+`hydra/protected-path` to allow; `git push origin topic#x --force` went from allow to
+`hydra/floor`, because shlex no longer reads the `#` inside a word as a comment. Two holes
+stay open: `cat > x.sh <<'EOF'` then `sh x.sh` runs a body the gate never read, the same as
+writing `x.sh` with the Write tool; and a shell keyword in front of the binary hides it,
+`if true; then git push --force; fi` passed both templates.
 
 **`git push` with no arguments is not checked against the protected branches.** The
 floor cannot know the current branch from argv. It is the failure mode 7.4 names out
@@ -2688,9 +2710,7 @@ already built and tested; `live::read_view` is what feeds it a record's pid and 
 time. Three states come out: a file with a closing line has ended, one without whose pid
 still matches is live, one without whose pid is gone is contract 6's abandoned class.
 `tests/status.rs` builds all three by hand, because the reconciliation is what is under
-test rather than the launch that produced the files. On Linux, since build ticket 315,
-`procinfo::start_time` reads `/proc` instead of `sysctl`, and its stat-line parser is unit
-tested on macOS with sample lines; the kernel read itself has never run.
+test rather than the launch that produced the files.
 
 **A status pass reads line 0 and the last 64 KiB and nothing between.** `run_end` is
 always the last line and is always small, so a fixed tail either holds it whole or the
@@ -4157,21 +4177,18 @@ nested thousands deep is read by recursion. `records.iter_records` has no caller
 is not ported.
 
 Since build ticket 303, `labels.rs` is no longer `labels.py` alone: a `plan_proposer` row also
-carries `chosen` and `outcome`, and no other class carries either. Since build ticket 323 it also
-carries `has_draft`, true when the folded plan has a nonempty `path` from `plan_ready`.
-`chosen` is `null` when the proposer has no draft, the goal has no `panel_verdict`, or the
-verdict's `chosen` is null. Otherwise it is `true` for the proposal the
+carries `chosen` and `outcome`, and no other class carries either. `chosen` is `null` when the goal
+has no `panel_verdict`, or one whose `chosen` is null. Otherwise it is `true` for the proposal the
 verdict picked and `false` for the rest. A verdict with a `path` picks the proposal whose `path` is
 that file. One without a path, `choose <provider>`, picks by provider. A composed plan picks none,
-so every proposer with a draft of a composed goal is `false`. `outcome` is `null` unless `chosen` is `true`.
+so every proposer of a composed goal is `false`. `outcome` is `null` unless `chosen` is `true`.
 Then it holds the counts `applied`, `fixed`, `rejected` and `pending` over the goal's tasks as the
 fold keeps them. `hydra-grader labels count` runs `collect` over the puppets home and prints one
-line per class with its rows, and for `plan_proposer` the split chosen, not chosen, no verdict,
-no draft. No draft takes precedence over no verdict and is excluded from the preference split.
-The dataset row in `collect.rs` picks label fields by name, so none of these fields reaches the dataset. Both
+line per class with its rows, and for `plan_proposer` the split chosen, not chosen, no verdict. The
+dataset row in `collect.rs` picks label fields by name, so neither field reaches the dataset. Both
 equivalence tests, `crates/puppets/tests/grader_labels.rs` and `collect/labels.json` in the
-grader's differential test, compare the rows with the three fields taken off, and check that the
-three are on proposer rows and nowhere else.
+grader's differential test, compare the rows with the two fields taken off, and check that the
+two are on proposer rows and nowhere else.
 
 Two programs are still started. `hydra show <id> --events` is `HYDRA_BIN` or `hydra`, with
 `HYDRA_ROOT` set to the directory above the runs. `hydra-puppets show -- <goal>` keeps the rule of
@@ -4972,8 +4989,7 @@ would find and exits 1 when something a launch needs is missing; since 2026-09-2
 environment allowlist is reported as in code, which it is by design, and the export allowlist and
 the sign-off manifest are reported without setting the exit code, because a launch does not need
 them and `hydra export` says so itself. On this machine it exits 0 now. `provider::MEASURED_VERSIONS`
-is the one table of measured versions, keyed by provider, OS and arch since build ticket 317; a
-platform with no row prints unmeasured and is not drift. The interactive launch does not pass through the refusal
+is the one table of measured versions. The interactive launch does not pass through the refusal
 yet. Map ticket 61.
 
 **Redaction is the four classes and nothing else.** Repository names taken from the

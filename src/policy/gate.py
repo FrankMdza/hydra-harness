@@ -331,18 +331,27 @@ def protected_path_named_by(command, cwd):
     """
     # The raw pass. `resolve` is not used here because there is nothing to
     # resolve: this looks for a denied path already spelled absolutely, which is
-    # how every interpreter and every nested shell spells one.
-    lowered = fold_ascii(command)
+    # how every interpreter and every nested shell spells one. Since build
+    # ticket 319 it reads `shell_layout`'s `raw`, the command with its data
+    # heredoc bodies cut out: `cat > f <<'EOF'` writes a body, it does not run
+    # one. Single quotes stay in, and `shell_layout` says why.
+    layout = shell_layout(command)
+    lowered = fold_ascii(layout["raw"])
     for protected in denied_prefixes():
         if protected in lowered:
             return protected
 
     try:
-        segments = split_segments(command)
+        segments = split_segments(command, layout)
     except ValueError:
         # An unparseable command. The floor refuses it on its own, and guessing
         # at a path inside one would be the evaluation 7.4 rules out.
         return None
+    # A body that is not data is read word by word, the way the token pass read
+    # it when shlex still folded it into the opening line's argv.
+    for doc in layout["bodies"]:
+        if not doc["data"]:
+            segments.append([w.strip("'\"`") for w in doc["text"].split()])
     for argv in segments:
         for token in argv:
             for candidate in path_candidates(token):
@@ -434,30 +443,278 @@ def path_candidates(token):
 
 FLOOR_TARGETS = ("git", "aws", "slack.com")
 
+# What a quoted heredoc body may be handed to and still be data: a program that
+# copies it to a file or to stdout. Build ticket 319.
+DATA_CONSUMERS = ("cat", "tee")
+
+# A process substitution carries a body's output somewhere the gate cannot see,
+# the same as `$(`.
+PROCESS_SUBSTITUTIONS = ("<(", ">(")
+
 
 def has_substitution(command):
     return any(m in command for m in HYDRA_CONFIG["floor"]["substitution_markers"])
 
 
-def split_segments(command):
-    """The command's argv lists, split on the shell's own operators.
+def heredoc_operator(command, i):
+    """The heredoc that `<<` at `i` opens, and the index after its delimiter.
+
+    None when there is no delimiter word. `sure` is False when the word holds
+    something a shell would expand before comparing, so the gate cannot say
+    which line ends the body.
+    """
+    n = len(command)
+    j = i + 2
+    strip_tabs = command.startswith("-", j)
+    if strip_tabs:
+        j += 1
+    while j < n and command[j] in " \t":
+        j += 1
+    word, quoted, sure = [], False, True
+    while j < n and command[j] not in " \t\n;&|<>()":
+        c = command[j]
+        if c == "\\":
+            quoted = True
+            word.append(command[j + 1 : j + 2])
+            j += 2
+        elif c in "'\"":
+            close = command.find(c, j + 1)
+            if close == -1:
+                return None, j
+            quoted = True
+            word.append(command[j + 1 : close])
+            j = close + 1
+        else:
+            if c in "$`":
+                sure = False
+            word.append(c)
+            j += 1
+    if not word:
+        return None, i + 2
+    doc = {
+        "delimiter": "".join(word),
+        "strip_tabs": strip_tabs,
+        "quoted": quoted,
+        "sure": sure,
+    }
+    return doc, j
+
+
+def first_word(text):
+    """The program a simple command runs, past its assignments, or None."""
+    lex = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    lex.commenters = ""
+    try:
+        for token in lex:
+            name = token.split("=", 1)[0]
+            if "=" in token and name.replace("_", "a").isalnum() and not name[0].isdigit():
+                continue
+            return os.path.basename(token)
+    except ValueError:
+        return None
+    return None
+
+
+def shell_layout(command):
+    """Which parts of a shell command are command lines and which are data.
+
+    Build ticket 319. A character walk with the quote state kept, the way
+    `shell_hazard` walks, that returns:
+
+    `lines`, the command text split at every newline outside quotes, with
+    comments, line continuations and heredoc bodies taken out. `shlex` folds a
+    newline into whitespace and never yields it, so before 319 `exit 0`
+    newline `git push --force` was one segment whose binary was `exit`, and the
+    floor passed it while it refused `exit 0; git push --force`.
+
+    `bodies`, every heredoc body with its span in `command` and whether it is
+    data. A body is data when all of these hold: its delimiter is quoted
+    (`<<'EOF'`, `<<"EOF"`, `<<\\EOF`), so the shell expands nothing in it; the
+    command it feeds is `cat` or `tee`, which copy it rather than run it; its
+    line has no pipe, which would hand the copy to something that may run it;
+    and the command holds no substitution outside single quotes, which could
+    turn the copy into a command word or a path. A quoted body fed to `sh`, to
+    `python3` or through `| sh` is code and stays under both passes.
+
+    `expanding`, what the substitution rule reads: the text outside single
+    quotes, plus every body that is not data. Single quotes and `$'...'` make
+    their contents literal; double quotes and an unquoted delimiter do not.
+
+    `raw`, what the protected-path substring pass reads: the whole command with
+    the data bodies cut out. Single quotes are not cut out of `raw`, and that is
+    the rule that tells a quoted path argument from a quoted body. `sh -c 'cat
+    <root>/runs/x'` hands its quoted word to a shell as code, and the gate cannot
+    tell that word from `echo '<root>/runs/x'` without knowing what every
+    program does with its arguments. A heredoc body is different because the
+    body's consumer is named on the line, and `cat` and `tee` are the only two
+    this trusts. So single quotes exempt the substitution rule and not the
+    substring pass, and a quoted body is data to both only under the four
+    conditions above.
+
+    When the walk is not sure it read the command the way the shell will,
+    nothing is data and `expanding` and `raw` are the whole command, which is
+    the floor as it stood before 319 with the newline split added. That covers
+    `((`, where `<<` may be an arithmetic shift, an unbalanced quote, and a
+    delimiter with `$` or a backquote in it. A heredoc the walk does not
+    recognise leaves its body lines in `lines`, which refuses more rather than
+    less.
+
+    The residual: a body ends on the first line that is exactly its delimiter.
+    A shell that ends one elsewhere would run lines the gate read as data. And
+    `cat > x.sh <<'EOF'` followed by `sh x.sh` runs a body the gate did not
+    read, which is the same as writing `x.sh` with the Write tool, whose
+    content the gate has never read either.
+    """
+    lines, expanding, bodies, pending, current = [], [], [], [], []
+    sure, quote, piped, start = True, None, False, 0
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        following = command[i + 1] if i + 1 < n else ""
+        if quote in ("'", "$'"):
+            current.append(c)
+            if quote == "$'" and c == "\\":
+                current.append(following)
+                i += 2
+                continue
+            if c == "'":
+                quote = None
+            i += 1
+            continue
+        if c == "\\":
+            if following == "\n":
+                # A line continuation, which the shell removes.
+                i += 2
+                continue
+            current.append(command[i : i + 2])
+            expanding.append(command[i : i + 2])
+            i += 2
+            continue
+        if quote == '"':
+            current.append(c)
+            expanding.append(c)
+            if c == '"':
+                quote = None
+            i += 1
+            continue
+        if c == "'" or (c == "$" and following == "'"):
+            quote = "'" if c == "'" else "$'"
+            current.append(quote)
+            i += len(quote)
+            continue
+        if c == "#" and (not current or current[-1][-1:] in " \t;&|()<>"):
+            # A comment. The shell drops it, so it leaves `lines`; it stays in
+            # `expanding`, which is how coarse the rule was before.
+            end = command.find("\n", i)
+            end = n if end == -1 else end
+            expanding.append(command[i:end])
+            i = end
+            continue
+        if c == "\n":
+            lines.append("".join(current))
+            expanding.append(c)
+            i += 1
+            for doc in pending:
+                body_start = i
+                body_end = n
+                while i < n:
+                    end = command.find("\n", i)
+                    end = n if end == -1 else end
+                    line = command[i:end]
+                    if (line.lstrip("\t") if doc["strip_tabs"] else line) == doc["delimiter"]:
+                        body_end = i
+                        i = min(end + 1, n)
+                        break
+                    i = min(end + 1, n)
+                doc["span"] = (body_start, body_end)
+                doc["text"] = command[body_start:body_end]
+                doc["piped"] = piped
+                bodies.append(doc)
+            pending, current, piped, start = [], [], False, 0
+            continue
+        if c == "<" and following == "<":
+            if command.startswith("<<<", i):
+                current.append("<<<")
+                expanding.append("<<<")
+                i += 3
+                continue
+            doc, end = heredoc_operator(command, i)
+            if doc is not None:
+                sure = sure and doc["sure"]
+                doc["consumer"] = first_word("".join(current[start:]))
+                pending.append(doc)
+            current.append(command[i:end])
+            expanding.append(command[i:end])
+            i = end
+            continue
+        if c == "(" and following == "(":
+            sure = False
+        if c == "|" and following != "|" and not (current and current[-1] == "|"):
+            piped = True
+        current.append(c)
+        expanding.append(c)
+        if c in ";&|()":
+            start = len(current)
+        i += 1
+    lines.append("".join(current))
+    if quote is not None:
+        sure = False
+
+    markers = HYDRA_CONFIG["floor"]["substitution_markers"]
+    outside = "".join(expanding)
+    marked = any(m in outside for m in tuple(markers) + PROCESS_SUBSTITUTIONS)
+    for doc in bodies:
+        doc["data"] = (
+            sure
+            and not marked
+            and doc["quoted"]
+            and not doc["piped"]
+            and doc["consumer"] in DATA_CONSUMERS
+        )
+    if not sure:
+        for doc in bodies:
+            lines.extend(doc["text"].split("\n"))
+        return {"lines": lines, "bodies": bodies, "expanding": command, "raw": command}
+
+    raw, cut = [], 0
+    for doc in bodies:
+        if doc["data"]:
+            raw.append(command[cut : doc["span"][0]])
+            cut = doc["span"][1]
+        else:
+            outside += "\n" + doc["text"]
+    raw.append(command[cut:])
+    return {"lines": lines, "bodies": bodies, "expanding": outside, "raw": "".join(raw)}
+
+
+def split_segments(command, layout=None):
+    """The command's argv lists, split on the shell's own operators and on
+    every newline `shell_layout` reads as a separator.
 
     Raises ValueError on an unbalanced quote, which the caller turns into a
-    refusal rather than a guess.
+    refusal rather than a guess. `#` is not a comment character here because
+    `shell_layout` has already taken the comments out, and shlex would read the
+    `#` inside `topic#x` as one and drop the words after it.
     """
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    operators = {";", "&&", "||", "|", "&", "\n", "(", ")"}
-    segments, current = [], []
-    for token in lex:
-        if token in operators:
-            if current:
-                segments.append(current)
-            current = []
-        else:
-            current.append(token)
-    if current:
-        segments.append(current)
+    if layout is None:
+        layout = shell_layout(command)
+    operators = {";", "&&", "||", "|", "&", "(", ")"}
+    segments = []
+    for line in layout["lines"]:
+        lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        lex.commenters = ""
+        current = []
+        for token in lex:
+            if token in operators:
+                if current:
+                    segments.append(current)
+                current = []
+            else:
+                current.append(token)
+        if current:
+            segments.append(current)
     return segments
 
 
@@ -589,18 +846,23 @@ def floor_violation(command):
     script and nothing else, which is the failure mode 7.4 names out loud
     rather than hides.
     """
-    if has_substitution(command):
+    layout = shell_layout(command)
+    if has_substitution(layout["expanding"]):
         # 7.4: refuse a subcommand arriving from a substitution rather than
         # trying to evaluate it. Which segment the substitution feeds is not
         # decidable without running it, so the refusal covers the command when
-        # any floor target is named anywhere in it.
+        # any floor target is named anywhere in it. Since build ticket 319 a
+        # marker inside single quotes or inside a data body is not a
+        # substitution, because the shell does not expand it there; the target
+        # is still searched for in the whole command, data included, because
+        # `$(echo 'git') push` reads its word out of single quotes.
         lowered = fold_ascii(command)
         if any(target in lowered for target in FLOOR_TARGETS):
             return "a shell substitution in a command naming git, aws or Slack"
         return None
 
     try:
-        segments = split_segments(command)
+        segments = split_segments(command, layout)
     except ValueError:
         return "a command the floor could not parse"
 
