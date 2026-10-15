@@ -3625,27 +3625,34 @@ fn pending_runs_on_the_shown_goal_at_most_every_ten_seconds() {
     );
 }
 
+/// How long a hanging stub sleeps, and the budget the hang tests hand the
+/// reader in place of [`PENDING_BUDGET`]. Build ticket 330: a two-second
+/// bound read against the wall clock failed on a loaded machine. Elapsed
+/// time is only checked against the hang, which a give-up that never fires
+/// waits out whole.
+const HANG: Duration = Duration::from_secs(30);
+const SHORT_BUDGET: Duration = Duration::from_millis(100);
+
 #[test]
-fn a_pending_that_hangs_is_given_up_after_two_seconds() {
-    let (layout, _, reader) = steps_reader("steps-hang", "sleep 10", "");
-    let mut reader = reader.with_pending_budget(PENDING_BUDGET);
+fn a_pending_that_hangs_is_given_up_at_the_budget() {
+    assert_eq!(PENDING_BUDGET, Duration::from_secs(2));
+    let (layout, _, reader) = steps_reader("steps-hang", &format!("sleep {}", HANG.as_secs()), "");
+    let mut reader = reader.with_pending_budget(SHORT_BUDGET);
     let start = std::time::Instant::now();
     let snapshot = reader.read_at(None, noon());
-    assert!(
-        start.elapsed() < Duration::from_secs(4),
-        "{:?}",
-        start.elapsed()
-    );
+    let waited = start.elapsed();
+    assert!(waited >= SHORT_BUDGET && waited < HANG / 2, "{waited:?}");
     assert!(snapshot.steps.is_empty());
     assert!(
         snapshot
             .errors
             .iter()
-            .any(|e| e.contains("did not answer in 2s")),
+            .any(|e| e.contains("hydra-puppets pending g2 did not answer in 100ms")),
         "{:?}",
         snapshot.errors
     );
-    assert_eq!(calls(&layout, "pending-calls").len(), 1);
+    // A stub killed before its first line wrote nothing; it is never asked twice.
+    assert!(calls(&layout, "pending-calls").len() <= 1);
 }
 
 /// The app over one read of `reader`, the stub its helper, the waiting lane
@@ -5424,15 +5431,12 @@ fn ticket264_approvals_are_what_show_says() {
 
 #[test]
 fn ticket264_a_late_show_leaves_the_approvals_unknown() {
-    let (layout, reader) = ticket264_reader("264-late", "sleep 10");
-    let mut reader = reader.with_pending_budget(PENDING_BUDGET);
+    let (layout, reader) = ticket264_reader("264-late", &format!("sleep {}", HANG.as_secs()));
+    let mut reader = reader.with_pending_budget(SHORT_BUDGET);
     let start = std::time::Instant::now();
     let snapshot = reader.read_at(None, noon());
-    assert!(
-        start.elapsed() < Duration::from_secs(4),
-        "{:?}",
-        start.elapsed()
-    );
+    let waited = start.elapsed();
+    assert!(waited >= SHORT_BUDGET && waited < HANG / 2, "{waited:?}");
     assert!(
         snapshot
             .errors

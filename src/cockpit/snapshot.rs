@@ -706,8 +706,8 @@ impl Reader {
                 }
                 let _ = child.wait();
                 anyhow::bail!(
-                    "hydra-puppets {verb} {goal} did not answer in {}s",
-                    self.pending_budget.as_secs()
+                    "hydra-puppets {verb} {goal} did not answer in {:?}",
+                    self.pending_budget
                 )
             }
         }
