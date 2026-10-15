@@ -37,30 +37,38 @@ pub fn run(layout: &Layout) -> Result<Report> {
     ascii_root_line(&mut out, "checkout", &home, &mut missing);
     path_line(&mut out, "policies", &policies, &mut missing);
 
+    let (os, arch) = crate::provider::measured_platform();
     for provider in [
         Provider::Claude,
         Provider::CursorAgent,
         Provider::Agy,
         Provider::Codex,
     ] {
-        let measured = provider.measured_version();
-        match provider.version() {
-            Ok(installed) => {
+        match provider.measured_row(os, arch) {
+            None => {
                 out.push_str(&format!(
-                    "{} {} measured {}\n",
-                    provider.binary(),
-                    installed,
-                    measured
+                    "{} unmeasured on {os} {arch}; run tests/drift.rs there\n",
+                    provider.binary()
                 ));
             }
-            Err(_) => {
-                missing = true;
-                out.push_str(&format!(
-                    "{} missing measured {}\n",
-                    provider.binary(),
-                    measured
-                ));
-            }
+            Some(row) => match provider.version() {
+                Ok(installed) => {
+                    out.push_str(&format!(
+                        "{} {} measured {}\n",
+                        provider.binary(),
+                        installed,
+                        row.version
+                    ));
+                }
+                Err(_) => {
+                    missing = true;
+                    out.push_str(&format!(
+                        "{} missing measured {}\n",
+                        provider.binary(),
+                        row.version
+                    ));
+                }
+            },
         }
     }
 

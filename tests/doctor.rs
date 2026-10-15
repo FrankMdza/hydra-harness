@@ -217,3 +217,34 @@ fn doctor_lists_the_panel_shapes_beside_the_other_protected_configs() {
     let line = format!("approved panel shapes {} present", panels.display());
     assert!(stdout.contains(&line), "{stdout}");
 }
+
+#[test]
+fn doctor_prints_unmeasured_when_the_platform_has_no_row() {
+    // Build ticket 317. `HYDRA_DRIFT_OS` and `HYDRA_DRIFT_ARCH` force the
+    // table lookup off the four macos aarch64 rows so doctor cannot treat a
+    // Linux install as drifted from a Mac measurement.
+    let sandbox = Sandbox::new("doctor-unmeasured");
+    let layout = sandbox.layout();
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .arg("doctor")
+        .env("HYDRA_ROOT", layout.root())
+        .env("HYDRA_DRIFT_OS", "linux")
+        .env("HYDRA_DRIFT_ARCH", "x86_64")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for binary in ["claude", "cursor-agent", "agy", "codex"] {
+        let line = format!("{binary} unmeasured on linux x86_64; run tests/drift.rs there");
+        assert!(stdout.contains(&line), "missing {line}: {stdout}");
+        assert!(
+            !stdout.contains(&format!("{binary} missing measured")),
+            "unmeasured is not drift: {stdout}"
+        );
+        assert!(
+            !stdout
+                .lines()
+                .any(|line| { line.starts_with(binary) && line.contains(" measured ") }),
+            "unmeasured must not compare against a row: {stdout}"
+        );
+    }
+}

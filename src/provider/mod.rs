@@ -24,14 +24,84 @@ pub enum Provider {
     Codex,
 }
 
+/// One measured CLI version, keyed by provider, OS and arch.
+///
+/// `measured_on` is the day the version string entered this table. `probe` is
+/// the `tests/drift.rs` test that re-measures the behaviour that version
+/// carries, empty when that file has no test for the provider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MeasuredVersion {
+    pub provider: Provider,
+    pub os: &'static str,
+    pub arch: &'static str,
+    pub version: &'static str,
+    pub measured_on: &'static str,
+    pub probe: &'static str,
+}
+
 /// Versions this code was measured against. `README.md` and `tests/drift.rs` read
 /// this table rather than carrying their own copy.
-pub const MEASURED_VERSIONS: [(Provider, &str); 4] = [
-    (Provider::Claude, "2.1.268"),
-    (Provider::CursorAgent, "2026.09.18-9a7762b"),
-    (Provider::Agy, "1.2.8"),
-    (Provider::Codex, "0.154.0"),
+pub const MEASURED_VERSIONS: &[MeasuredVersion] = &[
+    MeasuredVersion {
+        provider: Provider::Claude,
+        os: "macos",
+        arch: "aarch64",
+        version: "2.1.268",
+        measured_on: "2026-09-22",
+        probe: "a_judge_run_still_starts_none_of_the_servers_settings_define",
+    },
+    MeasuredVersion {
+        provider: Provider::CursorAgent,
+        os: "macos",
+        arch: "aarch64",
+        version: "2026.09.18-9a7762b",
+        measured_on: "2026-09-22",
+        probe: "",
+    },
+    MeasuredVersion {
+        provider: Provider::Agy,
+        os: "macos",
+        arch: "aarch64",
+        version: "1.2.8",
+        measured_on: "2026-09-22",
+        probe: "",
+    },
+    MeasuredVersion {
+        provider: Provider::Codex,
+        os: "macos",
+        arch: "aarch64",
+        version: "0.154.0",
+        measured_on: "2026-09-21",
+        probe: "codex_login_status_still_reports_whether_the_binary_is_logged_in",
+    },
 ];
+
+/// OS and arch the drift table is consulted for.
+///
+/// `HYDRA_DRIFT_OS` and `HYDRA_DRIFT_ARCH` override [`std::env::consts`] when
+/// both are set, so a test can ask `hydra doctor` what it would print on a
+/// platform the table has no row for.
+pub fn measured_platform() -> (&'static str, &'static str) {
+    static OVERRIDE: std::sync::OnceLock<Option<(String, String)>> = std::sync::OnceLock::new();
+    match OVERRIDE
+        .get_or_init(|| {
+            let os = std::env::var("HYDRA_DRIFT_OS")
+                .ok()
+                .filter(|s| !s.is_empty());
+            let arch = std::env::var("HYDRA_DRIFT_ARCH")
+                .ok()
+                .filter(|s| !s.is_empty());
+            match (os, arch) {
+                (Some(os), Some(arch)) => Some((os, arch)),
+                _ => None,
+            }
+        })
+        .as_ref()
+    {
+        Some((os, arch)) => (os.as_str(), arch.as_str()),
+        None => (std::env::consts::OS, std::env::consts::ARCH),
+    }
+}
 
 impl Provider {
     pub fn binary(self) -> &'static str {
@@ -43,13 +113,18 @@ impl Provider {
         }
     }
 
-    /// The version string in [`MEASURED_VERSIONS`] for this provider.
-    pub fn measured_version(self) -> &'static str {
+    /// The version string in [`MEASURED_VERSIONS`] for this provider on the
+    /// current platform, or `None` when the table has no row for it.
+    pub fn measured_version(self) -> Option<&'static str> {
+        let (os, arch) = measured_platform();
+        self.measured_row(os, arch).map(|row| row.version)
+    }
+
+    /// The table row for this provider on `os` and `arch`, if one exists.
+    pub fn measured_row(self, os: &str, arch: &str) -> Option<&'static MeasuredVersion> {
         MEASURED_VERSIONS
             .iter()
-            .find(|(provider, _)| *provider == self)
-            .map(|(_, version)| *version)
-            .unwrap_or("unknown")
+            .find(|row| row.provider == self && row.os == os && row.arch == arch)
     }
 
     /// The response shape the gate answers this provider in (6.6).
@@ -480,5 +555,67 @@ mod tests {
         assert_eq!(Provider::Codex.skill_root(), ".codex/skills");
         assert_eq!(Provider::Codex.subscription(), "openai");
         assert_eq!(Provider::Codex.dialect(), crate::policy::Dialect::Claude);
+    }
+
+    #[test]
+    fn a_matching_platform_returns_the_measured_row() {
+        let row = Provider::Claude
+            .measured_row("macos", "aarch64")
+            .expect("macos aarch64 was measured");
+        assert_eq!(row.version, "2.1.268");
+        assert_eq!(row.measured_on, "2026-09-22");
+        assert_eq!(
+            row.probe,
+            "a_judge_run_still_starts_none_of_the_servers_settings_define"
+        );
+        assert_eq!(
+            Provider::CursorAgent
+                .measured_row("macos", "aarch64")
+                .map(|row| row.version),
+            Some("2026.09.18-9a7762b")
+        );
+        assert_eq!(
+            Provider::Agy
+                .measured_row("macos", "aarch64")
+                .map(|row| row.version),
+            Some("1.2.8")
+        );
+        assert_eq!(
+            Provider::Codex
+                .measured_row("macos", "aarch64")
+                .map(|row| row.version),
+            Some("0.154.0")
+        );
+    }
+
+    #[test]
+    fn a_missing_platform_returns_none() {
+        assert_eq!(Provider::Claude.measured_row("linux", "x86_64"), None);
+        assert_eq!(Provider::Codex.measured_row("linux", "aarch64"), None);
+        assert_eq!(Provider::Agy.measured_row("macos", "x86_64"), None);
+        assert_eq!(
+            Provider::CursorAgent.measured_row("windows", "x86_64"),
+            None
+        );
+    }
+
+    #[test]
+    fn the_four_rows_cover_each_provider_on_macos_aarch64() {
+        for provider in [
+            Provider::Claude,
+            Provider::CursorAgent,
+            Provider::Agy,
+            Provider::Codex,
+        ] {
+            let row = provider
+                .measured_row("macos", "aarch64")
+                .unwrap_or_else(|| panic!("{provider} has no macos aarch64 row"));
+            assert_eq!(row.provider, provider);
+            assert_eq!(row.os, "macos");
+            assert_eq!(row.arch, "aarch64");
+            assert!(!row.version.is_empty(), "{provider}");
+            assert!(!row.measured_on.is_empty(), "{provider}");
+        }
+        assert_eq!(MEASURED_VERSIONS.len(), 4);
     }
 }

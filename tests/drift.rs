@@ -30,7 +30,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hydra::env::ChildEnv;
 use hydra::mcp::Probe;
-use hydra::provider::{Provider, claude, codex};
+use hydra::provider::{Provider, claude, codex, measured_platform};
+
+/// Skip a probe when the table has no row for this platform, rather than
+/// comparing the binary against a version measured somewhere else.
+fn measured_or_skip(provider: Provider) -> Option<&'static str> {
+    match provider.measured_version() {
+        Some(version) => Some(version),
+        None => {
+            let (os, arch) = measured_platform();
+            println!("skipped: unmeasured on {os} {arch}; run tests/drift.rs there");
+            None
+        }
+    }
+}
 
 /// The stdio server both scopes point at, one tool and no dependencies.
 fn fixture() -> PathBuf {
@@ -133,6 +146,9 @@ fn resolve(scratch: &Scratch, shape: Probe<'_>) -> hydra::provider::Resolved {
 
 #[test]
 fn a_judge_run_still_starts_none_of_the_servers_settings_define() {
+    if measured_or_skip(Provider::Claude).is_none() {
+        return;
+    }
     let scratch = scratch();
     let Some(version) = scratch.version() else {
         println!("skipped: `claude` is not on the PATH, so there is nothing to measure");
@@ -179,6 +195,9 @@ fn the_same_stubs_load_when_the_flags_come_off() {
     // nothing. That is fine here. This control measures the binary rather than a
     // launch, and it is the only shape `mcp_flags` has that passes no MCP flag at
     // all, which is what the vendor's default needs to be asked through.
+    if measured_or_skip(Provider::Claude).is_none() {
+        return;
+    }
     let scratch = scratch();
     let Some(version) = scratch.version() else {
         println!("skipped: `claude` is not on the PATH, so there is nothing to measure");
@@ -258,6 +277,9 @@ impl Drop for CleanDir {
 fn a_claude_run_still_writes_its_thinking_text() {
     if std::env::var("HYDRA_DRIFT_PAID").as_deref() != Ok("1") {
         println!("skipped: HYDRA_DRIFT_PAID is not set to 1");
+        return;
+    }
+    if measured_or_skip(Provider::Claude).is_none() {
         return;
     }
     let Some(version) = claude_version() else {
@@ -369,6 +391,9 @@ fn codex_version() -> Option<String> {
 
 #[test]
 fn codex_login_status_still_reports_whether_the_binary_is_logged_in() {
+    if measured_or_skip(Provider::Codex).is_none() {
+        return;
+    }
     let Some(version) = codex_version() else {
         println!("skipped: `codex` is not on the PATH, so there is nothing to measure");
         return;
@@ -409,6 +434,9 @@ fn codex_login_status_still_reports_whether_the_binary_is_logged_in() {
 fn a_codex_hook_that_dies_without_answering_lets_the_call_run() {
     if std::env::var("HYDRA_DRIFT_PAID").as_deref() != Ok("1") {
         println!("skipped: HYDRA_DRIFT_PAID is not set to 1");
+        return;
+    }
+    if measured_or_skip(Provider::Codex).is_none() {
         return;
     }
     let Some(version) = codex_version() else {
