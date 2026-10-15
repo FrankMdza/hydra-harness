@@ -1,7 +1,7 @@
 # 322 - The live panel's choose prompt asks for the task array, so a `composed` verdict can be written at all
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 122's answer. The inline choose prompt in
 `crates/puppets/src/panel.rs` asks each seat for one JSON object with `chosen` and `findings`
@@ -42,3 +42,24 @@ Amend `IMPLEMENTATION.md` where the panel's choose step is described.
 Rules inside the run: relative paths only, never look outside your own worktree, write files with
 your file tool and not with shell heredocs, and the test suite is green inside a run since build
 302 without any `env -u`.
+
+## Outcome
+
+`launch.rs` reads `prompts/choose.md` the way it reads `plan.md`. `choose --judge` fills
+`{{ROLE}}`, `{{GOAL_SECTION}}`, `{{PROPOSALS}}`, `{{NOTE_SECTION}}` and `{{PROVIDER_NAMES}}`
+per seat. The inline Instructions copy is gone. `plan_panel_verdict` is unchanged: every seat
+must name `composed` and one must attach a fenced array, or the refusal is `composed chosen
+but no task block found`.
+
+`crates/puppets/tests/choose.rs` drives the binary with a hydra stub. Three seats say
+`composed` and the second attaches `[{"id":"a"}]`: exit 0, `panel_verdict.chosen` is
+`composed`, `composed.md` is the indent-2 dump of that array. Three seats say `composed`
+with no array: exit 1, stderr is `composed chosen but no task block found`, no
+`composed.md`. Both hydra-run argv contain `When you choose \`composed\``. Those two tests
+took 1.05s. nextest: 1393 passed, 4 skipped, 40.273s.
+
+False: the file said `<provider>|composed` and "proposer name". Ticket 252's tests pin
+`<label>|composed` and blind labels, so that wording in the file was stale and lost to the
+live panel. The composed paragraph is what the file won on. Role and evidence slices stay
+as placeholders; dropping them would have undone ticket 133 for the choose path. The file
+was not left unread.

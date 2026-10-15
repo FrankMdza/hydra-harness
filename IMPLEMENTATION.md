@@ -2710,7 +2710,9 @@ already built and tested; `live::read_view` is what feeds it a record's pid and 
 time. Three states come out: a file with a closing line has ended, one without whose pid
 still matches is live, one without whose pid is gone is contract 6's abandoned class.
 `tests/status.rs` builds all three by hand, because the reconciliation is what is under
-test rather than the launch that produced the files.
+test rather than the launch that produced the files. On Linux, since build ticket 315,
+`procinfo::start_time` reads `/proc` instead of `sysctl`, and its stat-line parser is unit
+tested on macOS with sample lines; the kernel read itself has never run.
 
 **A status pass reads line 0 and the last 64 KiB and nothing between.** `run_end` is
 always the last line and is always small, so a fixed tail either holds it whole or the
@@ -3487,7 +3489,12 @@ runs claude-fable-5-1 on claude and gpt-6-astra on codex under `judge`, in oppos
 orders; their agreement supplies the verdict, otherwise the human picks. The `panel_verdict`
 event records the label map, seat orders, tie-break orders, run ids and answers, and verdict
 source (null chosen and source when unresolved). Down vendors need a live degraded approval;
-tie-break substitutes remain under `judge`.
+tie-break substitutes remain under `judge`. Since ticket 322, `choose --judge` reads
+`prompts/choose.md` the way `plan` reads `plan.md`. The file is the prompt, with per-seat role
+and evidence filled in, and it asks a `composed` answer to attach a fenced task array in the
+shape `plan.md` defines. The inline instructions are gone. `plan_panel_verdict` is unchanged:
+every seat must name `composed` and one must attach the array, or the refusal is `composed
+chosen but no task block found`.
 
 **A local model, since build ticket 121.** `target/release/hydra-local-llm` is a stdio
 MCP server with one tool, `ask`, over Ollama at `127.0.0.1:11434` (`gemma3:1b-it-qat` by

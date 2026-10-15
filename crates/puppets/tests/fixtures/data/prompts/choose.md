@@ -1,22 +1,21 @@
-You are one judge on a three-seat panel choosing a work plan for the following goal.
+You are one judge on a three-seat panel choosing a work plan.
 
-## Goal
+## Role
 
-{{GOAL}}
+{{ROLE}}
 
-## Proposals
+{{GOAL_SECTION}}## Proposals
 
 {{PROPOSALS}}
+{{NOTE_SECTION}}## Instructions
 
-## Instructions
-
-Read every proposal. Pick exactly one: a proposer name (`{{PROVIDER_NAMES}}`) or `composed` when no
+Read every proposal. Pick exactly one proposal label ({{PROVIDER_NAMES}}) or `composed` when no
 single proposal is best and you want a merged plan.
 
 Answer in exactly one JSON object and nothing else:
 
 ```json
-{"chosen": "<provider>|composed", "findings": [{"item": "<id>", "severity": "critical"|"major"|"minor", "note": "<string>"}]}
+{"chosen": "<label>|composed", "findings": [{"item": "<id>", "severity": "critical"|"major"|"minor", "note": "<string>"}]}
 ```
 
 `findings` may be empty. Use it for gaps you see in any proposal you did not choose.

@@ -16,9 +16,9 @@ use anyhow::{Result, anyhow, bail};
 use crate::fold::{self, GoalState, approval_available};
 use crate::json::{self, Dict, ParseError, PyStr, Value};
 use crate::launch::{
-    answer_text, build_run_argv, capture, decoded, find, goal_field, herdr_pane, hydra_show,
-    hydra_show_text, loads_show, os_argv, pathlib, read_text, run_file_has_end, run_id_of,
-    show_failed, spawn_error, spawn_run, split_pane_id, string,
+    answer_text, build_run_argv, capture, choose_prompt_template, decoded, find, goal_field,
+    herdr_pane, hydra_show, hydra_show_text, loads_show, os_argv, pathlib, read_text, replace,
+    run_file_has_end, run_id_of, show_failed, spawn_error, spawn_run, split_pane_id, string,
 };
 use crate::log::Home;
 use crate::py;
@@ -689,37 +689,48 @@ fn plan_verdict_fields(answers: &[PlanAnswer], tie: &[PlanAnswer]) -> Vec<(&'sta
     vec![("chosen", chosen), ("verdict_source", source)]
 }
 
-/// `build_choose_seat_prompt`: what one seat is asked about the proposals.
+/// `build_choose_seat_prompt`: `prompts/choose.md` filled for one seat.
 fn build_choose_seat_prompt(
     seat: &Seat,
     goal_text: &PyStr,
     proposal_blocks: &PyStr,
     provider_names: &PyStr,
+) -> Result<PyStr> {
+    Ok(fill_choose_seat_prompt(
+        &choose_prompt_template()?,
+        seat,
+        goal_text,
+        proposal_blocks,
+        provider_names,
+    ))
+}
+
+/// The file's placeholders: role, the goal when this seat sees it, the proposals, the
+/// test-coverage note when this seat weighs tests, and the proposal labels.
+fn fill_choose_seat_prompt(
+    template: &PyStr,
+    seat: &Seat,
+    goal_text: &PyStr,
+    proposal_blocks: &PyStr,
+    provider_names: &PyStr,
 ) -> PyStr {
-    let mut prompt = text!(
-        "You are one judge on a three-seat panel choosing a work plan.\n\n",
-        "## Role\n\n",
-        seat.role.brief(),
-        "\n\n"
-    );
-    if seat.evidence == Evidence::DiffAndTask {
-        prompt.push(&text!("## Goal\n\n", goal_text.clone(), "\n\n"));
-    }
-    prompt.push(&text!("## Proposals\n\n", proposal_blocks.clone(), "\n"));
-    if seat.evidence == Evidence::DiffAndTests {
-        prompt.push_str(
+    let goal_section = if seat.evidence == Evidence::DiffAndTask {
+        text!("## Goal\n\n", goal_text.clone(), "\n\n")
+    } else {
+        PyStr::new()
+    };
+    let note_section = if seat.evidence == Evidence::DiffAndTests {
+        PyStr::from(
             "## Note\n\nWeigh test and verification coverage in each proposal before you choose.\n\n",
-        );
-    }
-    prompt.push(&text!(
-        "## Instructions\n\n",
-        "Pick exactly one proposal label (",
-        provider_names.clone(),
-        ") or `composed` when no single proposal is best.\n\n",
-        "Answer in exactly one JSON object and nothing else:\n\n",
-        "```json\n{\"chosen\": \"<label>|composed\", \"findings\": []}\n```\n"
-    ));
-    prompt
+        )
+    } else {
+        PyStr::new()
+    };
+    let prompt = replace(template, "{{ROLE}}", &PyStr::from(seat.role.brief()));
+    let prompt = replace(&prompt, "{{GOAL_SECTION}}", &goal_section);
+    let prompt = replace(&prompt, "{{PROPOSALS}}", proposal_blocks);
+    let prompt = replace(&prompt, "{{NOTE_SECTION}}", &note_section);
+    replace(&prompt, "{{PROVIDER_NAMES}}", provider_names)
 }
 
 /// `", ".join(parts)`, or any other separator.
@@ -845,17 +856,17 @@ pub fn choose_judge(
         .iter()
         .zip(&orders)
         .map(|(seat, order)| {
-            (
+            Ok((
                 seat,
                 build_choose_seat_prompt(
                     seat.seat,
                     &goal_text,
                     &ordered_blocks(&blocks, order),
                     &provider_names,
-                ),
-            )
+                )?,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
     let runs = run_judge_panel(home, seat_prompts)?;
     let answers = runs
         .texts
@@ -896,17 +907,17 @@ pub fn choose_judge(
                 .iter()
                 .zip(&tie_orders)
                 .map(|(seat, order)| {
-                    (
+                    Ok((
                         seat,
                         build_choose_seat_prompt(
                             seat.seat,
                             &goal_text,
                             &ordered_blocks(&blocks, order),
                             &provider_names,
-                        ),
-                    )
+                        )?,
+                    ))
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
         )?;
         print_judges(out, &seats, &tie_runs)?;
         tie_answers = tie_runs
@@ -1586,36 +1597,51 @@ mod tests {
         (providers, blocks)
     }
 
+    fn live_choose_template() -> PyStr {
+        read_text(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../integrations/puppets/prompts/choose.md"),
+        )
+        .unwrap()
+    }
+
+    fn filled_choose_prompt(
+        seat: &Seat,
+        blocks: &[PyStr],
+        order: &[usize],
+        names: &PyStr,
+    ) -> String {
+        fill_choose_seat_prompt(
+            &live_choose_template(),
+            seat,
+            &s("goal"),
+            &ordered_blocks(blocks, order),
+            names,
+        )
+        .lossy()
+    }
+
     #[test]
     fn blind_prompts_have_no_provider_names() {
         let (providers, blocks) = blind_fixture();
         let names = join(&(0..3).map(proposal_label).collect::<Vec<_>>(), ", ");
         for (n, seat) in PANEL.iter().enumerate() {
-            let prompt = build_choose_seat_prompt(
-                seat,
-                &s("goal"),
-                &ordered_blocks(&blocks, &proposal_order(3, n)),
-                &names,
-            )
-            .lossy();
+            let prompt = filled_choose_prompt(seat, &blocks, &proposal_order(3, n), &names);
             for provider in &providers {
                 assert!(!prompt.contains(&py::str(provider).lossy()), "{prompt}");
             }
             assert!(prompt.contains("<label>|composed"));
+            assert!(prompt.contains("When you choose `composed`"), "{prompt}");
+            assert!(!prompt.contains("{{"), "{prompt}");
         }
     }
 
     #[test]
     fn blind_choose_prompts_do_not_expose_stance_names() {
         let (_, blocks) = blind_fixture();
+        let names = s("Proposal A, Proposal B, Proposal C");
         for (n, seat) in PANEL.iter().enumerate() {
-            let prompt = build_choose_seat_prompt(
-                seat,
-                &s("goal"),
-                &ordered_blocks(&blocks, &proposal_order(3, n)),
-                &s("Proposal A, Proposal B, Proposal C"),
-            )
-            .lossy();
+            let prompt = filled_choose_prompt(seat, &blocks, &proposal_order(3, n), &names);
             for stance in ["minimal", "risk", "contrarian", "builder"] {
                 assert!(!prompt.contains(stance), "{prompt}");
             }
@@ -1625,16 +1651,11 @@ mod tests {
     #[test]
     fn blind_seats_read_three_rotations_with_stable_labels() {
         let (_, blocks) = blind_fixture();
+        let names = s("Proposal A, Proposal B, Proposal C");
         for (n, expected) in [[0, 1, 2], [1, 2, 0], [2, 0, 1]].iter().enumerate() {
             let order = proposal_order(3, n);
             assert_eq!(&order, expected);
-            let prompt = build_choose_seat_prompt(
-                &PANEL[n],
-                &s("goal"),
-                &ordered_blocks(&blocks, &order),
-                &s("Proposal A, Proposal B, Proposal C"),
-            )
-            .lossy();
+            let prompt = filled_choose_prompt(&PANEL[n], &blocks, &order, &names);
             let positions = expected.map(|i| {
                 prompt
                     .find(&format!("### {}", proposal_label(i).lossy()))

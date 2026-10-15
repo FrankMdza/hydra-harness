@@ -320,7 +320,7 @@ pub(crate) fn find(hay: &[u32], needle: &[u32]) -> Option<usize> {
 }
 
 /// `text.replace(marker, with)`.
-fn replace(text: &PyStr, marker: &str, with: &PyStr) -> PyStr {
+pub(crate) fn replace(text: &PyStr, marker: &str, with: &PyStr) -> PyStr {
     let marker = PyStr::from(marker);
     let (mut rest, mut out) = (text.code_points(), PyStr::new());
     while let Some(at) = find(rest, marker.code_points()) {
@@ -332,8 +332,13 @@ fn replace(text: &PyStr, marker: &str, with: &PyStr) -> PyStr {
     out
 }
 
-fn prompts_dir() -> Result<PathBuf> {
+pub(crate) fn prompts_dir() -> Result<PathBuf> {
     Ok(log::data_dir()?.join("prompts"))
+}
+
+/// `prompts/choose.md`, the file `choose --judge` fills per seat.
+pub(crate) fn choose_prompt_template() -> Result<PyStr> {
+    read_text(&prompts_dir()?.join("choose.md"))
 }
 
 /// `state.goal["text"]` and friends.
