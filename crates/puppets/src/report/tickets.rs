@@ -24,16 +24,32 @@ const PHRASES: &[(&str, &[&str])] = &[
         &[
             "needed correction",
             "the session fixed",
+            "fixed by the session",
             "with one fix",
+            "with one change",
+            "with one sentence",
             "amended by the session",
+            "the session corrected",
+            "corrected there",
+            "adjusted by hand",
+            "fixes by the session",
+            "added one change",
         ],
     ),
     (
         "applied as is",
         &[
             "applied as it was",
+            "applied it as it was",
             "entered without correction",
             "aplicado tal cual",
+            "applied to master",
+            "applied as written",
+            "applied by the session",
+            "applied unchanged",
+            "the session applied",
+            "built in this run",
+            "applied without changes",
         ],
     ),
 ];
@@ -59,16 +75,26 @@ struct Group {
     classes: BTreeMap<&'static str, BTreeSet<u64>>,
 }
 fn classify(text: &str) -> (&'static str, String) {
-    // ASCII folding keeps offsets unchanged, including Spanish phrases.
-    let lower = text.to_ascii_lowercase();
+    // Newlines become spaces so a wrapped Markdown sentence still matches.
+    // Length is unchanged, including Spanish phrases.
+    let folded = text.replace(['\t', '\n', '\r'], " ");
+    let lower = folded.to_ascii_lowercase();
     for (class, phrases) in PHRASES {
         for phrase in *phrases {
             if let Some(at) = lower.find(phrase) {
-                return (class, text[at..at + phrase.len()].into());
+                return (class, folded[at..at + phrase.len()].into());
             }
         }
     }
     ("unsaid", String::new())
+}
+fn outcome_prose(outcome: &str) -> String {
+    // A pasted report is a fence or a pipe table, not the ticket's own runs.
+    outcome
+        .lines()
+        .take_while(|l| !l.trim_start().starts_with("```") && !l.starts_with('|'))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 fn run_ids(text: &str) -> Vec<String> {
     let mut ids = Vec::new();
@@ -115,13 +141,15 @@ fn load(dir: &Path) -> Result<Vec<Ticket>> {
         {
             continue;
         }
-        let outcome = text
-            .lines()
-            .skip_while(|l| l.trim() != "## Outcome")
-            .skip(1)
-            .take_while(|l| !l.starts_with("## ") || l.trim() == "## Outcome")
-            .collect::<Vec<_>>()
-            .join("\n");
+        let outcome = outcome_prose(
+            &text
+                .lines()
+                .skip_while(|l| l.trim() != "## Outcome")
+                .skip(1)
+                .take_while(|l| !l.starts_with("## ") || l.trim() == "## Outcome")
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
         let (class, phrase) = classify(&outcome);
         tickets.push(Ticket {
             number,

@@ -1028,24 +1028,10 @@ newline probe went from allow to `hydra/floor`; a `cat <<'EOF'` body holding a b
 `git status`, or `${price}` beside "aws", went from `hydra/floor` to allow; the shape that
 stopped run `01a1332c`, `cat > f <<'EOF'` whose body spells the runs directory, went from
 `hydra/protected-path` to allow; `git push origin topic#x --force` went from allow to
-`hydra/floor`, because shlex no longer reads the `#` inside a word as a comment.
-`cat > x.sh <<'EOF'` then `sh x.sh` still runs a body the gate never read, the same as
-writing `x.sh` with the Write tool.
-
-**Since build ticket 329 the floor reads past shell keywords and command wrappers.**
-`shell_command_words` is shared by the floor and the protected-path token pass. It skips
-leading reserved words, function declarations, assignments, and `command`, `builtin`,
-`exec`, `nohup`, `env`, `nice`, `timeout` and `xargs`. Wrapper options with separate values
-are consumed before reading the program, as is `timeout`'s duration; nested wrappers use
-the same walk. Prefix tokens remain subject to protected-path checks, including assignment
-values and paths supplied to wrapper options. Words in an ordinary program's arguments are
-left alone. The bounded shell's `shell_hazard` checks expansions and operators, and has no
-keyword/wrapper list to share; the new list lives in the shared reader. This remains a
-spelling check, not a shell grammar or a complete interpreter of wrapper options (for example,
-`env -S` strings are not unpacked). On a compiled `standard` gate, 27 of 32 compound/wrapper
-probes changed from allow to `hydra/floor`; five already refused and still do. The eight
-ordinary-command controls stayed allowed and five relative protected-path probes stayed
-refused. In particular `if true; then git push --force; fi` is now refused.
+`hydra/floor`, because shlex no longer reads the `#` inside a word as a comment. Two holes
+stay open: `cat > x.sh <<'EOF'` then `sh x.sh` runs a body the gate never read, the same as
+writing `x.sh` with the Write tool; and a shell keyword in front of the binary hides it,
+`if true; then git push --force; fi` passed both templates.
 
 **`git push` with no arguments is not checked against the protected branches.** The
 floor cannot know the current branch from argv. It is the failure mode 7.4 names out
@@ -6239,6 +6225,12 @@ record columns are unavailable; no real-record access is needed. A four-ticket,
 three-record fixture checks the command, every class, ambiguity, absence, duplicate
 references, model backfill, numeric ordering, repeated Outcome headings, token median
 and the tickets-only view. No dependency was added.
+
+Since build ticket 328, Outcome text for both run ids and the phrase class stops at the
+first fenced block or Markdown table line, so a pasted report is not attributed as that
+ticket's own runs. The phrase list was widened from real Outcome sentences (wrapped
+lines folded to spaces before the match), and the command fixture gained a pasted-table
+ticket plus one ticket per new phrase.
 
 Since build ticket 314, the ticket report removes the temporary layout recursively,
 first unlinking its `runs` symlink. Its regression test plants nested directories from

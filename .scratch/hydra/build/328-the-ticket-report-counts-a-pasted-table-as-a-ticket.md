@@ -1,7 +1,7 @@
 # 328 - The ticket report counts build 312's pasted table as a ticket, and leaves 299 of 327 Outcomes `unsaid`
 
 Type: build
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 124's findings. `hydra-puppets report tickets`
 (build 312) reads every ticket's `## Outcome`, finds the run ids in it, and classifies the prose
@@ -44,3 +44,41 @@ nextest run --release --workspace`, `cargo test --release --workspace --doc` gre
 Rules inside the run: relative paths only, never look outside your own worktree, write files with
 your file tool and not with shell heredocs, and the test suite is green inside a run since build
 302 without any `env -u`.
+
+## Outcome
+
+Built in this run.
+
+01a13e30-e5af-7ef0-b31a-3ec9ddc6aabf
+
+Outcome text for run ids and class stops at the first fenced block or a line
+that starts with a pipe. 312's snapshot is a fenced TSV, so skipping pipe
+rows alone would not have kept it out. 312's row then has no run: its prose
+never named one. That assumption in this ticket was false. Line wraps fold
+to spaces before a phrase is sought. Two example strings from the ticket
+body occur in no Outcome. Tickets-only report on this tree. The snapshot
+and the new patterns sit in the fence below, so they are not this ticket's
+own attribution. The file-read of the unslop and rust-writing skills outside
+the worktree was refused (hydra/out-of-scope).
+
+```text
+new phrases, each with a fixture quoting a real Outcome sentence:
+applied as is: applied to master; applied as written; applied by the session;
+applied unchanged; the session applied; applied it as it was; built in this run;
+applied without changes
+corrected: fixed by the session; with one change; with one sentence;
+the session corrected; corrected there; adjusted by hand; fixes by the session;
+added one change
+absent from every Outcome: went to master as it came; needed a correction
+
+before: unsaid 301 of 329
+after, tickets-only, no --runs (policy refuses the records directory):
+applied as is 131, corrected 34, finished by hand 13, rejected 9, unsaid 142 of 329
+
+provider	model	tickets	runs	total_tokens	median_tokens	completed	failed	rest	applied as is	corrected	finished by hand	rejected
+unavailable	unavailable	329	unavailable	unavailable	unavailable	unavailable	unavailable	unavailable	131	34	13	9
+
+312	-	unavailable	unavailable	unavailable	rejected	rejected	unavailable
+328 names only
+01a13e30-e5af-7ef0-b31a-3ec9ddc6aabf
+```
