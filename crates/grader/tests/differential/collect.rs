@@ -184,8 +184,18 @@ fn before_303(row: &Value) -> Value {
 fn gave(got: anyhow::Result<Keyed>, root: &Path) -> Gave {
     match got {
         Ok(found) => {
+            // Build ticket 324's `plan_composed` row, keyed by its goal and not by a run,
+            // is one the Python never wrote.
             let pairs = found
                 .iter()
+                .filter(|(key, row)| {
+                    let composed = has(row, "class")
+                        && matches!(field(row, "class"), Value::Str(class) if *class == "plan_composed");
+                    if composed {
+                        assert!(string(key).starts_with("composed:"), "{key:?}");
+                    }
+                    !composed
+                })
                 .map(|(run_id, row)| Value::List(vec![run_id.clone(), before_303(row)]))
                 .collect();
             (Some(json::dumps_default(&Value::List(pairs))), None, None)

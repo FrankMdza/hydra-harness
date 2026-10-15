@@ -4216,6 +4216,22 @@ equivalence tests, `crates/puppets/tests/grader_labels.rs` and `collect/labels.j
 grader's differential test, compare the rows with the two fields taken off, and check that the
 two are on proposer rows and nowhere else.
 
+Build ticket 323 added `has_draft` to a proposer's row. A proposer whose plan never reached
+`plan_ready` has `chosen` and `outcome` null under any verdict, and `labels count` puts it under
+`no draft` rather than in the chosen split.
+
+Since build ticket 324 a goal whose verdict chose `composed` has one more row, `class:
+"plan_composed"`. Its key is `composed:<goal id>`, since no run wrote the plan, and `collect` joins
+labels to runs by run id, so the row never reaches the dataset. It carries the goal text, `chosen:
+true`, the verdict's `judge_run_ids` and `path`, `plan`, the task array read from that file, and
+the goal's `outcome`, the same counts a chosen proposer gets. `by` is `panel` when the verdict has
+judge run ids and `session` when the human chose a file or typed `composed`. `plan` is the body of
+the file's first `json` fence, or the whole file when it is bare JSON, and `null` when the file is
+gone or neither parses. The proposers of such a goal stay `false`. `labels count` prints
+`plan_composed` with the split by panel and by session. The equivalence tests leave the row out of
+the comparison and check it is chosen; the 147 recorded logs hold two (h-009 by a panel, h-015 by a
+session).
+
 Two programs are still started. `hydra show <id> --events` is `HYDRA_BIN` or `hydra`, with
 `HYDRA_ROOT` set to the directory above the runs. `hydra-puppets show -- <goal>` keeps the rule of
 builds 196 and 221: an absolute path and never `PATH`, from `HYDRA_PUPPETS_BIN`, else beside an
@@ -5132,13 +5148,8 @@ will not read, still waits for the session either way, and `derive` reads that e
   repository, uses that store. Measured by the map 123 panel on 2026-10-13: a repository the run creates or
   clones under its checkout gets a `.git` with no `objects/`, a reader that drops the two
   variables, Hydra's own git included, finds no repository there and walks up to the checkout
-  with no error. Build ticket 325 drove `hydra reap` itself, pinned in `tests/cleanup.rs`.
-  A nested repository the run staged as a gitlink fails at `git status --porcelain`
-  (`not a git repository: '.git'`, `failed in submodule sub`) and leaves the checkout; one
-  the run never staged is still committed as a gitlink, then `git worktree remove` exits 128
-  (`'sub/.git' not recognized as a git repository`) and leaves the checkout, while the nested
-  blob, tree and commit arrive in the parent unreferenced. Map 123 holds the decision; build
-  326 is the change. Measured after the merge on 2026-09-24: under `standard` each of
+  with no error, and a sub-repository the run staged becomes a gitlink that reap's pointer-less
+  git refuses with exit 128; map 123 holds the decision. Measured after the merge on 2026-09-24: under `standard` each of
   the four providers ran `git add` in a real run, printed its own store as
   `GIT_OBJECT_DIRECTORY`, and `hydra reap` committed the file, `claude` 01a0d227-23ce, `codex`
   01a0d226-d533, `cursor-agent` 01a0d227-ef37 and `agy` 01a0d228-206c. None strips the variables

@@ -111,6 +111,96 @@ fn a_proposer_without_a_draft_is_neither_chosen_nor_rejected() {
     }
 }
 
+/// Build 324: a goal whose verdict is `composed`, folded by the real helper, with three
+/// tasks the human judged. The composed plan gets a chosen row with their outcome, keyed by
+/// the goal, and both proposers stay unchosen. A panel's verdict and a session's file differ
+/// only in `by` and `judge_run_ids`.
+#[test]
+fn a_composed_plan_gets_a_chosen_row_and_the_proposers_stay_unchosen() {
+    let scratch =
+        std::env::temp_dir().join(format!("hydra-grader-composed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let plans = scratch.join("g/plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    let composed = plans.join("composed.md");
+    std::fs::write(
+        &composed,
+        "Composed plan.\n\n```json\n[{\"id\": \"t1\"}, {\"id\": \"t2\"}]\n```\n",
+    )
+    .unwrap();
+    let env = Env::from_pairs([
+        ("HYDRA_PUPPETS_BIN", OsStr::new(HELPER)),
+        ("HYDRA_PUPPETS_HOME", scratch.as_os_str()),
+    ]);
+    let path = json::dumps_default(&Value::text(composed.to_str().unwrap()));
+    for (judges, by) in [(r#"["j1","j2"]"#, "panel"), ("[]", "session")] {
+        let mut log = vec![
+            r#"{"event":"goal","text":"324 measurement","repo":".","base_sha":"abc"}"#.into(),
+            r#"{"event":"plan_proposed","provider":"claude","run_id":"p1"}"#.into(),
+            r#"{"event":"plan_ready","run_id":"p1","path":"a.md"}"#.into(),
+            r#"{"event":"plan_proposed","provider":"codex","run_id":"p2"}"#.into(),
+            r#"{"event":"plan_ready","run_id":"p2","path":"b.md"}"#.into(),
+            format!(
+                r#"{{"event":"panel_verdict","judge_run_ids":{judges},"chosen":"composed","path":{path}}}"#
+            ),
+        ];
+        for (id, result) in [("t1", "applied"), ("t2", "fixed"), ("t3", "")] {
+            log.push(format!(
+                r#"{{"event":"task","id":"{id}","text":"do {id}","class":"build","grade":"m"}}"#
+            ));
+            log.push(format!(
+                r#"{{"event":"run","task":"{id}","attempt":1,"run_id":"b-{id}"}}"#
+            ));
+            if !result.is_empty() {
+                log.push(format!(
+                    r#"{{"event":"human_verdict","task":"{id}","run_id":"b-{id}","result":"{result}"}}"#
+                ));
+            }
+        }
+        let goal_log = scratch.join("g.jsonl");
+        std::fs::write(&goal_log, log.join("\n") + "\n").unwrap();
+
+        let shown = labels::show_goal(OsStr::new("g"), &scratch, &env).unwrap();
+        let events = labels::committed_events(&goal_log).unwrap();
+        let found = labels::labels_for_goal(&shown, &events).unwrap();
+        for proposer in ["p1", "p2"] {
+            let row = found.get(&Value::text(proposer)).unwrap().unwrap();
+            assert!(
+                matches!(field(row, "chosen"), Value::Bool(false)),
+                "{row:?}"
+            );
+            assert!(matches!(field(row, "outcome"), Value::Null), "{row:?}");
+        }
+        let row = found.get(&Value::text("composed:g")).unwrap().unwrap();
+        assert_eq!(
+            json::dumps_default(row),
+            format!(
+                r#"{{"task_id": null, "class": "plan_composed", "grade": null, "human_verdict": null, "text": "324 measurement", "by": "{by}", "chosen": true, "judge_run_ids": {}, "path": {path}, "plan": [{{"id": "t1"}}, {{"id": "t2"}}], "outcome": {{"applied": 1, "fixed": 1, "rejected": 0, "pending": 1}}}}"#,
+                json::dumps_default(&json::loads_str(judges).unwrap()),
+            )
+        );
+
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        assert_eq!(
+            hydra_grader::labels_cli::main(&["count".into()], &env, &mut out, &mut err),
+            0
+        );
+        assert!(err.is_empty(), "{}", String::from_utf8_lossy(&err));
+        let (panel, session) = if by == "panel" { (1, 0) } else { (0, 1) };
+        let judge_line = if by == "panel" { "plan_judge\t2\n" } else { "" };
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            format!(
+                "build\t3\n\
+                 plan_proposer\t2\tchosen 0\tnot chosen 2\tno verdict 0\tno draft 0\n\
+                 plan_composed\t1\tby panel {panel}\tby session {session}\n{judge_line}"
+            )
+        );
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
 /// The bytes of a seeded file: its text, or its hex where it is not UTF-8.
 fn blob(value: &Value) -> Vec<u8> {
     if has(value, "text") {
@@ -147,7 +237,7 @@ fn compare() {
     let _ = std::fs::remove_dir_all(&scratch);
 
     let (mut compared, mut refused, mut count, mut verdicts) = (0, 0, 0, 0);
-    let (mut chosen, mut not_chosen) = (0, 0);
+    let (mut chosen, mut not_chosen, mut composed) = (0, 0, 0);
     let mut differing = Vec::new();
     for (n, path) in paths.iter().enumerate() {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
@@ -190,10 +280,16 @@ fn compare() {
         let found = labels::labels_for_goal(&shown, &events).unwrap();
         // As `record.py` wrote them: every pair in order, as text, so NaN equals NaN. Build
         // tickets 303 and 323 added `chosen`, `outcome` and `has_draft` to a proposer's row
-        // and to no other; the Python never had them, so compare the fields it had.
+        // and to no other, and 324 a `plan_composed` row; the Python never had them, so
+        // compare the rows and fields it had.
+        let is = |row: &Value, name: &str| matches!(field(row, "class"), Value::Str(class) if *class == name);
         for (_, row) in found.iter() {
-            let proposer =
-                matches!(field(row, "class"), Value::Str(class) if *class == "plan_proposer");
+            if is(row, "plan_composed") {
+                assert!(matches!(field(row, "chosen"), Value::Bool(true)), "{label}");
+                composed += 1;
+                continue;
+            }
+            let proposer = is(row, "plan_proposer");
             assert_eq!(has(row, "chosen"), proposer, "{label}: {row:?}");
             assert_eq!(has(row, "outcome"), proposer, "{label}: {row:?}");
             assert_eq!(has(row, "has_draft"), proposer, "{label}: {row:?}");
@@ -207,6 +303,7 @@ fn compare() {
         }
         let pairs: Vec<Value> = found
             .iter()
+            .filter(|(_, row)| !is(row, "plan_composed"))
             .map(|(run_id, row)| Value::List(vec![run_id.clone(), before_303(row)]))
             .collect();
         let ours = json::dumps_default(&Value::List(pairs));
@@ -226,7 +323,7 @@ fn compare() {
     println!(
         "labels: {compared} goal logs equal with {count} labels, {verdicts} of them with a \
          human verdict; {refused} logs refused by both; proposers {chosen} chosen and \
-         {not_chosen} not"
+         {not_chosen} not; {composed} composed"
     );
     assert!(
         differing.is_empty(),
@@ -243,4 +340,5 @@ fn compare() {
         chosen >= 1 && not_chosen >= 1,
         "{chosen} chosen, {not_chosen} not"
     );
+    assert!(composed >= 1, "{composed} composed");
 }

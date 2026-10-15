@@ -480,6 +480,26 @@ fn picked(plan: &Value, verdict: &Value, named: &Value) -> Result<bool> {
     Ok(py::eq(&py::get(plan, "provider", Value::Null)?, named))
 }
 
+/// The task array of a composed plan's file: the first ```` ```json ```` fence's body, or the
+/// whole file when it is JSON with no fence, as the session may write one by hand. `null`
+/// when the file cannot be read or neither parses, as on a recorded log whose temporary
+/// home is gone.
+fn composed_plan(path: &Value) -> Value {
+    let Some(path) = py::str(path).to_utf8() else {
+        return Value::Null;
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Value::Null;
+    };
+    let fenced = text.split_once("```json").and_then(|(_, rest)| {
+        let body = rest.split_once("```").map_or(rest, |(body, _)| body);
+        json::loads_str(body).ok()
+    });
+    fenced
+        .or_else(|| json::loads_str(&text).ok())
+        .unwrap_or(Value::Null)
+}
+
 /// What became of a goal's tasks: how many the human applied, fixed and rejected, and how
 /// many have no verdict yet.
 fn tally(tasks: &Keyed) -> Result<Value> {
@@ -551,6 +571,7 @@ pub fn labels_for_goal(shown: &Shown, events: &[Value]) -> Result<Keyed> {
         verdict => py::get(verdict, "chosen", Value::Null)?,
     };
     let outcome = tally(&tasks)?;
+    let nothing = || Value::List(Vec::new());
     for plan in py::list(py::item(&shown.state, "plans")?)? {
         let has_draft = py::truthy(&py::get(&plan, "path", Value::Null)?);
         let chosen = if !has_draft || matches!(named, Value::Null) {
@@ -570,8 +591,34 @@ pub fn labels_for_goal(shown: &Shown, events: &[Value]) -> Result<Keyed> {
         }
         labels.set(py::item(&plan, "run_id")?.clone(), row)?;
     }
+    // Build ticket 324: a composed plan is the one that ran, so it gets the goal's outcome
+    // on a row of its own and no proposer is credited. It is no run, so its key is
+    // `composed:<goal id>`, which no run id spells and `collect` never joins.
+    if py::eq_str(&named, "composed") {
+        let judges = py::get(&verdict, "judge_run_ids", nothing())?;
+        let path = py::get(&verdict, "path", Value::Null)?;
+        let by = if py::truthy(&judges) {
+            "panel"
+        } else {
+            "session"
+        };
+        let mut row = role("plan_composed");
+        if let Value::Dict(fields) = &mut row {
+            fields.set("by", Value::text(by));
+            fields.set("chosen", Value::Bool(true));
+            fields.set("judge_run_ids", judges);
+            fields.set("path", path.clone());
+            fields.set("plan", composed_plan(&path));
+            fields.set("outcome", outcome);
+        }
+        let goal_id = py::get(&shown.state, "goal_id", Value::Null)?;
+        let mut key = PyStr::from("composed:");
+        for code in py::str(&goal_id).code_points().iter() {
+            key.push_code(*code);
+        }
+        labels.set(Value::Str(key), row)?;
+    }
 
-    let nothing = || Value::List(Vec::new());
     for event in events {
         let name = py::get(event, "event", Value::Null)?;
         if py::eq_str(&name, "panel_verdict") {
@@ -633,10 +680,12 @@ pub fn collect(home: &Path, env: &Env, stderr: &mut dyn Write) -> Result<Keyed> 
 
 /// `hydra-grader labels count` (build ticket 303): one line per class with its number of
 /// rows, in the order the classes were first met, and for `plan_proposer` how many were
-/// chosen, not chosen, had no verdict, and produced no draft.
+/// chosen, not chosen, had no verdict, and produced no draft. A composed plan is its own
+/// class, `plan_composed`, split by who composed it (build ticket 324).
 pub fn count(labels: &Keyed, out: &mut dyn Write) -> Result<()> {
     let mut classes: Vec<(String, usize)> = Vec::new();
     let mut split = [0usize; 4];
+    let mut composers = [0usize; 2];
     for (_, row) in labels.iter() {
         let class = py::str(&py::get(row, "class", Value::Null)?).lossy();
         match classes.iter_mut().find(|(name, _)| *name == class) {
@@ -651,6 +700,10 @@ pub fn count(labels: &Keyed, out: &mut dyn Write) -> Result<()> {
                 _ => 2,
             }] += 1;
         }
+        if class == "plan_composed" {
+            let by = py::get(row, "by", Value::Null)?;
+            composers[usize::from(!py::eq_str(&by, "panel"))] += 1;
+        }
     }
     for (class, rows) in &classes {
         write!(out, "{class}\t{rows}")?;
@@ -660,6 +713,10 @@ pub fn count(labels: &Keyed, out: &mut dyn Write) -> Result<()> {
                 out,
                 "\tchosen {chosen}\tnot chosen {not_chosen}\tno verdict {none}\tno draft {no_draft}"
             )?;
+        }
+        if class == "plan_composed" {
+            let [panel, session] = composers;
+            write!(out, "\tby panel {panel}\tby session {session}")?;
         }
         writeln!(out)?;
     }
@@ -786,6 +843,40 @@ mod tests {
             chosen(r#"{"chosen":"composed","path":"/h/g/plans/composed.md"}"#),
             ["False", "False"]
         );
+    }
+
+    /// Build ticket 324: only a `composed` verdict gives the goal a `plan_composed` row. A
+    /// file that is gone leaves `plan` null, and a hand-written file of bare JSON is read.
+    #[test]
+    fn a_composed_verdict_and_no_other_gives_the_goal_its_own_row() {
+        let composed = |verdict: &str| -> Option<Value> {
+            let state = format!(
+                r#"{{"goal_id":"g","goal":null,"tasks":{{}},"plans":[],"chosen_plan":{verdict}}}"#
+            );
+            let labels = labels_for_goal(&shown(&state), &[]).unwrap();
+            labels.get(&text("composed:g")).unwrap().cloned()
+        };
+        assert!(composed("null").is_none());
+        assert!(composed(r#"{"chosen":"claude","path":null}"#).is_none());
+        let gone = composed(r#"{"chosen":"composed","path":"/nonexistent/composed.md"}"#).unwrap();
+        assert!(matches!(py::item(&gone, "plan").unwrap(), Value::Null));
+        assert!(py::eq_str(py::item(&gone, "by").unwrap(), "session"));
+
+        let dir = std::env::temp_dir().join(format!("hydra-labels-324-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("composed.md");
+        std::fs::write(&file, "[{\"id\": \"a\"}]\n").unwrap();
+        let path = json::dumps_default(&text(file.to_str().unwrap()));
+        let read = composed(&format!(
+            r#"{{"chosen":"composed","path":{path},"judge_run_ids":["j"]}}"#
+        ))
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            json::dumps_default(py::item(&read, "plan").unwrap()),
+            r#"[{"id": "a"}]"#
+        );
+        assert!(py::eq_str(py::item(&read, "by").unwrap(), "panel"));
     }
 
     #[test]
