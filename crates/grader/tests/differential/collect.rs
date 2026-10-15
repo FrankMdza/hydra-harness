@@ -161,7 +161,7 @@ fn read_plain(path: &Path, root: &Path) -> Option<String> {
 /// the class raised, with the sentence of a `LabelsError`.
 type Gave = (Option<String>, Option<String>, Option<String>);
 
-/// A label row without the two fields build ticket 303 gave a plan proposer, which the
+/// A label row without the fields build tickets 303 and 323 gave a plan proposer, which the
 /// Python never had. They are on a proposer's row and on no other.
 fn before_303(row: &Value) -> Value {
     let Value::Dict(fields) = row else {
@@ -171,9 +171,10 @@ fn before_303(row: &Value) -> Value {
         matches!(fields.get("class"), Some(Value::Str(class)) if *class == "plan_proposer");
     assert_eq!(has(row, "chosen"), proposer, "{row:?}");
     assert_eq!(has(row, "outcome"), proposer, "{row:?}");
+    assert_eq!(has(row, "has_draft"), proposer, "{row:?}");
     let mut kept = hydra_pyjson::json::Dict::new();
     for (key, value) in fields.iter() {
-        if *key != "chosen" && *key != "outcome" {
+        if *key != "chosen" && *key != "outcome" && *key != "has_draft" {
             kept.push(key.clone(), value.clone());
         }
     }

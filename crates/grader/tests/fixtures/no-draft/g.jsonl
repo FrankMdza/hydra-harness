@@ -1,0 +1,7 @@
+{"event":"goal","text":"323 measurement","repo":".","base_sha":"abc"}
+{"event":"plan_proposed","provider":"claude","run_id":"ready-a"}
+{"event":"plan_ready","run_id":"ready-a","path":"a.md"}
+{"event":"plan_proposed","provider":"agy","run_id":"ready-b"}
+{"event":"plan_ready","run_id":"ready-b","path":"b.md"}
+{"event":"plan_proposed","provider":"codex","run_id":"no-draft"}
+{"event":"panel_verdict","chosen":"claude","path":"a.md"}

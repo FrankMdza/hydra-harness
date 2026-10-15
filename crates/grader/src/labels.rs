@@ -552,7 +552,8 @@ pub fn labels_for_goal(shown: &Shown, events: &[Value]) -> Result<Keyed> {
     };
     let outcome = tally(&tasks)?;
     for plan in py::list(py::item(&shown.state, "plans")?)? {
-        let chosen = if matches!(named, Value::Null) {
+        let has_draft = py::truthy(&py::get(&plan, "path", Value::Null)?);
+        let chosen = if !has_draft || matches!(named, Value::Null) {
             Value::Null
         } else {
             Value::Bool(picked(&plan, &verdict, &named)?)
@@ -563,6 +564,7 @@ pub fn labels_for_goal(shown: &Shown, events: &[Value]) -> Result<Keyed> {
         };
         let mut row = role("plan_proposer");
         if let Value::Dict(fields) = &mut row {
+            fields.set("has_draft", Value::Bool(has_draft));
             fields.set("chosen", chosen);
             fields.set("outcome", ended);
         }
@@ -631,10 +633,10 @@ pub fn collect(home: &Path, env: &Env, stderr: &mut dyn Write) -> Result<Keyed> 
 
 /// `hydra-grader labels count` (build ticket 303): one line per class with its number of
 /// rows, in the order the classes were first met, and for `plan_proposer` how many were
-/// chosen, not chosen, and had no verdict.
+/// chosen, not chosen, had no verdict, and produced no draft.
 pub fn count(labels: &Keyed, out: &mut dyn Write) -> Result<()> {
     let mut classes: Vec<(String, usize)> = Vec::new();
-    let mut split = [0usize; 3];
+    let mut split = [0usize; 4];
     for (_, row) in labels.iter() {
         let class = py::str(&py::get(row, "class", Value::Null)?).lossy();
         match classes.iter_mut().find(|(name, _)| *name == class) {
@@ -643,6 +645,7 @@ pub fn count(labels: &Keyed, out: &mut dyn Write) -> Result<()> {
         }
         if class == "plan_proposer" {
             split[match py::get(row, "chosen", Value::Null)? {
+                _ if matches!(py::get(row, "has_draft", Value::Null)?, Value::Bool(false)) => 3,
                 Value::Bool(true) => 0,
                 Value::Bool(false) => 1,
                 _ => 2,
@@ -652,10 +655,10 @@ pub fn count(labels: &Keyed, out: &mut dyn Write) -> Result<()> {
     for (class, rows) in &classes {
         write!(out, "{class}\t{rows}")?;
         if class == "plan_proposer" {
-            let [chosen, not_chosen, none] = split;
+            let [chosen, not_chosen, none, no_draft] = split;
             write!(
                 out,
-                "\tchosen {chosen}\tnot chosen {not_chosen}\tno verdict {none}"
+                "\tchosen {chosen}\tnot chosen {not_chosen}\tno verdict {none}\tno draft {no_draft}"
             )?;
         }
         writeln!(out)?;
@@ -754,7 +757,7 @@ mod tests {
         count(&labels, &mut out).unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "build\t3\nplan_proposer\t2\tchosen 1\tnot chosen 1\tno verdict 0\n"
+            "build\t3\nplan_proposer\t2\tchosen 1\tnot chosen 1\tno verdict 0\tno draft 0\n"
         );
     }
 

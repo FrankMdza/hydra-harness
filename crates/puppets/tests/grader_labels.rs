@@ -33,14 +33,14 @@ fn has(value: &Value, key: &str) -> bool {
     matches!(value, Value::Dict(dict) if dict.get(key).is_some())
 }
 
-/// A label row without the two fields build ticket 303 gave a plan proposer.
+/// A label row without the fields build tickets 303 and 323 gave a plan proposer.
 fn before_303(row: &Value) -> Value {
     let Value::Dict(fields) = row else {
         return row.clone();
     };
     let mut kept = Dict::new();
     for (key, value) in fields.iter() {
-        if *key != "chosen" && *key != "outcome" {
+        if *key != "chosen" && *key != "outcome" && *key != "has_draft" {
             kept.push(key.clone(), value.clone());
         }
     }
@@ -58,6 +58,56 @@ fn string(value: &Value) -> String {
     match value {
         Value::Str(text) => text.to_utf8().expect("a surrogate"),
         other => panic!("not a string: {other:?}"),
+    }
+}
+
+/// Build 323: fold a proposed run that never emitted plan_ready alongside two drafts.
+/// A provider-only choice must not turn the missing draft into a chosen proposal either.
+#[test]
+fn a_proposer_without_a_draft_is_neither_chosen_nor_rejected() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../grader/tests/fixtures/no-draft");
+    let env = Env::from_pairs([
+        ("HYDRA_PUPPETS_BIN", OsStr::new(HELPER)),
+        ("HYDRA_PUPPETS_HOME", fixture.as_os_str()),
+    ]);
+    let shown = labels::show_goal(OsStr::new("g"), &fixture, &env).unwrap();
+    let found = labels::labels_for_goal(&shown, &[]).unwrap();
+    let absent = found.get(&Value::text("no-draft")).unwrap().unwrap();
+    assert!(matches!(field(absent, "has_draft"), Value::Bool(false)));
+    assert!(matches!(field(absent, "chosen"), Value::Null));
+    assert!(matches!(field(absent, "outcome"), Value::Null));
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    assert_eq!(
+        hydra_grader::labels_cli::main(&["count".into()], &env, &mut out, &mut err),
+        0
+    );
+    assert!(err.is_empty(), "{}", String::from_utf8_lossy(&err));
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "plan_proposer\t3\tchosen 1\tnot chosen 1\tno verdict 0\tno draft 1\n"
+    );
+
+    for verdict in ["null", r#"{"chosen":"codex","path":null}"#] {
+        let mut state = labels::Shown {
+            state: shown.state.clone(),
+            tasks: shown.tasks.clone(),
+        };
+        if let Value::Dict(fields) = &mut state.state {
+            fields.set("chosen_plan", json::loads_str(verdict).unwrap());
+        }
+        let found = labels::labels_for_goal(&state, &[]).unwrap();
+        let absent = found.get(&Value::text("no-draft")).unwrap().unwrap();
+        assert!(matches!(field(absent, "chosen"), Value::Null));
+        assert!(matches!(field(absent, "outcome"), Value::Null));
+        if verdict == "null" {
+            let mut out = Vec::new();
+            labels::count(&found, &mut out).unwrap();
+            assert_eq!(
+                String::from_utf8(out).unwrap(),
+                "plan_proposer\t3\tchosen 0\tnot chosen 0\tno verdict 2\tno draft 1\n"
+            );
+        }
     }
 }
 
@@ -139,13 +189,14 @@ fn compare() {
         let events = labels::committed_events(&home.join(format!("{goal}.jsonl"))).unwrap();
         let found = labels::labels_for_goal(&shown, &events).unwrap();
         // As `record.py` wrote them: every pair in order, as text, so NaN equals NaN. Build
-        // ticket 303 added `chosen` and `outcome` to a proposer's row and to no other; the
-        // Python never had them, so the comparison is over the fields it had.
+        // tickets 303 and 323 added `chosen`, `outcome` and `has_draft` to a proposer's row
+        // and to no other; the Python never had them, so compare the fields it had.
         for (_, row) in found.iter() {
             let proposer =
                 matches!(field(row, "class"), Value::Str(class) if *class == "plan_proposer");
             assert_eq!(has(row, "chosen"), proposer, "{label}: {row:?}");
             assert_eq!(has(row, "outcome"), proposer, "{label}: {row:?}");
+            assert_eq!(has(row, "has_draft"), proposer, "{label}: {row:?}");
             if proposer {
                 match field(row, "chosen") {
                     Value::Bool(true) => chosen += 1,

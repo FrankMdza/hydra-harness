@@ -19,6 +19,16 @@ saved nothing (15.447 s median); release already has no debuginfo and `ld64.lld`
 The ticket records all repetitions and three load averages. Runtime throughput was not
 benchmarked. The dev profile remains as above.
 
+**Hydra runs on macOS. It compiles on Linux since build ticket 315, and is untested at
+runtime there.** `cargo check --workspace --all-targets --target x86_64-unknown-linux-gnu`
+passes, and so does clippy with `-D warnings` for that target. Before the ticket it failed on
+one error, `libc::KERN_PROC_PID` in `procinfo.rs`. Linux reads a pid's start time from
+`/proc/<pid>/stat` field 22 plus `btime` from `/proc/stat`. `sandbox::wraps_launches()` is
+false there, so a launch runs bare and nothing confines a shell. `clone_build_cache` does
+nothing there either, so a Linux run compiles its dependencies from cold. Recorded runs stay on the Mac
+(map 119). CI's `linux` job builds the workspace on `ubuntu-latest` and runs the suite with
+`--skip sandbox`; the first push decides whether that job is green.
+
 Read it before trusting a run record written by this binary. A null `policy` can name a
 pre-gate record, an ungated interactive run or a harness pass; read `launch_mode` and the
 envelope's provider before deciding which. Ticket 02 wired it, and every record written after
@@ -2678,7 +2688,9 @@ already built and tested; `live::read_view` is what feeds it a record's pid and 
 time. Three states come out: a file with a closing line has ended, one without whose pid
 still matches is live, one without whose pid is gone is contract 6's abandoned class.
 `tests/status.rs` builds all three by hand, because the reconciliation is what is under
-test rather than the launch that produced the files.
+test rather than the launch that produced the files. On Linux, since build ticket 315,
+`procinfo::start_time` reads `/proc` instead of `sysctl`, and its stat-line parser is unit
+tested on macOS with sample lines; the kernel read itself has never run.
 
 **A status pass reads line 0 and the last 64 KiB and nothing between.** `run_end` is
 always the last line and is always small, so a fixed tail either holds it whole or the
@@ -4145,18 +4157,21 @@ nested thousands deep is read by recursion. `records.iter_records` has no caller
 is not ported.
 
 Since build ticket 303, `labels.rs` is no longer `labels.py` alone: a `plan_proposer` row also
-carries `chosen` and `outcome`, and no other class carries either. `chosen` is `null` when the goal
-has no `panel_verdict`, or one whose `chosen` is null. Otherwise it is `true` for the proposal the
+carries `chosen` and `outcome`, and no other class carries either. Since build ticket 323 it also
+carries `has_draft`, true when the folded plan has a nonempty `path` from `plan_ready`.
+`chosen` is `null` when the proposer has no draft, the goal has no `panel_verdict`, or the
+verdict's `chosen` is null. Otherwise it is `true` for the proposal the
 verdict picked and `false` for the rest. A verdict with a `path` picks the proposal whose `path` is
 that file. One without a path, `choose <provider>`, picks by provider. A composed plan picks none,
-so every proposer of a composed goal is `false`. `outcome` is `null` unless `chosen` is `true`.
+so every proposer with a draft of a composed goal is `false`. `outcome` is `null` unless `chosen` is `true`.
 Then it holds the counts `applied`, `fixed`, `rejected` and `pending` over the goal's tasks as the
 fold keeps them. `hydra-grader labels count` runs `collect` over the puppets home and prints one
-line per class with its rows, and for `plan_proposer` the split chosen, not chosen, no verdict. The
-dataset row in `collect.rs` picks label fields by name, so neither field reaches the dataset. Both
+line per class with its rows, and for `plan_proposer` the split chosen, not chosen, no verdict,
+no draft. No draft takes precedence over no verdict and is excluded from the preference split.
+The dataset row in `collect.rs` picks label fields by name, so none of these fields reaches the dataset. Both
 equivalence tests, `crates/puppets/tests/grader_labels.rs` and `collect/labels.json` in the
-grader's differential test, compare the rows with the two fields taken off, and check that the
-two are on proposer rows and nowhere else.
+grader's differential test, compare the rows with the three fields taken off, and check that the
+three are on proposer rows and nowhere else.
 
 Two programs are still started. `hydra show <id> --events` is `HYDRA_BIN` or `hydra`, with
 `HYDRA_ROOT` set to the directory above the runs. `hydra-puppets show -- <goal>` keeps the rule of
