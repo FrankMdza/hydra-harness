@@ -352,6 +352,19 @@ it.
 - [312 - The builder report over the build tickets: who built what, and whether it stood](312-the-builder-report-over-the-build-tickets.md)
 - [313 - What `IMPLEMENTATION.md` says that the code no longer does](313-what-implementation-md-says-that-the-code-no-longer-does.md)
 - [314 - `hydra show` writes a `spawn/<run-id>/` directory for every run it reads](314-hydra-show-writes-a-spawn-directory-for-every-run-it-reads.md)
+- [315 - Hydra compiles on Linux: a `/proc` start-time reader and a CI job that proves it](315-hydra-compiles-on-linux.md)
+- [316 - `run_start` carries the host it ran on, and `sandbox` the kind of profile its sha hashed](316-run-start-carries-its-host-and-the-sandbox-its-kind.md)
+- [317 - The drift table keyed by provider, OS and arch, every row with its date and probe](317-the-drift-table-keyed-by-provider-os-and-arch.md)
+- [318 - A bubblewrap backend composed from the same `Spawn` as the seatbelt profile](318-a-bubblewrap-backend-for-the-launch-wrapper.md)
+- [319 - The floor reads a quoted heredoc body as data, single quotes as data, and a newline as a command separator](319-the-floor-reads-quoted-heredocs-as-data-and-newlines-as-separators.md)
+- [320 - A floor refusal names the longest matching deny entry, the token that resolved to it and the link it went through](320-a-refusal-names-the-deny-entry-the-token-and-the-link.md)
+- [321 - A refused shell command is recorded whole, not as the provider's truncated log line](321-a-refused-shell-command-is-recorded-whole.md)
+- [322 - The live panel's choose prompt asks for the task array, so a `composed` verdict can be written at all](322-the-live-panel-can-compose-a-plan.md)
+- [323 - A proposer that never produced a plan gets `chosen: null`, not `false`](323-a-proposer-without-a-draft-is-not-a-rejected-one.md)
+- [324 - A composed plan gets a row of its own, `plan_composed`, chosen and carrying the goal's outcome](324-a-composed-plan-gets-a-row-of-its-own.md)
+- [325 - `hydra reap` on a checkout where the run staged a nested repository, measured and pinned in `tests/cleanup.rs`](325-reap-on-a-checkout-with-a-staged-nested-repository.md)
+- [326 - `hydra reap` decides what a staged nested repository becomes: the files committed and the gitlink dropped, or a refusal naming the path](326-reap-decides-what-a-staged-nested-repository-becomes.md)
+- [327 - `sheet.rs::rank` reads verdicts across goals, with the prior it starts from stated](327-rank-reads-verdicts-across-goals-with-the-prior-stated.md)
 
 ## Out of scope
 

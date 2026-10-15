@@ -1,7 +1,7 @@
 # 118 - The harness's own model is trained as an architect and orchestrator, not a generalist
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-12, by the session, from the human's note of the same day. Grilling: the human
 answers, the session only asks and brings what was read.
@@ -41,5 +41,31 @@ the session's synthesis and recommendation per question in `118-synthesis.md`. T
 decides; nothing is written under Answer by the session.
 
 ## Answer
+
+Resolved 2026-10-15 by the human, who took the panel's recommendation and map 121's
+measurement ("sigo con las decisiones del panel").
+
+1. The training example is one plan proposal: the goal text, the repository context the proposer
+   had at `base_sha`, and the plan JSON it produced, with two labels kept apart, preference
+   (chosen or not) and outcome (what became of its tasks). Build 303 built the join. On this
+   machine it counts 7 proposer rows, 1 chosen, and the one goal with outcomes was not a panel
+   composition (map 122). Nothing is trained until the rows can be counted in the hundreds.
+2. The model outputs the plan JSON of `prompts/plan.md`, a draft the copilot and the human
+   review. Assignment stays in `sheet.rs`; no model writes the table.
+3. Map 121 measured the untuned Ministral 3B against Opus 5.5 on the five bench goals, scored
+   blind: median 3 of 6 under Flash and 4 of 6 under Astra against 6 for Opus, and 5 of 15 drafts
+   refused by the plan validator before anyone read them. An untuned 3B is not a credible planner.
+   Round two does not start on a 3B planner now; the size and the budget are decided when the
+   corpus of question 1 exists and says how large the gap to close is.
+4. The human pays, under a cap stated per round. The regression gate has three parts: the static
+   validator (builds 299 and 307, done), a blinded draft comparison on held-out goals (map 121's
+   procedure, reusable as it is), and the bench goals plus a few multi-task goals with a
+   non-inferiority margin fixed before the run.
+5. D12's boundary stays. The map notes under `## Out of scope` that round one happened as an
+   external experiment; the line changes when a corpus exists. Map 112 stays the blocker for a
+   live proposer seat.
+
+No new build ticket from this answer: the join, the validator and the measurement already
+closed as builds 303, 299 and 307 and map 121.
 
 Map 121 (2026-10-13, the session) measured question 3: untuned Ministral 3B against Opus 5.5 on the five bench goals, blind judged. The 3B ties only on the one-line typo and fails the JSON format on 4 of 15; the table and the quotes are under `## Findings` of `121-an-untuned-3b-drafting-plans-for-the-bench-goals.md`.

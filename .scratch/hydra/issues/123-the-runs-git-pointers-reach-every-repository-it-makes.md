@@ -1,7 +1,7 @@
 # 123 - The run's git pointers reach every repository the run makes, not only its checkout
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from build 309's Outcome ("Found on the way") and builds
 295, 296 and 302 before it. Grilling: the human answers, the session only asks and brings
@@ -40,6 +40,27 @@ it is a new binary on every run's PATH, which is a seatbelt and allowlist questi
 is a build.
 
 ## Answer
+
+Resolved 2026-10-15 by the human, who took the panel's recommendation ("sigo con las
+decisiones del panel").
+
+1. The pointers reaching every repository is the cost build 103 wrote into `run_object_env`'s
+   doc comment, and it stays. A sub-repository's history landing in the parent as unreferenced
+   objects is harmless: checked by `index-pack --strict`, capped, pruned by `git gc`. What breaks is
+   `hydra reap` on a checkout where the run staged a nested repository: a gitlink of mode 160000
+   that reap's pointer-less git cannot resolve, exit 128, the checkout left behind.
+2. No shim and no allowlist change. The shim cannot see `git init` coming (before it runs, the cwd
+   belongs to the checkout) and costs 7.3 ms per git call. The fix is in reap, outside the
+   seatbelt, where Hydra already rewrites the index before it commits: every index entry of mode
+   160000 and every directory holding a `.git` under the checkout gets one treatment. Which of the
+   two, commit the files and drop the gitlink, or refuse naming the path, is the one word still the
+   human's; the session's suggestion is the first, said in reap's output, because a refusal leaves
+   the checkout behind as today does.
+3. The suite needs nothing more since build 302. `IMPLEMENTATION.md` carries the measured
+   consequences since 78f9de2. A sentence in `config/preamble.md` is protected and the human's.
+
+Tickets: build 325 (the `tests/cleanup.rs` case, no decision needed), build 326 (reap's
+treatment, after the word).
 
 ## Panel
 

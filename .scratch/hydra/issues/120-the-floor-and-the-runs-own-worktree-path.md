@@ -1,7 +1,7 @@
 # 120 - The pattern floor refuses a run's own worktree path: a scope it cannot name
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from the human's note on Hydra's list of 2026-10-13 ("es
 decisión de mapa, no de build"). Grilling: the human answers, the session only asks and brings
@@ -44,6 +44,29 @@ glob, hits the floor by accident, and the refusal reads like a policy violation 
 
 ## Answer
 
+Resolved 2026-10-15 by the human, who took the panel's recommendation ("sigo con las
+decisiones del panel"). The premise was wrong: the own worktree is already carved out in both
+passes of the shell check and measured allowed on two live gates; run `01a1332c` was refused for a
+heredoc body that named `~/hydra/runs`, and the record does not carry the body.
+
+1. No new carve-out. A string-prefix one would reopen attack H3 of map 68.
+2. The refusal names the longest matching deny entry, the token that resolved to it and the link
+   it went through; never "use a relative path", which was false for the record in question.
+3. No seatbelt change.
+4. Every run. Cerebro is not special; the attack corpus has no class that relies on the own
+   worktree path.
+5. Yes: the body of a heredoc with a quoted delimiter and anything in single quotes are literal,
+   and both the substitution rule and the protected-path substring pass skip them; an unquoted
+   body expands and stays refused. In the same change the floor splits segments on a real newline,
+   the hole Opus measured (`exit 0` newline `git gc` passed, `exit 0; git gc` was refused), because
+   once newlines separate commands every heredoc line starting with `git` is a command to the floor
+   unless the floor knows where the quoted body ends. A refused shell command is recorded whole.
+
+Question 6, whether `standard` lets a shell read the run's own pinned snapshot on a sandboxed
+launch, goes to map 127.
+
+Tickets: builds 319 (the floor's heredoc, quote and newline rules), 320 (the refusal names its
+cause), 321 (the refused command on the record).
 
 ## Panel
 

@@ -1,7 +1,7 @@
 # 119 - On a Linux VM the gate is hook-only: what wraps a launch there
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-12, by the session, from the cloud research of the same day
 (`~/cerebro/research/cloud-vm.md`, section 6). The human wants his sessions on an always-on VM
@@ -27,6 +27,31 @@ enforced"); without it the VM population gets the gate of 2026-09-14 before the 
    `base_tree` enough to tell them apart?
 
 ## Answer
+
+Resolved 2026-10-15 by the human, who took the panel's recommendation ("sigo con las
+decisiones del panel"). Before any of it: Hydra has to compile on Linux, which it does not today
+(`src/procinfo.rs` is Darwin-only with no cfg gate).
+
+1. Recorded runs under `standard` and `permissive` stay on the Mac until Linux has a wrapper. The
+   population label is a `host` object on `run_start` (os, arch, machine) and a `kind` beside
+   `sandbox`'s sha, not a second policy set: `policy_sha` hashes the same bytes on both machines
+   at one commit.
+2. Bubblewrap, not Landlock. Row 4 stays the protected writer and writes a bwrap argv instead of
+   SBPL, composed from the same `Spawn` in the same order as `compose()`, covering every launch
+   path including `interactive.rs` and `evolve.rs`'s admission, with no hook-only fallback. Codex's
+   nesting (`danger-full-access` under a wrapper, `src/provider/codex.rs` lines 82 to 86) is
+   decided before `wraps_launches()` turns true on Linux, and the five `inside_seatbelt()` sites
+   that five human-only commands key on get a Linux witness.
+3. One drift table keyed by provider, OS and arch, every row carrying its date and the probe that
+   measured it; `hydra doctor` on a platform without a row says so until `tests/drift.rs` has run
+   there.
+4. `base_tree` names content, not a host; `run_start.host` tells the machines apart. The VM's
+   backup lives in its own root, read with `HYDRA_ROOT`, so `live.rs` never reads a VM record as
+   abandoned and a bare `hydra prune` never moves one. Whether the reader may take the layout off
+   the record for a corpus written on two machines (contract 7.7) goes to map 126.
+
+Tickets: builds 315 (Linux compile), 316 (`run_start.host` and `sandbox.kind`), 317 (the drift
+table), 318 (the bubblewrap backend, after 315 and 316); map 126.
 
 ## Panel
 

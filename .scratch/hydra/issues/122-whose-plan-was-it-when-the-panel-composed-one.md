@@ -1,7 +1,7 @@
 # 122 - Whose plan was it when the panel composed one: crediting a composed plan's outcome
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-13, by the session, from build 303's Outcome. Grilling: the human answers, the
 session only asks and brings what it measured.
@@ -34,6 +34,24 @@ outcome label, and count how many goals compose before paying for a share. If mo
 compose, the outcome label is empty and question 2 becomes a build.
 
 ## Answer
+
+Resolved 2026-10-15 by the human, who took the panel's recommendation ("sigo con las
+decisiones del panel"). No panel composed `ea69da1f`; the session chose a hand-written file on
+2026-09-24 while codex was out of credits, and the live panel's inline prompt cannot compose at
+all today.
+
+1. Credit none of the proposers when a plan is composed. The composed plan gets a row of its own,
+   `class: "plan_composed"`, `chosen: true`, carrying the goal's outcome, so a composed goal's
+   verdicts land somewhere and every composed goal still yields preference pairs.
+2. The judge prompt is not asked for provenance. If attribution is ever wanted it is computed in
+   code from task text and paths and written into the goal log's `task` event, which is not
+   protected config, and not before a panel composition exists to credit.
+3. A `false` proposer row teaches as half of a pair with the goal's `true` row, and only when it
+   holds a draft. A proposer with no `plan_ready` gets `chosen: null`, and `labels count` says
+   "no draft" apart from "not chosen"; build 303's "not chosen 6" includes such rows.
+
+Tickets: builds 322 (the live panel can compose at all), 323 (`chosen: null`), 324 (the
+`plan_composed` row).
 
 ## Panel
 

@@ -1,7 +1,7 @@
 # 117 - Three tiers: a large model orchestrates and reviews, Jev checks the delegation, a small model builds
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-12, by the session, from the human's note of the same day. Grilling: the human
 answers, the session only asks and brings numbers.
@@ -45,3 +45,31 @@ Sat on 2026-10-13, degraded (no Grok seat, Gemini as flash): memos in
 `117-synthesis.md`. The human decides; nothing is written under Answer by the session.
 
 ## Answer
+
+Resolved 2026-10-15 by the human, who took the panel's recommendation as it stands ("sigo
+con las decisiones del panel").
+
+1. Jev reads the exact `--task` string `worker_task_text` renders plus the goal text, before
+   launch. It returns a score logged on the goal log, never a refusal and never a rewrite. The
+   score is declared unvalidated until an offline audit of past delegations, against a written
+   rubric (what is required behaviour and acceptance, what is implementation prescribed when it
+   need not be), shows it tracks review rejections. Only then does it earn an advisory line in
+   the cockpit, before table approval.
+2. In `hydra-puppets`, at `tasks` import beside the graph validator of build 299, as a logged
+   event. Not a gate hook, which sees tool calls and not task semantics, and not a panel seat.
+3. The default builder stays `DEFAULT_ASSIGNMENTS` per task class. A small builder is trialled
+   only on bounded tasks whose acceptance check the harness runs itself, the ticket's tests, and a
+   ticket moves to a larger builder after a diagnosed failure of that check or of review, never on
+   a score alone. `sheet.rs::rank` has to read verdicts across goals before "the smallest model
+   that passes" means anything; today each goal starts from the prior.
+4. The report came before the tier: build 301 prints first-pass acceptance, eventual acceptance,
+   rejections and tokens per task class and per model from the goal logs. The tier is judged on
+   those numbers with orchestration, review and the classifier counted as cost, on the five bench
+   goals plus the goals already on disk.
+5. Not the same as map 115. They share the outcome data and nothing else.
+
+The readings' warning stands: small builders did better with more detail handed down, not less,
+so the audit of question 1 settles the premise of the middle tier with Hydra's own rejections.
+
+Tickets: build 327 (`rank` fed verdicts across goals, with the prior stated); map 128 (the
+offline audit, scored by Kev once build 294 is in master).
