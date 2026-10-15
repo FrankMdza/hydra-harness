@@ -1441,6 +1441,50 @@ fn sha_of(scratch: &Path, content: &str) -> String {
         .to_string()
 }
 
+/// A subdirectory the run inited and committed into, with the two pointers
+/// [`hydra::worktree::run_object_env`] sets. Its `.git` has no `objects/` of
+/// its own. Answers the nested HEAD.
+fn nested_repository(
+    checkout: &Path,
+    env: &[(&'static str, String)],
+    dir: &str,
+    file: &str,
+    content: &str,
+) -> String {
+    let nested = checkout.join(dir);
+    std::fs::create_dir_all(&nested).unwrap();
+    run_git(&nested, env, &["init", "-q", "-b", "main"]);
+    run_git(
+        &nested,
+        env,
+        &["config", "user.email", "test@example.invalid"],
+    );
+    run_git(&nested, env, &["config", "user.name", "hydra tests"]);
+    std::fs::write(nested.join(file), content).unwrap();
+    run_git(&nested, env, &["add", file]);
+    run_git(&nested, env, &["commit", "-qm", "nested"]);
+    assert!(
+        !nested.join(".git/objects").exists(),
+        "the nested .git grew an objects/ directory"
+    );
+    run_git(&nested, env, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string()
+}
+
+fn unreachable_objects(repo: &Path) -> Vec<String> {
+    let out = fixture_git::command()
+        .args(["fsck", "--unreachable", "--no-reflogs"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|line| line.starts_with("unreachable "))
+        .map(str::to_string)
+        .collect()
+}
+
 /// Plants a pack in `store` whose index claims `claimed` and whose bytes are
 /// `bytes`: map ticket 74's forged pack. Built as a real one-object pack, then
 /// the index's one name and its fan-out table are rewritten. Git does not
@@ -1856,4 +1900,148 @@ fn an_alternates_file_written_while_reap_imports_brings_nothing_in() {
     assert_eq!(moved, 1);
     assert!(has_object(&fixture.repo, &own));
     let _ = (checkout, env);
+}
+
+// --- build ticket 325: a nested repository the run made under the pointers ----
+
+/// Build 326 is the ticket that will change this case's assertion: today's reap
+/// fails and leaves the checkout, and 326 picks what a staged gitlink becomes.
+#[test]
+fn reap_fails_when_the_run_staged_a_nested_repository() {
+    let fixture = Fixture::new("nested-staged");
+    let layout = fixture.layout();
+    let run = "01a0d325-0000-7000-8000-000000000001";
+    let checkout = fixture.checkout(run);
+    let env = hydra::worktree::prepare_run_objects(&layout, run, &fixture.repo).unwrap();
+
+    let nested_head = nested_repository(
+        &checkout,
+        &env,
+        "sub",
+        "note.txt",
+        "from the nested repository\n",
+    );
+    run_git(&checkout, &env, &["add", "-A"]);
+    let staged = run_git(&checkout, &env, &["ls-files", "--stage", "sub"]);
+    assert!(
+        staged.contains("160000") && staged.contains(&nested_head),
+        "the run did not stage a gitlink: {staged}"
+    );
+
+    let reaped = reap_one(&layout, run, false);
+    assert_eq!(hydra::reap::failures(&reaped), 1);
+    match &reaped[0] {
+        Reaped::Failed { why, .. } => {
+            assert!(
+                why.contains("git status --porcelain")
+                    && why.contains("not a git repository")
+                    && why.contains("failed in submodule sub"),
+                "{why}"
+            );
+        }
+        _ => panic!(
+            "a staged nested repository was not a Failed reap: {}",
+            hydra::reap::report(&reaped)
+        ),
+    }
+    assert!(checkout.is_dir(), "the checkout went anyway");
+    assert!(layout.spawn(run).is_dir(), "the pair came apart");
+    let branch = format!("hydra/{run}");
+    let names = git(&fixture.repo, &["ls-tree", "-r", "--name-only", &branch]);
+    assert!(
+        !names.contains("sub/note.txt"),
+        "the failed reap still committed the nested files: {names}"
+    );
+}
+
+/// The other half of build 325. The ticket expected plain files and a clean
+/// reap. Measured against today's reap: `commit_everything` stages a gitlink,
+/// then `git worktree remove` exits 128 and leaves the checkout. Build 326
+/// changes the first case's assertion; this one stays until that ticket also
+/// covers an unstaged nested `.git`.
+#[test]
+fn reap_of_an_unstaged_nested_repository_commits_a_gitlink_then_fails_to_remove() {
+    let fixture = Fixture::new("nested-unstaged");
+    let layout = fixture.layout();
+    let run = "01a0d325-0000-7000-8000-000000000002";
+    let checkout = fixture.checkout(run);
+    let env = hydra::worktree::prepare_run_objects(&layout, run, &fixture.repo).unwrap();
+
+    let nested_head = nested_repository(
+        &checkout,
+        &env,
+        "sub",
+        "note.txt",
+        "from the nested repository\n",
+    );
+    let nested = checkout.join("sub");
+    let nested_tree = run_git(&nested, &env, &["rev-parse", "HEAD^{tree}"])
+        .trim()
+        .to_string();
+    let nested_blob = run_git(&nested, &env, &["rev-parse", "HEAD:note.txt"])
+        .trim()
+        .to_string();
+    let before = unreachable_objects(&fixture.repo);
+    assert!(
+        !has_object(&fixture.repo, &nested_head),
+        "the nested commit reached the parent before reap"
+    );
+
+    let reaped = reap_one(&layout, run, false);
+    assert_eq!(hydra::reap::failures(&reaped), 1);
+    match &reaped[0] {
+        Reaped::Failed { why, .. } => {
+            assert!(
+                why.contains("git worktree remove")
+                    && why.contains("'sub/.git' not recognized as a git repository")
+                    && why.contains("code 128"),
+                "{why}"
+            );
+        }
+        _ => panic!(
+            "an unstaged nested repository was not a Failed reap: {}",
+            hydra::reap::report(&reaped)
+        ),
+    }
+    assert!(checkout.is_dir(), "the checkout went anyway");
+    assert!(layout.spawn(run).is_dir(), "the pair came apart");
+
+    let branch = format!("hydra/{run}");
+    let tree = git(&fixture.repo, &["ls-tree", &branch]);
+    assert_eq!(
+        tree.lines()
+            .find(|line| line.ends_with("\tsub"))
+            .unwrap_or(""),
+        format!("160000 commit {nested_head}\tsub"),
+        "the committed tree was not a gitlink to the nested HEAD: {tree}"
+    );
+    let names = git(&fixture.repo, &["ls-tree", "-r", "--name-only", &branch]);
+    assert!(
+        !names.contains("sub/note.txt"),
+        "the nested files landed as plain files: {names}"
+    );
+
+    assert!(
+        has_object(&fixture.repo, &nested_head)
+            && has_object(&fixture.repo, &nested_tree)
+            && has_object(&fixture.repo, &nested_blob),
+        "reap did not import the nested history"
+    );
+    let after = unreachable_objects(&fixture.repo);
+    let arrived: Vec<&String> = after.iter().filter(|line| !before.contains(line)).collect();
+    assert_eq!(
+        arrived.len(),
+        3,
+        "unexpected unreferenced objects arrived: {arrived:?}"
+    );
+    for (kind, sha) in [
+        ("commit", nested_head.as_str()),
+        ("tree", nested_tree.as_str()),
+        ("blob", nested_blob.as_str()),
+    ] {
+        assert!(
+            arrived.iter().any(|line| line.contains(sha)),
+            "the nested {kind} {sha} is not unreferenced in the parent: {arrived:?}"
+        );
+    }
 }

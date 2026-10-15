@@ -3493,15 +3493,7 @@ vendor budget elsewhere, null when the budget is null. `rank` orders agents by c
 10th percentile of a beta posterior on first-pass acceptance, seeded from `priors.json` and
 moved only by `human_verdict` events. `assign` takes the ranking only when it rests on
 at least one verdict, and falls back to a default table, recorded as `source: default`, until
-then. Since build ticket 327 those verdicts come from every goal log under the puppets home,
-the walk `report builders` makes, with the assigning goal's own last, so a goal starts from
-what earlier goals taught the sheet and not from `priors.json` alone. A task id names a task
-within its goal, so each log keeps its own task classes and its own one verdict per task, and
-with a single log `rank` gives what it gave before. A log that cannot be read is named on
-stderr and passed over. Once per `tasks` import, after its assignments, `assign` appends a
-`rank_prior` event: the priors file, how many verdicts across how many goal logs it read, and
-per task class and agent the Beta prior and the verdicts counted, so the log shows when the
-prior stopped deciding. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
+then. Built over the 380 records on 2026-09-24: 26 pairs, three of them spellings of one model
 (`sonnet`, `Sonnet 5`, `claude-sonnet-5`), which the sheet keeps apart on purpose.
 
 **The judged steps, since build ticket 111.** `choose --judge` and `review` launch three seats,
@@ -5140,8 +5132,13 @@ will not read, still waits for the session either way, and `derive` reads that e
   repository, uses that store. Measured by the map 123 panel on 2026-10-13: a repository the run creates or
   clones under its checkout gets a `.git` with no `objects/`, a reader that drops the two
   variables, Hydra's own git included, finds no repository there and walks up to the checkout
-  with no error, and a sub-repository the run staged becomes a gitlink that reap's pointer-less
-  git refuses with exit 128; map 123 holds the decision. Measured after the merge on 2026-09-24: under `standard` each of
+  with no error. Build ticket 325 drove `hydra reap` itself, pinned in `tests/cleanup.rs`.
+  A nested repository the run staged as a gitlink fails at `git status --porcelain`
+  (`not a git repository: '.git'`, `failed in submodule sub`) and leaves the checkout; one
+  the run never staged is still committed as a gitlink, then `git worktree remove` exits 128
+  (`'sub/.git' not recognized as a git repository`) and leaves the checkout, while the nested
+  blob, tree and commit arrive in the parent unreferenced. Map 123 holds the decision; build
+  326 is the change. Measured after the merge on 2026-09-24: under `standard` each of
   the four providers ran `git add` in a real run, printed its own store as
   `GIT_OBJECT_DIRECTORY`, and `hydra reap` committed the file, `claude` 01a0d227-23ce, `codex`
   01a0d226-d533, `cursor-agent` 01a0d227-ef37 and `agy` 01a0d228-206c. None strips the variables

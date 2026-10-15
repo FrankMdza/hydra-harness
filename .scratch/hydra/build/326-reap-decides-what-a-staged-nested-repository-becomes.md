@@ -23,7 +23,12 @@ directory so the files land as plain files, and print one line per path in reap'
 on the run record's reap event if it has one. For "refuse": exit non-zero before any commit with
 one line per path, and leave the checkout untouched.
 
-Build 325's first case changes its assertion to the chosen behaviour.
+Build 325's first case changes its assertion to the chosen behaviour. 325 also measured the
+unstaged case: `commit_everything` still stages a gitlink, then `git worktree remove` exits 128
+(`'sub/.git' not recognized as a git repository`) and leaves the checkout, while the nested blob,
+tree and commit arrive in the parent unreferenced. Treating only index entries of mode 160000
+misses that path. The nested `.git` directories have to be found before `git add -A`, and 325's
+second case moves with the first.
 
 ## Do
 
