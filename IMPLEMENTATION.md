@@ -2300,6 +2300,22 @@ the gate still refuses tool calls naming it. Evidence write failures leave the d
 and report on hook stderr. Evidence is copied at close, not streamed live, and is not
 tamper-proof against a process using that kernel write exception. Older records remain valid.
 
+**Build 332 (2026-10-15) measured that limit and reads around it.** A stub run that appends
+a well-formed row to its own sidecar gets it on the record as a `gate_refusal` event, printed
+by `show --events` inside the boundary, with the derived decisions unchanged
+(`tests/detached.rs`). Since then `copy_gate_refusals` skips a damaged line instead of stopping
+at the first one: a truncated line, a line that is not JSON or not a valid row, and a line past
+1 MiB, whose remainder is read and discarded. It returns the count, and `run_end.error` says
+`gate refusal evidence: N damaged line(s) skipped, the rest copied` once. Before 332 the first
+bad line ended the copy and every row after it was lost. `hydra doctor --walk` now prints one
+`gate_refusal rows:` line with three counts and an `Uncorroborated` note per row whose
+`call_id` names no call, a call with no result, or a call whose result is `ok`; `error` and
+`unclassified` corroborate. Notes do not fail the walk. The join is exact only where the
+hook's id is the stream's id. `agy` call ids are step indices the normalizer makes up, so an
+`agy` row would read as uncorroborated if its hook supplied an id. Whether it does, and whether
+`cursor-agent` and `codex` hook ids equal their stream ids, was not measured: the run that built
+332 could not read `~/hydra/runs/`.
+
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a
 `/usr/bin/python3` process per record, and that interpreter is now a read-time

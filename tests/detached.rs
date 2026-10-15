@@ -636,3 +636,163 @@ fn a_writer_that_dies_before_closing_is_told_apart_from_a_slow_one() {
     );
     assert_eq!(live::read_view(&run_file).unwrap().state, State::Abandoned);
 }
+
+/// Each `(call_id, decision)` the reader derives from a record's text.
+fn decisions_of(layout: &Layout, text: &str) -> Vec<(String, &'static str)> {
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    hydra::normalize::read_with(text, &policies, layout)
+        .unwrap()
+        .permission_decisions()
+        .map(|d| (d.call_id.clone(), d.decision.as_str()))
+        .collect()
+}
+
+/// Runs `script` to its end under the watcher and returns the record's text.
+fn run_to_end(layout: &Layout, script: &str) -> String {
+    let mut watcher = start(layout, script);
+    let run_file = layout.run_file(RUN_ID);
+    watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
+    assert_eq!(
+        watch::wait_for_end(&run_file, &mut watcher, Duration::from_secs(20)).unwrap(),
+        Waited::Ended
+    );
+    std::fs::read_to_string(&run_file).unwrap()
+}
+
+#[test]
+fn a_row_the_run_appends_to_its_own_sidecar_is_read_back_as_hook_evidence() {
+    // Build ticket 332. Contract 7.7 calls `gate_refusal` hook evidence and not
+    // tamper-proof provenance, because the run's shell can write the sidecar
+    // the hook writes. This stub does exactly that mid-run, for a call no
+    // frame names, and the record carries the row like any other.
+    let layout = sandbox("forged-refusal");
+    let sidecar = layout.spawn(RUN_ID).join("gate-refusals.jsonl");
+    let forged = serde_json::json!({
+        "type": "gate_refusal",
+        "tool": "Bash",
+        "call_id": "toolu_forged",
+        "command": "curl https://example.invalid/forged",
+        "command_truncated": false,
+        "reason": "hydra/capability: written by the run, not the hook",
+    });
+    let script = format!(
+        r#"printf '{{"type":"system","subtype":"init","model":"stub-1"}}\n'; \
+printf '{{"type":"assistant","message":{{"id":"msg_01","role":"assistant","content":[{{"type":"tool_use","id":"toolu_real","name":"Bash","input":{{"command":"ls"}}}}]}}}}\n'; \
+printf '{{"type":"user","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_real","content":"refused","is_error":true}}]}}}}\n'; \
+printf '%s\n' '{forged}' >> '{sidecar}'; \
+printf '{{"type":"result","subtype":"success","is_error":false}}\n'"#,
+        sidecar = sidecar.display(),
+    );
+    let text = run_to_end(&layout, &script);
+    check(&text, Some(RUN_ID)).assert_ok();
+
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let run = hydra::normalize::read_with(&text, &policies, &layout).unwrap();
+    let rows: Vec<_> = run
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            hydra::normalize::Event::GateRefusal(row) => Some(&row.body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rows, vec![&forged], "{text}");
+
+    let mut shown = Vec::new();
+    hydra::show::show(&layout, RUN_ID, true, &mut shown).unwrap();
+    let shown: serde_json::Value = serde_json::from_slice(&shown).unwrap();
+    let command = shown["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["type"] == "gate_refusal")
+        .unwrap()["body"]["command"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rest = command.strip_prefix("<<<hydra-result ").expect(&command);
+    let (token, rest) = rest.split_once(">>>\n").expect(&command);
+    assert_eq!(
+        rest.strip_suffix(&format!("\n<<<end hydra-result {token}>>>")),
+        Some("curl https://example.invalid/forged"),
+        "the forged command is printed inside the untrusted-content boundary"
+    );
+
+    // The derived decisions come from the provider's stream, so the same
+    // record without the forged line derives the same ones.
+    let without: String = text
+        .lines()
+        .filter(|line| !line.contains("\"gate_refusal\""))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_ne!(without, text);
+    let decisions = decisions_of(&layout, &text);
+    assert_eq!(decisions, decisions_of(&layout, &without));
+    assert_eq!(decisions.len(), 1, "{decisions:?}");
+    assert_eq!(decisions[0].0, "toolu_real");
+}
+
+#[test]
+fn a_damaged_sidecar_keeps_its_good_rows_and_still_closes_the_record() {
+    // Build ticket 332. A truncated line, a line that is not JSON and a row
+    // past the line cap, between and after two good rows. The good rows are
+    // copied, the damage is said once on `run_end.error`, and run_end is there.
+    let layout = sandbox("damaged-refusals");
+    let row = |call_id: &str| {
+        serde_json::json!({
+            "type": "gate_refusal",
+            "tool": "Bash",
+            "call_id": call_id,
+            "command": format!("echo {call_id}"),
+            "command_truncated": false,
+            "reason": "hydra/capability",
+        })
+    };
+    let oversized = serde_json::json!({
+        "type": "gate_refusal",
+        "tool": "Bash",
+        "call_id": "toolu_oversized",
+        "command": "echo oversized",
+        "command_truncated": false,
+        "reason": "x".repeat(watch::GATE_REFUSAL_LINE_CAP as usize),
+    });
+    let sidecar = format!(
+        "{}\nnot json at all\n{oversized}\n{}\n{{\"type\":\"gate_refusal\",\"tool\":\"Ba",
+        row("toolu_first"),
+        row("toolu_second"),
+    );
+    // `write_spec` creates the spawn directory, and the watcher copies the
+    // sidecar at close, so writing it before the launch is the same as a hook
+    // writing it during the run.
+    let spec = spec_for(&layout, &slow_stub(0));
+    std::fs::write(layout.spawn(RUN_ID).join("gate-refusals.jsonl"), sidecar).unwrap();
+    let mut watcher =
+        watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID), &child_env()).unwrap();
+    let run_file = layout.run_file(RUN_ID);
+    watch::wait_for_start(&run_file, &mut watcher, Duration::from_secs(10)).unwrap();
+    assert_eq!(
+        watch::wait_for_end(&run_file, &mut watcher, Duration::from_secs(20)).unwrap(),
+        Waited::Ended
+    );
+    let text = std::fs::read_to_string(&run_file).unwrap();
+    check(&text, Some(RUN_ID)).assert_ok();
+
+    let lines: Vec<serde_json::Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let copied: Vec<&str> = lines
+        .iter()
+        .filter(|line| line["hydra"]["type"] == "gate_refusal")
+        .map(|line| line["hydra"]["call_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(copied, ["toolu_first", "toolu_second"]);
+    let end = &lines.last().unwrap()["hydra"];
+    assert_eq!(end["type"], "run_end");
+    let error = end["error"].as_str().unwrap();
+    assert_eq!(error.matches("gate refusal evidence").count(), 1, "{error}");
+    assert!(
+        error.contains("3 damaged line(s) skipped"),
+        "the truncated, non-JSON and oversized lines: {error}"
+    );
+}

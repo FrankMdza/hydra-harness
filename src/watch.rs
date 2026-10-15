@@ -331,9 +331,18 @@ pub fn watch(spec: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The longest sidecar line copied, newline included. A row is at most a
+/// 65,536-byte command plus its JSON escaping and four short fields.
+pub const GATE_REFUSAL_LINE_CAP: u64 = 1024 * 1024;
+
 /// Copy hook evidence before run_end so interpreting a record needs no spawn
-/// artifact. A bounded read prevents a damaged sidecar allocating without limit.
-pub fn copy_gate_refusals(path: &Path, writer: &mut Writer) -> Result<()> {
+/// artifact, and return how many lines were damaged and skipped.
+///
+/// The run's own shell can write the sidecar (contract 7.7), so a bad line is
+/// skipped rather than ending the copy: a truncated last line, a line that is
+/// not JSON or not a `gate_refusal`, and a line past [`GATE_REFUSAL_LINE_CAP`],
+/// whose remainder is read and discarded so it cannot pass for a row of its own.
+pub fn copy_gate_refusals(path: &Path, writer: &mut Writer) -> Result<usize> {
     use std::io::{BufRead, BufReader, Read};
     use std::os::unix::fs::OpenOptionsExt;
     let file = match std::fs::OpenOptions::new()
@@ -342,7 +351,7 @@ pub fn copy_gate_refusals(path: &Path, writer: &mut Writer) -> Result<()> {
         .open(path)
     {
         Ok(file) => file,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(err) => return Err(err.into()),
     };
     anyhow::ensure!(
@@ -350,36 +359,71 @@ pub fn copy_gate_refusals(path: &Path, writer: &mut Writer) -> Result<()> {
         "gate refusals is not a regular file"
     );
     let mut reader = BufReader::new(file);
+    let mut damaged = 0;
     loop {
-        let mut line = String::new();
-        let read = reader.by_ref().take(1024 * 1024).read_line(&mut line)?;
+        let mut line = Vec::new();
+        let read = reader
+            .by_ref()
+            .take(GATE_REFUSAL_LINE_CAP)
+            .read_until(b'\n', &mut line)?;
         if read == 0 {
             break;
         }
-        anyhow::ensure!(line.ends_with('\n'), "incomplete or oversized gate refusal");
-        let body: serde_json::Value = serde_json::from_str(&line)?;
-        anyhow::ensure!(
-            crate::record::validate::valid_gate_refusal(&body),
-            "invalid gate refusal"
-        );
-        writer.hydra_line(&body)?;
+        if line.last() != Some(&b'\n') {
+            damaged += 1;
+            if read as u64 == GATE_REFUSAL_LINE_CAP {
+                skip_to_newline(&mut reader)?;
+            }
+            continue;
+        }
+        match serde_json::from_slice::<serde_json::Value>(&line) {
+            Ok(body) if crate::record::validate::valid_gate_refusal(&body) => {
+                writer.hydra_line(&body)?;
+            }
+            _ => damaged += 1,
+        }
     }
-    Ok(())
+    Ok(damaged)
 }
 
-/// An interrupted or damaged evidence write must not prevent run_end.
+/// Discards the rest of an oversized line, a buffer at a time.
+fn skip_to_newline(reader: &mut impl std::io::BufRead) -> Result<()> {
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(());
+        }
+        match buffer.iter().position(|byte| *byte == b'\n') {
+            Some(at) => {
+                reader.consume(at + 1);
+                return Ok(());
+            }
+            None => {
+                let len = buffer.len();
+                reader.consume(len);
+            }
+        }
+    }
+}
+
+/// An interrupted or damaged evidence write must not prevent run_end. Damage
+/// is said once, on `run_end.error`, however many lines it took.
 pub(crate) fn gate_refusals_at_close(
     path: &Path,
     writer: &mut Writer,
     error: Option<String>,
 ) -> Option<String> {
-    match copy_gate_refusals(path, writer) {
-        Ok(()) => error,
-        Err(err) => Some(match error {
-            Some(error) => format!("{error}; gate refusal evidence: {err:#}"),
-            None => format!("gate refusal evidence: {err:#}"),
-        }),
-    }
+    let note = match copy_gate_refusals(path, writer) {
+        Ok(0) => return error,
+        Ok(damaged) => {
+            format!("gate refusal evidence: {damaged} damaged line(s) skipped, the rest copied")
+        }
+        Err(err) => format!("gate refusal evidence: {err:#}"),
+    };
+    Some(match error {
+        Some(error) => format!("{error}; {note}"),
+        None => note,
+    })
 }
 
 /// The marker `hydra stop` writes for `parent`, beside this run's own spawn

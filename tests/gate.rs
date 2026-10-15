@@ -79,11 +79,12 @@ fn refused_shell_commands_survive_the_hook_record_and_show_with_a_byte_cap() {
         let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny");
     }
-    hydra::watch::copy_gate_refusals(
+    let damaged = hydra::watch::copy_gate_refusals(
         &gate.script.with_file_name("gate-refusals.jsonl"),
         &mut writer,
     )
     .unwrap();
+    assert_eq!(damaged, 0);
     writer.hydra_line(&RunEnd::streamed(Some(0), None)).unwrap();
     drop(writer);
     // The spawn evidence can disappear; the record remains self-contained.

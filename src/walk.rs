@@ -29,6 +29,24 @@ pub struct Report {
     /// How many records each host wrote, keyed `machine os/arch`, build
     /// ticket 316. A record from before the field counts under no key.
     pub hosts: BTreeMap<String, usize>,
+    /// Build ticket 332: each stored `gate_refusal` row read against its call.
+    pub refusals: RefusalCounts,
+    /// The rows that matched no failed call. A limit of the record, printed
+    /// and not failed on: the run's own shell can write the sidecar.
+    pub uncorroborated: Vec<Finding>,
+}
+
+/// How the `gate_refusal` rows of a corpus read against their provider
+/// streams, build ticket 332.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RefusalCounts {
+    /// The row's `call_id` names a call whose result failed.
+    pub corroborated: usize,
+    /// The row's `call_id` names no call, a call with no result, or a call
+    /// whose result is a success.
+    pub uncorroborated: usize,
+    /// The hook supplied no `call_id`, so there is nothing to join on.
+    pub no_call_id: usize,
 }
 
 /// Counts the three normalization buckets the walk tracks.
@@ -86,10 +104,13 @@ pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Rep
     findings.extend(check_outcomes(paths, &read).0);
     findings.extend(check_gated_write_denials(paths, &read).0);
     findings.extend(check_unknown_sources(paths, &read));
+    let (uncorroborated, refusals) = check_gate_refusals(paths, &read);
     Report {
         findings,
         records_read: paths.len(),
         hosts: hosts_of(paths),
+        refusals,
+        uncorroborated,
     }
 }
 
@@ -851,6 +872,70 @@ pub fn check_unknown_sources(
         }
     }
     findings
+}
+
+/// Reads each stored `gate_refusal` row's `call_id` against the provider
+/// stream of the same record, build ticket 332.
+///
+/// Contract 7.7 calls the row hook evidence and not tamper-proof provenance:
+/// the run's shell can append to the sidecar the hook writes. So a row only
+/// corroborates when the provider's own stream shows the call it names and
+/// that call failing. An `unclassified` result counts as failed, since that is
+/// how `agy` reports a denial. Everything else comes back as an
+/// `Uncorroborated` note naming the call id and the command, which the caller
+/// prints and does not fail on, the way a `Foreign` gate leaves a finding
+/// unbacked rather than wrong. A record that does not read is the other
+/// checks' to report.
+pub fn check_gate_refusals(
+    paths: &[PathBuf],
+    read: &dyn Fn(&Path) -> Result<Run>,
+) -> (Vec<Finding>, RefusalCounts) {
+    use crate::normalize::{Event, ResultStatus};
+    let mut notes = Vec::new();
+    let mut counts = RefusalCounts::default();
+    for path in paths {
+        let Ok(run) = read(path) else {
+            continue;
+        };
+        let known: std::collections::HashSet<&str> =
+            run.tool_calls().map(|call| call.call_id.as_str()).collect();
+        let results: HashMap<&str, ResultStatus> = run
+            .tool_results()
+            .map(|result| (result.call_id.as_str(), result.status))
+            .collect();
+        for event in &run.events {
+            let Event::GateRefusal(row) = event else {
+                continue;
+            };
+            let Some(call_id) = row.body["call_id"].as_str() else {
+                counts.no_call_id += 1;
+                continue;
+            };
+            let why = if !known.contains(call_id) {
+                "matches no tool call"
+            } else {
+                match results.get(call_id) {
+                    Some(ResultStatus::Error | ResultStatus::Unclassified) => {
+                        counts.corroborated += 1;
+                        continue;
+                    }
+                    Some(ResultStatus::Ok) => "matches a call whose result is a success",
+                    None => "matches a call with no result",
+                }
+            };
+            counts.uncorroborated += 1;
+            push(
+                &mut notes,
+                path,
+                format!(
+                    "Uncorroborated gate_refusal at seq {}: call {call_id:?} {why}; command {:?}",
+                    row.seq,
+                    row.body["command"].as_str().unwrap_or_default()
+                ),
+            );
+        }
+    }
+    (notes, counts)
 }
 
 fn rebuilt_the_scopes(finding: &NormalizeFinding) -> bool {

@@ -185,6 +185,78 @@ fn walk_passes_a_harvested_codex_session_that_hit_its_limit() {
 }
 
 #[test]
+fn walk_corroborates_each_gate_refusal_row_against_the_call_it_names() {
+    // Build ticket 332. Four rows on one synthetic record: one names a call
+    // that failed, one names no call, one names a call that succeeded and one
+    // has no call id. The middle two are reported as limits of the record and
+    // the walk still passes, since the run's shell can write the sidecar.
+    let sandbox = Sandbox::new("doctor-walk-refusals");
+    let layout = sandbox.layout();
+    let run_id = "00000000-0000-7000-8000-000000000332";
+    std::fs::create_dir_all(layout.worktree(run_id)).unwrap();
+    let row = |call_id: serde_json::Value, command: &str| {
+        json!({
+            "type": "gate_refusal",
+            "tool": "Bash",
+            "call_id": call_id,
+            "command": command,
+            "command_truncated": false,
+            "reason": "hydra/capability",
+        })
+    };
+    let mut record = Record::shaped(Shape {
+        run_id,
+        worktree: Some(&layout.worktree(run_id)),
+        ..Shape::default()
+    });
+    record
+        .tool_use("toolu_refused", "Bash", json!({"command": "rm -rf build"}))
+        .tool_result("toolu_refused", "refused", true)
+        .tool_use("toolu_ran", "Bash", json!({"command": "ls"}))
+        .tool_result("toolu_ran", "Cargo.toml", false)
+        .result(json!({"subtype": "success", "is_error": false}));
+    record.line("hydra", row(json!("toolu_refused"), "rm -rf build"));
+    record.line("hydra", row(json!("toolu_ghost"), "curl forged.invalid"));
+    record.line("hydra", row(json!("toolu_ran"), "ls"));
+    record.line("hydra", row(json!(null), "echo no id"));
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, record.closed()).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args(["doctor", "--walk"])
+        .env("HYDRA_ROOT", layout.root())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    assert!(
+        stdout.contains("gate_refusal rows: 1 corroborated, 2 uncorroborated, 1 with no call_id"),
+        "{stdout}"
+    );
+    let notes: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.contains("Uncorroborated"))
+        .collect();
+    assert_eq!(notes.len(), 2, "{stdout}");
+    assert!(
+        notes
+            .iter()
+            .all(|note| note.starts_with(path.to_str().unwrap()))
+    );
+    assert!(
+        notes[0].contains("\"toolu_ghost\" matches no tool call")
+            && notes[0].contains("\"curl forged.invalid\""),
+        "{stdout}"
+    );
+    assert!(
+        notes[1].contains("\"toolu_ran\" matches a call whose result is a success")
+            && notes[1].contains("command \"ls\""),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("toolu_refused"), "{stdout}");
+}
+
+#[test]
 fn doctor_lists_the_panel_shapes_beside_the_other_protected_configs() {
     // 15.1 #6, build ticket 138. The home is a scratch one, so the line reads
     // a file this test wrote and never the checkout's own `config/`.

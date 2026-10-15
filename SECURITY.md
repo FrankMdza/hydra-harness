@@ -298,6 +298,20 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`
   is where a confirmed change becomes a failing test.
+- **A stored `gate_refusal` row is hook evidence, not tamper-proof provenance against a process
+  that can write the sidecar through the kernel's necessary write allowance.** That is contract
+  7.7's sentence, since build 321. The hook appends refused shell commands to
+  `gate-refusals.jsonl` under the run's own seatbelt profile, and the allowance that lets the hook
+  write lets the run's shell write too. The human declined a signature on 2026-10-15, since any
+  secret the hook can read the shell can read. Build 332 measured the forgery:
+  `tests/detached.rs` has a stub append a well-formed row for a call no frame names, and the
+  record carries it as a `gate_refusal` event, `hydra show --events` prints its command inside
+  the untrusted-content boundary, and the derived `permission_decision` rows do not change,
+  because those come from the provider's stream. A damaged line in the sidecar is skipped and
+  counted on `run_end.error`, and the record still closes. `hydra doctor --walk` reads each
+  row's `call_id` against the same record's stream and prints `Uncorroborated` for a row that
+  names no call, a call with no result, or a call that succeeded. It does not fail on one,
+  because a row is a claim about the run and not a leak.
 
 - **The export verifier aborts on the redactor's classes and warns on the rest.** `hydra export`
   redacts six classes of secret, five by prefix and OpenAI keys by a matcher of their own, then

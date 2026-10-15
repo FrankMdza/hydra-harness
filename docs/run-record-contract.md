@@ -762,7 +762,9 @@ These events are copied at close, so their envelope timestamps describe copying,
 relative to provider frames. They need no spawn artifact to be read. Older records have no such
 evidence and remain valid. Replay never writes it. Failure to write evidence is reported on hook
 stderr and does not change the denial. This is hook evidence, not tamper-proof provenance against
-a process that can write the sidecar through the kernel's necessary write allowance.
+a process that can write the sidecar through the kernel's necessary write allowance. Since build
+332 the copy skips a damaged sidecar line, counts it, and says so once on `run_end.error`; the
+walk reports a row whose `call_id` matches no failed call in the same record as uncorroborated.
 
 One per `tool_call` **on a recorded run**, derived, carrying `call_id`, `decision` of `allow` or
 `deny`, `decider` and `reason`.

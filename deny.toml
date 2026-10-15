@@ -15,6 +15,10 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# The workspace crates depend on each other by path with no version, which cargo-deny calls a
+# wildcard. Every one of them is `publish = false`, which is the case this switch exists for.
+# Found by the first `security` run that got past startup, 2026-10-15 (map 130).
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
