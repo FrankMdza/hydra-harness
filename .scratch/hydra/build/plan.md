@@ -368,6 +368,13 @@ it.
 - [328 - The ticket report counts build 312's pasted table as a ticket, and leaves 299 of 327 Outcomes `unsaid`](328-the-ticket-report-counts-a-pasted-table-as-a-ticket.md)
 - [329 - The floor reads `then`, `do` and `else` as the binary, so `if true; then git push --force; fi` passes](329-the-floor-reads-the-binary-of-a-compound-command.md)
 - [330 - The cockpit's two-second bound fails under load: `a_pending_that_hangs_is_given_up_after_two_seconds`](330-the-cockpits-two-second-bound-fails-under-load.md)
+- [331 - The Linux job says something true: four test groups fixed on a real Linux, two decided, two skipped by name](331-the-linux-job-says-something-true.md)
+- [332 - A forged `gate_refusal` row is read back as what it is, a damaged sidecar closes the record, and the walk corroborates each row against a call](332-a-forged-refusal-row-is-read-back-and-the-walk-corroborates.md)
+- [333 - `a_helper_that_hangs_on_approve_is_waited_on_five_seconds` injects its budget instead of waiting five seconds on the wall clock](333-the-approve-hang-test-injects-its-budget.md)
+- [334 - A tool call the provider rejected before any hook ran is not `Ungated`](334-a-call-the-provider-rejected-before-the-hook-is-not-ungated.md)
+- [335 - `hydra show --verdict` prints what the puppets goal logs say about a run](335-hydra-show-verdict-prints-what-the-goal-logs-say-about-a-run.md)
+- [336 - The walk counts a record from another host apart and never replays it, and Rungs refuses a corpus that mixes hosts](336-the-walk-counts-a-foreign-host-apart-and-rungs-refuses-a-mixed-corpus.md)
+- [337 - One hex helper and a fixed vector, so a `sha2` bump cannot move a sha](337-one-hex-helper-and-a-fixed-vector-so-a-sha2-bump-cannot-move-a-sha.md)
 
 ## Out of scope
 
