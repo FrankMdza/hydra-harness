@@ -1,7 +1,7 @@
 # 335 - `hydra show --verdict` prints what the puppets goal logs say about a run
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from map 130's answer, question 9. Research 129 suggested
 `hydra show --verdict` so a reader does not open the events to learn how a run was judged. Grok's
@@ -39,15 +39,39 @@ Rules inside the run: relative paths only, never look outside your own worktree,
 your file tool and not with shell heredocs, and the test suite is green inside a run since build
 302 without any `env -u`.
 
-Measured by the session on the Mac after applying, 2026-10-15, on the first goal's `redact` run
-(`01a0d588-ebc8`), the two lines after the projection:
+## Outcome
+
+`hydra show <prefix> --verdict` prints the projection, then one block from the puppets goal
+logs. The reader stayed in `crates/puppets`: `report::goal_ids` then `log::read_log`, exposed
+as `read::verdict_for_run`. `hydra` depends on `hydra-puppets` as a library; the reader did
+not move to `crates/records`. A matching `human_verdict` (or `verdict`) event keyed by run
+id prints `goal <id>  task <id>  <value>  by: <who>  <ts>`. No event prints `no verdict on
+record`. A later line from `grader/judge-labels.jsonl` names the judge model and the label.
+Nothing is written. `completed` is not treated as a verdict.
+
+Tests in `tests/show.rs`: a synthetic `human_verdict` of `applied`, a judge-label line only,
+and neither. Printed blocks:
 
 ```
-goal ea69da1f-0114-40fd-8a1d-bed411894331  task redact  fixed  by: human  2026-09-24T22:32:58.038Z
-judge gemma3:1b-it-qat  ok
+goal goal-one  task t1  applied  by: human  2026-10-15T12:00:00.000Z
 ```
 
-A proposer run of the same goal (`01a0d57e-4cf7`) prints `no verdict on record` and
-`judge rule  quota`. Applying this build beside 334 conflicted in `src/show.rs`; the session kept
-335's file and put 334's three edits (`finding_json` takes the token and prints
-`rejected_before_hook`) back by hand. Suite after both: 1443 passed.
+```
+no verdict on record
+judge llama3.1  needs_correction
+```
+
+```
+no verdict on record
+```
+
+Measured: `cargo fmt --all --check` exit 0 with empty stdout; clippy finished in 24.84 s;
+nextest 1437 passed, 4 skipped, 45.446 s; doc tests 0 passed across eight crates. The three
+new tests ran in 0.075 s, 0.069 s and 0.064 s. The `record_contract` corpus walk named in
+hydra-self-edit as a worktree-only red did not fail here.
+
+False: this run cannot read `~/hydra/puppets` or `~/hydra/runs` (relative paths only; the
+gate refused tools that named paths outside the worktree, including `~/.claude/skills/unslop`
+and the rust-writing skill). `HYDRA_PUPPETS_HOME` and `HYDRA_GRADER_HOME` were unset, so
+there is no live judged-run paste from this machine. The blocks above are the synthetic
+ones the suite printed.

@@ -392,7 +392,7 @@ hydra stop <run-id> | --all | --session <run-id>
 hydra reap [<run-id>] [--delete-branch]
 hydra prune [<run-id>...] [--delete] [--dry-run]
 hydra curate [--model <id>] [--timeout <dur>] [--dry-run]
-hydra show <run-id> [--events]
+hydra show <run-id> [--events] [--verdict]
 hydra usage recount [<run-id>]
 hydra export --out <file> | --dry-run
 hydra resume <run-id> [--task "..."] [--timeout <dur>]
@@ -3293,6 +3293,16 @@ Since build ticket 314, show uses a projection that does not harvest abandoned
 interactive runs, and its diff-stat index lives in a temporary directory removed on
 return. Reading a record, including one whose checkout is gone, creates no spawn
 directory. `tests/show.rs` checks both show modes against a scratch layout snapshot.
+
+**`hydra show <run-id> --verdict` is built, since build ticket 335.** After the summary it
+prints one block from the Master of Puppets goal logs: goal id, task id, the event's value,
+`by: human|panel|session`, and the event's `ts`. A run with no such event prints `no verdict
+on record`. A line from `judge-labels.jsonl` follows when present, naming the judge model and
+the label. The record's outcome is not a verdict; `completed` is not printed as one. The
+reader stayed in `crates/puppets` (`report::goal_ids` then `log::read_log`, exposed as
+`read::verdict_for_run`); `hydra` depends on `hydra-puppets` as a library. Nothing is
+written. `tests/show.rs` plants a synthetic goal log, a judge-label line, and a record with
+neither.
 
 **`HYDRA_ROOT` overrides `Layout::discover`, and it was read for one test file until build
 ticket 51.** Most tests build a `Layout::at` a temporary directory and call the library;
