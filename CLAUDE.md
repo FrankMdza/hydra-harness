@@ -200,7 +200,7 @@ tool cannot reach them. Your ticket carries what you need; do not go looking for
 **`cat ~/.claude/x` is not refused, and that is the honest version of the sentence above.** Under
 `standard` the path scopes bind the file tools, and the shell check reads the pattern floor and the
 denied write paths and nothing else. The adversarial review of 2026-09-14 measured it. The deny list
-covers `~/hydra`'s runtime directories and five config files; the rest of the machine, `~/.ssh` and
+covers `~/hydra`'s runtime directories and six config files; the rest of the machine, `~/.ssh` and
 the user's own guards included, is reachable by shell under `standard`. The rest of this section is
 for the third.
 

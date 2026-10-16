@@ -375,6 +375,9 @@ it.
 - [335 - `hydra show --verdict` prints what the puppets goal logs say about a run](335-hydra-show-verdict-prints-what-the-goal-logs-say-about-a-run.md)
 - [336 - The walk counts a record from another host apart and never replays it, and Rungs refuses a corpus that mixes hosts](336-the-walk-counts-a-foreign-host-apart-and-rungs-refuses-a-mixed-corpus.md)
 - [337 - One hex helper and a fixed vector, so a `sha2` bump cannot move a sha](337-one-hex-helper-and-a-fixed-vector-so-a-sha2-bump-cannot-move-a-sha.md)
+- [338 - `codex` 0.160.0's web tool `webrun` is in the capability table, so a web lookup under `permissive` is allowed and recorded instead of refused as unknown](338-codex-webrun-in-the-capability-table.md)
+- [339 - Every denied call leaves a `gate_refusal` row, not only a denied shell command, so a `codex` run whose web lookup was refused does not read as eight allows and nothing else](339-every-denied-call-leaves-a-gate-refusal-row.md)
+- [348 - A relative path in an MCP argument is resolved against the run's cwd before the protected-path check, so `mcp__writer__put` with `../runs/x.jsonl` is refused like the absolute spelling](348-a-relative-path-in-an-mcp-argument-is-resolved-before-the-protected-path-check.md)
 
 ## Out of scope
 
