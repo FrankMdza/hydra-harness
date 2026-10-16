@@ -26,6 +26,12 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   `gate.py`'s `protected_path_named_by`, so only the raw prefix pass reads it for a protected
   path; the pattern floor then refuses it as unparseable, and `--allow-floor-escape` lifts that
   refusal with the rest of the floor.
+- **An MCP argument's relative path resolves, but its fields do not join.** Since build ticket 348
+  a string in an MCP call that looks like a path, or a word of one, resolves against the run's
+  cwd, and a refusal names the resolved path and any link crossed. Not caught: two arguments
+  that join into one path, a path a server assembles from its own variables or percent-encoding,
+  and a relative path that the MCP server resolves against a directory other than the cwd the
+  hook reports.
 - **A shell bounded to a command list is a filter, and the seatbelt is the guarantee, since build
   ticket 139.** A policy may grant `shell` with a `commands` list, which map ticket 82 gives the
   seat that reads files it was not handed. The gate then refuses a command whose segments do not

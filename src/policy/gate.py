@@ -462,7 +462,9 @@ def protected_path_named_in(value):
     string, case-folded, searched for each denied spelling. Nothing is resolved,
     because there is nothing to resolve. A relative path in an MCP argument
     walks through, which is the same residual the raw shell pass has and is
-    written down beside it in `protected_path_named_by`.
+    written down beside it in `protected_path_named_by`. This pass sees a path
+    only as written; `protected_path_resolved_in` resolves the relative ones
+    (build ticket 348).
     """
     if isinstance(value, str):
         lowered = fold_ascii(value)
@@ -475,6 +477,48 @@ def protected_path_named_in(value):
             if found is not None:
                 return found
     return None
+
+
+def protected_path_resolved_in(value, cwd):
+    """(entry, facts) for the protected path an MCP argument names once resolved, or None.
+
+    The second pass of build ticket 348. `protected_path_named_in` matches a
+    denied spelling as written, so `../../runs/x.jsonl` from a run's worktree
+    walked through: it names the corpus only after it is resolved against the
+    cwd. Each string that looks like a path resolves the way a shell token does,
+    `resolved_pair` and `link_crossed` included, and a refusal names where it
+    landed.
+
+    Each whitespace-separated word of a string is tried as well as the whole
+    string, because a path inside a sentence is still a path. The shell pass
+    gets the same effect by splitting its tokens. A string that is not a path,
+    such as `runs`, is skipped here and left to the raw pass.
+    """
+    for text in strings_in(value):
+        for written in dict.fromkeys([text, *text.split()]):
+            if "/" not in written and not written.startswith((".", "~")):
+                continue
+            for candidate in path_candidates(written):
+                folded, shown, _ = resolved_pair(candidate, cwd)
+                protected = protected_root(folded)
+                if protected is not None:
+                    link = link_crossed(
+                        candidate, cwd, lambda p: protected_root(p) is not None
+                    )
+                    return protected, resolution_facts(written, shown, link)
+    return None
+
+
+def strings_in(value):
+    """Every string inside a tool call's arguments, at any depth."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from strings_in(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from strings_in(item)
 
 
 def denied_prefixes():
@@ -1631,7 +1675,9 @@ def evaluate(payload):
     # `mcp_call` met neither. `config/mcp.md` admits no writing server today, so
     # nothing had fired; the gun was loaded. The check is the raw pass of
     # `protected_path_named_by` over every string the call carries, which is
-    # coarse in the same direction and for the same reason.
+    # coarse in the same direction and for the same reason. Build ticket 348 adds
+    # a second pass after it, which resolves the relative paths the raw pass
+    # cannot see.
     if capability == "mcp_call":
         protected = protected_path_named_in(tool_input)
         if protected is not None:
@@ -1640,6 +1686,15 @@ def evaluate(payload):
                 "every policy by harness spec 7.5. An MCP call carries no path "
                 "field for the gate to check, so one that names a protected path "
                 "is refused whole.".format(tool, protected)
+            )
+        named = protected_path_resolved_in(tool_input, cwd)
+        if named is not None:
+            protected, named_facts = named
+            return False, (
+                "hydra/protected-path: an argument of {} names {}, denied under "
+                "every policy by harness spec 7.5.{}".format(
+                    tool, protected, named_facts
+                )
             )
 
     # A fetch tool's argument is a URL, and `file://` is a scheme. Whether any of

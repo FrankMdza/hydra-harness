@@ -1,7 +1,7 @@
 # 348 - A relative path in an MCP argument is resolved against the run's cwd before the protected-path check, so `mcp__writer__put` with `../runs/x.jsonl` is refused like the absolute spelling
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from the grok seat of the plan of that night
@@ -53,3 +53,65 @@ written first, the first three red today:
 ## Done means
 
 The four checks green and the Outcome quotes case 1's refusal reason.
+
+## Outcome
+
+**Built.** `src/policy/gate.py` has a second pass for `mcp_call`, `protected_path_resolved_in`,
+which runs after the raw pass. Each string that contains `/`, or starts with `.` or `~`, resolves
+the way a shell token does: `path_candidates`, then `resolved_pair` against the cwd, then
+`protected_root`, with `link_crossed` for a symlink. A refusal names the resolved path and any
+link. `strings_in` walks the arguments at any depth. The `network_read` branch is unchanged.
+
+**A choice the ticket did not spell out.** The pass also tries each whitespace-separated word of a
+string. Without that, `"copy the log from ../../runs/x.jsonl"` walks through, because the whole
+string resolves to a path under the cwd. The shell pass gets the same effect by tokenizing.
+
+**Docs.** The docstring of `protected_path_named_in` now says the raw pass sees a path only as
+written. The `mcp_call` comment in `evaluate` names the second pass. IMPLEMENTATION.md has a
+paragraph after "`mcp_call` met neither door". SECURITY.md has a new bullet after the shell
+bullet, which says what still walks through: two arguments that join into one path, a path a
+server assembles itself, and a relative path a server resolves against a cwd other than the hook's.
+
+**Tests, `tests/gate.rs`.**
+- `an_mcp_call_naming_a_protected_path_relatively_is_refused_under_permissive` (new): the corpus
+  as `../../runs/x.jsonl` at the top level, two levels deep, and inside a sentence. The reason
+  names the resolved corpus.
+- `an_mcp_call_through_a_link_in_the_worktree_is_refused_under_permissive` (new): `notes/x.jsonl`,
+  where `notes` links to the corpus. The reason says "through the link".
+- `an_mcp_call_whose_relative_path_stays_in_the_worktree_is_allowed_under_permissive` (new):
+  `notes/../src/main.rs`, `runs`, and a sentence with `src/lib.rs` and `./Cargo.toml`.
+- `a_protected_path_split_or_assembled_still_walks_past`: the MCP `//` case moved to the denied
+  side. The two-field case stays allowed, with its comment rewritten.
+
+**Red first.** Before the pass, each new test failed at the assertion the change should flip. The relative case
+reported `{"path":"../../runs/x.jsonl"} walked through: hydra/allow: policy permissive allows
+mcp_call.` The split test failed on the `//` spelling. Afterward `tests/gate.rs` is 133 of 133.
+
+**Case 1 as the ticket spells it,** `{"path": "../runs/x.jsonl"}` from the worktree, verbatim:
+
+> hydra/protected-path: an argument of mcp__writer__put names /private/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/t/hydra-gate-24841-permissive-0/worktrees, denied under every policy by harness spec 7.5. `../runs/x.jsonl` resolves to /private/var/folders/p7/gp62r5wd75ndqg6cdz2zc4sm0000gn/T/hydra-gate-24841-permissive-0/worktrees/runs/x.jsonl.
+
+**Measured, latency.** `cargo nextest run --release --test gate --no-fail-fast`, three runs each.
+With the pass switched off, the three new cases red: 17.4 s, 12.5 s, 14.3 s. With it on, 133 green:
+10.2 s, 10.4 s, 10.1 s. The off runs are slower on average, but they carry three failing tests
+and the first run was noisy, so the gap is not a measured cost of the pass. I did not isolate the
+cost of the `realpath` calls, and I claim no per-call number.
+
+**Not measured: the live walk.** Step 4 is `hydra doctor --walk`, which reads the corpus under
+`~/hydra`, outside this worktree. The rules for this run forbid looking outside the working
+directory, so I did not run it. The count of recorded MCP calls with a relative path is still
+unknown. It needs a run from outside this session.
+
+**What the ticket assumed that was false.**
+1. Case 1's spelling `../runs/x.jsonl` does not reach the corpus. From `worktrees/<run>` it lands
+   in `worktrees/runs/`. It is refused because `worktrees` is a denied root, and the refusal names
+   `worktrees`. The corpus from a worktree is `../../runs/x.jsonl`, which the tests use.
+2. Case 2's `../../hydra/policies/standard.json` lands in `~/hydra/hydra/policies/`. The policies
+   directory is `../../policies/standard.json` from a worktree. I worked this out from the layout
+   and did not run it.
+3. The "first three red today" claim holds only loosely. Each new test stops at its first failing
+   assertion, so I did not see the later cases red on the old code.
+4. The raw-pass docstring said a relative MCP path "walks through, which is the same residual the
+   raw shell pass has". That was accurate before this change and is now false, so I rewrote it.
+
+**Measured by the session on master, 2026-10-15:** `hydra doctor --walk` over 976 records raised no new finding from the resolved pass; the suite is 1460 tests, all green, with builds 339 and 349 applied in the same working tree.

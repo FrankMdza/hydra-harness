@@ -2526,20 +2526,32 @@ fn a_protected_path_split_or_assembled_still_walks_past() {
     // really lets its own corpus through.
     let permissive = Gate::new("permissive");
     let permissive_root = permissive.root.display();
+    // A doubled slash is one slash once resolved, and build ticket 348's pass
+    // resolves each argument, so this one is refused now.
+    assert!(
+        permissive
+            .ask(
+                "mcp__x__write",
+                json!({ "path": format!("{}//runs/x.jsonl", permissive_root) }),
+            )
+            .denied_for("hydra/protected-path"),
+        "the doubled slash walked past the resolved pass"
+    );
     // If this now denies, the residual is closed and this comment is stale;
-    // rewrite the assertion and SECURITY.md.
-    for arguments in [
-        json!({ "path": format!("{}//runs/x.jsonl", permissive_root) }),
-        json!({
-            "dir": format!("{}/ru", permissive_root),
-            "name": "ns/x.jsonl",
-        }),
-    ] {
-        assert!(
-            permissive.ask("mcp__x__write", arguments).allowed,
-            "if this now denies, the residual is closed and the comment is stale"
-        );
-    }
+    // rewrite the assertion and SECURITY.md. Two fields that only join into the
+    // corpus are not one argument, and no pass here joins them.
+    assert!(
+        permissive
+            .ask(
+                "mcp__x__write",
+                json!({
+                    "dir": format!("{}/ru", permissive_root),
+                    "name": "ns/x.jsonl",
+                }),
+            )
+            .allowed,
+        "if this now denies, the residual is closed and the comment is stale"
+    );
     let corpus = format!("{}/runs/x.jsonl", permissive_root);
     assert_eq!(
         Path::new(&corpus),
@@ -3458,6 +3470,75 @@ fn an_mcp_call_naming_a_protected_path_is_refused_under_permissive() {
         "the check refused an MCP call inside the run's own worktree: {}",
         ordinary.reason
     );
+}
+
+#[test]
+fn an_mcp_call_naming_a_protected_path_relatively_is_refused_under_permissive() {
+    // Build ticket 348. The raw pass searches each argument for a denied spelling
+    // as written, so a relative path walked through: `../../runs/x.jsonl` from a
+    // run's worktree (`worktrees/<run>`) names the corpus only once it is resolved
+    // against the cwd. The shell token pass resolves each argument; this one does
+    // the same for an MCP call.
+    let gate = Gate::compile_for(Provider::Claude, "permissive", false);
+    let runs = std::fs::canonicalize(&gate.runs).unwrap();
+    let shown = runs.to_string_lossy().to_string();
+
+    for arguments in [
+        json!({ "path": "../../runs/x.jsonl" }),
+        // Two levels deep, because an MCP server's arguments are its own shape.
+        json!({ "files": [{ "to": "../../runs/x.jsonl" }] }),
+        // A relative path inside a sentence, which the shell pass would split out.
+        json!({ "task": "copy the log from ../../runs/x.jsonl" }),
+    ] {
+        let decision = gate.ask("mcp__writer__put", arguments.clone());
+        assert!(
+            decision.denied_for("hydra/protected-path"),
+            "{arguments} walked through: {}",
+            decision.reason
+        );
+        assert!(
+            decision.reason.contains(&shown),
+            "the refusal does not name the resolved path: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn an_mcp_call_through_a_link_in_the_worktree_is_refused_under_permissive() {
+    // The shell pass says which link it crossed, and so does the MCP pass.
+    let gate = Gate::compile_for(Provider::Claude, "permissive", false);
+    std::os::unix::fs::symlink(&gate.runs, gate.worktree.join("notes")).unwrap();
+    let decision = gate.ask("mcp__writer__put", json!({ "path": "notes/x.jsonl" }));
+    assert!(
+        decision.denied_for("hydra/protected-path"),
+        "{}",
+        decision.reason
+    );
+    assert!(
+        decision.reason.contains("through the link"),
+        "the refusal does not name the link it crossed: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn an_mcp_call_whose_relative_path_stays_in_the_worktree_is_allowed_under_permissive() {
+    // The resolved pass refuses what lands under a denied root and nothing else,
+    // so these resolve inside the run's own worktree and pass, as the shell's do.
+    let gate = Gate::compile_for(Provider::Claude, "permissive", false);
+    for arguments in [
+        json!({ "path": "notes/../src/main.rs" }),
+        json!({ "path": "runs" }),
+        json!({ "task": "read src/lib.rs and then ./Cargo.toml" }),
+    ] {
+        let decision = gate.ask("mcp__writer__put", arguments.clone());
+        assert!(
+            decision.allowed,
+            "{arguments} was refused inside the worktree: {}",
+            decision.reason
+        );
+    }
 }
 
 #[test]

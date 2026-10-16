@@ -258,6 +258,15 @@ searches each for a denied spelling, which is the raw pass of build ticket 56 ap
 door. Measured: disable it and the same call comes back `hydra/allow: policy permissive allows
 mcp_call`. `config/mcp.md` admits no writing server today, so nothing had fired.
 
+The raw pass sees a path only as written, so a relative one walked through: `../../runs/x.jsonl`
+from a run's worktree is the corpus once it is resolved. Build ticket 348 adds
+`protected_path_resolved_in`, a second pass over the same strings. Each one that looks like a path,
+and each word of one, resolves against the cwd the hook reports, the way a shell token does, with
+`link_crossed` for a symlink, and a refusal names the resolved path and the link. Before the pass,
+`{"path": "../../runs/x.jsonl"}` under `permissive` came back `hydra/allow: policy permissive allows
+mcp_call`. The pass does not join two arguments into one path, and it does not see a server that
+resolves a relative path against its own working directory.
+
 **The live corpus walk is `hydra doctor --walk` since build ticket 126** (map ticket 80). The
 assertions moved into `src/walk.rs`; the command walks `Layout::discover()`'s `runs/` directory,
 prints one line per finding and exits non-zero when there is any. Since build ticket 276 the walk
