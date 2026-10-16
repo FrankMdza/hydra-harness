@@ -47,8 +47,11 @@ pub struct RefusalCounts {
     /// The row's `call_id` names a call whose result failed.
     pub corroborated: usize,
     /// The row's `call_id` names no call, a call with no result, or a call
-    /// whose result is a success.
+    /// whose result is a success. Includes `no_frame`.
     pub uncorroborated: usize,
+    /// Build ticket 339: the row's `call_id` names no tool call in the record's
+    /// stream, so no frame for it exists. A subset of `uncorroborated`.
+    pub no_frame: usize,
     /// The hook supplied no `call_id`, so there is nothing to join on.
     pub no_call_id: usize,
 }
@@ -929,7 +932,8 @@ pub fn check_unknown_sources(
 /// corroborates when the provider's own stream shows the call it names and
 /// that call failing. An `unclassified` result counts as failed, since that is
 /// how `agy` reports a denial. Everything else comes back as an
-/// `Uncorroborated` note naming the call id and the command, which the caller
+/// `Uncorroborated` note naming the call id and the command, or the arguments
+/// hash on a non-shell row, which the caller
 /// prints and does not fail on, the way a `Foreign` gate leaves a finding
 /// unbacked rather than wrong. A record that does not read is the other
 /// checks' to report.
@@ -959,6 +963,7 @@ pub fn check_gate_refusals(
                 continue;
             };
             let why = if !known.contains(call_id) {
+                counts.no_frame += 1;
                 "matches no tool call"
             } else {
                 match results.get(call_id) {
@@ -971,13 +976,21 @@ pub fn check_gate_refusals(
                 }
             };
             counts.uncorroborated += 1;
+            // A shell row names its command. Any other row carries the hash of
+            // its arguments, and the note prints that instead.
+            let named = match row.body["command"].as_str() {
+                Some(command) => format!("command {command:?}"),
+                None => format!(
+                    "arguments_sha256 {:?}",
+                    row.body["arguments_sha256"].as_str().unwrap_or_default()
+                ),
+            };
             push(
                 &mut notes,
                 path,
                 format!(
-                    "Uncorroborated gate_refusal at seq {}: call {call_id:?} {why}; command {:?}",
+                    "Uncorroborated gate_refusal at seq {}: call {call_id:?} {why}; {named}",
                     row.seq,
-                    row.body["command"].as_str().unwrap_or_default()
                 ),
             );
         }

@@ -30,6 +30,7 @@ response in a shape it does not recognise and allows the call, so a script that
 guesses wrong is an open door on exactly one provider.
 """
 
+import hashlib
 import json
 import os
 import shlex
@@ -1952,19 +1953,29 @@ def record_refusal(payload, answer):
         inputs.get(HYDRA_CONFIG["command_field"])
         if isinstance(inputs, dict) else None
     )
-    if (denied and isinstance(tool, str) and capability_of(tool) == "shell"
-            and isinstance(command, str)):
-        encoded = command.encode("utf-8", errors="replace")
+    if denied and isinstance(tool, str):
         call_id = normalized.get("tool_use_id") or normalized.get("tool_call_id")
         row = {
             "type": "gate_refusal",
             "tool": tool,
             "call_id": call_id if isinstance(call_id, str) else None,
-            "command": encoded[:65536].decode("utf-8", errors="ignore"),
-            "command_truncated": len(encoded) > 65536,
-            "reason": (specific.get("permissionDecisionReason")
-                       or answer.get("reason") or answer.get("user_message")),
         }
+        if capability_of(tool) == "shell" and isinstance(command, str):
+            encoded = command.encode("utf-8", errors="replace")
+            row["command"] = encoded[:65536].decode("utf-8", errors="ignore")
+            row["command_truncated"] = len(encoded) > 65536
+        else:
+            # Build 339. The arguments may name what the policy hides, a path or
+            # a URL, so the row keeps their hash and not their text. A Rust reader
+            # reproduces it from the call's `tool_input` with the same encoding.
+            serialized = json.dumps(
+                inputs, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            )
+            row["arguments_sha256"] = hashlib.sha256(
+                serialized.encode("utf-8", errors="surrogatepass")
+            ).hexdigest()
+        row["reason"] = (specific.get("permissionDecisionReason")
+                         or answer.get("reason") or answer.get("user_message"))
         fd = os.open(
             HYDRA_CONFIG["refusals_file"],
             os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK,

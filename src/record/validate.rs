@@ -176,16 +176,50 @@ const SEAT_REQUEST_FIELDS: &[&str] = &[
     "runs",
 ];
 
+/// Every key a `gate_refusal` row may carry. Build 321 wrote the first six;
+/// build 339 adds `arguments_sha256` for a row that is not a shell command.
+const GATE_REFUSAL_KEYS: &[&str] = &[
+    "type",
+    "tool",
+    "call_id",
+    "reason",
+    "command",
+    "command_truncated",
+    "arguments_sha256",
+];
+
 /// Additive hook evidence, build 321. Absence on old records is valid.
+///
+/// Build 339 accepts exactly two shapes: a shell row with `command` and
+/// `command_truncated`, or a row with `arguments_sha256`, lowercase hex of the
+/// hashed arguments. A row with both, or with a key outside the list, is damaged.
 pub fn valid_gate_refusal(body: &Value) -> bool {
-    body["type"].as_str() == Some("gate_refusal")
+    let Some(obj) = body.as_object() else {
+        return false;
+    };
+    let shell = obj.contains_key("command") || obj.contains_key("command_truncated");
+    let hashed = obj.contains_key("arguments_sha256");
+    obj.keys()
+        .all(|key| GATE_REFUSAL_KEYS.contains(&key.as_str()))
+        && body["type"].as_str() == Some("gate_refusal")
         && body["tool"].is_string()
         && body
             .get("call_id")
             .is_some_and(|id| id.is_null() || id.is_string())
-        && body["command"].as_str().is_some_and(|s| s.len() <= 65536)
-        && body["command_truncated"].is_boolean()
         && body["reason"].is_string()
+        && match (shell, hashed) {
+            (true, false) => {
+                body["command"].as_str().is_some_and(|s| s.len() <= 65536)
+                    && body["command_truncated"].is_boolean()
+            }
+            (false, true) => body["arguments_sha256"].as_str().is_some_and(|hash| {
+                hash.len() == 64
+                    && hash
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            }),
+            _ => false,
+        }
 }
 
 pub fn check_file(path: &Path) -> Result<Report> {

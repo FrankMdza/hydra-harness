@@ -2323,7 +2323,7 @@ in v1. `correction` comes from an interactive harvest, built since ticket 27 and
 interactive section below. Both types are in the enum, because a type the reader cannot name is
 a type nobody knows is missing.
 
-**Shell refusals carry hook evidence since build 321 (2026-10-15).** The hook writes
+**Shell refusals carry hook evidence since build 321 (2026-10-15), and every denial since build 339.** The hook writes
 `gate-refusals.jsonl` beside the gate; the watcher and interactive harvest copy its entries
 before `run_end` as stored `gate_refusal` events, read by all four normalizers and printed
 by `hydra show --events`. The command is capped at 65,536 UTF-8 bytes with an explicit
@@ -2349,6 +2349,19 @@ hook's id is the stream's id. `agy` call ids are step indices the normalizer mak
 `agy` row would read as uncorroborated if its hook supplied an id. Whether it does, and whether
 `cursor-agent` and `codex` hook ids equal their stream ids, was not measured: the run that built
 332 could not read `~/hydra/runs/`.
+
+**Build 339 (2026-10-15) writes a row for every denial.** Before it, `record_refusal` wrote only
+a denied shell command, so a denied `Read`, a tool the table does not hold, and every refusal on
+`codex` left no row, and a run's record read as allows only. A non-shell row carries
+`arguments_sha256`, the SHA-256 of `tool_input` in the encoding the contract names, and none of
+the arguments. A shell row is unchanged. `valid_gate_refusal` accepts exactly the two shapes and
+rejects a row with both. `hydra doctor --walk` now prints `with no frame` beside `with no
+call_id`: a row whose `call_id` names no tool call in the record's stream, which is a subset of
+`uncorroborated`. The `reason` is the gate's own text, and for a refused path it names the path,
+so a `Read` row still shows which path was refused. Trimming the reason is a decision for the
+map, not something this build decided. The hook's cost per row is about
+0.2 ms on this Mac. `hydra doctor --walk` on the real corpus was not run by this build, for the
+reason build 332 gives.
 
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a

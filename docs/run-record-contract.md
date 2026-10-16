@@ -780,6 +780,21 @@ a process that can write the sidecar through the kernel's necessary write allowa
 332 the copy skips a damaged sidecar line, counts it, and says so once on `run_end.error`; the
 walk reports a row whose `call_id` matches no failed call in the same record as uncorroborated.
 
+**2026-10-15, build 339: every denial leaves a row, not only a shell command.** The hook used to
+write a row for a denied shell command and nothing for any other denial, so a denied `Read`, a
+tool the capability table does not hold, or any refusal on `codex` left no evidence. Now the
+hook writes a row for every denial. A shell row keeps the shape build 321 gave it: `command` and
+`command_truncated` and no hash. Any other row carries `arguments_sha256` in their place. That
+field is the lowercase hex SHA-256 of the call's `tool_input`, serialized the way Python's
+`json.dumps` writes it with `sort_keys=True`, `separators=(",", ":")` and `ensure_ascii=False`,
+then encoded as UTF-8. A reader reproduces it from the call. The row never holds the arguments
+themselves. `tool`, `call_id` and `reason` are on every row, and `reason` is the gate's own text,
+which for a refused path can name that path. A row carries exactly one of the two shapes. One
+with both, with a key neither shape names, or with a malformed hash is damaged, and the copy
+skips it and counts it as build 332 describes. The walk's count line prints `with no frame` for
+a row whose `call_id` names no tool call in the record's stream, a subset of `uncorroborated`,
+apart from `with no call_id` for a row the hook gave no id.
+
 One per `tool_call` **on a recorded run**, derived, carrying `call_id`, `decision` of `allow` or
 `deny`, `decider` and `reason`.
 
@@ -1421,7 +1436,9 @@ their text is at least on the stream.
 
 **2026-10-15: `gate_refusal` is additive (build 321).** Its stored command fields and event
 type do not remove or repurpose any existing field; schema version remains 1. Old records do
-not acquire evidence the provider never recorded, and absence remains valid.
+not acquire evidence the provider never recorded, and absence remains valid. Build 339 adds
+`arguments_sha256` as the second shape of a row, under the same rule: a shell row reads as it
+did, and no existing field changes.
 
 **2026-10-15: `run_start.host` and `run_start.sandbox_kind` are additive (build 316).** Two new
 fields, neither re-typing `sandbox`, which stays the sha-or-null it was; schema version remains 1.

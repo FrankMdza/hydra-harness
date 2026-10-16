@@ -19,6 +19,7 @@ use hydra::policy::replay::reason_code;
 use hydra::provider::{Provider, codex};
 use serde_json::{Value, json};
 
+mod common;
 mod corpus;
 use corpus::{Decision, Gate, OTHER, RUN, SHEBANG_PYTHON};
 
@@ -200,6 +201,282 @@ fn watcher_records_refusals_from_each_live_hook_dialect() {
         assert_eq!(evidence[0]["command_truncated"], false);
         assert_eq!(evidence[0]["call_id"], Value::Null);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Build 339: every denial leaves a row, not only a shell command
+// ---------------------------------------------------------------------------
+
+/// Runs the live hook the way a provider does, through the wrapper, and returns
+/// the answer and the sidecar text the hook wrote, when it wrote one.
+fn live_hook(gate: &Gate, provider: Provider, payload: &Value) -> (Value, Option<String>) {
+    use hydra::hex::hex_lower;
+    use sha2::{Digest, Sha256};
+    let sha = hex_lower(&Sha256::digest(std::fs::read(&gate.script).unwrap()));
+    let source = hydra::policy::hook_source(&gate.script, &sha, provider.dialect());
+    let mut child = Command::new(SHEBANG_PYTHON)
+        .args(["-c", &source, provider.dialect().as_str()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let sidecar = gate.script.with_file_name("gate-refusals.jsonl");
+    (answer, std::fs::read_to_string(sidecar).ok())
+}
+
+/// The denial reason in the provider's own shape, for either dialect's answer.
+fn reason_of(answer: &Value) -> &str {
+    answer["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+}
+
+/// Copies the sidecar into a fresh record at close, as the watcher does, and
+/// returns the rows the record holds and the damaged-line count the copy gave.
+fn copied_refusals(gate: &Gate, run_id: &str) -> (Vec<Value>, usize) {
+    use hydra::policy::PolicySet;
+    use hydra::record::{RunEnd, Writer};
+    let layout = hydra::paths::Layout::at(&gate.root);
+    let record = layout.run_file(run_id);
+    let mut writer = Writer::create(&record, run_id, None, Some("claude"), None).unwrap();
+    writer
+        .hydra_line(&json!({"type": "run_start", "policy": null}))
+        .unwrap();
+    let damaged = hydra::watch::copy_gate_refusals(
+        &gate.script.with_file_name("gate-refusals.jsonl"),
+        &mut writer,
+    )
+    .unwrap();
+    writer.hydra_line(&RunEnd::streamed(Some(0), None)).unwrap();
+    drop(writer);
+    let run = hydra::normalize::read_with(
+        &std::fs::read_to_string(&record).unwrap(),
+        &PolicySet::discover().unwrap(),
+        &layout,
+    )
+    .unwrap();
+    let rows = run
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            hydra::normalize::Event::GateRefusal(e) => Some(e.body.clone()),
+            _ => None,
+        })
+        .collect();
+    (rows, damaged)
+}
+
+/// Splits sidecar text into rows, so a test reads each line as the hook wrote it.
+fn sidecar_rows(text: &str) -> Vec<Value> {
+    text.lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn a_refused_read_leaves_a_row_that_hashes_its_arguments_and_names_no_command() {
+    use hydra::hex::hex_lower;
+    use sha2::{Digest, Sha256};
+    let gate = Gate::new("standard");
+    let secret = gate.runs.join("x.jsonl");
+    let input = json!({"file_path": secret});
+    let payload = json!({
+        "tool_name": "Read",
+        "tool_use_id": "toolu_read",
+        "tool_input": input,
+        "cwd": gate.worktree,
+    });
+    let (answer, sidecar) = live_hook(&gate, Provider::Claude, &payload);
+    assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny");
+    let text = sidecar.expect("a refused Read leaves a sidecar row");
+    let rows = sidecar_rows(&text);
+    assert_eq!(rows.len(), 1, "{text}");
+    let row = &rows[0];
+    assert_eq!(row["type"], "gate_refusal");
+    assert_eq!(row["tool"], "Read");
+    assert_eq!(row["call_id"], "toolu_read");
+    assert_eq!(row["reason"], reason_of(&answer));
+    assert!(row.get("command").is_none(), "{text}");
+    // The arguments themselves stay out of the row. The reason may still name
+    // the path, as the gate's own out-of-scope text does; see the Outcome.
+    assert!(row.get("tool_input").is_none() && row.get("file_path").is_none());
+    // The hash of `tool_input` as Python's `json.dumps(sort_keys=True,
+    // separators=(",", ":"))` writes it, which serde_json's compact form matches
+    // for a single ASCII key. A Rust reader can reproduce it from the call.
+    let expected = hex_lower(&Sha256::digest(serde_json::to_string(&input).unwrap()));
+    assert_eq!(row["arguments_sha256"], expected.as_str());
+    let (copied, damaged) = copied_refusals(&gate, "01a00000-0000-7000-8000-000000000339");
+    assert_eq!(damaged, 0);
+    assert_eq!(copied, rows);
+}
+
+#[test]
+fn a_refused_tool_the_table_does_not_hold_leaves_a_row_that_names_the_unknown_tool() {
+    let gate = Gate::compile_for(Provider::Codex, "standard", false);
+    let payload = json!({
+        "tool_name": "webrun2",
+        "tool_use_id": "call_web",
+        "tool_input": {"query": "hydra"},
+        "cwd": gate.worktree,
+    });
+    let (answer, sidecar) = live_hook(&gate, Provider::Codex, &payload);
+    assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(reason_of(&answer).starts_with("hydra/unknown-tool"));
+    let rows = sidecar_rows(&sidecar.expect("a refused tool leaves a sidecar row"));
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row["tool"], "webrun2");
+    assert_eq!(row["call_id"], "call_web");
+    assert!(
+        row["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("hydra/unknown-tool")
+    );
+    assert_eq!(row["arguments_sha256"].as_str().unwrap().len(), 64);
+    assert!(row.get("command").is_none());
+    let (copied, damaged) = copied_refusals(&gate, "01a00000-0000-7000-8000-000000000340");
+    assert_eq!(damaged, 0);
+    assert_eq!(copied.len(), 1);
+}
+
+#[test]
+fn a_refused_shell_command_keeps_the_build_332_shape_and_carries_no_hash() {
+    let gate = Gate::new("read-only");
+    let command = "cat > probe.txt <<'EOF'\nwhole heredoc body\nEOF";
+    let payload = json!({
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_shell",
+        "tool_input": {"command": command},
+        "cwd": gate.worktree,
+    });
+    let (answer, sidecar) = live_hook(&gate, Provider::Claude, &payload);
+    assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny");
+    let text = sidecar.expect("a refused command leaves a sidecar row");
+    // Python's `json.dumps` default separators, key order as the hook writes
+    // it: the line is the shape build 321 wrote and fixture 321 carries.
+    let expected = format!(
+        r#"{{"type": "gate_refusal", "tool": "Bash", "call_id": "toolu_shell", "command": {}, "command_truncated": false, "reason": {}}}"#,
+        json!(command),
+        json!(reason_of(&answer)),
+    );
+    assert_eq!(text, format!("{expected}\n"));
+    let row = &sidecar_rows(&text)[0];
+    assert!(row.get("arguments_sha256").is_none());
+}
+
+#[test]
+fn an_allowed_call_leaves_no_refusal_row() {
+    let gate = Gate::new("standard");
+    let payload = json!({
+        "tool_name": "Read",
+        "tool_use_id": "toolu_ok",
+        "tool_input": {"file_path": "src/lib.rs"},
+        "cwd": gate.worktree,
+    });
+    let (answer, sidecar) = live_hook(&gate, Provider::Claude, &payload);
+    assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "allow");
+    assert!(sidecar.is_none(), "{sidecar:?}");
+}
+
+#[test]
+fn a_row_whose_call_has_no_frame_is_counted_as_no_frame_and_the_record_validates() {
+    let gate = Gate::compile_for(Provider::Codex, "standard", false);
+    let run_id = "01a00000-0000-7000-8000-000000000341";
+    let payload = json!({
+        "tool_name": "webrun2",
+        "tool_use_id": "call_web",
+        "tool_input": {"query": "hydra"},
+        "cwd": gate.worktree,
+    });
+    let (answer, sidecar) = live_hook(&gate, Provider::Codex, &payload);
+    assert_eq!(answer["hookSpecificOutput"]["permissionDecision"], "deny");
+    let row = sidecar_rows(&sidecar.expect("a refused tool leaves a sidecar row")).remove(0);
+    // A provider record with the row and no tool-call frame: the row's call
+    // matches none, which is the case the count line names.
+    let layout = hydra::paths::Layout::at(&gate.root);
+    let mut record = common::Record::shaped(common::Shape {
+        run_id,
+        provider: Some("codex"),
+        policy: Some("standard"),
+        policy_sha: Some(common::policies().sha()),
+        ..common::Shape::default()
+    });
+    record.line("hydra", row);
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, record.closed()).unwrap();
+    let policies = hydra::policy::PolicySet::discover().unwrap();
+    let read = |path: &Path| {
+        hydra::normalize::read_with(&std::fs::read_to_string(path)?, &policies, &layout)
+    };
+    let (notes, counts) = hydra::walk::check_gate_refusals(std::slice::from_ref(&path), &read);
+    assert_eq!(counts.no_frame, 1);
+    assert_eq!(counts.uncorroborated, 1);
+    assert_eq!(counts.corroborated, 0);
+    assert_eq!(counts.no_call_id, 0);
+    assert_eq!(notes.len(), 1);
+    assert!(notes[0].assertion.contains("matches no tool call"));
+    assert!(notes[0].assertion.contains("arguments_sha256"));
+    hydra::record::validate::check_file(&path)
+        .unwrap()
+        .assert_ok();
+}
+
+#[test]
+fn the_validator_takes_one_of_the_two_refusal_shapes_and_no_mix() {
+    use hydra::record::validate::valid_gate_refusal;
+    let hash = "ea0f6731b03ad018e6ee1cfe80f222998d632835e67cf1e0bf22a51aa465ce47";
+    let shell = json!({
+        "type": "gate_refusal", "tool": "Bash", "call_id": "t", "command": "ls",
+        "command_truncated": false, "reason": "r",
+    });
+    let hashed = json!({
+        "type": "gate_refusal", "tool": "Read", "call_id": null,
+        "arguments_sha256": hash, "reason": "r",
+    });
+    assert!(valid_gate_refusal(&shell));
+    assert!(valid_gate_refusal(&hashed));
+    let with = |key: &str, value: Value| {
+        let mut row = hashed.clone();
+        row[key] = value;
+        row
+    };
+    // Both shapes at once, a command without its truncation flag, an uppercase
+    // or short hash, and a key neither shape names: each is damaged.
+    let mut both = shell.clone();
+    both["arguments_sha256"] = json!(hash);
+    assert!(!valid_gate_refusal(&both));
+    let mut half = shell.clone();
+    half.as_object_mut().unwrap().remove("command_truncated");
+    assert!(!valid_gate_refusal(&half));
+    assert!(!valid_gate_refusal(&with(
+        "arguments_sha256",
+        json!(hash.to_uppercase())
+    )));
+    assert!(!valid_gate_refusal(&with("arguments_sha256", json!("abc"))));
+    assert!(!valid_gate_refusal(&with("tool_input", json!({}))));
+    let mut bare = hashed.clone();
+    bare.as_object_mut().unwrap().remove("arguments_sha256");
+    assert!(!valid_gate_refusal(&bare));
 }
 
 #[test]

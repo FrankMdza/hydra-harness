@@ -230,9 +230,10 @@ fn main() -> Result<()> {
                     println!("{}: {}", note.path.display(), note.assertion);
                 }
                 println!(
-                    "gate_refusal rows: {} corroborated, {} uncorroborated, {} with no call_id",
+                    "gate_refusal rows: {} corroborated, {} uncorroborated, {} with no frame, {} with no call_id",
                     report.refusals.corroborated,
                     report.refusals.uncorroborated,
+                    report.refusals.no_frame,
                     report.refusals.no_call_id
                 );
                 for (host, records) in &report.hosts {

@@ -428,7 +428,9 @@ fn walk_corroborates_each_gate_refusal_row_against_the_call_it_names() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{stdout}");
     assert!(
-        stdout.contains("gate_refusal rows: 1 corroborated, 2 uncorroborated, 1 with no call_id"),
+        stdout.contains(
+            "gate_refusal rows: 1 corroborated, 2 uncorroborated, 1 with no frame, 1 with no call_id"
+        ),
         "{stdout}"
     );
     let notes: Vec<&str> = stdout
