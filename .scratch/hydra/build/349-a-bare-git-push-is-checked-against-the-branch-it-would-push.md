@@ -1,7 +1,7 @@
 # 349 - A bare `git push` is checked against the branch it would push, so `git push` from a checkout of `master` is refused like `git push origin master`
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from the plan of that night and its panel: the opus and grok
@@ -55,3 +55,51 @@ set by the test, written first:
 ## Done means
 
 The four checks green, and the Outcome quotes case 1's refusal.
+
+## Outcome
+
+Built in `src/policy/gate.py`. `floor_violation` and `check_git` now take the payload's `cwd`,
+which `evaluate` already holds. A `git push` with fewer than two positionals goes to
+`bare_push_violation`. That reads the branch `HEAD` names, found by walking up from `cwd` to a
+`.git` file or directory. It judges that name against `protected_branches` and the prefixes. If
+the branch has a `branch.<name>.merge` in the shared config, it judges that name too. The shared
+config sits where the worktree's `commondir` says, not in the worktree's own gitdir. A detached
+`HEAD` returns nothing. The check runs no git.
+
+Two things the ticket did not say turned out to matter. `floor_violation` never received the cwd,
+so the cwd had to be threaded from `evaluate`. And the branch config of a linked worktree lives in
+the parent repository, so reading only the gitdir would have missed case 4.
+
+Tests, in `tests/gate.rs`, written first. Four new tests cover the cases: the refusals for
+`master` (`git push`, `git push origin`, `git push -u origin`, `git -c push.default=current push`),
+the run's own branch allowed, the upstream `main` refused, and a detached `HEAD` allowed. Before
+the change the two refusal tests failed with `hydra/allow: policy permissive allows shell`. After
+it, the new tests and all 18 floor tests pass. The full suite passed: 1451 run, 4 skipped.
+
+Case 1's refusal reads, from the format string in `evaluate` and the substring the test asserts:
+`hydra/floor: the pattern floor refuses git push with no refspec from the protected branch master.
+Lift it for one run with --allow-floor-escape.` Case 4 names `main`: `git push with no refspec to
+the protected branch main, the upstream of feature/x`.
+
+Latency, measured with a Python harness in `target/` rather than in `tests/gate.rs`. A timing
+assertion would flake, so the harness stayed out of the suite. It loads `gate.py` with
+`policies/floor.json` spliced in, against a linked worktree on `master`, and takes the minimum of
+five runs of 2000 calls on `/usr/bin/python3`. A bare push through `floor_violation`: 275 µs. The
+same function on `git status`: 82 µs. `bare_push_violation` alone: 106 µs.
+
+Not measured: the `hydra doctor --walk` count of recorded bare pushes. That walk reads
+`~/hydra/runs`, which is outside this worktree. Someone with access should run it.
+
+Residuals, found while writing the IMPLEMENTATION paragraph and not fixed here:
+
+- `git push origin HEAD` is allowed from a `master` checkout. The refspec loop reads the literal
+  name `HEAD`, which is not protected. The harness returned `None` for it.
+- `push.default=matching` makes git push every branch whose name exists on both ends, `master`
+  included. The check reads `HEAD` alone, so a run on `hydra/<run-id>` with matching set is allowed.
+  This is from git's documentation. The harness did not run git.
+- A `cd` earlier in the same command is not followed. The check reads the payload's cwd.
+
+`SECURITY.md` has no git-push paragraph that names this gap, so it is unchanged. `IMPLEMENTATION.md`
+lines 1063 to 1065 are rewritten to say what the check covers and what it does not.
+
+**Measured by the session on master, 2026-10-15:** `hydra doctor --walk` over 976 records raised no new finding; the walk does not count bare `git push` commands, so that number stays unmeasured. The suite is 1460 tests, all green. The three residuals the run named, `git push origin HEAD`, `push.default=matching`, and a `cd` earlier in the command, stay open and are written in IMPLEMENTATION.md by the run.

@@ -1060,9 +1060,16 @@ probes changed from allow to `hydra/floor`; five already refused and still do. T
 ordinary-command controls stayed allowed and five relative protected-path probes stayed
 refused. In particular `if true; then git push --force; fi` is now refused.
 
-**`git push` with no arguments is not checked against the protected branches.** The
-floor cannot know the current branch from argv. It is the failure mode 7.4 names out
-loud, written down here so nobody reads the passing tests as coverage.
+**A `git push` with no refspec is judged by the branch it would send, since build ticket 349.**
+A bare `git push`, or `git push origin` with no branch after the remote, reads the checkout's
+`HEAD` through its `.git` file and refuses when that branch is protected. It also reads the
+`branch.<name>.merge` in the shared config and refuses when that name is protected, because the
+remote receives that name. A detached `HEAD` is allowed. The check reads files and runs no git.
+Three residuals remain, and the floor is still a spelling check. `git push origin HEAD` names
+the local ref `HEAD` and is not judged. A `cd` earlier in the same command is not followed, so
+the check reads the payload's cwd. Under `push.default=matching`, git pushes every branch whose
+name exists on both ends, which can include `master` whatever `HEAD` names, and the check reads
+`HEAD` alone. The check also ignores a per-worktree `config.worktree`.
 
 ## The skill store, the snapshot and what a run is linked
 

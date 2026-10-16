@@ -920,7 +920,97 @@ def git_subcommand(argv):
     return None, []
 
 
-def check_git(argv):
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def git_dir_at(cwd):
+    """The git directory of the checkout at `cwd`, or None when there is none.
+
+    A linked worktree carries a `.git` file that reads `gitdir: <path>`, and a
+    plain checkout has a `.git` directory. Git looks in each ancestor for one,
+    so this does too.
+    """
+    here = os.path.abspath(cwd)
+    while True:
+        dotgit = os.path.join(here, ".git")
+        if os.path.isdir(dotgit):
+            return dotgit
+        if os.path.isfile(dotgit):
+            text = read_text(dotgit) or ""
+            if not text.startswith("gitdir:"):
+                return None
+            # `os.path.join` keeps an absolute target as it is.
+            return os.path.join(here, text[len("gitdir:") :].strip())
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
+
+
+def upstream_merge(git_dir, branch):
+    """The `branch.<branch>.merge` in the shared config, `refs/heads/` removed.
+
+    A linked worktree keeps its branch config in the repository it was added
+    from, which its `commondir` file names. Only the plain `[branch "name"]`
+    section header is read, which is the form git writes.
+    """
+    common = read_text(os.path.join(git_dir, "commondir"))
+    shared = os.path.join(git_dir, common.strip()) if common else git_dir
+    text = read_text(os.path.join(shared, "config")) or ""
+    wanted = '[branch "{}"]'.format(branch)
+    in_section = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_section = stripped == wanted
+            continue
+        key, sep, value = stripped.partition("=")
+        if in_section and sep and key.strip().lower() == "merge":
+            value = value.strip()
+            prefix = "refs/heads/"
+            return value[len(prefix) :] if value.startswith(prefix) else value
+    return None
+
+
+def protected_branch(name):
+    rules = HYDRA_CONFIG["floor"]["git"]
+    if name in rules["protected_branches"]:
+        return True
+    return any(name.startswith(prefix) for prefix in rules["protected_branch_prefixes"])
+
+
+def bare_push_violation(cwd):
+    """What a `git push` with no refspec would send, when that is protected.
+
+    Git sends the branch HEAD names, and a remote receives the name the upstream's
+    `merge` holds. Both are judged, so a bare push from a checkout of `master` is
+    refused the way `git push origin master` is. A detached HEAD names no branch
+    and is left alone.
+    """
+    git_dir = git_dir_at(cwd)
+    if git_dir is None:
+        return None
+    prefix = "ref: refs/heads/"
+    head = read_text(os.path.join(git_dir, "HEAD")) or ""
+    if not head.startswith(prefix):
+        return None
+    name = head[len(prefix) :].strip()
+    if protected_branch(name):
+        return "git push with no refspec from the protected branch {}".format(name)
+    target = upstream_merge(git_dir, name)
+    if target and protected_branch(target):
+        return "git push with no refspec to the protected branch {}, the upstream of {}".format(
+            target, name
+        )
+    return None
+
+
+def check_git(argv, cwd):
     rules = HYDRA_CONFIG["floor"]["git"]
     sub, rest = git_subcommand(argv)
     if sub is None:
@@ -931,6 +1021,9 @@ def check_git(argv):
             if flag in rest:
                 return "git push {}".format(flag)
         positional = [t for t in rest if not t.startswith("-")]
+        if len(positional) < 2:
+            # No refspec: the branch git sends is the one the checkout names.
+            return bare_push_violation(cwd)
         for token in positional[1:]:
             if token.startswith("+"):
                 return "git push with a forced refspec, {}".format(token)
@@ -1007,12 +1100,13 @@ def check_slack(command):
     return None
 
 
-def floor_violation(command):
+def floor_violation(command, cwd):
     """What the floor refuses in this shell command, or None.
 
     A floor and never a gate. It catches the spellings compiled into this
     script and nothing else, which is the failure mode 7.4 names out loud
-    rather than hides.
+    rather than hides. `cwd` is the directory the command runs in, which is
+    where a bare `git push` finds the branch it would send.
     """
     layout = shell_layout(command)
     if has_substitution(layout["expanding"]):
@@ -1044,7 +1138,7 @@ def floor_violation(command):
             continue
         binary = os.path.basename(argv[0])
         if binary == "git":
-            hit = check_git(argv)
+            hit = check_git(argv, cwd)
         elif binary == "aws":
             hit = check_aws(argv)
         else:
@@ -1660,7 +1754,7 @@ def evaluate(payload):
     if capability == "shell" and not HYDRA_CONFIG["floor_lifted"]:
         command = tool_input.get(HYDRA_CONFIG["command_field"], "")
         if isinstance(command, str) and command:
-            hit = floor_violation(command)
+            hit = floor_violation(command, cwd)
             if hit:
                 return False, (
                     "hydra/floor: the pattern floor refuses {}. Lift it for one run "

@@ -1871,6 +1871,103 @@ fn the_floor_leaves_ordinary_git_alone() {
     }
 }
 
+/// Lays out `gate.worktree` the way git lays out a linked worktree: a `.git` file
+/// naming `worktrees/<run>` under the parent repository, whose `commondir` names
+/// the shared `config`. `head` is the line `HEAD` holds, and `merge` is the
+/// `branch.<name>.merge` the shared config holds for one branch.
+fn check_out(gate: &Gate, head: &str, merge: Option<(&str, &str)>) {
+    let common = gate.parent_git.clone();
+    let gitdir = common.join("worktrees").join(RUN);
+    std::fs::create_dir_all(&gitdir).unwrap();
+    std::fs::write(gitdir.join("HEAD"), format!("{head}\n")).unwrap();
+    std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+    std::fs::write(
+        gate.worktree.join(".git"),
+        format!("gitdir: {}\n", gitdir.display()),
+    )
+    .unwrap();
+    if let Some((name, target)) = merge {
+        let config = format!("[core]\n\tbare = false\n[branch \"{name}\"]\n\tmerge = {target}\n");
+        std::fs::write(common.join("config"), config).unwrap();
+    }
+}
+
+#[test]
+fn a_bare_git_push_is_judged_by_the_branch_it_would_push() {
+    // Build ticket 349. `git push` with no refspec sends the branch HEAD names,
+    // so a checkout of `master` is refused the way `git push origin master` is.
+    let gate = Gate::new("permissive");
+    check_out(&gate, "ref: refs/heads/master", None);
+    for command in ["git push", "git push origin", "git push -u origin"] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor")
+                && decision
+                    .reason
+                    .contains("git push with no refspec from the protected branch master"),
+            "{command} from master was not refused as the branch it pushes: {}",
+            decision.reason
+        );
+    }
+    let decision = gate.shell("git -c push.default=current push");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "push.default=current from master was let through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_bare_git_push_from_the_runs_own_branch_is_allowed() {
+    // Every run's branch is `hydra/<run-id>`, and a bare push from it is the
+    // run's own work.
+    let gate = Gate::new("permissive");
+    check_out(&gate, "ref: refs/heads/hydra/own", None);
+    for command in [
+        "git push",
+        "git push origin",
+        "git -c push.default=current push",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.allowed,
+            "{command} from hydra/own was refused: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_bare_git_push_is_judged_by_the_upstream_branch_it_would_reach() {
+    // `feature/x` is not protected, but its upstream is `main`, which is the
+    // branch a bare push would reach on the remote.
+    let gate = Gate::new("permissive");
+    check_out(
+        &gate,
+        "ref: refs/heads/feature/x",
+        Some(("feature/x", "refs/heads/main")),
+    );
+    let decision = gate.shell("git push");
+    assert!(
+        decision.denied_for("hydra/floor") && decision.reason.contains("main"),
+        "a push whose upstream is main was let through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_bare_git_push_from_a_detached_head_is_allowed() {
+    // A detached HEAD names no branch, so a bare push sends nothing by default.
+    let gate = Gate::new("permissive");
+    check_out(&gate, "9f2c1d0e4b7a6c5d3e2f1a0b9c8d7e6f5a4b3c2d", None);
+    let decision = gate.shell("git push");
+    assert!(
+        decision.allowed,
+        "a bare push from a detached HEAD was refused: {}",
+        decision.reason
+    );
+}
+
 #[test]
 fn each_pattern_consumes_dash_c_and_git_dir_before_reading_the_subcommand() {
     // 7.4 says so in one line, and it is the whole difference between a floor
