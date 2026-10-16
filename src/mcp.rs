@@ -15,11 +15,13 @@
 //! by name, because a `judge` run receiving a filesystem server would be the
 //! policy set saying one thing and the server set saying another.
 //!
-//! **Admission is not permission.** A server admitted to `standard` still cannot
-//! be called: `mcp_call` is granted by `permissive` alone (7.2), so under the
-//! other four policies an admitted server starts, its tools reach the model, and
-//! the gate refuses every call. That is ticket 27's decision working as written,
-//! and `IMPLEMENTATION.md` records it beside the same shape for skills.
+//! **Admission is not permission.** A server admitted to a policy still cannot
+//! be called unless that policy grants `mcp_call` for it (7.2): `permissive`
+//! grants it for every server, `standard` for the `hydra` face alone since map
+//! 82, and the other three for none, so an admitted server starts, its tools
+//! reach the model, and the gate refuses every call the policy does not grant.
+//! That is ticket 27's decision working as written, and `IMPLEMENTATION.md`
+//! records it beside the same shape for skills.
 //!
 //! **On `claude` the config goes on the command line and the skills go in the
 //! worktree.** The asymmetry is 6.5's and is deliberate: `--strict-mcp-config`
