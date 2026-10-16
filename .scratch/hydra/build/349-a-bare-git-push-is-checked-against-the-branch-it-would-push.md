@@ -1,7 +1,7 @@
 # 349 - A bare `git push` is checked against the branch it would push, so `git push` from a checkout of `master` is refused like `git push origin master`
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from the plan of that night and its panel: the opus and grok

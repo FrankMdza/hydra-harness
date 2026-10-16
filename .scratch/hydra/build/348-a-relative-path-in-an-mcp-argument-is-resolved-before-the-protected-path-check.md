@@ -1,7 +1,7 @@
 # 348 - A relative path in an MCP argument is resolved against the run's cwd before the protected-path check, so `mcp__writer__put` with `../runs/x.jsonl` is refused like the absolute spelling
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from the grok seat of the plan of that night

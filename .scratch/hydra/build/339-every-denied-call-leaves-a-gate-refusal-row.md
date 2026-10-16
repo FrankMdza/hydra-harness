@@ -1,7 +1,7 @@
 # 339 - Every denied call leaves a `gate_refusal` row, not only a denied shell command, so a `codex` run whose web lookup was refused does not read as eight allows and nothing else
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from run `01a14290-c0a1`. The run's own report says the gate
