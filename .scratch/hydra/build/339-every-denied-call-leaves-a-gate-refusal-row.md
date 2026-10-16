@@ -16,13 +16,14 @@ tool the table does not know.
 
 `record_refusal` writes a row for every `deny`, whatever the capability. The row keeps its shape
 for shell (`command`, `command_truncated`) and for everything else carries `arguments_sha256`, the
-sha of the canonical JSON of `tool_input`, and no argument text, because a refused `Read` path or a
+sha of `tool_input` serialised by Python's `json.dumps(sort_keys=True, separators=(",", ":"),
+ensure_ascii=False)` encoded as UTF-8, named so a Rust reader can reproduce it, and no argument text, because a refused `Read` path or a
 URL may name what the policy hides. `tool`, `call_id` and `reason` are present on every row.
 `watch.rs::copy_gate_refusals` already copies rows into the record and `walk.rs::check_gate_refusals`
 corroborates them against the calls the stream names; a row whose call has no stream frame counts
 under the existing `N with no call_id` or a new `no frame` count, the ticket decides which after
 reading build 332's Outcome. `docs/run-record-contract.md`'s `gate_refusal` section gains the two
-optional fields.
+optional fields and says which of `command` or `arguments_sha256` a row carries and that never both are absent.
 
 ## Contract
 
@@ -37,13 +38,27 @@ and `watcher_records_refusals_from_each_live_hook_dialect`, written first:
 
 1. A refused `Read` of `~/hydra/runs/x.jsonl` under `standard` leaves a row with `tool: Read`,
    the call id, the reason, an `arguments_sha256` of 64 hex characters, and no `command` key.
-2. A refused `webrun` on the `codex` dialect, unknown tool, leaves a row with `reason` starting
-   `hydra/unknown-tool`.
+2. A refused `webrun2` on the `codex` dialect, a name the table does not hold, leaves a row with
+   `reason` starting `hydra/unknown-tool`. Not `webrun`, which build 338 makes known.
 3. A refused shell command still leaves the build 332 shape, byte for byte against the existing
    fixture.
 4. An allowed call leaves no row, as today.
 5. `check_gate_refusals` over a record carrying case 2's row and no matching frame prints it in
    its count line, and the validator accepts the record.
+
+## Amended by the panel, 2026-10-15
+
+The codex seat (`133-panel-sol.md`) read two things the ticket missed, both confirmed by the
+session. `src/record/validate.rs::valid_gate_refusal` requires `command` as a string and
+`command_truncated` as a boolean, and `watch.rs::copy_gate_refusals` copies only rows that
+validator accepts, so a non-shell row written by `record_refusal` would be counted as damaged and
+dropped: the validator changes in the same commit, one shape with `command`, one with
+`arguments_sha256`, nothing else accepted. And `walk.rs::check_gate_refusals` joins a row to a
+call by id and failure status alone, so a forged row carrying a real failed call's id and an
+invented command reads as corroborated; hashing arguments adds no authenticity. The ticket does
+not fix that, build 332 owns the sidecar's trust model, but the walk's count line separates "no
+frame for this call id" from "no call id on the row", and the Outcome says how many of each the
+real walk finds. Case 5 asserts the first count, not the second.
 
 ## Do
 

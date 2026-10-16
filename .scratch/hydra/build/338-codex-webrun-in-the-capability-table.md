@@ -40,6 +40,24 @@ to the compiled gate; the first two go red on master today:
 4. A name the table does not hold, `webrun2`, is still refused `hydra/unknown-tool` under
    `permissive`.
 
+## Amended by the panel, 2026-10-15
+
+The codex seat (`133-panel-sol.md`): `codex login status` is the free probe; a `codex exec` turn
+that fetches a URL costs quota, `tests/drift.rs` near line 429 says so for the hook probe. So the
+probe is one paid turn, named as such in the Outcome with its token count, and it needs a positive
+control: the same turn with a shell call, so the log shows the hook fired for `Bash` in the same
+session before `webrun` is called `unhooked` on the strength of a missing callback. Two more
+cases: `webrun` with `file:///Users/USER/hydra/ru%6es/x.jsonl`, the percent-encoded spelling,
+which the raw pass lets through today for `WebFetch` (`tests/gate.rs` near 2419) and should be
+pinned as it is, allowed or refused, with the reason; and the Slack floor at `gate.py` near 1361,
+which maps `WebFetch` and `WebSearch` fields to the pattern and has no `webrun` row, so a
+`webrun` of a Slack URL must be refused by the floor once the field name is known.
+
+The opus seat: the gate refused `webrun` in run `01a14290-c0a1`, so the hook fired on it, so the
+row is hooked, unlike `WebSearch`; the paid turn confirms the field name, not the hooking. And
+`hydra doctor` has printed `codex codex-cli 0.160.0 measured 0.154.0` since the binary updated;
+the drift check exists, nobody read it, and the Outcome says so.
+
 ## Do
 
 1. The probe, its payload quoted in the Outcome.

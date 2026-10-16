@@ -19,19 +19,28 @@ For each exposure in that section, one of three answers:
 - **Fix before**: a build ticket, and publication waits for it.
 - **Fix after**: stated and ticketed, fixed in the first public release cycle.
 
-The session's recommendation per item, for the human to accept or overrule:
+The session's recommendation per item, revised after the panel of 2026-10-15 (plan section 6 and
+8), for the human to accept or overrule:
 
-1. The two found tonight, build 338 (`codex`'s `webrun` unknown to the table) and build 339 (a
-   denied non-shell call leaves no row): fix before, each one afternoon.
-2. The twelve stale sentences of build 313 and the `src/mcp.rs` comment: fix before, prose only
-   (build 341; the comment is done).
-3. The shell floor's assembled-path residual, the sibling-worktree token, the `claude` and `codex`
-   fail-open shapes, the seatbelt as defence not boundary, admission's reach to `HOME` and
-   `~/.ssh`, Linux unconfined: state. Each is already measured and pinned open in a test on
-   purpose; the honest public version says so in one place.
-4. Map 99 (`~/.claude.json` writable from a gated interactive session), map 108 (secret classes),
-   map 114 (the bench cannot tell a refusal from a breach): fix after, with the map ticket named.
-5. `git push` with no arguments unchecked against protected branches: fix before, small.
+1. Fix before: build 339 (a denied non-shell call leaves no row, so SECURITY.md lines 7 to 8 are
+   false on `codex`), build 348 (a relative MCP path walks past the protected-path check, so
+   lines 21 to 24 are false), build 349 (a bare `git push` reaches a protected branch), and the
+   prose of builds 341 and 340, in that order. All four seats agreed on these.
+2. The human's hand before publication, map 99: name `~/.claude.json` in SECURITY.md lines 73 to
+   74, and measure whether `claude` starts without the file before the allow at
+   `src/sandbox.rs:348-356` changes. Three seats put this first; the first version of this ticket
+   had it under fix after.
+3. State: the shell floor's assembled-path residual, the sibling-worktree token, the `claude` and
+   `codex` fail-open shapes, the seatbelt as defence not boundary, admission's reach to `HOME` and
+   `~/.ssh`, Linux unconfined, the live walk absent from CI, build 130's unmeasured interactive
+   gate. Each is measured and pinned open in a test on purpose; the honest public version says so
+   in one place.
+4. Fix after, with the map ticket named: map 108 (the write-time sweep flags five classes where
+   export has twelve), map 114 (the bench cannot tell a refusal from a breach), build 338
+   (`webrun` unknown to the table, which fails closed). Map 110 is the human's: if `jev ask` ever
+   comes back it sends diffs off the machine.
+5. `config/mcp.md` lines 41 and 42, "`mcp_call` is granted by `permissive` alone", are stale since
+   map 82 and protected: the human edits them before publication.
 
 Two publication decisions left by map 130 belong here too: whether `hydra` publishes to
 crates.io at all, given its path dependency on a `publish = false` crate, and the repository's

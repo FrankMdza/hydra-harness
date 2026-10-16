@@ -97,8 +97,8 @@ document and there should not be one.
   property you can check by reading one directory.
 - `policies/`, the five policies of harness spec 7.2 and the pattern floor of 7.4. Protected config
   #1, and `policy_sha` on every run record is its sha. `policies/README.md` is the format.
-- `config/`, protected configs 2 to 5 of harness spec 15.1. `preamble.md` and `mcp.md` exist;
-  `config/README.md` says what the other two are waiting on.
+- `config/`, protected configs 2 to 6 of harness spec 15.1. `preamble.md`, `mcp.md` and `panels.json`
+  exist; `config/README.md` says what the other two are waiting on.
 - `IMPLEMENTATION.md`, what is built, what is not, and every departure from the design with its
   reason. Amend it in the same change that narrows the gap.
 - `integrations/herdr/`, the Herdr plugin: a launcher that puts the run id on the pane, a poller
