@@ -379,6 +379,7 @@ it.
 - [339 - Every denied call leaves a `gate_refusal` row, not only a denied shell command, so a `codex` run whose web lookup was refused does not read as eight allows and nothing else](339-every-denied-call-leaves-a-gate-refusal-row.md)
 - [348 - A relative path in an MCP argument is resolved against the run's cwd before the protected-path check, so `mcp__writer__put` with `../runs/x.jsonl` is refused like the absolute spelling](348-a-relative-path-in-an-mcp-argument-is-resolved-before-the-protected-path-check.md)
 - [349 - A bare `git push` is checked against the branch it would push, so `git push` from a checkout of `master` is refused like `git push origin master`](349-a-bare-git-push-is-checked-against-the-branch-it-would-push.md)
+- [350 - `claude` 2.1.301's `LSP` and `Workflow` tools are in the capability table, and the last `WebFetch` of two haiku runs that reads `Ungated` is explained](350-claude-2-1-301-in-the-table-and-the-last-webfetch-that-reads-ungated.md)
 
 ## Out of scope
 
