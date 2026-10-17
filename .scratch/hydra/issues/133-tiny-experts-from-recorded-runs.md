@@ -24,11 +24,12 @@ a body.
    experts fire for the apprentice bank's prompts by domain, on CPU, through Transformers'
    `output_router_logits`. The question for the map is what result would make the idea worth a
    GPU-hour and what result kills it: a stated threshold before the run, not after.
-3. **What is trainable without breaking anyone's terms.** The three vendors forbid training a
-   competing model on their outputs; the apprentice's preference pairs come from a panel's grading
-   of a local model's attempts, which is evaluation. State which Hydra data may enter a training
-   set at all: records of local-model runs, human corrections, panel verdicts as labels, and
-   nothing a frontier model wrote.
+3. **Where the training signal comes from.** The three vendors' terms forbid training a model
+   that competes with theirs on their outputs; the apprentice's preference pairs come from a
+   panel's grading of a local model's attempts, which is evaluation. The human's position of
+   2026-10-17 is below. State which source feeds the first model: verifiable rewards with no
+   teacher text, an open-weight teacher whose licence permits it, frontier outputs as labels and
+   judge only, or frontier outputs as training text with the account risk accepted.
 4. **Where it connects.** The fog item says an MCP server declared in `config/mcp.md`, admitted per
    policy, whose calls land as `mcp__` tool calls. Map 88 says a Rust child harness with four
    gated tools. Which of the two is the first body for a tiny model, and what does the record
@@ -38,3 +39,30 @@ a body.
 
 Resolved by measurement where a seat can measure (builds 344, 345, 346) and by the human where it
 is a choice (1, 3, 5).
+
+## The human's input, 2026-10-17
+
+The human read the plan's legal paragraph and answered that the goal is not a model that competes
+with any vendor. It is access: micro-processes every person should have in the next years of AI,
+a security-report process and anti-hacking checks among them, because automated attacks expose
+people to systems they should not have to pay to be protected from. A licence of our own, in the
+human's view, does not change that goal, and the terms should not stop it: "skip baby".
+
+What the session put beside that, for the human to weigh when resolving question 3:
+
+- The clause is a contract term, not a law. "Compete" is the vendor's word and the vendor reads
+  it, by closing the account. A licence on Hydra's side changes nothing, because the restriction
+  sits in the agreement the account accepted, and none of the three clauses has an exception for
+  non-commercial or public-interest use. The consequence is not a lawsuit. It is the three accounts
+  the router runs on, and a public README that says the models are distilled from Claude or GPT is
+  the line a reader at those companies stops at.
+- The goal does not need frontier text. Three sources are clean. Verifiable rewards, which is the
+  MiMo recipe in the video: a fixture with a known CVE, open port or exposed key, and the reward
+  is whether the report names it. Open-weight teachers whose licence allows training on their
+  outputs: MiMo-V2.6 Pro and DeepSeek under MIT, Qwen3 and OLMoE under Apache-2.0. Public security
+  data no vendor owns: CISA KEV, NVD, MITRE ATT&CK, which the other session's KEV work already
+  reads. Frontier models stay as judges and label-writers, which is what the panel does today.
+- One grey spot is already in the code. `pairs.rs` puts the panel's `better_answer`, text a
+  frontier model wrote, into `chosen`. The clean version keeps `chosen` as the local model's best
+  attempt among several, graded by the panel, and never the panel's rewrite. That is a small build
+  once this question is resolved.
