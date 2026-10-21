@@ -392,12 +392,16 @@ pub const AGY_COMMAND_FIELD: &str = "CommandLine";
 /// **Reads are `Bash`, not a file tool**, which is the whole of build ticket 48
 /// item 4. **`mcp__*` is a prefix**, like `claude`, and matches before the table.
 /// **Hosted tools never reach the hook** and carry an unhooked row instead.
+///
+/// `webrun` is `codex` 0.160.0's web tool, hooked, with its URL under
+/// `open[].ref_id`. Measured by one paid turn on 2026-10-21, build ticket 338.
 pub const CODEX: &[Tool] = &[
     tool("Bash", Capability::Shell),
     patch_write("apply_patch"),
     tool("update_plan", Capability::ProviderNative),
     tool("spawn_agent", Capability::SubagentSpawn),
     unhooked("WebSearch", Capability::NetworkRead),
+    tool("webrun", Capability::NetworkRead),
 ];
 
 /// The `tool_input` field carrying the shell command or patch body.
@@ -768,6 +772,10 @@ mod tests {
         assert_eq!(codex_capability("apply_patch"), Some(Capability::FileWrite));
         assert!(codex_is_unhooked("WebSearch"));
         assert_eq!(codex_capability("WebSearch"), Some(Capability::NetworkRead));
+        // Hooked, unlike `WebSearch`: the payload reached the gate on
+        // 0.160.0, measured 2026-10-21.
+        assert!(!codex_is_unhooked("webrun"));
+        assert_eq!(codex_capability("webrun"), Some(Capability::NetworkRead));
         assert_eq!(
             codex_capability("spawn_agent"),
             Some(Capability::SubagentSpawn)

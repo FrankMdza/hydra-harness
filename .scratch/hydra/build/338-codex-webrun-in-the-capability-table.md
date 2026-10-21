@@ -1,7 +1,7 @@
 # 338 - `codex` 0.160.0's web tool `webrun` is in the capability table, so a web lookup under `permissive` is allowed and recorded instead of refused as unknown
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from run `01a14290-c0a1`: a `codex` research seat under
@@ -70,3 +70,58 @@ the drift check exists, nobody read it, and the Outcome says so.
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
 `cargo nextest run --release --workspace`, `cargo test --release --workspace --doc` green, and the
 Outcome quotes the probe's payload.
+
+## Outcome
+
+Built. `webrun` is a hooked `network_read` row in `CODEX`, the gate reads its URLs for the
+Slack floor, and the cases are pinned. Two of the ticket's assumptions were false, and the
+probe found both.
+
+**The probe.** One paid `codex exec` turn on 2026-10-21, `codex-cli` 0.160.0, run from a
+scratch directory under `/tmp` with the hook command in the shape `config_overrides` builds.
+The turn asked for `echo probe-338-shell`, then a fetch of `https://example.com`. Usage was
+43,186 input tokens, 39,808 of them cached, 129 output and 0 reasoning. The hook logged two
+payloads. The web one:
+
+```
+{"session_id":"01a1609f-d4ad-71e2-ad3f-4c3ca07ad126","turn_id":"01a1609f-d8a7-75b3-ae0f-b97bd61a5d6e","transcript_path":"/Users/USER/.codex/sessions/2026/10/21/rollout-2026-10-21T17-40-50-01a1609f-d4ad-71e2-ad3f-4c3ca07ad126.jsonl","cwd":"/tmp/hydra-338-probe.WVYaiQ","hook_event_name":"PreToolUse","model":"gpt-6-luna","permission_mode":"bypassPermissions","tool_name":"webrun","tool_input":{"open":[{"ref_id":"https://example.com"}],"response_length":"short"},"tool_use_id":"exec-2cc2aa80-74a6-40c4-8ee4-4a44974c5951"}
+```
+
+The shell payload in the same session carried `tool_name: "Bash"` and
+`tool_input: {"command": "echo probe-338-shell"}`, so the hook fired for `Bash` first. Nested
+`codex` then ran that shell call under its own seatbelt and got `sandbox_apply: Operation not
+permitted`. The hook still saw it. The stream carried the page as an `item.completed` of type
+`web_search` with an `open_page` action and the title `Example Domain`.
+
+**What the probe changed.** The ticket assumed `webrun` would be unhooked, as `WebSearch` is,
+and that its URL would sit in a flat field. Neither held. The hook fires, and the URL sits in
+`open[].ref_id`, a list. The row is `tool("webrun", Capability::NetworkRead)`, and the Slack
+floor reads `open[].ref_id` through the new `fetch_urls` in `gate.py`.
+
+**What was built.** `tests/gate.rs` gained `webrun_is_in_the_codex_table_and_its_urls_are_read_from_open`,
+written red first and red on `hydra/unknown-tool`. It covers the four cases, the percent-encoded
+spelling and the Slack floor. `codex_names_mcp_tools_with_claudes_prefix` in `src/policy/table.rs`
+pins `webrun` as hooked and `NetworkRead`, beside `WebSearch`. `file:///` refusals for
+`webrun` come from the raw protected-path pass, which already walks nested arguments, so
+that pass needed no change. The percent-encoded case is allowed with `hydra/allow`, as
+`WebFetch` is.
+
+**Checks.** `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo nextest run --release --workspace` with 1464 passed and 4 skipped, and
+`cargo test --release --workspace --doc` all pass. `no_codex_tool_appears_twice` stays green.
+The ticket's fast-loop crate, `hydra-apprentice`, does not hold the gate or the table, so the
+targeted runs used `-p hydra`.
+
+**Drift.** `hydra doctor` reports `codex codex-cli 0.160.0 measured 0.154.0`. I did not run
+`hydra doctor` in this session. The ticket reports the message, and I took that as given.
+`MEASURED_VERSIONS` still reads 0.154.0. Moving it to 0.160.0 would claim the rest of the
+`codex` drift set was re-measured, and it was not. The drift fixture is recorded 0.154.0 runs,
+and no new record exists to add, so it is unchanged.
+
+**Found.** The replay does not follow `webrun` yet. `src/normalize/codex.rs` names every
+`web_search` item `WebSearch`, and that reader does not handle an `open_page` item. Its
+doc comment still says hosted search never reaches the hook on 0.154.0. This ticket left the
+reader alone. A `webrun` call will likely show a replay mismatch until it is fixed. The probe
+payload names the model `gpt-6-luna`, while `IMPLEMENTATION.md` says the account's model is
+`gpt-6-astra`. My own shell refused one command during the probe setup. It was a substitution
+in a command naming `git`, and I rewrote the call without the substitution.

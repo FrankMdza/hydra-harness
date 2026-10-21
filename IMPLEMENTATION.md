@@ -127,7 +127,7 @@ here is a date, and `tests/drift.rs` is what re-measures behaviour:
 | `claude` | 2.1.263 | 2026-09-06. The specs were written against 2.1.257. Every flag in 6.7 still runs, and one claim about a flag was half wrong: `--restricted` drops what settings define and keeps what `--mcp-config` passes, which the section on `judge` below has. `tests/drift.rs` re-measures it per suite run |
 | `cursor-agent` | 2026.09.02-c22c1a3 | 2026-09-06, unchanged since 2026-09-02. Routed by ticket 09 on this build; the section on it below says what was measured and what was read off the bundle |
 | `agy` | 1.1.26, then 1.1.27 | 2026-09-06. Routed by ticket 10, and **it self-updated in the middle of that ticket**: the probes below were measured on 1.1.26 and the recorded run an hour later reported 1.1.27. Every measured claim held across the move, and the section on it says which came from which build |
-| `codex` | 0.154.0 | 2026-09-20, not routed on 2026-09-06. Built by ticket 48 from map ticket 58's reading of this version, measured on a logged-in binary on 2026-09-21, and still 0.154.0 on 2026-09-22. The section on it below says what was measured. Row added on 2026-09-24, the third hiring panel's H12 |
+| `codex` | 0.154.0 | 2026-09-20, not routed on 2026-09-06. Built by ticket 48 from map ticket 58's reading of this version, measured on a logged-in binary on 2026-09-21, and still 0.154.0 on 2026-09-22. The section on it below says what was measured. Row added on 2026-09-24, the third hiring panel's H12. On 2026-10-21 the installed binary was 0.160.0, and `hydra doctor` has printed the mismatch since. Build ticket 338 measured the `webrun` row on 0.160.0 and nothing else, so this row still says 0.154.0 |
 
 
 **Built for map ticket 40, closed by build ticket 14 on 2026-09-06.** The deny list now has the
@@ -1730,6 +1730,17 @@ says the provider ran the tool without asking the hook. That is not a leak, beca
 was asked, and not `external`, because nothing denied. If the hook ever fires for one, the
 gate's own answer stands and the replay reports a `Disagreement`. Map ticket 79, build
 ticket 124; `codex`'s `WebSearch` row follows the same rule.
+
+**`codex` 0.160.0 names its web tool `webrun`, and the hook fires for it.** Build ticket 338
+found this in one paid turn on 2026-10-21. The payload carried `tool_name: "webrun"` and
+`tool_input: {"open": [{"ref_id": "https://example.com"}], "response_length": "short"}`, and
+the hook fired for a shell call in the same session. So `webrun` is a hooked `network_read`
+row in `CODEX`, unlike `WebSearch`, and its URLs sit under `open[].ref_id`. The Slack floor
+reads them there. The replay does not follow yet: `src/normalize/codex.rs` names every
+`web_search` stream item `WebSearch` and reads `query` and `results`, and the item a
+`webrun` call leaves carries an `open_page` action. Build ticket 338 did not touch that
+reader.
+
 **The risk per tool today.** `ReadLints` returns `totalFiles: 0` for every path, `/etc/hosts`
 and a file that cannot parse included, in print mode and in the interactive TUI: there is no
 language server behind the CLI, so it reads nothing. `getMcpToolsToolCall` names the tools

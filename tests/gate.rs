@@ -359,6 +359,76 @@ fn a_refused_tool_the_table_does_not_hold_leaves_a_row_that_names_the_unknown_to
     assert_eq!(copied.len(), 1);
 }
 
+// Build ticket 338. `codex` 0.160.0 names its web tool `webrun` and hooks it,
+// measured on 2026-10-21 by one paid turn: the hook payload carried
+// `tool_input: {"open": [{"ref_id": "https://example.com"}], "response_length":
+// "short"}`, so the URL sits under `open[].ref_id`, not in a flat field.
+#[test]
+fn webrun_is_in_the_codex_table_and_its_urls_are_read_from_open() {
+    let permissive = Gate::compile_for(Provider::Codex, "permissive", false);
+    let fetch = |url: &str| json!({ "open": [{ "ref_id": url }], "response_length": "short" });
+    let allowed = permissive.ask("webrun", fetch("https://example.com"));
+    assert!(allowed.allowed, "{}", allowed.reason);
+    assert!(
+        allowed.reason.starts_with("hydra/allow"),
+        "{}",
+        allowed.reason
+    );
+
+    // Refused by the capability, not by the table: `read-only` and `judge`
+    // grant no `network_read`, so the reason is `hydra/capability`.
+    for policy in ["read-only", "judge"] {
+        let gate = Gate::compile_for(Provider::Codex, policy, false);
+        let decision = gate.ask("webrun", fetch("https://example.com"));
+        assert!(!decision.allowed, "{policy} allowed webrun");
+        assert!(
+            decision.reason.starts_with("hydra/capability"),
+            "{policy}: {}",
+            decision.reason
+        );
+    }
+
+    // A file URL naming the corpus is refused the way `WebFetch` is.
+    let runs = permissive.runs.join("x.jsonl");
+    let file = format!("file://{}", runs.display());
+    assert!(
+        permissive
+            .ask("webrun", fetch(&file))
+            .denied_for("hydra/protected-path"),
+        "a webrun file URL naming the corpus was allowed"
+    );
+
+    // The percent-encoded spelling. The raw pass matches the path as written,
+    // so this one passes, as `WebFetch`'s does in
+    // `a_protected_path_built_by_substitution_still_walks_past`. If this now
+    // denies, the residual is closed and the comment is stale.
+    let encoded = format!("file://{}/ru%6es/x.jsonl", permissive.root.display());
+    let encoded_decision = permissive.ask("webrun", fetch(&encoded));
+    assert!(encoded_decision.allowed, "{}", encoded_decision.reason);
+    assert!(
+        encoded_decision.reason.starts_with("hydra/allow"),
+        "{}",
+        encoded_decision.reason
+    );
+
+    // A name the table does not hold is still refused as unknown.
+    assert!(
+        permissive
+            .ask("webrun2", fetch("https://example.com"))
+            .denied_for("hydra/unknown-tool")
+    );
+
+    // The Slack floor reads `open[].ref_id` as it reads `WebFetch`'s `url`.
+    let standard = Gate::compile_for(Provider::Codex, "standard", false);
+    assert!(
+        standard
+            .ask("webrun", fetch("https://slack.com/api/files.upload"))
+            .denied_for("hydra/floor"),
+        "the floor let a webrun of a Slack method through"
+    );
+    assert!(standard.ask("webrun", fetch("https://example.com")).allowed);
+}
+
 #[test]
 fn a_refused_shell_command_keeps_the_build_332_shape_and_carries_no_hash() {
     let gate = Gate::new("read-only");

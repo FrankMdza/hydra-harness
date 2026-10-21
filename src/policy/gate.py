@@ -1494,9 +1494,11 @@ def scopes_for(capability):
 # and Cursor's `Fetch` send `url`, the second read off the normalizer's own
 # mapping of `webFetchToolCall`. `agy`'s `Url` on `read_url_content` follows the
 # PascalCase of every field measured on that provider and is itself unmeasured.
-# `codex` has no hooked fetch tool. The search tools, `WebSearch` and
-# `search_web`, carry a query rather than a URL and are left out on purpose: a
-# query that mentions `files.upload` sends nothing to Slack.
+# `codex`'s `webrun`, measured on 0.160.0 on 2026-10-21, takes a list under
+# `open` and names each URL in that entry's `ref_id`. `codex` has no other
+# hooked fetch tool. The search tools, `WebSearch` and `search_web`, carry a
+# query rather than a URL and are left out on purpose: a query that mentions
+# `files.upload` sends nothing to Slack.
 FETCH_URL_FIELDS = {
     "WebFetch": "url",
     "Fetch": "url",
@@ -1504,15 +1506,33 @@ FETCH_URL_FIELDS = {
 }
 
 
-def slack_violation_in_fetch(tool, tool_input):
-    """What the floor's Slack rules refuse in a fetch tool's URL, or None."""
+def fetch_urls(tool, tool_input):
+    """The URL strings a fetch tool names in its arguments."""
+    if tool == "webrun":
+        opened = tool_input.get("open")
+        if not isinstance(opened, list):
+            return []
+        refs = [
+            entry.get("ref_id") if isinstance(entry, dict) else None
+            for entry in opened
+        ]
+        return [ref for ref in refs if isinstance(ref, str) and ref]
     field = FETCH_URL_FIELDS.get(tool)
     if field is None:
-        return None
+        return []
     url = tool_input.get(field)
     if not isinstance(url, str) or not url:
-        return None
-    return check_slack(url)
+        return []
+    return [url]
+
+
+def slack_violation_in_fetch(tool, tool_input):
+    """What the floor's Slack rules refuse in a fetch tool's URL, or None."""
+    for url in fetch_urls(tool, tool_input):
+        hit = check_slack(url)
+        if hit:
+            return hit
+    return None
 
 
 def subagent_way_out():
