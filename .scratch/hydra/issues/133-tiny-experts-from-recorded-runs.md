@@ -66,3 +66,7 @@ What the session put beside that, for the human to weigh when resolving question
   frontier model wrote, into `chosen`. The clean version keeps `chosen` as the local model's best
   attempt among several, graded by the panel, and never the panel's rewrite. That is a small build
   once this question is resolved.
+
+Question 3 answered by the human on 2026-10-21: verifiable rewards and an open-weight teacher
+whose licence permits it. Frontier models stay judges and label-writers. Build 351 makes `pairs`
+keep only text a recorded attempt holds. Questions 1, 2, 4 and 5 stay open.
