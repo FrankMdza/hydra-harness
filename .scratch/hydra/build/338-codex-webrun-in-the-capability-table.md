@@ -1,7 +1,7 @@
 # 338 - `codex` 0.160.0's web tool `webrun` is in the capability table, so a web lookup under `permissive` is allowed and recorded instead of refused as unknown
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from run `01a14290-c0a1`: a `codex` research seat under

@@ -1,7 +1,7 @@
 # 350 - `claude` 2.1.301's `LSP` and `Workflow` tools are in the capability table, and the last `WebFetch` of two haiku runs that reads `Ungated` is explained
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from `hydra doctor --walk` after the three builds of that night
