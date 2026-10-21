@@ -2508,6 +2508,117 @@ fn parallel_calls_to_one_tool_each_get_their_own_hook_answer() {
 }
 
 #[test]
+fn a_start_landing_one_seq_before_its_call_still_joins_that_call() {
+    // Ticket 350: runs 01a14290-f30d and 01a14295-9d3f on claude 2.1.301, each
+    // ending on a `WebFetch` whose `hook_started` frame sat one seq before the
+    // call it belonged to. That start fell in the previous call's window, every
+    // later call took the start after it, and the last call's window held
+    // nothing, so it read `Ungated` while the walk showed no missing evidence.
+    // Here the first start lands after its call and the other two land before.
+    let sandbox = Sandbox::new("claude-start-before-call");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use(
+        "toolu_01",
+        "WebFetch",
+        json!({"url": "https://a.example", "prompt": "a"}),
+    );
+    record.hook_started("WebFetch", "hook-1");
+    record.hook_started("WebFetch", "hook-2");
+    record.tool_use(
+        "toolu_02",
+        "WebFetch",
+        json!({"url": "https://b.example", "prompt": "b"}),
+    );
+    record.hook_started("WebFetch", "hook-3");
+    record.tool_use(
+        "toolu_03",
+        "WebFetch",
+        json!({"url": "https://c.example", "prompt": "c"}),
+    );
+    for hook_id in ["hook-1", "hook-2", "hook-3"] {
+        record.hook_response_id(
+            "WebFetch",
+            "allow",
+            "hydra/allow: policy standard allows network_read.",
+            hook_id,
+        );
+    }
+    record.tool_result("toolu_01", "A", false);
+    record.tool_result("toolu_02", "B", false);
+    record.tool_result("toolu_03", "C", false);
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. })),
+        "{:?}",
+        run.findings
+    );
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 3, "{:?}", run.events);
+    for (index, decision) in decisions.iter().enumerate() {
+        assert_eq!(decision.call_id, format!("toolu_0{}", index + 1));
+        assert_eq!(decision.decision, Decision::Allow);
+    }
+}
+
+#[test]
+fn a_surplus_start_in_a_window_keeps_the_window_join() {
+    // Ticket 350: two calls and three starts is not the one-to-one count that
+    // the position rule needs, so the window join decides. The first call's
+    // window holds two starts, a hydra gate and a guard that allowed, and the
+    // second's holds the third. Each call takes the hydra answer in its own
+    // window and the guard's allow decides nothing.
+    let sandbox = Sandbox::new("claude-surplus-start");
+    let mut record = Record::opened(
+        &sandbox.worktree(),
+        Some("standard"),
+        Some(policies().sha()),
+    );
+    record.tool_use("toolu_01", "Read", json!({"file_path": "a.txt"}));
+    record.hook_started("Read", "hook-guard");
+    record.hook_started("Read", "hook-hydra");
+    record.tool_use("toolu_02", "Read", json!({"file_path": "b.txt"}));
+    record.hook_started("Read", "hook-third");
+    record.hook_response_id("Read", "allow", "t30 CUR-PROJ says allow", "hook-guard");
+    record.hook_response_id(
+        "Read",
+        "allow",
+        "hydra/allow: policy standard allows file_read.",
+        "hook-hydra",
+    );
+    record.hook_response_id(
+        "Read",
+        "allow",
+        "hydra/allow: policy standard allows file_read.",
+        "hook-third",
+    );
+    record.tool_result("toolu_01", "A", false);
+    record.tool_result("toolu_02", "B", false);
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert!(
+        !run.findings
+            .iter()
+            .any(|finding| matches!(finding, Finding::Ungated { .. })),
+        "{:?}",
+        run.findings
+    );
+    let decisions: Vec<_> = run.permission_decisions().collect();
+    assert_eq!(decisions.len(), 2, "{:?}", run.events);
+    assert_eq!(decisions[0].call_id, "toolu_01");
+    assert_eq!(decisions[1].call_id, "toolu_02");
+    assert_eq!(decisions[1].decision, Decision::Allow);
+}
+
+#[test]
 fn an_agy_argument_at_the_cap_is_a_limit_and_never_a_leak() {
     // Build ticket 45. Run 01a0902c-8d66 on agy 1.2.0: a `run_command` whose
     // `CommandLine` the stream cut at 513 characters, inside a double quote,

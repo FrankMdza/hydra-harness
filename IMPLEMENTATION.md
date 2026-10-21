@@ -555,6 +555,17 @@ from a later same-tool window holding more than one, and only from one holding m
 because run `01a07f37-8a67` has `Read` calls refused on their input with no start at all and
 they must not take the next real call's.
 
+**A `claude` start can land one seq before its own call, build ticket 350.** On 2.1.301 the
+`hook_started` frame of a call sometimes sits just before that call's frame. The window rule
+gave it to the call before, so the last call of runs `01a14290-f30d` and `01a14295-9d3f` had
+no start and read `Ungated`, each on its last `WebFetch`. The earlier calls of those runs took
+the wrong start too, and nothing showed, because every answer was `allow`. Now, when a tool has
+exactly one start per call, the n-th start belongs to the n-th call wherever it landed. Any
+other count keeps the window rule and the borrow above. A reader who sees `Ungated` on the last
+call of a run should check the record for a `hook_started` frame with that tool's name and a
+seq one below the call. If there is one and the build predates this change, the finding is
+the join's, not a missing gate.
+
 **`hydra show` and `hydra reap` take a run-id prefix, build ticket 39, with ambiguous matches listing distinguishing prefixes, providers and policies, while cockpit table and lane labels use the shortest unique prefix of at least eight characters among displayed runs (ticket 244).** `src/resolver.rs`
 resolves a short string against the run files: one match is that run, none or several is an
 error naming which. A full uuid is never looked up and passes through whether or not a record
@@ -2592,6 +2603,14 @@ every call was `hydra/unknown-tool` under every policy (run 01a0e789, a judge, 2
 They are `file_read` now, scoped on `path`, and a call with no `path` is checked against the
 cwd the hook reports, which is what they search; before, a scoped read with no path was
 `hydra/no-path` and the tools would have been useless under `standard`.
+
+Claude Code 2.1.307 offers `Workflow` in print mode, and it has a row now as `subagent_spawn`.
+Build ticket 350 measured it on 2026-10-21 with one haiku turn under a hook that logged the
+payload and denied, so no agent started. The `tool_input` is a `script`. The row is a reading of
+what a workflow script does, since its `agent()` calls start agents, and the probe's no-op
+script does not show that. `LSP` has no row. Runs on 2.1.301 called it, and no binary on this
+machine offers it in print mode: 2.1.307 does not, and 2.1.301 is not installed. It stays
+`hydra/unknown-tool` until a probe or a record measures its capability.
 
 **A `claude` result with no `is_error` is classified from `tool_use_result`, since build
 ticket 37.** On 2.1.263 a successful `Read`, `Edit` or `Write` result carries no `is_error`

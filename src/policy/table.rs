@@ -136,6 +136,12 @@ pub const CLAUDE: &[Tool] = &[
     // 2.1.281 renamed `Task` to `Agent`, measured 2026-09-24 on runs
     // 01a0d229-cd8f, 01a0d23c-ccc9 and 01a0d3e4-4245.
     tool("Agent", Capability::SubagentSpawn),
+    // 2.1.307 offers it in print mode. Measured 2026-10-21 by one haiku turn
+    // under a hook that logged the payload and denied, so no agent started. The
+    // `tool_input` is a `script`, and a workflow script starts agents through
+    // `agent()`, so it takes the subagent capability `Task` and `Agent` take.
+    // The payload is in the outcome of build ticket 350.
+    tool("Workflow", Capability::SubagentSpawn),
     // The nineteen. Each exists only inside this provider's own product surface
     // and none is granted by any policy in 7.2.
     tool("CronCreate", Capability::ProviderNative),
@@ -560,13 +566,14 @@ mod tests {
                 "{name} is offered by the provider and has no row, so 7.1 denies it"
             );
         }
-        // Three rows beyond 2.1.263's frame: `Agent`, the name 2.1.281 gave
+        // Four rows beyond 2.1.263's frame: `Agent`, the name 2.1.281 gave
         // `Task` (both stay so records on either side of the rename read back),
-        // and `Glob` and `Grep`, offered on 2.1.283 (run 01a0e789, 2026-09-28).
+        // `Glob` and `Grep`, offered on 2.1.283 (run 01a0e789, 2026-09-28), and
+        // `Workflow`, offered on 2.1.307 in print mode, measured 2026-10-21.
         // Anything else beyond the frame is a name the provider never offered.
         assert_eq!(
             CLAUDE.len(),
-            measured.len() + 3,
+            measured.len() + 4,
             "the table names a tool the provider does not offer"
         );
         assert!(

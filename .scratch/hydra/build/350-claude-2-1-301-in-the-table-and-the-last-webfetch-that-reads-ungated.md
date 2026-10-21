@@ -1,7 +1,7 @@
 # 350 - `claude` 2.1.301's `LSP` and `Workflow` tools are in the capability table, and the last `WebFetch` of two haiku runs that reads `Ungated` is explained
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-15, by the session, from `hydra doctor --walk` after the three builds of that night
@@ -132,3 +132,69 @@ raises `Ungated` on the third call; after it, no finding, and each call's answer
 hook's. A second record with two calls and three starts keeps the window join and the borrow
 rule, pinned by the existing cases. In `tests/gate.rs`: `Workflow` under `standard` answers
 with the measured capability's reason, `Workflow2` is still `hydra/unknown-tool`.
+
+## Outcome, second pass
+
+Resolved. The `Ungated` on the last call is a join fault, and the fix is in the normalizer.
+`LSP` got no row. The `Workflow` row is a reading of its payload, and a human should confirm it.
+
+**The reading of the two records.** The first pass left the third shape open, and the records
+confirm it. The last `WebFetch` of `01a14290-f30d` is seq 304, and its `hook_started` frame is
+seq 303, one seq before the call. The window rule gave that start to the call before, so the
+last call had no start. The same shape sits around seq 215 on `01a14295-9d3f`. Both answers were
+in the record. The walk read the two runs as `Ungated` because the join missed them.
+
+**The fix.** `group_starts` in `src/normalize/claude.rs` assigns the n-th `PreToolUse:<Tool>`
+start to the n-th `<Tool>` call when the counts are equal. Any other count keeps the window join
+and the borrow rule. The rule sits in the function's doc comment and in `IMPLEMENTATION.md`.
+
+**Tests, written first.** `a_start_landing_one_seq_before_its_call_still_joins_that_call` in
+`tests/normalize.rs` builds three `WebFetch` calls. The first start lands one seq after its call,
+and the second and third land one seq before theirs. Before the fix it failed with
+`Ungated { call_id: "toolu_03", tool: "WebFetch" }`. After it, three allow decisions, one per
+call. `a_surplus_start_in_a_window_keeps_the_window_join` pins two calls with three starts, and it
+passed before and after. `workflow_is_a_subagent_spawn_under_standard_and_a_stranger_is_unknown`
+in `tests/gate.rs` checks that `Workflow` under `standard` is denied for `hydra/capability` with
+`subagent_spawn` in the reason, and that `Workflow2` is denied for `hydra/unknown-tool`.
+
+**The `Workflow` measurement.** `claude` 2.1.307 offers `Workflow` in print mode. One haiku turn
+asked for it, with `--settings` pointing at a hook that logged stdin and answered `deny`. No agent
+started. The hook payload, with `session_id`, `transcript_path` and `prompt_id` cut:
+
+```
+{"cwd":"/private/tmp/h350-probe.DVbn","permission_mode":"default","effort":{"level":"medium"},
+"hook_event_name":"PreToolUse","tool_name":"Workflow",
+"tool_input":{"script":"export const meta = {\n  name: 'minimal-probe',\n  description: 'Minimal no-op workflow that returns a fixed string',\n}\n\nreturn { status: 'ok' }\n"},
+"tool_use_id":"toolu_01GUq7KXk3zsoFVZgoaa7F2z"}
+```
+
+The row is `SubagentSpawn`. A workflow script starts agents through `agent()`, and this probe's
+script calls none. So the row follows what the tool does, not what this one script did. That is
+a reading, not a measurement.
+
+**The probe needed the real `HOME`.** A scratch `HOME` gave `Not logged in · Please run /login`,
+so the probe used the real `HOME` with `--settings` pointing at a scratch file. The run wrote one
+transcript under `~/.claude/projects/` for the scratch path. I deleted that directory after
+reading it. The scratch directory under `/tmp` remains.
+
+**`LSP`.** No row. No binary on this machine offers it in print mode. 2.1.307 does not offer it,
+and 2.1.301 is not installed. The name stays `hydra/unknown-tool`, and `IMPLEMENTATION.md` says so.
+
+**The drift row.** `MEASURED_VERSIONS` still says `2.1.268`. It does not move to `2.1.301`,
+because that would claim a measurement nobody ran. The free drift probe did not run on 2.1.307
+either.
+
+**The walk.** `./target/release/hydra doctor --walk` from inside this run printed
+`checked 0 record(s)` and `RejectedBeforeHook: 0; Ungated: 0`. The records sit under a protected
+path, and the shell refuses any command that names it, so this run cannot read them. The walk
+total of `Ungated: 5` is unverified from here. The claim that the two records now read clean rests
+on the new test, not on the walk.
+
+**The checks.** On this worktree, `cargo fmt --all --check`, `cargo clippy --workspace
+--all-targets -- -D warnings` with no warnings, `cargo nextest run --release --workspace` with
+1467 passed and 4 skipped, and `cargo test --release --workspace --doc` all passed.
+
+**Two deviations from the ticket text.** The fast loop is `-p hydra`, because the package is
+named `hydra` and `hydra-apprentice` is a crate under `crates/`. The ticket names no fourth
+check, so the four used here are the ones build 316 names: fmt, clippy, the workspace nextest
+run and the doctests.

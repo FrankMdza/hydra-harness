@@ -819,6 +819,14 @@ impl Walk {
     /// next call of the same tool. `calls` is already in seq order, which is
     /// what lets this walk each tool's calls and starts together in one pass.
     ///
+    /// **When a tool has exactly one start per call, the n-th start is the n-th
+    /// call's, whichever side of the call's frame it landed on.** Ticket 350 added
+    /// this rule.
+    /// Claude Code 2.1.301 wrote a call's start one seq before the call, so
+    /// the window rule gave that start to the call before, and the last call
+    /// was left with none. The window rule and the borrow below apply only
+    /// when the counts differ.
+    ///
     /// **A call whose window holds no start borrows from a later window of the
     /// same tool that holds more than one** (build ticket 46). Run
     /// 01a095e6-626f on 2.1.268 emitted two `WebFetch` calls back to back and
@@ -838,13 +846,24 @@ impl Walk {
             by_tool.entry(call.2.as_str()).or_default().push(index);
         }
         for indices in by_tool.values() {
+            let tool = calls[indices[0]].2.as_str();
+            let own: Vec<&HookStart> = starts.iter().filter(|start| start.tool == tool).collect();
+            // Ticket 350: with one start per call, the n-th start is the n-th
+            // call's, wherever it landed. The window rule below put the last
+            // call's start in the call before it on runs 01a14290-f30d and
+            // 01a14295-9d3f, so the last call had no start and read `Ungated`.
+            if own.len() == indices.len() {
+                for (&index, start) in indices.iter().zip(&own) {
+                    groups[index] = vec![start.hook_id.clone()];
+                }
+                continue;
+            }
             for (position, &index) in indices.iter().enumerate() {
                 let after = calls[index].0;
                 let before = indices
                     .get(position + 1)
                     .map(|&next| calls[next].0)
                     .unwrap_or(u64::MAX);
-                let tool = calls[index].2.as_str();
                 groups[index] = starts
                     .iter()
                     .filter(|start| start.tool == tool && start.seq > after && start.seq < before)

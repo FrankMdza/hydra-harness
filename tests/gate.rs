@@ -1584,6 +1584,39 @@ fn agent_gets_the_same_gate_answer_as_task_under_standard() {
 }
 
 #[test]
+fn workflow_is_a_subagent_spawn_under_standard_and_a_stranger_is_unknown() {
+    // Build ticket 350. `claude` 2.1.307 offers `Workflow` in print mode, and
+    // its payload carries a workflow `script`, which starts agents. So it
+    // takes the subagent capability. `Workflow2` is a name no table holds.
+    let gate = Gate::new("standard");
+    let input = json!({ "script": "return { status: 'ok' }" });
+    let workflow = gate.ask_with_dialect(
+        Some("claude"),
+        gate.claude_payload("Workflow", input.clone(), &gate.worktree),
+    );
+    assert!(
+        workflow.denied_for("hydra/capability"),
+        "Workflow was answered {}: {}",
+        workflow.allowed,
+        workflow.reason
+    );
+    assert!(
+        workflow.reason.contains("subagent_spawn"),
+        "{}",
+        workflow.reason
+    );
+    let stranger = gate.ask_with_dialect(
+        Some("claude"),
+        gate.claude_payload("Workflow2", input, &gate.worktree),
+    );
+    assert!(
+        stranger.denied_for("hydra/unknown-tool"),
+        "{}",
+        stranger.reason
+    );
+}
+
+#[test]
 fn a_tool_the_table_does_not_know_is_denied_under_every_policy() {
     // 7.1: a self-update that renames a tool breaks the next run loudly instead
     // of quietly widening what a child may do. `permissive` is included on
