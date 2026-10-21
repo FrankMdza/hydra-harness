@@ -1,7 +1,7 @@
 # 354 - The fixture corpus carries a `codex` 0.160.0 record with a page open, transcribed from a recorded run
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by: 353
 Opened: 2026-10-21, by the session. Run `01a160af-5a15` (`codex`, `gpt-6.1-sol`, `permissive`,
