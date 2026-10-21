@@ -24,6 +24,10 @@ and each `graded_at` the step stamped, which is the wall clock, is `<graded_at>`
 checked to be `YYYY-MM-DDTHH:MM:SSZ` and no earlier than the recording. A planted pair
 carries a stamp from 2000, which is kept as it is, so a pair the step left alone can be told
 from one it wrote again.
+
+Since build ticket 351 the fixture departs from this Python: each step's planted bank has a
+sibling `attempts.jsonl` that the Python never reads, and the last three cases were written by
+hand, not recorded.
 """
 
 import json

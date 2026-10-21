@@ -76,7 +76,11 @@ sha with the delta. `--model NAME` prints one block. Open tasks are not scored.
 `pairs` reads one line per graded task: `task_id`, `local_answer`, `better_answer`, `verdict`
 and `graded_by`. The verdict is about the local answer. `better` keeps the local answer as
 `chosen` and `better_answer` becomes `rejected`. `worse` swaps them. `same` writes nothing.
-Unknown task ids and other verdicts are named and skipped. Each pair is a TRL-style line with
+Unknown task ids and other verdicts are named and skipped. Both answers must be recorded
+attempts. `pairs` reads `attempts.jsonl` beside `bank.jsonl`, and a row whose `local_answer` or
+`better_answer` that file does not hold for its task is named and skipped. Without
+`attempts.jsonl` every row is skipped. So `chosen` and `rejected` hold only text that `attempt`
+wrote, never the panel's own words. Each pair is a TRL-style line with
 message lists for `prompt`, `chosen` and `rejected`, plus `harness` (the provider the task is
 about), `graded_by`, `graded_at` and `source: "apprentice"`. Answers are redacted. Running it
 twice on the same file does not duplicate lines.

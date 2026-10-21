@@ -3724,6 +3724,14 @@ exit 1 where the Python connects, so only `pairs` still exits 2.
 Build ticket 233 ported `pairs`, lines 505 to 543, which matches the Python on 104 recorded cases
 in `crates/apprentice/tests/fixtures/pairs.json`, most of them run twice on one graded file, with
 each `graded_at` read as the clock, so all four commands now run in Rust.
+Build ticket 351 departs from the Python in `pairs`. A pair now needs both answers
+in `attempts.jsonl`, the file `attempt` writes beside `bank.jsonl`: a graded row whose
+`local_answer` or `better_answer` that file does not hold for its task is skipped and named as
+`pairs: skipped <id>, <field> is not a recorded attempt`. The Python put the panel's
+`better_answer` into `chosen` or `rejected` with no check, so panel text could reach training
+data. With no `attempts.jsonl`, every row is skipped. The fixture's 104 recorded cases now plant
+an `attempts.jsonl` the Python never read, so they still match, and three hand-written cases cover
+the skip; the top-level `departs` key in `pairs.json` says so.
 Build ticket 234 deleted the Python: `apprentice.py`, `records.py`, `models.py`, `redact.py`,
 `bitnet_serve.py` (dropped, not ported, by map ticket 95) and their four test files.
 `integrations/apprentice/` keeps its README and the launchd template, which runs

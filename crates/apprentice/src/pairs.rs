@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
-use hydra_pyjson::json::Value;
+use hydra_pyjson::json::{PyStr, Value};
 use hydra_pyjson::py;
 use hydra_pyjson::pysort;
 use hydra_records::isotime::DateTime;
@@ -62,6 +62,27 @@ fn tuple_less(a: &Key, b: &Key) -> Result<bool> {
     Ok(false)
 }
 
+/// The `(task_id, answer)` of every line in `attempts.jsonl`: a set in the Python, so both
+/// members have to hash.
+fn read_attempts(path: &Path) -> Result<Vec<(Value, Value)>> {
+    let mut attempts = Vec::new();
+    for row in records::read_jsonl(path)? {
+        let id = py::item(&row, "task_id")?.clone();
+        let answer = py::item(&row, "answer")?.clone();
+        py::hashable(&id)?;
+        py::hashable(&answer)?;
+        attempts.push((id, answer));
+    }
+    Ok(attempts)
+}
+
+/// `(task_id, answer) in attempts`: the id compares as the bank's ids do, the answer as text.
+fn attempted(attempts: &[(Value, Value)], id: &Value, answer: &PyStr) -> bool {
+    attempts.iter().any(|(held_id, held)| {
+        py::same_key(held_id, id) && matches!(held, Value::Str(text) if text == answer)
+    })
+}
+
 /// `[{"role": role, "content": content}]`.
 fn turn(role: &str, content: Value) -> Value {
     Value::List(vec![dict(vec![
@@ -82,6 +103,7 @@ pub fn pairs(graded: &Path, env: Env, stdout: &mut dyn Write) -> Result<u8> {
         let id = py::item(&task, "id")?.clone();
         bank.set(id, task)?;
     }
+    let attempts = read_attempts(&base.join("attempts.jsonl"))?;
     let out_path = base.join("pairs.jsonl");
     let mut kept: Vec<(Key, Value)> = Vec::new();
     for pair in records::read_jsonl(&out_path)? {
@@ -135,7 +157,23 @@ pub fn pairs(graded: &Path, env: Env, stdout: &mut dyn Write) -> Result<u8> {
             skipped += 1;
             continue;
         };
-        // The verdict is on the local answer. `better` keeps it, `worse` swaps in the panel's.
+        let task_id = py::item(&row, "task_id")?;
+        let unrecorded = [("local_answer", &local), ("better_answer", &better)]
+            .into_iter()
+            .find(|(_, answer)| !attempted(&attempts, task_id, answer));
+        if let Some((field, _)) = unrecorded {
+            line(
+                stdout,
+                &format!(
+                    "pairs: skipped {}, {field} is not a recorded attempt",
+                    py::repr(task_id)
+                ),
+            );
+            skipped += 1;
+            continue;
+        }
+        // The verdict is on the local answer. `better` keeps it as chosen, `worse` swaps in the
+        // other recorded attempt, which `better_answer` names since build 351.
         let (chosen, rejected) = if py::eq_str(&verdict, "better") {
             (local, better)
         } else {

@@ -1,7 +1,7 @@
 # 351 - `pairs` keeps only answers that `attempts.jsonl` holds, so nothing a panel wrote enters `chosen` or `rejected`
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-21, by the session, from map 133's question 3, which the human answered that day:
@@ -89,3 +89,37 @@ test reads only the keys it names, so the new key costs nothing.
    `cargo nextest run --release --workspace --no-fail-fast`, `cargo test --release --workspace
    --doc`. Then `## Outcome` under this ticket with what was built, the fixture counts before and
    after, and anything above that turned out false.
+
+## Outcome
+
+Built. `pairs` reads `attempts.jsonl` beside `bank.jsonl` and keeps a pair only when both
+answers are recorded attempts of that task. The check runs after both answers are known to be
+strings and before the swap. It tests `local_answer` first and names the row with
+`pairs: skipped <id>, <field> is not a recorded attempt`. Task ids compare with `py::same_key`,
+as the bank's do. A missing `attempts.jsonl` skips every row. Nothing else in the output changed.
+
+Fixture. Before: 104 recorded cases, none planting an attempts file. The planting script
+added an `attempts.jsonl` beside the bank in 112 steps, 934 lines in all. The same 104 cases
+pass with those files in place, and the Python ignores them. Then three hand-written cases were
+appended, 107 in all, with `departs` at the top level. Before the code change the three new
+cases failed (7 comparisons) and the 104 passed. After it, all 107 pass.
+`cargo nextest run --release -p hydra-apprentice --test pairs` runs one test function, so the
+104 and 3 split shows in the comparison list, not as separate test rows.
+
+Checks: `cargo fmt --all --check` clean. `cargo clippy --workspace --all-targets -- -D warnings`
+clean. `cargo nextest run --release --workspace --no-fail-fast`: 1460 passed, 4 skipped.
+`cargo test --release --workspace --doc`: every crate reports ok.
+
+Prose: the README paragraph on `pairs`, a paragraph in `IMPLEMENTATION.md` after the build 233
+sentence, and one sentence in the docstring of `record_pairs.py`.
+
+What the ticket got wrong or left out:
+
+- A step that expects exit 1 does need planted attempts. Once `pairs` reads the file, a row the
+  Python reached before its `ValueError` is skipped, so the NaN-id step exits 0 instead of 1 when
+  its rows have no attempts. The script planted every step with a bank and graded rows, whatever
+  its exit.
+- Several steps reuse the bank or the graded file of an earlier step in the same case. The
+  script carries that state across the steps of one case.
+- `read_attempts` checks the answer as well as the task id for hashability on read. The ticket
+  named only the id. This follows `Done::read` in `attempt.rs`.
