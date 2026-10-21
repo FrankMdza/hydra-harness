@@ -1747,10 +1747,17 @@ found this in one paid turn on 2026-10-21. The payload carried `tool_name: "webr
 `tool_input: {"open": [{"ref_id": "https://example.com"}], "response_length": "short"}`, and
 the hook fired for a shell call in the same session. So `webrun` is a hooked `network_read`
 row in `CODEX`, unlike `WebSearch`, and its URLs sit under `open[].ref_id`. The Slack floor
-reads them there. The replay does not follow yet: `src/normalize/codex.rs` names every
-`web_search` stream item `WebSearch` and reads `query` and `results`, and the item a
-`webrun` call leaves carries an `open_page` action. Build ticket 338 did not touch that
-reader.
+reads them there. Build ticket 353 made the replay follow it, in the paragraph below.
+
+**The replay reads `webrun` the way the hook saw it.** Build ticket 353, 2026-10-21.
+`src/normalize/codex.rs` `web_search` turns an item whose `action.type` is `open_page` into a
+`webrun` call with `{"open": [{"ref_id": <action.url>}]}` and capability `network_read`, so the
+replay re-evaluates it under the hooked row and the Slack floor reads the URL the gate read.
+An item with `action.type` of `search`, or with no `action`, stays `WebSearch` with `query`,
+which is hosted search and still unhooked. Codex writes no hook frame for a call it allows, so
+an allowed `webrun` reads as `permission_decision` `allow` with `decider: hydra_policy`, the
+reason being the policy's own verdict. A refused one reads through the same refusal rows as
+any hooked call. The `item.started` half, whose `action.type` is `other`, is still dropped.
 
 **The risk per tool today.** `ReadLints` returns `totalFiles: 0` for every path, `/etc/hosts`
 and a file that cannot parse included, in print mode and in the interactive TUI: there is no

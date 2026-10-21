@@ -1,7 +1,7 @@
 # 353 - The codex replay names a `webrun` call by the name the hook saw, and reads the page it opened
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-21, by the session, from build 338's Found: `src/normalize/codex.rs::web_search`
@@ -77,3 +77,48 @@ written first:
 5. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
    `cargo nextest run --release --workspace --no-fail-fast`, `cargo test --release --workspace
    --doc`, then `## Outcome`.
+
+## Outcome
+
+Built. `web_search` in `src/normalize/codex.rs` now reads an item whose `action.type` is
+`open_page` as a `webrun` call with `{"open": [{"ref_id": <action.url>}]}`. Its capability is
+`network_read`, from the existing `webrun` row. The replay sends it to the hooked path, so the
+Slack floor reads the same URL the gate read. Search items keep the `WebSearch` reading with
+`query`. The output is still what `results` holds.
+
+Measured. The two page-open cases in `tests/normalize.rs` went red first, then green. The
+search case passed before the change, as the old reader did, and it still passes. The
+page-open cases use the probe frames from 2026-10-21 as two record lines. The Slack case gives
+a `hydra/floor:` deny under `standard`. The `other_findings` check runs beside the scope
+limit that every synthetic record gets, which the existing codex tests filter the same way.
+`cargo fmt --all --check` passes, `cargo clippy --workspace --all-targets -- -D warnings` is
+clean, `cargo nextest run --release --workspace --no-fail-fast` gives 1467 passed and 4
+skipped, and `cargo test --release --workspace --doc` passes.
+
+What an allowed `webrun` reads as. Codex writes no hook frame for an allow, so the replay
+derives it. With no refusal row in the record, the call reads as `permission_decision` with
+`decision: allow` and `decider: hydra_policy`. Its reason is the policy's verdict. A refusal
+reads through the result text like any hooked call.
+
+Assumption that turned out only partly true. The ticket treated `action.url` as always
+present on an `open_page` item. The code copies whatever `action.url` holds, so a missing URL
+gives `ref_id: null`. The floor reads only string URLs, so such a call would pass the Slack
+check without a URL to check. No probe has shown this shape, and the code does not flag it.
+
+IMPLEMENTATION.md. The build 338 paragraph said the replay did not follow `webrun` yet. That
+sentence now points at build ticket 353, and a new paragraph after it records the reader's
+behavior.
+
+## Pending from me
+
+Nothing for this ticket. A recorded `codex` run under `permissive` that opens one page would
+add a real fixture to the corpus. That is one paid turn, and the ticket leaves it for later.
+
+## Changed
+
+- `src/normalize/codex.rs`: `web_search` branches on `action.type` and rewrites its doc comment.
+- `tests/normalize.rs`: a `codex_page_open` helper and three cases at the end of the file.
+- `IMPLEMENTATION.md`: one sentence in build 338's paragraph corrected, and one new paragraph
+  after it.
+- This ticket: `Status: resolved` and this Outcome.
+- `cargo fmt --all` ran across the workspace. It changed nothing outside the test file above.

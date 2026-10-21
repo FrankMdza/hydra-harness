@@ -344,17 +344,28 @@ impl Walk {
         }));
     }
 
-    /// Hosted web search never reaches the hook on 0.154.0. The item shape is
-    /// not measured on a Hydra run yet; `query` is the field name map ticket 58
-    /// read off the hooks reference.
+    /// Hosted search stays unhooked on 0.160.0, so a search item is `WebSearch`
+    /// with `query`, the field map ticket 58 read off the hooks reference. A
+    /// page open is `webrun`, which the hook does see: build ticket 338
+    /// measured it on 2026-10-21, with the URL under `open[].ref_id`. The
+    /// replay reads it the same way, so the Slack floor sees the URL the gate
+    /// saw.
     fn web_search(&mut self, seq: u64, item: &Value) {
         let call_id = item_id(item, seq);
-        let name = "WebSearch".to_string();
-        let capability = codex_capability(&name);
-        let arguments = match item.get("query") {
-            Some(query) => json!({ "query": query }),
-            None => json!({}),
+        let (name, arguments) = match item["action"]["type"].as_str() {
+            Some("open_page") => (
+                "webrun".to_string(),
+                json!({ "open": [{ "ref_id": item["action"]["url"] }] }),
+            ),
+            _ => (
+                "WebSearch".to_string(),
+                match item.get("query") {
+                    Some(query) => json!({ "query": query }),
+                    None => json!({}),
+                },
+            ),
         };
+        let capability = codex_capability(&name);
         self.events.push(Event::ToolCall(ToolCall {
             seq,
             call_id: call_id.clone(),

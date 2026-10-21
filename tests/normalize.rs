@@ -3298,3 +3298,124 @@ fn a_codex_command_reads_its_exit_code_and_a_failure_is_not_a_refusal() {
     assert_eq!(failed.decision, Decision::Allow, "{failed:?}");
     assert_eq!(failed.decider, Decider::HydraPolicy, "{failed:?}");
 }
+
+/// Build ticket 353: `codex` 0.160.0 leaves a `webrun` call as a `web_search`
+/// item whose `action` is `open_page`. The hook names that call `webrun` and
+/// carries the URL under `open[].ref_id`, so the replay reads the call the same
+/// way and the Slack floor reads the same URL the gate read. The frames are the
+/// probe of 2026-10-21, thread 01a1609f-d4ad.
+fn codex_page_open(url: &str) -> [serde_json::Value; 2] {
+    let id = "exec-2cc2aa80-74a6-40c4-8ee4-4a44974c5951";
+    [
+        json!({"type": "item.started", "item": {
+            "id": id, "type": "web_search", "query": "", "action": {"type": "other"},
+        }}),
+        json!({"type": "item.completed", "item": {
+            "id": id, "type": "web_search", "query": url,
+            "action": {"type": "open_page", "url": url},
+            "results": [{
+                "type": "text_result", "domain": "example.com", "ref_id": "turn0view0",
+                "snippet": "Total lines: 1", "title": "Example Domain",
+                "url": "https://example.com/",
+            }],
+        }}),
+    ]
+}
+
+#[test]
+fn a_codex_page_open_reads_as_a_webrun_call_with_the_url_under_open() {
+    let sandbox = Sandbox::new("codex-webrun");
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("permissive"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        ..Shape::default()
+    });
+    for frame in codex_page_open("https://example.com") {
+        record.raw(frame);
+    }
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let id = "exec-2cc2aa80-74a6-40c4-8ee4-4a44974c5951";
+    let calls: Vec<_> = run.tool_calls().filter(|call| call.call_id == id).collect();
+    assert_eq!(calls.len(), 1, "{:?}", run.events);
+    let call = calls[0];
+    assert_eq!(call.name, "webrun");
+    assert_eq!(call.arguments["open"][0]["ref_id"], "https://example.com");
+    assert_eq!(
+        call.capability,
+        Some(hydra::policy::Capability::NetworkRead)
+    );
+
+    let results: Vec<_> = run.tool_results().filter(|r| r.call_id == id).collect();
+    assert_eq!(results.len(), 1, "{:?}", run.events);
+    assert!(
+        results[0].output.contains("Example Domain"),
+        "{}",
+        results[0].output
+    );
+
+    assert!(
+        common::other_findings(&run).is_empty(),
+        "{:?}",
+        run.findings
+    );
+    let decision = run
+        .permission_decisions()
+        .find(|decision| decision.call_id == id)
+        .unwrap();
+    assert_eq!(decision.decision, Decision::Allow, "{}", decision.reason);
+}
+
+#[test]
+fn a_codex_page_open_of_a_slack_method_replays_as_a_floor_refusal() {
+    let sandbox = Sandbox::new("codex-webrun-slack");
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        ..Shape::default()
+    });
+    for frame in codex_page_open("https://slack.com/api/files.upload") {
+        record.raw(frame);
+    }
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let id = "exec-2cc2aa80-74a6-40c4-8ee4-4a44974c5951";
+    let decision = run
+        .permission_decisions()
+        .find(|decision| decision.call_id == id)
+        .unwrap();
+    assert_eq!(decision.decision, Decision::Deny, "{}", decision.reason);
+    assert!(
+        decision.reason.starts_with("hydra/floor:"),
+        "{}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_codex_search_item_still_reads_as_websearch() {
+    let sandbox = Sandbox::new("codex-search");
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("permissive"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        ..Shape::default()
+    });
+    record.raw(json!({"type": "item.completed", "item": {
+        "id": "s1", "type": "web_search", "query": "rust edition 2024",
+        "action": {"type": "search"}, "results": "two hits",
+    }}));
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    let call = run.tool_calls().find(|call| call.call_id == "s1").unwrap();
+    assert_eq!(call.name, "WebSearch");
+    assert_eq!(call.arguments, json!({"query": "rust edition 2024"}));
+}
