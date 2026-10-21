@@ -1,7 +1,7 @@
 # 352 - The cutover tests retry a spawn that finds the text file busy, so the Linux job stops failing on a fork in another thread
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-21, by the session, from the first `ci` run on master after build 351 (run
@@ -54,3 +54,31 @@ or from any process that exits zero, since the helper does not look inside it.
 3. `cargo nextest run --release -p hydra-grader --test cutover` green, then the four checks of
    the workspace. Then `## Outcome` under this ticket, with the panic quoted and the sentence
    that the race was not reproduced on macOS, which has no `ETXTBSY`.
+
+## Outcome
+
+Built. `crates/grader/tests/cutover.rs` now has `retry_while_busy`, which takes a spawn closure
+and tries it again on `ExecutableFileBusy`: ten tries in all, 20 ms apart. Any other error and
+the tenth busy error come back unchanged. `run` goes through it, so every spawn in the file does.
+The three cases from the ticket are there under the names it gives. I wrote them before the
+helper, but did not run them red first.
+
+The panic on master, run 39684267088:
+
+```
+Os { code: 26, kind: ExecutableFileBusy, message: "Text file busy" }
+```
+
+The race was not reproduced here. macOS has no `ETXTBSY` for this path, so the three cases test
+the policy with a closure, and the Linux job is the only real check of the fix.
+
+Checks, all on macOS:
+
+- `cargo nextest run --release -p hydra-grader --test cutover`: 10 passed.
+- `cargo fmt --all --check`: clean. The first draft had two long assertions, and `rustfmt` on
+  that one file wrapped them.
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+- `cargo nextest run --release --workspace`: 1463 passed, 4 skipped.
+- `cargo test --release --workspace --doc`: exit 0.
+
+`IMPLEMENTATION.md` gets one paragraph under the cutover section, saying `run` retries and why.

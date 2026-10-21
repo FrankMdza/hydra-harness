@@ -90,14 +90,31 @@ fn record() -> Vec<u8> {
     std::fs::read(dirs[0].join(format!("{RUN_ID}.jsonl"))).unwrap()
 }
 
+/// Tries a spawn again while the kernel says the text file is busy: ten tries in all, 20 ms
+/// apart. Any other error, and the tenth busy one, is returned as it came.
+fn retry_while_busy(mut spawn: impl FnMut() -> std::io::Result<Output>) -> std::io::Result<Output> {
+    let mut tries = 1;
+    loop {
+        match spawn() {
+            Err(err) if err.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 10 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            other => return other,
+        }
+    }
+}
+
 fn run(binary: &Path, args: &[&str], env: &[(&'static str, PathBuf)]) -> Output {
-    Command::new(binary)
-        .args(args)
-        .env_clear()
-        .envs(env.iter().map(|(key, value)| (key, value.as_os_str())))
-        .stdin(Stdio::null())
-        .output()
-        .unwrap()
+    retry_while_busy(|| {
+        Command::new(binary)
+            .args(args)
+            .env_clear()
+            .envs(env.iter().map(|(key, value)| (key, value.as_os_str())))
+            .stdin(Stdio::null())
+            .output()
+    })
+    .unwrap()
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -294,4 +311,55 @@ fn a_marked_show_is_read_bare() {
         panic!("{full:?}")
     };
     assert_eq!(text(&events[0], "text"), bare);
+}
+
+/// A process that exits zero, run once for the `Output` the closures below hand back.
+fn an_output() -> Output {
+    Command::new("true").output().unwrap()
+}
+
+/// Linux forks a child while a copied binary is still open for writing, and the exec of that
+/// binary fails until the child execs. The helper waits that out and nothing else.
+#[test]
+fn a_spawn_that_finds_the_text_file_busy_twice_is_retried_and_succeeds() {
+    let mut calls = 0;
+    let got = retry_while_busy(|| {
+        calls += 1;
+        if calls < 3 {
+            Err(std::io::Error::from(std::io::ErrorKind::ExecutableFileBusy))
+        } else {
+            Ok(an_output())
+        }
+    })
+    .unwrap();
+    assert!(got.status.success());
+    assert_eq!(calls, 3);
+}
+
+#[test]
+fn a_spawn_that_fails_another_way_is_not_retried() {
+    let mut calls = 0;
+    let got = retry_while_busy(|| {
+        calls += 1;
+        Err::<Output, _>(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+    });
+    assert_eq!(
+        got.unwrap_err().kind(),
+        std::io::ErrorKind::PermissionDenied
+    );
+    assert_eq!(calls, 1);
+}
+
+#[test]
+fn a_spawn_that_stays_busy_gives_up_after_ten_tries() {
+    let mut calls = 0;
+    let got = retry_while_busy(|| {
+        calls += 1;
+        Err::<Output, _>(std::io::Error::from(std::io::ErrorKind::ExecutableFileBusy))
+    });
+    assert_eq!(
+        got.unwrap_err().kind(),
+        std::io::ErrorKind::ExecutableFileBusy
+    );
+    assert_eq!(calls, 10);
 }

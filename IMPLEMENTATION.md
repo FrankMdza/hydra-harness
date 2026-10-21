@@ -4533,6 +4533,9 @@ file, lints it with `plutil` where there is one, and checks the program, both ho
 absolute `HYDRA_BIN`, the data directory and the README's commands.
 `crates/puppets/tests/grader_labels.rs` is `test_labels_recorded.py`, above.
 `crates/grader/tests/cutover.rs` runs the binary for the five changes a command can reach.
+Its `run` retries a spawn that finds the text file busy, ten tries 20 ms apart. Linux can fork
+a child while the copied binary is still open for writing, and the exec then fails with
+`ETXTBSY`. Build ticket 352 added the retry after the Linux job failed on it.
 `libc` is a new dependency of `crates/grader`, for `flock`; `crates/puppets` already had it.
 
 What is left open:
