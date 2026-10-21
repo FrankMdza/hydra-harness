@@ -1,7 +1,7 @@
 # 354 - The fixture corpus carries a `codex` 0.160.0 record with a page open, transcribed from a recorded run
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by: 353
 Opened: 2026-10-21, by the session. Run `01a160af-5a15` (`codex`, `gpt-6.1-sol`, `permissive`,
@@ -61,3 +61,41 @@ the builder and the directory exist.
    only the new directory should appear.
 3. The three fixture walks green, then the four checks, then `## Outcome` with the record's path
    and the walk's reading of it.
+
+## Outcome
+
+Built. The record is `tests/fixtures/records/codex@0.160.0/00000000-0000-7000-8000-000000000013.jsonl`.
+`write_the_fixture_corpus` wrote it from the inline codex builders in `tests/fixture_corpus.rs`,
+with the `CODEX_0160` constant naming the directory. The codex shapes were never builders in
+`tests/common`, so the new one sits beside them in `fixtures()`, not in `tests/common`. The
+frames are the ticket's, in its order, with one copy of the hook-trust notice and synthetic ids.
+The record carries `provider_version` `codex-cli 0.160.0`, `policy` `permissive` and no host,
+like fixture 11.
+
+Walk reading. The normalizer reads one `webrun` call, id `exec-fixture-0160-webrun`, with
+arguments `{"open": [{"ref_id": "https://example.com"}]}` and capability `network_read`. It reads
+one result holding the page title. The decision is `allow` with `decider: hydra_policy`. The
+outcome is `completed`. The findings are two, both about the fixture's shape. One is the scope
+limit every synthetic record gets, because it carries no `scopes`. The other is `StalePolicy`,
+because every fixture carries the fake policy sha. The new normalize case filters `StalePolicy`
+and says why in a comment.
+
+Measured. Before the directory existed on disk, both new cases failed for the reason the ticket
+gives, `no codex@0.160.0 directory`, and the normalize case failed on `StalePolicy`. After
+`write_the_fixture_corpus`, both pass. The rewrite changed no existing fixture: the only change
+in `tests/fixtures` is the new directory.
+
+Checks. `cargo fmt --all --check` passes after `cargo fmt --all` reflowed the new normalize
+assertion. `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+`cargo nextest run --release --workspace --no-fail-fast` gives 1472 passed and 4 skipped.
+`cargo test --release --workspace --doc` passes. The three fixture walks, `record_contract`,
+`normalize` and `outcome`, pass, and so do the fixture corpus guards, including
+`no_fixture_carries_a_real_path_a_secret_or_a_live_run_id`.
+
+Deviations from the ticket. The fast loop the brief names, `-p hydra-apprentice`, does not run
+these tests, which live in the `hydra` package, so the cases ran under `--workspace`. The
+ticket asks for a builder in `tests/common`, and there is none for codex, so the shape is
+inline. The ticket's "one copy is enough" is kept. The fixture uses id 13.
+
+IMPLEMENTATION.md. The fixture paragraph now says thirteen records in six directories and names
+`codex@0.160.0` and what its replay reads.

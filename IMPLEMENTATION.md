@@ -278,9 +278,9 @@ and `tests/outcome.rs` call the same functions over `tests/fixtures/records/`. C
 should run `hydra doctor --walk` beside `cargo test`. `corpus_runs_dir` and `corpus_or_skip` in
 `tests/common/mod.rs` remain for tests that launch a stub with `HYDRA_ROOT`, not for corpus walks.
 **Since build ticket 101 CI walks a fixture corpus** (panel findings F32 and H14).
-`tests/fixtures/records/` holds twelve synthetic records in five directories named by the binary
+`tests/fixtures/records/` holds thirteen synthetic records in six directories named by the binary
 that wrote each shape: `claude@2.1.261`, `cursor-agent@2026.09.02-c22c1a3`, `agy@1.1.26`,
-`codex@0.154.0` and `harness`. The ignored test `write_the_fixture_corpus` in
+`codex@0.154.0`, `codex@0.160.0` and `harness`. The ignored test `write_the_fixture_corpus` in
 `tests/fixture_corpus.rs` writes them from the builders in `tests/common`, so no byte comes from
 `~/hydra/runs`, and three tests there guard the directory label, the coverage of every routed
 provider and the harness, and the absence of secrets, home paths and live run ids. The CI job
@@ -288,7 +288,9 @@ summary prints how many fixtures the contract walk checked. Two limits. The fixt
 catch a reader that invents a leak and cannot catch a real one, because a frozen fixture names no
 gate this build compiles, so a disagreement reads as `StalePolicy`; the synthetic tests in
 `tests/normalize.rs` hold the leak rule. And no fixture has the 2026-09-22 versions yet; a shape
-change on one of those goes in a new directory.
+change on one of those goes in a new directory. Build ticket 354 added `codex@0.160.0`, one record
+with a page open. Its frames are run 01a160af-5a15's with the ids made synthetic. Its replay reads
+one `webrun` call with the URL under `open[0].ref_id`, allowed, with no finding.
 
 **A run cannot relaunch the binary and name its own policy since build ticket 57, and the stop is a
 marker.** Harness spec 7.3's rule was enforced nowhere: `Lineage::of` returns depth 0 with no bound

@@ -1598,6 +1598,43 @@ fn a_cursor_websearch_under_judge_is_a_finding_the_hook_never_saw() {
 }
 
 #[test]
+fn the_codex_0160_page_open_fixture_reads_as_a_webrun_call() {
+    let policies = policies();
+    let path = common::fixture_dir()
+        .join("codex@0.160.0")
+        .join("00000000-0000-7000-8000-000000000013.jsonl");
+    assert!(
+        path.is_file(),
+        "run fixture_corpus write_the_fixture_corpus"
+    );
+    let run = common::read_fixture(&path, &policies);
+    let id = "exec-fixture-0160-webrun";
+    let calls: Vec<_> = run.tool_calls().filter(|call| call.call_id == id).collect();
+    assert_eq!(calls.len(), 1, "{:?}", run.events);
+    assert_eq!(calls[0].name, "webrun");
+    assert_eq!(
+        calls[0].arguments["open"][0]["ref_id"],
+        "https://example.com"
+    );
+    let results: Vec<_> = run.tool_results().filter(|r| r.call_id == id).collect();
+    assert_eq!(results.len(), 1, "{:?}", run.events);
+    // Every fixture carries the fake policy sha, so the reader names it stale.
+    // That finding is the fixture's shape, not a reading of the page open.
+    let findings: Vec<_> = common::other_findings(&run)
+        .into_iter()
+        .filter(|finding| !matches!(finding, Finding::StalePolicy { .. }))
+        .collect();
+    assert!(findings.is_empty(), "{:?}", run.findings);
+    let decision = run
+        .permission_decisions()
+        .find(|decision| decision.call_id == id)
+        .unwrap();
+    assert_eq!(decision.decision, Decision::Allow, "{}", decision.reason);
+    let derived = hydra::outcome::derive(&run).unwrap();
+    assert_eq!(derived.outcome.as_str(), "completed");
+}
+
+#[test]
 fn the_judge_websearch_fixture_reads_as_unhooked_denied() {
     let policies = policies();
     let path = common::fixture_dir()

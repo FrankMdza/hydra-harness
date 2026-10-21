@@ -57,6 +57,7 @@ const CLAUDE_VERSION: &str = "2.1.261 (Claude Code)";
 const CURSOR: &str = "cursor-agent@2026.09.02-c22c1a3";
 const AGY: &str = "agy@1.1.26";
 const CODEX: &str = "codex@0.154.0";
+const CODEX_0160: &str = "codex@0.160.0";
 const HARNESS: &str = "harness";
 
 /// Every fixture the corpus holds, built from the shared record builders.
@@ -373,6 +374,60 @@ fn fixtures() -> Vec<Fixture> {
         .closed(),
     });
 
+    // `codex` 0.160.0 opens one page and answers. The frames are run
+    // 01a160af-5a15's shape, with the ids and the thread made synthetic. The
+    // page open is a `web_search` item whose `action` is `open_page`, which
+    // the hook saw as `webrun`. Codex writes no hook frame for an allow.
+    let id = fixture_id(13);
+    out.push(Fixture {
+        label: CODEX_0160,
+        provider_version: Some("codex-cli 0.160.0"),
+        subscription: Some("openai"),
+        text: Record::shaped(Shape {
+            run_id: &id,
+            provider: Some("codex"),
+            policy: Some("permissive"),
+            policy_sha: Some(&sha),
+            worktree: Some(&layout.worktree(&id)),
+            ..Shape::default()
+        })
+        .raw(json!({"type": "thread.started", "thread_id": "fixture-thread-c"}))
+        .raw(json!({"type": "item.completed", "item": {
+            "id": "item_0", "type": "error",
+            "message": "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run \
+                        without review for this invocation.",
+        }}))
+        .raw(json!({"type": "turn.started"}))
+        .raw(json!({"type": "item.completed", "item": {
+            "id": "item_2", "type": "agent_message",
+            "text": "I'll open the page and read its title.",
+        }}))
+        .raw(json!({"type": "item.started", "item": {
+            "id": "exec-fixture-0160-webrun", "type": "web_search",
+            "query": "", "action": {"type": "other"},
+        }}))
+        .raw(json!({"type": "item.completed", "item": {
+            "id": "exec-fixture-0160-webrun", "type": "web_search",
+            "query": "https://example.com",
+            "action": {"type": "open_page", "url": "https://example.com"},
+            "results": [{
+                "type": "text_result", "domain": "example.com", "ref_id": "turn0view0",
+                "snippet": "Total lines: 1", "title": "Example Domain",
+                "url": "https://example.com/",
+            }],
+        }}))
+        .raw(json!({"type": "item.completed", "item": {
+            "id": "item_4", "type": "agent_message",
+            "text": "[Example Domain](https://example.com/)",
+        }}))
+        .raw(json!({"type": "turn.completed", "usage": {
+            "input_tokens": 33834, "cached_input_tokens": 29056,
+            "cache_write_input_tokens": 0, "output_tokens": 70,
+            "reasoning_output_tokens": 0,
+        }}))
+        .closed(),
+    });
+
     // `cursor-agent` searches the web under `judge` without asking the hook.
     let id = fixture_id(12);
     let worktree = layout.worktree(&id);
@@ -620,6 +675,15 @@ fn the_fixture_corpus_holds_every_routed_provider_and_the_harness() {
             "no fixture under {prefix}: {labels:?}"
         );
     }
+}
+
+#[test]
+fn the_fixture_corpus_holds_one_codex_0160_record_with_a_page_open() {
+    let records: Vec<_> = std::fs::read_dir(fixture_dir().join(CODEX_0160))
+        .unwrap_or_else(|err| panic!("no {CODEX_0160} directory: {err}"))
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(records.len(), 1, "{records:?}");
 }
 
 /// Absolute paths a fixture may name: the fixture root, and the generic system
