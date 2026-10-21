@@ -382,6 +382,7 @@ it.
 - [350 - `claude` 2.1.301's `LSP` and `Workflow` tools are in the capability table, and the last `WebFetch` of two haiku runs that reads `Ungated` is explained](350-claude-2-1-301-in-the-table-and-the-last-webfetch-that-reads-ungated.md)
 - [351 - `pairs` keeps only answers that `attempts.jsonl` holds, so nothing a panel wrote enters `chosen` or `rejected`](351-pairs-keeps-only-recorded-attempts.md)
 - [352 - The cutover tests retry a spawn that finds the text file busy, so the Linux job stops failing on a fork in another thread](352-cutover-retries-a-spawn-that-finds-the-text-file-busy.md)
+- [353 - The codex replay names a `webrun` call by the name the hook saw, and reads the page it opened](353-the-codex-replay-names-a-webrun-call-and-reads-the-page-it-opened.md)
 
 ## Out of scope
 
