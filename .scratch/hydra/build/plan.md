@@ -381,6 +381,7 @@ it.
 - [349 - A bare `git push` is checked against the branch it would push, so `git push` from a checkout of `master` is refused like `git push origin master`](349-a-bare-git-push-is-checked-against-the-branch-it-would-push.md)
 - [350 - `claude` 2.1.301's `LSP` and `Workflow` tools are in the capability table, and the last `WebFetch` of two haiku runs that reads `Ungated` is explained](350-claude-2-1-301-in-the-table-and-the-last-webfetch-that-reads-ungated.md)
 - [351 - `pairs` keeps only answers that `attempts.jsonl` holds, so nothing a panel wrote enters `chosen` or `rejected`](351-pairs-keeps-only-recorded-attempts.md)
+- [352 - The cutover tests retry a spawn that finds the text file busy, so the Linux job stops failing on a fork in another thread](352-cutover-retries-a-spawn-that-finds-the-text-file-busy.md)
 
 ## Out of scope
 
