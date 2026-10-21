@@ -1,7 +1,7 @@
 # 353 - The codex replay names a `webrun` call by the name the hook saw, and reads the page it opened
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by:
 Opened: 2026-10-21, by the session, from build 338's Found: `src/normalize/codex.rs::web_search`
