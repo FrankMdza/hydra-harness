@@ -1759,7 +1759,9 @@ An item with `action.type` of `search`, or with no `action`, stays `WebSearch` w
 which is hosted search and still unhooked. Codex writes no hook frame for a call it allows, so
 an allowed `webrun` reads as `permission_decision` `allow` with `decider: hydra_policy`, the
 reason being the policy's own verdict. A refused one reads through the same refusal rows as
-any hooked call. The `item.started` half, whose `action.type` is `other`, is still dropped.
+any hooked call. The `item.started` half, whose `action.type` is `other`, is still dropped. A page
+open with no string URL reads as `webrun` with `open: []` and a `Limit` naming the item, build
+355. No probe has shown that shape on 0.160.0, so it is a guard, not a measured case.
 
 **The risk per tool today.** `ReadLints` returns `totalFiles: 0` for every path, `/etc/hosts`
 and a file that cannot parse included, in print mode and in the interactive TUI: there is no

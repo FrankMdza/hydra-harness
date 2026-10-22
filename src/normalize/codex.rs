@@ -349,14 +349,23 @@ impl Walk {
     /// page open is `webrun`, which the hook does see: build ticket 338
     /// measured it on 2026-10-21, with the URL under `open[].ref_id`. The
     /// replay reads it the same way, so the Slack floor sees the URL the gate
-    /// saw.
+    /// saw. A page open with no string URL reads as `webrun` with `open: []`
+    /// and a `Limit`, because the floor has no URL to read in that case.
     fn web_search(&mut self, seq: u64, item: &Value) {
         let call_id = item_id(item, seq);
         let (name, arguments) = match item["action"]["type"].as_str() {
-            Some("open_page") => (
-                "webrun".to_string(),
-                json!({ "open": [{ "ref_id": item["action"]["url"] }] }),
-            ),
+            Some("open_page") => {
+                let open = match item["action"]["url"].as_str() {
+                    Some(url) => json!([{ "ref_id": url }]),
+                    None => {
+                        self.findings.push(Finding::Limit(format!(
+                            "page open {call_id} named no url, so its decision checked nothing"
+                        )));
+                        json!([])
+                    }
+                };
+                ("webrun".to_string(), json!({ "open": open }))
+            }
             _ => (
                 "WebSearch".to_string(),
                 match item.get("query") {

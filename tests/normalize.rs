@@ -3456,3 +3456,95 @@ fn a_codex_search_item_still_reads_as_websearch() {
     assert_eq!(call.name, "WebSearch");
     assert_eq!(call.arguments, json!({"query": "rust edition 2024"}));
 }
+
+/// Build 355: the two frames of `codex_page_open` with the completed item's
+/// `action` replaced, so a page open can arrive without a URL.
+fn codex_page_open_with_action(action: serde_json::Value) -> [serde_json::Value; 2] {
+    let id = "exec-2cc2aa80-74a6-40c4-8ee4-4a44974c5951";
+    [
+        json!({"type": "item.started", "item": {
+            "id": id, "type": "web_search", "query": "", "action": {"type": "other"},
+        }}),
+        json!({"type": "item.completed", "item": {
+            "id": id, "type": "web_search", "query": "", "action": action,
+            "results": [{
+                "type": "text_result", "domain": "example.com", "ref_id": "turn0view0",
+                "snippet": "Total lines: 1", "title": "Example Domain",
+                "url": "https://example.com/",
+            }],
+        }}),
+    ]
+}
+
+/// Build 355: a page open with no URL reads as `webrun` with nothing to check,
+/// and the record says so in one `Limit`, while the decision stays `allow`.
+fn assert_page_open_without_url_reads_as_a_limit(run: &hydra::normalize::Run) {
+    let id = "exec-2cc2aa80-74a6-40c4-8ee4-4a44974c5951";
+    let calls: Vec<_> = run.tool_calls().filter(|call| call.call_id == id).collect();
+    assert_eq!(calls.len(), 1, "{:?}", run.events);
+    let call = calls[0];
+    assert_eq!(call.name, "webrun");
+    assert_eq!(call.arguments["open"], json!([]));
+    assert_eq!(
+        call.capability,
+        Some(hydra::policy::Capability::NetworkRead)
+    );
+
+    let results: Vec<_> = run.tool_results().filter(|r| r.call_id == id).collect();
+    assert_eq!(results.len(), 1, "{:?}", run.events);
+
+    let limits: Vec<&Finding> = common::other_findings(run)
+        .into_iter()
+        .filter(|finding| matches!(finding, Finding::Limit(_)))
+        .collect();
+    assert_eq!(limits.len(), 1, "{:?}", run.findings);
+    let Finding::Limit(said) = limits[0] else {
+        unreachable!()
+    };
+    assert!(said.contains(id), "{said}");
+    assert!(said.contains("no url"), "{said}");
+
+    let decision = run
+        .permission_decisions()
+        .find(|decision| decision.call_id == id)
+        .unwrap();
+    assert_eq!(decision.decision, Decision::Allow, "{}", decision.reason);
+}
+
+#[test]
+fn a_codex_page_open_without_a_url_reads_as_webrun_with_nothing_open_and_a_limit() {
+    let sandbox = Sandbox::new("codex-webrun-no-url");
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("permissive"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        ..Shape::default()
+    });
+    for frame in codex_page_open_with_action(json!({"type": "open_page"})) {
+        record.raw(frame);
+    }
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_page_open_without_url_reads_as_a_limit(&run);
+}
+
+#[test]
+fn a_codex_page_open_whose_url_is_not_a_string_reads_the_same_way() {
+    let sandbox = Sandbox::new("codex-webrun-url-7");
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("permissive"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&sandbox.worktree()),
+        ..Shape::default()
+    });
+    for frame in codex_page_open_with_action(json!({"type": "open_page", "url": 7})) {
+        record.raw(frame);
+    }
+    let text = record.closed();
+
+    let run = hydra::normalize::read_with(&text, &policies(), &sandbox.layout()).unwrap();
+    assert_page_open_without_url_reads_as_a_limit(&run);
+}

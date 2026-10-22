@@ -1,7 +1,7 @@
 # 355 - A codex page open without a URL reads as a `webrun` call with nothing to check, and the record says so
 
 Type: build
-Status: claimed
+Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-21, by the session, from build 353's Outcome. `src/normalize/codex.rs::web_search`
@@ -71,3 +71,25 @@ written first:
 5. `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
    `cargo nextest run --release --workspace --no-fail-fast`, `cargo test --release --workspace
    --doc`, then `## Outcome`.
+
+## Outcome
+
+Built. `web_search` in `src/normalize/codex.rs` matches `action.url` as a string inside the
+`open_page` arm. A string gives the same `webrun` call as build 353. Anything else gives
+`{"open": []}` and one `Finding::Limit` reading "page open <id> named no url, so its decision
+checked nothing". The doc comment's last sentence now says what a missing URL reads as.
+
+Tests: `a_codex_page_open_without_a_url_reads_as_webrun_with_nothing_open_and_a_limit` and
+`a_codex_page_open_whose_url_is_not_a_string_reads_the_same_way` in `tests/normalize.rs`, written
+red first. Both failed on `arguments["open"]` before the change. The build 353 and 354 page-open
+tests pass unchanged, and the search-item test passes.
+
+Checks: `cargo fmt --all --check` clean, `cargo clippy --workspace --all-targets -- -D warnings`
+clean, `cargo nextest run --release --workspace --no-fail-fast` 1474 passed and 4 skipped, and
+`cargo test --release --workspace --doc` passed.
+
+Assumed and not measured: no probe has produced a page open without a string URL on 0.160.0.
+The test shape is synthetic. `IMPLEMENTATION.md` says so.
+
+Not done, as the ticket scoped it out: a `Limit` for an `open_page` URL that is a string but not a
+URL, and the `item.started` half with `action.type: "other"`, which is still dropped.
