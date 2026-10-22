@@ -1,7 +1,7 @@
 # 355 - A codex page open without a URL reads as a `webrun` call with nothing to check, and the record says so
 
 Type: build
-Status: open
+Status: claimed
 Size: haiku
 Blocked by:
 Opened: 2026-10-21, by the session, from build 353's Outcome. `src/normalize/codex.rs::web_search`
