@@ -384,6 +384,7 @@ it.
 - [352 - The cutover tests retry a spawn that finds the text file busy, so the Linux job stops failing on a fork in another thread](352-cutover-retries-a-spawn-that-finds-the-text-file-busy.md)
 - [353 - The codex replay names a `webrun` call by the name the hook saw, and reads the page it opened](353-the-codex-replay-names-a-webrun-call-and-reads-the-page-it-opened.md)
 - [354 - The fixture corpus carries a `codex` 0.160.0 record with a page open, transcribed from a recorded run](354-the-fixture-corpus-carries-a-codex-0-160-0-page-open.md)
+- [355 - A codex page open without a URL reads as a `webrun` call with nothing to check, and the record says so](355-a-page-open-without-a-url-is-a-limit-finding.md)
 
 ## Out of scope
 
