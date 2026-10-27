@@ -2348,6 +2348,147 @@ fn a_bare_git_push_from_a_detached_head_is_allowed() {
     );
 }
 
+/// Lays out a checkout of its own under `gate.root`, whose `.git` directory
+/// holds `head` as its `HEAD`, and returns the checkout's path.
+fn other_checkout(gate: &Gate, name: &str, head: &str) -> PathBuf {
+    let dir = gate.root.join(name);
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::write(dir.join(".git/HEAD"), format!("{head}\n")).unwrap();
+    dir
+}
+
+#[test]
+fn a_push_to_a_protected_branch_spelled_under_refs_heads_is_refused() {
+    // Build ticket 357. `refs/heads/release/2026-09` names the protected prefix
+    // `release/` once `refs/heads/` is stripped, and the gate read it as
+    // `2026-09`.
+    let gate = Gate::new("permissive");
+    check_out(&gate, "ref: refs/heads/hydra/own", None);
+    for command in [
+        "git push origin topic:refs/heads/release/2026-09",
+        "git push origin refs/heads/main",
+        "git push origin refs/heads/hotfix/x",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} was let through: {}",
+            decision.reason
+        );
+    }
+    let decision = gate.shell("git push origin refs/heads/topic");
+    assert!(
+        decision.allowed,
+        "a topic branch spelled under refs/heads/ was refused: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_push_whose_refspec_targets_head_is_judged_by_the_checkout() {
+    // Build ticket 357. `HEAD` and `@` name the checkout's branch, so the
+    // refspec is judged the way a bare `git push` is.
+    let gate = Gate::new("permissive");
+    check_out(&gate, "ref: refs/heads/master", None);
+    for command in [
+        "git push origin HEAD",
+        "git push origin @",
+        "git push origin topic:HEAD",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} from master was let through: {}",
+            decision.reason
+        );
+    }
+    check_out(
+        &gate,
+        "ref: refs/heads/feature/x",
+        Some(("feature/x", "refs/heads/main")),
+    );
+    let decision = gate.shell("git push origin HEAD");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "git push origin HEAD from a branch whose upstream is main was let through: {}",
+        decision.reason
+    );
+    check_out(&gate, "ref: refs/heads/hydra/own", None);
+    for command in ["git push origin HEAD", "git push origin @"] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.allowed,
+            "{command} from hydra/own was refused: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn a_push_under_dash_c_or_git_dir_is_judged_by_the_checkout_it_names() {
+    // Build ticket 357. `git -C <dir> push` and `git --git-dir=<dir> push` read
+    // the branch of the checkout git will use, not the run's own worktree.
+    let gate = Gate::new("permissive");
+    check_out(&gate, "ref: refs/heads/hydra/own", None);
+    let elsewhere = other_checkout(&gate, "elsewhere", "ref: refs/heads/master");
+    let elsewhere_git =
+        other_checkout(&gate, "elsewhere-git", "ref: refs/heads/master").join(".git");
+    let sibling = other_checkout(&gate, "sibling", "ref: refs/heads/hydra/sibling");
+    for command in [
+        format!("git -C {} push", elsewhere.display()),
+        format!("git -C={} push", elsewhere.display()),
+        format!("git --git-dir={} push", elsewhere_git.display()),
+        format!("git --git-dir {} push", elsewhere_git.display()),
+    ] {
+        let decision = gate.shell(&command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} was judged by the run's own checkout: {}",
+            decision.reason
+        );
+    }
+    let decision = gate.shell(&format!("git -C {} push", sibling.display()));
+    assert!(
+        decision.allowed,
+        "a push from hydra/sibling was refused: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn a_push_with_a_push_override_before_the_subcommand_is_judged_by_the_override() {
+    // Build ticket 357. `remote.<name>.push` and `push.default` set the refspec
+    // a push sends, and `--config-env` names a variable the gate does not read.
+    let gate = Gate::new("permissive");
+    check_out(&gate, "ref: refs/heads/hydra/own", None);
+    for command in [
+        "git -c remote.origin.push=HEAD:refs/heads/master push",
+        "git -c remote.origin.push=+topic:topic push",
+        "git -c push.default=matching push",
+        "git --config-env=remote.origin.push=V push",
+        "git --config-env remote.origin.push=V push",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} was let through: {}",
+            decision.reason
+        );
+    }
+    for command in [
+        "git -c push.default=current push",
+        "git -c push.default=simple push origin topic",
+        "git -c remote.origin.push=HEAD:refs/heads/topic push",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.allowed,
+            "{command} from hydra/own was refused: {}",
+            decision.reason
+        );
+    }
+}
+
 #[test]
 fn each_pattern_consumes_dash_c_and_git_dir_before_reading_the_subcommand() {
     // 7.4 says so in one line, and it is the whole difference between a floor

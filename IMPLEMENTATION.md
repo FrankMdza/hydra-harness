@@ -1087,11 +1087,18 @@ A bare `git push`, or `git push origin` with no branch after the remote, reads t
 `HEAD` through its `.git` file and refuses when that branch is protected. It also reads the
 `branch.<name>.merge` in the shared config and refuses when that name is protected, because the
 remote receives that name. A detached `HEAD` is allowed. The check reads files and runs no git.
-Three residuals remain, and the floor is still a spelling check. `git push origin HEAD` names
-the local ref `HEAD` and is not judged. A `cd` earlier in the same command is not followed, so
-the check reads the payload's cwd. Under `push.default=matching`, git pushes every branch whose
-name exists on both ends, which can include `master` whatever `HEAD` names, and the check reads
-`HEAD` alone. The check also ignores a per-worktree `config.worktree`.
+Build ticket 357 closed the spellings that paragraph left open. A target of `HEAD` or `@`, as in
+`git push origin HEAD` or `git push origin topic:HEAD`, gets the bare check. A `refs/heads/`
+prefix is stripped before the protected lists are read, so `topic:refs/heads/release/2026-09` is
+refused. `-C` and `--git-dir` decide which checkout the bare check reads, and `--work-tree` adds
+its checkout to the ones read. `--config-env` is refused, because the gate does not read the
+variable it names. `-c push.default=matching` is refused, since it pushes every shared branch.
+A `-c remote.<name>.push=` value gets the refspec checks, because git sends that refspec when a
+push names none.
+
+Two residuals remain, and the floor is still a spelling check. A `cd` earlier in the same command
+is not followed, so the check reads the payload's cwd. The check also ignores a per-worktree
+`config.worktree`.
 
 ## The skill store, the snapshot and what a run is linked
 
@@ -2276,7 +2283,7 @@ same `git push --force` derives allow on a record that carries the flag and `hyd
 on one that does not.
 
 **The floor's `git` parser consumes the value after `-c` and `--config-env`, since 2026-09-21.**
-`git_subcommand` in `gate.py` skips the values of the flags `consume_before_subcommand` in
+`git_options` in `gate.py` skips the values of the flags `consume_before_subcommand` in
 `policies/floor.json` lists before it reads the subcommand, and until build ticket 58 that list
 had `-C`, `--git-dir`, `--work-tree`, `--namespace` and `--exec-path` and not the two config
 flags, so `git -c core.pager=cat push --force origin main` was read as the subcommand

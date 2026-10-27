@@ -940,29 +940,35 @@ def short_flags(argv):
     return chars
 
 
-def git_subcommand(argv):
-    """The subcommand, after consuming the options that precede it.
+def git_options(argv):
+    """The options before the subcommand, the subcommand, and what follows it.
 
     `git -C /elsewhere push --force` hides its subcommand behind an option that
     takes a value, and 7.4 requires each pattern to consume `-C` and
     `--git-dir` before reading it. Both spellings are handled, `-C x` and
-    `--git-dir=x`.
+    `--git-dir=x`. The options come back as `(flag, value)` pairs, in the order
+    git reads them, so a push can see which directory `-C` moved to.
     """
     takes_value = HYDRA_CONFIG["floor"]["git"]["consume_before_subcommand"]
+    options = []
     i = 1
     while i < len(argv):
         token = argv[i]
         if token in takes_value:
+            value = argv[i + 1] if i + 1 < len(argv) else ""
+            options.append((token, value))
             i += 2
             continue
-        if any(token.startswith(opt + "=") for opt in takes_value):
+        flag = next((opt for opt in takes_value if token.startswith(opt + "=")), None)
+        if flag is not None:
+            options.append((flag, token[len(flag) + 1 :]))
             i += 1
             continue
         if token.startswith("-"):
             i += 1
             continue
-        return token, argv[i + 1 :]
-    return None, []
+        return options, token, argv[i + 1 :]
+    return options, None, []
 
 
 def read_text(path):
@@ -1029,7 +1035,7 @@ def protected_branch(name):
     return any(name.startswith(prefix) for prefix in rules["protected_branch_prefixes"])
 
 
-def bare_push_violation(cwd):
+def bare_push_violation(git_dir):
     """What a `git push` with no refspec would send, when that is protected.
 
     Git sends the branch HEAD names, and a remote receives the name the upstream's
@@ -1037,7 +1043,6 @@ def bare_push_violation(cwd):
     refused the way `git push origin master` is. A detached HEAD names no branch
     and is left alone.
     """
-    git_dir = git_dir_at(cwd)
     if git_dir is None:
         return None
     prefix = "ref: refs/heads/"
@@ -1055,9 +1060,64 @@ def bare_push_violation(cwd):
     return None
 
 
+def push_git_dirs(options, cwd):
+    """The git directories a push may read its branch from.
+
+    `-C` moves the search for `.git`, and `--git-dir` names the directory
+    outright. Options are applied in the order git reads them. Git does not
+    search a `--work-tree` for `.git`, but its checkout is checked as well. The
+    extra check can refuse a push git would have allowed, which is the safe side
+    of a floor.
+    """
+    base = os.path.abspath(cwd)
+    git_dir = None
+    work_tree = None
+    for flag, value in options:
+        if flag == "-C":
+            base = os.path.join(base, value)
+        elif flag == "--git-dir":
+            git_dir = os.path.join(base, value)
+        elif flag == "--work-tree":
+            work_tree = os.path.join(base, value)
+    if git_dir is not None:
+        return [git_dir]
+    found = [git_dir_at(base)]
+    if work_tree is not None:
+        found.append(git_dir_at(work_tree))
+    return [found_dir for found_dir in found if found_dir is not None]
+
+
+def push_refspec_violation(token, git_dirs):
+    """Why one refspec, or a `remote.<name>.push` value, may not be pushed.
+
+    A `HEAD` or `@` target names the checkout's own branch, so it is judged the
+    way a bare push is. A `refs/heads/` prefix is stripped before the protected
+    lists are read, and other `refs/` spellings keep their last component.
+    """
+    rules = HYDRA_CONFIG["floor"]["git"]
+    if token.startswith("+"):
+        return "git push with a forced refspec, {}".format(token)
+    target = token.split(":")[-1]
+    if target in ("HEAD", "@"):
+        for git_dir in git_dirs:
+            reason = bare_push_violation(git_dir)
+            if reason:
+                return reason
+        return None
+    if target.startswith("refs/heads/"):
+        target = target[len("refs/heads/") :]
+    elif target.startswith("refs/"):
+        target = target.rsplit("/", 1)[-1]
+    if target in rules["protected_branches"]:
+        return "git push to the protected branch {}".format(target)
+    if protected_branch(target):
+        return "git push to a protected branch, {}".format(token)
+    return None
+
+
 def check_git(argv, cwd):
     rules = HYDRA_CONFIG["floor"]["git"]
-    sub, rest = git_subcommand(argv)
+    options, sub, rest = git_options(argv)
     if sub is None:
         return None
 
@@ -1065,20 +1125,33 @@ def check_git(argv, cwd):
         for flag in rules["push_forbidden_flags"]:
             if flag in rest:
                 return "git push {}".format(flag)
+        # `--config-env` names a variable the gate does not read, so it is refused.
+        if any(flag == "--config-env" for flag, _ in options):
+            return "git push with --config-env, which the gate does not read"
+        git_dirs = push_git_dirs(options, cwd)
+        for flag, value in options:
+            if flag != "-c":
+                continue
+            key, _, setting = value.partition("=")
+            key = key.lower()
+            if key == "push.default" and setting.lower() == "matching":
+                return "git push with push.default=matching, which pushes every shared branch"
+            if key.startswith("remote.") and key.endswith(".push"):
+                reason = push_refspec_violation(setting, git_dirs)
+                if reason:
+                    return reason
         positional = [t for t in rest if not t.startswith("-")]
         if len(positional) < 2:
             # No refspec: the branch git sends is the one the checkout names.
-            return bare_push_violation(cwd)
+            for git_dir in git_dirs:
+                reason = bare_push_violation(git_dir)
+                if reason:
+                    return reason
+            return None
         for token in positional[1:]:
-            if token.startswith("+"):
-                return "git push with a forced refspec, {}".format(token)
-            branch = token.split(":")[-1]
-            branch = branch.rsplit("/", 1)[-1] if branch.startswith("refs/") else branch
-            if branch in rules["protected_branches"]:
-                return "git push to the protected branch {}".format(branch)
-            for prefix in rules["protected_branch_prefixes"]:
-                if token.split(":")[-1].startswith(prefix):
-                    return "git push to a protected branch, {}".format(token)
+            reason = push_refspec_violation(token, git_dirs)
+            if reason:
+                return reason
         return None
 
     if sub == "clean":

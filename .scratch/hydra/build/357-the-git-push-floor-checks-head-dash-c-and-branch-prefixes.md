@@ -1,6 +1,6 @@
 # Build 357 - The `git push` floor checks `HEAD`, `-C`, `-c` refspecs, and `refs/heads/` prefixes
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -41,3 +41,30 @@ Build 349 taught `check_git` in `src/policy/gate.py` to check a bare `git push` 
 - `cargo fmt --all --check` passes.
 - `cargo clippy --release --workspace --all-targets -- -D warnings` passes.
 - `cargo nextest run --release -E 'binary(gate)'` passes, including the new tests and all existing bare-push tests.
+
+## Outcome
+
+Built in `src/policy/gate.py` and `tests/gate.rs`. All four residuals close.
+
+- `refs/heads/` is stripped before the protected lists are read. `topic:refs/heads/release/2026-09`
+  and `refs/heads/main` are refused. Other `refs/` spellings keep their last component, as before.
+- A target of `HEAD` or `@` gets the bare-push check, from the checkout the push reads.
+- `-C`, `-C=`, `--git-dir` and `--git-dir=` decide which checkout is read. `--work-tree` adds its
+  checkout to the ones read. The gate parses options into `(flag, value)` pairs in `git_options`,
+  which replaces `git_subcommand`.
+- `--config-env` before `push` is refused. `-c push.default=matching` is refused. A
+  `-c remote.<name>.push=` value gets the refspec checks, and so does any refspec it names.
+
+Measured: the eight push tests in `binary(gate)` pass, the full `binary(gate)` run passes 149 of
+149, and `binary(spawn)`, `binary(evolve)`, `binary(normalize)`, `binary(record_contract)` and
+`binary(doctor)` pass 217 of 217. `cargo fmt --all --check` and
+`cargo clippy --release --workspace --all-targets -- -D warnings` are clean.
+
+Assumptions that turned out false or changed:
+
+- The ticket says `-C=<dir>` is a form git reads. Git does not take `-C=`. The gate still
+  reads it, as the old parser did, so the check is conservative.
+- `refs/heads/feature/main` was refused before, because the old code kept only the last
+  component. It is now judged as `feature/main`, which is allowed, like the unprefixed spelling.
+- The ticket asks for `--work-tree` to be tracked. Git finds `.git` from the cwd, not from the
+  work tree, so the work-tree checkout is an extra check and can refuse a push git would allow.
