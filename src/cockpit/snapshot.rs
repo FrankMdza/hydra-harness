@@ -20,7 +20,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 
-use super::call_head::call_inputs;
+use super::call_head::{call_inputs, mask_secrets};
 use super::goal::{self, Goal};
 use super::graph::{GraphLine, graph_of};
 use super::window;
@@ -273,7 +273,7 @@ pub struct CallLine {
     pub name: String,
     /// The head of what the call touched, on one line.
     pub input: String,
-    /// The whole input from the record, for the reveal key.
+    /// The full input with shared-table spans masked, for the reveal key.
     pub full_input: String,
     /// What the call's result says of it: `allowed`, `refused <code>`,
     /// `error` or `unclassified`. `None` while it has no result.
@@ -1064,7 +1064,7 @@ pub(super) fn open_run_of(text: &str) -> (Vec<CallLine>, Vec<GraphLine>) {
                     call_inputs(&call.name, &call.arguments)
                 };
                 calls.push(CallLine {
-                    name: call.name.clone(),
+                    name: mask_secrets(&call.name),
                     input,
                     full_input,
                     decision: None,
@@ -1074,7 +1074,7 @@ pub(super) fn open_run_of(text: &str) -> (Vec<CallLine>, Vec<GraphLine>) {
                 let Some(index) = open.get_mut(result.call_id.as_str()).and_then(Vec::pop) else {
                     continue;
                 };
-                calls[index].decision = Some(decision_of(result));
+                calls[index].decision = Some(mask_secrets(&decision_of(result)));
             }
             _ => {}
         }
@@ -1214,10 +1214,61 @@ pub fn tail(path: &Path, n: usize) -> Result<Vec<String>> {
     Ok(lines[from..]
         .iter()
         .map(|line| {
-            if line.contains("\"secret_flag\":[") {
+            if serde_json::from_str::<serde_json::Value>(line)
+                .is_ok_and(|value| !value["secret_flag"].is_null())
+            {
                 return "[line hidden: secret_flag]".to_string();
             }
-            line.to_string()
+            mask_secrets(line)
         })
         .collect())
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::*;
+
+    #[test]
+    fn detail_and_graph_mask_unflagged_text_and_hide_flagged_lines() {
+        let text = "before AKIAPlantedSecretKey sk-proj-abcdefghijklmnopqrst after";
+        let expected = "before [aws_access_key] [openai_api_key] after";
+        let start =
+            serde_json::json!({"seq": 0, "provider": "claude", "hydra": {"type": "run_start"}});
+        let mut call = serde_json::json!({"seq": 1, "provider": "claude", "raw": {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "call", "name": "Read", "input": {"file_path": text}}]}}});
+        let mut message = serde_json::json!({"seq": 2, "provider": "claude", "raw": {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}});
+        let mut result = serde_json::json!({"seq": 3, "provider": "claude", "raw": {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "call", "content": text, "is_error": false}]}}});
+        let record = format!("{start}\n{call}\n{message}\n{result}\n");
+        assert!(flagged_seqs(&record).is_empty());
+        let (calls, graph) = open_run_of(&record);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].input, format!("Read {expected}"));
+        assert_eq!(calls[0].full_input, expected);
+        assert!(
+            graph
+                .iter()
+                .any(|line| line.kind == "tool_call"
+                    && line.text == format!("Read {expected}  allowed")),
+            "{graph:?}"
+        );
+        assert!(graph.iter().any(|line| line.kind == "message" && line.text == format!("assistant: {expected}")), "{graph:?}");
+        assert!(
+            graph
+                .iter()
+                .any(|line| line.kind == "tool_result" && line.text.contains(expected)),
+            "{graph:?}"
+        );
+        call["secret_flag"] = serde_json::json!(["google_api_key"]);
+        let (calls, graph) = open_run_of(&format!("{start}\n{call}\n"));
+        assert_eq!(calls[0].full_input, "input hidden: secret_flag");
+        assert_eq!(graph.last().unwrap().text, "input hidden: secret_flag");
+        message["secret_flag"] = serde_json::json!(["google_api_key"]);
+        result["secret_flag"] = serde_json::json!(["google_api_key"]);
+        let (_, graph) = open_run_of(&format!("{start}\n{call}\n{message}\n{result}\n"));
+        assert!(
+            graph
+                .iter()
+                .filter(|line| line.seq > 0)
+                .all(|line| line.text.contains("input hidden: secret_flag"))
+        );
+    }
 }

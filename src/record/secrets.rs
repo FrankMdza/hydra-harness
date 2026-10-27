@@ -13,15 +13,6 @@
 
 use hydra_secret_classes::CLASSES;
 
-/// Each class's prefix, the same list the sweep scans for. The cockpit masks
-/// by it (build ticket 180).
-pub fn prefixes() -> impl Iterator<Item = &'static str> {
-    CLASSES
-        .iter()
-        .filter(|class| class.write_path)
-        .map(|class| class.prefix)
-}
-
 /// The class names matching anywhere in the line, or `None` for a clean line.
 pub fn scan(line: &str) -> Option<Vec<&'static str>> {
     let hits: Vec<&'static str> = CLASSES

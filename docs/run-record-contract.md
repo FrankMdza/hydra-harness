@@ -1395,9 +1395,12 @@ nothing at all otherwise. Hydra knows the value at injection time, so it can pro
 keep the promise. The leak this closes has nothing to do with where the key is stored: an agent runs
 `env`, the provider streams that output back as a frame, and frames are written verbatim.
 
-**The addition: `secret_flag` detects and never rewrites.** A prefix sweep for `AIza`, `sk-ant-`,
-`ghp_`, `ya29.` and PEM headers runs on the write path and again at harvest. A hit puts the matched
-class names on the envelope and leaves the frame untouched.
+**The addition: `secret_flag` detects and never rewrites.** The write path scans the five alarm
+classes in the shared table in `crates/secret-classes`: `AIza`, `sk-ant-`, `ghp_`, `ya29.` and PEM
+headers. Harvest writes through the same `provider_line`, so each frame gets one scan. A hit puts
+the matched class names on the envelope and leaves the frame untouched. The cockpit hides a flagged
+line whole and masks spans from the full table on other lines, even after reveal. Export redacts
+the full table, including OpenAI keys with the table's body lengths.
 
 Everything else stays on disk and is cleaned at export. `~/hydra/runs/` sits on this laptop under
 this user account, next to the source and the dotfiles that already hold those credentials, so

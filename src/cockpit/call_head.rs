@@ -1,6 +1,64 @@
 //! How a tool call's input is shortened for the cockpit detail, build ticket 206.
 
+use hydra_secret_classes::{CLASSES, OPENAI_KINDS, OPENAI_LEGACY_BODY, OPENAI_PROJECT_BODY};
 use serde_json::Value;
+
+/// Mask the shared table's byte spans before shortening text for display.
+pub(super) fn mask_secrets(text: &str) -> String {
+    let mut out = text.to_string();
+    for class in CLASSES {
+        while let Some(mut at) = out.find(class.prefix) {
+            if class.prefix == "hooks.slack.com" {
+                if out[..at].ends_with("https://") {
+                    at -= 8;
+                } else if out[..at].ends_with("http://") {
+                    at -= 7;
+                }
+            }
+            let end = if class.prefix == "-----BEGIN" {
+                out[at..]
+                    .find("-----END")
+                    .and_then(|footer| {
+                        let footer = at + footer + "-----END".len();
+                        out[footer..].find("-----").map(|close| footer + close + 5)
+                    })
+                    .unwrap_or(out.len())
+            } else {
+                out[at..]
+                    .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+                    .map_or(out.len(), |end| at + end)
+            };
+            out.replace_range(at..end, &format!("[{}]", class.label));
+        }
+    }
+    let token = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
+    let mut from = 0;
+    while let Some(rel) = out[from..].find("sk-") {
+        let at = from + rel;
+        from = at + 3;
+        if at > 0 && token(out.as_bytes()[at - 1]) {
+            continue;
+        }
+        let rest = &out[from..];
+        let (body_start, min, allowed): (usize, usize, fn(u8) -> bool) =
+            match OPENAI_KINDS.iter().find(|kind| rest.starts_with(**kind)) {
+                Some(kind) => (from + kind.len(), OPENAI_PROJECT_BODY, |b| {
+                    b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+                }),
+                None => (from, OPENAI_LEGACY_BODY, |b| b.is_ascii_alphanumeric()),
+            };
+        let len = out.as_bytes()[body_start..]
+            .iter()
+            .take_while(|b| allowed(**b))
+            .count();
+        let end = body_start + len;
+        if len >= min && (end == out.len() || !token(out.as_bytes()[end])) {
+            out.replace_range(at..end, "[openai_api_key]");
+            from = at + "[openai_api_key]".len();
+        }
+    }
+    out
+}
 
 /// How long a full input stays on screen after `i`, build ticket 206.
 pub const REVEAL_SECONDS: u64 = 10;
@@ -275,12 +333,14 @@ fn subcommands(program: &str) -> &'static [&'static str] {
 
 /// The text a call row shows and the full text the reveal key may open.
 pub fn call_inputs(name: &str, arguments: &Value) -> (String, String) {
-    let full = full_input(arguments);
+    let name = mask_secrets(name);
+    let name = name.as_str();
+    let full = mask_secrets(&full_input(arguments));
     if let Some(command) = COMMAND_KEYS
         .iter()
         .find_map(|key| argument_text(arguments, key))
     {
-        return (shell_head(&command), full);
+        return (shell_head(&mask_secrets(&command)), full);
     }
     if SHELL_TOOLS.contains(&name) {
         return (shell_head(&full), full);
@@ -291,7 +351,7 @@ pub fn call_inputs(name: &str, arguments: &Value) -> (String, String) {
         .iter()
         .find_map(|key| argument_text(arguments, key))
     {
-        Some(arg) => (format!("{name} {arg}"), full),
+        Some(arg) => (format!("{name} {}", mask_secrets(&arg)), full),
         None if full.is_empty() => (name.to_string(), full),
         None => (format!("{name} ..."), full),
     }
@@ -574,7 +634,11 @@ pub fn tail_line_shown(line: &str, max_chars: usize) -> String {
         }
         metadata.insert("head".into(), call_inputs(name, &arguments).0.into());
     }
-    let shown = format!("{}, {} bytes", Value::Object(metadata), line.len());
+    let shown = mask_secrets(&format!(
+        "{}, {} bytes",
+        Value::Object(metadata),
+        line.len()
+    ));
     let mut cut: String = shown.chars().take(max_chars).collect();
     if cut.len() < shown.len() {
         cut.push_str(" [cut]");
@@ -626,4 +690,77 @@ fn frame_call(frame: &Value) -> Option<(&str, Value)> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn masking_matches_export_byte_spans() {
+        let mut cases: Vec<String> = CLASSES
+            .iter()
+            .map(|class| format!("pré {}planted\" after", class.prefix))
+            .collect();
+        cases.extend([
+            " the `sk-proj-` prefix ".to_string(),
+            "-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY----- after".to_string(),
+            "AKIAfirst' middle AKIAsecond after".to_string(),
+            format!("https://{}{} after", "hooks.slack.com", "/services/planted"),
+            format!("http://{}{} after", "hooks.slack.com", "/services/planted"),
+            "task-management-system-v2 disk-utilization-report".to_string(),
+        ]);
+        for kind in ["", "proj-", "svcacct-", "admin-"] {
+            let min = if kind.is_empty() {
+                OPENAI_LEGACY_BODY
+            } else {
+                OPENAI_PROJECT_BODY
+            };
+            for len in [min - 1, min, min + 1] {
+                for before in ["pré ", "x", "_", "-"] {
+                    for after in [" after", "_", "-", "' after"] {
+                        cases.push(format!("{before}sk-{kind}{}{after}", "a".repeat(len)));
+                    }
+                }
+            }
+        }
+        for text in cases {
+            let exported = crate::export::redact_string(&text, &[]);
+            assert_eq!(
+                mask_secrets(&text),
+                exported.replace("[REDACTED:", "["),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unflagged_tail_and_call_inputs_mask_spans() {
+        let text = "before AKIAPlantedSecretKey sk-proj-abcdefghijklmnopqrst after";
+        let expected = "before [aws_access_key] [openai_api_key] after";
+        let arguments = serde_json::json!({"file_path": text});
+        let (head, full) = call_inputs("Read", &arguments);
+        assert_eq!(head, format!("Read {expected}"));
+        assert_eq!(full, expected);
+        let mut line = serde_json::json!({
+            "seq": 1,
+            "raw": {"message": {"content": [{"type": "tool_use", "name": "Read", "input": arguments}]}}
+        });
+        let shown = tail_line_shown(&line.to_string(), 1000);
+        assert!(shown.contains(expected), "{shown}");
+        line["secret_flag"] = serde_json::json!(["google_api_key"]);
+        assert_eq!(
+            tail_line_shown(&line.to_string(), 1000),
+            "[line hidden: secret_flag]"
+        );
+    }
+
+    #[test]
+    fn short_openai_prefix_in_prose_stays_visible() {
+        let prose = " the `sk-proj-` prefix ";
+        assert_eq!(
+            call_inputs("Read", &serde_json::json!({"file_path": prose})).1,
+            prose
+        );
+    }
 }

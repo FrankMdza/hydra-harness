@@ -929,6 +929,9 @@ impl App {
     }
 
     fn toggle_reveal(&mut self) -> Effect {
+        // The stored flag covers only the five alarm classes. Snapshots mask
+        // the full table before reveal so expanding an input cannot expose
+        // the other classes. A stored flag still refuses reveal.
         if self.focus != Focus::Detail || !matches!(&self.opened, Some(Opened::Run(_))) {
             return Effect::None;
         }
@@ -1492,6 +1495,53 @@ mod tests {
     use super::text::DRAFT_TASK;
     use super::*;
     use crate::cockpit::goal::{Goal, TaskRow};
+
+    #[test]
+    fn reveal_keeps_spans_masked_and_refuses_stored_flags() {
+        let text = "before AKIAPlantedSecretKey sk-proj-abcdefghijklmnopqrst after";
+        let expected = "before [aws_access_key] [openai_api_key] after";
+        let file = std::env::temp_dir().join(format!("hydra-mask-tail-{}", std::process::id()));
+        let line = serde_json::json!({"seq": 1, "raw": {"text": text}}).to_string();
+        std::fs::write(&file, &line).unwrap();
+        let mut app = App::new(
+            Layout::at(std::env::temp_dir().join("hydra-mask-test")),
+            false,
+            Duration::from_secs(2),
+        );
+        app.focus = Focus::Detail;
+        app.opened = Some(Opened::Run("run".into()));
+        app.raw_tail = true;
+        app.snapshot.tail = Some((
+            "run".into(),
+            super::super::snapshot::tail(&file, 20).unwrap(),
+        ));
+        std::fs::remove_file(&file).unwrap();
+        app.toggle_reveal();
+        assert!(app.revealed_line.as_ref().unwrap().contains(expected));
+        app.close_reveal();
+        app.raw_tail = false;
+        let (input, full_input) =
+            super::super::call_head::call_inputs("Read", &serde_json::json!({"file_path": text}));
+        app.snapshot.calls = Some((
+            "run".into(),
+            vec![CallLine {
+                name: "Read".into(),
+                input,
+                full_input,
+                decision: None,
+            }],
+        ));
+        app.toggle_reveal();
+        assert_eq!(app.revealed_call.as_ref().unwrap().full_input, expected);
+        app.close_reveal();
+        app.snapshot.calls.as_mut().unwrap().1[0].input = "input hidden: secret_flag".into();
+        app.toggle_reveal();
+        assert!(app.revealed_call.is_none());
+        app.raw_tail = true;
+        app.snapshot.tail.as_mut().unwrap().1[0] = "[line hidden: secret_flag]".into();
+        app.toggle_reveal();
+        assert!(app.revealed_line.is_none());
+    }
 
     fn stopped_seat(model: Option<&str>) -> Card {
         Card {

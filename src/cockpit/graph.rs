@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::normalize::{Event, ToolResult};
 
-use super::call_head::call_inputs;
+use super::call_head::{call_inputs, mask_secrets};
 
 /// Where a result's first line is cut.
 const RESULT_CUT: usize = 120;
@@ -81,7 +81,7 @@ pub fn graph_of(
                 lines.push(GraphLine {
                     seq: call.seq,
                     kind: event.type_name(),
-                    text,
+                    text: mask_secrets(&text),
                     under_call: false,
                     refused,
                 });
@@ -98,7 +98,11 @@ pub fn graph_of(
             }
             Event::Message(message) => (
                 message.seq,
-                format!("{}: {}", message.role.as_str(), first_line(&message.text)),
+                format!(
+                    "{}: {}",
+                    message.role.as_str(),
+                    first_line(&mask_secrets(&message.text))
+                ),
             ),
             Event::Thinking(thinking) => (
                 thinking.seq,
@@ -153,7 +157,11 @@ pub fn graph_of(
         lines.push(GraphLine {
             seq,
             kind: event.type_name(),
-            text,
+            text: if flagged.contains(&seq) {
+                HIDDEN.to_string()
+            } else {
+                mask_secrets(&text)
+            },
             under_call: false,
             refused: false,
         });
@@ -176,7 +184,8 @@ fn result_text(result: &ToolResult, flagged: &HashSet<u64>) -> String {
     if flagged.contains(&result.seq) {
         return format!("{status}: {HIDDEN}");
     }
-    let line = first_line(&result.output);
+    let masked = mask_secrets(&result.output);
+    let line = first_line(&masked);
     if line.is_empty() {
         return status.to_string();
     }

@@ -1425,11 +1425,12 @@ because a user can edit those scripts to print anything.
 Output that the redactor's own rules still flag means the redactor is broken, and a partial corpus
 from a broken redactor is worse than no corpus.
 
-**A prefix sweep runs on the write path and again at harvest**, for `AIza`, `sk-ant-`, `ghp_`,
-`ya29.` and PEM headers, setting a flag on the envelope and leaving the frame verbatim. This belongs
-to the harness rather than to export because it is what makes a live credential sitting in `runs/`
-visible the day it lands rather than at the first export, and it covers harvested bodies, which
-never pass the write path at all.
+**The write path scans the five alarm classes in the shared table**, for `AIza`, `sk-ant-`, `ghp_`,
+`ya29.` and PEM headers. A hit sets a flag on the envelope and leaves the frame verbatim. Harvest
+writes through the same `provider_line`, so each frame gets one scan. This makes a live credential
+in `runs/` visible the day it lands. The cockpit hides flagged lines whole and masks spans from the
+full table on other lines, even after reveal. Export redacts the full table, including OpenAI keys
+with the table's body lengths. The table lives in `crates/secret-classes`.
 
 Enforcing eligibility during the run rather than auditing it afterwards is an extension. All three
 providers hard-block a tool call from a config Hydra writes, but whether a block can be scoped to a

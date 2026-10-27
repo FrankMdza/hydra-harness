@@ -4779,7 +4779,7 @@ argument: a bare subcommand after one of a fixed list of programs (`git`, `cargo
 A call that carries `command`, `cmd` or agy's `CommandLine` is read as a shell call whatever its
 tool is named. Other tools show the tool name and a `file_path`, `path` or `notebook_path` only; a
 `pattern`, URL, query, prompt or description stays behind the key, and the row reads `<tool> ...`.
-`i` on the selected call or raw line shows the whole input unmasked and wrapped; the next key
+`i` on the selected call or raw line shows the full input wrapped; the next key
 closes it, and it closes after ten seconds ([`REVEAL_SECONDS`](src/cockpit/call_head.rs)). `F2`,
 `Ctrl-q` and a click on the chat close it too. The reveal keeps the text that was open when the
 snapshot slid; a new snapshot does not close or extend it. A call on a line whose envelope carries
@@ -4791,6 +4791,13 @@ with no tool-result payload fields on screen. `i` on the selected line shows the
 the pane. Lines over 400 characters are parsed before cutting; non-JSON lines read `not JSON, <n>
 bytes`. Known and left as it is: a program's own base name shows (`./deploy-s3cret` shows
 `deploy-s3cret`), and a program name cannot be told from a secret by its shape alone.
+
+Since build ticket 369 the cockpit masks spans from the full shared secret table on unflagged
+lines. Call heads, full inputs, graph labels and tail lines keep the surrounding text and replace
+each span with its class name in brackets. Reveal keeps those spans masked. The matcher counts
+bytes and follows export's token, PEM, Slack URL and OpenAI length rules. Cockpit unit tests compare
+it with export on the same inputs. Stored flags still hide whole lines and still refuse reveal.
+`flagged_seqs` reads only the stored flag. The unused `record::secrets::prefixes` is gone.
 
 **Done and the run's end, build ticket 166.** A row carries the `done` of its task event, and a
 later `task` event for the same id replaces it, `None` included, as `fold` does. The table's
@@ -5317,11 +5324,11 @@ allowlist entries that are not the exported run's own, replaced by a labelled ma
 secrets from the table in `crates/secret-classes`. The write-time sweep still flags only
 the five it flagged before. Export and `hydra-records` still redact all twelve prefixes
 and OpenAI keys. Matching stays in each reader. `hydra-records` counts Python code points
-and export counts bytes. Build ticket 368 deleted the four local copies. Six secret classes
-until build ticket 128 added six more
-that only export and the grader redact (AWS access keys, `aws_secret_access_key=` in either case,
-Slack `xoxb-` tokens and webhooks, GitHub `github_pat_` and `gho_`), twelve in all; the user's own hook stdout
-dropped as the `hook_response` frames; and customer data inside a fixture named in the
+and export counts bytes. Build ticket 368 deleted the four local copies. Build ticket 128 added
+AWS access keys, `aws_secret_access_key=` in either case, Slack `xoxb-` tokens and webhooks,
+and GitHub `github_pat_` and `gho_`. Export and the grader redact them. Since build ticket 369
+the cockpit masks them too. The user's own hook stdout is dropped as `hook_response` frames.
+Customer data inside a fixture is named in the
 header as the residue no pattern reaches. Section 5.2's fields are dropped with
 `run_start`, `run_end`, `permission_decision` and `usage`, except that since build ticket 290
 `run_start.task` leads each line as one `user` message, preamble included and redacted like any

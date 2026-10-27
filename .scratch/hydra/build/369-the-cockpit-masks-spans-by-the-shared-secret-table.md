@@ -1,7 +1,7 @@
 # 369 - The cockpit masks each secret span by the shared table, and the docs say the five are the alarm subset
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 368
 
 ## Objective
@@ -28,3 +28,24 @@ The matcher counts bytes, the way `src/export.rs` does. If export's matcher can 
 4. Run `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo nextest run --release -p hydra --lib cockpit`, and `cargo nextest run --release -p hydra --test export`.
 
 ## Outcome
+
+Built. The cockpit reads the full shared table through a byte matcher in `call_head.rs`.
+Unflagged tail lines, call heads, full inputs, graph messages and graph results replace each
+matched span with its class name in brackets. Snapshots mask before reveal. Stored flags still
+hide whole lines and refuse reveal. `flagged_seqs` still reads only the stored flag.
+The unused `record::secrets::prefixes` is gone.
+
+Tests first reproduced the exposed call input and revealed tail. New cockpit tests cover both
+planted keys, surrounding prose, short OpenAI prefixes, detail calls, graph messages and results,
+stored flags and reveal. A parity test compares the cockpit matcher with export on the same
+inputs across every prefix, OpenAI body lengths and boundaries, Unicode, Slack URLs and PEM blocks.
+
+Measured. `cargo fmt --all --check` passed.
+`cargo clippy --release --workspace --all-targets -- -D warnings` passed.
+`cargo nextest run --release -p hydra --lib cockpit` passed 18 of 18.
+`cargo nextest run --release -p hydra --test export` passed 26 of 26.
+
+Found. Export's span rules also include the Slack URL scheme and carry PEM blocks through their
+footer. The cockpit follows both. The harness spec repeated the harvest rescan claim, so it and
+contract section 13 now say harvest uses the same `provider_line` scan. `SECURITY.md` and
+`IMPLEMENTATION.md` distinguish the five alarm classes from full-table display masking and export.

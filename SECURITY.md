@@ -361,7 +361,10 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   A long high-entropy token that matches no class is reported after the export by field, class
   and length, and the export still happens. Aborting on entropy stopped a third of this machine's
   records on digests that are not secrets. JWTs are not a named class. The write-time sweep in
-  `src/record/secrets.rs`, map ticket 108, still flags only the original five classes. A secret
+  `src/record/secrets.rs` scans only the five alarm classes in the shared table in
+  `crates/secret-classes`. Harvest writes through the same `provider_line`, so each frame gets one
+  scan. The cockpit hides flagged lines whole and masks spans from the full table on other lines,
+  even after reveal. Export redacts the full table, including the OpenAI span rule. A secret
   split by a space or URL-encoded reaches neither check, and `~/hydra/runs/` sits on this laptop
   beside the dotfiles that hold them. Since build ticket 100 `hydra export` refuses an
   `--out` that is the same file as `preference.jsonl` beside it, compared by device and inode
