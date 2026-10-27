@@ -398,6 +398,7 @@ it.
 - [318b - Linux bubblewrap launch wrapper, Codex nesting decision, and mount-namespace witness](318b-linux-bwrap-launch-wrapper-and-witness.md)
 - [362 - The `git push` floor reads `remote.<name>.push` and `push.default` from repository config](362-the-git-push-floor-reads-remote-push-and-push-default-from-repo-config.md)
 - [363 - Linux CI runs `sandbox::tests` and `hydra evolve` refuses bare admission on Linux](363-linux-ci-runs-sandbox-unit-tests-and-admission-refuses-bare-on-linux.md)
+- [364 - `compose_bwrap` mounts only paths that exist, and the private git directory whole](364-compose-bwrap-mounts-only-paths-that-exist-and-the-private-git-dir.md)
 
 ## Out of scope
 
