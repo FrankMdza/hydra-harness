@@ -27,6 +27,9 @@ pub struct Report {
     pub findings: Vec<Finding>,
     pub records_read: usize,
     pub rejected_before_hook: usize,
+    /// The `rejected_before_hook` rows counted by tool and error shape, keyed
+    /// by `rejected_shape_label`. Sums to `rejected_before_hook`.
+    pub rejected_by_shape: BTreeMap<String, usize>,
     pub ungated: usize,
     /// How many records each host wrote, keyed `machine os/arch`, build
     /// ticket 316. A record from before the field counts under no key.
@@ -127,12 +130,18 @@ pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Rep
     findings.extend(check_unknown_sources(paths, &read));
     let (uncorroborated, refusals) = check_gate_refusals(paths, &read);
     let mut rejected_before_hook = 0;
+    let mut rejected_by_shape = BTreeMap::new();
     let mut ungated = 0;
     for path in paths {
         if let Ok(run) = read(path) {
             for finding in run.findings {
                 match finding {
-                    NormalizeFinding::RejectedBeforeHook { .. } => rejected_before_hook += 1,
+                    NormalizeFinding::RejectedBeforeHook { tool, error, .. } => {
+                        rejected_before_hook += 1;
+                        *rejected_by_shape
+                            .entry(rejected_shape_label(&tool, &error))
+                            .or_insert(0) += 1;
+                    }
                     NormalizeFinding::Ungated { .. } => ungated += 1,
                     _ => {}
                 }
@@ -143,12 +152,43 @@ pub fn walk_paths(paths: &[PathBuf], read: &dyn Fn(&Path) -> Result<Run>) -> Rep
         findings,
         records_read,
         rejected_before_hook,
+        rejected_by_shape,
         ungated,
         hosts,
         foreign_hosts,
         refusals,
         uncorroborated,
     }
+}
+
+/// Buckets one rejected call by its tool and the first line of its error.
+/// The buckets name the error shapes seen in corpora so far. An error that
+/// matches none of them keeps its first 80 characters.
+fn rejected_shape_label(tool: &str, error: &str) -> String {
+    let shape = if error.contains("InputValidationError") {
+        "InputValidationError"
+    } else if error.contains("No such tool available") {
+        "No such tool available"
+    } else if error.starts_with("<tool_use_error>Blocked:") {
+        "<tool_use_error>Blocked"
+    } else if error.starts_with("<tool_use_error>File has not been read yet") {
+        "<tool_use_error>File has not been read yet"
+    } else if error.starts_with("<tool_use_error>File does not exist") {
+        "<tool_use_error>File does not exist"
+    } else if error.starts_with("<tool_use_error>String to replace not found") {
+        "<tool_use_error>String to replace not found"
+    } else if error.starts_with("<tool_use_error>No task found with ID") {
+        "<tool_use_error>No task found with ID"
+    } else if error.starts_with("<tool_use_error>Error calling tool") {
+        "<tool_use_error>Error calling tool"
+    } else if error.starts_with("<tool_use_error>Sibling tool call errored") {
+        "<tool_use_error>Sibling tool call errored"
+    } else if error.starts_with("Not run: the response that made this tool call was stopped") {
+        "safety classifier stopped call"
+    } else {
+        return format!("{tool}: {}", error.chars().take(80).collect::<String>());
+    };
+    format!("{tool}: {shape}")
 }
 
 /// The `run_start.host` of each record that carries one, counted. The label is

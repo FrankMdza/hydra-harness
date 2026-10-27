@@ -1,6 +1,6 @@
 # Build 361 - `hydra doctor --walk` classifies `RejectedBeforeHook` rows by tool and error shape
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -38,3 +38,18 @@ Today `src/walk.rs` counts only `rejected_before_hook: usize` and `src/main.rs` 
 - `cargo fmt --all --check` passes.
 - `cargo clippy --release --workspace --all-targets -- -D warnings` passes.
 - `cargo nextest run --release -E 'binary(doctor)'` passes.
+
+## Outcome
+
+Built: `walk::Report` gained `rejected_by_shape`, filled in `walk_paths` by
+`rejected_shape_label(tool, error)`. `hydra doctor --walk` prints one
+`  RejectedBeforeHook {shape}: {count}` line per bucket under the totals.
+`tests/doctor.rs` asserts the `Edit` bucket on fixture 334. `IMPLEMENTATION.md`
+replaces the "requires the driving session" note.
+
+Checks: `cargo fmt --all --check` passed after one rustfmt line wrap in the
+test. `cargo clippy --release --workspace --all-targets -- -D warnings` passed.
+`cargo nextest run --release -E 'binary(doctor)'` passed, 13 of 13. The fast
+loop `cargo nextest run --release -p hydra --test doctor` also passed.
+
+Found: the driving session ran `./target/release/hydra doctor --walk` on 2026-10-27 over 997 records and measured 59 `RejectedBeforeHook` rows across 12 shapes: `Bash: <tool_use_error>Blocked: 18`, `Read: InputValidationError: 17`, `Write: <tool_use_error>Error calling tool: 6`, `Edit: <tool_use_error>String to replace not found: 4`, `bash: No such tool available: 4`, `Edit: <tool_use_error>No changes to make: old_string and new_string are exactly the sa: 3`, `Edit: InputValidationError: 2`, `Edit: <tool_use_error>File does not exist: 1`, `TaskStop: <tool_use_error>No task found with ID: 1`, `WebFetch: InputValidationError: 1`, `Write: <tool_use_error>File has not been read yet: 1`, and `Write: safety classifier stopped call: 1`.

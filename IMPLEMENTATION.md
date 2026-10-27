@@ -2345,10 +2345,17 @@ Ungated: 0` and exits 0. The other
 fixtures provide no evidence for extending the class: Cursor has two successful
 tool results across two records, agy has one record with no tool call, and Codex
 has three successful command results across two records. Their adapters are
-unchanged. The machine-wide before/after walk requires the driving session:
-this run's instructions forbid reading outside its worktree, including the
-machine's records. The fixture reconstructs the ticket's reported call/result
-shape with stand-ins; it is not a copy of inaccessible seq 326/327.
+unchanged. The fixture reconstructs the ticket's reported call/result shape
+with stand-ins; it is not a copy of inaccessible seq 326/327.
+
+**Build 361 breaks the `RejectedBeforeHook` count down by shape.** `walk::Report`
+carries `rejected_by_shape`, keyed by tool and the first error line's bucket,
+and `hydra doctor --walk` prints one `  RejectedBeforeHook {shape}: {count}` line
+per key under the totals. The buckets are the error shapes named in the ticket;
+an unnamed error keeps its first 80 characters. The machine-wide breakdown is
+not yet read: a build worktree cannot reach `~/hydra/runs/`, so the driving
+session runs `hydra doctor --walk` to get it. The fixture test checks one
+`Edit` row, not the machine's corpus.
 
 **Four providers, since build tickets 10 and 48.** `src/normalize/` turns a stored
 `claude`, `cursor-agent`, `agy` or `codex` run into

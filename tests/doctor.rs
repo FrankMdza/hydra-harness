@@ -203,6 +203,11 @@ fn walk_counts_an_edit_rejected_before_the_hook_separately() {
         stdout.contains("RejectedBeforeHook: 1; Ungated: 0"),
         "{stdout}"
     );
+    assert!(
+        stdout
+            .contains("  RejectedBeforeHook Edit: <tool_use_error>String to replace not found: 1"),
+        "{stdout}"
+    );
     assert!(stdout.contains("checked 1 record(s)"), "{stdout}");
 }
 

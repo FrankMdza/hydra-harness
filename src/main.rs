@@ -250,6 +250,9 @@ fn main() -> Result<()> {
                     "RejectedBeforeHook: {}; Ungated: {}",
                     report.rejected_before_hook, report.ungated
                 );
+                for (shape, count) in &report.rejected_by_shape {
+                    println!("  RejectedBeforeHook {shape}: {count}");
+                }
                 if !report.findings.is_empty() {
                     std::process::exit(1);
                 }
