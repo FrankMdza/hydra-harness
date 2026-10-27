@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use hydra_secret_classes::{CLASSES, OPENAI_KINDS, OPENAI_LEGACY_BODY, OPENAI_PROJECT_BODY};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -576,15 +577,10 @@ pub(crate) fn redact_string(text: &str, repo_names: &[String]) -> String {
     out
 }
 
-/// An OpenAI key, `sk-proj-`, `sk-svcacct-` or `sk-admin-` and at least this
-/// many characters of `[A-Za-z0-9_-]`, or a legacy `sk-` and at least
-/// [`OPENAI_LEGACY_BODY`] alphanumerics. Build ticket 93.
-const OPENAI_PROJECT_BODY: usize = 20;
-const OPENAI_LEGACY_BODY: usize = 32;
-
 /// The byte spans of OpenAI keys in `text`, left to right. Redactor and
 /// verifier both call this, so the verifier catches a redactor that skipped a
-/// span and nothing the rule itself misses: finding G18 still stands.
+/// span and nothing the rule itself misses: finding G18 still stands. Body
+/// lengths and kinds live in `hydra_secret_classes`. Build ticket 93.
 fn openai_key_spans(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let token = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
@@ -598,10 +594,7 @@ fn openai_key_spans(text: &str) -> Vec<(usize, usize)> {
         }
         let rest = &text[at + 3..];
         let (body_start, min, allowed): (usize, usize, fn(u8) -> bool) =
-            match ["proj-", "svcacct-", "admin-"]
-                .iter()
-                .find(|p| rest.starts_with(**p))
-            {
+            match OPENAI_KINDS.iter().find(|p| rest.starts_with(**p)) {
                 Some(kind) => (at + 3 + kind.len(), OPENAI_PROJECT_BODY, |b| {
                     b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
                 }),
@@ -622,20 +615,9 @@ fn openai_key_spans(text: &str) -> Vec<(usize, usize)> {
 
 fn redact_secrets(text: &str) -> String {
     let mut out = text.to_string();
-    for (prefix, label) in [
-        ("AIza", "google_api_key"),
-        ("sk-ant-", "anthropic_api_key"),
-        ("ghp_", "github_pat"),
-        ("github_pat_", "github_fine_grained_pat"),
-        ("gho_", "github_oauth_token"),
-        ("ya29.", "google_oauth_token"),
-        ("AKIA", "aws_access_key"),
-        ("aws_secret_access_key=", "aws_secret_access_key"),
-        ("AWS_SECRET_ACCESS_KEY=", "aws_secret_access_key"),
-        ("xoxb-", "slack_bot_token"),
-        ("hooks.slack.com", "slack_webhook"),
-        ("-----BEGIN", "pem_private_key"),
-    ] {
+    for class in CLASSES {
+        let prefix = class.prefix;
+        let label = class.label;
         while let Some(at) = out.find(prefix) {
             let mut at = at;
             if prefix == "hooks.slack.com" {
@@ -763,31 +745,13 @@ fn scan_value(value: &Value, path: &str, warnings: &mut Vec<EntropyWarning>) -> 
 }
 
 fn scan_text(text: &str, path: &str, warnings: &mut Vec<EntropyWarning>) -> bool {
-    // Header only. The redactor replaces everything from `-----BEGIN` to the
-    // end of its footer, or to the end of the text when there is no footer,
-    // so a redacted value never holds this string and any hit means the
-    // redactor missed a block. Certificates and public keys abort too, as
-    // they do in the redactor.
-    //
-    // The prefixes are the redactor's own, matched anywhere in the text as
+    // The prefixes are the shared table, matched anywhere in the text as
     // the redactor matches them, so a hit also means the redactor missed.
-    if text.contains("-----BEGIN")
-        || [
-            "AIza",
-            "sk-ant-",
-            "ghp_",
-            "github_pat_",
-            "gho_",
-            "ya29.",
-            "AKIA",
-            "aws_secret_access_key=",
-            "AWS_SECRET_ACCESS_KEY=",
-            "xoxb-",
-            "hooks.slack.com",
-        ]
-        .iter()
-        .any(|prefix| text.contains(prefix))
-        || !openai_key_spans(text).is_empty()
+    // A PEM header is one of those prefixes. The redactor replaces everything
+    // from `-----BEGIN` to the end of its footer, or to the end of the text
+    // when there is no footer, so a redacted value never holds this string.
+    // Certificates and public keys abort too, as they do in the redactor.
+    if CLASSES.iter().any(|class| text.contains(class.prefix)) || !openai_key_spans(text).is_empty()
     {
         return true;
     }

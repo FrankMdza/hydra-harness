@@ -1,0 +1,11 @@
+[package]
+name = "hydra-secret-classes"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The secret classes Hydra's write path, export and records share"
+license = "Apache-2.0"
+publish = false
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"

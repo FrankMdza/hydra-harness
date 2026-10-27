@@ -1,32 +1,14 @@
 //! `redact.py`: the secret classes `hydra export` redacts, applied to what the grader keeps.
 //!
-//! Known key prefixes, PEM blocks and the OpenAI key span rule. Every index is a code point
-//! of a Python `str`, never a UTF-8 byte: the Python's first version mixed the two and
+//! The prefix table is `hydra_secret_classes`. Matching stays here. Every index is a code
+//! point of a Python `str`, never a UTF-8 byte: the Python's first version mixed the two and
 //! mis-scanned any text with an accent before a key. A secret found by its prefix runs to
 //! the first quote or the first character `str.isspace` accepts, and that set is wider than
 //! Rust's by U+001C to U+001F, so it is `hydra_pyjson::py::is_space` that ends one here.
 
 use hydra_pyjson::json::{Dict, PyStr, Value};
 use hydra_pyjson::py;
-
-const OPENAI_PROJECT_BODY: usize = 20;
-const OPENAI_LEGACY_BODY: usize = 32;
-
-/// The prefixes, in the order the Python replaces them, and the label each leaves.
-const PREFIXES: [(&str, &str); 12] = [
-    ("AIza", "google_api_key"),
-    ("sk-ant-", "anthropic_api_key"),
-    ("ghp_", "github_pat"),
-    ("github_pat_", "github_fine_grained_pat"),
-    ("gho_", "github_oauth_token"),
-    ("ya29.", "google_oauth_token"),
-    ("AKIA", "aws_access_key"),
-    ("aws_secret_access_key=", "aws_secret_access_key"),
-    ("AWS_SECRET_ACCESS_KEY=", "aws_secret_access_key"),
-    ("xoxb-", "slack_bot_token"),
-    ("hooks.slack.com", "slack_webhook"),
-    ("-----BEGIN", "pem_private_key"),
-];
+use hydra_secret_classes::{CLASSES, OPENAI_KINDS, OPENAI_LEGACY_BODY, OPENAI_PROJECT_BODY};
 
 const SLACK: &str = "hooks.slack.com";
 const PEM: &str = "-----BEGIN";
@@ -74,7 +56,7 @@ fn is_space(code: u32) -> bool {
 
 fn key_spans(text: &[u32]) -> Vec<(usize, usize)> {
     let needle = codes("sk-");
-    let kinds = ["proj-", "svcacct-", "admin-"].map(codes);
+    let kinds = OPENAI_KINDS.map(codes);
     let mut spans = Vec::new();
     let mut from = 0;
     while let Some(at) = find(text, &needle, from) {
@@ -115,7 +97,9 @@ pub fn redact_string(text: &PyStr) -> PyStr {
     let mut out = text.code_points().to_vec();
     let (footer, dashes) = (codes("-----END"), codes("-----"));
     let (secure, plain) = (codes("https://"), codes("http://"));
-    for (prefix, name) in PREFIXES {
+    for class in CLASSES {
+        let prefix = class.prefix;
+        let name = class.label;
         let needle = codes(prefix);
         while let Some(mut at) = find(&out, &needle, 0) {
             if prefix == SLACK {

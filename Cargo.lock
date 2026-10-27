@@ -545,6 +545,7 @@ dependencies = [
  "clap",
  "crossterm",
  "hydra-puppets",
+ "hydra-secret-classes",
  "libc",
  "portable-pty",
  "ratatui",
@@ -624,8 +625,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hydra-pyjson",
+ "hydra-secret-classes",
  "sha2",
 ]
+
+[[package]]
+name = "hydra-secret-classes"
+version = "0.1.0"
 
 [[package]]
 name = "iana-time-zone"

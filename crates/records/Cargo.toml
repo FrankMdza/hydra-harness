@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 anyhow = "1.0.104"
 hydra-pyjson = { path = "../pyjson" }
+hydra-secret-classes = { path = "../secret-classes" }
 sha2 = "0.10"
 
 [lints.clippy]

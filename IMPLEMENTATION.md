@@ -3861,6 +3861,12 @@ matches the Python on 65 recorded cases in `crates/otel/tests/fixtures/otel.json
 ticket 236 deleted that script and its test; `normalized` refuses a run id that holds `/`
 or `..` before joining it into a path under the temporary `runs/`, which the Python did not.
 
+Build ticket 368 added a ninth, `crates/secret-classes`, package `hydra-secret-classes`, with no
+dependencies. It holds the twelve secret classes, the write-path flag on five of them, and the
+OpenAI span constants. The write-path sweep, export's redactor and verifier, and `hydra-records`
+all read it. Matching stays in each reader. The `hydra` package depends on it, as does
+`hydra-records`.
+
 `crates/puppets/tests/differential.rs` ran both implementations on the same inputs and required
 the same stdout, stderr and exit code, until build ticket 196 replaced the Python's half with a
 recording of it, described where that ticket is, below. The inputs are every goal log the Python
@@ -5308,8 +5314,11 @@ yet. Map ticket 61.
 
 **Redaction is the four classes and nothing else.** Repository names taken from the
 allowlist entries that are not the exported run's own, replaced by a labelled marker;
-secrets by the same five prefixes the write-time sweep uses, plus OpenAI keys by a matcher of
-their own that the sweep does not have, six secret classes until build ticket 128 added six more
+secrets from the table in `crates/secret-classes`. The write-time sweep still flags only
+the five it flagged before. Export and `hydra-records` still redact all twelve prefixes
+and OpenAI keys. Matching stays in each reader. `hydra-records` counts Python code points
+and export counts bytes. Build ticket 368 deleted the four local copies. Six secret classes
+until build ticket 128 added six more
 that only export and the grader redact (AWS access keys, `aws_secret_access_key=` in either case,
 Slack `xoxb-` tokens and webhooks, GitHub `github_pat_` and `gho_`), twelve in all; the user's own hook stdout
 dropped as the `hook_response` frames; and customer data inside a fixture named in the

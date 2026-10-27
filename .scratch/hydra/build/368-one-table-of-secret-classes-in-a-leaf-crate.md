@@ -1,7 +1,7 @@
 # 368 - One table of secret classes in a leaf crate, read by the write path, export and `hydra-records`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Objective
@@ -32,3 +32,23 @@ The same secret classes are written out four times today:
 Builds 366 and 367 run beside you in `src/sandbox.rs`, `src/paths.rs`, `src/reap.rs` and `src/worktree.rs`. Do not touch those files.
 
 ## Outcome
+
+Built. `crates/secret-classes` is package `hydra-secret-classes`, with no dependencies.
+The table holds the twelve prefixes in the Python replacement order, a write-path flag on
+five of them, and the OpenAI body lengths and kinds. Matching stays in each reader.
+`src/record/secrets.rs` scans only the flagged rows. Export's redactor and verifier and
+`crates/records/src/redact.rs` iterate the same table. The four local lists are gone.
+`record::secrets::prefixes()` still returns the flagged five and still has no caller.
+A unit test in the new crate pins the flagged set. A unit test in `secrets.rs` pins the
+same five labels on one input, and that three export-only prefixes flag nothing.
+`CLAUDE.md`'s layout paragraph does not list crates, so it was left alone.
+
+Measured. `cargo nextest run --release -p hydra-secret-classes` passed 1 of 1.
+`cargo nextest run --release -p hydra record::secrets` passed 4 of 4.
+`cargo nextest run --release -p hydra --test fixture_corpus --test record_contract --test export`
+passed 57 of 57, one skipped.
+`cargo nextest run --release -p hydra-records -p hydra-grader` passed 96 of 96, including
+`the_redactor_gives_what_the_python_gave`.
+`cargo fmt --all --check` is clean.
+`cargo clippy --release --workspace --all-targets -- -D warnings` is clean.
+`cargo build --release --workspace` is clean.
