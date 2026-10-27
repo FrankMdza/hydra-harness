@@ -406,6 +406,8 @@ it.
 - [369 - The cockpit masks each secret span by the shared table, and the docs say the five are the alarm subset](369-the-cockpit-masks-spans-by-the-shared-secret-table.md)
 - [370 - Measure the bubblewrap wrapper on a real Linux in Docker](370-measure-the-bubblewrap-wrapper-on-linux-in-docker.md)
 - [371 - Host git never trusts the run's index, and every kept entry of the private directory is checked](371-host-git-never-trusts-the-runs-index-and-the-kept-entries-are-checked.md)
+- [372 - A recorded run's process group dies before `run_end`](372-a-runs-process-group-dies-before-run-end.md)
+- [373 - Reap refuses while a process holds the run's checkout or its private git directory](373-reap-refuses-while-a-process-holds-the-checkout.md)
 
 ## Out of scope
 
