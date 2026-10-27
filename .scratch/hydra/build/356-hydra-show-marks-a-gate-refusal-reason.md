@@ -1,6 +1,6 @@
 # Build 356 - `hydra show --events` marks `gate_refusal.reason` inside the result boundary
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -27,3 +27,13 @@ When `hydra show --events` prints a `gate_refusal` event, `body["reason"]` must 
 - `cargo fmt --all --check` passes.
 - `cargo clippy --release --workspace --all-targets -- -D warnings` passes.
 - `cargo nextest run --release -E 'binary(show)'` passes, including the new test.
+
+## Outcome
+
+Built: `event_json` marks `body["reason"]` with `mark(reason, token)`, beside `body["command"]`, in `src/show.rs`. The new test `a_gate_refusal_reason_is_marked_like_its_command` in `tests/show.rs` puts a fake closing boundary in both fields and reads both back escaped inside the real boundary.
+
+Measured: with the marking reverted, the new test fails at its first `inside` call. With it restored, `binary(show)` runs 11 of 11 green, `cargo fmt --all --check` passes, `cargo clippy --release --workspace --all-targets -- -D warnings` exits 0, and `cargo test --release --workspace --doc` exits 0.
+
+The ticket lists three checks. The fourth was the workspace doc test from the build notes in `CLAUDE.md`.
+
+`IMPLEMENTATION.md` now says the reason is marked from build 356 on.

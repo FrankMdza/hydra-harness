@@ -2366,6 +2366,8 @@ Replay writes no evidence. The sidecar is a kernel write exception even for boun
 the gate still refuses tool calls naming it. Evidence write failures leave the deny intact
 and report on hook stderr. Evidence is copied at close, not streamed live, and is not
 tamper-proof against a process using that kernel write exception. Older records remain valid.
+Since build 356, `show --events` marks `reason` inside the result boundary as it marks `command`.
+The reason quotes the command, so a fake closing boundary in either field gets escaped.
 
 **Build 332 (2026-10-15) measured that limit and reads around it.** A stub run that appends
 a well-formed row to its own sidecar gets it on the record as a `gate_refusal` event, printed

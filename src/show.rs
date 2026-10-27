@@ -172,6 +172,11 @@ fn event_json(event: &Event, token: &str) -> Value {
             if let Some(command) = body["command"].as_str() {
                 body["command"] = Value::String(mark(command, token));
             }
+            // The reason quotes the run's own command, and the sidecar is writable by
+            // the run, so it is marked like the command beside it.
+            if let Some(reason) = body["reason"].as_str() {
+                body["reason"] = Value::String(mark(reason, token));
+            }
             json!({"seq": e.seq, "type": type_name, "body": body})
         }
         Event::Message(e) => json!({
