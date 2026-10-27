@@ -385,6 +385,8 @@ it.
 - [353 - The codex replay names a `webrun` call by the name the hook saw, and reads the page it opened](353-the-codex-replay-names-a-webrun-call-and-reads-the-page-it-opened.md)
 - [354 - The fixture corpus carries a `codex` 0.160.0 record with a page open, transcribed from a recorded run](354-the-fixture-corpus-carries-a-codex-0-160-0-page-open.md)
 - [355 - A codex page open without a URL reads as a `webrun` call with nothing to check, and the record says so](355-a-page-open-without-a-url-is-a-limit-finding.md)
+- [356 - `hydra show --events` marks `gate_refusal.reason` inside the result boundary](356-hydra-show-marks-a-gate-refusal-reason.md)
+- [357 - The `git push` floor checks `HEAD`, `-C`, `-c` refspecs, and `refs/heads/` prefixes](357-the-git-push-floor-checks-head-dash-c-and-branch-prefixes.md)
 
 ## Out of scope
 
