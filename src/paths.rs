@@ -397,6 +397,17 @@ impl Layout {
             .with_context(|| format!("creating {}", self.spawns().display()))?;
         std::fs::create_dir_all(self.reservations())
             .with_context(|| format!("creating {}", self.reservations().display()))?;
+        for directory in [
+            self.pruned(),
+            self.puppets(),
+            self.approvals(),
+            self.skills(),
+            self.snapshots(),
+            self.skill_worktrees(),
+        ] {
+            std::fs::create_dir_all(&directory)
+                .with_context(|| format!("creating {}", directory.display()))?;
+        }
         Ok(())
     }
 }

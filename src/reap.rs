@@ -433,6 +433,27 @@ fn drop_hydras_ignore(checkout: &Path, context: &CheckoutGit, ignore: &str) -> R
     Ok(())
 }
 
+/// Removes untracked settings mount points left by bubblewrap.
+fn drop_empty_settings(checkout: &Path, context: &CheckoutGit) -> Result<()> {
+    for name in [".claude/settings.json", ".claude/settings.local.json"] {
+        if !crate::worktree::inside_checkout(checkout, name) {
+            continue;
+        }
+        let path = checkout.join(name);
+        if !std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file()) {
+            continue;
+        }
+        let content = std::fs::read(&path)?;
+        if !matches!(content.as_slice(), b"" | b"{}") {
+            continue;
+        }
+        if git(context, &["ls-files", "--", name])?.trim().is_empty() {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Commits what one checkout holds, then removes it and maybe its branch.
 ///
 /// The order is the guarantee. Nothing below the commit runs if the commit did
@@ -498,6 +519,7 @@ fn commit_then_remove(
     for ignore in &injected.ignores {
         drop_hydras_ignore(checkout, &context, ignore)?;
     }
+    drop_empty_settings(checkout, &context)?;
     if let Some(store) = objects {
         // A store git would not verify moves nothing, and the entries that
         // needed it are hashed again from the checkout below.

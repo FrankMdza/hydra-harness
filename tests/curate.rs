@@ -1117,8 +1117,10 @@ fn a_pass_refuses_before_it_launches_when_there_is_no_store() {
     assert!(said.contains("no skill store"), "{said}");
     assert!(said.contains("ticket 07"), "{said}");
 
-    // A directory that is not a repository is the second half of the same check.
+    // A `.git` git cannot read is the second half of the same check. Since build
+    // 366 `ensure` creates `skills/` empty, so an empty directory is the first half.
     std::fs::create_dir_all(fixture.layout().skills()).unwrap();
+    std::fs::write(fixture.layout().skills().join(".git"), "not a gitdir\n").unwrap();
     let err = curate::store(&fixture.layout()).unwrap_err();
     assert!(
         format!("{err:#}").contains("not a git repository"),

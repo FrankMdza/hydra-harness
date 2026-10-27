@@ -252,6 +252,43 @@ fn prune(layout: &Layout, run_ids: &[String], delete: bool, dry_run: bool) -> Ve
 // --- reap ----------------------------------------------------------------
 
 #[test]
+fn reap_drops_only_untracked_empty_settings() {
+    for tracked in [false, true] {
+        for content in ["", "{}", "{}\n", "{\"hooks\":{}}"] {
+            let fixture = Fixture::new("empty-settings");
+            if tracked {
+                std::fs::create_dir_all(fixture.repo.join(".claude")).unwrap();
+                for name in ["settings.json", "settings.local.json"] {
+                    std::fs::write(fixture.repo.join(".claude").join(name), content).unwrap();
+                }
+                git(&fixture.repo, &["add", ".claude"]);
+                git(&fixture.repo, &["commit", "-qm", "tracked settings"]);
+            }
+            let run = "01a07217-6007-7733-9ce2-7bb31830eab8";
+            let checkout = fixture.checkout(run);
+            std::fs::create_dir_all(checkout.join(".claude")).unwrap();
+            for name in ["settings.json", "settings.local.json"] {
+                std::fs::write(checkout.join(".claude").join(name), content).unwrap();
+            }
+            std::fs::write(checkout.join("child.txt"), "work\n").unwrap();
+            let reaped = reap_one(&fixture.layout(), run, false);
+            assert_eq!(hydra::reap::failures(&reaped), 0);
+            let tree = git(
+                &fixture.repo,
+                &["ls-tree", "-r", "--name-only", &format!("hydra/{run}")],
+            );
+            for name in ["settings.json", "settings.local.json"] {
+                assert_eq!(
+                    tree.lines().any(|line| line == format!(".claude/{name}")),
+                    tracked || !matches!(content, "" | "{}"),
+                    "tracked={tracked}, content={content:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn the_childs_work_is_on_the_branch_before_the_checkout_goes() {
     let fixture = Fixture::new("commits");
     let layout = fixture.layout();

@@ -184,7 +184,10 @@ pub fn request(run_id: &str, brief: String, model: Option<String>, timeout: Dura
 /// anything, the way a bad `--policy` does.
 pub fn store(layout: &Layout) -> Result<PathBuf> {
     let store = layout.skills();
-    if !store.is_dir() {
+    // `Layout::ensure` creates `skills/` empty since build 366, and `rev-parse`
+    // in an empty directory inside `~/hydra` would find Hydra's own repository.
+    // So the store exists only when it holds its own `.git`.
+    if !store.join(".git").exists() {
         bail!(
             "there is no skill store at {}, so a curator has nothing to propose into. \
              The store is ticket 07; `hydra curate --dry-run` reads the corpus without it.",

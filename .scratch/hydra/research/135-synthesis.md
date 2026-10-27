@@ -35,4 +35,4 @@ No seat had bubblewrap. The host mount-point creation, `{}` versus a missing set
 
 1. 366: the four missing-path rules and the backstop. Linux behavior; `Layout::ensure()` changes on both platforms.
 2. 367: the private-directory sweep and the index check before every host-side git on a run checkout, both platforms.
-3. 368: measure on Linux in Docker. A real bwrap launch end to end, the five private-directory attacks, the mount-point claim and `{}` under Claude Code.
+3. 370: measure on Linux in Docker. Numbered 368 when this was written; 368 and 369 went to map 108. A real bwrap launch end to end, the five private-directory attacks, the mount-point claim and `{}` under Claude Code.

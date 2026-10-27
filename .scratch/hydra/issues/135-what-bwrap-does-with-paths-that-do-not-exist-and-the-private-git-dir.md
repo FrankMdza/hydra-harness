@@ -47,4 +47,4 @@ Resolved 2026-10-27 by a four-seat panel, which the human delegated the decision
 
 **Question 2.** Bind `config/` read-only whole. `Layout::ensure()` creates the six layout directories, and the profile binds them read-only. Skill and plugin roots get an empty directory bound read-only. Each settings file gets a read-only `{}` held under the spawn directory, and reap removes the empty file bwrap leaves at the destination. A deny source still missing at compose time refuses the launch by name instead of panicking. Grok dissented on the settings files; his rule, `.claude/` bound read-only whole, is the fallback if Linux shows `{}` is not read as absence.
 
-Build tickets 366, 367 and 368.
+Build tickets 366, 367 and 370.

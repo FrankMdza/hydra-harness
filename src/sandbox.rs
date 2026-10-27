@@ -338,7 +338,15 @@ fn write_bwrap_profile_for_launch(
         std::fs::create_dir_all(&directory)
             .with_context(|| format!("creating {}", directory.display()))?;
     }
-    let args = compose_bwrap_for_launch(set, spawn, gated_interactive);
+    for directory in [".claude/skills", ".agents/plugins", ".codex/skills"] {
+        let directory = spawn.worktree.join(directory);
+        std::fs::create_dir_all(&directory)
+            .with_context(|| format!("creating {}", directory.display()))?;
+    }
+    let empty_settings = spawn.gate_script.with_file_name("empty-settings.json");
+    std::fs::write(&empty_settings, "{}")
+        .with_context(|| format!("writing {}", empty_settings.display()))?;
+    let args = compose_bwrap_for_launch(set, spawn, gated_interactive)?;
     let text = format!("{}\n", args.join("\n"));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -631,7 +639,7 @@ pub fn render_sbpl(rules: &[Rule]) -> String {
 /// The bubblewrap arguments for the same rules [`compose`] writes. Bubblewrap
 /// mounts the host read-only or read-write under `--dev-bind / /`, and each rule
 /// becomes the mount that narrows that view.
-pub fn compose_bwrap(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
+pub fn compose_bwrap(set: &PolicySet, spawn: &Spawn<'_>) -> Result<Vec<String>> {
     compose_bwrap_for_launch(set, spawn, false)
 }
 
@@ -639,7 +647,7 @@ fn compose_bwrap_for_launch(
     set: &PolicySet,
     spawn: &Spawn<'_>,
     gated_interactive: bool,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     let mut args = vec![
         "--dev-bind".to_string(),
         "/".to_string(),
@@ -656,7 +664,18 @@ fn compose_bwrap_for_launch(
             .map(|id| common.join("worktrees").join(id))
     });
     let mut private_mounted = false;
+    let config = canonical(&crate::paths::hydra_home().join("config"));
+    let mut config_mounted = false;
     for mut rule in rules_of(set, spawn) {
+        if let Rule::WriteDenySubpath(path) = &rule
+            && Path::new(path).starts_with(&config)
+        {
+            if config_mounted {
+                continue;
+            }
+            config_mounted = true;
+            rule = Rule::WriteDenySubpath(config.clone());
+        }
         // Its concrete worktree and home paths already come through
         // `PluginWriteDenySubpath`, so the regex has nothing to add here.
         if matches!(rule, Rule::PluginManifestRegexDeny { .. }) {
@@ -691,9 +710,32 @@ fn compose_bwrap_for_launch(
             }
             continue;
         }
-        args.extend(translate_rule_to_bwrap(&rule).expect("translatable spawn rule"));
+        if let Rule::WriteDenySubpath(path)
+        | Rule::GitAdminWriteDeny(path)
+        | Rule::CodexSkillsWriteDeny(path)
+        | Rule::PluginWriteDenySubpath(path)
+        | Rule::BoundedWorktreeWriteDeny(path) = &rule
+            && !Path::new(path).exists()
+        {
+            if [".claude/settings.json", ".claude/settings.local.json"]
+                .iter()
+                .any(|name| canonical(&spawn.worktree.join(name)) == *path)
+            {
+                let source = spawn.gate_script.with_file_name("empty-settings.json");
+                if !source.is_file() {
+                    anyhow::bail!(
+                        "missing bubblewrap deny source {} for {path}",
+                        source.display()
+                    );
+                }
+                args.extend(["--ro-bind".to_string(), canonical(&source), path.clone()]);
+                continue;
+            }
+            anyhow::bail!("missing bubblewrap deny source {path}");
+        }
+        args.extend(translate_rule_to_bwrap(&rule).map_err(anyhow::Error::msg)?);
     }
-    args
+    Ok(args)
 }
 
 /// The bubblewrap arguments for one rule. A rule with no mount equivalent is an
@@ -995,6 +1037,42 @@ mod tests {
     }
 
     #[test]
+    fn layout_ensure_creates_deny_directories() {
+        let (layout, root) = scratch_layout();
+        for path in [
+            layout.pruned(),
+            layout.puppets(),
+            layout.approvals(),
+            layout.skills(),
+            layout.snapshots(),
+            layout.skill_worktrees(),
+        ] {
+            assert!(path.is_dir(), "{}", path.display());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn prepare_bwrap_fixture(set: &PolicySet, spawn: &Spawn<'_>) {
+        std::fs::create_dir_all(spawn.gate_script.parent().unwrap()).unwrap();
+        std::fs::write(spawn.gate_script, "fixture").unwrap();
+        if let Some(common) = spawn.parent_git_dir {
+            let id = spawn.gate_script.parent().unwrap().file_name().unwrap();
+            let private = common.join("worktrees").join(id);
+            std::fs::create_dir_all(&private).unwrap();
+            for name in ["HEAD", "commondir", "gitdir"] {
+                std::fs::write(private.join(name), "fixture").unwrap();
+            }
+        }
+        write_bwrap_profile(
+            set,
+            spawn,
+            &spawn.gate_script.with_file_name("fixture.bwrap"),
+            None,
+        )
+        .unwrap();
+    }
+
+    #[test]
     fn the_profile_names_denied_paths_and_not_the_worktree() {
         let (layout, root) = scratch_layout();
         let set = PolicySet::discover().unwrap();
@@ -1241,31 +1319,44 @@ mod tests {
                 "existing evidence\n"
             );
             assert_eq!(sbpl, compose(&set, &spawn));
-            let rules = rules_of(&set, &spawn);
-            let deny_paths: Vec<_> = rules
-                .iter()
-                .filter_map(|rule| match rule {
-                    Rule::WriteDenySubpath(path)
-                    | Rule::GitAdminWriteDeny(path)
-                    | Rule::CodexSkillsWriteDeny(path)
-                    | Rule::PluginWriteDenySubpath(path) => Some(path),
-                    _ => None,
-                })
-                .collect();
-            for path in &deny_paths {
-                if !Path::new(path).exists() {
-                    eprintln!("364 missing deny {id}: {path}");
-                }
+            let args = compose_bwrap(&set, &spawn).unwrap();
+            let config = canonical(&crate::paths::hydra_home().join("config"));
+            assert_eq!(
+                args.windows(3)
+                    .filter(|mount| mount == &["--ro-bind", &config, &config])
+                    .count(),
+                1
+            );
+            for directory in [".claude/skills", ".agents/plugins", ".codex/skills"] {
+                assert!(worktree.join(directory).is_dir());
             }
-            let args = compose_bwrap(&set, &spawn);
+            for settings in [".claude/settings.json", ".claude/settings.local.json"] {
+                let destination = canonical(&worktree.join(settings));
+                let at = args
+                    .windows(3)
+                    .position(|mount| mount[0] == "--ro-bind" && mount[2] == destination)
+                    .unwrap();
+                assert_eq!(std::fs::read_to_string(&args[at + 1]).unwrap(), "{}");
+                assert!(!worktree.join(settings).exists());
+                let existing = worktree.join(settings);
+                std::fs::write(&existing, "{\"hooks\":{}}").unwrap();
+                let existing_args = compose_bwrap(&set, &spawn).unwrap();
+                find_from(
+                    &existing_args,
+                    0,
+                    &["--ro-bind", &destination, &destination],
+                );
+                assert_eq!(
+                    std::fs::read_to_string(&existing).unwrap(),
+                    "{\"hooks\":{}}"
+                );
+                std::fs::remove_file(existing).unwrap();
+            }
             for mount in args
                 .windows(3)
                 .filter(|mount| matches!(mount[0].as_str(), "--bind" | "--ro-bind" | "--dev-bind"))
             {
-                // Ticket 364 leaves missing deny sources for a map decision.
-                if !deny_paths.contains(&&mount[1]) {
-                    assert!(Path::new(&mount[1]).exists(), "{id}: {mount:?}");
-                }
+                assert!(Path::new(&mount[1]).exists(), "{id}: {mount:?}");
             }
             let private = canonical(&common.join("worktrees").join(id));
             let at = find_from(&args, 0, &["--bind", &private, &private]);
@@ -1280,11 +1371,15 @@ mod tests {
             }
             let socket = gate.with_file_name(crate::seats::SOCKET);
             assert!(!args.contains(&canonical(&socket)));
-            assert!(!compose_bwrap_for_launch(&set, &spawn, true).contains(&canonical(&socket)));
+            assert!(
+                !compose_bwrap_for_launch(&set, &spawn, true)
+                    .unwrap()
+                    .contains(&canonical(&socket))
+            );
             let _listener = UnixListener::bind(&socket).unwrap();
-            let args = compose_bwrap(&set, &spawn);
+            let args = compose_bwrap(&set, &spawn).unwrap();
             assert!(!args.contains(&canonical(&socket)));
-            let args = compose_bwrap_for_launch(&set, &spawn, true);
+            let args = compose_bwrap_for_launch(&set, &spawn, true).unwrap();
             find_from(
                 &args,
                 0,
@@ -1293,6 +1388,13 @@ mod tests {
             for directory in created {
                 std::fs::remove_dir_all(directory).unwrap();
             }
+            let missing = layout.approvals();
+            std::fs::remove_dir(&missing).unwrap();
+            let profile = gate.with_file_name("missing.bwrap");
+            let error = write_bwrap_profile(&set, &spawn, &profile, None).unwrap_err();
+            assert!(error.to_string().contains(missing.to_str().unwrap()));
+            assert!(!profile.exists());
+            std::fs::create_dir(&missing).unwrap();
         }
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1339,7 +1441,8 @@ mod tests {
                             compose(set, &spawn),
                             "{case}"
                         );
-                        let args = compose_bwrap(set, &spawn);
+                        prepare_bwrap_fixture(set, &spawn);
+                        let args = compose_bwrap(set, &spawn).unwrap();
                         assert_eq!(
                             args[..7],
                             [
@@ -1409,7 +1512,8 @@ mod tests {
                 "plugin-manifest",
             ]
         );
-        let args = compose_bwrap(&set, &standard);
+        prepare_bwrap_fixture(&set, &standard);
+        let args = compose_bwrap(&set, &standard).unwrap();
         let chain: [Vec<&str>; 6] = [
             vec!["--ro-bind", &own, &own],
             vec!["--dir", &spawns],
@@ -1454,7 +1558,7 @@ mod tests {
                 "bounded-worktree",
             ]
         );
-        let args = compose_bwrap(&bounded_policies, &bounded);
+        let args = compose_bwrap(&bounded_policies, &bounded).unwrap();
         let chain: [Vec<&str>; 5] = [
             vec!["--tmpfs", &spawns],
             vec!["--tmpfs", &layout_root],
@@ -1662,9 +1766,10 @@ mod tests {
             floor_lifted: false,
         };
         let profile = layout.spawn("r1").join("sandbox.bwrap");
+        prepare_bwrap_fixture(&set, &spawn);
         let sha = write_bwrap_profile(&set, &spawn, &profile, Some("mnt:[4026531841]\n")).unwrap();
         assert_eq!(sha, system_sha256(&profile));
-        let args = compose_bwrap(&set, &spawn);
+        let args = compose_bwrap(&set, &spawn).unwrap();
         assert_eq!(
             std::fs::read_to_string(&profile).unwrap(),
             format!("{}\n", args.join("\n"))

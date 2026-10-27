@@ -1,7 +1,7 @@
 # 366 - Bubblewrap gives every missing deny path a source, and refuses by name when it cannot
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 364
 
 ## Objective
@@ -25,3 +25,13 @@ Carry out question 2 of map ticket 135, `.scratch/hydra/issues/135-what-bwrap-do
 5. Run `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --target x86_64-unknown-linux-gnu`, `cargo nextest run --release -p hydra --lib sandbox`, `cargo nextest run --release -p hydra --test cleanup --test spawn --test sandbox_read_only`, and `cargo nextest run --release -p hydra --lib paths`.
 
 ## Outcome
+
+Bubblewrap binds the checkout's protected config directory read-only once. Layout creation now supplies all six deny directories on both platforms. Bubblewrap preparation creates the three worktree skill and plugin roots and writes `{}` under the spawn directory. Missing settings bind that file. Existing settings retain their own source. Reap removes only untracked regular settings files that are empty or hold exactly `{}`. It preserves tracked files and every other byte sequence.
+
+Compose now returns a Result. Missing deny sources produce an error naming the path. Translation errors propagate without an expect panic. The clean git worktree fixture reaches zero missing bind sources for Claude, Cursor and Codex under standard. It also checks existing settings, missing-source refusal and unchanged SBPL bytes. Existing argument tests now create their gate and git metadata sources. Their rule-order assertions remain. The settings reap test covers both filenames, tracked and untracked files, empty bytes, exact `{}`, a trailing newline and other JSON.
+
+The ensure audit found four production callers: headless reservation, gated interactive launch, ungated interactive launch and evolve harness recording. Unit callers are in sandbox and run tests. None uses the absence of the six directories as a launch signal. Store::open checks for `.git`, so an empty skills directory still initializes the store. Approval listing, snapshot sweeping and orphan checkout listing treat missing and empty directories alike. Record readers still test record files. Puppet readers either enumerate entries or check goal files. An empty root supplies no goals.
+
+One reader changes its diagnostic. Curate's store check tests whether skills is a directory before checking Git metadata and HEAD. An empty directory now reaches those Git checks. Git can discover an ancestor repository when the layout sits inside one. The session closed that in `src/rungs/curate.rs` when it applied this diff: the store check now requires `skills/.git`, so an empty `skills/` refuses as "no skill store", and `tests/curate.rs` plants an unreadable `.git` for the "not a git repository" half.
+
+All six required commands passed: fmt check, release workspace clippy with warnings denied, the Linux target check, sandbox unit tests, the cleanup and spawn and sandbox_read_only integration group, and paths unit tests. The test groups passed 14, 92 and 10 tests. No Linux host measured these mounts, destination creation or Claude's treatment of `{}`. Build ticket 370 owns those measurements; 368 became the secret-classes table after map 108.
