@@ -1,7 +1,7 @@
 # 372 - A recorded run's process group dies before `run_end`
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Objective
@@ -28,3 +28,34 @@ Today, when the provider exits, `watch` in `src/watch.rs` writes `run_end` and l
 Build 373 runs beside you in `src/reap.rs`. Do not touch it.
 
 ## Outcome
+
+The recorded watcher saves the group led by the verified child before waiting. After reaping
+the child it sends SIGTERM to that group, waits up to `stop::GRACE`, then sends SIGKILL.
+It waits for members to disappear before writing `run_end`. An empty group adds no note or wait.
+The error note names each pid and command read before SIGTERM and identifies SIGKILL recipients.
+macOS reads members with `proc_listpids` and `PROC_PGRP_ONLY`. Linux reads `/proc`.
+The Linux sandbox boundary still waits on build 370. Interactive sessions are excluded.
+
+The stub descendant ignores SIGTERM and SIGHUP and writes every 100 ms. It is dead when the
+closed record is read, its file stops growing, and the note names its pid and command.
+The setsid descendant survives and test teardown kills it. The combined fixture took 11.8 s.
+The empty-group integration test took 0.45 s. Unit tests also cover an empty group and a
+member that exits on SIGTERM.
+
+Cleanup and held-pty notes preserve provider outcomes. Tests cover claude and agy with and
+without terminators. The existing held-pty test now expects crashed rather than failed,
+as rule 4 requires. IMPLEMENTATION.md and contract section 6 describe the mechanism and limits.
+
+All required checks passed:
+
+- `cargo fmt --all --check`
+- `cargo clippy --release --workspace --all-targets -- -D warnings`
+- `cargo check --target x86_64-unknown-linux-gnu`
+- `cargo nextest run --release -p hydra --test pty_tee --test detached --test outcome --test status`, 86 passed
+- `cargo nextest run --release -p hydra --lib stop`, 2 passed
+
+The last command initially selected no tests and exited 4. This ticket's assumption that
+stop had library tests was false. Two focused tests now make that check exercise the mechanism.
+The cross-check proves compilation only. It does not establish Linux sandbox cleanup.
+
+Applied by the session with two changes. With the group kill on every path, the stop tests in `tests/stop.rs` hung past their 30 s limit in two runs of three, and passed three of three on master without it. A `hydra stop` already signals the group and waits on it, build 173, so the watcher now skips its own termination when the stop marker exists, and the stop file passed four of four after that. The second change: an error from `terminate_group` used to return from `watch` before `run_end`, which leaves a record open for good, so it is now a note on `run_end.error`. The race between the two terminations was not traced further.

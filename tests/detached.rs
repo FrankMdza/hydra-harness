@@ -188,6 +188,95 @@ fn slow_stub(seconds: u32) -> String {
 }
 
 #[test]
+fn close_kills_group_members_before_run_end_but_leaves_a_new_session() {
+    for escaped in [false, true] {
+        let layout = sandbox(if escaped { "escaped" } else { "orphan" });
+        let ticks = layout.root().join("ticks");
+        let pid_file = layout.root().join("orphan-pid");
+        let script = format!(
+            "import os,signal,time\npid=os.fork()\nif pid == 0:\n {}\n signal.signal(signal.SIGTERM,signal.SIG_IGN)\n signal.signal(signal.SIGHUP,signal.SIG_IGN)\n os.close(0)\n os.close(1)\n os.close(2)\n open({:?},'w').write(str(os.getpid()))\n while True:\n  with open({:?},'a') as f: f.write('tick\\n')\n  time.sleep(.1)\nelse:\n while not os.path.exists({:?}): time.sleep(.01)\n time.sleep(.2)\n",
+            if escaped { "os.setsid()" } else { "pass" },
+            pid_file.to_str().unwrap(),
+            ticks.to_str().unwrap(),
+            pid_file.to_str().unwrap()
+        );
+        let spec = spec_for_binary(&layout, "/usr/bin/python3", vec!["-c".into(), script]);
+        let mut watcher =
+            watch::detach(&hydra(), &spec, &layout.watcher_log(RUN_ID), &child_env()).unwrap();
+        let run_file = layout.run_file(RUN_ID);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let pid: i32 = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.parse().ok())
+            {
+                break pid;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fixture did not start"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        // Teardown runs even when an assertion fails.
+        struct Cleanup(i32);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                // SAFETY: the fixture pid belongs to this test.
+                unsafe {
+                    libc::kill(self.0, libc::SIGKILL);
+                }
+            }
+        }
+        let _cleanup = Cleanup(pid);
+        assert_eq!(
+            watch::wait_for_end(&run_file, &mut watcher, Duration::from_secs(25)).unwrap(),
+            Waited::Ended
+        );
+        let before = std::fs::metadata(&ticks).unwrap().len();
+        std::thread::sleep(Duration::from_millis(350));
+        let after = std::fs::metadata(&ticks).unwrap().len();
+        let text = std::fs::read_to_string(run_file).unwrap();
+        if escaped {
+            assert!(after > before, "setsid descendant did not survive");
+            assert!(!text.contains("run group cleanup:"));
+        } else {
+            assert_eq!(before, after, "descendant wrote after run_end");
+            assert!(
+                text.to_lowercase().contains(&format!("pid {pid} python")),
+                "{text}"
+            );
+            #[cfg(target_os = "macos")]
+            assert_eq!(
+                // SAFETY: signal zero only checks the fixture pid.
+                unsafe { libc::kill(pid, 0) },
+                -1,
+                "descendant is still present"
+            );
+            assert!(text.contains("SIGKILL"), "{text}");
+        }
+    }
+}
+
+#[test]
+fn an_empty_group_closes_without_a_note_or_grace_wait() {
+    let layout = sandbox("empty-group");
+    let began = std::time::Instant::now();
+    let mut watcher = start(&layout, &slow_stub(0));
+    let run_file = layout.run_file(RUN_ID);
+    assert_eq!(
+        watch::wait_for_end(&run_file, &mut watcher, Duration::from_secs(5)).unwrap(),
+        Waited::Ended
+    );
+    assert!(began.elapsed() < Duration::from_secs(5));
+    assert!(
+        !std::fs::read_to_string(run_file)
+            .unwrap()
+            .contains("run group cleanup:")
+    );
+}
+
+#[test]
 fn the_detached_half_writes_the_record_its_launcher_never_touches() {
     let layout = sandbox("record");
     let mut watcher = start(&layout, &slow_stub(0));

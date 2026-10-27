@@ -537,7 +537,17 @@ strongest input it has. The other outcomes come from the stream.
 **Process exit is the authoritative end of a run, and the provider's own terminator is optional
 enrichment.** `claude` always writes exactly one `result` frame, `cursor-agent` writes one only on
 success, and no contract can be built on a frame that two of three providers withhold on the path
-that matters most. So `run_end` is Hydra's line, written when `wait()` returns.
+that matters most. So `run_end` is Hydra's line, written after `wait()` returns and the
+recorded run's saved process group has been terminated.
+
+On recorded runs, `error` can carry a `run group cleanup: ` note. It names the pid and
+command of each member read before SIGTERM, and says which needed SIGKILL after
+`stop::GRACE`. The watcher writes this note before `run_end`. An empty group adds no note
+and no grace wait. This note and the held-pty note are informational and do not change the
+provider outcome. Without a terminator, `claude` and `agy` still derive `crashed`.
+Interactive sessions share the human's job and are excluded. A `setsid` descendant escapes
+the saved group. On Linux, bwrap's `--new-session` can put the provider in another group.
+Build 370 must measure that boundary before Linux sandbox cleanup can be claimed.
 
 **A missing `run_end` is a fact rather than a corruption.** If Hydra dies, nothing writes it. A dead
 pid with no `run_end` is exactly ticket 14's abandoned-run class, and it is derivable only because

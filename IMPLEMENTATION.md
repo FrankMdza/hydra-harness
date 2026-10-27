@@ -37,13 +37,15 @@ guard that demanded `sandbox-exec` under `CI` on any OS, a `run_start` line writ
 for `type` that macOS never validated, fixtures carrying `__CF_USER_TEXT_ENCODING` and GNU
 `cat`'s program name), decided two (the gate refuses a NUL in `cwd` as `hydra/bad-payload` on
 every Python; the reap test pins its git identity, and Hydra invents no author when none is
-configured), and skips nine tests by name until a Linux machine measures them: the 200,000-byte
-pty frame test; the held-slave test, whose Linux path showed that the orphan holding the slave dies
-when the master closes, the opposite of what the test asserts, and whether Hydra wants orphans to
-outlive a run on Linux is undecided; and the bit-exact CPython ports (`lgamma`, the ranking
-arithmetic, the pyjson hashes, the grader's baseline and monitor differentials), whose fixtures were
-recorded on an arm64 Mac and differ on glibc in the last bit. The job's skip list and the README's
-Linux sentence name the same tests.
+configured), and skips nine tests by name until a Linux machine measures them.
+These include the 200,000-byte pty frame test and the held-slave test. The latter's Linux path
+showed that the orphan holding the slave dies when the master closes, the opposite of its assertion.
+Hydra does not want orphans to outlive a recorded run on either platform. Build 372 ends the saved
+child group before closing the record. The Linux sandbox half waits on build 370 because bwrap's
+`--new-session` can put the provider in another group. The other skipped tests cover the bit-exact
+CPython ports: `lgamma`, ranking arithmetic, pyjson hashes, and the grader's baseline and monitor
+differentials. Their fixtures were recorded on an arm64 Mac and differ on glibc in the last bit.
+The job's skip list and the README's Linux sentence name the same tests.
 
 **Linux launches run under bubblewrap since build ticket 318. The runtime test on Linux is still the human's.** `compose_bwrap` in `src/sandbox.rs` renders the same `rules_of` table that `compose` renders as SBPL, so the two wrappers agree on rule order, which build ticket 318a established. Three decisions came with it. First, `wraps_launches()` on Linux requires `bwrap` on `PATH` and user namespaces open. The kernel switches are read from `/proc/sys`. `standard` and `permissive` refuse without them, and `judge` runs bare. Second, Codex runs with `--sandbox danger-full-access` under either wrapper, because its own `workspace-write` sandbox cannot nest. `forbids_vendor_sandbox()` decides this. bwrap locks the parent mounts, and the worktree's gitdir and object store sit outside the worktree. Third, `inside_seatbelt()` on Linux compares this process's mount namespace with the `launcher.mnt` the launcher wrote beside the profile. A witness that names another namespace means the process runs inside bwrap. A gated interactive session is refused under bubblewrap, because the copilot's regex allow has no mount equivalent. The `evolve` admission gate has no bubblewrap profile, so `run_admission_step` refuses on Linux whether or not bwrap is present. Build ticket 363 removed the bare fallback that ran its steps when bwrap was absent, and `admission_wrapper_check` holds the decision. The pure unit tests for the argv, the refusals and the witness run in the Linux CI job's own step, `cargo test --release --lib sandbox::tests::`. The workspace step there still skips every test whose name contains `sandbox`, so the `/usr/bin/sandbox-exec` integration tests in `tests/spawn.rs` stay macOS-only in CI. No Linux host has run the wrapper yet.
 
@@ -497,6 +499,16 @@ the pid against the recorded start time first. Since build ticket 173 the grace 
 group, not the pid: when the child led its group at SIGTERM, a shell that exits at once no
 longer ends the wait while a descendant that ignores SIGTERM and SIGHUP is still in the group,
 and the SIGKILL goes to the group. Only the group the verified child led is signalled.
+
+Since build 372 the recorded watcher also saves that group while the verified child lives.
+After reaping the child it sends SIGTERM to any remaining group members, waits up to
+`stop::GRACE`, then sends SIGKILL if needed. It waits for the remaining members to disappear
+before writing `run_end`. Empty groups add no wait or note. The error field names each pid and
+command read before SIGTERM and says which needed SIGKILL. This note and `PTY_HELD_NOTE` are
+informational. A missing terminator on `claude` or `agy` still derives `crashed`.
+Interactive sessions are excluded. A descendant that called `setsid` escapes this group cleanup.
+The Linux path uses `/proc` but does not establish cleanup of bwrap's provider group.
+Build 370 must measure that session boundary.
 
 **Map ticket 89 made it a tenth outcome, `stopped`.** Whoever closes the record, the watcher
 or the harvest, finds the marker and puts `watch::STOP_NOTE` first in `run_end.error`,

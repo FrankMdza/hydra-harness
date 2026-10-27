@@ -276,19 +276,144 @@ pub fn terminate(pid: u32, start: DateTime<Utc>, grace: Duration) -> Result<bool
     let Some(target) = signal(pid, start, libc::SIGTERM)? else {
         return Ok(false);
     };
-    let gone = || -> Result<bool> {
-        Ok(match target {
-            Reached::Group(pgid) => !group_remains(pgid)?,
-            Reached::Pid(pid) => !crate::procinfo::is_alive(pid, start)?,
-        })
-    };
-    if wait_for(grace, gone)? {
+    match target {
+        Reached::Group(pgid) => finish_group(pgid, grace),
+        Reached::Pid(pid) => {
+            if wait_for(grace, || Ok(!crate::procinfo::is_alive(pid, start)?))? {
+                return Ok(false);
+            }
+            Ok(signal(pid, start, libc::SIGKILL)?.is_some())
+        }
+    }
+}
+
+fn finish_group(pgid: libc::pid_t, grace: Duration) -> Result<bool> {
+    if wait_for(grace, || Ok(!group_remains(pgid)?))? {
         return Ok(false);
     }
-    match target {
-        Reached::Group(pgid) => kill(pgid, libc::SIGKILL, true),
-        Reached::Pid(_) => Ok(signal(pid, start, libc::SIGKILL)?.is_some()),
+    kill(pgid, libc::SIGKILL, true)
+}
+
+/// Saves only the group led by the verified child. Interactive jobs are excluded.
+pub fn child_group(pid: u32, start: DateTime<Utc>) -> Result<Option<libc::pid_t>> {
+    let raw = libc::pid_t::try_from(pid).context("a pid out of range")?;
+    if !crate::procinfo::is_alive(pid, start)? {
+        return Ok(None);
     }
+    // SAFETY: getpgid takes an integer and no pointer.
+    Ok((unsafe { libc::getpgid(raw) } == raw).then_some(raw))
+}
+
+/// Ends the saved group after its leader was reaped, before the record closes.
+/// A live member prevents reuse of the group id. A setsid descendant is outside it.
+pub fn terminate_group(pgid: libc::pid_t, grace: Duration) -> Result<Option<String>> {
+    if !group_remains(pgid)? {
+        return Ok(None);
+    }
+    let members = group_members(pgid)?;
+    if !kill(pgid, libc::SIGTERM, true)? {
+        return Ok(None);
+    }
+    let gone = wait_for(grace, || Ok(!group_remains(pgid)?))?;
+    let remaining = if gone {
+        Vec::new()
+    } else {
+        group_members(pgid)?
+    };
+    if !gone {
+        kill(pgid, libc::SIGKILL, true)?;
+        // SIGKILL delivery is asynchronous. Do not close while a member can write.
+        if !wait_for(grace, || Ok(group_members(pgid)?.is_empty()))? {
+            bail!("process group {pgid} still has members after SIGKILL");
+        }
+    }
+    let names = members
+        .into_iter()
+        .map(|(pid, name)| {
+            let signal = if remaining.iter().any(|(left, _)| *left == pid) {
+                "SIGTERM then SIGKILL"
+            } else {
+                "SIGTERM"
+            };
+            format!("pid {pid} {name} {signal}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(Some(format!("{GROUP_CLEANUP_NOTE}{names}")))
+}
+
+/// An informational note that never supplies a provider outcome.
+pub const GROUP_CLEANUP_NOTE: &str = "run group cleanup: ";
+
+#[cfg(target_os = "macos")]
+fn group_members(pgid: libc::pid_t) -> Result<Vec<(libc::pid_t, String)>> {
+    unsafe extern "C" {
+        fn proc_listpids(kind: u32, typeinfo: u32, buffer: *mut libc::c_void, size: i32) -> i32;
+        fn proc_name(pid: i32, buffer: *mut libc::c_void, size: u32) -> i32;
+    }
+    const PROC_PGRP_ONLY: u32 = 2;
+    let mut pids = vec![0i32; 64];
+    loop {
+        let bytes = (pids.len() * std::mem::size_of::<i32>()) as i32;
+        // SAFETY: the buffer is writable for bytes bytes.
+        let used =
+            unsafe { proc_listpids(PROC_PGRP_ONLY, pgid as u32, pids.as_mut_ptr().cast(), bytes) };
+        if used < 0 {
+            return Err(std::io::Error::last_os_error()).context("listing process group");
+        }
+        if used == bytes {
+            pids.resize(pids.len() * 2, 0);
+            continue;
+        }
+        pids.truncate(used as usize / std::mem::size_of::<i32>());
+        break;
+    }
+    Ok(pids
+        .into_iter()
+        .filter(|pid| *pid > 0)
+        .map(|pid| {
+            let mut name = [0u8; 1024];
+            // SAFETY: name is writable for its stated size.
+            let len = unsafe { proc_name(pid, name.as_mut_ptr().cast(), name.len() as u32) };
+            let name = if len > 0 {
+                String::from_utf8_lossy(&name[..len as usize])
+                    .trim_end_matches('\0')
+                    .replace(';', ",")
+            } else {
+                "unknown".into()
+            };
+            (pid, name)
+        })
+        .collect())
+}
+
+#[cfg(target_os = "linux")]
+fn group_members(pgid: libc::pid_t) -> Result<Vec<(libc::pid_t, String)>> {
+    // Build 370 must measure bwrap --new-session. Its provider may lead another group.
+    let mut members = Vec::new();
+    for entry in std::fs::read_dir("/proc")? {
+        let entry = entry?;
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<libc::pid_t>() else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        let Some((head, tail)) = stat.rsplit_once(')') else {
+            continue;
+        };
+        let fields: Vec<_> = tail.split_whitespace().collect();
+        if fields.get(2).and_then(|field| field.parse::<i32>().ok()) == Some(pgid)
+            && fields.first() != Some(&"Z")
+        {
+            let name = head
+                .split_once('(')
+                .map(|(_, name)| name)
+                .unwrap_or("unknown");
+            members.push((pid, name.replace(';', ",")));
+        }
+    }
+    Ok(members)
 }
 
 /// What [`signal`] reached: the child's own process group, or the child alone.
@@ -367,5 +492,47 @@ fn wait_for(budget: Duration, mut done: impl FnMut() -> Result<bool>) -> Result<
             return Ok(false);
         }
         std::thread::sleep(POLL);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::process::CommandExt;
+
+    #[test]
+    fn group_cleanup_names_a_member_that_exits_on_sigterm() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pgid = child.id() as libc::pid_t;
+        let reaper = std::thread::spawn(move || child.wait().unwrap());
+        let result = terminate_group(pgid, Duration::from_secs(2));
+        if result.is_err() {
+            let _ = kill(pgid, libc::SIGKILL, true);
+        }
+        reaper.join().unwrap();
+        let note = result.unwrap().unwrap();
+        assert!(
+            note.contains(&format!("pid {pgid} sleep SIGTERM")),
+            "{note}"
+        );
+        assert!(!note.contains("SIGKILL"), "{note}");
+    }
+
+    #[test]
+    fn a_reaped_empty_group_has_no_note_and_no_grace_wait() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pgid = child.id() as libc::pid_t;
+        child.wait().unwrap();
+        let began = Instant::now();
+        assert_eq!(terminate_group(pgid, GRACE).unwrap(), None);
+        assert!(began.elapsed() < Duration::from_secs(1));
     }
 }

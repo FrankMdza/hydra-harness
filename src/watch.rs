@@ -213,6 +213,10 @@ pub fn watch(spec: &Path) -> Result<()> {
 
     let pid = spawned.pid;
     let process_start = crate::procinfo::start_time(pid)?;
+    let group = process_start
+        .map(|start| crate::stop::child_group(pid, start))
+        .transpose()?
+        .flatten();
     let mut start = launch.run_start;
     start["pid"] = serde_json::json!(pid);
     start["process_start_time"] = process_start
@@ -255,6 +259,19 @@ pub fn watch(spec: &Path) -> Result<()> {
     // stop` writes the marker before it signals, so a child it killed always
     // finds it here.
     let stopped = spec.with_file_name(STOP_MARKER).exists();
+
+    // Map ticket 136. A stop already signals this group and waits on it, build
+    // ticket 173, so a second termination here would race that one. Measured
+    // 2026-10-27: with both, the stop tests hung past 30 s about half the time.
+    // A failure here is a note, never an early return: a watcher that returned
+    // before `run_end` would leave the record open for good.
+    let group_note =
+        group.filter(|_| !stopped).and_then(|pgid| {
+            match crate::stop::terminate_group(pgid, crate::stop::GRACE) {
+                Ok(note) => note,
+                Err(err) => Some(format!("{}{err:#}", crate::stop::GROUP_CLEANUP_NOTE)),
+            }
+        });
 
     // A signal death is the one ending the detached half witnesses and the
     // stream cannot show, and the pty reports it as exit code 1. `run_end.error`
@@ -301,6 +318,13 @@ pub fn watch(spec: &Path) -> Result<()> {
         tee_error = Some(match tee_error {
             Some(existing) => format!("{existing}; {PTY_HELD_NOTE}"),
             None => PTY_HELD_NOTE.to_string(),
+        });
+    }
+
+    if let Some(note) = group_note {
+        tee_error = Some(match tee_error {
+            Some(existing) => format!("{existing}; {note}"),
+            None => note,
         });
     }
 

@@ -767,10 +767,8 @@ fn a_leak_beside_a_real_refusal_keeps_a_run_out_of_gated() {
 }
 
 #[test]
-fn a_pty_still_held_by_a_descendant_failed_rather_than_crashed() {
-    // The child exited and a grandchild kept the slave open. Hydra stopped
-    // reading after the deadline; without the note on `run_end.error` the same
-    // shape would read as `crashed` because there is no terminator.
+fn a_pty_still_held_by_a_descendant_preserves_crashed() {
+    // Build 372 makes this note informational. The terminator is still missing.
     let sandbox = Sandbox::new("pty-held");
     let text = Record::opened(
         &sandbox.worktree(),
@@ -785,8 +783,41 @@ fn a_pty_still_held_by_a_descendant_failed_rather_than_crashed() {
 
     assert_eq!(
         outcome_of(&sandbox, &text),
-        Some((Outcome::Failed, Source::Derived))
+        Some((Outcome::Crashed, Source::Derived))
     );
+}
+
+#[test]
+fn group_cleanup_notes_preserve_the_provider_outcome() {
+    let sandbox = Sandbox::new("group-note");
+    let note = "run group cleanup: pid 123 helper SIGTERM, SIGKILL";
+    for provider in ["claude", "agy"] {
+        for terminator in [false, true] {
+            let mut record = Record::shaped(Shape {
+                provider: Some(provider),
+                ..Shape::default()
+            });
+            if terminator {
+                if provider == "agy" {
+                    record.agy_result("SUCCESS", "done", None);
+                } else {
+                    record.result(usage_frame());
+                }
+            }
+            let text = record.closed_with(json!({"exit_code": 0, "error": note}));
+            assert_eq!(
+                outcome_of(&sandbox, &text),
+                Some((
+                    if terminator {
+                        Outcome::Completed
+                    } else {
+                        Outcome::Crashed
+                    },
+                    Source::Derived
+                ))
+            );
+        }
+    }
 }
 
 #[test]

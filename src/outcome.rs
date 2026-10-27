@@ -256,7 +256,12 @@ pub fn derive(run: &Run) -> Option<Derived> {
                 // tee-error branch below because the note lands in the same
                 // field.
                 Outcome::Crashed
-            } else if error.is_some() {
+            } else if error.is_some_and(|text| {
+                text.split("; ").any(|note| {
+                    note != crate::watch::PTY_HELD_NOTE
+                        && !note.starts_with(crate::stop::GROUP_CLEANUP_NOTE)
+                })
+            }) {
                 // Hydra stopped rather than the child. The tee broke, and the
                 // child may have gone on to finish perfectly; the record is
                 // short and its own fate is not in the file. Calling that
