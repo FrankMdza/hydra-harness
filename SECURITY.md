@@ -131,6 +131,13 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   alone and keeps its index, because removing files under a running child races it.
   Launch-time git runs before the child starts and skips the sweep. Every plant was measured
   with plain git on macOS. None was measured under bubblewrap.
+- **A descendant that called `setsid` survives the group kill at run end and keeps the
+  seatbelt.** It can still write the worktree and the private git directory. Since build ticket
+  373, `hydra reap` lists every process whose cwd or an open file sits under those paths before
+  it sweeps or runs git there. It refuses that run, names each process by pid and command, says
+  `hydra stop` or `kill` is the way out, and continues with the other runs it was asked to
+  reap. Hydra's own process is skipped. A pid this user cannot inspect is skipped. A live run
+  was already refused through the record's pid.
 - **Git that Hydra runs outside the seatbelt trusts neither the checkout's `.git` file nor any
   configuration a run can write.** Every git call Hydra makes in a run's checkout sets
   `GIT_DIR`, `GIT_COMMON_DIR` and `GIT_WORK_TREE` from the run record's

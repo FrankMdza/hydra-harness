@@ -1,7 +1,7 @@
 # 373 - Reap refuses while a process holds the run's checkout or its private git directory
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Objective
@@ -24,3 +24,13 @@ A live run is already refused by reap through `src/live.rs`. This covers an ende
 4. Run `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --target x86_64-unknown-linux-gnu`, and `cargo nextest run --release -p hydra --test cleanup --test status`.
 
 ## Outcome
+
+Reap lists holders before it sweeps a private git directory or runs git on a checkout. `procinfo::holders` walks this uid's processes through `proc_listpids` on macOS and `/proc` on Linux, reads cwd and open vnodes, and skips Hydra's own pid and any pid that cannot be inspected. A match is `Reaped::Failed` naming each pid and command and saying `hydra stop` or `kill` is the way out. Other runs in the same call still reap.
+
+Tests in `tests/cleanup.rs` spawn a `setsid` python with its cwd in the worktree, and another holding `HEAD` open under the private git directory. Both are refused by pid. Killing the holder lets reap commit. A second ended run in the same sweep still reaps. Drop of the helper kills the child.
+
+`lsof` was not simpler. libc already exposes `proc_vnodepathinfo`, `proc_fdinfo`, `proc_pidinfo` and `proc_pidfdinfo`. The missing wrapper is `vnode_fdinfowithpath`, defined next to those calls.
+
+Measured on this Mac: `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --target x86_64-unknown-linux-gnu`, and `cargo nextest run --release -p hydra --test cleanup --test status`, 86 passed. The Linux path compiled and did not run.
+
+Nothing the ticket assumed turned out false.

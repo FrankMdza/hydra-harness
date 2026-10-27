@@ -272,6 +272,13 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     let start = line_zero(layout, run_id);
     let injected = injected_skills(&start);
 
+    if let Some(why) = checkout_held(run_id, &worktree, &start) {
+        return Reaped::Failed {
+            run_id: run_id.to_string(),
+            why,
+        };
+    }
+
     if worktree.is_dir() {
         match commit_then_remove(
             &worktree,
@@ -340,6 +347,62 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     }
 
     Reaped::Done(done)
+}
+
+/// Processes that still hold the worktree or the private git directory.
+///
+/// Build ticket 373. A descendant that called setsid survives the group kill
+/// at run end and keeps the seatbelt, so it can write while reap sweeps and
+/// commits. Live runs are already left alone above. This is the ended run
+/// whose leftovers did not end.
+fn checkout_held(run_id: &str, worktree: &Path, start: &Start) -> Option<String> {
+    if !worktree.is_dir() {
+        return None;
+    }
+    let mut roots = vec![worktree.to_path_buf()];
+    if let Some(private) = private_git_dir(run_id, worktree, start)
+        && private.is_dir()
+    {
+        roots.push(private);
+    }
+    match crate::procinfo::holders(&roots) {
+        Ok(found) if found.is_empty() => None,
+        Ok(found) => Some(held_why(&found)),
+        Err(err) => Some(format!(
+            "could not list processes holding the checkout: {err:#}"
+        )),
+    }
+}
+
+fn private_git_dir(run_id: &str, worktree: &Path, start: &Start) -> Option<PathBuf> {
+    let parent = match start {
+        Start::Read(line) => line
+            .hydra
+            .scopes
+            .as_ref()
+            .and_then(|scopes| scopes.parent_git_dir.as_deref()),
+        Start::Missing | Start::Unreadable => None,
+    };
+    let common = parent
+        .map(Path::to_path_buf)
+        .or_else(|| CheckoutGit::common_dir_of_run(run_id, worktree).ok())?;
+    Some(common.join("worktrees").join(run_id))
+}
+
+fn held_why(holders: &[crate::procinfo::Holder]) -> String {
+    let names = holders
+        .iter()
+        .map(|holder| {
+            if holder.command.is_empty() {
+                format!("pid {}", holder.pid)
+            } else {
+                format!("pid {} ({})", holder.pid, holder.command)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let verb = if holders.len() == 1 { "holds" } else { "hold" };
+    format!("{names} {verb} the checkout; hydra stop or kill is the way out")
 }
 
 /// What Hydra put under a run's skill root, as checkout-relative paths.

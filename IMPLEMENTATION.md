@@ -649,6 +649,18 @@ before the checkout goes, an empty checkout takes its empty branch with it, a li
 checkout is never reaped, the sweep finds a checkout with no worktree and no spawn directory
 beside it, and the store's own working tree is never written to by a reap.
 
+**Reap refuses a checkout while a process still holds it, build ticket 373.** Map ticket 136:
+a descendant that called `setsid` survives the group kill at run end and keeps the run's
+seatbelt, so it can write the worktree and the private git directory while reap sweeps and
+commits. Before `sweep_private` and before the first git command on that checkout, reap lists
+every process whose cwd or an open file sits under the worktree or under
+`<git>/worktrees/<run-id>/`. A live run is already left alone through `src/live.rs`. This catch
+is the ended run whose leftovers did not end. Reap names each process by pid and command, says
+`hydra stop` or `kill` is the way out, and continues with the other runs it was asked to reap.
+Hydra's own process is skipped. A pid this user cannot inspect is skipped, because the run's
+processes share this uid. On macOS the list is `proc_listpids` with `proc_pidinfo` and
+`proc_pidfdinfo`. On Linux it is `/proc/<pid>/cwd` and `/proc/<pid>/fd`.
+
 **Reap's commit-first rule is enforced by git rather than by `src/reap.rs`.** That is the
 whole point of it. `git commit` leaves the checkout clean, and only a clean checkout is
 one `git worktree remove` will take without `--force`, which reap never passes. So a

@@ -14,7 +14,8 @@
 mod fixture_git;
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use hydra::paths::Layout;
 use hydra::provider::Provider;
@@ -717,6 +718,173 @@ fn a_live_runs_checkout_is_never_reaped() {
     let swept = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
     assert!(swept.is_empty(), "the sweep picked up a live run");
     assert!(checkout.is_dir());
+}
+
+/// A `setsid` child that keeps a cwd or an open file under a checkout. Drop
+/// kills it, so a panic cannot leave it behind.
+struct HeldProcess {
+    child: Option<std::process::Child>,
+}
+
+impl HeldProcess {
+    fn with_cwd(dir: &Path) -> Self {
+        Self::spawn(dir, None)
+    }
+
+    fn with_file(path: &Path) -> Self {
+        let dir = path.parent().expect("held file has a parent");
+        Self::spawn(dir, Some(path))
+    }
+
+    fn spawn(dir: &Path, file: Option<&Path>) -> Self {
+        let mut command = Command::new("/usr/bin/python3");
+        command.arg("-c");
+        if let Some(path) = file {
+            command
+                .arg(
+                    "import os, sys, time\n\
+                     try:\n\
+                     \tos.setsid()\n\
+                     except OSError:\n\
+                     \tpass\n\
+                     f = open(sys.argv[1])\n\
+                     time.sleep(120)",
+                )
+                .arg(path);
+        } else {
+            command.arg(
+                "import os, time\n\
+                 try:\n\
+                 \tos.setsid()\n\
+                 except OSError:\n\
+                 \tpass\n\
+                 time.sleep(120)",
+            );
+        }
+        let child = command
+            .current_dir(dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("python3 starts a holder");
+        Self { child: Some(child) }
+    }
+
+    fn pid(&self) -> u32 {
+        self.child.as_ref().expect("holder still owned").id()
+    }
+
+    fn kill(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for HeldProcess {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
+fn wait_until_held(roots: &[&Path], pid: u32) {
+    let roots: Vec<PathBuf> = roots.iter().map(|p| p.to_path_buf()).collect();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let found = hydra::procinfo::holders(&roots).unwrap();
+        if found.iter().any(|h| h.pid == pid) {
+            return;
+        }
+        if Instant::now() >= deadline {
+            panic!("pid {pid} never held {}", roots[0].display());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn assert_holder_refused(reaped: &[Reaped], pid: u32) {
+    match &reaped[0] {
+        Reaped::Failed { why, .. } => {
+            assert!(
+                why.contains(&format!("pid {pid}")),
+                "refusal did not name pid {pid}: {why}"
+            );
+            assert!(
+                why.contains("hydra stop"),
+                "refusal did not name hydra stop: {why}"
+            );
+            assert!(why.contains("kill"), "refusal did not name kill: {why}");
+        }
+        Reaped::Left { why, .. } => panic!("holder was left rather than refused: {why}"),
+        Reaped::Done(_) => panic!("holder was reaped"),
+    }
+}
+
+#[test]
+fn reap_refuses_a_setsid_process_whose_cwd_is_the_worktree() {
+    let fixture = Fixture::new("holder-cwd");
+    let layout = fixture.layout();
+    let held = "01a17edc-0373-7000-8000-000000000001";
+    let free = "01a17edc-0373-7000-8000-000000000002";
+    let checkout = fixture.checkout(held);
+    fixture.checkout(free);
+    write_run(&layout, held, None, true);
+    write_run(&layout, free, None, true);
+    std::fs::write(checkout.join("child.txt"), "work\n").unwrap();
+
+    let mut holder = HeldProcess::with_cwd(&checkout);
+    wait_until_held(&[&checkout], holder.pid());
+
+    let named = reap_one(&layout, held, false);
+    assert_holder_refused(&named, holder.pid());
+    assert!(checkout.is_dir(), "a held checkout was removed");
+
+    let swept = hydra::reap::reap(&layout, None, false, NO_GRACE).unwrap();
+    assert!(
+        swept
+            .iter()
+            .any(|item| matches!(item, Reaped::Failed { run_id, .. } if run_id == held)),
+        "the sweep did not refuse the held run"
+    );
+    assert!(
+        swept.iter().any(|item| match item {
+            Reaped::Done(done) => done.run_id == free,
+            _ => false,
+        }),
+        "the sweep skipped the free run"
+    );
+    assert!(layout.worktree(held).is_dir());
+    assert!(!layout.worktree(free).exists());
+
+    holder.kill();
+    let after = reap_one(&layout, held, false);
+    assert_work_on_branch(&fixture, held, &after);
+}
+
+#[test]
+fn reap_refuses_a_process_that_holds_a_file_in_the_private_git_dir() {
+    let fixture = Fixture::new("holder-private");
+    let layout = fixture.layout();
+    let run = "01a17edc-0373-7000-8000-000000000003";
+    let private = planted(&fixture, run);
+    write_run(&layout, run, None, true);
+    let file = private.join("HEAD");
+
+    let mut holder = HeldProcess::with_file(&file);
+    wait_until_held(&[&private], holder.pid());
+
+    let named = reap_one(&layout, run, false);
+    assert_holder_refused(&named, holder.pid());
+    assert!(
+        layout.worktree(run).is_dir(),
+        "a checkout held through the private git directory was removed"
+    );
+
+    holder.kill();
+    let after = reap_one(&layout, run, false);
+    assert_work_on_branch(&fixture, run, &after);
 }
 
 #[test]

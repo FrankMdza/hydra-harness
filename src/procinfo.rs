@@ -15,6 +15,8 @@
 //! seconds since the epoch. Build ticket 315, which compiles it and has not run
 //! it against a live Linux kernel.
 
+use std::path::{Path, PathBuf};
+
 use anyhow::{Result, bail};
 use chrono::{DateTime, TimeZone, Utc};
 
@@ -158,6 +160,325 @@ fn start_from_stat(line: &str, btime: i64, hz: i64) -> Result<DateTime<Utc>> {
 /// answer the question.
 pub fn is_alive(pid: u32, recorded_start: DateTime<Utc>) -> Result<bool> {
     Ok(start_time(pid)? == Some(recorded_start))
+}
+
+/// A process whose cwd or an open file sits under a path Hydra is about to
+/// change.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Holder {
+    pub pid: u32,
+    pub command: String,
+}
+
+/// Processes, other than this one, that have a cwd or an open file under any
+/// of `roots`.
+///
+/// Build ticket 373. Reap calls this before it sweeps a private git directory
+/// or runs git on a checkout. A pid this user cannot inspect is skipped: the
+/// run's processes share this uid, and a pid that belongs to someone else is
+/// not one of them. On macOS the list is `proc_listpids` with
+/// `proc_pidinfo` and `proc_pidfdinfo`. On Linux it is `/proc/<pid>/cwd` and
+/// `/proc/<pid>/fd`.
+pub fn holders<P: AsRef<Path>>(roots: &[P]) -> Result<Vec<Holder>> {
+    let roots = real_roots(roots);
+    if roots.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut found = scan_holders(&roots)?;
+    found.sort_by_key(|h| h.pid);
+    found.dedup_by_key(|h| h.pid);
+    Ok(found)
+}
+
+fn real_roots<P: AsRef<Path>>(roots: &[P]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .map(|root| {
+            let root = root.as_ref();
+            std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf())
+        })
+        .filter(|root| !root.as_os_str().is_empty())
+        .collect()
+}
+
+fn holds(path: &Path, roots: &[PathBuf]) -> bool {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    roots
+        .iter()
+        .any(|root| path == *root || path.starts_with(root))
+}
+
+#[cfg(target_os = "macos")]
+fn scan_holders(roots: &[PathBuf]) -> Result<Vec<Holder>> {
+    let self_pid = std::process::id();
+    let mut found = Vec::new();
+    for pid in macos_pids()? {
+        if pid == self_pid || pid == 0 {
+            continue;
+        }
+        let Ok(raw) = i32::try_from(pid) else {
+            continue;
+        };
+        if macos_holds(raw, roots) {
+            found.push(Holder {
+                pid,
+                command: macos_command(raw),
+            });
+        }
+    }
+    Ok(found)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_pids() -> Result<Vec<u32>> {
+    const PROC_UID_ONLY: u32 = 4;
+    // SAFETY: getuid reads the calling process and touches no memory of ours.
+    let uid = unsafe { libc::getuid() };
+    let mut buf = vec![0i32; 1024];
+    loop {
+        let bytes = buf.len() * std::mem::size_of::<i32>();
+        // SAFETY: `buf` is a live vector of `pid_t` values and `bytes` is its
+        // length. proc_listpids writes at most that many bytes of pids.
+        let wrote = unsafe {
+            libc::proc_listpids(PROC_UID_ONLY, uid, buf.as_mut_ptr().cast(), bytes as i32)
+        };
+        if wrote <= 0 {
+            let err = std::io::Error::last_os_error();
+            bail!("proc_listpids: {err}");
+        }
+        let n = wrote as usize / std::mem::size_of::<i32>();
+        if n >= buf.len() {
+            buf.resize(buf.len() * 2, 0);
+            continue;
+        }
+        return Ok(buf[..n]
+            .iter()
+            .copied()
+            .filter(|&pid| pid > 0)
+            .map(|pid| pid as u32)
+            .collect());
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_holds(pid: i32, roots: &[PathBuf]) -> bool {
+    if macos_cwd(pid).is_some_and(|cwd| holds(&cwd, roots)) {
+        return true;
+    }
+    macos_vnodes(pid).iter().any(|path| holds(path, roots))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_cwd(pid: i32) -> Option<PathBuf> {
+    // SAFETY: proc_vnodepathinfo is a C struct of integers and byte arrays.
+    // All-zero is a valid bit pattern, and the kernel overwrites it before we
+    // read a field.
+    let mut info = unsafe { std::mem::zeroed::<libc::proc_vnodepathinfo>() };
+    // SAFETY: `info` is a live proc_vnodepathinfo. The kernel writes at most
+    // its size, and we only read it when the call copied a positive length.
+    let wrote = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            std::ptr::from_mut(&mut info).cast(),
+            std::mem::size_of::<libc::proc_vnodepathinfo>() as i32,
+        )
+    };
+    if wrote <= 0 {
+        return None;
+    }
+    c_path(&info.pvi_cdir.vip_path)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_vnodes(pid: i32) -> Vec<PathBuf> {
+    // SAFETY: a null buffer with size 0 is the documented way to ask
+    // proc_pidinfo how many bytes PROC_PIDLISTFDS needs.
+    let needed =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+    if needed <= 0 {
+        return Vec::new();
+    }
+    let count = needed as usize / std::mem::size_of::<libc::proc_fdinfo>();
+    let mut fds = vec![
+        libc::proc_fdinfo {
+            proc_fd: 0,
+            proc_fdtype: 0,
+        };
+        count
+    ];
+    // SAFETY: `fds` holds `count` proc_fdinfo slots, `needed` is that many
+    // bytes, and the kernel writes at most that.
+    let wrote = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDLISTFDS,
+            0,
+            fds.as_mut_ptr().cast(),
+            needed,
+        )
+    };
+    if wrote <= 0 {
+        return Vec::new();
+    }
+    let n = wrote as usize / std::mem::size_of::<libc::proc_fdinfo>();
+    fds[..n]
+        .iter()
+        .filter(|fd| fd.proc_fdtype == libc::PROX_FDTYPE_VNODE as u32)
+        .filter_map(|fd| macos_vnode_path(pid, fd.proc_fd))
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_vnode_path(pid: i32, fd: i32) -> Option<PathBuf> {
+    const PROC_PIDFDVNODEPATHINFO: i32 = 2;
+    // SAFETY: VnodeFdInfoWithPath is a C struct of integers and byte arrays.
+    // All-zero is a valid bit pattern, and the kernel overwrites it before we
+    // read a field.
+    let mut info = unsafe { std::mem::zeroed::<VnodeFdInfoWithPath>() };
+    // SAFETY: `info` is a live vnode_fdinfowithpath. The kernel writes at most
+    // its size, and we only read the path when the call copied a positive length.
+    let wrote = unsafe {
+        libc::proc_pidfdinfo(
+            pid,
+            fd,
+            PROC_PIDFDVNODEPATHINFO,
+            std::ptr::from_mut(&mut info).cast(),
+            std::mem::size_of::<VnodeFdInfoWithPath>() as i32,
+        )
+    };
+    if wrote <= 0 {
+        return None;
+    }
+    c_path(&info.pvip.vip_path)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_command(pid: i32) -> String {
+    let mut buf = [0u8; libc::MAXCOMLEN + 1];
+    // SAFETY: `buf` is a live stack array and proc_name writes at most
+    // `buffersize` bytes of a C string into it.
+    let wrote = unsafe { libc::proc_name(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    if wrote <= 0 {
+        return String::new();
+    }
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).into_owned()
+}
+
+#[cfg(target_os = "macos")]
+fn c_path(chunks: &[[libc::c_char; 32]; 32]) -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let bytes: Vec<u8> = chunks
+        .iter()
+        .flatten()
+        .map(|&c| c as u8)
+        .take_while(|&b| b != 0)
+        .collect();
+    if bytes.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(OsString::from_vec(bytes)))
+    }
+}
+
+/// `sys/proc_info.h` `vnode_fdinfowithpath`. libc has the nested path struct
+/// and not this wrapper.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct VnodeFdInfoWithPath {
+    pfi: ProcFileInfo,
+    pvip: libc::vnode_info_path,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct ProcFileInfo {
+    fi_openflags: u32,
+    fi_status: u32,
+    fi_offset: i64,
+    fi_type: i32,
+    fi_guardflags: u32,
+}
+
+#[cfg(target_os = "linux")]
+fn scan_holders(roots: &[PathBuf]) -> Result<Vec<Holder>> {
+    let self_pid = std::process::id();
+    let mut found = Vec::new();
+    let proc = match std::fs::read_dir("/proc") {
+        Ok(dir) => dir,
+        Err(err) => bail!("reading /proc: {err}"),
+    };
+    for entry in proc.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        if pid == self_pid || pid == 0 {
+            continue;
+        }
+        if let Some(holder) = linux_holder(pid, roots) {
+            found.push(holder);
+        }
+    }
+    Ok(found)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_holder(pid: u32, roots: &[PathBuf]) -> Option<Holder> {
+    match std::fs::read_link(format!("/proc/{pid}/cwd")) {
+        Ok(cwd) if holds(&cwd, roots) => {
+            return Some(Holder {
+                pid,
+                command: linux_comm(pid),
+            });
+        }
+        Err(err) if skip_inspect(&err) => return None,
+        _ => {}
+    }
+    let fds = match std::fs::read_dir(format!("/proc/{pid}/fd")) {
+        Ok(dir) => dir,
+        Err(err) if skip_inspect(&err) => return None,
+        Err(_) => return None,
+    };
+    for fd in fds.flatten() {
+        match std::fs::read_link(fd.path()) {
+            Ok(path) if holds(&path, roots) => {
+                return Some(Holder {
+                    pid,
+                    command: linux_comm(pid),
+                });
+            }
+            Err(err) if skip_inspect(&err) => continue,
+            _ => continue,
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn linux_comm(pid: u32) -> String {
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn skip_inspect(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotFound
+    ) || matches!(
+        err.raw_os_error(),
+        Some(libc::EACCES | libc::EPERM | libc::ESRCH | libc::ENOENT)
+    )
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn scan_holders(_roots: &[PathBuf]) -> Result<Vec<Holder>> {
+    Ok(Vec::new())
 }
 
 #[cfg(target_os = "macos")]
