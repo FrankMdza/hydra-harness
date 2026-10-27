@@ -892,7 +892,8 @@ pub fn check_gated_write_denials(
             .filter(|d| d.decision == Decision::Deny)
             .count();
         let calls = run.permission_decisions().count();
-        let expected = if calls > 0 && refused == calls {
+        let refusal_row = crate::outcome::has_hydra_refusal_row(&run);
+        let expected = if (calls == 0 && refusal_row) || (calls > 0 && refused == calls) {
             gated += 1;
             Outcome::Gated
         } else {

@@ -1,6 +1,6 @@
 # Build 360 - `Outcome::Gated` counts `Event::GateRefusal` when no call got through
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -36,3 +36,24 @@ When a run's only tool calls are such refused calls, `run.permission_decisions()
 - `cargo fmt --all --check` passes.
 - `cargo clippy --release --workspace --all-targets -- -D warnings` passes.
 - `cargo nextest run --release -E 'binary(outcome)'` passes, all 48 tests green.
+
+## Outcome
+
+Run `01a17ccf-c6a7-7dc3-9e8e-a67cee2e7198` on `claude` Haiku 5.5, 1,834,981 tokens, after an earlier pass `01a17cb2-738d-73e2-964f-0aa31b6f95e9` (1,634,078 tokens) identified the companion `walk::check_gated_write_denials` check.
+
+Built as specified. `refused_everything` now returns true for a run with no permission
+decisions when a `gate_refusal` row carries Hydra's voice and no leak exists. A row beside an
+allowed call still leaves the run `completed`. The walk's `check_gated_write_denials` counts the
+same rows through a shared helper, `outcome::has_hydra_refusal_row`, so the two cannot drift.
+
+Measured: the new codex test without the fix derived `(Completed, Derived)` and failed on that
+assertion. With the fix, all 48 outcome tests pass, `binary(doctor)` (13) passes, and
+`binary(record_contract) | binary(normalize) | binary(show) | binary(harvest)` (157) passes.
+`cargo fmt --all --check` and `cargo clippy --release --workspace --all-targets -- -D warnings`
+both exit 0.
+
+Assumption that held: fixture 321's `judge` `Bash` row derives `Gated` with no stream call, so the
+fixture count moves from 1 to 2 as the ticket says.
+
+The ticket's intro says four checks, but its `Done when` list names three. The fourth run here is
+`binary(doctor)`, which drives the walk this change edits.

@@ -2421,6 +2421,14 @@ map, not something this build decided. The hook's cost per row is about
 0.2 ms on this Mac. `hydra doctor --walk` on the real corpus was not run by this build, for the
 reason build 332 gives.
 
+**Build 360 counts a refusal row as gated when no call got through.** `refused_everything` in
+`src/outcome.rs` and `walk::check_gated_write_denials` both count a `gate_refusal` row whose
+`reason` carries Hydra's voice, but only on a run with no stream call. On `codex` a denied
+`webrun` or an unknown tool leaves that row and no `item.*` frame, so before 360 such a run
+derived `completed`. A row beside an allowed call does not make the run gated, because the
+allowed call means `denied == calls` is false. The fixture corpus now holds two gated runs: the
+read-only `Write` denial and fixture 321's `judge` `Bash` refusal.
+
 **`permission_decision` runs the run's own policy again**, compiled into the same gate
 script 7.5 writes and asked about each recorded call. Two costs, both accepted: a
 `/usr/bin/python3` process per record, and that interpreter is now a read-time

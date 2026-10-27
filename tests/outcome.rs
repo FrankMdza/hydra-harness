@@ -1237,6 +1237,71 @@ fn a_cursor_run_whose_only_call_the_gate_refused_is_gated() {
     );
 }
 
+/// Build ticket 360: a denied non-shell call on `codex` leaves no `item.*`
+/// frame, so the run's only trace of the gate is its `gate_refusal` row.
+fn codex_refusal_row() -> Value {
+    json!({
+        "type": "gate_refusal",
+        "tool": "webrun",
+        "call_id": "call_web",
+        "reason": "hydra/capability: policy standard does not allow web (webrun).",
+    })
+}
+
+#[test]
+fn a_codex_run_whose_only_refusal_left_no_stream_call_is_gated() {
+    let sandbox = Sandbox::new("codex-row-gated");
+    let worktree = sandbox.worktree();
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&worktree),
+        ..Shape::default()
+    });
+    record.raw(json!({"type": "thread.started", "thread_id": "t"}));
+    record.line("hydra", codex_refusal_row());
+    record.raw(json!({
+        "type": "turn.completed",
+        "usage": {"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 4},
+    }));
+    let text = record.closed_with(json!({"exit_code": 0}));
+
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Gated, Source::Derived))
+    );
+}
+
+#[test]
+fn a_codex_refusal_row_beside_an_allowed_command_is_not_gated() {
+    let sandbox = Sandbox::new("codex-row-beside-work");
+    let worktree = sandbox.worktree();
+    let mut record = Record::shaped(Shape {
+        provider: Some("codex"),
+        policy: Some("standard"),
+        policy_sha: Some(policies().sha()),
+        worktree: Some(&worktree),
+        ..Shape::default()
+    });
+    record.raw(json!({"type": "thread.started", "thread_id": "t"}));
+    record.raw(json!({"type": "item.completed", "item": {
+        "type": "command_execution", "id": "c1", "command": "echo hi",
+        "aggregated_output": "hi\n", "exit_code": 0,
+    }}));
+    record.line("hydra", codex_refusal_row());
+    record.raw(json!({
+        "type": "turn.completed",
+        "usage": {"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 4},
+    }));
+    let text = record.closed_with(json!({"exit_code": 0}));
+
+    assert_eq!(
+        outcome_of(&sandbox, &text),
+        Some((Outcome::Completed, Source::Derived))
+    );
+}
+
 // --- the corpus ----------------------------------------------------------
 
 fn fixture_read(
@@ -1287,7 +1352,10 @@ fn the_fixture_write_denial_is_the_only_gated_fixture_on_the_stream() {
     let (findings, gated) =
         hydra::walk::check_gated_write_denials(&common::fixture_corpus(), &read);
     assert_no_walk_findings(&findings);
-    assert_eq!(gated, 1, "the fixtures hold one read-only Write denial");
+    assert_eq!(
+        gated, 2,
+        "the fixtures hold one read-only Write denial and fixture 321's judge Bash refusal row"
+    );
 }
 
 #[test]

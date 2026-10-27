@@ -21,7 +21,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::normalize::{Decider, Decision, Finding, Message, Role, Run, UsageSource};
+use crate::normalize::{Decider, Decision, Event, Finding, Message, Role, Run, UsageSource};
 use crate::record::Refusal;
 
 /// Contract 8's ten. A run ends on exactly one.
@@ -522,6 +522,13 @@ fn claude_harvest_limit_refusal(run: &Run) -> Option<Outcome> {
 /// pushed per call. So one leak already drops the matched count under `calls` and
 /// both forms say "not gated". Counting is kept because it needs no identity and
 /// takes the collision out of the reasoning, not because the other was wrong.
+///
+/// **A refusal row with no stream call counts too (build 360).** On `codex` a
+/// denied non-shell call leaves no `item.*` frame, so `permission_decisions` is
+/// empty and the run's only trace of the gate is its `gate_refusal` row. That
+/// row stands in for the refused call when no call got through. Beside an
+/// allowed call it does not count, because the run did work and
+/// `denied == calls` stays false.
 fn refused_everything(run: &Run) -> bool {
     let leaks = run
         .findings
@@ -539,7 +546,23 @@ fn refused_everything(run: &Run) -> bool {
             by_hydra |= decision.decider == Decider::HydraPolicy;
         }
     }
-    calls > 0 && denied == calls && leaks == 0 && by_hydra
+    let hydra_row = has_hydra_refusal_row(run);
+    if calls == 0 {
+        return leaks == 0 && hydra_row;
+    }
+    denied == calls && leaks == 0 && (by_hydra || hydra_row)
+}
+
+/// Whether the record holds a `gate_refusal` row in Hydra's voice. Build 360
+/// reads it here and in `walk::check_gated_write_denials`, so both count the
+/// same rows.
+pub(crate) fn has_hydra_refusal_row(run: &Run) -> bool {
+    run.events.iter().any(|event| match event {
+        Event::GateRefusal(row) => row.body["reason"]
+            .as_str()
+            .is_some_and(|reason| crate::normalize::hydra_voice(reason).is_some()),
+        _ => false,
+    })
 }
 
 /// Whether any tool result came back in a shape the adapter could not classify.
