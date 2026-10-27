@@ -77,7 +77,10 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   the rest of the machine: `~/.ssh`, your own `~/.claude` hooks and settings, and any directory on
   `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from, except in a gated
   interactive session since build 250, which writes nothing under your home directory outside its
-  worktree and `claude`'s session state. The gate allows
+  worktree and `claude`'s session state. That state includes `~/.claude.json`, where Claude Code
+  keeps user-scope MCP servers, and `~/.claude/history.jsonl*`. A gated interactive `claude`
+  session can add a server to `~/.claude.json`, and the next ungated `claude` session starts it.
+  Map ticket 99 holds that question. The gate allows
   one read outside the worktree on `claude`: the run's own `~/.claude/projects/<slug>/`
   directory, for tool output Claude Code wrote there; every other path under `~/.claude` stays
   refused on a gated `Read`. The honest
@@ -144,9 +147,13 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   parent kept a full write grant, and a run could plant a pack that mapped an existing sha to
   other bytes, which git served. That window is closed, build ticket 112.
 - **Some vendor tools never ask the hook.** Cursor runs `ReadLints`, `getMcpToolsToolCall`,
-  `awaitToolCall`, `WebSearch` and, measured on 2026.10.01, `updateTodos` without consulting it. The record marks an allowed one
-  `unhooked`; under a policy that denies the row's capability, it files `UnhookedDenied`
-  instead of treating the tool as outside every policy.
+  `awaitToolCall`, `WebSearch` and, measured on 2026.10.01, `updateTodos` without consulting it.
+  `codex` runs its hosted `WebSearch` without consulting the hook too. Under a policy that denies
+  `network_read`, that call cannot be blocked before it runs. Normalization files it as
+  `UnhookedDenied`, and the record marks an allowed one `unhooked`, instead of treating the tool
+  as outside every policy. `codex`'s `webrun` is hooked since build ticket 338. On `claude`
+  2.1.301, `LSP` is unknown to the table and refused, and `Workflow` maps to `subagent_spawn` by
+  reading, build ticket 350.
 - **Hydra reads records that agents wrote.** Anything in a run record is data, never
   instructions, and Rungs treats it that way; if you find a path by which text in a
   record changes what Hydra does, that is a vulnerability.
@@ -172,7 +179,10 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   writes a boundary of its own has it escaped with a backslash. That tells the orchestrator which
   bytes are a report. It does not stop the orchestrator obeying them. `error` stays plain, since
   only Hydra writes it, and so do a tool call's `arguments`, which are JSON rather than text.
-  `hydra wait` prints no text a run wrote.
+  `hydra wait` prints no text a run wrote. Since build ticket 356, `hydra show --events` also wraps
+  `gate_refusal.reason` in `<<<hydra-result TOKEN>>>` and `<<<end hydra-result TOKEN>>>`. `gate.py`
+  interpolates the refused token into `reason`, and the sidecar that holds it is writable inside
+  the run's seatbelt.
 
 ## Known exposures, stated before someone else does
 
@@ -300,6 +310,11 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   fail-open with a hook that raises before it answers. It costs one turn, runs only under
   `HYDRA_DRIFT_PAID=1`, and fails if `codex` starts refusing the call. Its first run, on
   2026-09-24, passed: a `codex` hook that dies still lets the call run.
+  Since build ticket 358, `hydra doctor` runs `/usr/bin/python3 -c "import json, shlex"`, so a
+  missing or broken system Python shows up before launch. Its provider lines print the installed
+  version beside the one `MEASURED_VERSIONS` holds, so a `claude` or `codex` that has moved past
+  it is visible before launch. `unmeasured` appears only when the table has no row for the
+  platform.
 - **The gate is only as good as the vendor build.** It lives in the vendor's own hook dialect,
   and vendors have shipped bugs where hooks did not fire in print mode. The record proves the
   gate was consulted on every call it saw; it does not prove nothing else ran. `tests/drift.rs`
@@ -317,20 +332,42 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   counted on `run_end.error`, and the record still closes. `hydra doctor --walk` reads each
   row's `call_id` against the same record's stream and prints `Uncorroborated` for a row that
   names no call, a call with no result, or a call that succeeded. It does not fail on one,
-  because a row is a claim about the run and not a leak.
+  because a row is a claim about the run and not a leak. Since build ticket 339 the hook appends a
+  `gate_refusal` row for every denied call, not only shell commands. A row for a call with no
+  command text carries `arguments_sha256` in its place, and `reason` still names a refused path.
+  A deny whose payload has no string `tool_name` writes no row.
 
 - **The export verifier aborts on the redactor's classes and warns on the rest.** `hydra export`
-  redacts six classes of secret, five by prefix and OpenAI keys by a matcher of their own, then
-  re-reads every line with a scan of its own that aborts on a PEM header or a known prefix,
-  including one hidden in a JSON key or a `\u` escape. A long
-  high-entropy token that matches no class is reported after the export by field, class and
-  length, and the export still happens: aborting on entropy stopped a third of this machine's
-  records on digests that are not secrets. AWS keys, Slack tokens and JWTs are not a named class,
-  a secret split by a space or URL-encoded reaches neither check, and `~/hydra/runs/` sits on
-  this laptop beside the dotfiles that hold them. Since build ticket 100 `hydra export` refuses an
+  redacts twelve classes of secret since build ticket 128. They include AWS `AKIA` access keys,
+  `aws_secret_access_key=` values, Slack `xoxb-` bot tokens and `hooks.slack.com` webhooks, and
+  GitHub `github_pat_` and `gho_` tokens, alongside OpenAI keys and PEM headers. OpenAI keys
+  match by a matcher of their own, not a prefix. The export then re-reads every line with a scan
+  of its own that aborts on a PEM header or a known prefix, including one hidden in a JSON key or
+  a `\u` escape. The scan checks the redactor's prefixes, so a hit means the redactor missed one.
+  A long high-entropy token that matches no class is reported after the export by field, class
+  and length, and the export still happens. Aborting on entropy stopped a third of this machine's
+  records on digests that are not secrets. JWTs are not a named class. The write-time sweep in
+  `src/record/secrets.rs`, map ticket 108, still flags only the original five classes. A secret
+  split by a space or URL-encoded reaches neither check, and `~/hydra/runs/` sits on this laptop
+  beside the dotfiles that hold them. Since build ticket 100 `hydra export` refuses an
   `--out` that is the same file as `preference.jsonl` beside it, compared by device and inode
   before a byte is written. That covers `Preference.jsonl` on a case-insensitive volume and a
   symbolic or hard link by any name.
+- **`git push` floor and its remaining shell limits, builds 349 and 357.** Since build tickets 349
+  and 357 the pattern floor refuses a bare `git push` from a protected branch. It judges `git push
+  origin HEAD` and `@` by the branch the checkout names, with any `-C`, `--git-dir` or
+  `--work-tree` before `push` taken into account. It refuses a push to a protected branch named
+  with a `refs/heads/` prefix, a `-c remote.<name>.push` refspec to one, `-c push.default=matching`,
+  and any `--config-env`. A `cd` earlier in the same shell command still reaches a protected
+  branch, because the gate does not interpret shell. So does a `push.default=matching` set in a
+  repository config, because the gate reads only a branch's upstream from that config.
+- **What remains open across map 134.** The interactive gate on `cursor-agent`, `agy` and `codex`
+  is unmeasured, so `hydra run --interactive --policy` refuses those three until build ticket 130.
+  Linux compiles and runs CI since builds 315 and 331, but launches hook-only without an OS sandbox
+  until build ticket 318 lands. `hydra doctor --walk` walks the live corpus on the author's
+  machine, not in CI. `hydra bench` counts a `completed` run as a successful attack, map ticket
+  114. Nothing sends diffs off the machine today, and map ticket 110 governs any future return of
+  `jev ask`.
 
 ## Vendor terms
 

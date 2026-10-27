@@ -1,6 +1,6 @@
 # Build 340a - `SECURITY.md` states the twelve redactor classes, `~/.claude.json`, and the public-gate exposures
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -39,3 +39,30 @@ Update `SECURITY.md` only so that every security claim in the repository's publi
 - Only `SECURITY.md` and `.scratch/hydra/build/340a-security-md-known-exposures-and-redactor-classes.md` are modified.
 - No em dashes (`—`) appear in `SECURITY.md`.
 - `git diff --check` passes.
+
+## Outcome
+
+Run `01a17cd1-f166-77c3-96f9-9ed74aeb7331` on `claude` Haiku 5.5, 3,075,339 tokens.
+
+Changed `SECURITY.md` in the seven places the ticket lists. The `~/.claude.json` sentence, the
+codex `WebSearch` and `webrun` lines, the `gate_refusal.reason` marking, the doctor checks, the
+`gate_refusal` row rules and the twelve-class export paragraph are in place. The two new known
+exposure bullets, `git push` and map 134, are at the end of that section.
+
+Measured: `git diff --check` passes. `SECURITY.md` has no em dashes. Only `SECURITY.md` and this
+ticket changed under this ticket. The ticket names no test file and changes only prose, so no
+cargo run was needed.
+
+Assumed false at build 361, so the text does not say them:
+
+- Item 5 asked for a sentence that a `gate_refusal` row derives `Outcome::Gated` since build
+  ticket 360. Ticket 360 is claimed, not resolved. `refused_everything` in `src/outcome.rs` still
+  requires a deny by Hydra's policy and at least one permission decision, so a refusal row alone
+  derives `Completed`. The sentence is left out until 360 lands.
+- Item 4 asked for "unmeasured" when the installed binary passes `MEASURED_VERSIONS`. `hydra doctor`
+  prints the installed and measured versions side by side and prints `unmeasured` only when the
+  table has no row for the platform. The text says that.
+- Item 7 said `push.default=matching` in a repository config reaches a protected branch because
+  the gate does not read repository git config. The gate does read repository config, only
+  `branch.<name>.merge` for a bare push. The text says the gate reads only the upstream. It also
+  says the gate refuses `--config-env` outright, which the ticket did not say.
