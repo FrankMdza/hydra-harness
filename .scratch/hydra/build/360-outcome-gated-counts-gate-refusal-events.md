@@ -17,16 +17,22 @@ When a run's only tool calls are such refused calls, `run.permission_decisions()
    - When `calls == 0`, return `leaks == 0 && has_hydra_refusal_row`.
    - When `calls > 0`, return `denied == calls && leaks == 0 && (by_hydra || has_hydra_refusal_row)`.
 
-2. **`tests/outcome.rs`:**
-   Add two unit tests:
-   - A `codex` run that ends cleanly with `turn.completed`, makes no stream tool calls, and carries a `gate_refusal` row with a `hydra/capability:` reason derives `(Outcome::Gated, Source::Derived)`.
-   - A `codex` run that has one allowed `command_execution` item alongside a `gate_refusal` row with a `hydra/capability:` reason derives `(Outcome::Completed, Source::Derived)`, not `Outcome::Gated`.
+2. **`src/walk.rs`:**
+   In `check_gated_write_denials`:
+   - Mirror the same `has_hydra_refusal_row` check over `run.events` (`Event::GateRefusal` whose `body["reason"].as_str()` satisfies `crate::normalize::hydra_voice(reason).is_some()`).
+   - Compute `expected` as `Outcome::Gated` and increment `gated` when `(calls == 0 && has_hydra_refusal_row) || (calls > 0 && refused == calls)`.
 
-3. **`IMPLEMENTATION.md`:**
-   Note under the outcome / `gate_refusal` description that `refused_everything` counts a `gate_refusal` row in Hydra's voice when no stream call was allowed.
+3. **`tests/outcome.rs`:**
+   - Add two unit tests:
+     - A `codex` run that ends cleanly with `turn.completed`, makes no stream tool calls, and carries a `gate_refusal` row with a `hydra/capability:` reason derives `(Outcome::Gated, Source::Derived)`.
+     - A `codex` run that has one allowed `command_execution` item alongside a `gate_refusal` row with a `hydra/capability:` reason derives `(Outcome::Completed, Source::Derived)`, not `Outcome::Gated`.
+   - In `the_fixture_write_denial_is_the_only_gated_fixture_on_the_stream`, update `assert_eq!(gated, 1, ...)` to `assert_eq!(gated, 2, "the fixtures hold one read-only Write denial and fixture 321's judge Bash refusal row")`, because fixture `tests/fixtures/records/claude@2.1.261/00000000-0000-7000-8000-000000000321.jsonl` has a refused `Bash` `gate_refusal` row under `judge` with no stream call.
+
+4. **`IMPLEMENTATION.md`:**
+   Note under the outcome / `gate_refusal` description that `refused_everything` and `walk::check_gated_write_denials` count a `gate_refusal` row in Hydra's voice when no stream call was allowed.
 
 ## Done when
 
 - `cargo fmt --all --check` passes.
 - `cargo clippy --release --workspace --all-targets -- -D warnings` passes.
-- `cargo nextest run --release -E 'binary(outcome)'` passes, including the two new tests.
+- `cargo nextest run --release -E 'binary(outcome)'` passes, all 48 tests green.
