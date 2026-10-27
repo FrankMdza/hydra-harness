@@ -400,6 +400,8 @@ it.
 - [363 - Linux CI runs `sandbox::tests` and `hydra evolve` refuses bare admission on Linux](363-linux-ci-runs-sandbox-unit-tests-and-admission-refuses-bare-on-linux.md)
 - [364 - `compose_bwrap` mounts only paths that exist, and the private git directory whole](364-compose-bwrap-mounts-only-paths-that-exist-and-the-private-git-dir.md)
 - [365 - The `git push` floor refuses wildcards, includes, and config it cannot parse](365-the-git-push-floor-refuses-wildcards-includes-and-config-it-cannot-parse.md)
+- [366 - Bubblewrap gives every missing deny path a source, and refuses by name when it cannot](366-bwrap-gives-every-missing-deny-path-a-source.md)
+- [367 - Sweep the run's private git directory before any host-side git on its checkout](367-sweep-the-private-git-dir-before-host-git.md)
 
 ## Out of scope
 
