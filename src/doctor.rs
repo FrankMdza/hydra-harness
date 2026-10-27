@@ -5,6 +5,7 @@
 //! It launches no provider, runs no probe, and writes no run record.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::Result;
 
@@ -36,6 +37,10 @@ pub fn run(layout: &Layout) -> Result<Report> {
     ascii_root_line(&mut out, "data root", layout.root(), &mut missing);
     ascii_root_line(&mut out, "checkout", &home, &mut missing);
     path_line(&mut out, "policies", &policies, &mut missing);
+    let python = std::env::var_os("HYDRA_DOCTOR_PYTHON")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(GATE_PYTHON));
+    gate_python_line(&mut out, &python, &mut missing);
 
     let (os, arch) = crate::provider::measured_platform();
     for provider in [
@@ -97,6 +102,30 @@ pub fn run(layout: &Layout) -> Result<Report> {
     }
 
     Ok(Report { text: out, missing })
+}
+
+/// The interpreter every compiled gate script runs under, by absolute path.
+const GATE_PYTHON: &str = "/usr/bin/python3";
+
+/// Runs the gate's interpreter and imports what the gate script needs. A file
+/// on disk is not enough: the macOS `xcrun` stub exits non-zero when the
+/// Command Line Tools are absent.
+fn gate_python_line(out: &mut String, python: &Path, missing: &mut bool) {
+    if !python.is_file() {
+        *missing = true;
+        out.push_str(&format!("gate python {} missing\n", python.display()));
+        return;
+    }
+    let runs = Command::new(python)
+        .args(["-c", "import json, shlex"])
+        .output()
+        .is_ok_and(|done| done.status.success());
+    if runs {
+        out.push_str(&format!("gate python {} present\n", python.display()));
+    } else {
+        *missing = true;
+        out.push_str(&format!("gate python {} broken\n", python.display()));
+    }
 }
 
 /// Where `hydra` on the human's `PATH` points. A report, never a refusal: a
@@ -198,6 +227,27 @@ mod tests {
         let mut missing = false;
         ascii_root_line(&mut out, "checkout", Path::new("/tmp/Café"), &mut missing);
         assert_eq!(out, "checkout /tmp/Café non-ascii\n");
+        assert!(missing);
+    }
+
+    #[test]
+    fn a_gate_python_line_passes_on_a_working_interpreter_and_fails_otherwise() {
+        let mut out = String::new();
+        let mut missing = false;
+        gate_python_line(&mut out, Path::new("/usr/bin/python3"), &mut missing);
+        assert_eq!(out, "gate python /usr/bin/python3 present\n");
+        assert!(!missing);
+
+        let mut out = String::new();
+        let mut missing = false;
+        gate_python_line(&mut out, Path::new("/no/such/python3"), &mut missing);
+        assert_eq!(out, "gate python /no/such/python3 missing\n");
+        assert!(missing);
+
+        let mut out = String::new();
+        let mut missing = false;
+        gate_python_line(&mut out, Path::new("/usr/bin/false"), &mut missing);
+        assert_eq!(out, "gate python /usr/bin/false broken\n");
         assert!(missing);
     }
 }

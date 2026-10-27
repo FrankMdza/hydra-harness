@@ -743,6 +743,15 @@ this shell's PATH is Homebrew's 3.14.7. Testing it would leave the interpreter t
 actually runs the gate unmeasured, which is the drift the build plan's second note
 warns about, one layer down from the providers.
 
+**`hydra doctor` runs that interpreter instead of stat-ing it.** Since build ticket 358 the
+line `gate python /usr/bin/python3 present` comes from running `-c "import json, shlex"` on
+the interpreter. A file that exists but exits non-zero prints `broken` and sets exit 1, which
+covers the `xcrun` stub on a Mac without the Command Line Tools. `HYDRA_DOCTOR_PYTHON`
+points the check at another path, and the tests use it for a missing path and for
+`/usr/bin/false`. The path is a literal in `src/doctor.rs` and no shared constant. The gate
+keeps its own copies in `src/policy/mod.rs`, `src/policy/replay.rs` and the shebang of
+`src/policy/gate.py`, so moving the interpreter means changing all of them.
+
 **`policy_sha` is a sha256 over every `.json` in `policies/`, in name order, each file's
 name and body framed by its length.** `README.md` is left out: it is prose about the
 policies rather than one of them, and a wording fix should not move a value every run

@@ -520,3 +520,43 @@ fn doctor_prints_unmeasured_when_the_platform_has_no_row() {
         );
     }
 }
+
+#[test]
+fn doctor_runs_the_gate_python_and_reports_present_missing_or_broken() {
+    // Build ticket 358. Doctor runs the interpreter instead of stat-ing it,
+    // because an `xcrun` stub can sit on disk and still exit non-zero.
+    // `/usr/bin/false` stands in for that stub.
+    let sandbox = Sandbox::new("doctor-gate-python");
+    let layout = sandbox.layout();
+    let doctor = |python: Option<&std::path::Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_hydra"));
+        command.arg("doctor").env("HYDRA_ROOT", layout.root());
+        match python {
+            Some(python) => command.env("HYDRA_DOCTOR_PYTHON", python),
+            None => command.env_remove("HYDRA_DOCTOR_PYTHON"),
+        };
+        command.output().unwrap()
+    };
+
+    let out = doctor(None);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("gate python /usr/bin/python3 present\n"),
+        "{stdout}"
+    );
+
+    let missing = layout.root().join("no-such-python3");
+    let out = doctor(Some(&missing));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = format!("gate python {} missing\n", missing.display());
+    assert!(stdout.contains(&line), "{stdout}");
+    assert!(!out.status.success(), "{stdout}");
+
+    let out = doctor(Some(std::path::Path::new("/usr/bin/false")));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("gate python /usr/bin/false broken\n"),
+        "{stdout}"
+    );
+    assert!(!out.status.success(), "{stdout}");
+}
