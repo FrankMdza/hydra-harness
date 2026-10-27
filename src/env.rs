@@ -246,6 +246,7 @@ mod tests {
             "CURSOR_API_KEY",
             "NODE_OPTIONS",
             "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
         ] {
             assert!(
                 !built.vars.contains_key(leaked),
@@ -307,6 +308,34 @@ mod tests {
             "GOOGLE_API_KEY",
             "AGY_ADC_AUTH",
             "EDITOR",
+            "NODE_EXTRA_CA_CERTS",
+            "SHELL",
+            "TMPDIR",
+        ] {
+            assert!(
+                !built.vars.contains_key(leaked),
+                "{leaked} reached the child"
+            );
+        }
+    }
+
+    #[test]
+    fn codex_gets_the_base_four_and_the_proxies_and_nothing_else() {
+        let built = ChildEnv::build(Provider::Codex).unwrap();
+        let allowed: Vec<&str> = BASE.iter().chain(PROXY).copied().collect();
+        for (name, _) in built.vars() {
+            assert!(
+                allowed.contains(&name),
+                "{name} is not on codex's allowlist"
+            );
+        }
+        // The OpenAI key is codex's own secret. The scrub keeps it out the same
+        // way it keeps the Google key out of agy.
+        for leaked in [
+            "OPENAI_API_KEY",
+            "CODEX_HOME",
+            "GEMINI_API_KEY",
+            "ANTHROPIC_API_KEY",
             "NODE_EXTRA_CA_CERTS",
             "SHELL",
             "TMPDIR",
