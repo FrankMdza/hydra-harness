@@ -1,7 +1,8 @@
 # Installing Hydra
 
-macOS, a Rust toolchain (1.88 or newer), and at least one of the four CLIs installed and logged in
-with its own subscription. Hydra spawns the real binaries and never touches their credentials;
+macOS, a Rust toolchain (1.88 or newer), `/usr/bin/python3` with the standard-library `json` and
+`shlex` modules, and at least one of the four CLIs installed and logged in with its own
+subscription. `hydra doctor` checks `/usr/bin/python3` since build ticket 358. Hydra spawns the real binaries and never touches their credentials;
 that is the documented path for scripted use on all four, and `SECURITY.md` says what their terms
 still forbid.
 
@@ -20,11 +21,11 @@ so a run works either way, but `hydra` typed at a prompt needs the symlink.
 
 ## Where Hydra writes
 
-**Hydra writes its runs, worktrees and skill store under `~/hydra/`, wherever the checkout
-lives.** The install path above makes the two the same directory on purpose. Clone it somewhere
-else and the binary still reads and writes `~/hydra`, which is somebody else's corpus if they
-have one: `hydra status` prints the root it read on its first line and the policy directory on
-its second. `HYDRA_ROOT=/some/dir` moves the runs, worktrees and skill store for one command;
+**Hydra writes its runs, worktrees and skill store under `~/hydra/`.** The install path above
+makes the two the same directory on purpose. Since build ticket 67, a launch from a checkout that
+is not `~/hydra` refuses unless `HYDRA_ROOT` is set, so a foreign clone never reads or writes
+`~/hydra` silently. `hydra status` prints the root it read on its first line and the policy
+directory on its second. `HYDRA_ROOT=/some/dir` moves the runs, worktrees and skill store for one command;
 `HYDRA_HOME=/some/checkout` moves `policies/` and `config/`, which otherwise resolve through the
 source directory at compile time, so the binary is not relocatable without both.
 
@@ -33,7 +34,8 @@ source directory at compile time, so the binary is not relocatable without both.
 Hydra never handles an API key. You log in once with each vendor's own CLI, and that stored login
 is the only way a run authenticates. The child's environment is built from an allowlist
 (`src/env.rs` is the whole list), and a test there checks that `ANTHROPIC_API_KEY`,
-`GEMINI_API_KEY`, `CURSOR_API_KEY` and `CURSOR_AUTH_TOKEN` do not reach it. The `run_start` line
+`GEMINI_API_KEY`, `OPENAI_API_KEY`, `CURSOR_API_KEY` and `CURSOR_AUTH_TOKEN` do not reach it, for
+all four providers since build ticket 359. The `run_start` line
 of every launch carries an `auth` block with `mechanism: subscription-oauth`, `source: keychain`
 and `allow_billed: false`. Hydra writes those three values itself, the same for all four
 providers, from the fact that it passed no key. It does not ask the vendor where the login is
@@ -77,10 +79,10 @@ tests.
 
 ## Ports
 
-Hydra is measured on macOS and nowhere else. A Linux build is build ticket 315: `procinfo.rs`
-reads a process start time through a Darwin `sysctl` and needs a `/proc/<pid>/stat` reader, and
-the seatbelt has no Linux counterpart until build 318 composes a bubblewrap profile from the same
-rules (map 119). A Windows port is larger: the pty crate supports ConPTY, but the liveness test,
-the gate's shell parsing (POSIX today) and the hook paths all assume a Unix shell. Both are
+Hydra is measured on macOS. Linux compiles and runs the test suite in CI since builds 315 and 331.
+No sandbox wraps a Linux launch yet: the seatbelt has no Linux counterpart until build ticket 318
+composes a bubblewrap profile from the same rules. Recorded runs stay on the Mac until then. A
+Windows port is larger: the pty crate supports ConPTY, but the liveness test, the gate's shell
+parsing (POSIX today) and the hook paths all assume a Unix shell. Both are
 welcome as forks or pull requests; open an issue first so the design map gets a ticket and the
 record contract does not fork with the code.

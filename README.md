@@ -27,15 +27,18 @@ failed tool call does not fail the run. Four vendors, one contract, one outcome 
 What one run gets:
 
 - **Its own git worktree**, seeded from your tree, so the agent sees your uncommitted work and
-  cannot touch it. `hydra reap` commits what it did to `hydra/<run-id>` and removes the checkout.
-  Your branch never moves.
+  cannot touch it. The checkout sits under `<parent>/.hydra-worktrees/<run-id>/` for an external
+  repo and `~/hydra/worktrees/<run-id>/` for `~/hydra` itself. `hydra reap` commits what it did
+  to `hydra/<run-id>` and removes the checkout. Your branch never moves.
 - **A policy compiled into the vendor's own hook.** Five named policies, from `judge` (nothing)
   to `permissive`. The gate speaks each vendor's hook dialect and refuses if spoken to in the
   wrong one. On macOS a seatbelt profile around the whole run denies the same paths to every
   process, shell included. `SECURITY.md` says what the gate promises, what walks past it, and
   what it deliberately does not try to do.
 - **An environment built from an allowlist**, not your shell. `src/env.rs` is the whole list, and
-  a test there checks that the four vendors' API key names never reach the child. Hydra never
+  a test there checks that the four vendors' API key names never reach the child. Since build
+  ticket 359 that test runs across all four providers, `Provider::Codex` and `OPENAI_API_KEY`
+  included. Hydra never
   handles a key: each CLI's own subscription login is the only way a run authenticates.
 - **A record.** Every frame the vendor printed, verbatim, plus `run_start` and `run_end` with the
   outcome, token usage and the diff against the seeded tree. `docs/run-record-contract.md` is the
@@ -59,8 +62,9 @@ mkdir -p ~/.local/bin && ln -sf ~/hydra/target/release/hydra ~/.local/bin/hydra
 hydra doctor
 ```
 
-Hydra writes its runs, worktrees and skill store under `~/hydra/`, wherever the checkout lives;
-the path above makes the two the same directory on purpose. `docs/install.md` has the rest: the
+Hydra writes its runs, worktrees and skill store under `~/hydra/`. A checkout anywhere else
+refuses to launch unless `HYDRA_ROOT` is set; the path above makes the two the same directory on
+purpose. `docs/install.md` has the rest: the
 `PATH` rule, `HYDRA_ROOT` and `HYDRA_HOME`, what each vendor's login looks like from Hydra's side,
 the measured versions, the local model server and the state of the ports.
 
@@ -81,8 +85,8 @@ hydra cockpit                     # the viewer: tasks, runs by state, one run's 
 ```
 
 All four providers take a recorded run. The interactive mode, where the vendor draws its own
-interface and Hydra harvests the transcript afterwards, is `claude` and `codex` today, and only
-`claude` takes a policy there.
+interface and Hydra harvests the transcript afterwards, runs ungated on all four providers since
+builds 255, 266 and 267, and only `claude` takes `--policy` there until build ticket 130.
 
 ## Commands
 
@@ -100,13 +104,13 @@ interface and Hydra harvests the transcript afterwards, is `claude` and `codex` 
 | `curate` | rung one: propose skill edits from the corpus |
 | `evolve` | rung two: a proposer, the admission gate, a panel of four judges, a branch |
 | `usage recount` | tokens across the corpus, recounted from the records |
-| `export` | one JSON line of events per eligible run, and `preference.jsonl` beside it; the only path anything leaves this machine by |
+| `export` | one JSON line of events per eligible run, and `preference.jsonl` beside it; the only path by which corpus records leave this machine |
 | `approve`, `deny` | answer a seat request no approved panel shape covers |
 | `models` | the models each vendor offers, from the last `models refresh`; launches nothing |
 | `bench` | the attack-corpus benchmark of map 106: each class through `hydra run`, or the cost without launching |
 | `cost` | an orchestrator's tokens against its agents', per named run and the median; launches nothing |
 | `doctor` | the root, the binaries against the measured versions, the policy sha, the protected configs; `--walk` checks every record |
-| `cockpit` | a goal's tasks, the runs in four lanes, one run's detail; with `--session claude` the ungated chat in the left panel |
+| `cockpit` | a goal's tasks, the runs in four lanes, one run's detail; with `--session claude` or `--session codex` the ungated chat in the left panel |
 
 `COCKPIT.md` is the cockpit's manual, the same table its `?` overlay shows. Two more commands
 exist and clap hides them: `watch`, the detached half that owns the pty and the record, and
@@ -134,9 +138,10 @@ fail from any judge vetoed every patch, by design, and every pass found somethin
 
 ## How it compares
 
-Worktree-per-run over several vendor CLIs is a crowded shelf; so is sandboxing. What is not on
-the shelf is the record. Rows other than Hydra's are read from each project's own documents on
-2026-10-15; a "no" means the project says nothing of it.
+Worktree-per-run over several vendor CLIs is a crowded shelf; so is sandboxing. What Hydra adds is
+a contract-checked record per run whose outcome is derived from the event stream and replayed
+against the run's compiled gate. Rows other than Hydra's are read from each project's own
+documents on 2026-10-15; a "no" means the project says nothing of it.
 
 | | Drives several vendor CLIs | Worktree per run | OS sandbox | Policy | Record per run, contract-checked | Outcome derived from the stream |
 |---|---|---|---|---|---|---|
@@ -149,8 +154,8 @@ the shelf is the record. Rows other than Hydra's are read from each project's ow
 | Hydra | yes, four | yes | seatbelt on macOS | five policies compiled into the vendor's hook | yes | yes |
 
 Omnigent has three platforms, an egress proxy and spend caps in dollars. Scion isolates the
-process and the network. OpenCode has the users. ghostex has the workspace. Hydra has the record,
-and `.scratch/hydra/research/129-ready-to-go-public.md` is the longer reading of the same shelf.
+process and the network. OpenCode has the users. ghostex has the workspace. Hydra writes the
+contract-checked record and derives the outcome from the stream, and `.scratch/hydra/research/129-ready-to-go-public.md` is the longer reading of the same shelf.
 
 ## What Hydra is not
 
@@ -168,13 +173,13 @@ and `.scratch/hydra/research/129-ready-to-go-public.md` is the longer reading of
 | | |
 |---|---|
 | Commands | 20 a human types, 2 hidden |
-| Test files | 41 under `tests/`, 23 under `crates/*/tests/`, run with `cargo nextest` |
-| Records on the author's machine | 933 on 2026-10-15, every one checked by `hydra doctor --walk` |
-| Build tickets | 327 opened, 312 resolved, every resolved one ending in an `## Outcome` |
-| Design tickets | 129 on the map, 117 resolved |
+| Test files | 41 under `tests/`, 25 under `crates/*/tests/`, run with `cargo nextest` |
+| Records on the author's machine | 997 on 2026-10-27, every one checked by `hydra doctor --walk` |
+| Build tickets | 356 opened, 353 resolved, every resolved one ending in an `## Outcome` |
+| Design tickets | 134 on the map, 122 resolved |
 | Written by agents through `hydra run` | most of the Rust since build 17; `docs/who-wrote-the-code.md` has the table |
 
-`IMPLEMENTATION.md` is every departure from the design with its reason, 6,000 lines of them. Read
+`IMPLEMENTATION.md` is every departure from the design with its reason, over 6,400 lines of them. Read
 it before trusting a record. `CHANGELOG.md` is dated by when a change reached `master`, with run
 ids as evidence. `docs/roadmap.md` is what is open.
 

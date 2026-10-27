@@ -1,6 +1,6 @@
 # Build 340b - Public documents and `Cargo.toml` `publish = false`
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -77,3 +77,31 @@ Update `Cargo.toml`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `CLAUDE.md`
 - Only `Cargo.toml`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `CLAUDE.md`, `docs/install.md`, `docs/roadmap.md`, `docs/who-wrote-the-code.md`, and `.scratch/hydra/build/340b-public-docs-and-cargo-publish-false.md` are modified.
 - No em dashes (`—`) are introduced.
 - `git diff --check` passes.
+
+## Outcome
+
+Completed in run `01a17d01-f9b4-7e90-a0e8-8fb669946ec7`, `claude` with `claude-haiku-5-5` under `standard`, 2,564,129 tokens.
+
+Built on build 361. Every named edit is in: `publish = false` under `[package]` in `Cargo.toml`,
+and the public documents in the list now describe builds 338 to 361 with their run ids. Changed
+files: `Cargo.toml`, `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `CLAUDE.md`,
+`docs/install.md`, `docs/roadmap.md`, `docs/who-wrote-the-code.md`, and this ticket.
+
+Measured: `git diff --check` passes. `cargo metadata --no-deps --offline` reads the manifest, and
+the root package now reports `publish: []`, the same as the eight crates under `crates/`. No
+em dash enters the diff. No test ran, because the change touches no Rust. The ticket names no
+`cargo nextest` file, and no `.rs` file changed.
+
+Assumed and not so:
+
+- The ticket names four checks at its end. The text stops after `git diff --check`, so the checks
+  run were the file list, the em dash scan, `git diff --check` and the manifest read above.
+- Two more lines outside the named ones needed the same fix. README said the runs live under
+  `~/hydra/` "wherever the checkout lives", which build ticket 67 made false. It now says a
+  checkout elsewhere refuses to launch unless `HYDRA_ROOT` is set. The roadmap bullet for
+  `hydra show --verdict` was renamed, because build 335 took that flag.
+- Parentheses in the ticket's replacement text for CHANGELOG and CONTRIBUTING were dropped
+  from the new prose, following the plain style rule. The quoted text in the ticket had them.
+- `IMPLEMENTATION.md` was not changed. The ticket does not name it, and no gap closed.
+- `.scratch/hydra/build/294-kev-beside-system-one.md` and `.scratch/hydra/research/109b-kev.md`
+  were already modified when the session started. This ticket did not touch them.

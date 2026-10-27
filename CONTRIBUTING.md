@@ -16,40 +16,43 @@ the run id, and the lines of the record that changed. `tests/drift.rs` is where 
 drift becomes a test.
 
 For anything else, the record is the bug report. `hydra show <run-id> --events` prints what
-Hydra saw; paste the relevant events rather than describing them.
+Hydra saw; paste the relevant events rather than describing them. That command prints raw event
+content without running the twelve-class secret redactor that `hydra export` applies, so inspect
+the output before pasting it into a public issue.
 
 ## Before you open a pull request
 
 ```
-cargo fmt --check
-cargo clippy -- -D warnings
-cargo build --release
-cargo test --release --no-fail-fast -- --test-threads=1
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo build --release --workspace
+cargo nextest run --release --workspace
+cargo test --release --workspace --doc
 ```
 
-The suite walks the run records on the machine it runs on, so run it single-threaded. A
-test must build its own scratch layout with `Layout::at` and never call `Layout::discover()`,
-which would touch the real `~/hydra`.
+The test suite runs in parallel since build ticket 296. It reads the checked-in synthetic
+fixtures under `tests/fixtures/records/`. `hydra doctor --walk` reads the live records under
+`~/hydra/runs/` instead, since build ticket 126. A test must build its own scratch layout with
+`Layout::at` and never call `Layout::discover()`, which would touch the real `~/hydra`.
 
-Several tests walk every `.jsonl` under `~/hydra/runs/` and check that each record still
-meets the contract, normalizes, and derives an outcome. That path is `$HYDRA_ROOT/runs` when
-the variable is set, and `~/hydra/runs` from the real home when it is not. Point the variable
-at an empty directory to run the suite without reading your own records. Each of those walks has
-a fixture twin that reads `tests/fixtures/records/` instead, so the assertions still run on an
-empty root. A new record shape goes into a new fixture through `tests/fixture_corpus.rs`, never
-as a copy of a real record.
+`hydra doctor --walk` walks every `.jsonl` under `~/hydra/runs/`, or under `$HYDRA_ROOT/runs`
+when the variable is set. The integration tests `record_contract.rs`, `normalize.rs` and
+`outcome.rs` walk `tests/fixtures/records/` instead. Point `HYDRA_ROOT` at an empty directory to run the walk without
+reading your own records. A new record shape goes into a new fixture through
+`tests/fixture_corpus.rs`, never as a copy of a real record.
 
 Rung two's admission runs this suite inside a seatbelt, with a cleared environment and several
 test threads. A test that launches the built binary with `HYDRA_ROOT`, or execs a setuid binary
 such as `/bin/ps`, has to check `hydra::sandbox::inside_seatbelt()` and skip with a line on
-stderr, or every rung-two pass fails on it. A test that sets a process-wide variable belongs in
-an integration test file of its own with a lock around it, the way `tests/git_config.rs` does,
-not in a unit test that shares a process with threads that read the environment.
+stderr, or every rung-two pass fails on it. No test mutates the process environment since
+build ticket 296; pass environment variables on the child `Command` instead of calling
+`std::env::set_var`.
 
 ## What is not open for a pull request
 
-The five protected configs of `docs/harness-spec.md` section 15.1: `policies/`, the
-environment allowlist, the export allowlist, `config/preamble.md` and `config/mcp.md`. They
+The six protected configs of `docs/harness-spec.md` section 15.1: `policies/`, the
+environment allowlist, the export allowlist, `config/preamble.md`, `config/mcp.md` and
+`config/panels.json`, since build ticket 138. They
 are the things a run must never be able to widen. A change to one of them is a decision, and
 it goes through a map ticket first.
 

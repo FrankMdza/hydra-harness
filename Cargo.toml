@@ -4,6 +4,7 @@ members = ["crates/*"]
 [package]
 name = "hydra"
 version = "0.3.0"
+publish = false
 edition = "2024"
 rust-version = "1.88"
 description = "Run coding-agent CLIs in isolated worktrees behind a policy, and record every run"

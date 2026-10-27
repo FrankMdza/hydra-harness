@@ -4,6 +4,34 @@ Dates are when the change landed on `master`. Run ids are the evidence.
 
 ## Unreleased
 
+- 2026-10-27.
+  - `codex` 0.160.0's `webrun` is a hooked `network_read` row in the capability table. The row
+    replays from `web_search` `open_page` items, with a fixture in the corpus and a `Limit`
+    finding when an `open_page` item carries no string URL. Builds 338, 353, 354 and 355; runs
+    `01a1609d-7626`, `01a160ac-ed7f`, `01a160be-72cd` and `01a161e9-0f35`.
+  - Every denied tool call appends a `gate_refusal` row, with `arguments_sha256` when there is no
+    shell command. `hydra show --events` wraps `gate_refusal.reason` inside the result boundary
+    marker. `Outcome::Gated` and `walk::check_gated_write_denials` count a `gate_refusal` row as
+    Hydra's own refusal when no stream call got through. Builds 339, 356 and 360; runs
+    `01a142ae-f739`, `01a17c8a-3c0b` and `01a17ccf-c6a7`.
+  - Relative paths in MCP tool arguments resolve against the run's `cwd` before the protected-path
+    check. Build 348, run `01a142af-2a26`.
+  - The pattern floor refuses a bare `git push` from a protected branch, `git push origin HEAD`
+    and `@`, `-C`, `--git-dir` and `--work-tree` before `push`, `-c` push refspecs and
+    `push.default=matching`, `--config-env`, and `refs/heads/` branch prefixes. Builds 349 and
+    357; runs `01a142af-5e94` and `01a17c8c-342a`.
+  - `claude` 2.1.301's `Workflow` maps to `subagent_spawn`, and `LSP` stays unknown and refused.
+    A `hook_started` frame one `seq` before its call joins by order, so the final `WebFetch` no
+    longer reads `Ungated`. Build 350, run `01a160a8-e887`.
+  - `pairs` keeps only answers recorded in `attempts.jsonl`. Build 351, run `01a15fe9-7a33`.
+    Cutover tests retry `ETXTBSY` on Linux. Build 352, run `01a16088-20d3`. `hydra doctor` runs
+    `/usr/bin/python3 -c "import json, shlex"`. Build 358, run `01a17c9e-b5b7`. `src/env.rs`
+    tests `Provider::Codex` and `OPENAI_API_KEY`. Build 359, run `01a17ca3-d339`.
+    `hydra doctor --walk` classifies all 59 `RejectedBeforeHook` rows by tool and error shape.
+    Build 361, run `01a17cba-1b5f`.
+  - Public documentation and `IMPLEMENTATION.md` brought in line with build 361. Builds 340a,
+    340b and 341; run `01a17cd1-f166`.
+
 ## 0.3.0, 2026-10-15
 
 - 2026-10-15, later. Map 130 sat a four-seat panel on every decision still open and the human took

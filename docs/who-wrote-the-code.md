@@ -39,5 +39,8 @@ first Rust ticket given to the cheapest model, and it held.
 
 Build 312's report over tickets 01 to 313, run on 2026-10-14: Opus 5.5 built 52 tickets for 278M
 tokens, Composer 2.5 built 78 for 192M, GPT Sol built 25; 285 of 313 tickets name no model in
-their Outcome, which is why the report exists. The design documents, the policies, the record
+their Outcome, which is why the report exists. Build ticket 328 then stopped the report from
+reading pasted tables as ticket attributions, and widened the outcome phrase matcher over 329
+tickets. The matcher now counts 131 applied as is, 34 corrected, 13 finished by hand, 9 rejected
+and 142 unsaid. The design documents, the policies, the record
 contract and the README are the session's.
