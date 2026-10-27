@@ -1,6 +1,6 @@
 # Build 341 - `IMPLEMENTATION.md` closes the twelve remaining stale claims of build 313 and the measured 361 breakdown
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -68,3 +68,40 @@ Update `IMPLEMENTATION.md` only so that the twelve remaining items from `.scratc
 
 - Only `IMPLEMENTATION.md` and `.scratch/hydra/build/341-implementation-md-twelve-remaining-stale-claims.md` are modified.
 - `git diff --check` passes.
+
+## Outcome
+
+Completed in run `01a17ce2-529a-76f2-abd8-e20d53db70ec`, `claude` with `claude-haiku-5-5` under `standard`, 4,297,005 tokens.
+
+Changed `IMPLEMENTATION.md` only. Checked each claim against the code before writing it.
+
+Applied as the ticket states, after checking the code:
+
+- Item 1: `protected_worktree_paths` in `src/policy/mod.rs` holds nine entries: six provider paths and three Claude files.
+- Item 2: four skill roots, one per provider.
+- Item 4: five Cursor unhooked rows in `src/policy/table.rs`, with `updateTodos` added.
+- Item 7: `gpt-6-astra` to `gpt-6-luna` at the one line the ticket names. Build 338 reads the probe payload as `gpt-6-luna`.
+- Item 8: `skills` on non-judge runs. `judge` returns before injection in `src/run/mod.rs`, and `run_ungated` writes `skills: None`.
+- Item 10: `RunStart::gate_sha` skips `None`, so the record omits the field.
+- Item 11: nine `Finding` variants in `src/normalize/mod.rs`, including `UnhookedDenied` and `RejectedBeforeHook`.
+- Item 12: `rungs/` branch names, with the `ouroboros/` read fallback.
+- Item 13: `reserve_on_layout` mints the id before the cap check.
+- Item 14: `ChildEnv::build` runs in `prepare_machine` after `reserve_on_layout`.
+
+Adjusted, because the ticket's premise did not match the file or the code:
+
+- Item 3: the quoted "Sixteen of the twenty-seven ... eighteen of twenty-nine" text is not in the file. The sentence there, "Nineteen of `claude`'s twenty-nine tools", is accurate: `CLAUDE` has 33 rows, 19 `ProviderNative`, and the four rows beyond the 29 measured names are Agent, Glob, Grep and Workflow. Left as it stands.
+- Item 5: the ticket says the runs were admitted "under permissive in build ticket 26 and widened to standard in map ticket 82". Build ticket 26 says the human admitted the face under `standard` and `permissive`. I did not find a map 82 widening, so the text cites build 26 only.
+- Item 5: the ticket's "launched without `--mcp-config` and their MCP section is absent" does not fit that paragraph. It concerns `cursor-agent`, which has no `--mcp-config` flag. The same paragraph says the runs recorded `injected: []`. Left those claims out.
+- Item 6: the ticket's quoted current text is absent. The stale sentence was "It keys on the payload rather than on the dialect". Replaced it with the `check_dialect` and `as_tool_call` facts, verified in `src/policy/gate.py`. `main_single` calls `check_dialect` before it reads stdin.
+- Item 9: I could not re-run the walk from this worktree, so the counts are the ticket's, unverified here. The breakdown sums to 59 and lists twelve shapes, which matches the text.
+- Item 14: the ticket's "refuses the recorded launch" conflicts with "writes no run record" in the same paragraph. Wrote "refuses the launch".
+- Item 19: the file said "Four tools", not "three of them". Changed it to "Five", and named the wire forms.
+- Parentheses: the ticket's replacement text uses them. Per the brief, the new prose has none. The literal strings are unchanged.
+
+Not touched, outside this ticket's list:
+
+- `IMPLEMENTATION.md` line near 3724 still says "gpt-6-astra on codex" for a split panel run. The ticket names only the line near 2217.
+- `src/interactive.rs` around line 590 comments that `gate_sha` "is null". The code now omits it, so the comment is stale.
+
+Checks: `git diff --check` passes. Only `IMPLEMENTATION.md` and this ticket changed by this build. No Rust changed, so no test files apply. The ticket names no test file.

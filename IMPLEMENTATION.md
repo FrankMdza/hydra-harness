@@ -189,13 +189,14 @@ worktree is the own carve-out, and on `cursor-agent` and `agy` the hook config s
 at `.cursor/hooks.json` and `.agents/hooks.json`, so until this ticket a `standard` run could
 `Write` over the file that points at its gate and the gate answered `allow`. Whether either
 provider reloads hooks mid-session is still unmeasured; reap excludes Hydra's hook configs from
-its commit. `protected_worktree_paths` in `src/policy/mod.rs` is the list, seven entries built
-from the provider modules: the two hook configs, the two MCP configs beside them, and the three
-project-scope files `claude` reads from cwd (`.claude/settings.json`,
+its commit. `protected_worktree_paths` in `src/policy/mod.rs` is the list, nine entries built from the
+provider modules since build ticket 48: the hook and MCP configs for `cursor-agent`, `agy` and
+`codex`, and the three project-scope files `claude` reads from cwd (`.claude/settings.json`,
 `.claude/settings.local.json`, `.mcp.json`). It rides into the gate as
 `protected_worktree_paths`, and `protected_root` in `gate.py` checks it before the own
 carve-out, so both the `Write` check and the shell check answer `hydra/protected-path` on it
-under every policy and on every provider's gate. The three skill roots are a second list,
+under every policy and on every provider's gate. The four skill roots, one each for `claude`, `cursor-agent`, `agy` and `codex` since build ticket
+87, are a second list,
 `write_denied_worktree_paths`, read by the `file_write` check alone: the first version of this
 ticket put them on the whole-command list, the corpus walk caught `ls -la .claude/skills/` on
 run `01a09405-f451` reading as a leak, and a shell command naming a skill root is how two of
@@ -1742,11 +1743,12 @@ the second means logging out. A signal death reports the same exit code 1 throug
 pty, which is why the detached half now writes the signal into `run_end.error` and the
 derivation reads that note first.
 
-**Four tools Cursor runs without asking the hook, and the table says so, since build
+**Five tools Cursor runs without asking the hook, and the table says so, since build
 ticket 35.** Map ticket 51 measured it three times on 2026-09-08: `ReadLints` with a
 list-valued `paths`, `getMcpToolsToolCall` listing an MCP server's tools, and
-`awaitToolCall` waiting on a background task; build ticket 113 added `WebSearch` on
-2026-09-24. All completed with results under
+`awaitToolCall` waiting on a background task; build ticket 113 added `WebSearch` on 2026-09-24, and build ticket 286 added `updateTodos`.
+Their wire names are `webSearchToolCall` and `updateTodosToolCall`, and `updateTodos` was measured
+on `cursor-agent` 2026.10.01. All completed with results under
 `read-only` and `standard`, none with a `hydra gate:` line in the spawn's `cursor-data`,
 while a `Read` outside the worktree in the same runs was refused with Hydra's reason. They
 are `unhooked(name, capability)` rows now: a flag on the row keeps the real capability,
@@ -1829,8 +1831,9 @@ on 2026-09-06 against a worktree naming `tests/fixtures/mcp-probe-server.py` and
 `hydra-probe: ready` and `broken: Error: Connection failed` after the enables, the
 approval written under the scratch directory, and `~/.cursor/projects` untouched.
 `tests/mcp.rs` drives the verdict and the refusal record from that listing shape.
-**Not measured through `hydra run`**, because `config/mcp.md` admits no server and is
-protected config #5; the two real runs each listed nothing, wrote `{"mcpServers":{}}`,
+**Not measured through `hydra run`**, because the two real runs below predate the shipped
+`hydra` server, which `config/mcp.md` admits under `standard` and `permissive` since build ticket
+26. Each listed nothing, wrote `{"mcpServers":{}}`,
 and recorded `injected: []` beside `resolved: []`.
 
 **`mcp.resolved` is the pre-flight's listing, free, and `skills.resolved` is null.**
@@ -1965,9 +1968,11 @@ gate nothing.
 **The payload is a different shape from the other two providers'**, camelCase protojson
 with the call nested under `toolCall` and no `cwd` field at all. `gate.py`'s
 `as_tool_call` unwraps it and takes the cwd from `args.Cwd` when the tool sends one, then
-from `workspacePaths[0]`, which is the directory Hydra passed on `--add-dir`. It keys on
-the payload rather than on the dialect, so the same script answers a live hook and
-contract 7.7's read-time replay, which sends the normalized shape for every provider.
+from `workspacePaths[0]`, which is the directory Hydra passed on `--add-dir`. It unwraps only the
+envelope of the dialect the gate was compiled for, and `gate.py::check_dialect` refuses an
+`argv[1]` that names another one before the payload is read. The normalized shape that contract
+7.7's read-time replay sends passes through unchanged, so the same script answers a live hook and
+the replay. Build ticket 77 made the gate read the payload it was compiled for.
 
 **The seven measured argument names**, off real hook payloads:
 `run_command(CommandLine, Cwd)`, `view_file(AbsolutePath)`, `list_dir(DirectoryPath)`,
@@ -2214,7 +2219,7 @@ before the replay, because a protected path inside a quoted token is the shape b
 never the patch text, which the hook alone sees under `tool_input.command`. `turn.completed`
 carries `usage` with `input_tokens`, `cached_input_tokens`, `cache_write_input_tokens`,
 `output_tokens` and `reasoning_output_tokens`. The stream never names the model; the hook
-payload does, `gpt-6-astra` on this account, and the record's `model` stays null unless
+payload does, `gpt-6-luna` on this account, and the record's `model` stays null unless
 `--model` was passed. `resolve` returns null for `skills.resolved` and `mcp.resolved`, because
 no free probe exists yet.
 
@@ -2260,7 +2265,9 @@ of one is null on purpose: `skills.resolved` is the paid listing, so the record 
 nobody asked rather than claiming an empty one, and `mcp.resolved` is the pre-flight's
 own listing, which is free. The section on that provider has the reason for each.
 
-**`skills` is present on every run with a checkout and absent on the rest.** Ticket 07
+**`skills` is present on every recorded non-judge run with a checkout and absent on the rest.**
+`judge` has skipped skill injection since build ticket 25, and ungated interactive runs write no
+skills. Ticket 07
 closed that half: a run in a repo carries `store_sha`, `linked` and `resolved`. A run
 outside a repo gets no worktree, and 6.4 puts injection in the worktree and nowhere
 else, so there is no location to link into and the question does not apply.
@@ -2352,10 +2359,14 @@ with stand-ins; it is not a copy of inaccessible seq 326/327.
 carries `rejected_by_shape`, keyed by tool and the first error line's bucket,
 and `hydra doctor --walk` prints one `  RejectedBeforeHook {shape}: {count}` line
 per key under the totals. The buckets are the error shapes named in the ticket;
-an unnamed error keeps its first 80 characters. The machine-wide breakdown is
-not yet read: a build worktree cannot reach `~/hydra/runs/`, so the driving
-session runs `hydra doctor --walk` to get it. The fixture test checks one
-`Edit` row, not the machine's corpus.
+an unnamed error keeps its first 80 characters. Measured on 2026-10-27 by `hydra doctor --walk` over 997 records on this machine: 59
+`RejectedBeforeHook` rows and 4 `Ungated` rows, across twelve shapes: `Bash: <tool_use_error>Blocked`
+18, `Read: InputValidationError` 17, `Write: <tool_use_error>Error calling tool` 6, `Edit:
+<tool_use_error>String to replace not found` 4, `bash: No such tool available` 4, `Edit:
+<tool_use_error>No changes to make: old_string and new_string are exactly the sa` 3, `Edit:
+InputValidationError` 2, `Edit: <tool_use_error>File does not exist` 1, `TaskStop:
+<tool_use_error>No task found with ID` 1, `WebFetch: InputValidationError` 1, `Write:
+<tool_use_error>File has not been read yet` 1, and `Write: safety classifier stopped call` 1.
 
 **Four providers, since build tickets 10 and 48.** `src/normalize/` turns a stored
 `claude`, `cursor-agent`, `agy` or `codex` run into
@@ -2607,8 +2618,9 @@ build ticket 55 closed. It names every reason rather than the first: a record ca
 gate mark and have had its scopes rebuilt, and a reader fixing one wants to know about the
 other before re-running.
 
-**One place still writes `gate_sha: null`.** The harness record `hydra evolve` writes compiles
-no gate at all, and null is the truth there.
+**A launch that compiles no gate omits `gate_sha`.** `RunStart::gate_sha` carries
+`skip_serializing_if = "Option::is_none"`, so the harness record `hydra evolve` writes and an
+ungated interactive run omit `gate_sha` rather than writing null.
 
 **`parent_run_id` is lifted off the envelope onto the normalized run.** Contract 4
 puts it there rather than in the body, because the parent writes it at spawn and
@@ -2618,11 +2630,13 @@ the body would have neither. Ticket 11 gave it a producer: a run launched with
 `--parent`, or through the delegate face with one, carries it on every line.
 
 **Findings are not events.** An event says what happened; a finding says two sources
-disagree or that the derivation could not do its job. Seven of them: a gate leak,
+disagree or that the derivation could not do its job. Nine of them, in `src/normalize/mod.rs`. Seven are the original kinds: a gate leak,
 subagents spawned under a policy that denies them, a disagreement between the derivation
 and the gate's recorded answer, a gated call the gate never answered, a tool name the
 capability table does not know, a `policy_sha` that is not today's, and a bare limit for
-anything else. The fourth is the fail-open case 6.6 measured: a hook that will not start
+anything else. The other two are `UnhookedDenied`, an unhooked vendor tool whose capability the
+policy denies, from build ticket 124, and `RejectedBeforeHook`, a tool call the provider rejected
+before any hook ran, from build ticket 334. The fourth is the fail-open case 6.6 measured: a hook that will not start
 lets the call through on this provider, `--include-hook-events` is on for every recorded
 run, so a call with no gate answer and no refusal in Hydra's own voice is one that reached
 the model with nothing in front of it. Four things produce a `Limit` and two of them matter most. A file with
@@ -5616,14 +5630,15 @@ off its last `rate_limit_event` frame before any judge spawns. Until build ticke
 `claude` spent a proposer to find out. `evolve::rate_limit_abort` now reads
 `rate_limit_info.status` and falls back to the top, and `tests/evolve.rs` drives both shapes,
 the `allowed` case and a run warned early and allowed later, on synthetic records. Since
-2026-09-20 that abort ends the pass `completed` on `ouroboros/blocked/<pass-id>` with the reason
+2026-09-20 that abort ends the pass `completed` on `rungs/blocked/<pass-id>`, which was `ouroboros/blocked/<pass-id>` before build ticket 62, with the reason
 in the commit message, the same shape as a proposer whose outcome is `rate_limited`. Until then it
 ended the pass `failed`, which spec 4.10 reserves for git or the worktree breaking; the review of
 2026-09-19 found the two paths disagreeing and neither this file nor the spec named it.
 
-**The verdict lives in the commit message**, spec 4.9, on `ouroboros/<pass-id>` when the panel
-passed and `ouroboros/blocked/<pass-id>` when it did not, naming the pass, the proposer and the
-four judges by run id, with the four answers in the body. A pass constructs `ApprovedPatch`
+**The verdict lives in the commit message**, spec 4.9, on `rungs/<pass-id>` when the panel
+passed and `rungs/blocked/<pass-id>` when it did not, naming the pass, the proposer and the
+four judges by run id, with the four answers in the body. Build ticket 62 renamed the branches,
+and readers still accept the older `ouroboros/` names. A pass constructs `ApprovedPatch`
 only through `panel_verdict`, which is the one function that can build it, and since build
 ticket 82 `panel_verdict` takes a `PanelAnswers` with one slot per `Provider`, filled by
 `run_judge_panel` from a run of that slot's binary, so a panel of four answers from one binary
@@ -5933,7 +5948,8 @@ between the spawn and line 0.
 **A run refused by the cap writes no record.** Contract 8.3 makes a refused spawn a record
 when the refusal is one of section 6's four codes, and the cap is not one of them. Minting
 a fifth is a contract change rather than an implementation, so the refusal goes to stderr
-and no run id is minted.
+and writes no run record, although `reserve_on_layout` in `src/run/mod.rs` has already minted the
+UUID it tried to reserve, build ticket 92.
 
 **Two launches racing for the last slot cannot both take it.** The count comes from a
 directory scan, and a lock on `<root>/reservations/.lock` is held between that scan and the
@@ -5989,8 +6005,10 @@ search list falls back to `getpwuid`. This follows that reasoning to its conclus
 and the drop is visible after the fact because `env_allowlist` carries the names
 actually passed.
 
-**A `PATH` without `/usr/bin` refuses the launch** before a run id exists, with an
-error naming the silent logout it would otherwise cause. It writes no run record: the
+**A `PATH` without `/usr/bin` refuses the launch** after `reserve_on_layout` has minted a run id
+and before any record is written. `ChildEnv::build` makes the check when `prepare_machine` calls
+it, with an error naming the silent logout it would otherwise cause. Build ticket 92 set that
+order. It writes no run record: the
 contract's four `refusal` values are all Hydra-side policy checks this slice does not
 run, and inventing a fifth is a contract change.
 
