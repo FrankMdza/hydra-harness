@@ -396,6 +396,8 @@ it.
 - [341 - `IMPLEMENTATION.md` closes the twelve remaining stale claims of build 313 and the measured 361 breakdown](341-implementation-md-twelve-remaining-stale-claims.md)
 - [318a - Pure bubblewrap composer from `Spawn` sharing one rule table with `compose()`](318a-compose-bwrap-from-spawn.md)
 - [318b - Linux bubblewrap launch wrapper, Codex nesting decision, and mount-namespace witness](318b-linux-bwrap-launch-wrapper-and-witness.md)
+- [362 - The `git push` floor reads `remote.<name>.push` and `push.default` from repository config](362-the-git-push-floor-reads-remote-push-and-push-default-from-repo-config.md)
+- [363 - Linux CI runs `sandbox::tests` and `hydra evolve` refuses bare admission on Linux](363-linux-ci-runs-sandbox-unit-tests-and-admission-refuses-bare-on-linux.md)
 
 ## Out of scope
 
