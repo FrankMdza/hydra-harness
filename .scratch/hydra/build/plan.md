@@ -387,6 +387,8 @@ it.
 - [355 - A codex page open without a URL reads as a `webrun` call with nothing to check, and the record says so](355-a-page-open-without-a-url-is-a-limit-finding.md)
 - [356 - `hydra show --events` marks `gate_refusal.reason` inside the result boundary](356-hydra-show-marks-a-gate-refusal-reason.md)
 - [357 - The `git push` floor checks `HEAD`, `-C`, `-c` refspecs, and `refs/heads/` prefixes](357-the-git-push-floor-checks-head-dash-c-and-branch-prefixes.md)
+- [358 - `hydra doctor` checks that `/usr/bin/python3` runs `import json, shlex`](358-hydra-doctor-checks-that-usr-bin-python3-runs.md)
+- [359 - `src/env.rs` tests `Provider::Codex` and `OPENAI_API_KEY`](359-child-env-tests-codex-and-openai-api-key.md)
 
 ## Out of scope
 
