@@ -395,6 +395,7 @@ it.
 - [340b - Public documents and `Cargo.toml` `publish = false`](340b-public-docs-and-cargo-publish-false.md)
 - [341 - `IMPLEMENTATION.md` closes the twelve remaining stale claims of build 313 and the measured 361 breakdown](341-implementation-md-twelve-remaining-stale-claims.md)
 - [318a - Pure bubblewrap composer from `Spawn` sharing one rule table with `compose()`](318a-compose-bwrap-from-spawn.md)
+- [318b - Linux bubblewrap launch wrapper, Codex nesting decision, and mount-namespace witness](318b-linux-bwrap-launch-wrapper-and-witness.md)
 
 ## Out of scope
 

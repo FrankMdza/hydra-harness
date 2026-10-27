@@ -1,6 +1,6 @@
 # Build 318a - Pure bubblewrap composer from `Spawn` sharing one rule table with `compose()`
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -60,3 +60,34 @@ Run:
 
 - Only `src/sandbox.rs` and `.scratch/hydra/build/318a-compose-bwrap-from-spawn.md` are modified.
 - All three verification commands exit 0.
+
+## Outcome
+
+Completed in run `01a17db0-8922-7c30-a20a-f0ab131d945e`, `claude` with `claude-haiku-5-5` under `standard`, 3,248,593 tokens.
+
+Built in `src/sandbox.rs`. `compose` is now `render_sbpl(&rules_of(set, spawn))`. `rules_of`
+returns the sixteen-variant `Rule` enum in the order `compose` wrote its lines. `render_sbpl`
+turns the rules back into SBPL. `compose_bwrap` opens with the ticket's head and translates each
+rule through `translate_rule_to_bwrap`, skipping `PluginManifestRegexDeny`. The translation
+refuses untranslatable rules by name with the ticket's exact strings.
+
+Measured: the SBPL is byte-identical to HEAD. A throwaway integration test dumped `compose` for
+80 spawns from HEAD and from this tree. The spawns cover two policy sets, the five shipped
+policies and one set with the bounded fixture swapped in. They also cover four providers, each
+with and without a parent git dir. The two dumps match over 3640
+lines. The throwaway test is deleted. Also green: `cargo fmt --all --check`, `cargo clippy
+--release --workspace --all-targets -- -D warnings`, and `cargo nextest run --release -E
+'test(sandbox)'` with nine of nine passing.
+
+Assumed false, or corrected while writing:
+
+- The ticket's order test expected a second `write-allow` run after the gate's literal allow.
+  Codex spawns carry no `own_read_paths`, so that run is empty. The expectation now omits it.
+- No shipped policy bounds its shell. The bounded test copies the shipped set into a scratch
+  directory and swaps in `tests/fixtures/policies/read-only.json`.
+- `rules_of` never emits `InteractiveTtyTiocstiDeny` or `CopilotWriteAllowRegex`, because
+  `compose` always writes the TIOCSTI line and does not include `copilot_block`. Their
+  translation arms run only when called directly, and the refusal test calls them that way.
+- The ticket's byte-identity test compares `compose` with `render_sbpl(rules_of(..))`, which is
+  the same code path, so it cannot catch a change in the text. The check that does is a golden
+  profile pinned against the text before this ticket, and this ticket adds none.
