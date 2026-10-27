@@ -359,6 +359,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - 130, resolved 2026-10-15 by the human: the docket. The Linux job narrows honestly and is fixed on a real Linux; 316 additive; 326 refuses; 321 and 320 stand; publication in the panel's order; three tickets opened.
 - [135 - What bubblewrap does with a missing deny path, and with the private git directory](issues/135-what-bwrap-does-with-paths-that-do-not-exist-and-the-private-git-dir.md): resolved 2026-10-27 by a four-seat panel the human delegated to. A sweep before every host git on a run checkout; missing deny paths are created empty, `{}` or covered by their parent; builds 366, 367 and 370.
 - [108 - One list of secret classes](issues/108-one-list-of-secret-classes.md): resolved 2026-10-27 by a four-seat panel the human delegated to. B: the write path keeps five classes, one shared table in a leaf crate, the cockpit masks spans by the full list; builds 368 and 369.
+- [136 - Does a run's process group die with the run?](issues/136-does-a-runs-process-group-die-with-the-run.md): resolved 2026-10-27 by a four-seat panel the human delegated to. Yes: SIGTERM, grace, SIGKILL before `run_end`; reap refuses while a process holds the checkout; Linux waits for 370; builds 372 and 373.
 
 ## Not yet specified
 

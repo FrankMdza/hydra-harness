@@ -16,6 +16,7 @@ The session runs this itself, not a `hydra run`. The VM takes 4 GB of the Mac's 
 2. A real launch: `hydra run` with the stub provider `tests/pty_tee.rs` uses, under `standard`, in a scratch repository. Does bwrap start? Read `sandbox_kind` and the witness on the record.
 3. Inside that launch, from the stub's shell: write to each deny path and to the worktree, read the corpus, connect to a sibling's socket. Each result goes in a table: path, expected, measured.
 4. Map 135's four claims: whether `--dev-bind / /` plus `--ro-bind SRC DEST` creates DEST on the host; whether git's index rename works under the whole-directory bind; whether Claude Code reads a `{}` settings file as absence (skip if Claude Code cannot run in the container, and say so); and the five private-directory attacks against `hydra reap` after build 367.
+5. Map 136: with `--new-session`, does a provider's child stay in the group of the pid Hydra records? Does `--unshare-pid` kill a `setsid` escapee when bwrap exits, and does it kill a delegated child run? Measure both before build 372's group kill is trusted on Linux.
 
 ## Outcome
 
