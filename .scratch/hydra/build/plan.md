@@ -402,6 +402,7 @@ it.
 - [365 - The `git push` floor refuses wildcards, includes, and config it cannot parse](365-the-git-push-floor-refuses-wildcards-includes-and-config-it-cannot-parse.md)
 - [366 - Bubblewrap gives every missing deny path a source, and refuses by name when it cannot](366-bwrap-gives-every-missing-deny-path-a-source.md)
 - [367 - Sweep the run's private git directory before any host-side git on its checkout](367-sweep-the-private-git-dir-before-host-git.md)
+- [368 - One table of secret classes in a leaf crate, read by the write path, export and `hydra-records`](368-one-table-of-secret-classes-in-a-leaf-crate.md)
 
 ## Out of scope
 

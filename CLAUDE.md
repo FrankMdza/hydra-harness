@@ -25,7 +25,7 @@ index of the closed tickets, what is still fog, and what is out of scope. Read i
 know **why** a document says what it says. The ticket behind any decision holds the reasoning the
 document compressed.
 
-**The map stands at 124 resolved of 135 tickets on 2026-10-27, and the build stands at 359 resolved of 363 tickets, with 130, 294, 366 and 367 open.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
+**The map stands at 124 resolved of 135 tickets on 2026-10-27, and the build stands at 359 resolved of 364 tickets, with 130, 294 and 366 to 368 open.** Map ticket 68 answered the immune-loop question with an attack corpus in `tests/corpus/`, and 69 to 71 followed from it; 72 and 73 came from that panel. The map reached its destination
 on 2026-09-05 and closed; build tickets 07, 08 and 12 then hit five things that need a decision
 rather than an implementation, which is the one condition for reopening it. Tickets 39 to 43 are
 those, three of them about what a policy scope is and who gets to know, one about provider drift.
