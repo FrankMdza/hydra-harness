@@ -1,7 +1,7 @@
 # 108 - One list of secret classes
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-03, by the session, from finding 9 of the Rust review (`.scratch/hydra/research/275-rust-review.md`).
 
@@ -17,3 +17,7 @@ masks by, has no caller. Widening the write-path sweep changes what a record car
 masks by export's list on display; (C) both.
 
 ## Answer
+
+Resolved 2026-10-27 by a four-seat panel, which the human delegated the decision to. Reasoning and votes are in `research/108-synthesis.md`.
+
+**B, three to one.** The write path keeps its five classes, so a record stays byte-identical and the section 13 rescan claim holds. Export keeps redacting the other seven rather than refusing their runs. One table of classes lives in a new leaf crate, with a flag on the five the write path scans, and the write path, export's redactor and verifier, `hydra-records` and the cockpit all read it. The cockpit blanks each matched span on display for a line without a stored flag and keeps the whole-line hide for a line with one. Build tickets 368 and 369.
