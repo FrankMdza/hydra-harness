@@ -1,7 +1,7 @@
 # 135 - What bubblewrap does with a deny path that does not exist, and with the run's private git directory
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-27, by the session, from the four-seat review of `2e99a25..05a9e21` (`research/panel-review-05a9e21.md`, seats `01a17e81-3770`, `01a17e81-cf35`, `01a17e82-1d83`, `01a17e82-b1a5`). Build 364 stopped at both questions because each is a decision. The human, leaving on 2026-10-27: "si necesitas decisiones usa el panel". A four-seat panel answers this one, and the synthesis is in `research/135-synthesis.md`.
 
@@ -40,3 +40,11 @@ The review seats answered this already, in the four memos named above:
 - Flash: bind `config/` whole; create the layout directories in `Layout::ensure()`; empty directories for the skill roots; `{}` for the settings files.
 
 ## Answer
+
+Resolved 2026-10-27 by a four-seat panel, which the human delegated the decision to. The reasoning, the votes and the dissent are in `research/135-synthesis.md`.
+
+**Question 1: A, three to one.** Before any host-side git command on a run's checkout, not only in reap, a sweep removes every entry of `<git>/worktrees/<run-id>/` except `HEAD`, `commondir`, `gitdir`, `index` and a `logs` directory. It uses `symlink_metadata` and refuses when `index` is not a regular file. Both platforms. Opus voted B, and his point that reap is not the first host git is why the sweep goes before every entry.
+
+**Question 2.** Bind `config/` read-only whole. `Layout::ensure()` creates the six layout directories, and the profile binds them read-only. Skill and plugin roots get an empty directory bound read-only. Each settings file gets a read-only `{}` held under the spawn directory, and reap removes the empty file bwrap leaves at the destination. A deny source still missing at compose time refuses the launch by name instead of panicking. Grok dissented on the settings files; his rule, `.claude/` bound read-only whole, is the fallback if Linux shows `{}` is not read as absence.
+
+Build tickets 366, 367 and 368.

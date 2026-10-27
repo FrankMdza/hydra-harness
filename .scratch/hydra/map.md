@@ -357,6 +357,7 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - 126, resolved 2026-10-15 by the human on the session's recommendation from panel 130. No carve-out in 7.7; a foreign host is counted apart and never replayed; Rungs refuses a mixed-host corpus until a Linux wrapper exists.
 - 127, resolved 2026-10-15 by the human on the session's recommendation from panel 130. No shell exemption for the pinned snapshot now; revisit when `sandbox_kind` exists, own snapshot only, preamble untouched.
 - 130, resolved 2026-10-15 by the human: the docket. The Linux job narrows honestly and is fixed on a real Linux; 316 additive; 326 refuses; 321 and 320 stand; publication in the panel's order; three tickets opened.
+- [135 - What bubblewrap does with a missing deny path, and with the private git directory](issues/135-what-bwrap-does-with-paths-that-do-not-exist-and-the-private-git-dir.md): resolved 2026-10-27 by a four-seat panel the human delegated to. A sweep before every host git on a run checkout; missing deny paths are created empty, `{}` or covered by their parent; builds 366 to 368.
 
 ## Not yet specified
 
