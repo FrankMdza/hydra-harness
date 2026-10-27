@@ -403,6 +403,8 @@ it.
 - [366 - Bubblewrap gives every missing deny path a source, and refuses by name when it cannot](366-bwrap-gives-every-missing-deny-path-a-source.md)
 - [367 - Sweep the run's private git directory before any host-side git on its checkout](367-sweep-the-private-git-dir-before-host-git.md)
 - [368 - One table of secret classes in a leaf crate, read by the write path, export and `hydra-records`](368-one-table-of-secret-classes-in-a-leaf-crate.md)
+- [369 - The cockpit masks each secret span by the shared table, and the docs say the five are the alarm subset](369-the-cockpit-masks-spans-by-the-shared-secret-table.md)
+- [370 - Measure the bubblewrap wrapper on a real Linux in Docker](370-measure-the-bubblewrap-wrapper-on-linux-in-docker.md)
 
 ## Out of scope
 
