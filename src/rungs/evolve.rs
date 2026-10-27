@@ -1244,44 +1244,65 @@ fn apply_admission_env(
     Ok(())
 }
 
+/// Whether admission may spawn proposer code at all, and under which wrapper.
+/// Only the seatbelt wraps admission. Every other platform refuses, with or
+/// without bwrap, because no bubblewrap admission profile exists yet (build 363).
+fn admission_wrapper_check(
+    kind: &str,
+    wraps_launches: bool,
+    profile_exists: bool,
+    exec_available: bool,
+) -> Result<(), String> {
+    if kind != crate::sandbox::KIND_SEATBELT {
+        return Err(
+            "admission gate: no bubblewrap profile for admission yet, so it refuses to run proposer code bare"
+                .into(),
+        );
+    }
+    if !wraps_launches {
+        return Err(
+            "admission gate: the seatbelt is not wrapping launches, so it refuses to run proposer code bare"
+                .into(),
+        );
+    }
+    if !profile_exists {
+        return Err("admission gate: seatbelt profile missing".into());
+    }
+    if !exec_available {
+        return Err(
+            "/usr/bin/sandbox-exec is missing on this Mac, so the admission gate refuses to \
+             run proposer code without the seatbelt"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn run_admission_step(
     admission: &Admission,
     hydra_root: &Path,
     bin: &Path,
     args: &[&str],
 ) -> Result<std::process::Output, String> {
-    let mut cmd = if crate::sandbox::kind() == crate::sandbox::KIND_SEATBELT
-        && crate::sandbox::wraps_launches()
-    {
-        if !admission.profile.is_file() {
-            return Err(format!(
-                "admission gate: seatbelt profile missing at {}",
-                admission.profile.display()
-            ));
+    admission_wrapper_check(
+        crate::sandbox::kind(),
+        crate::sandbox::wraps_launches(),
+        admission.profile.is_file(),
+        crate::sandbox::exec_available(),
+    )
+    .map_err(|e| {
+        // The helper takes a bool, so the path the old message named goes back on here.
+        if e.ends_with("profile missing") {
+            format!("{e} at {}", admission.profile.display())
+        } else {
+            e
         }
-        if !crate::sandbox::exec_available() {
-            return Err(
-                "/usr/bin/sandbox-exec is missing on this Mac, so the admission gate refuses to \
-                 run proposer code without the seatbelt"
-                    .into(),
-            );
-        }
-        let mut cmd = Command::new("/usr/bin/sandbox-exec");
-        cmd.arg("-f").arg(&admission.profile).arg(bin);
-        cmd
-    } else if crate::sandbox::wraps_launches() {
-        // Linux with bwrap has no admission profile yet. Running proposer code
-        // bare here would skip the wrapper every recorded launch gets.
-        return Err(
-            "admission gate: no bubblewrap profile for admission yet, so it refuses to run proposer code bare"
-                .into(),
-        );
-    } else {
-        Command::new(bin)
-    };
-    // One tail for both branches, so no admission step reaches `output()`
-    // without the cleared environment, and the test that drives this tail
-    // covers the seatbelt branch too.
+    })?;
+    let mut cmd = Command::new("/usr/bin/sandbox-exec");
+    cmd.arg("-f").arg(&admission.profile).arg(bin);
+    // The one tail, so no admission step reaches `output()` without the
+    // cleared environment. The test that drives this tail covers the
+    // seatbelt wrapper too.
     cmd.args(args).current_dir(&admission.tree);
     apply_admission_env(&mut cmd, admission, hydra_root)?;
     cmd.output()
@@ -2024,8 +2045,8 @@ mod admission_step_tests {
         let out = if crate::sandbox::inside_seatbelt() || !seatbelted {
             // Nested `sandbox-exec` is refused on macOS, and admission runs from
             // outside the seatbelt. Inside one, or where no seatbelt wraps the
-            // step, drive the tail both branches of `run_admission_step` share;
-            // outside, the function itself.
+            // step, drive the tail `run_admission_step` shares; outside, the
+            // function itself.
             let mut cmd = Command::new("/usr/bin/env");
             cmd.current_dir(&admission.tree);
             apply_admission_env(&mut cmd, &admission, &hydra_root).unwrap();
@@ -2072,5 +2093,26 @@ mod admission_step_tests {
                 && line.split(':').next().unwrap().ends_with("/toolchain")),
             "the toolchain is not first on PATH:\n{seen}"
         );
+    }
+
+    /// Build 363. Admission runs proposer code only under the seatbelt, so a
+    /// bubblewrap host refuses whether or not `bwrap` is present.
+    #[test]
+    fn admission_wrapper_check_refuses_every_platform_but_a_wrapped_seatbelt() {
+        assert_eq!(
+            admission_wrapper_check(crate::sandbox::KIND_SEATBELT, true, true, true),
+            Ok(())
+        );
+        let bare = "admission gate: no bubblewrap profile for admission yet, so it refuses to run proposer code bare";
+        for (kind, wraps, profile, exec) in [
+            (crate::sandbox::KIND_BUBBLEWRAP, true, true, true),
+            (crate::sandbox::KIND_BUBBLEWRAP, false, false, false),
+        ] {
+            assert_eq!(
+                admission_wrapper_check(kind, wraps, profile, exec),
+                Err(bare.to_string()),
+                "{kind} wraps={wraps}"
+            );
+        }
     }
 }

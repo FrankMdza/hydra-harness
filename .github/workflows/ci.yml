@@ -43,9 +43,10 @@ jobs:
   linux:
     # Build ticket 315, from map 119. Linux compiles and is untested at runtime: there is no
     # seatbelt, so `wraps_launches()` is false and recorded runs stay on the Mac. The four
-    # `tests/sandbox_*.rs` files are `cfg(target_os = "macos")` and compile to nothing here;
-    # `--skip sandbox` drops the profile tests in `src/sandbox.rs` and `tests/spawn.rs`, which
-    # describe a wrapper this platform does not apply.
+    # `tests/sandbox_*.rs` files are `cfg(target_os = "macos")` and compile to nothing here.
+    # `--skip sandbox` on the workspace step drops the `/usr/bin/sandbox-exec` integration
+    # tests in `tests/spawn.rs`. The pure unit tests in `src/sandbox.rs` run in their own step
+    # below, build ticket 363.
     runs-on: ubuntu-latest
     env:
       CARGO_INCREMENTAL: 0
@@ -57,6 +58,10 @@ jobs:
           echo "HYDRA_ROOT=$RUNNER_TEMP/hydra-ci" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/hydra-ci/runs"
       - run: cargo build --release --workspace
+      # Build ticket 363. The twelve pure unit tests in `src/sandbox.rs`: the bubblewrap
+      # composer, the seatbelt rules and the Linux witness. The workspace step below skips
+      # them by the `sandbox` substring.
+      - run: cargo test --release --lib sandbox::tests::
       # Build 331. `--skip` matches a substring of a test's name across every binary. The
       # nine names after `sandbox` are what a Linux machine has not measured yet (map 130,
       # item 1, groups e, f and g); `README.md` names the same list. Remove a name only with

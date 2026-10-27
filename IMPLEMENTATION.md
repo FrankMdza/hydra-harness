@@ -45,7 +45,9 @@ arithmetic, the pyjson hashes, the grader's baseline and monitor differentials),
 recorded on an arm64 Mac and differ on glibc in the last bit. The job's skip list and the README's
 Linux sentence name the same tests.
 
-**Linux launches run under bubblewrap since build ticket 318. The runtime test on Linux is still the human's.** `compose_bwrap` in `src/sandbox.rs` renders the same `rules_of` table that `compose` renders as SBPL, so the two wrappers agree on rule order, which build ticket 318a established. Three decisions came with it. First, `wraps_launches()` on Linux requires `bwrap` on `PATH` and user namespaces open. The kernel switches are read from `/proc/sys`. `standard` and `permissive` refuse without them, and `judge` runs bare. Second, Codex runs with `--sandbox danger-full-access` under either wrapper, because its own `workspace-write` sandbox cannot nest. `forbids_vendor_sandbox()` decides this. bwrap locks the parent mounts, and the worktree's gitdir and object store sit outside the worktree. Third, `inside_seatbelt()` on Linux compares this process's mount namespace with the `launcher.mnt` the launcher wrote beside the profile. A witness that names another namespace means the process runs inside bwrap. A gated interactive session is refused under bubblewrap, because the copilot's regex allow has no mount equivalent. The `evolve` admission gate has no bubblewrap profile. With bwrap present it refuses to run proposer code. Without bwrap it still runs its steps bare, as it did before this build. The unit tests for the argv, the refusals and the witness run on macOS, and no Linux host has run the wrapper yet. The Linux CI job skips every test whose name contains `sandbox`, so those tests stay macOS-only in CI.
+**Linux launches run under bubblewrap since build ticket 318. The runtime test on Linux is still the human's.** `compose_bwrap` in `src/sandbox.rs` renders the same `rules_of` table that `compose` renders as SBPL, so the two wrappers agree on rule order, which build ticket 318a established. Three decisions came with it. First, `wraps_launches()` on Linux requires `bwrap` on `PATH` and user namespaces open. The kernel switches are read from `/proc/sys`. `standard` and `permissive` refuse without them, and `judge` runs bare. Second, Codex runs with `--sandbox danger-full-access` under either wrapper, because its own `workspace-write` sandbox cannot nest. `forbids_vendor_sandbox()` decides this. bwrap locks the parent mounts, and the worktree's gitdir and object store sit outside the worktree. Third, `inside_seatbelt()` on Linux compares this process's mount namespace with the `launcher.mnt` the launcher wrote beside the profile. A witness that names another namespace means the process runs inside bwrap. A gated interactive session is refused under bubblewrap, because the copilot's regex allow has no mount equivalent. The `evolve` admission gate has no bubblewrap profile, so `run_admission_step` refuses on Linux whether or not bwrap is present. Build ticket 363 removed the bare fallback that ran its steps when bwrap was absent, and `admission_wrapper_check` holds the decision. The pure unit tests for the argv, the refusals and the witness run in the Linux CI job's own step, `cargo test --release --lib sandbox::tests::`. The workspace step there still skips every test whose name contains `sandbox`, so the `/usr/bin/sandbox-exec` integration tests in `tests/spawn.rs` stay macOS-only in CI. No Linux host has run the wrapper yet.
+
+Build ticket 364 prepares bubblewrap allow sources before writing the profile. It creates the refusal log without truncating evidence and creates the provider data directories. Only a gated interactive launch may mount its seat socket, and only when the socket exists. The private git directory is mounted whole so git can rename its index lock over the index. Existing `HEAD`, `commondir`, `gitdir` and `logs` are mounted read-only over it. SBPL keeps its original index and lock rules. Missing deny sources remain open for a map decision. Skipping them would allow creation, while creating them could change the meaning of absent optional config files. No Linux launch was measured for this ticket.
 
 Read it before trusting a run record written by this binary. A null `policy` can name a
 pre-gate record, an ungated interactive run or a harness pass; read `launch_mode` and the
@@ -1109,7 +1111,12 @@ refused. `-C` and `--git-dir` decide which checkout the bare check reads, and `-
 its checkout to the ones read. `--config-env` is refused, because the gate does not read the
 variable it names. `-c push.default=matching` is refused, since it pushes every shared branch.
 A `-c remote.<name>.push=` value gets the refspec checks, because git sends that refspec when a
-push names none.
+push names none. Build ticket 362 reads the same two settings from the repository config: the
+`config` in the git directory and, in a linked worktree, the shared one that `commondir` names. A
+`push.default = matching` there refuses a push with no refspec. A `remote.<name>.push` value gets
+the refspec checks when the push names that remote or names none, and a push that names none checks
+every remote. Quotes are dropped from a value, and a `#` or `;` outside quotes ends it. Escapes such
+as `\"` are not decoded.
 
 Two residuals remain, and the floor is still a spelling check. A `cd` earlier in the same command
 is not followed, so the check reads the payload's cwd. The check also ignores a per-worktree
@@ -5555,7 +5562,8 @@ is a rejection carrying the output. **Since build ticket 75 on 2026-09-22** each
 runs through `/usr/bin/sandbox-exec -f` with the profile the proposer's spawn already wrote at
 `spawn/<proposer-run-id>/sandbox.sb`, and with `HYDRA_ROOT` pointed at an empty scratch root
 under `spawn/<pass-id>/admission-root/` so the corpus walks do not read a corpus the profile
-denies. On Linux the same four commands run bare with the same variable. **Since build ticket
+denies. On Linux the same four commands ran bare with the same variable until build ticket 363,
+which refuses there. **Since build ticket
 90** both branches share one tail that clears the environment and passes
 `ADMISSION_ENV_ALLOWLIST` from `src/env.rs` plus `HYDRA_ROOT`; until then the steps inherited
 the orchestrator's whole shell, the second hiring panel's G43. A missing profile on macOS fails

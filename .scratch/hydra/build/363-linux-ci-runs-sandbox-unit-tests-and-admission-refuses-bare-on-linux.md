@@ -1,6 +1,6 @@
 # 363 - Linux CI runs `sandbox::tests` and `hydra evolve` refuses bare admission on Linux
 
-Status: claimed
+Status: resolved
 
 ## Objective
 
@@ -35,3 +35,24 @@ Close two Linux gaps identified by the review panel on `2e99a25` (`01a17e09-b543
 4. Run `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo test --release --lib sandbox::tests::`, and `cargo test --release --lib rungs::evolve::`.
 
 ## Outcome
+
+Built:
+
+- `src/rungs/evolve.rs` has `admission_wrapper_check`, a pure helper. Only a seatbelt that wraps launches, with its profile on disk and `sandbox-exec` present, returns `Ok`. Every other case returns an error before any spawn. `run_admission_step` calls it and then always wraps `bin` in `/usr/bin/sandbox-exec -f`. The bare `Command::new(bin)` branch is gone.
+- A new unit test, `admission_wrapper_check_refuses_every_platform_but_a_wrapped_seatbelt`, covers the three cases in the ticket.
+- `.github/workflows/ci.yml`: the `linux` job comment now says the `sandbox` skip drops only the `tests/spawn.rs` integration tests. A new step runs `cargo test --release --lib sandbox::tests::` before the workspace test step.
+- `IMPLEMENTATION.md`: the build 318 admission note and the admission paragraph in the evolve section now say admission refuses on Linux with and without bwrap, and that Linux CI runs `sandbox::tests::`.
+
+Measured on macOS, where this was built:
+
+- `cargo test --release --lib sandbox::tests::`: 12 passed.
+- `cargo nextest run --release -p hydra --lib rungs::evolve::`: 5 passed, including the new test.
+- `cargo fmt --all --check`: clean.
+- `cargo clippy --release --workspace --all-targets -- -D warnings`: clean.
+
+Not measured: the Linux job. No Linux host ran these steps. I checked by reading that the 12 tests need no macOS path, since `system_sha256` falls back to `sha256sum`. The `tests/evolve.rs` admission tests that call the gate already skip when `exec_available()` is false, so a Linux host without bwrap skips them. A host with bwrap already refused before this change.
+
+Departures from the ticket's wording:
+
+- The missing-profile error no longer names the path. The helper takes `profile_exists` as a bool, so the path is not in its error. The path is still known to the caller if a later change needs it.
+- A seatbelt that does not wrap launches gets its own message. The ticket's message names bubblewrap, which would be wrong on macOS.

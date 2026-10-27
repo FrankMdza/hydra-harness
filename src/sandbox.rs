@@ -274,11 +274,27 @@ fn is_bwrap(path: &Path) -> bool {
 /// Composes and writes the profile, returning its sha256 for `run_start.sandbox`.
 /// A `.bwrap` path takes the bubblewrap form and the launcher's mount namespace.
 pub fn write_profile(set: &PolicySet, spawn: &Spawn<'_>, path: &Path) -> Result<String> {
+    write_profile_for_launch(set, spawn, path, false)
+}
+
+/// Writes a profile with an explicit gated interactive seat socket allowance.
+pub fn write_profile_for_launch(
+    set: &PolicySet,
+    spawn: &Spawn<'_>,
+    path: &Path,
+    gated_interactive: bool,
+) -> Result<String> {
     if is_bwrap(path) {
         let launcher_mnt = std::fs::read_link("/proc/self/ns/mnt")
             .ok()
             .map(|ns| ns.to_string_lossy().into_owned());
-        return write_bwrap_profile(set, spawn, path, launcher_mnt.as_deref());
+        return write_bwrap_profile_for_launch(
+            set,
+            spawn,
+            path,
+            launcher_mnt.as_deref(),
+            gated_interactive,
+        );
     }
     let text = compose(set, spawn);
     if let Some(parent) = path.parent() {
@@ -298,7 +314,31 @@ pub fn write_bwrap_profile(
     path: &Path,
     launcher_mnt_ns: Option<&str>,
 ) -> Result<String> {
-    let args = compose_bwrap(set, spawn);
+    write_bwrap_profile_for_launch(set, spawn, path, launcher_mnt_ns, false)
+}
+
+fn write_bwrap_profile_for_launch(
+    set: &PolicySet,
+    spawn: &Spawn<'_>,
+    path: &Path,
+    launcher_mnt_ns: Option<&str>,
+    gated_interactive: bool,
+) -> Result<String> {
+    let refusals = spawn.gate_script.with_file_name("gate-refusals.jsonl");
+    if let Some(parent) = refusals.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&refusals)
+        .with_context(|| format!("creating {}", refusals.display()))?;
+    for directory in policy::own_read_paths(spawn) {
+        std::fs::create_dir_all(&directory)
+            .with_context(|| format!("creating {}", directory.display()))?;
+    }
+    let args = compose_bwrap_for_launch(set, spawn, gated_interactive);
     let text = format!("{}\n", args.join("\n"));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -592,6 +632,14 @@ pub fn render_sbpl(rules: &[Rule]) -> String {
 /// mounts the host read-only or read-write under `--dev-bind / /`, and each rule
 /// becomes the mount that narrows that view.
 pub fn compose_bwrap(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
+    compose_bwrap_for_launch(set, spawn, false)
+}
+
+fn compose_bwrap_for_launch(
+    set: &PolicySet,
+    spawn: &Spawn<'_>,
+    gated_interactive: bool,
+) -> Vec<String> {
     let mut args = vec![
         "--dev-bind".to_string(),
         "/".to_string(),
@@ -600,10 +648,47 @@ pub fn compose_bwrap(set: &PolicySet, spawn: &Spawn<'_>) -> Vec<String> {
         "/proc".to_string(),
         "--die-with-parent".to_string(),
     ];
-    for rule in rules_of(set, spawn) {
+    let private = spawn.parent_git_dir.and_then(|common| {
+        spawn
+            .gate_script
+            .parent()?
+            .file_name()
+            .map(|id| common.join("worktrees").join(id))
+    });
+    let mut private_mounted = false;
+    for mut rule in rules_of(set, spawn) {
         // Its concrete worktree and home paths already come through
         // `PluginWriteDenySubpath`, so the regex has nothing to add here.
         if matches!(rule, Rule::PluginManifestRegexDeny { .. }) {
+            continue;
+        }
+        if let Rule::UnixSocketConnectDeny {
+            allow_seat_socket, ..
+        } = &mut rule
+            && !gated_interactive
+        {
+            *allow_seat_socket = None;
+        }
+        if let Rule::WriteAllowSubpath(path) = &rule
+            && let Some(private) = &private
+            && [private.join("index"), private.join("index.lock")]
+                .iter()
+                .any(|file| canonical(file) == *path)
+        {
+            if !private_mounted {
+                // Git renames index.lock over index. A rename across a mount
+                // point fails, so mount the directory and protect its metadata.
+                let path = canonical(private);
+                args.extend(["--bind".to_string(), path.clone(), path]);
+                for name in ["HEAD", "commondir", "gitdir", "logs"] {
+                    let file = private.join(name);
+                    if file.exists() {
+                        let path = canonical(&file);
+                        args.extend(["--ro-bind".to_string(), path.clone(), path]);
+                    }
+                }
+                private_mounted = true;
+            }
             continue;
         }
         args.extend(translate_rule_to_bwrap(&rule).expect("translatable spawn rule"));
@@ -640,7 +725,9 @@ pub fn translate_rule_to_bwrap(rule: &Rule) -> std::result::Result<Vec<String>, 
             allow_seat_socket,
         } => {
             let mut out = vec!["--tmpfs".to_string(), spawns_dir.clone()];
-            if let Some(socket) = allow_seat_socket {
+            if let Some(socket) = allow_seat_socket
+                && Path::new(socket).exists()
+            {
                 out.extend(["--bind".to_string(), socket.clone(), socket.clone()]);
             }
             Ok(out)
@@ -1068,6 +1155,146 @@ mod tests {
                     .is_some_and(|slice| slice.iter().map(String::as_str).eq(want.iter().copied()))
             })
             .unwrap_or_else(|| panic!("{want:?} is not in the arguments after {from}"))
+    }
+
+    /// Ticket 364 checks allow sources against a real git worktree.
+    #[test]
+    fn bwrap_spawn_preparation_and_private_git_mounts() {
+        use std::os::unix::net::UnixListener;
+        let root = PathBuf::from("/tmp").join(format!(
+            "hydra-364-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let layout = Layout::at(&root);
+        layout.ensure().unwrap();
+        let set = PolicySet::discover().unwrap();
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(&repo)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init"]);
+        git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "seed",
+        ]);
+        let common = repo.join(".git");
+        for provider in [Provider::Claude, Provider::CursorAgent, Provider::Codex] {
+            let id = match provider {
+                Provider::Claude => "claude",
+                Provider::CursorAgent => "cursor-agent",
+                _ => "codex",
+            };
+            let worktree = root.join(id);
+            git(&["worktree", "add", "-b", id, worktree.to_str().unwrap()]);
+            let gate = layout.gate_script(id);
+            std::fs::create_dir_all(gate.parent().unwrap()).unwrap();
+            std::fs::write(&gate, "fixture").unwrap();
+            std::fs::create_dir_all(layout.run_objects(id)).unwrap();
+            let spawn = Spawn {
+                provider,
+                policy: "standard",
+                layout: &layout,
+                worktree: &worktree,
+                skill_store: &layout.skills(),
+                corpus: &layout.runs(),
+                skill_snapshot: &layout.skill_snapshot_scope(id, None),
+                skill_checkout: None,
+                parent_git_dir: Some(&common),
+                gate_script: &gate,
+                floor_lifted: false,
+            };
+            let sbpl = compose(&set, &spawn);
+            let created: Vec<_> = policy::own_read_paths(&spawn)
+                .into_iter()
+                .filter(|path| !path.exists())
+                .collect();
+            write_profile(&set, &spawn, &gate.with_file_name("sandbox.sb")).unwrap();
+            let refusals = gate.with_file_name("gate-refusals.jsonl");
+            assert!(!refusals.exists());
+            assert!(created.iter().all(|path| !path.exists()));
+            write_bwrap_profile(&set, &spawn, &gate.with_file_name("sandbox.bwrap"), None).unwrap();
+            assert_eq!(std::fs::read_to_string(&refusals).unwrap(), "");
+            std::fs::write(&refusals, "existing evidence\n").unwrap();
+            write_bwrap_profile(&set, &spawn, &gate.with_file_name("sandbox.bwrap"), None).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(&refusals).unwrap(),
+                "existing evidence\n"
+            );
+            assert_eq!(sbpl, compose(&set, &spawn));
+            let rules = rules_of(&set, &spawn);
+            let deny_paths: Vec<_> = rules
+                .iter()
+                .filter_map(|rule| match rule {
+                    Rule::WriteDenySubpath(path)
+                    | Rule::GitAdminWriteDeny(path)
+                    | Rule::CodexSkillsWriteDeny(path)
+                    | Rule::PluginWriteDenySubpath(path) => Some(path),
+                    _ => None,
+                })
+                .collect();
+            for path in &deny_paths {
+                if !Path::new(path).exists() {
+                    eprintln!("364 missing deny {id}: {path}");
+                }
+            }
+            let args = compose_bwrap(&set, &spawn);
+            for mount in args
+                .windows(3)
+                .filter(|mount| matches!(mount[0].as_str(), "--bind" | "--ro-bind" | "--dev-bind"))
+            {
+                // Ticket 364 leaves missing deny sources for a map decision.
+                if !deny_paths.contains(&&mount[1]) {
+                    assert!(Path::new(&mount[1]).exists(), "{id}: {mount:?}");
+                }
+            }
+            let private = canonical(&common.join("worktrees").join(id));
+            let at = find_from(&args, 0, &["--bind", &private, &private]);
+            for name in ["HEAD", "commondir", "gitdir", "logs"] {
+                let path = format!("{private}/{name}");
+                if Path::new(&path).exists() {
+                    find_from(&args, at + 3, &["--ro-bind", &path, &path]);
+                }
+            }
+            for name in ["index", "index.lock"] {
+                assert!(!args.contains(&format!("{private}/{name}")));
+            }
+            let socket = gate.with_file_name(crate::seats::SOCKET);
+            assert!(!args.contains(&canonical(&socket)));
+            assert!(!compose_bwrap_for_launch(&set, &spawn, true).contains(&canonical(&socket)));
+            let _listener = UnixListener::bind(&socket).unwrap();
+            let args = compose_bwrap(&set, &spawn);
+            assert!(!args.contains(&canonical(&socket)));
+            let args = compose_bwrap_for_launch(&set, &spawn, true);
+            find_from(
+                &args,
+                0,
+                &["--bind", &canonical(&socket), &canonical(&socket)],
+            );
+            for directory in created {
+                std::fs::remove_dir_all(directory).unwrap();
+            }
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Build ticket 318a. `render_sbpl` and `compose_bwrap` read one rule table, so

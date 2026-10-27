@@ -35,7 +35,8 @@ use crate::outcome::RunResult;
 use crate::paths::Layout;
 use crate::provider::{Provider, agy, claude, codex, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
-use crate::run::{SpawnFiles, inject_skills, write_spawn_config};
+use crate::run::{SpawnFiles, inject_skills};
+use crate::spawn_config::write_interactive_spawn_config;
 
 /// What a human typed. Without `--policy` nothing here is gated. With it the
 /// launch compiles a gate, seeds a worktree and links the snapshot the way a
@@ -199,7 +200,7 @@ fn finish_policy_launch(
     }
 
     let store_sha = injected.as_ref().map(|i| i.store_sha.as_str());
-    let mut spawn = write_spawn_config(
+    let mut spawn = write_interactive_spawn_config(
         layout,
         run_id,
         policies,

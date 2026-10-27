@@ -1,7 +1,7 @@
 # 364 - `compose_bwrap` mounts only paths that exist, and the private git directory whole
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 318b
 
 ## Objective
@@ -39,3 +39,33 @@ There is a second defect in the same place. Under bwrap, `index` and `index.lock
 No Linux host is available. Say so in the Outcome; do not claim a launch was measured.
 
 ## Outcome
+
+Bubblewrap profile writing now creates the refusal log without truncating it and creates each provider data directory from `own_read_paths`. SBPL profile writing creates neither. The shared rule table and SBPL renderer are unchanged.
+
+Bubblewrap mounts the private git directory whole. It then mounts each existing `HEAD`, `commondir`, `gitdir` and `logs` read-only. It mounts neither `index` nor `index.lock` separately. Git can rename its lock over its index within one mount. SBPL keeps its original index and lock rules.
+
+The gated interactive flag travels through the spawn writer and profile writer as a launch argument. Only the interactive writer sets it. It does not add a field to the shared policy `Spawn`, so gate compilation and existing SBPL call sites keep their shape. A headless profile never binds the seat socket, even if one exists. An interactive profile binds it only when it exists. The existing refusal of gated interactive launches under bubblewrap remains.
+
+The new unit test uses real git worktrees for claude, cursor-agent and codex under standard. It checks all allow mount sources after bubblewrap preparation. It also checks metadata mount order, socket selection, refusal evidence preservation and the absence of bubblewrap preparation on the SBPL path. Existing tests were not changed.
+
+Missing deny sources remain unchanged. The test printed the following paths. `<root>` is its unique scratch layout. `<checkout>` is the Hydra checkout. `<provider>` expands to each of `claude`, `cursor-agent` and `codex`, so each path containing it occurred three times.
+
+- `<checkout>/config/env-allowlist.json`
+- `<checkout>/config/export-signoff.json`
+- `<root>/pruned`
+- `<root>/puppets`
+- `<root>/approvals`
+- `<root>/skills`
+- `<root>/skills-snapshots`
+- `<root>/skill-worktrees`
+- `<root>/<provider>/.claude/skills`
+- `<root>/<provider>/.claude/settings.json`
+- `<root>/<provider>/.claude/settings.local.json`
+- `<root>/<provider>/.agents/plugins`
+- `<root>/codex/.codex/skills`
+
+No missing private git metadata denial occurred in this fixture. Missing deny sources need a map decision. Skipping them allows creation. Creating them can change the meaning of absent optional files.
+
+All five requested checks passed: `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --target x86_64-unknown-linux-gnu`, `cargo nextest run --release -p hydra --lib sandbox` with 13 tests, and `cargo nextest run --release -p hydra --test sandbox_read_only --test spawn` with 39 tests.
+
+No Linux host was available. No bubblewrap launch was measured. The Linux cross-check passed on macOS. The regression first reproduced the missing socket source. Its first socket fixture also exceeded the macOS Unix socket path limit, so the fixture now uses a shorter scratch root under `/tmp`.

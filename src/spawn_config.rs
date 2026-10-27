@@ -59,6 +59,60 @@ pub fn write_spawn_config(
     store_sha: Option<&str>,
     floor_lifted: bool,
 ) -> Result<SpawnFiles> {
+    write_spawn_config_for_launch(
+        layout,
+        run_id,
+        policies,
+        provider,
+        policy,
+        worktree,
+        repo,
+        store_sha,
+        floor_lifted,
+        false,
+    )
+}
+
+/// Writes a gated interactive launch's gate and profile.
+#[allow(clippy::too_many_arguments)]
+pub fn write_interactive_spawn_config(
+    layout: &Layout,
+    run_id: &str,
+    policies: &crate::policy::PolicySet,
+    provider: Provider,
+    policy: &str,
+    worktree: Option<&std::path::Path>,
+    repo: Option<&std::path::Path>,
+    store_sha: Option<&str>,
+    floor_lifted: bool,
+) -> Result<SpawnFiles> {
+    write_spawn_config_for_launch(
+        layout,
+        run_id,
+        policies,
+        provider,
+        policy,
+        worktree,
+        repo,
+        store_sha,
+        floor_lifted,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_spawn_config_for_launch(
+    layout: &Layout,
+    run_id: &str,
+    policies: &crate::policy::PolicySet,
+    provider: Provider,
+    policy: &str,
+    worktree: Option<&std::path::Path>,
+    repo: Option<&std::path::Path>,
+    store_sha: Option<&str>,
+    floor_lifted: bool,
+    gated_interactive: bool,
+) -> Result<SpawnFiles> {
     // The gate is compiled against the path it will really live at, because it
     // denies writes to itself and a placeholder would deny the wrong file.
     let gate = layout.gate_script(run_id);
@@ -121,7 +175,12 @@ pub fn write_spawn_config(
 
     let (sandbox_profile, sandbox_sha) = if crate::sandbox::wraps_launches() {
         let profile = crate::sandbox::profile_path(&layout.spawn(run_id));
-        let sha = crate::sandbox::write_profile(policies, &spawn, &profile)?;
+        let sha = crate::sandbox::write_profile_for_launch(
+            policies,
+            &spawn,
+            &profile,
+            gated_interactive,
+        )?;
         (Some(profile), Some(sha))
     } else {
         (None, None)
