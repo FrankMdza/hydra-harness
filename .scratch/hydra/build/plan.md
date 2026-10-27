@@ -391,6 +391,9 @@ it.
 - [359 - `src/env.rs` tests `Provider::Codex` and `OPENAI_API_KEY`](359-child-env-tests-codex-and-openai-api-key.md)
 - [360 - `Outcome::Gated` counts `Event::GateRefusal` when no call got through](360-outcome-gated-counts-gate-refusal-events.md)
 - [361 - `hydra doctor --walk` classifies `RejectedBeforeHook` rows by tool and error shape](361-walk-classifies-rejected-before-hook-rows.md)
+- [340a - `SECURITY.md` states the twelve redactor classes, `~/.claude.json`, and the public-gate exposures](340a-security-md-known-exposures-and-redactor-classes.md)
+- [340b - Public documents and `Cargo.toml` `publish = false`](340b-public-docs-and-cargo-publish-false.md)
+- [341 - `IMPLEMENTATION.md` closes the twelve remaining stale claims of build 313 and the measured 361 breakdown](341-implementation-md-twelve-remaining-stale-claims.md)
 
 ## Out of scope
 
