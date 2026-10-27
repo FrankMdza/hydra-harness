@@ -1116,7 +1116,14 @@ push names none. Build ticket 362 reads the same two settings from the repositor
 `push.default = matching` there refuses a push with no refspec. A `remote.<name>.push` value gets
 the refspec checks when the push names that remote or names none, and a push that names none checks
 every remote. Quotes are dropped from a value, and a `#` or `;` outside quotes ends it. Escapes such
-as `\"` are not decoded.
+as `\"` are not decoded. Build ticket 365 refuses what that scanner cannot judge. A target
+containing `*` is refused, as is `git push origin :`, which pushes every matching branch.
+`[remote.origin]` is read as remote `origin`. A key on the header line is read, and a comment after
+`]` does not drop the section. A trailing backslash joins the next line. Any `[include]` or
+`[includeIf]` section refuses a push that names no refspec. `git -c include.path` and `git -c
+includeIf.<cond>.path` are refused the way `--config-env` is. A shell assignment of `GIT_CONFIG`,
+`GIT_CONFIG_COUNT`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` or
+`GIT_CONFIG_KEY_<n>` before `git` is refused the same way. `config.worktree` is still not read.
 
 Two residuals remain, and the floor is still a spelling check. A `cd` earlier in the same command
 is not followed, so the check reads the payload's cwd. The check also ignores a per-worktree

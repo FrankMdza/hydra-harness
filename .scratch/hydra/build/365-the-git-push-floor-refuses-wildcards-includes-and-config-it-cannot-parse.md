@@ -1,7 +1,7 @@
 # 365 - The `git push` floor refuses wildcards, includes, and config it cannot parse
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 362
 
 ## Objective
@@ -33,3 +33,39 @@ Each one is a `git push` the gate allows today under `standard` and must refuse 
 5. Run `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo nextest run --release -p hydra --test gate`, and `cargo test --release --workspace --doc`.
 
 ## Outcome
+
+Built. `src/policy/gate.py` refuses a push target that contains `*`, and `git push origin :`.
+`config_section` splits a dotted `[remote.origin]` header and lowercases both parts. The scanner
+joins a value continued with a backslash, reads a key on the header line, and keeps a section
+whose header is followed by a comment. Any `[include]` or `[includeIf]` section refuses a push
+that names no refspec. `-c include.path` and `-c includeIf.*.path` are refused like `--config-env`.
+`floor_violation` passes leading assignments through to `check_git`, which refuses `GIT_CONFIG`,
+`GIT_CONFIG_COUNT`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` and
+`GIT_CONFIG_KEY_<n>`. Eleven tests in `tests/gate.rs` cover the cases.
+
+Measured. These ten failed before the change, each as `hydra/allow`:
+`git_push_floor_refuses_a_star_target_compared_with_protected_names`,
+`git_push_floor_refuses_any_target_containing_a_star`,
+`git_push_floor_refuses_an_empty_colon_refspec`,
+`git_push_floor_reads_a_dotted_remote_section`,
+`git_push_floor_reads_a_key_on_the_header_line`,
+`git_push_floor_reads_a_header_followed_by_a_comment`,
+`git_push_floor_joins_a_value_continued_with_a_backslash`,
+`git_push_floor_refuses_include_and_includeif_in_config`,
+`git_push_floor_refuses_include_passed_on_dash_c`,
+and `git_push_floor_refuses_git_config_assignments`.
+`git_push_floor_still_allows_a_topic_push` passed before the change. After the change,
+`cargo nextest run --release -p hydra --test gate` passes 161 of 161.
+`cargo fmt --all --check` is clean.
+`cargo clippy --release --workspace --all-targets -- -D warnings` is clean.
+`cargo test --release --workspace --doc` is clean.
+
+Assumptions that turned out false. The ticket pointed at `first_word` around line 639. That
+function strips assignments when it names a heredoc consumer. The assignments a push carries are
+stripped by `shell_command_words`, whose prefix is what `check_git` now reads. Case 2's
+`refs/heads/*:refs/heads/release/*` was already refused, because `release/*` matches the
+`release/` prefix. The test failed on `topic:refs/heads/mas*`.
+
+Not covered. `config.worktree` is still not read. `GIT_CONFIG_VALUE_<n>` is not in the assignment
+list. A separate `export GIT_CONFIG=...` segment is not an assignment before `git`. The private
+git directory findings from the same review were left for a later ticket.

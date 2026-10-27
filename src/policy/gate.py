@@ -1073,17 +1073,52 @@ def repo_config_texts(git_dir):
     return texts
 
 
+def join_config_continuations(text):
+    """Join git config lines that end with a backslash."""
+    out, buf = [], []
+    for line in text.splitlines():
+        if line.endswith("\\"):
+            buf.append(line[:-1])
+            continue
+        buf.append(line)
+        out.append("".join(buf))
+        buf = []
+    if buf:
+        out.append("".join(buf))
+    return "\n".join(out)
+
+
+def split_config_header(stripped):
+    """`([header], rest)` for a line that opens a section, or None if `]` is missing."""
+    if not stripped.startswith("["):
+        return None
+    quoted = False
+    for i, char in enumerate(stripped):
+        if char == '"':
+            quoted = not quoted
+        elif char == "]" and not quoted:
+            return stripped[: i + 1], stripped[i + 1 :]
+    return None
+
+
 def config_section(header):
     """`(name, subsection)` for a `[name "subsection"]` header, or None.
 
-    The name is lowercased, since git ignores its case. The subsection is kept as
-    written, since git reads it as case-sensitive. A plain `[name]` has `""`.
+    The name is lowercased, since git ignores its case. A quoted subsection is
+    kept as written, since git reads it as case-sensitive. A dotted `[name.sub]`
+    lowercases the whole form. A plain `[name]` has `""`.
     """
     body = header.strip()
-    if not body.endswith("]"):
+    if not body.startswith("[") or not body.endswith("]"):
         return None
-    name, _, sub = body[1:-1].strip().partition(" ")
-    return name.lower(), sub.strip().strip('"')
+    inner = body[1:-1].strip()
+    if not inner:
+        return None
+    if '"' in inner or " " in inner:
+        name, _, sub = inner.partition(" ")
+        return name.lower(), sub.strip().strip('"')
+    name, _, sub = inner.partition(".")
+    return name.lower(), sub.lower()
 
 
 def config_value(raw):
@@ -1108,19 +1143,34 @@ def config_push_violation(git_dir, remote_name=None):
     branch, and each `remote.<name>.push` value is a refspec git sends. With no
     remote named, every remote is judged, which is the safe side of a floor.
     """
+    # The scanner is not git's parser, so a shape it does not understand refuses.
     for text in repo_config_texts(git_dir):
         section = None
-        for line in text.splitlines():
+        for line in join_config_continuations(text).splitlines():
             stripped = line.strip()
-            if stripped.startswith("["):
-                section = config_section(stripped)
+            if not stripped or stripped[0] in "#;":
                 continue
+            if stripped.startswith("["):
+                parts = split_config_header(stripped)
+                if parts is None:
+                    return "git push with config the gate cannot parse"
+                header, rest = parts
+                section = config_section(header)
+                if section is None:
+                    return "git push with config the gate cannot parse"
+                if section[0] in ("include", "includeif"):
+                    return "git push with include in config, which the gate does not read"
+                stripped = rest.strip()
+                if not stripped or stripped[0] in "#;":
+                    continue
+            if section is None:
+                continue
+            name, sub = section
             key, sep, raw = stripped.partition("=")
-            if section is None or not sep:
+            if not sep:
                 continue
             key = key.strip().lower()
             value = config_value(raw)
-            name, sub = section
             if name == "push" and key == "default" and value.lower() == "matching":
                 return "git push with push.default=matching in config, which pushes every shared branch"
             if name == "remote" and key == "push" and remote_name in (None, sub):
@@ -1162,12 +1212,20 @@ def push_refspec_violation(token, git_dirs):
 
     A `HEAD` or `@` target names the checkout's own branch, so it is judged the
     way a bare push is. A `refs/heads/` prefix is stripped before the protected
-    lists are read, and other `refs/` spellings keep their last component.
+    lists are read, and other `refs/` spellings keep their last component. A
+    target containing `*` is refused. An empty `:` is refused, because git then
+    pushes every matching branch.
     """
     rules = HYDRA_CONFIG["floor"]["git"]
     if token.startswith("+"):
         return "git push with a forced refspec, {}".format(token)
-    target = token.split(":")[-1]
+    source, colon, target = token.rpartition(":")
+    if colon and not source and not target:
+        return "git push with an empty refspec, which pushes every matching branch"
+    if not colon:
+        target = token
+    if "*" in target:
+        return "git push with a wildcard refspec, {}".format(token)
     if target in ("HEAD", "@"):
         for git_dir in git_dirs:
             reason = bare_push_violation(git_dir)
@@ -1185,7 +1243,29 @@ def push_refspec_violation(token, git_dirs):
     return None
 
 
-def check_git(argv, cwd):
+UNREAD_GIT_CONFIG = frozenset((
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+))
+
+
+def git_config_assignment(token):
+    """The GIT_CONFIG* name a leading assignment sets, or None."""
+    name, eq, _ = token.partition("=")
+    if not eq:
+        return None
+    if name in UNREAD_GIT_CONFIG:
+        return name
+    prefix = "GIT_CONFIG_KEY_"
+    if name.startswith(prefix) and name[len(prefix) :].isdigit():
+        return name
+    return None
+
+
+def check_git(argv, cwd, prefix=()):
     rules = HYDRA_CONFIG["floor"]["git"]
     options, sub, rest = git_options(argv)
     if sub is None:
@@ -1198,12 +1278,20 @@ def check_git(argv, cwd):
         # `--config-env` names a variable the gate does not read, so it is refused.
         if any(flag == "--config-env" for flag, _ in options):
             return "git push with --config-env, which the gate does not read"
+        for token in prefix:
+            name = git_config_assignment(token)
+            if name:
+                return "git push with {}, which the gate does not read".format(name)
         git_dirs = push_git_dirs(options, cwd)
         for flag, value in options:
             if flag != "-c":
                 continue
             key, _, setting = value.partition("=")
             key = key.lower()
+            if key == "include.path" or (
+                key.startswith("includeif.") and key.endswith(".path")
+            ):
+                return "git push with -c include, which the gate does not read"
             if key == "push.default" and setting.lower() == "matching":
                 return "git push with push.default=matching, which pushes every shared branch"
             if key.startswith("remote.") and key.endswith(".push"):
@@ -1326,12 +1414,12 @@ def floor_violation(command, cwd):
         return hit
 
     for segment in segments:
-        _, argv = shell_command_words(segment)
+        prefix, argv = shell_command_words(segment)
         if not argv:
             continue
         binary = os.path.basename(argv[0])
         if binary == "git":
-            hit = check_git(argv, cwd)
+            hit = check_git(argv, cwd, prefix)
         elif binary == "aws":
             hit = check_aws(argv)
         else:

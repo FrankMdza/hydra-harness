@@ -2529,6 +2529,237 @@ fn git_push_floor_reads_remote_push_and_push_default_from_repo_config() {
 }
 
 #[test]
+fn git_push_floor_refuses_a_star_target_compared_with_protected_names() {
+    // Build ticket 365. `push_refspec_violation` compared a target `*` with
+    // the protected names, so `refs/heads/*:refs/heads/*` walked past.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/own\n").unwrap();
+    let decision = gate.shell("git push origin refs/heads/*:refs/heads/*");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "a star-to-star refspec was let through: {}",
+        decision.reason
+    );
+    std::fs::write(
+        git.join("config"),
+        "[remote \"origin\"]\n\tpush = refs/heads/*:refs/heads/*\n",
+    )
+    .unwrap();
+    let decision = gate.shell("git push origin");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "remote.origin.push with a star target was let through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn git_push_floor_refuses_any_target_containing_a_star() {
+    // Build ticket 365. Any target containing `*` is refused, including a
+    // prefix of a protected name that the lists never see as a match.
+    let gate = Gate::new("standard");
+    for command in [
+        "git push origin refs/heads/*:refs/heads/release/*",
+        "git push origin topic:refs/heads/mas*",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} was let through: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn git_push_floor_refuses_an_empty_colon_refspec() {
+    // Build ticket 365. `git push origin :` pushes every matching branch.
+    let gate = Gate::new("standard");
+    let decision = gate.shell("git push origin :");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "git push origin : was let through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn git_push_floor_reads_a_dotted_remote_section() {
+    // Build ticket 365. Git reads `[remote.origin]` as remote `origin`.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/own\n").unwrap();
+    std::fs::write(
+        git.join("config"),
+        "[remote.origin]\n\tpush = HEAD:refs/heads/master\n",
+    )
+    .unwrap();
+    let decision = gate.shell("git push origin");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "[remote.origin] push to master was let through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn git_push_floor_reads_a_key_on_the_header_line() {
+    // Build ticket 365. Git accepts a setting on the same line as `[section]`.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/own\n").unwrap();
+    for (config, command) in [
+        (
+            "[remote \"origin\"] push = HEAD:refs/heads/master\n",
+            "git push origin",
+        ),
+        ("[push] default = matching\n", "git push"),
+    ] {
+        std::fs::write(git.join("config"), config).unwrap();
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} under {config:?} was let through: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn git_push_floor_reads_a_header_followed_by_a_comment() {
+    // Build ticket 365. A comment after `]` does not drop the section.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/own\n").unwrap();
+    std::fs::write(
+        git.join("config"),
+        "[remote \"origin\"] # note\n\tpush = HEAD:refs/heads/master\n",
+    )
+    .unwrap();
+    let decision = gate.shell("git push origin");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "a header with a trailing comment was let through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn git_push_floor_joins_a_value_continued_with_a_backslash() {
+    // Build ticket 365. Git joins a value that ends with `\`.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/own\n").unwrap();
+    std::fs::write(
+        git.join("config"),
+        "[remote \"origin\"]\n\tpush = HEAD:refs/heads/\\\nmaster\n",
+    )
+    .unwrap();
+    let decision = gate.shell("git push origin");
+    assert!(
+        decision.denied_for("hydra/floor"),
+        "a continued push value to master was let through: {}",
+        decision.reason
+    );
+}
+
+#[test]
+fn git_push_floor_refuses_include_and_includeif_in_config() {
+    // Build ticket 365. The scanner does not follow includes, so their
+    // presence refuses a push that names no refspec.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/test\n").unwrap();
+    for config in [
+        "[include]\n\tpath = other\n",
+        "[includeIf \"gitdir:other\"]\n\tpath = other\n",
+    ] {
+        std::fs::write(git.join("config"), config).unwrap();
+        let decision = gate.shell("git push origin");
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "git push origin under {config:?} was let through: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn git_push_floor_refuses_include_passed_on_dash_c() {
+    // Build ticket 365. `-c include.path` names a file the gate does not read.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/test\n").unwrap();
+    for command in [
+        "git -c include.path=other push origin",
+        "git -c includeIf.gitdir/i.path=other push origin",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} was let through: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn git_push_floor_refuses_git_config_assignments() {
+    // Build ticket 365. The named GIT_CONFIG* variables are not read, so a
+    // push that carries one as an assignment is refused like `--config-env`.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/test\n").unwrap();
+    for command in [
+        "GIT_CONFIG_COUNT=1 git push origin",
+        "GIT_CONFIG_PARAMETERS=x git push origin",
+        "GIT_CONFIG_GLOBAL=x git push origin",
+        "GIT_CONFIG_SYSTEM=x git push origin",
+        "GIT_CONFIG=x git push origin",
+        "GIT_CONFIG_KEY_0=remote.origin.push git push origin",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} was let through: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
+fn git_push_floor_still_allows_a_topic_push() {
+    // Build ticket 365 case 11. A topic refspec, a topic branch, a bare push
+    // on hydra/test with no include and no push config, and a delete of topic.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/test\n").unwrap();
+    for command in [
+        "git push origin hydra/test:refs/heads/feature",
+        "git push origin hydra/test",
+        "git push",
+        "git push origin :topic",
+    ] {
+        let decision = gate.shell(command);
+        assert!(
+            decision.allowed,
+            "{command} was refused: {}",
+            decision.reason
+        );
+    }
+}
+
+#[test]
 fn each_pattern_consumes_dash_c_and_git_dir_before_reading_the_subcommand() {
     // 7.4 says so in one line, and it is the whole difference between a floor
     // and a floor with a hole in it.

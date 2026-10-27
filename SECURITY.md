@@ -353,16 +353,23 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   `--out` that is the same file as `preference.jsonl` beside it, compared by device and inode
   before a byte is written. That covers `Preference.jsonl` on a case-insensitive volume and a
   symbolic or hard link by any name.
-- **`git push` floor and its remaining shell limits, builds 349 and 357.** Since build tickets 349
-  and 357 the pattern floor refuses a bare `git push` from a protected branch. It judges `git push
-  origin HEAD` and `@` by the branch the checkout names, with any `-C`, `--git-dir` or
-  `--work-tree` before `push` taken into account. It refuses a push to a protected branch named
-  with a `refs/heads/` prefix, a `-c remote.<name>.push` refspec to one, `-c push.default=matching`,
-  and any `--config-env`. A `cd` earlier in the same shell command still reaches a protected
-  branch, because the gate does not interpret shell. Build ticket 362 closed the repository config
-  gap. A `push.default = matching` in `.git/config` or the shared config refuses a push with no
-  refspec. So does a `remote.<name>.push` refspec to a protected branch, when the push names that
-  remote or none.
+- **`git push` floor and its remaining shell limits, builds 349, 357, 362 and 365.** Since build
+  tickets 349 and 357 the pattern floor refuses a bare `git push` from a protected branch. It
+  judges `git push origin HEAD` and `@` by the branch the checkout names, with any `-C`,
+  `--git-dir` or `--work-tree` before `push` taken into account. It refuses a push to a protected
+  branch named with a `refs/heads/` prefix, a `-c remote.<name>.push` refspec to one, `-c
+  push.default=matching`, and any `--config-env`. A `cd` earlier in the same shell command still
+  reaches a protected branch, because the gate does not interpret shell. Build ticket 362 reads
+  `push.default` and `remote.<name>.push` from `.git/config` and from the shared config a linked
+  worktree's `commondir` names. A `push.default = matching` there refuses a push with no refspec.
+  So does a `remote.<name>.push` refspec to a protected branch, when the push names that remote or
+  none. Build ticket 365 takes the safe side of a line reader. The floor reads a dotted
+  `[remote.origin]` header, a key on the header line, a comment after the header, and a value
+  continued with a backslash. It refuses a target that contains `*`, an empty `:` refspec, any
+  `[include]` or `[includeIf]` section, `-c include.path` and `-c includeIf.*.path`, and a
+  `GIT_CONFIG`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`,
+  `GIT_CONFIG_SYSTEM` or `GIT_CONFIG_KEY_<n>` assignment before `git`. It does not follow
+  includes. `config.worktree` is still not read.
 - **What remains open across map 134.** The interactive gate on `cursor-agent`, `agy` and `codex`
   is unmeasured, so `hydra run --interactive --policy` refuses those three until build ticket 130.
   Linux compiles and runs CI since builds 315 and 331, but launches hook-only without an OS sandbox
