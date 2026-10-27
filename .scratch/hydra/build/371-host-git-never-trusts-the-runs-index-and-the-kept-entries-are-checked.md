@@ -1,7 +1,7 @@
 # 371 - Host git never trusts the run's index, and every kept entry of the private directory is checked
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 367
 
 ## Objective
@@ -37,3 +37,17 @@ GPT's finding that the sweep removes `info/sparse-checkout` and `config.worktree
 Build 369 runs beside you in `src/cockpit/`, `src/record/secrets.rs` and the docs. Do not touch those.
 
 ## Outcome
+
+Built on 2026-10-27.
+
+`sweep_private` in `src/worktree.rs` now keeps `HEAD`, `commondir` and `gitdir` and removes every other entry, whatever its type. The index and `logs` go with the rest. `check_plain` refuses each kept file, naming the path, unless it is missing or a regular file with one link, and the refusal comes before any removal. `remove_entry` gives a directory its owner's read, write and search bits back before `remove_dir_all`. To do that, `restore_write_bits` now restores all three bits rather than write alone. `sweep_logs` is gone. The new `CheckoutGit::swept` runs the sweep and then, on a full sweep with the private directory present, runs `git read-tree HEAD`. `new`, `for_run_from` and `for_run_in` all go through it, so every caller gets the rebuild. A live run under `for_run_in` gets `Sweep::TypesOnly`, which was `IndexOnly`: the three kept files and the index are type checked, and nothing is removed or rebuilt.
+
+`worktree::create` calls `refuse_sparse` before `git worktree add`. It refuses when `core.sparseCheckout` reads true from the repository's own configuration, or when `info/sparse-checkout` exists under `--git-path` or the common directory, and names the repository and the reason. `write_bwrap_profile_for_launch` creates the three skill and plugin roots through `create_inside`, one component at a time, and refuses at the first symlink with its path. Reap's curate branch checks `skills/.git` before `git_common_dir`.
+
+Tests. In `tests/cleanup.rs`: `a_skip_worktree_entry_cannot_smuggle_a_blob_onto_the_branch`, Grok's recipe, failed with `planted` on the branch and `on disk` in the checkout. `a_skip_worktree_entry_with_no_file_is_reaped_as_a_deletion` is the measurement rule 1 asked for. Before the change the branch kept `committed.txt`. After it, the branch deletes it, and that deletion is why the sparse refusal exists. `a_sparse_repository_is_refused_at_launch_by_name` failed for both the file and the config variant because the launch went through. `a_zero_byte_index_is_rebuilt_and_the_work_still_reaps` failed with git exiting 128. `a_fifo_as_head_is_refused_by_name_without_hanging` hung past its 30 s limit. `an_unreadable_reflog_or_logs_directory_does_not_stop_reap` failed on the `logs/HEAD` at mode 000. In `worktree::tests`, `a_kept_entry_that_is_not_a_plain_file_is_refused_by_name` covers a fifo, a link, a hard link and a directory for each kept file, and `a_full_sweep_takes_any_index_and_an_unreadable_logs` covers an empty, fifo, link and directory index with `logs` at mode 000. Both failed before. In `sandbox::tests`, `a_seeded_skill_root_link_refuses_the_launch_by_name` failed because the profile was written and `skills` was created through the link.
+
+Existing tests changed by the finding. The fifo `index` test now expects reap to remove the fifo and commit, not refuse. The index-only gitlink test now checks that the gitlink never reaches the branch, because the rebuilt index drops it before the nested scan and there is nothing left to refuse. `assert_nested_refusal` no longer checks the index bytes, which the sweep now rebuilds. It compares the parent's full object list instead of its unreachable objects, because the staged submodule's `.gitmodules` blob was named only by the run's index and turned unreachable once the index went, with nothing new arriving. The three sweep unit tests now expect three kept files.
+
+The ticket assumed `git sparse-checkout disable` would be enough to launch again. Measured on git 2.55: `disable` sets `core.sparseCheckout` to false and leaves `info/sparse-checkout` behind, so under the file rule a repository that once went sparse stays refused until the file is removed. The error says so. Nothing is kept from `logs`: no Hydra code reads a run checkout's reflog.
+
+Checks: `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --target x86_64-unknown-linux-gnu`, and the six test files with 195 of 195 passing. nextest refuses `--lib` given twice, so the last check ran as `cargo nextest run --release -p hydra --lib -E 'test(/^worktree::|^sandbox::/)'`, with 22 of 22 passing. `cargo nextest run --release --workspace` passed 1529 of 1529. Nothing ran under bubblewrap. Build 370's item 4 names "the five private-directory attacks after build 367" and should now include 371's plants.

@@ -46,9 +46,21 @@ impl CheckoutGit {
     /// Every host-side git on a checkout a model wrote into starts from here
     /// or from [`CheckoutGit::for_run`], so none of them runs before the sweep.
     pub fn new(path: &Path, common: &Path) -> Result<Self> {
-        let context = Self::bind(path, common)?;
-        sweep_private(&context.private, Sweep::Full)?;
-        Ok(context)
+        Self::bind(path, common)?.swept(Sweep::Full)
+    }
+
+    /// Sweeps the private directory and, on a full sweep, rebuilds the index
+    /// from `HEAD`, build ticket 371. The run's own index is gone by then, so
+    /// no host git reads an entry the run staged: a skip-worktree bit on a
+    /// planted blob, a gitlink, or a truncated file that makes git exit 128.
+    /// What the caller stages next comes from the checkout on disk.
+    fn swept(self, sweep: Sweep) -> Result<Self> {
+        sweep_private(&self.private, sweep)?;
+        if sweep == Sweep::Full && self.private.is_dir() {
+            git(&self, &["read-tree", "HEAD"])
+                .with_context(|| format!("rebuilding the index of {}", self.path.display()))?;
+        }
+        Ok(self)
     }
 
     /// The same without the sweep, for launch-time git: `create` and
@@ -71,8 +83,8 @@ impl CheckoutGit {
     }
 
     /// The same for a run [`crate::live`] judged `state`. A live run may still
-    /// be writing its private directory, so it gets the index check alone and
-    /// keeps every file. `hydra status` is the one caller.
+    /// be writing its private directory, so it gets the type checks alone,
+    /// keeps every file and keeps its index. `hydra status` is the one caller.
     pub fn for_run_in(
         run_id: &str,
         path: &Path,
@@ -80,21 +92,17 @@ impl CheckoutGit {
         state: crate::live::State,
     ) -> Result<Self> {
         let common = start.and_then(|s| s["scopes"]["parent_git_dir"].as_str());
-        let context = Self::locate(run_id, path, common.map(Path::new))?;
         let sweep = match state {
-            crate::live::State::Live => Sweep::IndexOnly,
+            crate::live::State::Live => Sweep::TypesOnly,
             _ => Sweep::Full,
         };
-        sweep_private(&context.private, sweep)?;
-        Ok(context)
+        Self::locate(run_id, path, common.map(Path::new))?.swept(sweep)
     }
 
     /// The same, with the record's `scopes.parent_git_dir` already read, for a
     /// caller that reads line 0 through a typed view.
     pub fn for_run_from(run_id: &str, path: &Path, parent_git_dir: Option<&Path>) -> Result<Self> {
-        let context = Self::locate(run_id, path, parent_git_dir)?;
-        sweep_private(&context.private, Sweep::Full)?;
-        Ok(context)
+        Self::locate(run_id, path, parent_git_dir)?.swept(Sweep::Full)
     }
 
     /// The parent git directory a run's checkout belongs to, for a reader that
@@ -129,15 +137,17 @@ impl CheckoutGit {
 /// What [`sweep_private`] may do to a run's private git directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Sweep {
-    /// Check the index, then remove every entry git needs no file for.
+    /// Check the kept files, then remove every other entry, the index and
+    /// `logs` included.
     Full,
-    /// Check the index and remove nothing, for a run that may still be writing.
-    IndexOnly,
+    /// Check the kept files and the index and remove nothing, for a run that
+    /// may still be writing.
+    TypesOnly,
 }
 
-/// The entries of a private git directory the sweep keeps. `logs` stays only
-/// as a real directory.
-const KEPT: [&str; 5] = ["HEAD", "commondir", "gitdir", "index", "logs"];
+/// The entries of a private git directory a full sweep keeps. Each must be a
+/// regular file with one link.
+const KEPT: [&str; 3] = ["HEAD", "commondir", "gitdir"];
 
 /// Map ticket 135, question 1. Since build ticket 364, bubblewrap binds
 /// `<git>/worktrees/<run-id>/` writable, and host git reads what a run leaves
@@ -147,27 +157,36 @@ const KEPT: [&str; 5] = ["HEAD", "commondir", "gitdir", "index", "logs"];
 /// `index` hangs git. So every entry but [`KEPT`] goes, found with
 /// `symlink_metadata` and removed without following a link.
 ///
-/// **The index is refused rather than removed.** It holds what the run
-/// staged, and a fifo or a link there is a run that tried something. The
-/// error names the path so a human can look.
+/// **A kept file that is not a plain file is refused.** A fifo `HEAD` hangs
+/// every git that opens the repository, and a link or a second hard link
+/// names a file outside the directory. The error names the path so a human
+/// can look, and nothing is removed before the check.
 ///
-/// **`logs` keeps its directories and its plain files.** A link inside it, or
-/// a file with a second hard link, would take the next reflog line to the
-/// file it names. That was `clear_private_logs`, which build ticket 367 folded
-/// in here.
+/// **The index goes, whatever it is**, build ticket 371. A skip-worktree bit
+/// on a planted blob made reap commit bytes the checkout did not hold, and a
+/// zero-byte index made git exit 128. [`CheckoutGit::swept`] rebuilds it from
+/// `HEAD`.
+///
+/// **`logs` goes whole.** A link inside it took the next reflog line to the
+/// file it names, and a `logs/HEAD` nobody can write failed reap's commit.
+/// Git creates it again, and nothing reads a run checkout's reflog. A
+/// directory under it that cannot be read gets its owner's bits back first.
 fn sweep_private(private: &Path, sweep: Sweep) -> Result<()> {
-    let index = private.join("index");
-    match std::fs::symlink_metadata(&index) {
-        Ok(meta) if meta.is_file() => (),
-        Ok(_) => bail!(
-            "{} is not a regular file, so Hydra will not run git on this checkout. \
-             The run left it there; inspect it by hand",
-            index.display()
-        ),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
-        Err(err) => return Err(err.into()),
+    for name in KEPT {
+        check_plain(&private.join(name))?;
     }
-    if sweep == Sweep::IndexOnly {
+    if sweep == Sweep::TypesOnly {
+        let index = private.join("index");
+        match std::fs::symlink_metadata(&index) {
+            Ok(meta) if meta.is_file() => (),
+            Ok(_) => bail!(
+                "{} is not a regular file, so Hydra will not run git on this checkout. \
+                 The run left it there; inspect it by hand",
+                index.display()
+            ),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
+            Err(err) => return Err(err.into()),
+        }
         return Ok(());
     }
     let entries = match std::fs::read_dir(private) {
@@ -179,35 +198,33 @@ fn sweep_private(private: &Path, sweep: Sweep) -> Result<()> {
     for entry in entries {
         let entry = entry?;
         let meta = std::fs::symlink_metadata(entry.path())?;
-        let name = entry.file_name();
-        if name == "logs" && meta.is_dir() {
-            sweep_logs(&entry.path())?;
-        } else if name == "logs" || !KEPT.iter().any(|kept| name == *kept) {
+        if !KEPT.iter().any(|kept| entry.file_name() == *kept) {
             remove_entry(&entry.path(), &meta)?;
         }
     }
     Ok(())
 }
 
-/// Removes every entry under `logs` that is not a directory or a plain file
-/// with one link.
-fn sweep_logs(dir: &Path) -> Result<()> {
+/// Refuses `path` unless it is missing or a regular file with one link.
+fn check_plain(path: &Path) -> Result<()> {
     use std::os::unix::fs::MetadataExt;
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        let meta = std::fs::symlink_metadata(&path)?;
-        if meta.is_dir() {
-            sweep_logs(&path)?;
-        } else if !meta.is_file() || meta.nlink() > 1 {
-            remove_entry(&path, &meta)?;
-        }
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_file() && meta.nlink() == 1 => Ok(()),
+        Ok(_) => bail!(
+            "{} is not a regular file with one link, so Hydra will not run git on this \
+             checkout. The run left it there; inspect it by hand",
+            path.display()
+        ),
+        // Missing: git fails on its own and says why.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.into()),
     }
-    Ok(())
 }
 
 /// `remove_dir_all` removes a link inside the directory and never follows it.
 fn remove_entry(path: &Path, meta: &std::fs::Metadata) -> Result<()> {
     if meta.is_dir() {
+        restore_write_bits(path)?;
         std::fs::remove_dir_all(path)?;
     } else {
         std::fs::remove_file(path)?;
@@ -1139,7 +1156,7 @@ pub(crate) fn inside_checkout(checkout: &Path, path: &str) -> bool {
     true
 }
 
-/// Gives the owner write permission back on `dir` and every directory under
+/// Gives the owner read, write and search back on `dir` and every directory under
 /// it, without following symlinks, so the entries inside can be unlinked.
 #[cfg(unix)]
 fn restore_write_bits(dir: &Path) -> Result<()> {
@@ -1150,7 +1167,8 @@ fn restore_write_bits(dir: &Path) -> Result<()> {
         return Ok(());
     }
     let mode = meta.permissions().mode();
-    if mode & 0o200 == 0 {
+    // Read and search too, or `read_dir` below fails on a 0200 directory.
+    if mode & 0o700 != 0o700 {
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode | 0o700))
             .with_context(|| format!("restoring write permission on {}", dir.display()))?;
     }
@@ -1181,6 +1199,7 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
             repo.display()
         );
     }
+    refuse_sparse(repo)?;
 
     git(
         repo,
@@ -1227,6 +1246,39 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
         branch: branch.to_string(),
         seed_tree,
     })
+}
+
+/// Refuses a parent with sparse checkout on, build ticket 371.
+///
+/// A sparse checkout is index entries with the skip-worktree bit and no file
+/// on disk. Reap rebuilds the index from `HEAD`, which has no bits, so it
+/// would commit every file outside the cone as deleted. Refusing here costs
+/// nothing; refusing at reap would strand a run that already spent its quota.
+/// `core.sparseCheckout` read from the repository's own configuration, or a
+/// `sparse-checkout` file in its git directory or the common one, shows it.
+fn refuse_sparse(repo: &Path) -> Result<()> {
+    let on = git(repo, &["config", "--bool", "--get", "core.sparseCheckout"])
+        .is_ok_and(|value| value.trim() == "true");
+    let own = git(repo, &["rev-parse", "--git-path", "info/sparse-checkout"])
+        .map(|out| repo.join(out.trim()));
+    let common = git_common_dir(repo).map(|dir| dir.join("info/sparse-checkout"));
+    let file = own
+        .ok()
+        .into_iter()
+        .chain(common)
+        .find(|path| path.exists());
+    let why = match (&file, on) {
+        (Some(file), _) => format!("{} exists", file.display()),
+        (None, true) => "core.sparseCheckout is true".to_string(),
+        (None, false) => return Ok(()),
+    };
+    bail!(
+        "{} has sparse checkout on: {why}. Reap rebuilds a run's index from HEAD and would \
+         commit every file outside the cone as deleted, so Hydra will not launch here. \
+         Run `git sparse-checkout disable`, remove the sparse-checkout file, or launch \
+         from a full checkout",
+        repo.display()
+    )
 }
 
 /// Every fallible step [`create`] takes after `git worktree add`.
@@ -1602,18 +1654,10 @@ mod tests {
     }
 
     #[test]
-    fn the_sweep_keeps_exactly_gits_five_entries() {
-        let (root, private) = planted("five");
+    fn the_sweep_keeps_exactly_gits_three_files() {
+        let (root, private) = planted("three");
         sweep_private(&private, Sweep::Full).unwrap();
-        assert_eq!(
-            names(&private),
-            ["HEAD", "commondir", "gitdir", "index", "logs"]
-        );
-        // Inside `logs`, the plain file stays and the two links go.
-        assert!(private.join("logs/HEAD").is_file());
-        assert!(private.join("logs/refs/heads").is_dir());
-        assert!(!private.join("logs/refs/heads/x").exists());
-        assert!(!private.join("logs/ORIG").exists());
+        assert_eq!(names(&private), ["HEAD", "commondir", "gitdir"]);
         assert_eq!(
             std::fs::read_to_string(root.join("outside/victim")).unwrap(),
             "untouched\n"
@@ -1622,39 +1666,120 @@ mod tests {
     }
 
     #[test]
-    fn logs_stays_only_as_a_directory() {
+    fn logs_goes_whatever_it_is() {
         let (root, private) = planted("logs-file");
         std::fs::remove_dir_all(private.join("logs")).unwrap();
         std::os::unix::fs::symlink(root.join("outside"), private.join("logs")).unwrap();
         sweep_private(&private, Sweep::Full).unwrap();
-        assert_eq!(names(&private), ["HEAD", "commondir", "gitdir", "index"]);
+        assert_eq!(names(&private), ["HEAD", "commondir", "gitdir"]);
         assert!(root.join("outside/victim").is_file());
 
         std::fs::write(private.join("logs"), "a file\n").unwrap();
         sweep_private(&private, Sweep::Full).unwrap();
-        assert_eq!(names(&private), ["HEAD", "commondir", "gitdir", "index"]);
+        assert_eq!(names(&private), ["HEAD", "commondir", "gitdir"]);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
-    fn a_live_run_keeps_every_file_and_still_gets_the_index_check() {
+    fn a_live_run_keeps_every_file_and_still_gets_the_type_checks() {
         let (root, private) = planted("live");
         let before = names(&private);
-        sweep_private(&private, Sweep::IndexOnly).unwrap();
+        sweep_private(&private, Sweep::TypesOnly).unwrap();
         assert_eq!(names(&private), before);
 
         std::fs::remove_file(private.join("index")).unwrap();
         std::os::unix::fs::symlink(root.join("outside/victim"), private.join("index")).unwrap();
-        for sweep in [Sweep::IndexOnly, Sweep::Full] {
-            let err = sweep_private(&private, sweep).unwrap_err().to_string();
-            assert!(
-                err.contains(&*private.join("index").to_string_lossy()),
-                "{err}"
-            );
-        }
+        let err = sweep_private(&private, Sweep::TypesOnly)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains(&*private.join("index").to_string_lossy()),
+            "{err}"
+        );
         // The refusal comes before any removal.
         assert_eq!(names(&private), before);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Build ticket 371, rule 2. A fifo `HEAD` hung `git rev-parse` for 19 s,
+    /// and a linked one names a file outside the private directory.
+    #[test]
+    fn a_kept_entry_that_is_not_a_plain_file_is_refused_by_name() {
+        for name in ["HEAD", "commondir", "gitdir"] {
+            for shape in ["fifo", "link", "hard link", "directory"] {
+                let (root, private) = planted(&format!("kept-{name}-{}", shape.replace(' ', "-")));
+                let path = private.join(name);
+                std::fs::remove_file(&path).unwrap();
+                match shape {
+                    "fifo" => assert!(
+                        std::process::Command::new("mkfifo")
+                            .arg(&path)
+                            .status()
+                            .unwrap()
+                            .success()
+                    ),
+                    "link" => {
+                        std::os::unix::fs::symlink(root.join("outside/victim"), &path).unwrap()
+                    }
+                    "hard link" => std::fs::hard_link(root.join("outside/victim"), &path).unwrap(),
+                    _ => std::fs::create_dir(&path).unwrap(),
+                }
+                let before = names(&private);
+                for sweep in [Sweep::TypesOnly, Sweep::Full] {
+                    let err = sweep_private(&private, sweep).unwrap_err().to_string();
+                    assert!(
+                        err.contains(&*path.to_string_lossy()),
+                        "{name} as a {shape}: {err}"
+                    );
+                }
+                // The refusal comes before any removal.
+                assert_eq!(names(&private), before, "{name} as a {shape}");
+                std::fs::remove_dir_all(&root).unwrap();
+            }
+        }
+    }
+
+    /// Build ticket 371, rules 1 and 3. Whatever the index is, a full sweep
+    /// takes it, and `logs` goes whole even when nothing can read it.
+    #[test]
+    fn a_full_sweep_takes_any_index_and_an_unreadable_logs() {
+        use std::os::unix::fs::PermissionsExt;
+        for shape in ["empty", "fifo", "link", "directory"] {
+            let (root, private) = planted(&format!("index-{shape}"));
+            let index = private.join("index");
+            std::fs::remove_file(&index).unwrap();
+            match shape {
+                "empty" => std::fs::write(&index, "").unwrap(),
+                "fifo" => assert!(
+                    std::process::Command::new("mkfifo")
+                        .arg(&index)
+                        .status()
+                        .unwrap()
+                        .success()
+                ),
+                "link" => std::os::unix::fs::symlink(root.join("outside/victim"), &index).unwrap(),
+                _ => std::fs::create_dir(&index).unwrap(),
+            }
+            std::fs::set_permissions(
+                private.join("logs/HEAD"),
+                std::fs::Permissions::from_mode(0o000),
+            )
+            .unwrap();
+            std::fs::set_permissions(
+                private.join("logs/refs"),
+                std::fs::Permissions::from_mode(0o000),
+            )
+            .unwrap();
+            std::fs::set_permissions(private.join("logs"), std::fs::Permissions::from_mode(0o000))
+                .unwrap();
+            sweep_private(&private, Sweep::Full).unwrap();
+            assert_eq!(names(&private), ["HEAD", "commondir", "gitdir"], "{shape}");
+            assert_eq!(
+                std::fs::read_to_string(root.join("outside/victim")).unwrap(),
+                "untouched\n"
+            );
+            std::fs::remove_dir_all(&root).unwrap();
+        }
     }
 
     #[test]

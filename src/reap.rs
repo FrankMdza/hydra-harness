@@ -296,9 +296,16 @@ fn one(layout: &Layout, views: &[RunView], run_id: &str, delete_branch: bool) ->
     // to stop the spawn directory the way a failure above does: the pair goes
     // together or not at all, and a proposal reap could not commit is work.
     if checkout.is_dir() {
+        // `skills/` exists empty since build 366, and `rev-parse` there would
+        // walk up to Hydra's own repository. So the store needs its own `.git`.
+        let store = layout.skills();
         match commit_then_remove(
             &checkout,
-            crate::worktree::git_common_dir(&layout.skills())
+            store
+                .join(".git")
+                .exists()
+                .then(|| crate::worktree::git_common_dir(&store))
+                .flatten()
                 .ok_or_else(|| anyhow::anyhow!("skill store has no Git directory"))
                 .and_then(|common| CheckoutGit::new(&checkout, &common)),
             None,

@@ -1528,9 +1528,37 @@ fn a_planted_worktree_config_runs_no_filter_from_reaps_git() {
     assert!(!canary.exists(), "a filter the run configured ran");
 }
 
+/// Reap on a thread, so a git that blocks on a fifo fails the test instead
+/// of hanging it.
+fn reap_within(fixture: &Fixture, run: &str, what: &str) -> Vec<Reaped> {
+    let layout = fixture.layout();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reaping = run.to_string();
+    std::thread::spawn(move || {
+        let _ = tx.send(hydra::reap::reap(&layout, Some(&reaping), false, NO_GRACE));
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(30))
+        .unwrap_or_else(|_| panic!("reap hung on {what}"))
+        .unwrap()
+}
+
+/// The child's work reached the run's branch.
+fn assert_work_on_branch(fixture: &Fixture, run: &str, reaped: &[Reaped]) {
+    assert_eq!(
+        hydra::reap::failures(reaped),
+        0,
+        "{:?}",
+        worktree_why(reaped)
+    );
+    assert_eq!(
+        git(&fixture.repo, &["show", &format!("hydra/{run}:child.txt")]),
+        "work\n"
+    );
+}
+
 #[test]
 #[cfg(unix)]
-fn a_fifo_as_the_index_is_refused_without_hanging() {
+fn a_fifo_as_the_index_is_removed_without_hanging() {
     let fixture = Fixture::new("fifo-index");
     let run = "01a17ea1-0367-7000-8000-000000000005";
     let private = planted(&fixture, run);
@@ -1539,22 +1567,168 @@ fn a_fifo_as_the_index_is_refused_without_hanging() {
     let made = Command::new("mkfifo").arg(&index).status().unwrap();
     assert!(made.success());
 
-    let layout = fixture.layout();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let reaping = run.to_string();
-    std::thread::spawn(move || {
-        let _ = tx.send(hydra::reap::reap(&layout, Some(&reaping), false, NO_GRACE));
-    });
-    let reaped = rx
-        .recv_timeout(std::time::Duration::from_secs(30))
-        .expect("reap hung on a fifo index")
-        .unwrap();
+    let reaped = reap_within(&fixture, run, "a fifo index");
+    assert_work_on_branch(&fixture, run, &reaped);
+}
+
+// --- the index host git rebuilds, build ticket 371 ---------------------------
+
+/// Grok's recipe from the review of `05a9e21..435f156`. The run stages a
+/// blob the checkout does not hold and sets the skip-worktree bit on it.
+/// `git add -A` leaves the entry alone, so reap committed the planted bytes
+/// and the checkout a reviewer reads showed something else.
+#[test]
+fn a_skip_worktree_entry_cannot_smuggle_a_blob_onto_the_branch() {
+    let fixture = Fixture::new("skip-worktree");
+    let run = "01a17ea1-0371-7000-8000-000000000001";
+    let _ = planted(&fixture, run);
+    let checkout = fixture.layout().worktree(run);
+    let scratch = fixture.root.parent().unwrap().join("scratch");
+    let planted_blob = sha_of(&scratch, "planted\n");
+    git(
+        &fixture.repo,
+        &[
+            "hash-object",
+            "-w",
+            &scratch.join("content").to_string_lossy(),
+        ],
+    );
+    std::fs::write(checkout.join("committed.txt"), "on disk\n").unwrap();
+    git(
+        &checkout,
+        &[
+            "update-index",
+            "--cacheinfo",
+            &format!("100644,{planted_blob},committed.txt"),
+        ],
+    );
+    git(
+        &checkout,
+        &["update-index", "--skip-worktree", "committed.txt"],
+    );
+
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_work_on_branch(&fixture, run, &reaped);
+    assert_eq!(
+        git(
+            &fixture.repo,
+            &["show", &format!("hydra/{run}:committed.txt")]
+        ),
+        "on disk\n"
+    );
+}
+
+/// Why `hydra run` refuses a sparse repository. A sparse checkout is index
+/// entries with the skip-worktree bit and no file on disk. The rebuilt index
+/// has no bits, so reap commits every such file as deleted.
+#[test]
+fn a_skip_worktree_entry_with_no_file_is_reaped_as_a_deletion() {
+    let fixture = Fixture::new("sparse-deletion");
+    let run = "01a17ea1-0371-7000-8000-000000000002";
+    let _ = planted(&fixture, run);
+    let checkout = fixture.layout().worktree(run);
+    git(
+        &checkout,
+        &["update-index", "--skip-worktree", "committed.txt"],
+    );
+    std::fs::remove_file(checkout.join("committed.txt")).unwrap();
+
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_work_on_branch(&fixture, run, &reaped);
+    let tree = git(
+        &fixture.repo,
+        &["ls-tree", "--name-only", &format!("hydra/{run}")],
+    );
+    assert!(!tree.lines().any(|name| name == "committed.txt"), "{tree}");
+}
+
+#[test]
+fn a_sparse_repository_is_refused_at_launch_by_name() {
+    for how in ["file", "config"] {
+        let fixture = Fixture::new(&format!("sparse-{how}"));
+        let run = "01a17ea1-0371-7000-8000-000000000003";
+        match how {
+            "file" => {
+                let info = fixture.repo.join(".git/info");
+                std::fs::create_dir_all(&info).unwrap();
+                std::fs::write(info.join("sparse-checkout"), "/*\n").unwrap();
+            }
+            _ => {
+                git(&fixture.repo, &["config", "core.sparseCheckout", "true"]);
+            }
+        }
+        let layout = fixture.layout();
+        let Err(err) = hydra::worktree::create(
+            &fixture.repo,
+            &layout.worktree(run),
+            &format!("hydra/{run}"),
+            &layout.seed_index(run),
+        ) else {
+            panic!("{how}: a sparse repository launched");
+        };
+        let err = format!("{err:#}");
+        assert!(err.contains("sparse"), "{how}: {err}");
+        assert!(
+            err.contains(&*fixture.repo.to_string_lossy()),
+            "{how}: {err}"
+        );
+        assert!(!layout.worktree(run).exists(), "{how}");
+        assert!(!fixture.branches().contains(run), "{how}");
+    }
+}
+
+#[test]
+fn a_zero_byte_index_is_rebuilt_and_the_work_still_reaps() {
+    let fixture = Fixture::new("empty-index");
+    let run = "01a17ea1-0371-7000-8000-000000000004";
+    let private = planted(&fixture, run);
+    std::fs::write(private.join("index"), "").unwrap();
+
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_work_on_branch(&fixture, run, &reaped);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_fifo_as_head_is_refused_by_name_without_hanging() {
+    let fixture = Fixture::new("fifo-head");
+    let run = "01a17ea1-0371-7000-8000-000000000005";
+    let private = planted(&fixture, run);
+    let head = private.join("HEAD");
+    std::fs::remove_file(&head).unwrap();
+    let made = Command::new("mkfifo").arg(&head).status().unwrap();
+    assert!(made.success());
+
+    let reaped = reap_within(&fixture, run, "a fifo HEAD");
     assert!(
-        matches!(&reaped[0], Reaped::Failed { why, .. } if why.contains(&*index.to_string_lossy())),
+        matches!(&reaped[0], Reaped::Failed { why, .. } if why.contains(&*head.to_string_lossy())),
         "{:?}",
         worktree_why(&reaped)
     );
     assert!(fixture.layout().worktree(run).join("child.txt").is_file());
+}
+
+#[test]
+#[cfg(unix)]
+fn an_unreadable_reflog_or_logs_directory_does_not_stop_reap() {
+    use std::os::unix::fs::PermissionsExt;
+    for what in ["logs/HEAD", "logs"] {
+        let fixture = Fixture::new(&format!("unreadable-{}", what.replace('/', "-")));
+        let run = "01a17ea1-0371-7000-8000-000000000006";
+        let private = planted(&fixture, run);
+        let path = private.join(what);
+        if !path.exists() {
+            std::fs::create_dir_all(private.join("logs")).unwrap();
+            std::fs::write(private.join("logs/HEAD"), "").unwrap();
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let reaped = reap_one(&fixture.layout(), run, false);
+        if path.exists() {
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
+        }
+        assert_work_on_branch(&fixture, run, &reaped);
+    }
 }
 
 /// Why reap failed, for an assertion message.
@@ -1658,17 +1832,21 @@ fn nested_repository(
         .to_string()
 }
 
-fn unreachable_objects(repo: &Path) -> Vec<String> {
-    let out = fixture_git::command()
-        .args(["fsck", "--unreachable", "--no-reflogs"])
-        .current_dir(repo)
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter(|line| line.starts_with("unreachable "))
-        .map(str::to_string)
-        .collect()
+/// Every object the parent's own store holds. Not the unreachable ones:
+/// since build ticket 371 reap drops the run's index, so an object only that
+/// index named turns unreachable without anything arriving.
+fn all_objects(repo: &Path) -> Vec<String> {
+    git(
+        repo,
+        &[
+            "cat-file",
+            "--batch-all-objects",
+            "--batch-check=%(objectname)",
+        ],
+    )
+    .lines()
+    .map(str::to_string)
+    .collect()
 }
 
 /// Plants a pack in `store` whose index claims `claimed` and whose bytes are
@@ -2098,15 +2276,7 @@ fn assert_nested_refusal(fixture: &Fixture, run: &str, paths: &[&str]) {
     let branch = format!("hydra/{run}");
     let head = git(&fixture.repo, &["rev-parse", &branch]);
     let objects = git(&fixture.repo, &["count-objects", "-v"]);
-    let unreachable = unreachable_objects(&fixture.repo);
-    let index = git(&checkout, &["rev-parse", "--git-path", "index"]);
-    let index = PathBuf::from(index.trim());
-    let index = if index.is_absolute() {
-        index
-    } else {
-        checkout.join(index)
-    };
-    let index_bytes = std::fs::read(&index).unwrap();
+    let objects_before = all_objects(&fixture.repo);
     let pointer = std::fs::read(checkout.join(".git")).unwrap();
     let markers: Vec<_> = paths
         .iter()
@@ -2142,8 +2312,7 @@ fn assert_nested_refusal(fixture: &Fixture, run: &str, paths: &[&str]) {
     assert_eq!(report.lines().count(), paths.len() + 1, "{report}");
     assert_eq!(git(&fixture.repo, &["rev-parse", &branch]), head);
     assert_eq!(git(&fixture.repo, &["count-objects", "-v"]), objects);
-    assert_eq!(unreachable_objects(&fixture.repo), unreachable);
-    assert_eq!(std::fs::read(&index).unwrap(), index_bytes);
+    assert_eq!(all_objects(&fixture.repo), objects_before);
     assert_eq!(std::fs::read(checkout.join(".git")).unwrap(), pointer);
     assert_eq!(
         std::fs::read(checkout.join(".claude/skills/.gitignore")).unwrap(),
@@ -2270,11 +2439,15 @@ fn reap_refuses_a_legitimate_staged_submodule_instead_of_flattening() {
     );
 }
 
+/// Since build ticket 371 reap rebuilds the index from `HEAD` before reading
+/// it, so a gitlink staged in the index alone is gone before the nested scan,
+/// and the branch never carries it.
 #[test]
-fn reap_refuses_an_index_only_gitlink_with_no_nested_git_marker() {
+fn an_index_only_gitlink_with_no_nested_git_marker_never_reaches_the_branch() {
     let fixture = Fixture::new("nested-index-only");
     let run = "01a0d326-0000-7000-8000-000000000006";
     let checkout = fixture.checkout(run);
+    std::fs::write(checkout.join("child.txt"), "work\n").unwrap();
     let head = git(&fixture.repo, &["rev-parse", "HEAD"]);
     git(
         &checkout,
@@ -2286,5 +2459,11 @@ fn reap_refuses_an_index_only_gitlink_with_no_nested_git_marker() {
         ],
     );
     assert!(!checkout.join("sub").exists());
-    assert_nested_refusal(&fixture, run, &["sub"]);
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_work_on_branch(&fixture, run, &reaped);
+    let tree = git(
+        &fixture.repo,
+        &["ls-tree", "--name-only", &format!("hydra/{run}")],
+    );
+    assert!(!tree.lines().any(|name| name == "sub"), "{tree}");
 }

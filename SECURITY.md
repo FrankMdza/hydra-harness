@@ -120,14 +120,17 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   SBPL allows writes to the literal `index` path, so the same may hold on macOS. Nobody has
   measured it.
 - **Hydra sweeps the private git directory before it runs git there, since build ticket 367.**
-  Every `CheckoutGit` constructor removes every entry but `HEAD`, `commondir`, `gitdir`, `index`
-  and a `logs` that is a real directory, follows no link, and removes links and multiply linked
-  files inside `logs`. It refuses the checkout, naming the path, when `index` is not a regular
-  file. Reap, the diff stat at a run's end, `hydra status`, rung one's proposal and rung two's
-  patch read all go through it. A run `hydra status` finds live gets the index check alone,
-  because removing files under a running child races it. Launch-time git runs before the child
-  starts and skips the sweep. The five plants were measured with plain git on macOS. None was
-  measured under bubblewrap.
+  Every `CheckoutGit` constructor keeps `HEAD`, `commondir` and `gitdir` and removes every other
+  entry, the index and `logs` included, and follows no link. It refuses the checkout, naming the
+  path, when one of the three is not a regular file with one link. Since build ticket 371 it
+  then rebuilds the index with `git read-tree HEAD`, so host git never reads an index the run
+  wrote: a skip-worktree bit on a planted blob had made reap commit bytes the checkout did not
+  hold. A rebuilt index has no skip-worktree bits, so `hydra run` refuses a parent with sparse
+  checkout on. Reap, the diff stat at a run's end, `hydra status`, rung one's proposal and rung
+  two's patch read all go through it. A run `hydra status` finds live gets the type checks
+  alone and keeps its index, because removing files under a running child races it.
+  Launch-time git runs before the child starts and skips the sweep. Every plant was measured
+  with plain git on macOS. None was measured under bubblewrap.
 - **Git that Hydra runs outside the seatbelt trusts neither the checkout's `.git` file nor any
   configuration a run can write.** Every git call Hydra makes in a run's checkout sets
   `GIT_DIR`, `GIT_COMMON_DIR` and `GIT_WORK_TREE` from the run record's

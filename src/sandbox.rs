@@ -339,9 +339,7 @@ fn write_bwrap_profile_for_launch(
             .with_context(|| format!("creating {}", directory.display()))?;
     }
     for directory in [".claude/skills", ".agents/plugins", ".codex/skills"] {
-        let directory = spawn.worktree.join(directory);
-        std::fs::create_dir_all(&directory)
-            .with_context(|| format!("creating {}", directory.display()))?;
+        create_inside(spawn.worktree, directory)?;
     }
     let empty_settings = spawn.gate_script.with_file_name("empty-settings.json");
     std::fs::write(&empty_settings, "{}")
@@ -363,6 +361,35 @@ fn write_bwrap_profile_for_launch(
 
 /// The SBPL text: allow default, deny writes to Hydra's paths, deny corpus reads,
 /// then allow writes to what this spawn owns.
+/// Creates `relative` under `worktree` one component at a time, and refuses
+/// the launch at a component that is a symlink, build ticket 371.
+/// `create_dir_all` follows a link the seed copied into the worktree and
+/// creates the directory wherever it points.
+fn create_inside(worktree: &Path, relative: &str) -> Result<()> {
+    std::fs::create_dir_all(worktree)
+        .with_context(|| format!("creating {}", worktree.display()))?;
+    let mut path = worktree.to_path_buf();
+    for component in Path::new(relative).components() {
+        path.push(component);
+        match std::fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() => anyhow::bail!(
+                "{} is a symlink, so Hydra will not create the skill root through it. \
+                 Remove it from the working tree and launch again",
+                path.display()
+            ),
+            Ok(_) => (),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(&path)
+                    .with_context(|| format!("creating {}", path.display()))?;
+            }
+            Err(err) => {
+                return Err(err).with_context(|| format!("reading {}", path.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn compose(set: &PolicySet, spawn: &Spawn<'_>) -> String {
     render_sbpl(&rules_of(set, spawn))
 }
@@ -1114,6 +1141,50 @@ mod tests {
             )),
             "profile denies the run's own worktree"
         );
+    }
+
+    /// Build ticket 371, rule 4. `create_dir_all` follows a link the seed put
+    /// in the worktree and creates `skills` wherever it points.
+    #[test]
+    fn a_seeded_skill_root_link_refuses_the_launch_by_name() {
+        for link in [".claude", ".claude/skills", ".codex"] {
+            let (layout, root) = scratch_layout();
+            let set = PolicySet::discover().unwrap();
+            let worktree = root.join("worktree");
+            let outside = root.join("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            let at = worktree.join(link);
+            std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&outside, &at).unwrap();
+            let gate = layout.gate_script("r1");
+            std::fs::create_dir_all(gate.parent().unwrap()).unwrap();
+            std::fs::write(&gate, "fixture").unwrap();
+            let spawn = Spawn {
+                provider: Provider::Claude,
+                policy: "standard",
+                layout: &layout,
+                worktree: &worktree,
+                skill_store: &layout.skills(),
+                corpus: &layout.runs(),
+                skill_snapshot: &layout.skill_snapshot_scope("r1", None),
+                skill_checkout: None,
+                parent_git_dir: None,
+                gate_script: &gate,
+                floor_lifted: false,
+            };
+            let profile = gate.with_file_name("sandbox.bwrap");
+            let err = write_bwrap_profile(&set, &spawn, &profile, None)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(&*at.to_string_lossy()), "{link}: {err}");
+            assert_eq!(
+                std::fs::read_dir(&outside).unwrap().count(),
+                0,
+                "{link}: something was created through the link"
+            );
+            assert!(!profile.exists(), "{link}");
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 
     /// The sha of `file` as the system's own tool prints it, which shares no code
