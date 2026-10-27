@@ -532,7 +532,7 @@ fn a_run_with_no_parent_is_depth_zero_and_bound_by_nothing() {
         },
     ))
     .unwrap();
-    assert_eq!(wrapped["sandbox_kind"], "seatbelt");
+    assert_eq!(wrapped["sandbox_kind"], hydra::sandbox::kind());
     assert_eq!(wrapped["sandbox"], "5b".repeat(32));
 }
 

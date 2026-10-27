@@ -668,7 +668,7 @@ pub fn seatbelt_exec_or_skip(test_name: &str) -> bool {
         eprintln!("skipped {test_name}: already inside a seatbelt, which cannot nest");
         return false;
     }
-    if hydra::sandbox::exec_available() {
+    if hydra::sandbox::kind() == "seatbelt" && hydra::sandbox::exec_available() {
         return true;
     }
     eprintln!("skipped {test_name}: sandbox-exec is not available");

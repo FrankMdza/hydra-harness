@@ -52,7 +52,7 @@ pub struct RunStart {
     /// The sha256 of the macOS seatbelt profile, null where no sandbox wrapped
     /// the launch, build ticket 68.
     pub sandbox: Option<String>,
-    /// Which kind of profile `sandbox` hashed: `"seatbelt"` when one wrapped
+    /// Which kind of profile `sandbox` hashed: `"seatbelt"` on macOS or `"bubblewrap"` on Linux, when one wrapped
     /// the launch, absent otherwise, build ticket 316. Absent means unknown
     /// rather than none, so a Linux writer can add its own kind beside it
     /// without a reader mistaking an older record for an unsandboxed one.

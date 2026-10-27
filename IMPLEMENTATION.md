@@ -24,7 +24,10 @@ runtime there.** `cargo check --workspace --all-targets --target x86_64-unknown-
 passes, and so does clippy with `-D warnings` for that target. Before the ticket it failed on
 one error, `libc::KERN_PROC_PID` in `procinfo.rs`. Linux reads a pid's start time from
 `/proc/<pid>/stat` field 22 plus `btime` from `/proc/stat`. `sandbox::wraps_launches()` is
-false there, so a launch runs bare and nothing confines a shell. `clone_build_cache` does
+true there only when `bwrap` is on `PATH` and unprivileged user namespaces are open, and
+then every launch runs under bubblewrap, since build ticket 318. Without both, a
+`standard` or `permissive` launch refuses, and a `judge` launch runs bare, so nothing
+confines its shell. `clone_build_cache` does
 nothing there either, so a Linux run compiles its dependencies from cold. Recorded runs stay on the Mac
 (map 119). CI's `linux` job builds the workspace on `ubuntu-latest` and runs the suite with
 `--skip sandbox`. Its first run, on 2026-10-15, was red on 51 tests in eight groups, all
@@ -41,6 +44,8 @@ outlive a run on Linux is undecided; and the bit-exact CPython ports (`lgamma`, 
 arithmetic, the pyjson hashes, the grader's baseline and monitor differentials), whose fixtures were
 recorded on an arm64 Mac and differ on glibc in the last bit. The job's skip list and the README's
 Linux sentence name the same tests.
+
+**Linux launches run under bubblewrap since build ticket 318. The runtime test on Linux is still the human's.** `compose_bwrap` in `src/sandbox.rs` renders the same `rules_of` table that `compose` renders as SBPL, so the two wrappers agree on rule order, which build ticket 318a established. Three decisions came with it. First, `wraps_launches()` on Linux requires `bwrap` on `PATH` and user namespaces open. The kernel switches are read from `/proc/sys`. `standard` and `permissive` refuse without them, and `judge` runs bare. Second, Codex runs with `--sandbox danger-full-access` under either wrapper, because its own `workspace-write` sandbox cannot nest. `forbids_vendor_sandbox()` decides this. bwrap locks the parent mounts, and the worktree's gitdir and object store sit outside the worktree. Third, `inside_seatbelt()` on Linux compares this process's mount namespace with the `launcher.mnt` the launcher wrote beside the profile. A witness that names another namespace means the process runs inside bwrap. A gated interactive session is refused under bubblewrap, because the copilot's regex allow has no mount equivalent. The `evolve` admission gate has no bubblewrap profile. With bwrap present it refuses to run proposer code. Without bwrap it still runs its steps bare, as it did before this build. The unit tests for the argv, the refusals and the witness run on macOS, and no Linux host has run the wrapper yet. The Linux CI job skips every test whose name contains `sandbox`, so those tests stay macOS-only in CI.
 
 Read it before trusting a run record written by this binary. A null `policy` can name a
 pre-gate record, an ungated interactive run or a harness pass; read `launch_mode` and the
@@ -2603,14 +2608,14 @@ content, so two machines at one commit write the same bytes in both. Build ticke
 `run_start.host` on every line 0 a launch writes, recorded, interactive, refused and the
 `evolve` harness pass alike: `os` and `arch` from `std::env::consts`, `machine` from
 `gethostname(3)` through `record::hostname`, never the user name, and the whole group absent
-if the hostname does not answer. Beside `sandbox` sits `sandbox_kind`, `"seatbelt"` when a
-profile wrapped the launch and absent otherwise; `sandbox` is still the sha-or-null it was, and
+if the hostname does not answer. Beside `sandbox` sits `sandbox_kind`, `"seatbelt"` on macOS or `"bubblewrap"` on Linux
+when a profile wrapped the launch, and absent otherwise; `sandbox` is still the sha-or-null it was, and
 the schema is still 1 (contract 15). The validator rejects a null `host`, a `host` missing a
 leaf, and a kind beside no sha. `hydra doctor --walk` prints one `host <machine> <os>/<arch>: N
 record(s)` line per host before its count, and `hydra show --events` prints the host on the
 `run_start` body because that body is verbatim. Build 336 reads `host` for replay
 separation and Rungs' mixed-host refusal as described above; a Linux writer's kind
-is build 318's. Every record on this machine before 2026-10-15 has neither.
+is `"bubblewrap"`, written since build ticket 318. Every record on this machine before 2026-10-15 has neither.
 
 `ReplaySpawn::cannot_back` is the one door all seven call sites in the three normalizers go
 through, so the adapters cannot drift apart on which question they ask, which is one axis of

@@ -1104,7 +1104,10 @@ fn minimal_cargo_worktree(name: &str) -> PathBuf {
 
 #[test]
 fn admission_runs_under_the_proposers_seatbelt_and_refuses_a_hostile_test() {
-    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+    if hydra::sandbox::kind() != "seatbelt"
+        || !hydra::sandbox::exec_available()
+        || hydra::sandbox::inside_seatbelt()
+    {
         return;
     }
     let fixture = Fixture::new("admission-seatbelt");
@@ -1177,7 +1180,10 @@ mod tests {
 /// the read tree's own panic.
 #[test]
 fn admission_runs_on_a_copy_of_the_read_tree_that_nothing_after_the_read_reaches() {
-    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+    if hydra::sandbox::kind() != "seatbelt"
+        || !hydra::sandbox::exec_available()
+        || hydra::sandbox::inside_seatbelt()
+    {
         return;
     }
     let fixture = Fixture::new("admission-copy");
@@ -1399,7 +1405,10 @@ fn a_pass_started_inside_a_runs_checkout_is_refused_before_discovery() {
 /// profile the next step ran under.
 #[test]
 fn the_admission_profile_denies_cargo_config_beside_the_toolchain_and_cannot_be_rewritten() {
-    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+    if hydra::sandbox::kind() != "seatbelt"
+        || !hydra::sandbox::exec_available()
+        || hydra::sandbox::inside_seatbelt()
+    {
         println!("skipped: needs sandbox-exec outside a seatbelt");
         return;
     }
@@ -1788,7 +1797,10 @@ const SHOW_READ: &str = "pub fn shown() -> u8 {\n    2\n}\n";
 /// read tree and none of the edit.
 #[test]
 fn a_pass_offers_the_tree_it_read_whatever_the_checkout_holds_at_the_verdict() {
-    if !hydra::sandbox::exec_available() || hydra::sandbox::inside_seatbelt() {
+    if hydra::sandbox::kind() != "seatbelt"
+        || !hydra::sandbox::exec_available()
+        || hydra::sandbox::inside_seatbelt()
+    {
         println!("skipped: admission needs sandbox-exec outside a seatbelt");
         return;
     }

@@ -124,7 +124,7 @@ reader who cannot find a path here has found a bug rather than an omission.
 |---|---|---|---|
 | `<worktree>/` | the child's checkout, the injected skill root, the hook config for `cursor-agent` and `agy`, the MCP config for `cursor-agent` and `agy` | per run, from the parent's repo | `hydra reap`, after committing uncommitted changes to the child's branch |
 | `~/hydra/skills-snapshots/<sha>/` | an immutable git worktree of the skill store at the sha the run pinned | per sha, shared and refcounted | when no live run references it |
-| `~/hydra/spawn/<run-id>/` | the compiled gate script, the seatbelt profile `sandbox.sb` on macOS, the hook file `hook.py` on `codex`, the `--mcp-config` file for `claude`, Cursor's data root at `cursor-data/` | per run | with the worktree |
+| `~/hydra/spawn/<run-id>/` | the compiled gate script, the seatbelt profile `sandbox.sb` on macOS or the bubblewrap arguments `sandbox.bwrap` on Linux, the hook file `hook.py` on `codex`, the `--mcp-config` file for `claude`, Cursor's data root at `cursor-data/` | per run | with the worktree |
 | `~/hydra/runs/<run-id>.jsonl` | the run record | per run | `hydra prune`, which moves rather than deletes |
 | `~/hydra/skills/` | the skill store, with its own git history | once, and it outlives every run | never |
 | `~/hydra/skill-worktrees/<run-id>/` | a `curate` pass's own checkout of the store, where it writes its proposal | per curate pass | `hydra reap`, after committing to `rungs/curate/<run-id>` |
@@ -995,7 +995,7 @@ than having two: a floor stated as a guarantee is the Hermes failure in miniatur
 call inside Cursor's 60 second hook budget. The large one is that a gate depending on the parent
 still running turns a dead parent into a fail-open, on the provider that already fails open.
 
-**On macOS the kernel stands behind the script, since build ticket 68.** Map ticket 62 asked whether
+**On macOS the kernel stands behind the script, since build ticket 68, and on Linux since build ticket 318.** Map ticket 62 asked whether
 containment should be argv or the operating system, and the answer is the operating system's own
 sandbox under the same user: every recorded launch is `/usr/bin/sandbox-exec -f <spawn>/sandbox.sb
 <binary> <argv>`, and the profile denies `file-write*` under every path 7.5's deny list names,
@@ -1010,15 +1010,22 @@ stated. The profile is inherited by every descendant, so a delegated child, whic
 cannot read its parent's record or write its own, and delegation from inside a macOS run is map
 ticket 64 until it is redesigned. And a provider that brings its own seatbelt cannot apply it
 inside Hydra's, so `codex` runs with its own off where Hydra wraps it. A Mac without
-`sandbox-exec` refuses the launch rather than running bare; Linux launches unwrapped with
-`sandbox` null on the record, and a port through landlock or bwrap is the roadmap's.
+`sandbox-exec` refuses the launch rather than running bare.
+
+On Linux the wrapper is bubblewrap. Each recorded launch runs `bwrap` with the arguments in
+`<spawn>/sandbox.bwrap`, one per line. The same rule table that writes the seatbelt renders
+those arguments as mounts. The record names the wrapper in `sandbox_kind`: `"seatbelt"` on
+macOS, `"bubblewrap"` on Linux. A Linux host without `bwrap` on `PATH`, or without unprivileged
+user namespaces, refuses `standard` and `permissive`. It runs `judge` unwrapped, with `sandbox`
+null on the record. The copilot's regex allow has no mount equivalent, so a gated interactive
+session is refused under bubblewrap. Landlock is still the roadmap's.
 
 **The seatbelt is defence behind the gate, not a boundary**, map ticket 67, resolved 2026-09-22.
 The profile is `(allow default)` plus the denials above: it binds the launched process and its
 descendants, and a process a system agent starts on the run's behalf does not inherit it. The gate
 is what says what a run may do; the kernel is what refuses the spellings the gate cannot read. A
 profile that denied `process-exec` and the mach services that reach launchd would be a boundary,
-and that is work for the day a Linux port arrives with no seatbelt at all. One consequence is
+and that is work for the day either profile denies `process-exec`. One consequence is
 stated: under Hydra's profile `codex` runs with `--sandbox danger-full-access`, so its writes reach
 wider than its own `workspace-write` would have bounded them.
 
@@ -1547,7 +1554,7 @@ denial and drop the admission column for this row.
 one is its output.
 
 **Two code rows arrived on 2026-09-22 without a number of their own**: `src/sandbox.rs`, the
-seatbelt profile that the run-time denials of rows 5, 9 and 12 lean on since map ticket 62, and
+seatbelt profile, and since build ticket 318 its bubblewrap arguments, that the run-time denials of rows 5, 9 and 12 lean on since map ticket 62, and
 `src/containment.rs`, the marker check of build ticket 57. Both are refused at admission and
 neither is denied at run time, the same shape as rows 1, 2, 4, 6 and 7. A hiring-panel review of
 that day found a patch to either reaching the panel, the third time a mechanism landed outside

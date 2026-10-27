@@ -1084,7 +1084,7 @@ fn a_gated_interactive_launch_that_fails_after_its_checkout_leaves_none_behind()
 
 #[test]
 fn a_gated_interactive_launch_wraps_claude_in_the_seatbelt() {
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let (layout, root) = layout();
@@ -1214,7 +1214,7 @@ fn a_codex_spawn_writes_the_hook_config_into_the_worktree() {
 
 #[test]
 fn a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths() {
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let (layout, root) = layout();
@@ -1287,7 +1287,7 @@ fn a_spawn_writes_a_sandbox_profile_that_denies_hydra_paths() {
 
 #[test]
 fn a_codex_spawn_profile_denies_writes_to_the_skill_copy() {
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let (layout, root) = layout();
@@ -1481,7 +1481,7 @@ fn the_seatbelt_refuses_the_corpus_however_the_path_is_spelled() {
 
 #[test]
 fn a_profile_with_a_parent_git_dir_names_the_private_git_carve_out() {
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let (layout, root) = layout();
@@ -1840,7 +1840,7 @@ fn the_goal_log_is_denied_and_the_seatbelt_profile_names_puppets() {
         "gate allowed a write to the goal log: {answer}"
     );
 
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let profile = spawn.sandbox_profile.unwrap();
@@ -1872,7 +1872,7 @@ fn the_seatbelt_denies_a_write_to_the_panel_shapes() {
         false,
     )
     .unwrap();
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let profile = spawn.sandbox_profile.unwrap();
@@ -2033,7 +2033,7 @@ fn the_seatbelt_denies_a_write_to_the_approval_store() {
         "gate allowed a write to the approval store: {answer}"
     );
 
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let profile = spawn.sandbox_profile.unwrap();

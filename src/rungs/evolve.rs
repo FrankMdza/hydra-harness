@@ -956,7 +956,7 @@ pub fn prepare_admission<G: crate::worktree::GitLocation + ?Sized>(
         admission.discard();
         return Ok(Err(refusal));
     }
-    if crate::sandbox::wraps_launches() {
+    if crate::sandbox::kind() == crate::sandbox::KIND_SEATBELT && crate::sandbox::wraps_launches() {
         let Ok(base) = std::fs::read_to_string(proposer_profile) else {
             admission.discard();
             return Ok(Err(format!(
@@ -1220,7 +1220,8 @@ pub fn admission_gate(admission: &Admission, hydra_root: &Path) -> AdmissionGate
 }
 
 fn admission_profile_sha(profile_path: &Path) -> Option<String> {
-    if !crate::sandbox::wraps_launches() {
+    if crate::sandbox::kind() != crate::sandbox::KIND_SEATBELT || !crate::sandbox::wraps_launches()
+    {
         return None;
     }
     std::fs::read(profile_path)
@@ -1249,7 +1250,9 @@ fn run_admission_step(
     bin: &Path,
     args: &[&str],
 ) -> Result<std::process::Output, String> {
-    let mut cmd = if crate::sandbox::wraps_launches() {
+    let mut cmd = if crate::sandbox::kind() == crate::sandbox::KIND_SEATBELT
+        && crate::sandbox::wraps_launches()
+    {
         if !admission.profile.is_file() {
             return Err(format!(
                 "admission gate: seatbelt profile missing at {}",
@@ -1266,6 +1269,13 @@ fn run_admission_step(
         let mut cmd = Command::new("/usr/bin/sandbox-exec");
         cmd.arg("-f").arg(&admission.profile).arg(bin);
         cmd
+    } else if crate::sandbox::wraps_launches() {
+        // Linux with bwrap has no admission profile yet. Running proposer code
+        // bare here would skip the wrapper every recorded launch gets.
+        return Err(
+            "admission gate: no bubblewrap profile for admission yet, so it refuses to run proposer code bare"
+                .into(),
+        );
     } else {
         Command::new(bin)
     };
@@ -2009,10 +2019,13 @@ mod admission_step_tests {
         std::fs::create_dir_all(&admission.tree).unwrap();
         std::fs::write(&admission.profile, "(version 1)\n(allow default)\n").unwrap();
         let hydra_root = dir.join("hydra-root");
-        let out = if crate::sandbox::inside_seatbelt() || !crate::sandbox::wraps_launches() {
+        let seatbelted = crate::sandbox::kind() == crate::sandbox::KIND_SEATBELT
+            && crate::sandbox::wraps_launches();
+        let out = if crate::sandbox::inside_seatbelt() || !seatbelted {
             // Nested `sandbox-exec` is refused on macOS, and admission runs from
-            // outside the seatbelt. Inside one, drive the tail both branches of
-            // `run_admission_step` share; outside, the function itself.
+            // outside the seatbelt. Inside one, or where no seatbelt wraps the
+            // step, drive the tail both branches of `run_admission_step` share;
+            // outside, the function itself.
             let mut cmd = Command::new("/usr/bin/env");
             cmd.current_dir(&admission.tree);
             apply_admission_env(&mut cmd, &admission, &hydra_root).unwrap();

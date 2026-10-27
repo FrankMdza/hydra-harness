@@ -1,10 +1,12 @@
-//! macOS seatbelt profile for recorded launches, map ticket 62.
+//! Launch wrapper for recorded launches, map ticket 62 and build ticket 318.
 //!
 //! On macOS every recorded launch wraps the vendor binary in
-//! `/usr/bin/sandbox-exec` under the same user and the same `HOME`. The gate
-//! still decides capabilities; the kernel refuses writes to Hydra's directories
-//! and reads of the corpus under every spelling the gate's substring floor misses.
+//! `/usr/bin/sandbox-exec` under the same user and the same `HOME`. On Linux
+//! the same rule table becomes bubblewrap mounts. The gate still decides
+//! capabilities; the kernel refuses writes to Hydra's directories and reads of
+//! the corpus under every spelling the gate's substring floor misses.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -15,6 +17,13 @@ use crate::policy::{self, PolicySet, Spawn};
 use crate::provider::Provider;
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+
+/// The `sandbox_kind` a record names on macOS.
+pub const KIND_SEATBELT: &str = "seatbelt";
+/// The `sandbox_kind` a record names on Linux.
+pub const KIND_BUBBLEWRAP: &str = "bubblewrap";
+/// The file beside a bubblewrap profile that holds the launcher's mount namespace.
+pub const LAUNCHER_MNT_FILE: &str = "launcher.mnt";
 
 /// The rule every profile carries third, and the line the copilot's block of
 /// build ticket 250 goes in after.
@@ -43,15 +52,117 @@ const CLAUDE_STATE_DIRS: &[&str] = &[
     "todos",
 ];
 
-/// Whether recorded launches on this machine are wrapped in the seatbelt.
-pub fn wraps_launches() -> bool {
-    cfg!(target_os = "macos")
+/// The launch wrapper this host uses, which is the `sandbox_kind` a record names.
+pub fn kind() -> &'static str {
+    if cfg!(target_os = "linux") {
+        KIND_BUBBLEWRAP
+    } else {
+        KIND_SEATBELT
+    }
 }
 
-/// Whether [`SANDBOX_EXEC`] is present. On macOS a missing binary refuses the
-/// launch rather than running bare.
+/// Whether recorded launches on this machine are wrapped. macOS always wraps.
+/// Linux wraps only when bubblewrap can run here.
+pub fn wraps_launches() -> bool {
+    if cfg!(target_os = "macos") {
+        return true;
+    }
+    cfg!(target_os = "linux") && linux_bwrap_ready()
+}
+
+/// Whether the launch wrapper is present. On macOS a missing `sandbox-exec`
+/// refuses the launch rather than running bare.
 pub fn exec_available() -> bool {
-    wraps_launches() && Path::new(SANDBOX_EXEC).is_file()
+    if cfg!(target_os = "macos") {
+        Path::new(SANDBOX_EXEC).is_file()
+    } else if cfg!(target_os = "linux") {
+        linux_bwrap_ready()
+    } else {
+        false
+    }
+}
+
+/// The first executable file named `bwrap` in `path_var`, searched in order.
+pub fn bwrap_in_path(path_var: Option<&OsStr>) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::split_paths(path_var?)
+        .map(|dir| dir.join("bwrap"))
+        .find(|candidate| {
+            std::fs::metadata(candidate)
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
+}
+
+/// Whether the kernel allows unprivileged user namespaces, which bwrap needs.
+///
+/// `proc_sys` is `/proc/sys` on a real host. Three switches close user
+/// namespaces, and a `0` or `1` in each one refuses them. Without any of the
+/// three files, a `kernel` directory means the switches are open.
+pub fn linux_userns_enabled_in(proc_sys: &Path) -> bool {
+    let read = |rel: &str| {
+        std::fs::read_to_string(proc_sys.join(rel))
+            .ok()
+            .map(|text| text.trim().to_string())
+    };
+    if read("kernel/unprivileged_userns_clone").as_deref() == Some("0")
+        || read("user/max_user_namespaces").as_deref() == Some("0")
+        || read("kernel/apparmor_restrict_unprivileged_userns").as_deref() == Some("1")
+    {
+        return false;
+    }
+    proc_sys.join("kernel").is_dir()
+}
+
+/// Whether this Linux host can run bwrap for a launch.
+pub fn linux_bwrap_ready() -> bool {
+    bwrap_in_path(std::env::var_os("PATH").as_deref()).is_some()
+        && linux_userns_enabled_in(Path::new("/proc/sys"))
+}
+
+/// Why a launch under `policy` must refuse on this host, or `None` when it may run.
+///
+/// Decision 1 of build ticket 318. A Linux host without bwrap runs `judge`
+/// bare, and refuses `standard` and `permissive` rather than fall back to hooks.
+pub fn launch_refusal_for_policy_on(
+    os: &str,
+    policy: &str,
+    sandbox_exec_present: bool,
+    bwrap_ready: bool,
+) -> Option<String> {
+    match os {
+        "macos" if !sandbox_exec_present => Some(
+            "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch a recorded run without the seatbelt rather than run bare"
+                .to_string(),
+        ),
+        "linux" if !bwrap_ready && matches!(policy, "standard" | "permissive") => Some(format!(
+            "bwrap on PATH with unprivileged user namespaces enabled is unavailable on this Linux host, so Hydra refuses to launch under {policy} rather than fall back to hook-only"
+        )),
+        _ => None,
+    }
+}
+
+/// [`launch_refusal_for_policy_on`] for this host.
+pub fn launch_refusal_for_policy(policy: &str) -> Option<String> {
+    launch_refusal_for_policy_on(
+        std::env::consts::OS,
+        policy,
+        Path::new(SANDBOX_EXEC).is_file(),
+        linux_bwrap_ready(),
+    )
+}
+
+/// Whether a provider's own sandbox must stay off for a launch under `kind`.
+///
+/// Decision 2 of build ticket 318. Neither `sandbox-exec` nor bwrap lets Codex's
+/// `workspace-write` user namespace nest inside Hydra's wrapper. bwrap locks the
+/// parent mounts, and the worktree's gitdir and object store sit outside it.
+pub fn forbids_vendor_sandbox_for(kind: Option<&str>) -> bool {
+    matches!(kind, Some(KIND_SEATBELT | KIND_BUBBLEWRAP))
+}
+
+/// [`forbids_vendor_sandbox_for`] for the wrapper this launch uses.
+pub fn forbids_vendor_sandbox() -> bool {
+    wraps_launches() && forbids_vendor_sandbox_for(Some(kind()))
 }
 
 #[cfg(target_os = "macos")]
@@ -72,6 +183,8 @@ unsafe extern "C" {
 /// check of build ticket 57 is a variable the run can unset; the seatbelt is
 /// inherited and cannot be shed. So this is the one fact about its ancestry a
 /// run cannot hide, and `hydra run` reads it before it honours `HYDRA_ROOT`.
+///
+/// On Linux the same question asks whether this process runs inside bwrap.
 pub fn inside_seatbelt() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -79,25 +192,124 @@ pub fn inside_seatbelt() -> bool {
         // the call reads no memory of ours.
         unsafe { sandbox_check(libc::getpid(), std::ptr::null(), 0) == 1 }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(ns) = std::fs::read_link("/proc/self/ns/mnt") else {
+            return false;
+        };
+        let Ok(mountinfo) = std::fs::read_to_string("/proc/self/mountinfo") else {
+            return false;
+        };
+        linux_inside_bwrap_from(&ns.to_string_lossy(), &mountinfo)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         false
     }
 }
 
+/// Whether this process runs inside a bwrap that the launcher did not start.
+///
+/// Decision 3 of build ticket 318. The launcher writes its mount namespace to
+/// `launcher.mnt` beside the profile, and bwrap binds that spawn directory at a
+/// mount point of its own. A mount point whose witness names another namespace
+/// than `current_mnt_ns` is one this process sees through a new namespace.
+pub fn linux_inside_bwrap_from(current_mnt_ns: &str, mountinfo: &str) -> bool {
+    let current = current_mnt_ns.trim();
+    if current.is_empty() {
+        return false;
+    }
+    mountinfo
+        .lines()
+        .filter_map(|line| line.split_whitespace().nth(4))
+        .map(unescape_mountinfo)
+        .any(|mount_point| {
+            std::fs::read_to_string(Path::new(&mount_point).join(LAUNCHER_MNT_FILE)).is_ok_and(
+                |launcher| {
+                    let launcher_ns = launcher.trim();
+                    !launcher_ns.is_empty() && launcher_ns != current
+                },
+            )
+        })
+}
+
+/// Undoes the octal escapes `/proc/self/mountinfo` writes, `\040` for a space.
+fn unescape_mountinfo(field: &str) -> String {
+    let mut out = String::with_capacity(field.len());
+    let mut rest = field;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        let octal = rest
+            .get(at + 1..at + 4)
+            .and_then(|digits| u8::from_str_radix(digits, 8).ok());
+        match octal {
+            Some(byte) => {
+                out.push(char::from(byte));
+                rest = &rest[at + 4..];
+            }
+            None => {
+                out.push('\\');
+                rest = &rest[at + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The profile path beside the gate in one spawn directory.
 pub fn profile_path(spawn_dir: &Path) -> PathBuf {
-    spawn_dir.join("sandbox.sb")
+    if cfg!(target_os = "linux") {
+        spawn_dir.join("sandbox.bwrap")
+    } else {
+        spawn_dir.join("sandbox.sb")
+    }
+}
+
+/// Whether `path` names a bubblewrap profile, by its extension.
+fn is_bwrap(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()) == Some("bwrap")
 }
 
 /// Composes and writes the profile, returning its sha256 for `run_start.sandbox`.
+/// A `.bwrap` path takes the bubblewrap form and the launcher's mount namespace.
 pub fn write_profile(set: &PolicySet, spawn: &Spawn<'_>, path: &Path) -> Result<String> {
+    if is_bwrap(path) {
+        let launcher_mnt = std::fs::read_link("/proc/self/ns/mnt")
+            .ok()
+            .map(|ns| ns.to_string_lossy().into_owned());
+        return write_bwrap_profile(set, spawn, path, launcher_mnt.as_deref());
+    }
     let text = compose(set, spawn);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
     }
     std::fs::write(path, &text).with_context(|| format!("writing {}", path.display()))?;
+    Ok(hex_lower(&Sha256::digest(text.as_bytes())))
+}
+
+/// Composes and writes a bubblewrap profile: one argument per line. With a
+/// launcher namespace it also writes [`LAUNCHER_MNT_FILE`] beside the profile.
+/// Returns the sha256 of the profile text.
+pub fn write_bwrap_profile(
+    set: &PolicySet,
+    spawn: &Spawn<'_>,
+    path: &Path,
+    launcher_mnt_ns: Option<&str>,
+) -> Result<String> {
+    let args = compose_bwrap(set, spawn);
+    let text = format!("{}\n", args.join("\n"));
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::write(path, &text).with_context(|| format!("writing {}", path.display()))?;
+    if let Some(ns) = launcher_mnt_ns {
+        let witness = path.with_file_name(LAUNCHER_MNT_FILE);
+        std::fs::write(&witness, format!("{}\n", ns.trim()))
+            .with_context(|| format!("writing {}", witness.display()))?;
+    }
     Ok(hex_lower(&Sha256::digest(text.as_bytes())))
 }
 
@@ -460,6 +672,12 @@ pub fn translate_rule_to_bwrap(rule: &Rule) -> std::result::Result<Vec<String>, 
 /// Headless launches keep the profile [`compose`] writes.
 pub fn narrow_for_copilot(profile: &Path, worktree: &Path) -> Result<String> {
     let home = crate::env::real_home()?;
+    if is_bwrap(profile) {
+        anyhow::bail!(
+            "copilot regex rule (^{}/.claude.json) has no bubblewrap mount equivalent; gated interactive launch is not supported under bubblewrap",
+            home.display()
+        );
+    }
     let spawn_dir = profile
         .parent()
         .context("a profile path with no spawn directory")?;
@@ -586,8 +804,11 @@ fn bounded_read_allows(spawn: &Spawn<'_>) -> Vec<String> {
     out
 }
 
-/// Wraps a launch argv for the seatbelt when `profile` is set.
+/// Wraps a launch argv for the launch wrapper that `profile` names.
 pub fn wrap_command(binary: &str, argv: &[String], profile: &Path) -> (&'static str, Vec<String>) {
+    if is_bwrap(profile) {
+        return wrap_bwrap_command(binary, argv, profile);
+    }
     let mut wrapped = vec![
         "-f".to_string(),
         profile.to_string_lossy().into_owned(),
@@ -595,6 +816,28 @@ pub fn wrap_command(binary: &str, argv: &[String], profile: &Path) -> (&'static 
     ];
     wrapped.extend(argv.iter().cloned());
     (SANDBOX_EXEC, wrapped)
+}
+
+/// Wraps a launch argv for bwrap: the profile's arguments, `--`, then the command.
+///
+/// The profile was written just before the launch, so a read failure here is a
+/// bug. It panics rather than return a command with no mounts.
+pub fn wrap_bwrap_command(
+    binary: &str,
+    argv: &[String],
+    profile: &Path,
+) -> (&'static str, Vec<String>) {
+    let text = std::fs::read_to_string(profile)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", profile.display()));
+    let mut wrapped: Vec<String> = text
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    wrapped.push("--".to_string());
+    wrapped.push(binary.to_string());
+    wrapped.extend(argv.iter().cloned());
+    ("bwrap", wrapped)
 }
 
 /// Every denied path, parents of own paths included. SBPL takes the last
@@ -1040,6 +1283,200 @@ mod tests {
         assert_eq!(
             translate_rule_to_bwrap(&interactive),
             Err("rule 1 (interactive TIOCSTI ioctl deny) has no bubblewrap mount equivalent when dev.tty.legacy_tiocsti is not 0".to_string())
+        );
+    }
+
+    /// Build ticket 318b. `bwrap` counts only as an executable file on `PATH`.
+    #[test]
+    fn bwrap_in_path_finds_an_executable_file_named_bwrap() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("hydra-bwrap-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (plain, tool) = (root.join("plain"), root.join("tool"));
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::create_dir_all(&tool).unwrap();
+        std::fs::write(plain.join("bwrap"), "").unwrap();
+        std::fs::set_permissions(plain.join("bwrap"), std::fs::Permissions::from_mode(0o644))
+            .unwrap();
+        std::fs::write(tool.join("bwrap"), "").unwrap();
+        std::fs::set_permissions(tool.join("bwrap"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let both = std::env::join_paths([&plain, &tool]).unwrap();
+        assert_eq!(
+            bwrap_in_path(Some(both.as_os_str())),
+            Some(tool.join("bwrap"))
+        );
+        let plain_only = std::env::join_paths([&plain]).unwrap();
+        assert_eq!(bwrap_in_path(Some(plain_only.as_os_str())), None);
+        assert_eq!(bwrap_in_path(None), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Build ticket 318b. The kernel switches that close user namespaces, read
+    /// from a fake `/proc/sys`. A missing `kernel` directory, a `0` in either
+    /// sysctl, or AppArmor's restriction at `1` each refuse bubblewrap.
+    #[test]
+    fn linux_userns_check_reads_unprivileged_userns_max_userns_and_apparmor() {
+        let root = std::env::temp_dir().join(format!("hydra-userns-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(!linux_userns_enabled_in(&root), "no kernel directory");
+        std::fs::create_dir_all(root.join("kernel")).unwrap();
+        assert!(linux_userns_enabled_in(&root), "kernel directory alone");
+        let put = |rel: &str, text: &str| {
+            std::fs::create_dir_all(root.join(rel).parent().unwrap()).unwrap();
+            std::fs::write(root.join(rel), text).unwrap();
+        };
+        put("kernel/unprivileged_userns_clone", "0\n");
+        assert!(!linux_userns_enabled_in(&root), "clone switch off");
+        put("kernel/unprivileged_userns_clone", "1\n");
+        put("user/max_user_namespaces", "0\n");
+        assert!(!linux_userns_enabled_in(&root), "max_user_namespaces is 0");
+        put("user/max_user_namespaces", "15000\n");
+        put("kernel/apparmor_restrict_unprivileged_userns", "1\n");
+        assert!(!linux_userns_enabled_in(&root), "AppArmor restricts");
+        put("kernel/apparmor_restrict_unprivileged_userns", "0\n");
+        assert!(linux_userns_enabled_in(&root), "every switch open");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Build ticket 318b. Decision 1. On Linux without bwrap, `standard` and
+    /// `permissive` refuse and `judge` launches bare. On macOS a missing
+    /// `sandbox-exec` refuses every policy.
+    #[test]
+    fn launch_refusal_for_policy_refuses_standard_and_permissive_on_linux_without_bwrap_and_allows_judge()
+     {
+        for policy in ["standard", "permissive"] {
+            let refusal = launch_refusal_for_policy_on("linux", policy, false, false)
+                .unwrap_or_else(|| panic!("{policy} launches without bwrap"));
+            assert!(refusal.contains("bwrap"), "{refusal}");
+            assert!(refusal.contains(policy), "{refusal}");
+            assert_eq!(
+                launch_refusal_for_policy_on("linux", policy, false, true),
+                None
+            );
+        }
+        assert_eq!(
+            launch_refusal_for_policy_on("linux", "judge", false, false),
+            None
+        );
+        let missing = launch_refusal_for_policy_on("macos", "judge", false, true).unwrap();
+        assert!(missing.contains("sandbox-exec"), "{missing}");
+        assert_eq!(
+            launch_refusal_for_policy_on("macos", "standard", true, false),
+            None
+        );
+    }
+
+    /// Build ticket 318b. Decision 2. Codex's own sandbox stays off under both wrappers.
+    #[test]
+    fn codex_vendor_sandbox_is_forbidden_under_both_seatbelt_and_bubblewrap() {
+        assert!(forbids_vendor_sandbox_for(Some(KIND_SEATBELT)));
+        assert!(forbids_vendor_sandbox_for(Some(KIND_BUBBLEWRAP)));
+        assert!(!forbids_vendor_sandbox_for(None));
+        assert!(!forbids_vendor_sandbox_for(Some("hook-only")));
+    }
+
+    /// Build ticket 318b. Decision 3. A `launcher.mnt` beside a mount point, whose
+    /// namespace differs from this process's, means this process runs inside bwrap.
+    /// The mount point carries a space, which mountinfo writes as `\040`.
+    #[test]
+    fn linux_inside_bwrap_witness_compares_launcher_mnt_against_current_mnt() {
+        let root = std::env::temp_dir().join(format!("hydra-mnt-witness-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let spawn = root.join("spawn with space");
+        std::fs::create_dir_all(&spawn).unwrap();
+        std::fs::write(spawn.join(LAUNCHER_MNT_FILE), "mnt:[111]\n").unwrap();
+        let escaped = spawn.display().to_string().replace(' ', r"\040");
+        let mountinfo = format!(
+            "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n36 1 0:31 / {escaped} rw - tmpfs tmpfs rw\n"
+        );
+        assert!(linux_inside_bwrap_from("mnt:[222]", &mountinfo));
+        assert!(
+            !linux_inside_bwrap_from("mnt:[111]\n", &mountinfo),
+            "the launcher's own namespace"
+        );
+        assert!(
+            !linux_inside_bwrap_from("", &mountinfo),
+            "no namespace read"
+        );
+        assert!(
+            !linux_inside_bwrap_from("mnt:[222]", "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n"),
+            "no mount holds a witness"
+        );
+        std::fs::write(spawn.join(LAUNCHER_MNT_FILE), "\n").unwrap();
+        assert!(
+            !linux_inside_bwrap_from("mnt:[222]", &mountinfo),
+            "an empty witness"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Build ticket 318b. The bwrap profile is one argument per line, the launcher's
+    /// namespace lands beside it, and `wrap_command` hands a `.bwrap` profile to bwrap
+    /// while a `.sb` profile keeps `sandbox-exec`.
+    #[test]
+    fn write_bwrap_profile_and_wrap_bwrap_command_round_trip() {
+        let (layout, root) = scratch_layout();
+        let set = PolicySet::discover().unwrap();
+        let worktree = root.join("worktree");
+        std::fs::create_dir_all(&worktree).unwrap();
+        let gate = layout.gate_script("r1");
+        let spawn = Spawn {
+            provider: Provider::Claude,
+            policy: "standard",
+            layout: &layout,
+            worktree: &worktree,
+            skill_store: &layout.skills(),
+            corpus: &layout.runs(),
+            skill_snapshot: &layout.skill_snapshot_scope("r1", None),
+            skill_checkout: None,
+            parent_git_dir: None,
+            gate_script: &gate,
+            floor_lifted: false,
+        };
+        let profile = layout.spawn("r1").join("sandbox.bwrap");
+        let sha = write_bwrap_profile(&set, &spawn, &profile, Some("mnt:[4026531841]\n")).unwrap();
+        assert_eq!(sha, system_sha256(&profile));
+        let args = compose_bwrap(&set, &spawn);
+        assert_eq!(
+            std::fs::read_to_string(&profile).unwrap(),
+            format!("{}\n", args.join("\n"))
+        );
+        assert_eq!(
+            std::fs::read_to_string(layout.spawn("r1").join(LAUNCHER_MNT_FILE)).unwrap(),
+            "mnt:[4026531841]\n"
+        );
+
+        let argv = vec!["-p".to_string(), "hi".to_string()];
+        let (program, wrapped) = wrap_command("claude", &argv, &profile);
+        assert_eq!(program, "bwrap");
+        let mut want = args.clone();
+        want.extend(["--", "claude", "-p", "hi"].map(String::from));
+        assert_eq!(wrapped, want);
+        let sb = layout.spawn("r1").join("sandbox.sb");
+        assert_eq!(wrap_command("claude", &argv, &sb).0, SANDBOX_EXEC);
+
+        let other = layout.spawn("r2").join("sandbox.bwrap");
+        write_bwrap_profile(&set, &spawn, &other, None).unwrap();
+        assert!(!layout.spawn("r2").join(LAUNCHER_MNT_FILE).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Build ticket 318b. The copilot's regex allow has no bubblewrap mount, so a
+    /// bwrap profile is refused by name rather than narrowed.
+    #[test]
+    fn narrow_for_copilot_refuses_a_bwrap_profile_naming_the_regex_rule() {
+        let root = std::env::temp_dir().join(format!("hydra-copilot-bwrap-{}", std::process::id()));
+        let profile = root.join("sandbox.bwrap");
+        let err = narrow_for_copilot(&profile, &root).unwrap_err().to_string();
+        assert!(err.contains("copilot regex rule (^"), "{err}");
+        assert!(
+            err.contains("/.claude.json) has no bubblewrap mount equivalent"),
+            "{err}"
+        );
+        assert!(
+            err.contains("gated interactive launch is not supported under bubblewrap"),
+            "{err}"
         );
     }
 }

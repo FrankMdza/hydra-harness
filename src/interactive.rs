@@ -354,11 +354,8 @@ fn run_gated(request: Request) -> Result<RunResult> {
     // worktree, and a failure left a checkout and a branch no record named.
     let provider_version = Provider::Claude.version()?;
     let mut child_env = ChildEnv::build(Provider::Claude)?;
-    if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
-        anyhow::bail!(
-            "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch \
-             an interactive run without the seatbelt rather than run bare"
-        );
+    if let Some(msg) = crate::sandbox::launch_refusal_for_policy(policy) {
+        anyhow::bail!(msg);
     }
 
     let prep = prepare_policy_launch(&layout, &run_id, policy, &policies, &repo, &invoked_in)?;
@@ -435,7 +432,11 @@ fn run_gated(request: Request) -> Result<RunResult> {
         floor_lifted: Some(false),
         gate_sha: Some(prep.spawn.gate_sha.clone()),
         sandbox: prep.spawn.sandbox_sha.clone(),
-        sandbox_kind: prep.spawn.sandbox_sha.as_ref().map(|_| "seatbelt"),
+        sandbox_kind: prep
+            .spawn
+            .sandbox_sha
+            .as_ref()
+            .map(|_| crate::sandbox::kind()),
         host: crate::record::Host::here(),
         scopes: Some(prep.scopes.clone()),
         cwd: prep.cwd.display().to_string(),

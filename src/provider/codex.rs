@@ -79,7 +79,7 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
         // Operation not permitted`, the allowed ones included. Where Hydra wraps
         // the launch, the kernel layer is Hydra's and Codex runs without its own.
         "--sandbox".to_string(),
-        if crate::sandbox::wraps_launches() {
+        if crate::sandbox::forbids_vendor_sandbox() {
             "danger-full-access".to_string()
         } else {
             "workspace-write".to_string()
@@ -111,7 +111,7 @@ pub fn argv(launch: &Launch<'_>) -> Vec<String> {
 /// every command died with `sandbox_apply: Operation not permitted`, measured
 /// 2026-09-23 on run 01a0cfda-7012, the first `codex` resume under the seatbelt.
 pub fn resume_args(session_id: &str, hook_file: &Path) -> Vec<String> {
-    let sandbox_mode = if crate::sandbox::wraps_launches() {
+    let sandbox_mode = if crate::sandbox::forbids_vendor_sandbox() {
         "danger-full-access"
     } else {
         "workspace-write"
@@ -644,7 +644,7 @@ mod tests {
         assert_eq!(argv[0], "exec");
         assert!(argv.contains(&"--json".to_string()));
         let sandbox = argv.iter().position(|arg| arg == "--sandbox").unwrap();
-        let expected = if crate::sandbox::wraps_launches() {
+        let expected = if crate::sandbox::forbids_vendor_sandbox() {
             "danger-full-access"
         } else {
             "workspace-write"

@@ -359,7 +359,7 @@ fn delegation_from_inside_a_seatbelt_is_refused_in_hydras_words() {
         // The test process already inherited a seatbelt, and nested sandbox-exec
         // is refused on this machine, so the child inherits what we have.
         Face::start(None)
-    } else if hydra::sandbox::exec_available() {
+    } else if hydra::sandbox::kind() == "seatbelt" && hydra::sandbox::exec_available() {
         Face::start_under_seatbelt(None)
     } else {
         return;

@@ -861,12 +861,14 @@ fn phase_spawn(
     // error after the worktree exists: [`fail_after_handoff`] and
     // [`PostWorktree::fail`] both reach [`never_started`], whether the failure is
     // in handoff, argv build, agy hook mount or detach.
-    if crate::sandbox::wraps_launches() && !crate::sandbox::exec_available() {
-        let err = anyhow::anyhow!(
-            "/usr/bin/sandbox-exec is missing on this Mac, so Hydra refuses to launch \
-             a recorded run without the seatbelt rather than run bare"
-        );
-        return Err(fail_after_handoff(machine, worktree, &handoff, err, true));
+    if let Some(msg) = crate::sandbox::launch_refusal_for_policy(&machine.request.policy) {
+        return Err(fail_after_handoff(
+            machine,
+            worktree,
+            &handoff,
+            anyhow::anyhow!(msg),
+            true,
+        ));
     }
 
     if let Err(err) = agy_gate_mounted(machine, worktree, &handoff) {

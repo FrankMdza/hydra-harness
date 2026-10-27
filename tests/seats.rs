@@ -662,7 +662,7 @@ fn spawn_profile(layout: &Layout, run_id: &str, provider: Provider, policy: &str
 
 #[test]
 fn every_profile_scopes_unix_sockets_to_the_runs_own_seats_socket() {
-    if !hydra::sandbox::wraps_launches() {
+    if !hydra::sandbox::wraps_launches() || hydra::sandbox::kind() != "seatbelt" {
         return;
     }
     let root = root();
@@ -1412,7 +1412,7 @@ fn a_seat_launch_is_told_to_keep_off_the_humans_terminal() {
 fn inside_seatbelt(root: &Path, subcommand: &str, args: &[&str]) -> Option<std::process::Output> {
     let mut command = if hydra::sandbox::inside_seatbelt() {
         Command::new(env!("CARGO_BIN_EXE_hydra"))
-    } else if hydra::sandbox::exec_available() {
+    } else if hydra::sandbox::kind() == "seatbelt" && hydra::sandbox::exec_available() {
         let profile = root.join("allow.sb");
         std::fs::write(&profile, "(version 1)\n(allow default)\n").unwrap();
         let mut wrapped = Command::new("/usr/bin/sandbox-exec");

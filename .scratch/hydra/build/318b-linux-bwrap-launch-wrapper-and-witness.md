@@ -1,6 +1,6 @@
 # Build 318b - Linux bubblewrap launch wrapper, Codex nesting decision, and mount-namespace witness
 
-Status: claimed
+Status: resolved
 Size: haiku
 
 ## Goal
@@ -89,3 +89,61 @@ Run:
 - `cargo clippy --release --workspace --all-targets -- -D warnings`
 - `cargo nextest run --release -E 'test(sandbox) | test(codex) | test(delegation)'`
 - `git diff --check`
+
+## Outcome
+
+Completed in run `01a17db9-eaf0-7e33-93c7-c9311ee859d6`, `claude` with `claude-haiku-5-5` under `standard`, 8,403,409 tokens.
+
+Built in `src/sandbox.rs`. The callers are `src/provider/codex.rs`, `src/run/mod.rs`,
+`src/interactive.rs`, `src/run/record.rs` and `src/rungs/evolve.rs`. The test guards the ticket
+lists are in `tests/spawn.rs`, `tests/seats.rs`, `tests/face.rs`, `tests/evolve.rs`,
+`tests/corpus/mod.rs` and `tests/delegation.rs`.
+
+On Linux the wrapper is bubblewrap. `wraps_launches()` is true only when `bwrap` is on `PATH`
+and user namespaces are open. The profile is `sandbox.bwrap`, one argument per line, and the
+launcher's mount namespace sits beside it in `launcher.mnt`. `sandbox_kind` is `"bubblewrap"`
+on Linux and `"seatbelt"` on macOS.
+
+The three decisions:
+
+- Refusal. `launch_refusal_for_policy` returns the refusal for a policy. `run/mod.rs` and
+  `interactive.rs` call it in place of the old `sandbox-exec` check. `standard` and
+  `permissive` refuse on a Linux host without bwrap. `judge` runs bare there.
+- Codex. Codex runs with `--sandbox danger-full-access` under either wrapper.
+  `forbids_vendor_sandbox()` decides, so the flag follows the wrapper and not `wraps_launches()`
+  alone. bwrap locks the parent mounts, and the worktree's gitdir and object store sit outside
+  the worktree, so Codex's own user namespace cannot nest.
+- Witness. `inside_seatbelt()` on Linux compares this process's `/proc/self/ns/mnt` with the
+  `launcher.mnt` on a mount point in `/proc/self/mountinfo`. A different namespace means the
+  process runs inside bwrap. The unit test feeds the pure function a fake mountinfo with a
+  space written as `\040`.
+
+Measured on macOS, with the Linux target where stated:
+
+- `cargo check --target x86_64-unknown-linux-gnu`: clean.
+- `cargo clippy --target x86_64-unknown-linux-gnu --release --workspace --all-targets -- -D warnings`: clean.
+- `cargo clippy --release --workspace --all-targets -- -D warnings`: clean.
+- `cargo fmt --all --check`: clean. `git diff --check`: clean.
+- `cargo nextest run --release -E 'test(sandbox) | test(codex) | test(delegation)'`: 76 of 76 pass.
+  The sandbox unit tests are 12 of 12, seven of them new.
+- `spawn`, `seats`, `face`, `evolve`, `launch_phases` and the four `sandbox_*` binaries: 133 of 133 pass.
+- `cargo nextest run --release --workspace`: 1494 pass, 4 skipped. `cargo test --release --workspace --doc`: no failures.
+
+Not measured: no Linux host has run this wrapper. The bwrap argv was never executed, and the
+mount namespace witness was checked only against a fake mountinfo. The runtime test on Linux is
+the human's.
+
+Assumed false, or decided while writing:
+
+- The ticket's admission rule would have sent `evolve`'s admission steps bare on Linux with
+  bwrap present, because the guard only admits `sandbox-exec`. `run_admission_step` now refuses
+  there, and it still runs bare on Linux without bwrap, as it did before. The admission probe
+  test takes the direct branch whenever no seatbelt wraps the step.
+- Profile writers choose the bwrap form by the `.bwrap` extension, not by `cfg(target_os = "linux")`.
+  `profile_path` picks the extension by OS, so the two cannot disagree.
+- `wrap_bwrap_command` panics when the profile cannot be read. Its signature returns no error,
+  and a command with no mount arguments is not one the design allows.
+- Seven unit tests, not six. `bwrap_in_path_finds_an_executable_file_named_bwrap` covers the
+  `PATH` search, which the ticket describes but does not list as a test.
+- `unescape_mountinfo` decodes every three-digit octal escape, not only `\040`.
+- The Linux CI job runs with `--skip sandbox`, so the new unit tests run on macOS only.
