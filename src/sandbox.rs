@@ -341,6 +341,17 @@ fn write_bwrap_profile_for_launch(
     for directory in [".claude/skills", ".agents/plugins", ".codex/skills"] {
         create_inside(spawn.worktree, directory)?;
     }
+    // Build ticket 370, measured on a fresh Linux: the home side of the plugin
+    // denials, `~/.claude/plugins` and `~/.claude/skills`, did not exist, and
+    // compose refused every launch. Created empty here and bound read-only like
+    // the worktree's. A symlinked `~/.claude` is followed, because a dotfiles
+    // manager links it and the human chose that, unlike a link a seed brought.
+    for directory in policy::plugin_write_paths(spawn.worktree) {
+        if !directory.starts_with(spawn.worktree) {
+            std::fs::create_dir_all(&directory)
+                .with_context(|| format!("creating {}", directory.display()))?;
+        }
+    }
     let empty_settings = spawn.gate_script.with_file_name("empty-settings.json");
     std::fs::write(&empty_settings, "{}")
         .with_context(|| format!("writing {}", empty_settings.display()))?;
