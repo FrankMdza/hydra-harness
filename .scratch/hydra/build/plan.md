@@ -405,6 +405,7 @@ it.
 - [368 - One table of secret classes in a leaf crate, read by the write path, export and `hydra-records`](368-one-table-of-secret-classes-in-a-leaf-crate.md)
 - [369 - The cockpit masks each secret span by the shared table, and the docs say the five are the alarm subset](369-the-cockpit-masks-spans-by-the-shared-secret-table.md)
 - [370 - Measure the bubblewrap wrapper on a real Linux in Docker](370-measure-the-bubblewrap-wrapper-on-linux-in-docker.md)
+- [371 - Host git never trusts the run's index, and every kept entry of the private directory is checked](371-host-git-never-trusts-the-runs-index-and-the-kept-entries-are-checked.md)
 
 ## Out of scope
 
