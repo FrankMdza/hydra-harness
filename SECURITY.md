@@ -113,7 +113,21 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   refs, stay denied at the gate and the seatbelt. `git status` and `git add` work, `git commit`
   fails, and no branch moves from inside a run. `hydra reap` commits from outside, only on
   `hydra/<run-id>` or `rungs/curate/<run-id>`, and refuses any other branch before it stages
-  anything.
+  anything. Under bubblewrap the rule is weaker: since build ticket 364 the whole private
+  directory is writable, with only its existing `HEAD`, `commondir`, `gitdir` and `logs` bound
+  read-only. A run there can add files host git reads, such as a `COMMIT_EDITMSG` link, a
+  `MERGE_HEAD`, `locked` or `config.worktree`, and it can replace `index` with a fifo or a link.
+  SBPL allows writes to the literal `index` path, so the same may hold on macOS. Nobody has
+  measured it.
+- **Hydra sweeps the private git directory before it runs git there, since build ticket 367.**
+  Every `CheckoutGit` constructor removes every entry but `HEAD`, `commondir`, `gitdir`, `index`
+  and a `logs` that is a real directory, follows no link, and removes links and multiply linked
+  files inside `logs`. It refuses the checkout, naming the path, when `index` is not a regular
+  file. Reap, the diff stat at a run's end, `hydra status`, rung one's proposal and rung two's
+  patch read all go through it. A run `hydra status` finds live gets the index check alone,
+  because removing files under a running child races it. Launch-time git runs before the child
+  starts and skips the sweep. The five plants were measured with plain git on macOS. None was
+  measured under bubblewrap.
 - **Git that Hydra runs outside the seatbelt trusts neither the checkout's `.git` file nor any
   configuration a run can write.** Every git call Hydra makes in a run's checkout sets
   `GIT_DIR`, `GIT_COMMON_DIR` and `GIT_WORK_TREE` from the run record's

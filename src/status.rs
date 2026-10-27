@@ -198,10 +198,13 @@ fn build(layout: &Layout, run_id: &str, home: &Path, harvest: bool) -> Result<Re
                     // on a `Worktree` that lived in another process. The seed index
                     // still holds it.
                     let base = view.worktree.as_ref().and_then(|w| {
-                        crate::worktree::CheckoutGit::for_run(
+                        // Ended here, so the sweep is whole. The state goes in
+                        // anyway, so this cannot sweep a live run if it moves.
+                        crate::worktree::CheckoutGit::for_run_in(
                             &view.run_id,
                             std::path::Path::new(&w.path),
                             run.run_start().map(|start| &start.body),
+                            view.state,
                         )
                         .and_then(|context| {
                             crate::worktree::tree_of_index(

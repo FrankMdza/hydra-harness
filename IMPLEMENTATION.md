@@ -51,6 +51,8 @@ Build ticket 364 prepares bubblewrap allow sources before writing the profile. I
 
 Build ticket 366 supplies missing deny sources under bubblewrap. Protected config files share one read-only bind of the checkout's `config/` directory. `Layout::ensure()` creates `pruned`, `puppets`, `approvals`, `skills`, `skills-snapshots` and `skill-worktrees` on both platforms. Before writing a bubblewrap profile, Hydra creates empty worktree skill and plugin roots. Absent Claude settings files bind a read-only `{}` from `empty-settings.json` under the spawn directory. Existing settings files bind themselves. Reap removes only untracked regular settings files whose bytes are empty or exactly `{}` before staging. Compose returns an error naming any remaining missing deny source and propagates translation errors without a panic. SBPL rules are unchanged. No Linux host has measured these mounts, the host destination files or Claude's treatment of `{}`. Build ticket 368 owns that measurement.
 
+Build ticket 367 carries question 1 of map ticket 135. A bwrap run can write anything into its private git directory, and host git reads it later. So `CheckoutGit::new`, `for_run`, `for_run_from` and `for_run_in` sweep `<git>/worktrees/<run-id>/` before they return, and every host-side git on a run's checkout or a curate checkout goes through one of them. The sweep removes every entry but `HEAD`, `commondir`, `gitdir`, `index` and a `logs` that is a real directory. It reads each entry with `symlink_metadata` and follows no link. Inside `logs` it removes every link and every file with a second hard link, which is what `clear_private_logs` did before it was folded in. It refuses, naming the path, when `index` exists and is not a regular file. It runs on macOS too, where SBPL allows writes to the literal `index` path. `hydra status` passes the run's `live::State`, and a live run gets the index check alone so its files stay. Launch-time git, `create`, `seed_tree` and `roll_back`, goes through the unswept `CheckoutGit::bind`, because the child has not started. The record replay in `normalize` reads `common_dir_of_run`, a path and no git. Five reap tests in `tests/cleanup.rs` plant a `COMMIT_EDITMSG` link, an unrelated `MERGE_HEAD`, `locked`, a `config.worktree` filter and a fifo `index`, with plain git on macOS. All five failed before the change. Nothing was measured under bwrap; build ticket 368 owns that. `hydra evolve` sweeps a proposer's checkout once, when `read_proposer_patch` builds its context, and later git on that context runs without a second sweep.
+
 Read it before trusting a run record written by this binary. A null `policy` can name a
 pre-gate record, an ungated interactive run or a harness pass; read `launch_mode` and the
 envelope's provider before deciding which. Ticket 02 wired it, and every record written after
@@ -5387,9 +5389,11 @@ will not read, still waits for the session either way, and `derive` reads that e
 `a_session_that_wrote_no_transcript_derives_failed` pin it.
 
 - Reap refuses a checkout on any branch but its own before it stages anything, rewrites the
-  `.git` file to the trusted directory because `git worktree remove` reads it, and removes the
-  private `logs/` before committing: a checkout launched before this ticket could write there,
-  and a link planted as `logs` would have taken reap's reflog line to any file.
+  `.git` file to the trusted directory because `git worktree remove` reads it. A checkout
+  launched before this ticket could write the private `logs/`, and a link planted as `logs` would
+  have taken reap's reflog line to any file. Reap removed `logs/` before committing until build
+  ticket 367 folded that into the sweep every `CheckoutGit` constructor runs, which keeps a real
+  `logs` directory and removes the links and multiply linked files inside it.
 - The seatbelt and the gate grant the private directory's `index` and `index.lock` only.
 - A checkout with neither trusted source fails its reap with a message saying how to remove it by
   hand. No checkout on this machine was in that state on 2026-09-23.

@@ -1416,6 +1416,155 @@ fn a_link_planted_as_the_private_logs_takes_no_reflog_line_to_its_target() {
     assert_eq!(std::fs::read_to_string(&victim).unwrap(), "untouched\n");
 }
 
+// --- what a run plants in its private git directory, build ticket 367 -------
+
+/// The run's private git directory, `<git>/worktrees/<run-id>/`, with work in
+/// the checkout so reap has something to commit.
+fn planted(fixture: &Fixture, run: &str) -> PathBuf {
+    let checkout = fixture.checkout(run);
+    std::fs::write(checkout.join("child.txt"), "work\n").unwrap();
+    fixture.repo.join(".git/worktrees").join(run)
+}
+
+#[test]
+#[cfg(unix)]
+fn a_commit_message_link_writes_nothing_through_to_its_target() {
+    let fixture = Fixture::new("editmsg-link");
+    let run = "01a17ea1-0367-7000-8000-000000000001";
+    let private = planted(&fixture, run);
+    let victim = fixture.root.join("victim.txt");
+    std::fs::write(&victim, "untouched\n").unwrap();
+    std::os::unix::fs::symlink(&victim, private.join("COMMIT_EDITMSG")).unwrap();
+
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_eq!(hydra::reap::failures(&reaped), 0);
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "untouched\n");
+}
+
+#[test]
+fn a_planted_merge_head_gives_the_reaped_commit_no_second_parent() {
+    let fixture = Fixture::new("merge-head");
+    let run = "01a17ea1-0367-7000-8000-000000000002";
+    // An orphan, because git reduces a `MERGE_HEAD` that descends from `HEAD`
+    // to one parent, and that parent is then the planted commit.
+    git(&fixture.repo, &["checkout", "-q", "--orphan", "side"]);
+    std::fs::write(fixture.repo.join("side.txt"), "side\n").unwrap();
+    git(&fixture.repo, &["add", "-A"]);
+    git(&fixture.repo, &["commit", "-qm", "side"]);
+    let side = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    git(&fixture.repo, &["checkout", "-q", "main"]);
+    let private = planted(&fixture, run);
+    std::fs::write(private.join("MERGE_HEAD"), &side).unwrap();
+
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_eq!(hydra::reap::failures(&reaped), 0);
+    let parents = git(
+        &fixture.repo,
+        &["rev-list", "--parents", "-n1", &format!("hydra/{run}")],
+    );
+    assert_eq!(
+        parents.split_whitespace().count(),
+        2,
+        "the reaped commit is a merge: {parents}"
+    );
+    assert_eq!(
+        parents.split_whitespace().nth(1),
+        Some(git(&fixture.repo, &["rev-parse", "main"]).trim())
+    );
+}
+
+#[test]
+fn a_planted_lock_does_not_keep_the_checkout() {
+    let fixture = Fixture::new("locked");
+    let run = "01a17ea1-0367-7000-8000-000000000003";
+    let private = planted(&fixture, run);
+    std::fs::write(private.join("locked"), "the run says so\n").unwrap();
+
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_eq!(
+        hydra::reap::failures(&reaped),
+        0,
+        "{:?}",
+        worktree_why(&reaped)
+    );
+    assert!(!fixture.layout().worktree(run).exists());
+}
+
+#[test]
+fn a_planted_worktree_config_runs_no_filter_from_reaps_git() {
+    let fixture = Fixture::new("config-worktree");
+    let run = "01a17ea1-0367-7000-8000-000000000004";
+    git(
+        &fixture.repo,
+        &["config", "core.repositoryformatversion", "1"],
+    );
+    git(
+        &fixture.repo,
+        &["config", "extensions.worktreeConfig", "true"],
+    );
+    let private = planted(&fixture, run);
+    let canary = fixture.root.join("canary");
+    std::fs::write(
+        private.join("config.worktree"),
+        format!(
+            "[filter \"canary\"]\n\tclean = touch {} && cat\n",
+            canary.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.layout().worktree(run).join(".gitattributes"),
+        "* filter=canary\n",
+    )
+    .unwrap();
+
+    let reaped = reap_one(&fixture.layout(), run, false);
+    assert_eq!(
+        hydra::reap::failures(&reaped),
+        0,
+        "{:?}",
+        worktree_why(&reaped)
+    );
+    assert!(!canary.exists(), "a filter the run configured ran");
+}
+
+#[test]
+#[cfg(unix)]
+fn a_fifo_as_the_index_is_refused_without_hanging() {
+    let fixture = Fixture::new("fifo-index");
+    let run = "01a17ea1-0367-7000-8000-000000000005";
+    let private = planted(&fixture, run);
+    let index = private.join("index");
+    std::fs::remove_file(&index).unwrap();
+    let made = Command::new("mkfifo").arg(&index).status().unwrap();
+    assert!(made.success());
+
+    let layout = fixture.layout();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reaping = run.to_string();
+    std::thread::spawn(move || {
+        let _ = tx.send(hydra::reap::reap(&layout, Some(&reaping), false, NO_GRACE));
+    });
+    let reaped = rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("reap hung on a fifo index")
+        .unwrap();
+    assert!(
+        matches!(&reaped[0], Reaped::Failed { why, .. } if why.contains(&*index.to_string_lossy())),
+        "{:?}",
+        worktree_why(&reaped)
+    );
+    assert!(fixture.layout().worktree(run).join("child.txt").is_file());
+}
+
+/// Why reap failed, for an assertion message.
+fn worktree_why(reaped: &[Reaped]) -> Option<&str> {
+    reaped.iter().find_map(|item| match item {
+        Reaped::Failed { why, .. } => Some(why.as_str()),
+        _ => None,
+    })
+}
+
 #[test]
 fn reap_without_trusted_git_metadata_leaves_checkout_untouched() {
     let fixture = Fixture::new("missing-trusted-git");

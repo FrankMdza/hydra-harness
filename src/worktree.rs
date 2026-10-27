@@ -42,23 +42,19 @@ impl CheckoutGit {
         Ok(())
     }
 
-    /// Remove the checkout's private `logs/` before a commit made outside the
-    /// seatbelt. A checkout launched before build ticket 95 could write there,
-    /// and a link planted as `logs` or inside it would take the reflog line to
-    /// any file it names. The link is removed, never followed; the reflog of a
-    /// checkout about to be removed is worth nothing.
-    pub fn clear_private_logs(&self) -> Result<()> {
-        let logs = self.private.join("logs");
-        match std::fs::symlink_metadata(&logs) {
-            Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(&logs)?,
-            Ok(_) => std::fs::remove_file(&logs)?,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
-            Err(err) => return Err(err.into()),
-        }
-        Ok(())
+    /// A checkout of `common`, its private directory swept, build ticket 367.
+    /// Every host-side git on a checkout a model wrote into starts from here
+    /// or from [`CheckoutGit::for_run`], so none of them runs before the sweep.
+    pub fn new(path: &Path, common: &Path) -> Result<Self> {
+        let context = Self::bind(path, common)?;
+        sweep_private(&context.private, Sweep::Full)?;
+        Ok(context)
     }
 
-    pub fn new(path: &Path, common: &Path) -> Result<Self> {
+    /// The same without the sweep, for launch-time git: `create` and
+    /// `seed_tree` run before the child starts, so nothing has planted
+    /// anything yet, and git's own files there are mid-creation.
+    fn bind(path: &Path, common: &Path) -> Result<Self> {
         let name = path.file_name().context("checkout has no directory name")?;
         Ok(Self {
             path: path.to_path_buf(),
@@ -74,11 +70,42 @@ impl CheckoutGit {
         Self::for_run_from(run_id, path, common.map(Path::new))
     }
 
+    /// The same for a run [`crate::live`] judged `state`. A live run may still
+    /// be writing its private directory, so it gets the index check alone and
+    /// keeps every file. `hydra status` is the one caller.
+    pub fn for_run_in(
+        run_id: &str,
+        path: &Path,
+        start: Option<&serde_json::Value>,
+        state: crate::live::State,
+    ) -> Result<Self> {
+        let common = start.and_then(|s| s["scopes"]["parent_git_dir"].as_str());
+        let context = Self::locate(run_id, path, common.map(Path::new))?;
+        let sweep = match state {
+            crate::live::State::Live => Sweep::IndexOnly,
+            _ => Sweep::Full,
+        };
+        sweep_private(&context.private, sweep)?;
+        Ok(context)
+    }
+
     /// The same, with the record's `scopes.parent_git_dir` already read, for a
     /// caller that reads line 0 through a typed view.
     pub fn for_run_from(run_id: &str, path: &Path, parent_git_dir: Option<&Path>) -> Result<Self> {
+        let context = Self::locate(run_id, path, parent_git_dir)?;
+        sweep_private(&context.private, Sweep::Full)?;
+        Ok(context)
+    }
+
+    /// The parent git directory a run's checkout belongs to, for a reader that
+    /// runs no git and so needs no sweep.
+    pub fn common_dir_of_run(run_id: &str, path: &Path) -> Result<PathBuf> {
+        Ok(Self::locate(run_id, path, None)?.common)
+    }
+
+    fn locate(run_id: &str, path: &Path, parent_git_dir: Option<&Path>) -> Result<Self> {
         if let Some(common) = parent_git_dir {
-            return Self::new(path, common);
+            return Self::bind(path, common);
         }
         let saved = path.with_extension("git-context.json");
         let context: Self = serde_json::from_slice(&std::fs::read(&saved).with_context(|| {
@@ -97,6 +124,95 @@ impl CheckoutGit {
         );
         Ok(context)
     }
+}
+
+/// What [`sweep_private`] may do to a run's private git directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sweep {
+    /// Check the index, then remove every entry git needs no file for.
+    Full,
+    /// Check the index and remove nothing, for a run that may still be writing.
+    IndexOnly,
+}
+
+/// The entries of a private git directory the sweep keeps. `logs` stays only
+/// as a real directory.
+const KEPT: [&str; 5] = ["HEAD", "commondir", "gitdir", "index", "logs"];
+
+/// Map ticket 135, question 1. Since build ticket 364, bubblewrap binds
+/// `<git>/worktrees/<run-id>/` writable, and host git reads what a run leaves
+/// there. A `COMMIT_EDITMSG` link takes reap's commit message to any file,
+/// `MERGE_HEAD` gives its commit a second parent, `locked` stops
+/// `git worktree remove`, `config.worktree` runs a filter, and a fifo as
+/// `index` hangs git. So every entry but [`KEPT`] goes, found with
+/// `symlink_metadata` and removed without following a link.
+///
+/// **The index is refused rather than removed.** It holds what the run
+/// staged, and a fifo or a link there is a run that tried something. The
+/// error names the path so a human can look.
+///
+/// **`logs` keeps its directories and its plain files.** A link inside it, or
+/// a file with a second hard link, would take the next reflog line to the
+/// file it names. That was `clear_private_logs`, which build ticket 367 folded
+/// in here.
+fn sweep_private(private: &Path, sweep: Sweep) -> Result<()> {
+    let index = private.join("index");
+    match std::fs::symlink_metadata(&index) {
+        Ok(meta) if meta.is_file() => (),
+        Ok(_) => bail!(
+            "{} is not a regular file, so Hydra will not run git on this checkout. \
+             The run left it there; inspect it by hand",
+            index.display()
+        ),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
+        Err(err) => return Err(err.into()),
+    }
+    if sweep == Sweep::IndexOnly {
+        return Ok(());
+    }
+    let entries = match std::fs::read_dir(private) {
+        Ok(entries) => entries,
+        // No private directory: git fails on its own and says why.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let meta = std::fs::symlink_metadata(entry.path())?;
+        let name = entry.file_name();
+        if name == "logs" && meta.is_dir() {
+            sweep_logs(&entry.path())?;
+        } else if name == "logs" || !KEPT.iter().any(|kept| name == *kept) {
+            remove_entry(&entry.path(), &meta)?;
+        }
+    }
+    Ok(())
+}
+
+/// Removes every entry under `logs` that is not a directory or a plain file
+/// with one link.
+fn sweep_logs(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        let meta = std::fs::symlink_metadata(&path)?;
+        if meta.is_dir() {
+            sweep_logs(&path)?;
+        } else if !meta.is_file() || meta.nlink() > 1 {
+            remove_entry(&path, &meta)?;
+        }
+    }
+    Ok(())
+}
+
+/// `remove_dir_all` removes a link inside the directory and never follows it.
+fn remove_entry(path: &Path, meta: &std::fs::Metadata) -> Result<()> {
+    if meta.is_dir() {
+        std::fs::remove_dir_all(path)?;
+    } else {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 /// Parent repositories may discover metadata and keep the human's own hooks.
@@ -1116,7 +1232,8 @@ pub fn create(repo: &Path, dest: &Path, branch: &str, index: &Path) -> Result<Wo
 /// Every fallible step [`create`] takes after `git worktree add`.
 fn bind_and_seed(repo: &Path, dest: &Path) -> Result<CheckoutGit> {
     let common = git_common_dir(repo).context("parent has no Git directory")?;
-    let context = CheckoutGit::new(dest, &common)?;
+    // No sweep: the child has not started, so it has planted nothing yet.
+    let context = CheckoutGit::bind(dest, &common)?;
     std::fs::write(
         dest.with_extension("git-context.json"),
         serde_json::to_vec(&context)?,
@@ -1126,7 +1243,8 @@ fn bind_and_seed(repo: &Path, dest: &Path) -> Result<CheckoutGit> {
 }
 
 /// Undoes `git worktree add -b` and the context file beside it. Nothing has
-/// run in the checkout yet, so `--force` discards only what the seed copied.
+/// run in the checkout yet, so `--force` discards only what the seed copied,
+/// and the private directory needs no sweep.
 pub fn roll_back(repo: &Path, dest: &Path, branch: &str) -> Result<()> {
     git(
         repo,
@@ -1446,13 +1564,104 @@ fn git_bytes<G: GitLocation + ?Sized>(repo: &G, args: &[&str]) -> Result<Vec<u8>
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckoutGit, GitLocation, inside_checkout};
+    use super::{CheckoutGit, GitLocation, Sweep, inside_checkout, sweep_private};
+    use std::path::{Path, PathBuf};
+
+    /// A private git directory with git's five entries and everything map
+    /// ticket 135 measured a run planting beside them.
+    fn planted(name: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("hydra-sweep-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let private = root.join("private");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(private.join("logs/refs/heads")).unwrap();
+        std::fs::create_dir_all(private.join("refs")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("victim"), "untouched\n").unwrap();
+        for file in ["HEAD", "commondir", "gitdir", "index", "logs/HEAD"] {
+            std::fs::write(private.join(file), "git's\n").unwrap();
+        }
+        std::os::unix::fs::symlink(outside.join("victim"), private.join("COMMIT_EDITMSG")).unwrap();
+        std::os::unix::fs::symlink(outside.join("victim"), private.join("logs/refs/heads/x"))
+            .unwrap();
+        std::fs::hard_link(outside.join("victim"), private.join("logs/ORIG")).unwrap();
+        std::os::unix::fs::symlink(&outside, private.join("refs/out")).unwrap();
+        for file in ["MERGE_HEAD", "locked", "config.worktree"] {
+            std::fs::write(private.join(file), "planted\n").unwrap();
+        }
+        (root, private)
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_sweep_keeps_exactly_gits_five_entries() {
+        let (root, private) = planted("five");
+        sweep_private(&private, Sweep::Full).unwrap();
+        assert_eq!(
+            names(&private),
+            ["HEAD", "commondir", "gitdir", "index", "logs"]
+        );
+        // Inside `logs`, the plain file stays and the two links go.
+        assert!(private.join("logs/HEAD").is_file());
+        assert!(private.join("logs/refs/heads").is_dir());
+        assert!(!private.join("logs/refs/heads/x").exists());
+        assert!(!private.join("logs/ORIG").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("outside/victim")).unwrap(),
+            "untouched\n"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn logs_stays_only_as_a_directory() {
+        let (root, private) = planted("logs-file");
+        std::fs::remove_dir_all(private.join("logs")).unwrap();
+        std::os::unix::fs::symlink(root.join("outside"), private.join("logs")).unwrap();
+        sweep_private(&private, Sweep::Full).unwrap();
+        assert_eq!(names(&private), ["HEAD", "commondir", "gitdir", "index"]);
+        assert!(root.join("outside/victim").is_file());
+
+        std::fs::write(private.join("logs"), "a file\n").unwrap();
+        sweep_private(&private, Sweep::Full).unwrap();
+        assert_eq!(names(&private), ["HEAD", "commondir", "gitdir", "index"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_live_run_keeps_every_file_and_still_gets_the_index_check() {
+        let (root, private) = planted("live");
+        let before = names(&private);
+        sweep_private(&private, Sweep::IndexOnly).unwrap();
+        assert_eq!(names(&private), before);
+
+        std::fs::remove_file(private.join("index")).unwrap();
+        std::os::unix::fs::symlink(root.join("outside/victim"), private.join("index")).unwrap();
+        for sweep in [Sweep::IndexOnly, Sweep::Full] {
+            let err = sweep_private(&private, sweep).unwrap_err().to_string();
+            assert!(
+                err.contains(&*private.join("index").to_string_lossy()),
+                "{err}"
+            );
+        }
+        // The refusal comes before any removal.
+        assert_eq!(names(&private), before);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn no_git_hydra_starts_inherits_a_runs_object_directory() {
         // The watcher's environment is the child's, and the child's carries
         // both variables. Every runner has to take them back out.
-        let checkout = CheckoutGit::new(
+        let checkout = CheckoutGit::bind(
             std::path::Path::new("/tmp/wt/r1"),
             std::path::Path::new("/tmp/parent/.git"),
         )

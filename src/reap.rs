@@ -503,7 +503,6 @@ fn commit_then_remove(
     }
     refuse_nested_repositories(checkout, &context)?;
     context.restore_pointer()?;
-    context.clear_private_logs()?;
     let mut swept = Checkout {
         committed: None,
         branch: branch.clone(),

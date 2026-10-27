@@ -1,7 +1,7 @@
 # 367 - Sweep the run's private git directory before any host-side git on its checkout
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 364
 
 ## Objective
@@ -35,3 +35,15 @@ Put the sweep at one entry every host-side git on a run checkout passes through,
 5. Run `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --target x86_64-unknown-linux-gnu`, `cargo nextest run --release -p hydra --test cleanup --test status --test curate --test evolve`, and `cargo nextest run --release -p hydra --lib worktree`.
 
 ## Outcome
+
+Built on 2026-10-27.
+
+`sweep_private` in `src/worktree.rs` checks the index, then removes every entry of the private directory but `HEAD`, `commondir`, `gitdir`, `index` and a `logs` that is a real directory. It reads entries with `symlink_metadata` and removes a directory with `remove_dir_all`, which removes links inside it without following them. Inside `logs` it removes every link and every file with more than one hard link. That is `clear_private_logs` folded in, and the method is gone. A non-regular `index` is refused with an error naming the path.
+
+The sweep runs in `CheckoutGit::new`, `for_run`, `for_run_from` and the new `for_run_in`. Reap, the diff stat in `run::result`, `hydra status`, curate's `propose` and evolve's `read_proposer_patch` all build their context through one of them, so no host git on a run checkout runs before it. Launch-time git in `create` goes through a private unswept `bind`, with a comment, and `roll_back` runs in the parent repo before the child starts. `normalize` needed only the common directory and runs no git, so it reads `common_dir_of_run` and sweeps nothing; it replays live runs too. `hydra status` passes `view.state` to `for_run_in`, and `State::Live` gets the index check alone. Status reaches git only for an ended run today, so the live branch is a guard for a later change.
+
+Tests: five reap tests in `tests/cleanup.rs` and three unit tests in `worktree::tests`. All five reap tests failed before the change. The `COMMIT_EDITMSG` link wrote reap's message into the outside file. The lock made `git worktree remove` exit with "cannot remove a locked working tree". The `config.worktree` filter touched the canary. The fifo index hung reap past the 30 s timeout.
+
+The ticket assumed a `MERGE_HEAD` holding any other commit gives a second parent. False with plain git 2.55: `git commit` reduces the parents, so a `MERGE_HEAD` that descends from `HEAD` gives one parent, and that parent is the planted commit. The first version of the test passed before the change for that reason. The test now plants an orphan commit, which failed with two parents, and it also checks that the one parent is `main`.
+
+Checks: `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --target x86_64-unknown-linux-gnu`, the four test files with 142 of 142 passing, and `--lib worktree` with 10 of 10 passing. `git_config`, `spawn`, `worktree` and `normalize` also pass, 154 of 154. Nothing ran under bubblewrap; build ticket 370 owns that.

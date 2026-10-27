@@ -285,6 +285,7 @@ pub fn propose(
 
     let common =
         crate::worktree::git_common_dir(store).context("skill store has no Git directory")?;
+    // `new` sweeps the checkout's private directory before the first git.
     let context = crate::worktree::CheckoutGit::new(checkout, &common)?;
     let found = git(&context, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     anyhow::ensure!(
@@ -316,7 +317,6 @@ pub fn propose(
     }
 
     let exclude = crate::provider::own_worktree_paths();
-    context.clear_private_logs()?;
     proposal.commit = commit_everything(&context, &message(run_id, result), &exclude)?;
 
     context.restore_pointer()?;

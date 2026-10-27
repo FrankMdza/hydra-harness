@@ -911,10 +911,9 @@ impl<'a> ReplaySpawn<'a> {
             // Never rediscover Git metadata through a run's writable checkout.
             // Old records can recover the parent from Hydra's saved launch data;
             // without either source, report the missing scope.
+            // A path and no git, so no sweep: this reads live runs too.
             let found = worktree.and_then(|path| {
-                crate::worktree::CheckoutGit::for_run(run_id, path, None)
-                    .ok()
-                    .map(|context| context.common_dir().to_path_buf())
+                crate::worktree::CheckoutGit::common_dir_of_run(run_id, path).ok()
             });
             match &found {
                 Some(_) => rebuilt.push(keys::PARENT_GIT_DIR),
