@@ -389,6 +389,8 @@ it.
 - [357 - The `git push` floor checks `HEAD`, `-C`, `-c` refspecs, and `refs/heads/` prefixes](357-the-git-push-floor-checks-head-dash-c-and-branch-prefixes.md)
 - [358 - `hydra doctor` checks that `/usr/bin/python3` runs `import json, shlex`](358-hydra-doctor-checks-that-usr-bin-python3-runs.md)
 - [359 - `src/env.rs` tests `Provider::Codex` and `OPENAI_API_KEY`](359-child-env-tests-codex-and-openai-api-key.md)
+- [360 - `Outcome::Gated` counts `Event::GateRefusal` when no call got through](360-outcome-gated-counts-gate-refusal-events.md)
+- [361 - `hydra doctor --walk` classifies `RejectedBeforeHook` rows by tool and error shape](361-walk-classifies-rejected-before-hook-rows.md)
 
 ## Out of scope
 
