@@ -1,7 +1,7 @@
 # 369 - The cockpit masks each secret span by the shared table, and the docs say the five are the alarm subset
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 368
 
 ## Objective
