@@ -1,6 +1,6 @@
 # 362 - The `git push` floor reads `remote.<name>.push` and `push.default` from repository config
 
-Status: claimed
+Status: resolved
 
 ## Objective
 
@@ -33,3 +33,24 @@ In `src/policy/gate.py`:
 4. Run `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, and `cargo nextest run --release -p hydra --test gate`.
 
 ## Outcome
+
+Built. `src/policy/gate.py` has four new helpers after `bare_push_violation`: `repo_config_texts`,
+`config_section`, `config_value` and `config_push_violation`. `check_git` calls the last one on a
+push with no refspec, passing the remote the push names or `None`. The floor now reads
+`push.default` and `remote.<name>.push` from the repository config and the shared config. The
+test `git_push_floor_reads_remote_push_and_push_default_from_repo_config` in `tests/gate.rs`
+covers the four cases.
+
+Measured. The new test failed before the change: case 1 was allowed as `hydra/allow`. After the
+change, `cargo nextest run --release -p hydra --test gate` passes 150 of 150. `cargo clippy
+--release --workspace --all-targets -- -D warnings` is clean. `cargo fmt --all --check` failed on
+one wrapped line in the new test, which I rewrapped by hand, and passes now.
+
+Assumptions that turned out false. The ticket names the reason code `hydra/pattern-floor`. The
+floor's code is `hydra/floor`, which every existing floor test asserts, so the new test asserts
+that. The ticket said `check_out` covers the repository config. It writes the parent's shared
+config, so the new test writes the worktree's own `.git` directory instead.
+
+Not covered. Nothing tests the `commondir` branch of `repo_config_texts`. Escapes inside quoted
+values are not decoded, and `config.worktree` is still not read. `SECURITY.md` and
+`IMPLEMENTATION.md` now state the first and drop the claim that config walks past the floor.

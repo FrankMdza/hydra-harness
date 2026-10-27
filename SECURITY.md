@@ -359,8 +359,10 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   `--work-tree` before `push` taken into account. It refuses a push to a protected branch named
   with a `refs/heads/` prefix, a `-c remote.<name>.push` refspec to one, `-c push.default=matching`,
   and any `--config-env`. A `cd` earlier in the same shell command still reaches a protected
-  branch, because the gate does not interpret shell. So does a `push.default=matching` set in a
-  repository config, because the gate reads only a branch's upstream from that config.
+  branch, because the gate does not interpret shell. Build ticket 362 closed the repository config
+  gap. A `push.default = matching` in `.git/config` or the shared config refuses a push with no
+  refspec. So does a `remote.<name>.push` refspec to a protected branch, when the push names that
+  remote or none.
 - **What remains open across map 134.** The interactive gate on `cursor-agent`, `agy` and `codex`
   is unmeasured, so `hydra run --interactive --policy` refuses those three until build ticket 130.
   Linux compiles and runs CI since builds 315 and 331, but launches hook-only without an OS sandbox

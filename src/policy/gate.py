@@ -1060,6 +1060,76 @@ def bare_push_violation(git_dir):
     return None
 
 
+def repo_config_texts(git_dir):
+    """The text of each repository config a push reads, the shared one included.
+
+    A linked worktree keeps the shared `config` in the repository its `commondir`
+    file names, so that file is read beside the worktree's own.
+    """
+    texts = [read_text(os.path.join(git_dir, "config")) or ""]
+    common = read_text(os.path.join(git_dir, "commondir"))
+    if common:
+        texts.append(read_text(os.path.join(git_dir, common.strip(), "config")) or "")
+    return texts
+
+
+def config_section(header):
+    """`(name, subsection)` for a `[name "subsection"]` header, or None.
+
+    The name is lowercased, since git ignores its case. The subsection is kept as
+    written, since git reads it as case-sensitive. A plain `[name]` has `""`.
+    """
+    body = header.strip()
+    if not body.endswith("]"):
+        return None
+    name, _, sub = body[1:-1].strip().partition(" ")
+    return name.lower(), sub.strip().strip('"')
+
+
+def config_value(raw):
+    """A config value as git reads it: quotes dropped, and `#` or `;` outside quotes ends it."""
+    out = []
+    quoted = False
+    for char in raw:
+        if char == '"':
+            quoted = not quoted
+        elif char in "#;" and not quoted:
+            break
+        else:
+            out.append(char)
+    return "".join(out).strip()
+
+
+def config_push_violation(git_dir, remote_name=None):
+    """Why repository config makes a bare push, or one to `remote_name`, unsafe.
+
+    With no refspec on the command line, git takes `push.default` and
+    `remote.<name>.push` from the repository config. `matching` pushes every shared
+    branch, and each `remote.<name>.push` value is a refspec git sends. With no
+    remote named, every remote is judged, which is the safe side of a floor.
+    """
+    for text in repo_config_texts(git_dir):
+        section = None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("["):
+                section = config_section(stripped)
+                continue
+            key, sep, raw = stripped.partition("=")
+            if section is None or not sep:
+                continue
+            key = key.strip().lower()
+            value = config_value(raw)
+            name, sub = section
+            if name == "push" and key == "default" and value.lower() == "matching":
+                return "git push with push.default=matching in config, which pushes every shared branch"
+            if name == "remote" and key == "push" and remote_name in (None, sub):
+                reason = push_refspec_violation(value, [git_dir])
+                if reason:
+                    return reason
+    return None
+
+
 def push_git_dirs(options, cwd):
     """The git directories a push may read its branch from.
 
@@ -1142,9 +1212,14 @@ def check_git(argv, cwd):
                     return reason
         positional = [t for t in rest if not t.startswith("-")]
         if len(positional) < 2:
-            # No refspec: the branch git sends is the one the checkout names.
+            # No refspec: the branch git sends is the one the checkout names, and
+            # the repository config may name another through `push.default` or
+            # `remote.<name>.push`.
+            remote_name = positional[0] if len(positional) == 1 else None
             for git_dir in git_dirs:
-                reason = bare_push_violation(git_dir)
+                reason = bare_push_violation(git_dir) or config_push_violation(
+                    git_dir, remote_name
+                )
                 if reason:
                     return reason
             return None

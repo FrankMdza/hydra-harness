@@ -2490,6 +2490,45 @@ fn a_push_with_a_push_override_before_the_subcommand_is_judged_by_the_override()
 }
 
 #[test]
+fn git_push_floor_reads_remote_push_and_push_default_from_repo_config() {
+    // Build ticket 362. A bare `git push`, or `git push origin` with no refspec
+    // on the command line, sends what `remote.<name>.push` and `push.default`
+    // name in the repository config, so the floor reads that config as well.
+    let gate = Gate::new("standard");
+    let git = gate.worktree.join(".git");
+    std::fs::create_dir_all(&git).unwrap();
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/own\n").unwrap();
+    for (config, command) in [
+        (
+            "[remote \"origin\"]\n\tpush = topic:refs/heads/master\n",
+            "git push origin",
+        ),
+        ("[remote \"origin\"]\n\tpush = HEAD:main\n", "git push"),
+        ("[push]\n\tdefault = matching\n", "git push"),
+    ] {
+        std::fs::write(git.join("config"), config).unwrap();
+        let decision = gate.shell(command);
+        assert!(
+            decision.denied_for("hydra/floor"),
+            "{command} under {config:?} was let through: {}",
+            decision.reason
+        );
+    }
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/hydra/test\n").unwrap();
+    std::fs::write(
+        git.join("config"),
+        "[remote \"origin\"]\n\tpush = hydra/test:refs/heads/feature\n",
+    )
+    .unwrap();
+    let decision = gate.shell("git push origin");
+    assert!(
+        decision.allowed,
+        "a remote.origin.push to a topic branch was refused: {}",
+        decision.reason
+    );
+}
+
+#[test]
 fn each_pattern_consumes_dash_c_and_git_dir_before_reading_the_subcommand() {
     // 7.4 says so in one line, and it is the whole difference between a floor
     // and a floor with a hole in it.
