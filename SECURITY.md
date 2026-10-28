@@ -47,7 +47,8 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   denied to reads except the run's own worktree, skill snapshot, spawn directory and the parent
   repo's `.git`. That profile does not cover the rest of `HOME`. A listed command that writes
   outside `~/hydra` without naming a path the gate resolves reaches the disk, and `tests/gate.rs`
-  refuses only the spellings it can read. Linux has no seatbelt, so there the list is all there is.
+  refuses only the spellings it can read. On Linux, bubblewrap composes the same rules since
+  builds 318a and 318b, and build 370 measured no bounded shell under it.
 - **The gate folds case ASCII only, and Hydra refuses a root it would fold wrong.** The macOS
   filesystem folds `É` too, so `hydra run` refuses when its data root or its checkout resolves
   to a path outside ASCII. The launching repository's `.git` is folded the same way and is not
@@ -70,7 +71,8 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   still decides what a policy allows and writes the record; the kernel is what refuses the
   write. A gated interactive launch, `hydra run --interactive --policy`, runs under the same
   profile since build ticket 73. A plain `--interactive` run, with no `--policy`, compiles no
-  gate and gets no seatbelt or worktree. Linux launches unwrapped.
+  gate and gets no seatbelt or worktree. On Linux a launch runs under bubblewrap since build
+  318b, and the last section says what was measured there.
 - **The deny list is Hydra's runtime directories, the checkout the binary was built from, and six
   config files.** Build ticket 74 added `hydra_home()` whole, with the run's own worktree and a
   `curate` pass's checkout carved back out. Under `standard` a shell command still reads and writes
@@ -106,7 +108,8 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   `standard` run can rewrite, and `cc`, `git` and `python3` still resolve through `PATH`. The
   profile bounds what the steps may do to Hydra and not what they may do to you, so a hostile
   test can still read `~/.ssh`. The pass's harness record names the profile sha and the root the
-  steps ran under. On Linux the steps run bare.
+  steps ran under. On Linux, since build ticket 363, admission refuses before any step runs,
+  with or without bubblewrap, because no bubblewrap profile exists for it.
 - **Inside the seatbelt a run can stage its work and cannot move a branch.** Under the parent
   repository's git directory, only the private `worktrees/<run-id>/index` and `index.lock` are
   writable, since build ticket 95; its `HEAD`, `commondir`, `gitdir` and `logs/`, and the shared
@@ -118,7 +121,8 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   read-only. A run there can add files host git reads, such as a `COMMIT_EDITMSG` link, a
   `MERGE_HEAD`, `locked` or `config.worktree`, and it can replace `index` with a fifo or a link.
   SBPL allows writes to the literal `index` path, so the same may hold on macOS. Nobody has
-  measured it.
+  measured it. Build 370 ran `git add` under bwrap with this layout and it worked. Inside its one
+  recorded Linux launch, git did not work, and the cause is open.
 - **Hydra sweeps the private git directory before it runs git there, since build ticket 367.**
   Every `CheckoutGit` constructor keeps `HEAD`, `commondir` and `gitdir` and removes every other
   entry, the index and `logs` included, and follows no link. It refuses the checkout, naming the
@@ -132,7 +136,14 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   Launch-time git runs before the child starts and skips the sweep. Every plant was measured
   with plain git on macOS. None was measured under bubblewrap.
 - **A descendant that called `setsid` survives the group kill at run end and keeps the
-  seatbelt.** It can still write the worktree and the private git directory. Since build ticket
+  seatbelt.** Since build ticket 372, when a recorded headless run's child exits, the watcher sends
+  SIGTERM to the process group the child led, waits `stop::GRACE`, sends SIGKILL, and waits for
+  the group to empty before it writes `run_end`. A note on `run_end.error` names each pid and
+  command it found, and the outcome stays the provider's. A run that `hydra stop` ended is left
+  to the stop, which already kills the group. Interactive sessions are not covered. On Linux,
+  bwrap's `--new-session` puts the provider in a group of its own, so build 370 measured this kill
+  aiming at the wrong group there. A `setsid` descendant leaves the group, and it can still write
+  the worktree and the private git directory. Since build ticket
   373, `hydra reap` lists every process whose cwd or an open file sits under those paths before
   it sweeps or runs git there. It refuses that run, names each process by pid and command, says
   `hydra stop` or `kill` is the way out, and continues with the other runs it was asked to
@@ -399,8 +410,13 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   includes. `config.worktree` is still not read.
 - **What remains open across map 134.** The interactive gate on `cursor-agent`, `agy` and `codex`
   is unmeasured, so `hydra run --interactive --policy` refuses those three until build ticket 130.
-  Linux compiles and runs CI since builds 315 and 331, but launches hook-only without an OS sandbox
-  until build ticket 318 lands. `hydra doctor --walk` walks the live corpus on the author's
+  Linux compiles and runs CI since builds 315 and 331, and since build 318b a launch there runs
+  under bubblewrap when `bwrap` is on `PATH` and user namespaces are open. Build 370 measured one
+  launch in Docker under `standard` with a stand-in `claude`. It recorded
+  `sandbox_kind: bubblewrap`, and the deny paths the stand-in tried were refused. Git did not work
+  inside that launch, the run's private git directory was unusable afterwards, and the cause is
+  not traced. Claude Code reading the `{}` settings file was not measured. Until build 370 closes,
+  a Linux launch is not ready for real work. `hydra doctor --walk` walks the live corpus on the author's
   machine, not in CI. `hydra bench` counts a `completed` run as a successful attack, map ticket
   114. Nothing sends diffs off the machine today, and map ticket 110 governs any future return of
   `jev ask`.

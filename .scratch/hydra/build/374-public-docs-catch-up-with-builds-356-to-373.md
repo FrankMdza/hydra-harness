@@ -1,7 +1,7 @@
 # 374 - The public documents catch up with builds 356 to 373 and maps 108, 135 and 136
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 373
 
 ## Objective
@@ -27,3 +27,17 @@ Prose follows plain style: no em dashes, no parentheses for asides, sentence cas
 Run `cargo test --release --workspace --doc` and `git diff --check`. Nothing else changes code.
 
 ## Outcome
+
+Built on 2026-10-28. Prose only, no code.
+
+- `README.md` and `docs/install.md` say a Linux launch runs under bubblewrap since 318b when `bwrap` is on `PATH` and user namespaces are open, that build 370 measured one launch in Docker, and that git did not work inside it. `docs/install.md` also names the two Docker `--security-opt` flags 370 needed.
+- `SECURITY.md`: the bounded-shell, seatbelt and admission bullets no longer say Linux runs bare. The private git directory bullet adds 370's `git add` measurement and the failed launch. The `setsid` bullet now states build 372's group kill and the `--new-session` gap 370 found. The open-items paragraph replaces "until build ticket 318 lands" with what 370 measured. The `git push` floor bullet already reads as one paragraph, and the secret-class and sweep text already matched builds 367 to 371, so neither changed.
+- `docs/roadmap.md`: the Linux line names 370 as what is open.
+- `CHANGELOG.md`: the 2026-10-27 entry under `## Unreleased` already covered builds 356 to 361. I added eight bullets to it for 318a, 318b, 362 to 373 and maps 108, 135 and 136, rather than a second entry with the same date. The run ids are the builders' for 318a and 318b and the review seats' for 362 to 371. The other tickets name none.
+- `.github/workflows/ci.yml`: "twelve" dropped. Build 370 counts 15 sandbox unit tests.
+- `IMPLEMENTATION.md`: the two Linux headings no longer say the runtime is untested, two "build ticket 368 owns that" lines now name 370, and a new paragraph after build 367's records 370's partial measurements.
+- `CLAUDE.md` was left alone. Its layout paragraph names no crates and no file description is false without `procinfo.rs`.
+
+Checks: `git diff --check` is clean. `cargo test --release --workspace --doc` exits 0.
+
+Assumed false: the ticket reads as if no changelog entry covered 2026-10-27 yet. One did, with builds 356 to 361 in it, so "one dated entry" became an extension of that entry.

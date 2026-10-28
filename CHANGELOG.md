@@ -31,6 +31,40 @@ Dates are when the change landed on `master`. Run ids are the evidence.
     Build 361, run `01a17cba-1b5f`.
   - Public documentation and `IMPLEMENTATION.md` brought in line with build 361. Builds 340a,
     340b and 341; run `01a17cd1-f166`.
+  - A Linux launch runs under bubblewrap when `bwrap` is on `PATH` and user namespaces are open.
+    `compose_bwrap` renders the same rule table as the seatbelt, whose bytes did not change over
+    80 spawns. Without bwrap, `standard` and `permissive` refuse and `judge` runs bare. `codex`
+    runs with `--sandbox danger-full-access` under either wrapper. Builds 318a and 318b; runs
+    `01a17db0-8922` and `01a17db9-eaf0`.
+  - Linux CI runs `sandbox::tests::` in a step of its own, and `hydra evolve` admission refuses on
+    Linux with or without bwrap. Build 363, from review seat `01a17e09-b543`.
+  - Bubblewrap mounts the private git directory whole with its `HEAD`, `commondir`, `gitdir` and
+    `logs` read-only over it, creates every allow source before compose, and binds the protected
+    `config/` directory once. `Layout::ensure()` creates the six layout directories, absent
+    `claude` settings bind a read-only `{}`, and reap removes the empty file bwrap leaves. A deny
+    source still missing refuses the launch by name. Builds 364 and 366, map 135.
+  - The `git push` floor reads `push.default` and `remote.<name>.push` from the repository and
+    shared config. It refuses a `*` target, an empty `:` refspec, any `[include]` or `[includeIf]`
+    section, `-c include.path`, and `GIT_CONFIG` assignments before `git`. Builds 362 and 365,
+    from review seats `01a17dfa-7a1a`, `01a17e81-3770`, `01a17e81-cf35`, `01a17e82-1d83` and
+    `01a17e82-b1a5`.
+  - Every host git on a run's checkout first sweeps the private git directory. The sweep keeps
+    `HEAD`, `commondir` and `gitdir`, refuses one that is not a regular file with one link, removes
+    the rest, and rebuilds the index with `git read-tree HEAD`. `hydra run` refuses a parent with
+    sparse checkout on. A skip-worktree bit no longer smuggles a blob onto the branch. Builds 367
+    and 371, map 135; review seats `01a17e94-ceb8`, `01a17e95-8ed9`, `01a17eb3-86c2`,
+    `01a17eb4-20d0` and `01a17eb4-c167`.
+  - One table of twelve secret classes lives in `crates/secret-classes`, with a flag on the five
+    the write path scans. Export, `hydra-records` and the cockpit read it, and the cockpit masks
+    each matched span by class name. Builds 368 and 369, map 108.
+  - A recorded headless run's process group gets SIGTERM, then SIGKILL after `stop::GRACE`, before
+    `run_end`, unless a `hydra stop` owns it. `hydra reap` refuses a run while any process has its
+    cwd or an open file under the checkout or the private git directory, and names it by pid.
+    Builds 372 and 373, map 136.
+  - Build 370 measured bubblewrap in Docker and stays open. One launch under `standard` recorded
+    `sandbox_kind: bubblewrap` and its deny paths held. Git did not work inside it, and the cause
+    is not traced. `--new-session` gives the provider its own process group, so build 372's kill
+    misses it on Linux. The home plugin roots are now created before compose.
 
 ## 0.3.0, 2026-10-15
 

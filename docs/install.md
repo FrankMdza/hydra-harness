@@ -80,8 +80,14 @@ tests.
 ## Ports
 
 Hydra is measured on macOS. Linux compiles and runs the test suite in CI since builds 315 and 331.
-No sandbox wraps a Linux launch yet: the seatbelt has no Linux counterpart until build ticket 318
-composes a bubblewrap profile from the same rules. Recorded runs stay on the Mac until then. A
+Since builds 318a and 318b a Linux launch runs under bubblewrap, composed from the seatbelt's rules.
+That needs `bwrap` on `PATH` and unprivileged user namespaces open. Without both, `standard` and
+`permissive` refuse to launch and `judge` runs with no sandbox. In Docker, bwrap also needed
+`--security-opt seccomp=unconfined --security-opt apparmor=unconfined`, and not `--privileged`.
+Build 370 measured one launch under `standard` in that container. It recorded
+`sandbox_kind: bubblewrap` and refused the deny paths it tried. Git did not work inside it, and
+the run's private git directory was unusable afterwards. The cause is open, so a Linux launch is
+not ready for real work until build 370 closes. Recorded runs stay on the Mac until then. A
 Windows port is larger: the pty crate supports ConPTY, but the liveness test, the gate's shell
 parsing (POSIX today) and the hook paths all assume a Unix shell. Both are
 welcome as forks or pull requests; open an issue first so the design map gets a ticket and the

@@ -58,7 +58,7 @@ jobs:
           echo "HYDRA_ROOT=$RUNNER_TEMP/hydra-ci" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/hydra-ci/runs"
       - run: cargo build --release --workspace
-      # Build ticket 363. The twelve pure unit tests in `src/sandbox.rs`: the bubblewrap
+      # Build ticket 363. The pure unit tests in `src/sandbox.rs`: the bubblewrap
       # composer, the seatbelt rules and the Linux witness. The workspace step below skips
       # them by the `sandbox` substring.
       - run: cargo test --release --lib sandbox::tests::

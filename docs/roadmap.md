@@ -3,10 +3,10 @@
 What is open, in the order it is likely to land. Each line names the ticket that carries it, so the
 state is read from the ticket and not from this page.
 
-- **Linux.** Builds 315 and 316 are resolved: Hydra compiles on Linux, runs CI on `ubuntu-latest`,
-  and stamps `host` and `sandbox_kind` on every record. Build 318, the bubblewrap backend, is what
-  remains before a Linux launch is sandboxed. Until then a Linux launch is hook-only, and recorded
-  runs stay on macOS. The design is map 119.
+- **Linux.** Build 370 is open. Builds 318a and 318b put a Linux launch under bubblewrap, and
+  builds 364 and 366 give every mount a source. Build 370 ran one launch in Docker, and git did
+  not work inside it. Tracing that, and the process group bwrap's `--new-session` gives the
+  provider, comes before a recorded run leaves macOS. The design is map 119.
 - **Codex under `read-only`.** Routed since build 48 under `standard` and `permissive`, on the
   judge panel since 61, writing through `apply_patch` since 69. It has no read tool, so map 63
   refuses `read-only` until a bounded shell read exists.
