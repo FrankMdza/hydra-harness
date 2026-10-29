@@ -45,3 +45,16 @@ The session's recommendation per item, revised after the panel of 2026-10-15 (pl
 Two publication decisions left by map 130 belong here too: whether `hydra` publishes to
 crates.io at all, given its path dependency on a `publish = false` crate, and the repository's
 topics, homepage and social preview.
+
+## Where it stands on 2026-10-28
+
+Checked by the session, which did not sit a panel on it: what is left is the human's hand or a publication step, and the human's delegation of 2026-10-27 covers decisions, not publishing.
+
+- Item 1 is done. Builds 338, 339, 340a, 340b, 341, 348 and 349 are resolved.
+- Item 2: `SECURITY.md` names `~/.claude.json` under the seatbelt bullet. Map 99, measuring whether `claude` starts without the file, is still open.
+- Item 3: `SECURITY.md` has "Known exposures, stated before someone else does" since build 340a, and builds 356 to 377 kept it current.
+- Item 4: map 108 is resolved and build 338 is resolved. Map 114 and map 110 are open.
+- Item 5 is still open. `config/mcp.md` lines 41 and 42 say `mcp_call` is granted by `permissive` alone, and `policies/standard.json` line 11 grants it for the `hydra` server. The file is protected, so the human edits it.
+- crates.io: `Cargo.toml` already sets `publish = false`. The repository is private on GitHub, with no topics and no homepage.
+
+What the human has left before publication: the `config/mcp.md` edit, map 99's measurement, map 110, the GitHub topics, homepage and social preview, and the switch to public.
