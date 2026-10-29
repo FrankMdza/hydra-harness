@@ -422,16 +422,20 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   --walk` walks the live corpus on the author's machine, not in CI. `hydra bench` counts a
   `completed` run as a successful attack, map ticket 114. Nothing sends diffs off the machine
   today, and map ticket 110 governs any future return of `jev ask`.
-- **The provider probes ran unwrapped until build ticket 375.** Before a run starts, Hydra runs
-  `claude -p x` with a model name no catalog holds, and `agy -p=/skills` and `agy -p=/hooks`.
+- **The provider probes ran unwrapped until build tickets 375 and 377.** Before a run starts,
+  Hydra runs `claude -p x` with a model name no catalog holds, `agy -p=/skills` and
+  `agy -p=/hooks`, and on `cursor-agent` the `mcp enable`, `disable` and `list` pre-flight.
   Until 375 those ran outside the seatbelt or bwrap profile the run gets. On macOS, Claude Code
   2.1.281 ran both the `SessionStart` and the `UserPromptSubmit` hooks of a committed
   `.claude/settings.local.json` under that argv. In Docker a stand-in `claude` committed onto the
   run's branch from the probe invocation, which the wrapped run could not do. Build 370 measured
   both on 2026-10-28. Since 375 a launch writes the gate and the profile before the probe, and
-  all three invocations run inside the run's own profile. Two probes are still bare: the
-  `cursor-agent mcp` pre-flight, and the probe a gated interactive `claude` session runs before
-  its profile exists.
+  the three `claude` and `agy` invocations run inside the run's own profile. Since 377 the
+  `cursor-agent mcp` calls do too, and a gated interactive `claude` session probes after its
+  profile is written and narrowed, inside the profile the session runs under. Two provider calls
+  a launch makes are still outside any wrapper: `<binary> --version`, before any worktree exists,
+  and `codex login status`, from the launcher's own working directory. Neither was measured
+  running a hook or a server.
 
 ## Vendor terms
 

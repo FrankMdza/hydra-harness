@@ -752,6 +752,7 @@ fn phase_handoff(
                 std::path::Path::new(&worktree_ref.path),
                 &machine.child_env,
                 &recording.mcp_plan_injected,
+                spawn.sandbox_profile.as_deref(),
             ) {
                 Ok(preflight) => Some(Ok(preflight)),
                 Err(err) => Some(Err(format!(
@@ -804,7 +805,7 @@ fn phase_handoff(
 /// command line and need no checkout to land in.
 ///
 /// The answer lands in `recording` even when a step fails partway, so the
-/// failure record names what reached the checkout; see [`inject_skills`].
+/// failure record names what reached the checkout; see [`link_skills`].
 ///
 /// `None` means nothing was linked, and then nothing is probed either.
 fn link_into_checkout(
@@ -1224,45 +1225,18 @@ pub(crate) struct InjectedSkills {
     pub(crate) mcp_resolved: Option<Vec<String>>,
 }
 
-/// Pins the store, snapshots it, links it into the checkout and asks the provider
-/// what it resolved.
-///
-/// Split out of [`run`] because it is four steps with one failure mode each and
-/// none of them is about launching a process.
-///
-/// **One probe answers both `resolved` fields.** The skill listing and the MCP
-/// tool list arrive in the same transcript, so the launch pays for one process and
-/// reads two answers off it. The MCP config is already written by the time this
-/// runs, and the probe carries it, which is what makes the answer the run's.
-///
-/// **An unanswerable listing does not refuse the run.** The probe is free and it
-/// is still a second process that can fail, and contract 5.3 already requires a
-/// reader to treat an absent `resolved` as unanswered rather than as an empty
-/// listing. The cost is that the third of the three collision tests does not
-/// run, which is said out loud rather than swallowed: the other two still do.
+/// Pins the store, snapshots it and links it into the checkout, with no process.
 ///
 /// **The answer goes in `slot`, and so does a partial one.** Once anything is
 /// in the checkout, `slot` holds a `skills` group naming it, before any later
 /// step can fail, so the failure record [`PostWorktree::fail`] writes lists
 /// what reap must hold back. Build ticket 99, the third hiring panel's H40.
-pub(crate) fn inject_skills(
-    layout: &Layout,
-    run_id: &str,
-    provider: Provider,
-    worktree: &std::path::Path,
-    mcp: crate::mcp::Probe<'_>,
-    slot: &mut Option<InjectedSkills>,
-    quiet: bool,
-) -> Result<()> {
-    let injected = link_skills(layout, run_id, provider, worktree, slot)?;
-    probe_skills(provider, worktree, mcp, None, &injected, slot, quiet)
-}
-
-/// The first half of [`inject_skills`]: pin, snapshot and link, with no process.
 ///
-/// Split out for build ticket 375. The run's profile scopes the snapshot by the
-/// sha pinned here, so the profile can only be written after this half, and the
-/// probe in [`probe_skills`] has to run inside that profile.
+/// Split from [`probe_skills`] by build ticket 375. The run's profile scopes the
+/// snapshot by the sha pinned here, so the profile can only be written after
+/// this half, and the probe has to run inside that profile. Build ticket 377
+/// removed `inject_skills`, which ran both halves with no profile, once the
+/// gated interactive launch stopped calling it.
 pub(crate) fn link_skills(
     layout: &Layout,
     run_id: &str,
@@ -1290,8 +1264,19 @@ pub(crate) fn link_skills(
     Ok(injected)
 }
 
-/// The second half of [`inject_skills`]: ask the provider what it resolved and
-/// run the collision check against the answer.
+/// Asks the provider what it resolved for what [`link_skills`] linked, and runs
+/// the collision check against the answer.
+///
+/// **One probe answers both `resolved` fields.** The skill listing and the MCP
+/// tool list arrive in the same transcript, so the launch pays for one process and
+/// reads two answers off it. The MCP config is already written by the time this
+/// runs, and the probe carries it, which is what makes the answer the run's.
+///
+/// **An unanswerable listing does not refuse the run.** The probe is free and it
+/// is still a second process that can fail, and contract 5.3 already requires a
+/// reader to treat an absent `resolved` as unanswered rather than as an empty
+/// listing. The cost is that the third of the three collision tests does not
+/// run, which is said out loud rather than swallowed: the other two still do.
 ///
 /// `profile` is the run's own launch wrapper. The probe runs the provider's
 /// binary with the human's settings, so it runs inside the same profile the run
@@ -1678,15 +1663,16 @@ mod tests {
         store.pin(run_id).unwrap();
 
         let mut slot = None;
-        inject_skills(
-            &layout,
-            run_id,
+        let linked = link_skills(&layout, run_id, Provider::Codex, &worktree, &mut slot).unwrap();
+        probe_skills(
             Provider::Codex,
             &worktree,
             crate::mcp::Probe {
                 policy: "standard",
                 config: None,
             },
+            None,
+            &linked,
             &mut slot,
             false,
         )
@@ -1767,18 +1753,7 @@ mod tests {
         std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
 
         let mut slot = None;
-        let failed = inject_skills(
-            &layout,
-            run_id,
-            Provider::Codex,
-            &worktree,
-            crate::mcp::Probe {
-                policy: "standard",
-                config: None,
-            },
-            &mut slot,
-            false,
-        );
+        let failed = link_skills(&layout, run_id, Provider::Codex, &worktree, &mut slot);
         std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
 
         assert!(failed.is_err(), "the copy of beta should have failed");

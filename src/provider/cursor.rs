@@ -321,12 +321,20 @@ pub struct Answer {
 /// Connection failed`. That is what makes a `ready` entry a server the run will
 /// start rather than a file the run will read, and it is why 6.5 gives this
 /// pre-flight to Cursor alone.
+///
+/// `profile` is the run's own launch wrapper, and every call runs inside it,
+/// build ticket 377. A server the committed project config names starts under
+/// the same kernel rules the run will, and `None` only where nothing wraps the
+/// run either.
 pub fn preflight(
     worktree: &Path,
     env: &crate::env::ChildEnv,
     injected: &[String],
+    profile: Option<&Path>,
 ) -> Result<Preflight> {
-    preflight_with(injected, &mut |args| mcp_command(worktree, env, args))
+    preflight_with(injected, &mut |args| {
+        mcp_command(worktree, env, args, profile)
+    })
 }
 
 /// The pre-flight over whatever runs `cursor-agent mcp`, so a test can drive the
@@ -379,10 +387,17 @@ fn list(run: &mut dyn FnMut(&[&str]) -> Result<Answer>) -> Result<Vec<Listed>> {
     Ok(parse_listing(&answer.stdout))
 }
 
-fn mcp_command(worktree: &Path, env: &crate::env::ChildEnv, args: &[&str]) -> Result<Answer> {
-    let out = std::process::Command::new("cursor-agent")
-        .arg("mcp")
-        .args(args)
+fn mcp_command(
+    worktree: &Path,
+    env: &crate::env::ChildEnv,
+    args: &[&str],
+    profile: Option<&Path>,
+) -> Result<Answer> {
+    let argv: Vec<String> = std::iter::once("mcp")
+        .chain(args.iter().copied())
+        .map(str::to_string)
+        .collect();
+    let out = crate::provider::probe_command("cursor-agent", &argv, profile)
         .current_dir(worktree)
         .env_clear()
         .envs(env.vars())

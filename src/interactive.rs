@@ -35,7 +35,7 @@ use crate::outcome::RunResult;
 use crate::paths::Layout;
 use crate::provider::{Provider, agy, claude, codex, cursor};
 use crate::record::{Auth, RunStart, SCHEMA_VERSION, WorktreeRef, Writer};
-use crate::run::{SpawnFiles, inject_skills};
+use crate::run::{SpawnFiles, link_skills, probe_skills};
 use crate::spawn_config::write_interactive_spawn_config;
 
 /// What a human typed. Without `--policy` nothing here is gated. With it the
@@ -175,16 +175,49 @@ fn finish_policy_launch(
     let injected_names = mcp_plan.injected_names();
 
     let mut injected = None;
-    if policy != "judge" {
-        inject_skills(
+    let linked = match policy {
+        "judge" => None,
+        _ => Some(link_skills(
             layout,
             run_id,
+            Provider::Claude,
+            &worktree.path,
+            &mut injected,
+        )?),
+    };
+
+    let store_sha = injected.as_ref().map(|i| i.store_sha.clone());
+    let mut spawn = write_interactive_spawn_config(
+        layout,
+        run_id,
+        policies,
+        Provider::Claude,
+        policy,
+        Some(&worktree.path),
+        Some(repo),
+        store_sha.as_deref(),
+        false,
+    )?;
+    // Build ticket 250: the session a human types into writes nothing under
+    // the home directory outside its worktree and `claude`'s own state.
+    if let Some(profile) = &spawn.sandbox_profile {
+        spawn.sandbox_sha = Some(crate::sandbox::narrow_for_copilot(profile, &worktree.path)?);
+    }
+
+    // Build ticket 377. The probe runs the worktree's committed hooks, so it
+    // runs after the narrowing, inside the profile `sandbox_sha` names and the
+    // session itself runs under. A probe under the wider profile would be
+    // allowed home writes the session is not.
+    if let Some(linked) = &linked {
+        probe_skills(
             Provider::Claude,
             &worktree.path,
             crate::mcp::Probe {
                 policy,
                 config: Some(&mcp_file),
             },
+            spawn.sandbox_profile.as_deref(),
+            linked,
             &mut injected,
             false,
         )?;
@@ -199,23 +232,6 @@ fn finish_policy_launch(
         );
     }
 
-    let store_sha = injected.as_ref().map(|i| i.store_sha.as_str());
-    let mut spawn = write_interactive_spawn_config(
-        layout,
-        run_id,
-        policies,
-        Provider::Claude,
-        policy,
-        Some(&worktree.path),
-        Some(repo),
-        store_sha,
-        false,
-    )?;
-    // Build ticket 250: the session a human types into writes nothing under
-    // the home directory outside its worktree and `claude`'s own state.
-    if let Some(profile) = &spawn.sandbox_profile {
-        spawn.sandbox_sha = Some(crate::sandbox::narrow_for_copilot(profile, &worktree.path)?);
-    }
     // The seatbelt this launch runs under denies the parent's `objects/`.
     let object_env = crate::worktree::prepare_run_objects(layout, run_id, repo)?;
 

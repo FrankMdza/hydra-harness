@@ -76,6 +76,9 @@ Dates are when the change landed on `master`. Run ids are the evidence.
     when bwrap's command exits, measured in Docker. Docker now needs
     `--security-opt systempaths=unconfined` for bwrap to mount `/proc`. Build 376, run
     `01a1859f`.
+  - The `cursor-agent mcp` pre-flight and a gated interactive `claude` session's skill probe run
+    inside the run's profile too, the interactive one after `narrow_for_copilot`.
+    `inject_skills` is gone. Build 377, run `01a185ae`.
 
 ## 0.3.0, 2026-10-15
 
