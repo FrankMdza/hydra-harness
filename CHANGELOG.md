@@ -61,9 +61,10 @@ Dates are when the change landed on `master`. Run ids are the evidence.
     `run_end`, unless a `hydra stop` owns it. `hydra reap` refuses a run while any process has its
     cwd or an open file under the checkout or the private git directory, and names it by pid.
     Builds 372 and 373, map 136.
-  - Build 370 measured bubblewrap in Docker and stays open. One launch under `standard` recorded
-    `sandbox_kind: bubblewrap` and its deny paths held. Git did not work inside it, and the cause
-    is not traced. `--new-session` gives the provider its own process group, so build 372's kill
+  - Build 370 measured bubblewrap in Docker. Launches under `standard` recorded
+    `sandbox_kind: bubblewrap`, their deny paths held, and git status, add, diff and log worked
+    inside. The git failure of the first launch came from Hydra's provider probe, which runs
+    unwrapped on both platforms; build 375 wraps it. `--new-session` gives the provider its own process group, so build 372's kill
     misses it on Linux. The home plugin roots are now created before compose.
 
 ## 0.3.0, 2026-10-15

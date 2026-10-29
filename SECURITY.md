@@ -121,8 +121,8 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   read-only. A run there can add files host git reads, such as a `COMMIT_EDITMSG` link, a
   `MERGE_HEAD`, `locked` or `config.worktree`, and it can replace `index` with a fifo or a link.
   SBPL allows writes to the literal `index` path, so the same may hold on macOS. Nobody has
-  measured it. Build 370 ran `git add` under bwrap with this layout and it worked. Inside its one
-  recorded Linux launch, git did not work, and the cause is open.
+  measured it. Build 370 ran `git add` under bwrap with this layout and it worked, inside a recorded
+  launch too. `git commit` there is refused, because the parent's refs are read-only.
 - **Hydra sweeps the private git directory before it runs git there, since build ticket 367.**
   Every `CheckoutGit` constructor keeps `HEAD`, `commondir` and `gitdir` and removes every other
   entry, the index and `logs` included, and follows no link. It refuses the checkout, naming the
@@ -413,10 +413,15 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   Linux compiles and runs CI since builds 315 and 331, and since build 318b a launch there runs
   under bubblewrap when `bwrap` is on `PATH` and user namespaces are open. Build 370 measured one
   launch in Docker under `standard` with a stand-in `claude`. It recorded
-  `sandbox_kind: bubblewrap`, and the deny paths the stand-in tried were refused. Git did not work
-  inside that launch, the run's private git directory was unusable afterwards, and the cause is
-  not traced. Claude Code reading the `{}` settings file was not measured. Until build 370 closes,
-  a Linux launch is not ready for real work. `hydra doctor --walk` walks the live corpus on the author's
+  `sandbox_kind: bubblewrap`, and the deny paths the stand-in tried were refused. Later launches
+  ran git status, add, diff and log inside. Claude Code reading the `{}` settings file was not
+  measured. Until builds 375 and 376 land, a Linux launch is not ready for real work.
+- **The provider probes ran unwrapped until build ticket 375.** Before a run starts, Hydra runs
+  `claude -p x` with a model name no catalog holds, and `agy -p=/skills` and `agy -p=/hooks`,
+  outside the seatbelt or bwrap profile the run gets. On macOS, Claude Code 2.1.281 ran both the
+  `SessionStart` and the `UserPromptSubmit` hooks of a committed `.claude/settings.local.json`
+  under that argv. In Docker a stand-in `claude` committed onto the run's branch from the probe
+  invocation, which the wrapped run could not do. Build 370 measured both on 2026-10-28. `hydra doctor --walk` walks the live corpus on the author's
   machine, not in CI. `hydra bench` counts a `completed` run as a successful attack, map ticket
   114. Nothing sends diffs off the machine today, and map ticket 110 governs any future return of
   `jev ask`.

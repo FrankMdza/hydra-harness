@@ -7,9 +7,11 @@ Measured on macOS. On Linux it compiles and the test suite runs on `ubuntu-lates
 ticket 331, minus the seatbelt tests and nine tests skipped by name in `.github/workflows/ci.yml`:
 two pty tests and seven bit-exact CPython arithmetic tests whose fixtures were recorded on an arm64
 Mac. Since build 318b a Linux launch runs under bubblewrap when `bwrap` is on `PATH` and user
-namespaces are open. Build 370 measured one such launch in Docker: it recorded
-`sandbox_kind: bubblewrap` and its deny paths held, but git did not work inside it and the cause
-is not traced. Until 370 closes, recorded runs stay on the Mac (map 119, `docs/roadmap.md`).
+namespaces are open. Build 370 measured such launches in Docker: they recorded
+`sandbox_kind: bubblewrap`, their deny paths held, and git status, add, diff and log worked inside.
+It also found that the provider probes Hydra runs before a launch have no wrapper on either
+platform, which build 375 fixes. Until then, and until 376 kills what a Linux run leaves behind,
+recorded runs stay on the Mac (map 119, `docs/roadmap.md`).
 
 ![hydra run on agy: the vendor reports SUCCESS, the record says gated](docs/demo/hydra.gif)
 

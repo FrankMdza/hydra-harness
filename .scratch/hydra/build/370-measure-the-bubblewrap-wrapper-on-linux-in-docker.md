@@ -1,7 +1,7 @@
 # 370 - Measure the bubblewrap wrapper on a real Linux in Docker
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 366, 367
 
 ## Objective
@@ -37,3 +37,26 @@ Measured:
 Open, and the reason this ticket stays claimed: in that launch git did not work inside the sandbox, and the run's private git directory was left unusable afterwards. The cause was not traced. Before anyone trusts a Linux launch, a session should trace it with a provider that only runs `git status` and `git add`, then fix it. The full workspace suite in the container passed apart from the failures above.
 
 Not measured: Claude Code reading `{}`, which needs the real binary in the container.
+
+Closed 2026-10-28, by the session, with the open cause traced.
+
+Git works inside a bubblewrap launch. A stand-in `claude` that runs only git did this in the run, under `standard`:
+
+| Command inside the run | Measured |
+|---|---|
+| `git rev-parse --git-dir --git-common-dir` | the private directory and the parent's `.git` |
+| `git status --short` | works |
+| `git add probe.txt` | exit 0, staged |
+| `git diff --cached --stat` | works |
+| `git log --oneline -1` | works |
+| `git commit` | refused: `cannot lock ref 'HEAD'` on `refs/heads/hydra/<id>.lock`, read-only file system |
+
+The commit refusal is the design: the parent's `refs/` are read-only to a run, and `hydra reap` commits.
+
+The failure of 2026-10-27 was the stand-in, not bwrap. Hydra runs the provider binary once before the run, as the skill probe in `claude::resolve_in`, and that invocation has no wrapper. The first stand-in ran its whole probe list both times. In the unwrapped invocation its `echo x > HEAD` landed, so in the wrapped one `git rev-parse` found no repository and the recorded output shows an empty `gitdir`. A second launch on 2026-10-28 showed the same path from the other side: the unwrapped invocation committed `probe` onto the run's branch in the parent repository, which the wrapped one could not have done.
+
+That is a real gap, not a test artifact. On macOS, Claude Code 2.1.281 ran both the `SessionStart` and the `UserPromptSubmit` hooks of a committed `.claude/settings.local.json` under the probe's own argv. Build ticket 375 runs the probes inside the run's wrapper.
+
+Build ticket 376 adds `--unshare-pid`, which is what map 136 waited on this ticket for.
+
+Still not measured: Claude Code reading a `{}` settings file, because the real binary is not in the container. The ticket allowed skipping it.

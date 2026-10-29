@@ -409,6 +409,8 @@ it.
 - [372 - A recorded run's process group dies before `run_end`](372-a-runs-process-group-dies-before-run-end.md)
 - [373 - Reap refuses while a process holds the run's checkout or its private git directory](373-reap-refuses-while-a-process-holds-the-checkout.md)
 - [374 - The public documents catch up with builds 356 to 373 and maps 108, 135 and 136](374-public-docs-catch-up-with-builds-356-to-373.md)
+- [375 - The provider probes run inside the run's own wrapper](375-the-probes-run-inside-the-runs-wrapper.md)
+- [376 - A bubblewrap launch unshares the pid namespace](376-bubblewrap-unshares-the-pid-namespace.md)
 
 ## Out of scope
 

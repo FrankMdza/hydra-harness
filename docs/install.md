@@ -85,9 +85,10 @@ That needs `bwrap` on `PATH` and unprivileged user namespaces open. Without both
 `permissive` refuse to launch and `judge` runs with no sandbox. In Docker, bwrap also needed
 `--security-opt seccomp=unconfined --security-opt apparmor=unconfined`, and not `--privileged`.
 Build 370 measured one launch under `standard` in that container. It recorded
-`sandbox_kind: bubblewrap` and refused the deny paths it tried. Git did not work inside it, and
-the run's private git directory was unusable afterwards. The cause is open, so a Linux launch is
-not ready for real work until build 370 closes. Recorded runs stay on the Mac until then. A
+`sandbox_kind: bubblewrap` and refused the deny paths it tried. Git status, add, diff and log
+worked inside it. Builds 375 and 376 come before a Linux launch is ready for real work: the
+provider probes Hydra runs before a launch have no wrapper yet, and a Linux run's leftover
+processes are not yet killed. Recorded runs stay on the Mac until then. A
 Windows port is larger: the pty crate supports ConPTY, but the liveness test, the gate's shell
 parsing (POSIX today) and the hook paths all assume a Unix shell. Both are
 welcome as forks or pull requests; open an issue first so the design map gets a ticket and the
